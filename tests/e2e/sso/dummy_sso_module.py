@@ -1,0 +1,97 @@
+#!/usr/bin/python3
+import base64
+import io
+import json
+import time
+
+from common import add_call_id_to_response, pop_call_id
+
+
+def authenticate(scheme: str, response: str):
+    response = base64.b64decode(response).decode("utf-8")
+
+    # Used by test_sso_pipe_stale_response: delay writing so first connection's
+    # GetData times out (2s) but second connection's GetData is still waiting;
+    # script writes at 3s so without drain the second connection reads stale anthony.
+    if response == "delay_then_anthony":
+        time.sleep(3)
+        return {"authenticated": True, "role": "architect", "username": "anthony"}
+
+    if response == "send_error":
+        return {
+            "authenticated": False,
+            "errors": f'[Scheme: {scheme}] The "Memgraph.Architect" role is not present in the given role mappings.',
+        }
+
+    if response == "wrong_fields":
+        return {
+            "authenticated": True,
+            "usernameee": 1234,
+            "rooole": 2345,
+        }
+
+    # Default single role response
+    return_dict = {
+        "authenticated": True,
+        "role": "architect",
+        "username": "anthony",
+    }
+
+    if response == "wrong_value_types":
+        return_dict["role"] = 1234
+        return_dict["username"] = 2345
+
+    if response == "nonexistent_role":
+        return_dict["role"] = "thisRoleDoesntExist"
+
+    if response == "skip_username":
+        return_dict.pop("username")
+
+    if response == "admin_user":
+        return_dict = {"authenticated": True, "username": "admin_user", "roles": ["admin"]}
+
+    if response == "architect_user":
+        return_dict = {"authenticated": True, "username": "architect_user", "roles": ["architect"]}
+
+    # New multi-role interface - roles is just a list of role names
+    if response == "multi_role_admin":
+        return_dict = {"authenticated": True, "username": "admin_user", "roles": ["admin", "architect", "user"]}
+
+    if response == "multi_role_architect":
+        return_dict = {"authenticated": True, "username": "architect_user", "roles": ["architect", "user"]}
+
+    if response == "multi_role_user":
+        return_dict = {"authenticated": True, "username": "regular_user", "roles": ["user"]}
+
+    if response == "multi_role_readonly":
+        return_dict = {"authenticated": True, "username": "readonly_user", "roles": ["readonly"]}
+
+    if response == "multi_role_limited":
+        return_dict = {"authenticated": True, "username": "limited_user", "roles": ["limited"]}
+
+    if response == "multi_role_no_main":
+        return_dict = {"authenticated": True, "username": "no_main_user", "roles": ["user", "architect"]}
+
+    if response == "multi_role_invalid_db":
+        return_dict = {"authenticated": True, "username": "invalid_db_user", "roles": ["user"]}
+
+    if response == "multi_role_wrong_types":
+        return_dict = {
+            "authenticated": True,
+            "username": "wrong_types_user",
+            "roles": [1234, 5678],  # Wrong types for role names
+        }
+
+    return return_dict
+
+
+if __name__ == "__main__":
+    # I/O with Memgraph
+    input_stream = io.FileIO(1000, mode="r")
+    output_stream = io.FileIO(1001, mode="w")
+    while True:
+        params = json.loads(input_stream.readline().decode("ascii"))
+        call_id = pop_call_id(params)
+        ret = authenticate(**params)
+        ret = add_call_id_to_response(ret, call_id)
+        output_stream.write((json.dumps(ret) + "\n").encode("ascii"))

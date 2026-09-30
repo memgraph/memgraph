@@ -1,0 +1,18 @@
+query: >
+    CALL cross_database.bolt('[:KNOWS]', {
+        host: 'localhost',
+        port: 7687
+    })
+    YIELD row
+    RETURN row.from_properties.name AS from_name,
+           row.edge_properties.since AS since,
+           row.to_properties.name AS to_name
+    ORDER BY row.edge_properties.since
+
+output:
+    - from_name: 'Alice'
+      since: 2020
+      to_name: 'Bob'
+    - from_name: 'Bob'
+      since: 2021
+      to_name: 'Charlie'

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,46 +13,83 @@
 #pragma once
 
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <limits>
 #include <map>
 #include <optional>
-#include <regex>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
-#include "query/procedure/mg_procedure_impl.hpp"
+#include "query/relations/comparability.hpp"
+#include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
-#include "utils/pmr/unordered_map.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
 
-class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
- public:
-  ReferenceExpressionEvaluator(Frame *frame, const SymbolTable *symbol_table, const EvaluationContext *ctx)
-      : frame_(frame), symbol_table_(symbol_table), ctx_(ctx) {}
+class VirtualNode;
+class VirtualEdge;
 
-  using ExpressionVisitor<TypedValue *>::Visit;
+class FineGrainedAuthChecker;
+
+struct SelectedFunction {
+  std::variant<const func_impl *, user_func> impl;
+
+  TypedValue operator()(const TypedValue *args, int64_t n, const FunctionContext &fctx) const {
+    return std::visit(utils::Overloaded{[&](const func_impl *f) { return (*f)(args, n, fctx); },
+                                        [&](const user_func &u) { return u.first(args, n, fctx); }},
+                      impl);
+  }
+};
+
+inline SelectedFunction SelectFunctionImpl(const Function &function, const EvaluationContext &ctx) {
+  if (!function.is_user_defined_) {
+    return {&function.function_};
+  }
+  const auto &resolved = ctx.resolved_user_functions;
+  if (resolved && function.user_function_id_ >= 0) {
+    const auto slot = static_cast<size_t>(function.user_function_id_);
+    if (slot >= resolved->functions.size()) [[unlikely]] {
+      // The plan's AstStorage is not the one these Function nodes were indexed into, so some
+      // clone path failed to carry user_functions_ across. Fail the query, not the process.
+      throw QueryRuntimeException("Function '{}' resolved to slot {}, outside a table of {} resolved functions.",
+                                  function.function_name_,
+                                  function.user_function_id_,
+                                  resolved->functions.size());
+    }
+    return {&resolved->functions[slot].first};
+  }
+  return {ResolveUserFunction(function.function_name_)};
+}
+
+class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *> {
+ public:
+  ReferenceExpressionEvaluator(Frame *frame, const EvaluationContext *ctx) : frame_(frame), ctx_(ctx) {}
+
+  using ExpressionVisitor::Visit;
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
 #define UNSUCCESSFUL_VISIT(expr_name) \
-  TypedValue *Visit(expr_name &expr) override { return nullptr; }
+  TypedValue const *Visit(expr_name &expr) override { return nullptr; }
 
-  TypedValue *Visit(Identifier &ident) override { return &frame_->at(symbol_table_->at(ident)); }
+  TypedValue const *Visit(Identifier &ident) override { return &frame_->elems().at(ident.symbol_pos_); }
 
   UNSUCCESSFUL_VISIT(NamedExpression);
   UNSUCCESSFUL_VISIT(OrOperator);
@@ -62,12 +99,14 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(MultiplicationOperator);
   UNSUCCESSFUL_VISIT(DivisionOperator);
   UNSUCCESSFUL_VISIT(ModOperator);
+  UNSUCCESSFUL_VISIT(ExponentiationOperator);
   UNSUCCESSFUL_VISIT(NotEqualOperator);
   UNSUCCESSFUL_VISIT(EqualOperator);
   UNSUCCESSFUL_VISIT(LessOperator);
   UNSUCCESSFUL_VISIT(GreaterOperator);
   UNSUCCESSFUL_VISIT(LessEqualOperator);
   UNSUCCESSFUL_VISIT(GreaterEqualOperator);
+  UNSUCCESSFUL_VISIT(RangeOperator);
 
   UNSUCCESSFUL_VISIT(NotOperator);
   UNSUCCESSFUL_VISIT(UnaryPlusOperator);
@@ -84,6 +123,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(PropertyLookup);
   UNSUCCESSFUL_VISIT(AllPropertiesLookup);
   UNSUCCESSFUL_VISIT(LabelsTest);
+  UNSUCCESSFUL_VISIT(EdgeTypesTest);
 
   UNSUCCESSFUL_VISIT(PrimitiveLiteral);
   UNSUCCESSFUL_VISIT(ListLiteral);
@@ -98,30 +138,87 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
   UNSUCCESSFUL_VISIT(Single);
   UNSUCCESSFUL_VISIT(Any);
   UNSUCCESSFUL_VISIT(None);
+  UNSUCCESSFUL_VISIT(ListComprehension);
   UNSUCCESSFUL_VISIT(ParameterLookup);
   UNSUCCESSFUL_VISIT(RegexMatch);
-  UNSUCCESSFUL_VISIT(Exists);
+  UNSUCCESSFUL_VISIT(SubqueryExpression);
   UNSUCCESSFUL_VISIT(PatternComprehension);
+  UNSUCCESSFUL_VISIT(EnumValueAccess);
 
 #undef UNSUCCESSFUL_VISIT
 
  private:
   Frame *frame_;
-  const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;
 };
 
 class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
-  explicit PrimitiveLiteralExpressionEvaluator(EvaluationContext const &ctx) : ctx_(&ctx) {}
-  using ExpressionVisitor<TypedValue>::Visit;
+  explicit PrimitiveLiteralExpressionEvaluator(EvaluationContext const &ctx, DbAccessor *dba = nullptr)
+      : ctx_(&ctx), dba_(dba) {}
+
+  using ExpressionVisitor::Visit;
+
   TypedValue Visit(PrimitiveLiteral &literal) override {
     // TODO: no need to evaluate constants, we can write it to frame in one
     // of the previous phases.
     return TypedValue(literal.value_, ctx_->memory);
   }
+
   TypedValue Visit(ParameterLookup &param_lookup) override {
     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
+  }
+
+  TypedValue Visit(ListLiteral &list_literal) override {
+    TypedValue::TVector result(ctx_->memory);
+    result.reserve(list_literal.elements_.size());
+    for (Expression *expr : list_literal.elements_) {
+      result.emplace_back(expr ? expr->Accept(*this) : TypedValue(ctx_->memory));
+    }
+    return {std::move(result), ctx_->memory};
+  }
+
+  TypedValue Visit(MapLiteral &map_literal) override {
+    TypedValue::TMap result(ctx_->memory);
+    for (const auto &pair : map_literal.elements_) {
+      result.emplace(TypedValue::TString(pair.first.name, ctx_->memory), pair.second->Accept(*this));
+    }
+    return {std::move(result), ctx_->memory};
+  }
+
+  TypedValue Visit(Function &function) override {
+    if (!dba_) {
+      throw QueryRuntimeException("Function evaluation requires a database accessor.");
+    }
+    FunctionContext function_ctx{.db_accessor = dba_,
+                                 .memory = ctx_->memory,
+                                 .timestamp = ctx_->timestamp,
+                                 .counters = &ctx_->counters,
+                                 .view = storage::View::OLD};
+    TypedValue res(ctx_->memory);
+    const SelectedFunction impl = SelectFunctionImpl(function, *ctx_);
+    if (function.arguments_.size() <= 8) {
+      utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
+      auto constructed_count = 0;
+      auto destroy_arguments = utils::OnScopeExit{[&] {
+        for (size_t i = 0; i != constructed_count; ++i) {
+          std::destroy_at(&(*arguments.as())[i]);
+        }
+      }};
+      for (size_t i = 0; i != function.arguments_.size(); ++i) {
+        std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
+        ++constructed_count;
+      }
+      res = impl(arguments.as()->data(), static_cast<int64_t>(function.arguments_.size()), function_ctx);
+    } else {
+      TypedValue::TVector arguments(ctx_->memory);
+      arguments.reserve(function.arguments_.size());
+      for (const auto &argument : function.arguments_) {
+        arguments.emplace_back(argument->Accept(*this));
+      }
+      res = impl(arguments.data(), static_cast<int64_t>(arguments.size()), function_ctx);
+    }
+    return res;
   }
 
 #define INVALID_VISIT(expr_name)                                                             \
@@ -140,12 +237,14 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(MultiplicationOperator)
   INVALID_VISIT(DivisionOperator)
   INVALID_VISIT(ModOperator)
+  INVALID_VISIT(ExponentiationOperator)
   INVALID_VISIT(NotEqualOperator)
   INVALID_VISIT(EqualOperator)
   INVALID_VISIT(LessOperator)
   INVALID_VISIT(GreaterOperator)
   INVALID_VISIT(LessEqualOperator)
   INVALID_VISIT(GreaterEqualOperator)
+  INVALID_VISIT(RangeOperator)
   INVALID_VISIT(InListOperator)
   INVALID_VISIT(SubscriptOperator)
   INVALID_VISIT(ListSlicingOperator)
@@ -153,14 +252,12 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(UnaryPlusOperator)
   INVALID_VISIT(UnaryMinusOperator)
   INVALID_VISIT(IsNullOperator)
-  INVALID_VISIT(ListLiteral)
-  INVALID_VISIT(MapLiteral)
   INVALID_VISIT(MapProjectionLiteral)
   INVALID_VISIT(PropertyLookup)
   INVALID_VISIT(AllPropertiesLookup)
   INVALID_VISIT(LabelsTest)
+  INVALID_VISIT(EdgeTypesTest)
   INVALID_VISIT(Aggregation)
-  INVALID_VISIT(Function)
   INVALID_VISIT(Reduce)
   INVALID_VISIT(Coalesce)
   INVALID_VISIT(Extract)
@@ -168,41 +265,70 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(Single)
   INVALID_VISIT(Any)
   INVALID_VISIT(None)
+  INVALID_VISIT(ListComprehension)
   INVALID_VISIT(Identifier)
   INVALID_VISIT(RegexMatch)
-  INVALID_VISIT(Exists)
+  INVALID_VISIT(SubqueryExpression)
   INVALID_VISIT(PatternComprehension)
+  INVALID_VISIT(EnumValueAccess)
 
 #undef INVALID_VISIT
  private:
   EvaluationContext const *ctx_;
+  DbAccessor *dba_;
 };
+
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
-  ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
-                      storage::View view, FrameChangeCollector *frame_change_collector = nullptr)
+  ExpressionEvaluator(Frame *frame, ExecutionContext const &context, storage::View view,
+                      FrameChangeCollector *frame_change_collector = nullptr, int64_t const *hops_counter = nullptr)
       : frame_(frame),
-        symbol_table_(&symbol_table),
-        ctx_(&ctx),
-        dba_(dba),
+        symbol_table_(&context.symbol_table),
+        ctx_(&context.evaluation_context),
+        dba_(context.db_accessor),
         view_(view),
-        frame_change_collector_(frame_change_collector) {}
+        frame_change_collector_(frame_change_collector),
+        hops_counter_(hops_counter),
+        user_or_role_(context.user_or_role.get()),
+        triggering_user_(context.triggering_user.get())
+#ifdef MG_ENTERPRISE
+        ,
+        auth_checker_(context.auth_checker)
+#endif
+  {
+  }
 
   using ExpressionVisitor<TypedValue>::Visit;
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
+  /// A query that opened no storage transaction evaluates with no accessor. No vertex, edge or path can
+  /// exist in one, since those come from a scan, an expand, or a procedure holding a graph, so the sites
+  /// below are unreachable rather than merely unused. They check instead of relying on that.
+  void RequireAccessor(std::string_view what) const {
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("{} requires a database accessor.", what);
+    }
+  }
+
+  storage::NameIdMapper *GetNameIdMapper() const {
+    RequireAccessor("Resolving a name");
+    return dba_->GetStorageAccessor()->GetNameIdMapper();
+  }
+
   void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
+
+  int64_t GetHopsCounter() { return hops_counter_ != nullptr ? *hops_counter_ : 0; }
 
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
     auto value = named_expression.expression_->Accept(*this);
-    frame_->at(symbol) = value;
-    return value;
+    frame_writer_.WriteAt(symbol, value);
+    return value;  // NRVO
   }
 
   TypedValue Visit(Identifier &ident) override {
-    return TypedValue(frame_->at(symbol_table_->at(ident)), ctx_->memory);
+    return TypedValue(frame_->elems().at(ident.symbol_pos_), ctx_->memory);
   }
 
 #define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                                                    \
@@ -226,13 +352,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }                                                                                   \
   }
 
-  BINARY_OPERATOR_VISITOR(OrOperator, ||, OR);
   BINARY_OPERATOR_VISITOR(XorOperator, ^, XOR);
   BINARY_OPERATOR_VISITOR(AdditionOperator, +, +);
   BINARY_OPERATOR_VISITOR(SubtractionOperator, -, -);
   BINARY_OPERATOR_VISITOR(MultiplicationOperator, *, *);
   BINARY_OPERATOR_VISITOR(DivisionOperator, /, /);
   BINARY_OPERATOR_VISITOR(ModOperator, %, %);
+
   BINARY_OPERATOR_VISITOR(NotEqualOperator, !=, <>);
   BINARY_OPERATOR_VISITOR(EqualOperator, ==, =);
   BINARY_OPERATOR_VISITOR(LessOperator, <, <);
@@ -247,6 +373,10 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 
+  TypedValue Visit(RangeOperator &op) override {
+    return op.expression1_->Accept(*this) && op.expression2_->Accept(*this);
+  }
+
   TypedValue Visit(AndOperator &op) override {
     auto value1 = op.expression1_->Accept(*this);
     if (value1.IsBool() && !value1.ValueBool()) {
@@ -258,6 +388,30 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return value1 && value2;
     } catch (const TypedValueException &) {
       throw QueryRuntimeException("Invalid types: {} and {} for AND.", value1.type(), value2.type());
+    }
+  }
+
+  TypedValue Visit(OrOperator &op) override {
+    auto value1 = op.expression1_->Accept(*this);
+    if (value1.IsBool() && value1.ValueBool()) {
+      // If first expression is true, don't evaluate the second one.
+      return value1;
+    }
+    auto value2 = op.expression2_->Accept(*this);
+    try {
+      return value1 || value2;
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid types: {} and {} for OR.", value1.type(), value2.type());
+    }
+  }
+
+  TypedValue Visit(ExponentiationOperator &op) override {
+    auto value1 = op.expression1_->Accept(*this);
+    auto value2 = op.expression2_->Accept(*this);
+    try {
+      return pow(value1, value2);
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid types: {} and {} for ^.", value1.type(), value2.type());
     }
   }
 
@@ -280,7 +434,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto literal = in_list.expression1_->Accept(*this);
 
     auto get_list_literal = [this, &in_list]() -> TypedValue {
-      ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
+      ReferenceExpressionEvaluator reference_expression_evaluator{frame_, ctx_};
       auto *list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
       if (nullptr == list_ptr) {
         return in_list.expression2_->Accept(*this);
@@ -308,33 +462,40 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return {};
     };
 
-    const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
-
-    const auto do_cache{frame_change_collector_ != nullptr && cached_id &&
-                        frame_change_collector_->IsKeyTracked(*cached_id)};
-    if (do_cache) {
-      if (!frame_change_collector_->IsKeyValueCached(*cached_id)) {
-        // Check only first time if everything is okay, later when we use
-        // cache there is no need to check again as we did check first time
-        auto list = get_list_literal();
-        auto preoperational_checks = do_list_literal_checks(list);
-        if (preoperational_checks) {
-          return std::move(*preoperational_checks);
+    if (frame_change_collector_) {
+      const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
+      if (frame_change_collector_->IsInlistKeyTracked(cached_id)) {
+        auto cached_value_ref = frame_change_collector_->TryGetInlistCachedValue(cached_id);
+        if (!cached_value_ref) {
+          // Check only first time if everything is okay, later when we use
+          // cache there is no need to check again as we did check first time
+          const auto list = get_list_literal();
+          if (auto preoperational_checks = do_list_literal_checks(list)) {
+            return std::move(*preoperational_checks);
+          }
+          auto &cached_value = frame_change_collector_->GetInlistCachedValue(cached_id);
+          // Don't move here because we don't want to remove the element from the frame
+          cached_value.SetValue(list);
+          cached_value_ref = std::cref(cached_value);
         }
-        auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
-        // Don't move here because we don't want to remove the element from the frame
-        cached_value.CacheValue(list);
-      }
-      const auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
+        const auto &cached_value = cached_value_ref->get();
 
-      if (cached_value.ContainsValue(literal)) {
-        return TypedValue(true, ctx_->memory);
+        // A lookup in the set answers by equivalence, so it stands in for the loop below only
+        // where the set says equivalence and equality agree over its elements. The sought value
+        // is the caller's half of that: equality answers Null against anything holding one, and
+        // a miss here could only report false. A NaN needs no such check, because equality
+        // answers a pair holding one false, which is what a miss reports.
+        if (cached_value.AnswersEquality() && !relations::equality::HoldsANull(literal)) {
+          if (cached_value.Contains(literal)) {
+            return TypedValue(true, ctx_->memory);
+          }
+          // has null
+          if (cached_value.Contains(TypedValue(ctx_->memory))) {
+            return TypedValue(ctx_->memory);
+          }
+          return TypedValue(false, ctx_->memory);
+        }
       }
-      // has null
-      if (cached_value.ContainsValue(TypedValue(ctx_->memory))) {
-        return TypedValue(ctx_->memory);
-      }
-      return TypedValue(false, ctx_->memory);
     }
     // When caching is not an option, we need to evaluate list literal every time
     // and do the checks
@@ -361,9 +522,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(SubscriptOperator &list_indexing) override {
-    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
+    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, ctx_);
 
-    TypedValue *lhs_ptr = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
+    TypedValue const *lhs_ptr = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
     TypedValue lhs;
     const auto referenced = nullptr != lhs_ptr;
     if (!referenced) {
@@ -401,12 +562,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
     };
 
     // lhs is Null
@@ -462,269 +623,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(value.IsNull(), ctx_->memory);
   }
 
-  TypedValue Visit(PropertyLookup &property_lookup) override {
-    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
+  TypedValue Visit(PropertyLookup &property_lookup) override;
 
-    TypedValue *expression_result_ptr = property_lookup.expression_->Accept(referenceExpressionEvaluator);
-    TypedValue expression_result;
-
-    if (nullptr == expression_result_ptr) {
-      expression_result = property_lookup.expression_->Accept(*this);
-      expression_result_ptr = &expression_result;
-    }
-    auto maybe_date = [this](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
-      if (prop_name == "year") {
-        return TypedValue(date.year, ctx_->memory);
-      }
-      if (prop_name == "month") {
-        return TypedValue(date.month, ctx_->memory);
-      }
-      if (prop_name == "day") {
-        return TypedValue(date.day, ctx_->memory);
-      }
-      return std::nullopt;
-    };
-    auto maybe_local_time = [this](const auto &lt, const auto &prop_name) -> std::optional<TypedValue> {
-      if (prop_name == "hour") {
-        return TypedValue(lt.hour, ctx_->memory);
-      }
-      if (prop_name == "minute") {
-        return TypedValue(lt.minute, ctx_->memory);
-      }
-      if (prop_name == "second") {
-        return TypedValue(lt.second, ctx_->memory);
-      }
-      if (prop_name == "millisecond") {
-        return TypedValue(lt.millisecond, ctx_->memory);
-      }
-      if (prop_name == "microsecond") {
-        return TypedValue(lt.microsecond, ctx_->memory);
-      }
-      return std::nullopt;
-    };
-    auto maybe_duration = [this](const auto &dur, const auto &prop_name) -> std::optional<TypedValue> {
-      if (prop_name == "day") {
-        return TypedValue(dur.Days(), ctx_->memory);
-      }
-      if (prop_name == "hour") {
-        return TypedValue(dur.SubDaysAsHours(), ctx_->memory);
-      }
-      if (prop_name == "minute") {
-        return TypedValue(dur.SubDaysAsMinutes(), ctx_->memory);
-      }
-      if (prop_name == "second") {
-        return TypedValue(dur.SubDaysAsSeconds(), ctx_->memory);
-      }
-      if (prop_name == "millisecond") {
-        return TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory);
-      }
-      if (prop_name == "microsecond") {
-        return TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory);
-      }
-      if (prop_name == "nanosecond") {
-        return TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory);
-      }
-      return std::nullopt;
-    };
-    auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
-      if (prop_name == "nodes") {
-        utils::pmr::vector<TypedValue> vertices(ctx_->memory);
-        vertices.reserve(graph.vertices().size());
-        for (const auto &v : graph.vertices()) {
-          vertices.emplace_back(TypedValue(v, ctx_->memory));
-        }
-        return TypedValue(vertices, ctx_->memory);
-      }
-      if (prop_name == "edges") {
-        utils::pmr::vector<TypedValue> edges(ctx_->memory);
-        edges.reserve(graph.edges().size());
-        for (const auto &e : graph.edges()) {
-          edges.emplace_back(TypedValue(e, ctx_->memory));
-        }
-        return TypedValue(edges, ctx_->memory);
-      }
-      return std::nullopt;
-    };
-    switch (expression_result_ptr->type()) {
-      case TypedValue::Type::Null:
-        return TypedValue(ctx_->memory);
-      case TypedValue::Type::Vertex:
-        if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-          auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-          if (!property_lookup_cache_.contains(symbol_pos)) {
-            property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
-          }
-
-          auto property_id = ctx_->properties[property_lookup.property_.ix];
-          if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-            return TypedValue(property_lookup_cache_[symbol_pos][property_id], ctx_->memory);
-          }
-          return TypedValue(ctx_->memory);
-        } else {
-          return TypedValue(GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), ctx_->memory);
-        }
-      case TypedValue::Type::Edge:
-        if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
-          auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
-          if (!property_lookup_cache_.contains(symbol_pos)) {
-            property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
-          }
-
-          auto property_id = ctx_->properties[property_lookup.property_.ix];
-          if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-            return TypedValue(property_lookup_cache_[symbol_pos][property_id], ctx_->memory);
-          }
-          return TypedValue(ctx_->memory);
-        } else {
-          return TypedValue(GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), ctx_->memory);
-        }
-      case TypedValue::Type::Map: {
-        auto &map = expression_result_ptr->ValueMap();
-        auto found = map.find(property_lookup.property_.name.c_str());
-        if (found == map.end()) return TypedValue(ctx_->memory);
-        return TypedValue(found->second, ctx_->memory);
-      }
-      case TypedValue::Type::Duration: {
-        const auto &prop_name = property_lookup.property_.name;
-        const auto &dur = expression_result_ptr->ValueDuration();
-        if (auto dur_field = maybe_duration(dur, prop_name); dur_field) {
-          return TypedValue(*dur_field, ctx_->memory);
-        }
-        throw QueryRuntimeException("Invalid property name {} for Duration", prop_name);
-      }
-      case TypedValue::Type::Date: {
-        const auto &prop_name = property_lookup.property_.name;
-        const auto &date = expression_result_ptr->ValueDate();
-        if (auto date_field = maybe_date(date, prop_name); date_field) {
-          return TypedValue(*date_field, ctx_->memory);
-        }
-        throw QueryRuntimeException("Invalid property name {} for Date", prop_name);
-      }
-      case TypedValue::Type::LocalTime: {
-        const auto &prop_name = property_lookup.property_.name;
-        const auto &lt = expression_result_ptr->ValueLocalTime();
-        if (auto lt_field = maybe_local_time(lt, prop_name); lt_field) {
-          return std::move(*lt_field);
-        }
-        throw QueryRuntimeException("Invalid property name {} for LocalTime", prop_name);
-      }
-      case TypedValue::Type::LocalDateTime: {
-        const auto &prop_name = property_lookup.property_.name;
-        const auto &ldt = expression_result_ptr->ValueLocalDateTime();
-        if (auto date_field = maybe_date(ldt.date, prop_name); date_field) {
-          return std::move(*date_field);
-        }
-        if (auto lt_field = maybe_local_time(ldt.local_time, prop_name); lt_field) {
-          return TypedValue(*lt_field, ctx_->memory);
-        }
-        throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
-      }
-      case TypedValue::Type::Graph: {
-        const auto &prop_name = property_lookup.property_.name;
-        const auto &graph = expression_result_ptr->ValueGraph();
-        if (auto graph_field = maybe_graph(graph, prop_name); graph_field) {
-          return TypedValue(*graph_field, ctx_->memory);
-        }
-        throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
-      }
-      default:
-        throw QueryRuntimeException(
-            "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
-    }
-  }
-
-  TypedValue Visit(AllPropertiesLookup &all_properties_lookup) override {
-    TypedValue::TMap result(ctx_->memory);
-
-    auto expression_result = all_properties_lookup.expression_->Accept(*this);
-    switch (expression_result.type()) {
-      case TypedValue::Type::Null:
-        return TypedValue(ctx_->memory);
-      case TypedValue::Type::Vertex: {
-        for (const auto properties = *expression_result.ValueVertex().Properties(view_);
-             const auto &[property_id, value] : properties) {
-          result.emplace(dba_->PropertyToName(property_id), value);
-        }
-        return TypedValue(result, ctx_->memory);
-      }
-      case TypedValue::Type::Edge: {
-        for (const auto properties = *expression_result.ValueEdge().Properties(view_);
-             const auto &[property_id, value] : properties) {
-          result.emplace(dba_->PropertyToName(property_id), value);
-        }
-        return TypedValue(result, ctx_->memory);
-      }
-      case TypedValue::Type::Map: {
-        for (auto &[name, value] : expression_result.ValueMap()) {
-          result.emplace(name, value);
-        }
-        return TypedValue(result, ctx_->memory);
-      }
-      case TypedValue::Type::Duration: {
-        const auto &dur = expression_result.ValueDuration();
-        result.emplace("day", TypedValue(dur.Days(), ctx_->memory));
-        result.emplace("hour", TypedValue(dur.SubDaysAsHours(), ctx_->memory));
-        result.emplace("minute", TypedValue(dur.SubDaysAsMinutes(), ctx_->memory));
-        result.emplace("second", TypedValue(dur.SubDaysAsSeconds(), ctx_->memory));
-        result.emplace("millisecond", TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory));
-        result.emplace("microseconds", TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory));
-        result.emplace("nanoseconds", TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory));
-        return TypedValue(result, ctx_->memory);
-      }
-      case TypedValue::Type::Date: {
-        const auto &date = expression_result.ValueDate();
-        result.emplace("year", TypedValue(date.year, ctx_->memory));
-        result.emplace("month", TypedValue(date.month, ctx_->memory));
-        result.emplace("day", TypedValue(date.day, ctx_->memory));
-        return TypedValue(result, ctx_->memory);
-      }
-      case TypedValue::Type::LocalTime: {
-        const auto &lt = expression_result.ValueLocalTime();
-        result.emplace("hour", TypedValue(lt.hour, ctx_->memory));
-        result.emplace("minute", TypedValue(lt.minute, ctx_->memory));
-        result.emplace("second", TypedValue(lt.second, ctx_->memory));
-        result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
-        result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
-        return TypedValue(result, ctx_->memory);
-      }
-      case TypedValue::Type::LocalDateTime: {
-        const auto &ldt = expression_result.ValueLocalDateTime();
-        const auto &date = ldt.date;
-        const auto &lt = ldt.local_time;
-        result.emplace("year", TypedValue(date.year, ctx_->memory));
-        result.emplace("month", TypedValue(date.month, ctx_->memory));
-        result.emplace("day", TypedValue(date.day, ctx_->memory));
-        result.emplace("hour", TypedValue(lt.hour, ctx_->memory));
-        result.emplace("minute", TypedValue(lt.minute, ctx_->memory));
-        result.emplace("second", TypedValue(lt.second, ctx_->memory));
-        result.emplace("millisecond", TypedValue(lt.millisecond, ctx_->memory));
-        result.emplace("microsecond", TypedValue(lt.microsecond, ctx_->memory));
-        return TypedValue(result, ctx_->memory);
-      }
-      case TypedValue::Type::Graph: {
-        const auto &graph = expression_result.ValueGraph();
-
-        utils::pmr::vector<TypedValue> vertices(ctx_->memory);
-        vertices.reserve(graph.vertices().size());
-        for (const auto &v : graph.vertices()) {
-          vertices.emplace_back(TypedValue(v, ctx_->memory));
-        }
-        result.emplace("nodes", TypedValue(std::move(vertices), ctx_->memory));
-
-        utils::pmr::vector<TypedValue> edges(ctx_->memory);
-        edges.reserve(graph.edges().size());
-        for (const auto &e : graph.edges()) {
-          edges.emplace_back(TypedValue(e, ctx_->memory));
-        }
-        result.emplace("edges", TypedValue(std::move(edges), ctx_->memory));
-
-        return TypedValue(result, ctx_->memory);
-      }
-      default:
-        throw QueryRuntimeException(
-            "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
-    }
-  }
+  TypedValue Visit(AllPropertiesLookup &all_properties_lookup) override;
 
   TypedValue Visit(LabelsTest &labels_test) override {
     auto expression_result = labels_test.expression_->Accept(*this);
@@ -735,18 +636,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         const auto &vertex = expression_result.ValueVertex();
         for (const auto &label : labels_test.labels_) {
           auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (has_label.HasError() && has_label.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+          if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
             // This is a very nasty and temporary hack in order to make MERGE
             // work. The old storage had the following logic when returning an
             // `OLD` view: `return old ? old : new`. That means that if the
             // `OLD` view didn't exist, it returned the NEW view. With this hack
             // we simulate that behavior.
-            // TODO (mferencevic, teon.banek): Remove once MERGE is
+            // TODO: Remove once MERGE is
             // reimplemented.
             has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
           }
-          if (has_label.HasError()) {
-            switch (has_label.GetError()) {
+          if (!has_label) {
+            switch (has_label.error()) {
               case storage::Error::DELETED_OBJECT:
                 throw QueryRuntimeException("Trying to access labels on a deleted node.");
               case storage::Error::NONEXISTENT_OBJECT:
@@ -761,10 +662,74 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             return TypedValue(false, ctx_->memory);
           }
         }
+        for (const auto &or_labels_pattern : labels_test.or_labels_) {
+          bool has_at_least_one_label = false;
+          for (const auto &label : or_labels_pattern) {
+            auto has_label = vertex.HasLabel(view_, GetLabel(label));
+            if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
+              // This is a very nasty and temporary hack in order to make MERGE
+              // work. The old storage had the following logic when returning an
+              // `OLD` view: `return old ? old : new`. That means that if the
+              // `OLD` view didn't exist, it returned the NEW view. With this hack
+              // we simulate that behavior.
+              // TODO: Remove once MERGE is
+              // reimplemented.
+              has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
+            }
+            if (!has_label) {
+              switch (has_label.error()) {
+                case storage::Error::DELETED_OBJECT:
+                  throw QueryRuntimeException("Trying to access labels on a deleted node.");
+                case storage::Error::NONEXISTENT_OBJECT:
+                  throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
+                case storage::Error::SERIALIZATION_ERROR:
+                case storage::Error::VERTEX_HAS_EDGES:
+                case storage::Error::PROPERTIES_DISABLED:
+                  throw QueryRuntimeException("Unexpected error when accessing labels.");
+              }
+            }
+            if (*has_label) {
+              has_at_least_one_label = true;
+              break;
+            }
+          }
+          if (!has_at_least_one_label) {
+            return TypedValue(false, ctx_->memory);
+          }
+        }
         return TypedValue(true, ctx_->memory);
       }
       default:
+        // Labels are not what the reader got wrong when the test names none.
+        if (labels_test.IsNodeTest()) {
+          if (const auto *identifier = utils::Downcast<Identifier>(labels_test.expression_)) {
+            throw QueryRuntimeException(
+                "Expected a node for '{}', but got {}.", identifier->name_, expression_result.type());
+          }
+          throw QueryRuntimeException("Expected a node, but got {}.", expression_result.type());
+        }
         throw QueryRuntimeException("Only nodes have labels.");
+    }
+  }
+
+  TypedValue Visit(EdgeTypesTest &edgetype_test) override {
+    if (edgetype_test.valid_edgetypes_.empty()) {
+      return TypedValue(true, ctx_->memory);
+    }
+    DMG_ASSERT(edgetype_test.expression_, "expression_ should not be null");
+    switch (auto expression_result = edgetype_test.expression_->Accept(*this); expression_result.type()) {
+      case TypedValue::Type::Null:
+        return TypedValue(ctx_->memory);
+      case TypedValue::Type::Edge: {
+        const auto edge_type = expression_result.ValueEdge().EdgeType();
+        const auto is_valid = std::ranges::any_of(
+            edgetype_test.valid_edgetypes_,
+            [=](const storage::EdgeTypeId et_id) { return edge_type == et_id; },
+            [&](EdgeTypeIx const &et) { return GetEdgeType(et); });
+        return TypedValue(is_valid, ctx_->memory);
+      }
+      default:
+        throw QueryRuntimeException("Only edges have an edgetype.");
     }
   }
 
@@ -778,16 +743,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue::TVector result(ctx_->memory);
     result.reserve(literal.elements_.size());
     for (const auto &expression : literal.elements_) result.emplace_back(expression->Accept(*this));
-    return TypedValue(result, ctx_->memory);
+    return TypedValue(std::move(result), ctx_->memory);
   }
 
   TypedValue Visit(MapLiteral &literal) override {
     TypedValue::TMap result(ctx_->memory);
     for (const auto &pair : literal.elements_) {
-      result.emplace(pair.first.name, pair.second->Accept(*this));
+      result.emplace(TypedValue::TString(pair.first.name, ctx_->memory), pair.second->Accept(*this));
     }
 
-    return TypedValue(result, ctx_->memory);
+    return TypedValue(std::move(result), ctx_->memory);
   }
 
   TypedValue Visit(MapProjectionLiteral &literal) override {
@@ -813,12 +778,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         continue;
       }
 
-      result.emplace(property_key.name, property_value->Accept(*this));
+      result.emplace(TypedValue::TString(property_key.name, ctx_->memory), property_value->Accept(*this));
     }
 
     if (!all_properties_lookup.empty()) result.merge(all_properties_lookup);
 
-    return TypedValue(result, ctx_->memory);
+    return TypedValue(std::move(result), ctx_->memory);
   }
 
   TypedValue Visit(Aggregation &aggregation) override {
@@ -843,27 +808,52 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
+    // Implementations receive the accessor and are free to use it, so none may run without one.
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("Function '{}' cannot be evaluated without a database accessor.",
+                                  function.function_name_);
+    }
+    FunctionContext function_ctx{dba_,
+                                 ctx_->memory,
+                                 ctx_->timestamp,
+                                 &ctx_->counters,
+                                 view_,
+                                 GetHopsCounter(),
+                                 user_or_role_,
+                                 triggering_user_,
+#ifdef MG_ENTERPRISE
+                                 auth_checker_
+#else
+                                 nullptr
+#endif
+    };
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
+    const SelectedFunction impl = SelectFunctionImpl(function, *ctx_);
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
-      TypedValue arguments[8] = {TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
-                                 TypedValue(ctx_->memory), TypedValue(ctx_->memory), TypedValue(ctx_->memory),
-                                 TypedValue(ctx_->memory), TypedValue(ctx_->memory)};
-      for (size_t i = 0; i < function.arguments_.size(); ++i) {
-        arguments[i] = function.arguments_[i]->Accept(*this);
+      utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
+      auto constructed_count = 0;
+      auto destroy_arguments = utils::OnScopeExit{[&] {
+        for (size_t i = 0; i != constructed_count; ++i) {
+          std::destroy_at(&(*arguments.as())[i]);
+        }
+      }};
+      for (size_t i = 0; i != function.arguments_.size(); ++i) {
+        std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
+        ++constructed_count;
       }
-      res = function.function_(arguments, function.arguments_.size(), function_ctx);
+
+      res = impl(arguments.as()->data(), function.arguments_.size(), function_ctx);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
       for (const auto &argument : function.arguments_) {
         arguments.emplace_back(argument->Accept(*this));
       }
-      res = function.function_(arguments.data(), arguments.size(), function_ctx);
+      res = impl(arguments.data(), arguments.size(), function_ctx);
     }
-    MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
+    MG_ASSERT(res.get_allocator().resource() == ctx_->memory);
     if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
       return TypedValue(ctx_->memory);
     }
@@ -878,13 +868,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("REDUCE expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &element_symbol = symbol_table_->at(*reduce.identifier_);
     const auto &accumulator_symbol = symbol_table_->at(*reduce.accumulator_);
     auto accumulator = reduce.initializer_->Accept(*this);
-    for (const auto &element : list) {
-      frame_->at(accumulator_symbol) = accumulator;
-      frame_->at(element_symbol) = element;
+    for (auto &element : list) {
+      frame_writer_.WriteAt(accumulator_symbol, accumulator);
+      frame_writer_.WriteAt(element_symbol, std::move(element));
       accumulator = reduce.expression_->Accept(*this);
     }
     return accumulator;
@@ -898,7 +888,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("EXTRACT expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &element_symbol = symbol_table_->at(*extract.identifier_);
     TypedValue::TVector result(ctx_->memory);
     result.reserve(list.size());
@@ -906,22 +896,87 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (element.IsNull()) {
         result.emplace_back();
       } else {
-        frame_->at(element_symbol) = std::move(element);
+        frame_writer_.WriteAt(element_symbol, std::move(element));
         result.emplace_back(extract.expression_->Accept(*this));
       }
     }
     return TypedValue(std::move(result), ctx_->memory);
   }
 
-  TypedValue Visit(Exists &exists) override {
-    TypedValue &frame_exists_value = frame_->at(symbol_table_->at(exists));
-    if (!frame_exists_value.IsFunction()) [[unlikely]] {
-      throw QueryRuntimeException(
-          "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
-          frame_exists_value.type());
+  TypedValue Visit(ListComprehension &list_comprehension) override {
+    auto list_value = list_comprehension.list_->Accept(*this);
+    if (list_value.IsNull()) {
+      return TypedValue(ctx_->memory);
     }
-    TypedValue result{ctx_->memory};
-    frame_exists_value.ValueFunction()(&result);
+
+    if (list_value.type() != TypedValue::Type::List) {
+      throw QueryRuntimeException("List comprehension expected a list, got {}.", list_value.type());
+    }
+
+    const auto &list = list_value.ValueList();
+    const auto &element_symbol = symbol_table_->at(*list_comprehension.identifier_);
+    const bool needs_predicate = !!list_comprehension.where_;
+    const bool has_transformation = !!list_comprehension.expression_;
+    TypedValue::TVector result(ctx_->memory);
+    result.reserve(list.size());
+
+    for (const auto &element : list) {
+      frame_writer_.WriteAt(element_symbol, element);
+      if (!needs_predicate) {
+        if (has_transformation) {
+          result.emplace_back(list_comprehension.expression_->Accept(*this));
+        } else {
+          result.emplace_back(element);
+        }
+        continue;
+      }
+
+      auto predicate_result = list_comprehension.where_->expression_->Accept(*this);
+      // This predicate filters rather than being folded into one answer the way
+      // a quantifier's is, so an element whose predicate is NULL is left out and
+      // the rest of the list still stands. NULL is the only value besides a
+      // boolean a predicate may hold.
+      if (predicate_result.IsNull()) {
+        continue;
+      }
+      if (!predicate_result.IsBool()) {
+        throw QueryRuntimeException("Predicate of a list comprehension must evaluate to boolean, got {}.",
+                                    predicate_result.type());
+      }
+      if (predicate_result.ValueBool()) {
+        if (has_transformation) {
+          result.emplace_back(list_comprehension.expression_->Accept(*this));
+        } else {
+          result.emplace_back(element);
+        }
+      }
+    }
+
+    return TypedValue(std::move(result), ctx_->memory);
+  }
+
+  TypedValue Visit(SubqueryExpression &subquery) override {
+    TypedValue const &frame_fold_value = frame_->at(symbol_table_->at(subquery));
+    // Exactly one arm applies per node: a forced fold wrote the answer, a deferred one wrote the closure that computes
+    // it. Past all four means neither operator ran and the slot was never written.
+    if (frame_fold_value.IsBool()) {
+      return TypedValue(frame_fold_value.ValueBool(), ctx_->memory);
+    }
+    if (frame_fold_value.IsInt()) {
+      return TypedValue(frame_fold_value.ValueInt(), ctx_->memory);
+    }
+    if (frame_fold_value.IsList()) {
+      return TypedValue(frame_fold_value.ValueList(), ctx_->memory);
+    }
+    if (!frame_fold_value.IsFunction()) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Unexpected behavior: nothing evaluated this {}, so its frame slot holds {}. Please report the problem on "
+          "GitHub issues",
+          subquery.FoldName(),
+          frame_fold_value.type());
+    }
+    TypedValue result(ctx_->memory);
+    frame_fold_value.ValueFunction()(&result);
     return result;
   }
 
@@ -933,30 +988,30 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("ALL expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*all.identifier_);
     bool has_null_elements = false;
     bool has_value = false;
-    for (const auto &element : list) {
-      frame_->at(symbol) = element;
+    bool const non_empty_list = !list.empty();
+    for (auto &element : list) {
+      frame_writer_.WriteAt(symbol, std::move(element));
       auto result = all.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of ALL must evaluate to boolean, got {}.", result.type());
       }
       if (!result.IsNull()) {
-        has_value = true;
         if (!result.ValueBool()) {
           return TypedValue(false, ctx_->memory);
         }
+        has_value = true;
       } else {
         has_null_elements = true;
       }
     }
-    if (!has_value) {
+    if (non_empty_list && !has_value) {
       return TypedValue(ctx_->memory);
-    }
-    if (has_null_elements) {
-      return TypedValue(false, ctx_->memory);
+    } else if (has_null_elements) {
+      return TypedValue(ctx_->memory);
     } else {
       return TypedValue(true, ctx_->memory);
     }
@@ -970,12 +1025,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("SINGLE expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*single.identifier_);
     bool has_value = false;
     bool predicate_satisfied = false;
-    for (const auto &element : list) {
-      frame_->at(symbol) = element;
+    bool has_null_elements = false;
+    bool const non_empty_list = !list.empty();
+    for (auto &element : list) {
+      frame_writer_.WriteAt(symbol, std::move(element));
       auto result = single.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of SINGLE must evaluate to boolean, got {}.", result.type());
@@ -983,7 +1040,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (result.type() == TypedValue::Type::Bool) {
         has_value = true;
       }
-      if (result.IsNull() || !result.ValueBool()) {
+      if (result.IsNull()) {
+        has_null_elements = true;
+        continue;
+      }
+      if (!result.ValueBool()) {
         continue;
       }
       // Return false if more than one element satisfies the predicate.
@@ -993,7 +1054,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         predicate_satisfied = true;
       }
     }
-    if (!has_value) {
+    if (non_empty_list && !has_value) {
+      return TypedValue(ctx_->memory);
+    } else if (has_null_elements) {
+      // Two matches already returned false above, so at most one definite match
+      // reached here and a null element could have been a second one.
       return TypedValue(ctx_->memory);
     } else {
       return TypedValue(predicate_satisfied, ctx_->memory);
@@ -1008,24 +1073,30 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("ANY expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*any.identifier_);
+    bool has_null_elements = false;
     bool has_value = false;
-    for (const auto &element : list) {
-      frame_->at(symbol) = element;
+    bool const non_empty_list = !list.empty();
+    for (auto &element : list) {
+      frame_writer_.WriteAt(symbol, std::move(element));
       auto result = any.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of ANY must evaluate to boolean, got {}.", result.type());
       }
       if (!result.IsNull()) {
-        has_value = true;
         if (result.ValueBool()) {
           return TypedValue(true, ctx_->memory);
         }
+        has_value = true;
+      } else {
+        has_null_elements = true;
       }
     }
     // Return Null if all elements are Null
-    if (!has_value) {
+    if (non_empty_list && !has_value) {
+      return TypedValue(ctx_->memory);
+    } else if (has_null_elements) {
       return TypedValue(ctx_->memory);
     } else {
       return TypedValue(false, ctx_->memory);
@@ -1040,24 +1111,30 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("NONE expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*none.identifier_);
+    bool has_null_elements = false;
     bool has_value = false;
-    for (const auto &element : list) {
-      frame_->at(symbol) = element;
+    const bool non_empty_element = !list.empty();
+    for (auto &element : list) {
+      frame_writer_.WriteAt(symbol, std::move(element));
       auto result = none.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of NONE must evaluate to boolean, got {}.", result.type());
       }
       if (!result.IsNull()) {
-        has_value = true;
         if (result.ValueBool()) {
           return TypedValue(false, ctx_->memory);
         }
+        has_value = true;
+      } else {
+        has_null_elements = true;
       }
     }
     // Return Null if all elements are Null
-    if (!has_value) {
+    if (non_empty_element && !has_value) {
+      return TypedValue(ctx_->memory);
+    } else if (has_null_elements) {
       return TypedValue(ctx_->memory);
     } else {
       return TypedValue(true, ctx_->memory);
@@ -1068,66 +1145,50 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(ctx_->parameters.AtTokenPosition(param_lookup.token_position_), ctx_->memory);
   }
 
-  TypedValue Visit(RegexMatch &regex_match) override {
-    auto target_string_value = regex_match.string_expr_->Accept(*this);
-    auto regex_value = regex_match.regex_->Accept(*this);
-    if (target_string_value.IsNull() || regex_value.IsNull()) {
-      return TypedValue(ctx_->memory);
+  TypedValue Visit(RegexMatch &regex_match) override;
+
+  TypedValue Visit(PatternComprehension &pattern_comprehension) override {
+    const TypedValue &frame_pattern_comprehension_value = frame_->at(symbol_table_->at(pattern_comprehension));
+    if (!frame_pattern_comprehension_value.IsList()) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Unexpected behavior: Pattern Comprehension expected a list, got {}. Please report the problem on GitHub "
+          "issues",
+          frame_pattern_comprehension_value.type());
     }
-    if (regex_value.type() != TypedValue::Type::String) {
-      throw QueryRuntimeException("Regular expression must evaluate to a string, got {}.", regex_value.type());
-    }
-    if (target_string_value.type() != TypedValue::Type::String) {
-      // Instead of error, we return Null which makes it compatible in case we
-      // use indexed lookup which filters out any non-string properties.
-      // Assuming a property lookup is the target_string_value.
-      return TypedValue(ctx_->memory);
-    }
-    const auto &target_string = target_string_value.ValueString();
-    try {
-      std::regex regex(regex_value.ValueString());
-      return TypedValue(std::regex_match(target_string, regex), ctx_->memory);
-    } catch (const std::regex_error &e) {
-      throw QueryRuntimeException("Regex error in '{}': {}", regex_value.ValueString(), e.what());
-    }
+    return frame_pattern_comprehension_value;
   }
 
-  TypedValue Visit(PatternComprehension & /*pattern_comprehension*/) override {
-    throw utils::NotYetImplemented("Expression evaluator can not handle pattern comprehension.");
+  TypedValue Visit(EnumValueAccess &enum_value_access) override {
+    // Enums are storage state, so there is nothing to resolve against without an accessor.
+    if (dba_ == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("Enum '{}' cannot be resolved without a database accessor.",
+                                  enum_value_access.enum_name_);
+    }
+    auto maybe_enum = dba_->GetEnumValue(enum_value_access.enum_name_, enum_value_access.enum_value_);
+    if (!maybe_enum) [[unlikely]] {
+      throw QueryRuntimeException(
+          "Enum value '{}' in enum '{}' not found.", enum_value_access.enum_value_, enum_value_access.enum_name_);
+    }
+    return TypedValue(*maybe_enum, ctx_->memory);
   }
 
- private:
-  template <class TRecordAccessor>
-  std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
-    auto maybe_props = record_accessor.Properties(view_);
-    if (maybe_props.HasError() && maybe_props.GetError() == storage::Error::NONEXISTENT_OBJECT) {
-      // This is a very nasty and temporary hack in order to make MERGE work.
-      // The old storage had the following logic when returning an `OLD` view:
-      // `return old ? old : new`. That means that if the `OLD` view didn't
-      // exist, it returned the NEW view. With this hack we simulate that
-      // behavior.
-      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_props = record_accessor.Properties(storage::View::NEW);
-    }
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get properties from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting properties.");
-      }
-    }
-    return *std::move(maybe_props);
+#ifdef MG_ENTERPRISE
+  bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
+  bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+#else
+  template <typename T>
+    requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor>
+  bool IsPropertyAllowed(T const &, storage::PropertyId) const {
+    return true;
   }
+#endif
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
+    RequireAccessor("Reading a property");
+    if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
-    if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+    if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
@@ -1136,8 +1197,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
       maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
     }
-    if (maybe_prop.HasError()) {
-      switch (maybe_prop.GetError()) {
+    if (!maybe_prop) {
+      switch (maybe_prop.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -1153,18 +1214,21 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const std::string_view name) {
-    auto maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
-    if (maybe_prop.HasError() && maybe_prop.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+    RequireAccessor("Reading a property");
+    auto prop_id = dba_->NameToProperty(name);
+    if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
+    auto maybe_prop = record_accessor.GetProperty(view_, prop_id);
+    if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
       // `return old ? old : new`. That means that if the `OLD` view didn't
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(view_, dba_->NameToProperty(name));
+      maybe_prop = record_accessor.GetProperty(view_, prop_id);
     }
-    if (maybe_prop.HasError()) {
-      switch (maybe_prop.GetError()) {
+    if (!maybe_prop) {
+      switch (maybe_prop.error()) {
         case storage::Error::DELETED_OBJECT:
           throw QueryRuntimeException("Trying to get a property from a deleted object.");
         case storage::Error::NONEXISTENT_OBJECT:
@@ -1178,7 +1242,45 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *maybe_prop;
   }
 
-  storage::LabelId GetLabel(const LabelIx &label) { return ctx_->labels[label.ix]; }
+ private:
+  template <class TRecordAccessor>
+  std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
+    auto maybe_props = record_accessor.Properties(view_);
+    if (maybe_props == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
+      // This is a very nasty and temporary hack in order to make MERGE work.
+      // The old storage had the following logic when returning an `OLD` view:
+      // `return old ? old : new`. That means that if the `OLD` view didn't
+      // exist, it returned the NEW view. With this hack we simulate that
+      // behavior.
+      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
+      maybe_props = record_accessor.Properties(storage::View::NEW);
+    }
+    if (!maybe_props) {
+      switch (maybe_props.error()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to get properties from a deleted object.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when getting properties.");
+      }
+    }
+#ifdef MG_ENTERPRISE
+    auto &props = *maybe_props;
+    for (auto &[prop_id, value] : props) {
+      if (!IsPropertyAllowed(record_accessor, prop_id)) {
+        value = storage::PropertyValue{};
+      }
+    }
+#endif
+    return *std::move(maybe_props);
+  }
+
+  storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
+
+  storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 
   Frame *frame_;
   const SymbolTable *symbol_table_;
@@ -1187,8 +1289,16 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   // which switching approach should be used when evaluating
   storage::View view_;
   FrameChangeCollector *frame_change_collector_;
+  FrameWriter frame_writer_{*frame_, frame_change_collector_, ctx_->memory};
   /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
+  // use the getter function GetHopsCounter() to handle possible error for segfault
+  const int64_t *hops_counter_;
+  const QueryUserOrRole *user_or_role_;
+  const QueryUserOrRole *triggering_user_;
+#ifdef MG_ENTERPRISE
+  FineGrainedAuthChecker const *auth_checker_{nullptr};
+#endif
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.
@@ -1196,9 +1306,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 /// @param what - Name of what's getting evaluated. Used for user feedback (via
 ///               exception) when the evaluated value is not an int.
 /// @throw QueryRuntimeException if expression doesn't evaluate to an int.
-int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what);
+int64_t EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what);
+
+/// A helper function for evaluating an expression that's an uint.
+///
+/// @param what - Name of what's getting evaluated. Used for user feedback (via
+///               exception) when the evaluated value is not an uint.
+/// @throw QueryRuntimeException if expression doesn't evaluate to an uint.
+std::optional<int64_t> EvaluateUint(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what);
+
+std::optional<int64_t> EvaluateHopsLimit(ExpressionVisitor<TypedValue> &eval, Expression *expr);
+std::optional<int64_t> EvaluateCommitFrequency(ExpressionVisitor<TypedValue> &eval, Expression *expr);
+std::optional<int64_t> EvaluateDeleteBufferSize(ExpressionVisitor<TypedValue> &eval, Expression *expr);
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
                                           size_t memory_scale);
-
 }  // namespace memgraph::query

@@ -55,8 +55,6 @@ def parse_args():
         default=100,
         help="Number of edges in a batch when edges " "are created in batches.",
     )
-    parser.add_argument("--isolation-level", type=str, required=True, help="Database isolation level.")
-    parser.add_argument("--storage-mode", type=str, required=True, help="Database storage mode.")
     return parser.parse_args()
 
 

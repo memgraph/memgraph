@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -8,78 +8,197 @@
 
 #pragma once
 
+#include <algorithm>
+#include <compare>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
+#include <ranges>
 #include <set>
+#include <span>
+#include <stdexcept>
 #include <string>
+#include <string_view>
+#include <type_traits>
 #include <unordered_map>
-
-#include <json/json.hpp>
+#include <unordered_set>
 #include <utility>
+#include <variant>
+#include <vector>
+
+#include "auth/profiles/user_profiles.hpp"
+#include "crypto.hpp"
 #include "dbms/constants.hpp"
 #include "utils/logging.hpp"
+#include "utils/resource_monitoring.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::auth {
+
+// Used to disambiguate commands that accept either a USER or ROLE argument in
+// cases where there exists both a user and role with the same name, which
+// is allowed since we split these into two namespaces in 3.10.
+enum class UserOrRoleType {
+  UNSPECIFIED,  // Neither USER nor ROLE was explicitly specified; both are checked and an error is thrown if ambiguous.
+  USER,         // Explicitly specified as a USER; only the user namespace is checked.
+  ROLE,         // Explicitly specified as a ROLE; only the role namespace is checked.
+};
+
 // These permissions must have values that are applicable for usage in a
 // bitmask.
 // clang-format off
 enum class Permission : uint64_t {
-  MATCH        = 1,
-  CREATE       = 1U << 1U,
-  MERGE        = 1U << 2U,
-  DELETE       = 1U << 3U,
-  SET          = 1U << 4U,
-  REMOVE       = 1U << 5U,
-  INDEX        = 1U << 6U,
-  STATS        = 1U << 7U,
-  CONSTRAINT   = 1U << 8U,
-  DUMP         = 1U << 9U,
-  REPLICATION  = 1U << 10U,
-  DURABILITY   = 1U << 11U,
-  READ_FILE    = 1U << 12U,
-  FREE_MEMORY  = 1U << 13U,
-  TRIGGER      = 1U << 14U,
-  CONFIG       = 1U << 15U,
-  AUTH         = 1U << 16U,
-  STREAM       = 1U << 17U,
-  MODULE_READ  = 1U << 18U,
-  MODULE_WRITE = 1U << 19U,
-  WEBSOCKET    = 1U << 20U,
-  TRANSACTION_MANAGEMENT = 1U << 21U,
-  STORAGE_MODE = 1U << 22U,
-  MULTI_DATABASE_EDIT = 1U << 23U,
-  MULTI_DATABASE_USE  = 1U << 24U,
-  COORDINATOR  = 1U << 25U,
+  MATCH                  = 1ULL,
+  CREATE                 = 1ULL << 1ULL,
+  MERGE                  = 1ULL << 2ULL,
+  DELETE                 = 1ULL << 3ULL,
+  SET                    = 1ULL << 4ULL,
+  REMOVE                 = 1ULL << 5ULL,
+  INDEX                  = 1ULL << 6ULL,
+  STATS                  = 1ULL << 7ULL,
+  CONSTRAINT             = 1ULL << 8ULL,
+  DUMP                   = 1ULL << 9ULL,
+  REPLICATION            = 1ULL << 10ULL,
+  DURABILITY             = 1ULL << 11ULL,
+  READ_FILE              = 1ULL << 12ULL,
+  FREE_MEMORY            = 1ULL << 13ULL,
+  TRIGGER                = 1ULL << 14ULL,
+  CONFIG                 = 1ULL << 15ULL,
+  AUTH                   = 1ULL << 16ULL,
+  STREAM                 = 1ULL << 17ULL,
+  MODULE_READ            = 1ULL << 18ULL,
+  MODULE_WRITE           = 1ULL << 19ULL,
+  WEBSOCKET              = 1ULL << 20ULL,
+  TRANSACTION_MANAGEMENT = 1ULL << 21ULL,
+  STORAGE_MODE           = 1ULL << 22ULL,
+  MULTI_DATABASE_EDIT    = 1ULL << 23ULL,
+  MULTI_DATABASE_USE     = 1ULL << 24ULL,
+  // Bit 25 reserved: was COORDINATOR, removed because it never gated any operation
+  IMPERSONATE_USER       = 1ULL << 26ULL,
+  PROFILE_RESTRICTION    = 1ULL << 27ULL,
+  PARALLEL_EXECUTION     = 1ULL << 28ULL,
+  SERVER_SIDE_PARAMETERS = 1ULL << 29ULL,
+  SERVER_SIDE_DESCRIPTIONS = 1ULL << 30ULL,
+  RELOAD_TLS             = 1ULL << 31ULL,
+  // Coordinator-only privileges. Meaningful only on coordinators (roles live in Raft, not the auth kvstore) and never
+  // part of kPermissionsAll, so GRANT ALL PRIVILEGES on a data instance does not grant them. WRITE is a superset of
+  // READ. Bit 25 (the removed COORDINATOR privilege) is intentionally not reused.
+  COORDINATOR_READ       = 1ULL << 32ULL,
+  COORDINATOR_WRITE      = 1ULL << 33ULL
 };
 // clang-format on
 
-#ifdef MG_ENTERPRISE
+// clang-format off
+inline constexpr std::array kPermissionsAll = {
+    Permission::MATCH,
+    Permission::CREATE,
+    Permission::MERGE,
+    Permission::DELETE,
+    Permission::SET,
+    Permission::REMOVE,
+    Permission::INDEX,
+    Permission::STATS,
+    Permission::CONSTRAINT,
+    Permission::DUMP,
+    Permission::AUTH,
+    Permission::REPLICATION,
+    Permission::DURABILITY,
+    Permission::READ_FILE,
+    Permission::FREE_MEMORY,
+    Permission::TRIGGER,
+    Permission::CONFIG,
+    Permission::STREAM,
+    Permission::MODULE_READ,
+    Permission::MODULE_WRITE,
+    Permission::WEBSOCKET,
+    Permission::TRANSACTION_MANAGEMENT,
+    Permission::STORAGE_MODE,
+    Permission::MULTI_DATABASE_EDIT,
+    Permission::MULTI_DATABASE_USE,
+    Permission::IMPERSONATE_USER,
+    Permission::PROFILE_RESTRICTION,
+    Permission::PARALLEL_EXECUTION,
+    Permission::SERVER_SIDE_PARAMETERS,
+    Permission::SERVER_SIDE_DESCRIPTIONS,
+    Permission::RELOAD_TLS
+};
+// clang-format on
+
+// Coordinator privilege model. Coordinators enforce exactly two privileges, COORDINATOR_READ and COORDINATOR_WRITE,
+// where WRITE is a superset of READ. A session's effective mask is the union (bitwise OR) of its matched roles' masks;
+// a role with no grant confers nothing.
+
+// Union of a collection of role permission masks.
+inline uint64_t CoordinatorEffectiveMask(std::span<uint64_t const> role_masks) {
+  uint64_t effective = 0;
+  for (auto const mask : role_masks) {
+    effective |= mask;
+  }
+  return effective;
+}
+
+// Whether an effective coordinator mask authorizes a query requiring `required` (COORDINATOR_READ or
+// COORDINATOR_WRITE). A WRITE grant satisfies a READ requirement; a READ grant does not satisfy a WRITE requirement.
+inline bool CoordinatorMaskSatisfies(uint64_t effective_mask, Permission required) {
+  auto const write_bit = static_cast<uint64_t>(Permission::COORDINATOR_WRITE);
+  auto const read_bit = static_cast<uint64_t>(Permission::COORDINATOR_READ);
+  if (required == Permission::COORDINATOR_WRITE) {
+    return (effective_mask & write_bit) != 0U;
+  }
+  return (effective_mask & (read_bit | write_bit)) != 0U;
+}
+
 // clang-format off
 enum class FineGrainedPermission : uint64_t {
-  NOTHING       = 0,
-  READ          = 1,
-  UPDATE        = 1U << 1U,
-  CREATE_DELETE = 1U << 2U
+  NONE          = 0,
+  READ          = 1U << 0U,  // 1
+  SET_PROPERTY  = 1U << 1U,  // 2: Was UPDATE in Memgraph 3.8 and earlier
+  // Bit 2 reserved: was CREATE_DELETE in Memgraph 3.6 and earlier
+  CREATE        = 1U << 3U,  // 8
+  DELETE        = 1U << 4U,  // 16
+  SET_LABEL     = 1U << 5U,  // 32
+  REMOVE_LABEL  = 1U << 6U,  // 64
+  DELETE_EDGE   = 1U << 7U,  // 128
+  CREATE_EDGE   = 1U << 8U,  // 256
 };
 // clang-format on
 
-constexpr inline uint64_t operator|(FineGrainedPermission lhs, FineGrainedPermission rhs) {
-  return static_cast<uint64_t>(lhs) | static_cast<uint64_t>(rhs);
+constexpr FineGrainedPermission operator|(FineGrainedPermission lhs, FineGrainedPermission rhs) {
+  return static_cast<FineGrainedPermission>(std::to_underlying(lhs) | std::to_underlying(rhs));
 }
 
-constexpr inline uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) {
-  return lhs | static_cast<uint64_t>(rhs);
+constexpr uint64_t operator|(uint64_t lhs, FineGrainedPermission rhs) { return lhs | std::to_underlying(rhs); }
+
+constexpr uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) { return (lhs & std::to_underlying(rhs)) != 0; }
+
+constexpr FineGrainedPermission operator&(FineGrainedPermission lhs, FineGrainedPermission rhs) {
+  return static_cast<FineGrainedPermission>(std::to_underlying(lhs) & std::to_underlying(rhs));
 }
 
-constexpr inline uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) {
-  return (lhs & static_cast<uint64_t>(rhs)) != 0;
+constexpr FineGrainedPermission &operator|=(FineGrainedPermission &lhs, FineGrainedPermission rhs) {
+  lhs = lhs | rhs;
+  return lhs;
 }
 
-constexpr uint64_t kLabelPermissionAll = memgraph::auth::FineGrainedPermission::CREATE_DELETE |
-                                         memgraph::auth::FineGrainedPermission::UPDATE |
-                                         memgraph::auth::FineGrainedPermission::READ;
-constexpr uint64_t kLabelPermissionMax = static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::CREATE_DELETE);
-constexpr uint64_t kLabelPermissionMin = static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ);
-#endif
+constexpr FineGrainedPermission operator~(FineGrainedPermission permission) {
+  return static_cast<FineGrainedPermission>(~std::to_underlying(permission));
+}
+
+constexpr FineGrainedPermission kAllLabelPermissions =
+    FineGrainedPermission::CREATE | FineGrainedPermission::DELETE | FineGrainedPermission::READ |
+    FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL | FineGrainedPermission::SET_PROPERTY |
+    FineGrainedPermission::DELETE_EDGE | FineGrainedPermission::CREATE_EDGE;
+
+constexpr FineGrainedPermission kAllEdgeTypePermissions = FineGrainedPermission::CREATE |
+                                                          FineGrainedPermission::DELETE | FineGrainedPermission::READ |
+                                                          FineGrainedPermission::SET_PROPERTY;
+
+// Cypher UPDATE on node labels expands to these discrete permissions (Memgraph 3.9+).
+constexpr FineGrainedPermission kVertexLabelUpdatePermissions =
+    FineGrainedPermission::SET_LABEL | FineGrainedPermission::REMOVE_LABEL | FineGrainedPermission::SET_PROPERTY |
+    FineGrainedPermission::DELETE_EDGE | FineGrainedPermission::CREATE_EDGE;
 
 // Function that converts a permission to its string representation.
 std::string PermissionToString(Permission permission);
@@ -91,11 +210,9 @@ enum class PermissionLevel : uint8_t { GRANT, NEUTRAL, DENY };
 std::string PermissionLevelToString(PermissionLevel level);
 
 #ifdef MG_ENTERPRISE
-// Function that converts a label permission level to its string representation.
-std::string FineGrainedPermissionToString(FineGrainedPermission level);
+// Function that converts a label permission bitmask to its string representation.
+std::string FineGrainedPermissionToString(uint64_t permission, bool is_label);
 
-// Constructs a label permission from a permission
-FineGrainedPermission PermissionToFineGrainedPermission(uint64_t permission);
 #endif
 
 class Permissions final {
@@ -138,34 +255,150 @@ bool operator==(const Permissions &first, const Permissions &second);
 bool operator!=(const Permissions &first, const Permissions &second);
 
 #ifdef MG_ENTERPRISE
+class User;
+
+class UserImpersonation {
+ public:
+  struct UserId {
+    std::string name;
+    utils::UUID uuid;
+
+    void to_json(nlohmann::json &data, const UserId &uid);
+    void from_json(const nlohmann::json &data, UserId &uid);
+
+    friend std::strong_ordering operator<=>(UserId const &lhs, UserId const &rhs) { return lhs.name <=> rhs.name; };
+  };
+
+  struct GrantAllUsers {};
+
+  using GrantedUsers = std::variant<std::set<UserId>, GrantAllUsers>;  // Default to no granted user
+  using DeniedUsers = std::set<UserId>;
+
+  UserImpersonation() = default;
+
+  UserImpersonation(GrantedUsers granted, DeniedUsers denied)
+      : granted_{std::move(granted)}, denied_{std::move(denied)} {}
+
+  void GrantAll();
+
+  void Grant(const std::vector<User> &users);
+
+  void Deny(const std::vector<User> &users);
+
+  bool CanImpersonate(const User &user) const;
+
+  bool IsDenied(const User &user) const;
+  bool IsGranted(const User &user) const;
+
+  const auto &granted() const { return granted_; }
+
+  const auto &denied() const { return denied_; }
+
+  friend void to_json(nlohmann::json &data, const UserImpersonation &usr_imp);
+  friend void from_json(const nlohmann::json &data, UserImpersonation &usr_imp);
+
+ private:
+  void grant_one(const User &user);
+
+  void deny_one(const User &user);
+
+  bool grants_all() const { return std::holds_alternative<GrantAllUsers>(granted_); }
+
+  std::optional<std::set<UserId>::iterator> find_granted(std::string_view username) const {
+    DMG_ASSERT(std::holds_alternative<std::set<UserId>>(granted_));
+    auto &granted_set = std::get<std::set<UserId>>(granted_);
+    auto res = std::find_if(
+        granted_set.begin(), granted_set.end(), [username](const auto &elem) { return elem.name == username; });
+    if (res == granted_set.end()) return {};
+    return res;
+  }
+
+  void erase_granted(auto itr) const {
+    DMG_ASSERT(std::holds_alternative<std::set<UserId>>(granted_));
+    auto &granted_set = std::get<std::set<UserId>>(granted_);
+    granted_set.erase(itr);
+  }
+
+  void emplace_granted(auto &&...args) {
+    DMG_ASSERT(std::holds_alternative<std::set<UserId>>(granted_));
+    auto &granted_set = std::get<std::set<UserId>>(granted_);
+    granted_set.emplace(std::forward<decltype(args)>(args)...);
+  }
+
+  std::optional<std::set<UserId>::iterator> find_denied(std::string_view username) const {
+    auto res = std::ranges::find_if(denied_, [username](const auto &elem) { return elem.name == username; });
+    if (res == denied_.end()) return {};
+    return res;
+  }
+
+  void erase_denied(auto itr) const { denied_.erase(itr); }
+
+  mutable GrantedUsers granted_;
+  mutable DeniedUsers denied_;
+};
+#endif
+
+#ifdef MG_ENTERPRISE
+enum class MatchingMode : uint8_t { ANY, EXACTLY };
+
+enum class PropertyEntityKind : uint8_t { NODE, EDGE };
+
+struct FineGrainedAccessRule {
+  std::unordered_set<std::string> symbols;
+  FineGrainedPermission grants{FineGrainedPermission::NONE};
+  FineGrainedPermission denies{FineGrainedPermission::NONE};
+  MatchingMode matching_mode{MatchingMode::ANY};
+
+  bool operator==(const FineGrainedAccessRule &other) const = default;
+};
+
 class FineGrainedAccessPermissions final {
  public:
-  explicit FineGrainedAccessPermissions(const std::unordered_map<std::string, uint64_t> &permissions = {},
-                                        const std::optional<uint64_t> &global_permission = std::nullopt);
+  explicit FineGrainedAccessPermissions(std::optional<uint64_t> global_grants = std::nullopt,
+                                        std::optional<uint64_t> global_denies = std::nullopt,
+                                        std::vector<FineGrainedAccessRule> rules = {});
   FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
   FineGrainedAccessPermissions &operator=(FineGrainedAccessPermissions &&) = default;
   ~FineGrainedAccessPermissions() = default;
-  PermissionLevel Has(const std::string &permission, FineGrainedPermission fine_grained_permission) const;
 
-  void Grant(const std::string &permission, FineGrainedPermission fine_grained_permission);
+  PermissionLevel Has(std::span<const std::string> symbols, FineGrainedPermission fine_grained_permission) const;
 
-  void Revoke(const std::string &permission);
+  PermissionLevel HasGlobal(FineGrainedPermission fine_grained_permission) const;
+
+  void Grant(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
+             MatchingMode matching_mode = MatchingMode::ANY);
+
+  void GrantGlobal(FineGrainedPermission fine_grained_permission);
+
+  void Deny(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
+            MatchingMode matching_mode = MatchingMode::ANY);
+
+  void DenyGlobal(FineGrainedPermission fine_grained_permission);
+
+  void Revoke(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
+              MatchingMode matching_mode = MatchingMode::ANY);
+
+  void RevokeGlobal(FineGrainedPermission fine_grained_permission);
+
+  void RevokeAll();
+
+  void RevokeAll(FineGrainedPermission fine_grained_permission);
 
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
   static FineGrainedAccessPermissions Deserialize(const nlohmann::json &data);
 
-  const std::unordered_map<std::string, uint64_t> &GetPermissions() const;
-  const std::optional<uint64_t> &GetGlobalPermission() const;
+  std::optional<uint64_t> const &GetGlobalGrants() const;
+  std::optional<uint64_t> const &GetGlobalDenies() const;
+  std::vector<FineGrainedAccessRule> const &GetRules() const;
 
  private:
-  std::unordered_map<std::string, uint64_t> permissions_{};
-  std::optional<uint64_t> global_permission_;
-
-  static uint64_t CalculateGrant(FineGrainedPermission fine_grained_permission);
+  std::optional<uint64_t> global_grants_;
+  std::optional<uint64_t> global_denies_;
+  std::vector<FineGrainedAccessRule> rules_;
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
@@ -204,50 +437,110 @@ class FineGrainedAccessHandler final {
 bool operator==(const FineGrainedAccessHandler &first, const FineGrainedAccessHandler &second);
 #endif
 
-class Role final {
- public:
-  explicit Role(const std::string &rolename);
-  Role(const std::string &rolename, const Permissions &permissions);
 #ifdef MG_ENTERPRISE
-  Role(const std::string &rolename, const Permissions &permissions,
-       FineGrainedAccessHandler fine_grained_access_handler);
-#endif
-  Role(const Role &) = default;
-  Role &operator=(const Role &) = default;
-  Role(Role &&) noexcept = default;
-  Role &operator=(Role &&) noexcept = default;
-  ~Role() = default;
+enum class PropertyPermissionType : uint8_t { NONE = 0, READ = 0x01, WRITE = 0x02 };
 
-  const std::string &rolename() const;
-  const Permissions &permissions() const;
-  Permissions &permissions();
-#ifdef MG_ENTERPRISE
-  const FineGrainedAccessHandler &fine_grained_access_handler() const;
-  FineGrainedAccessHandler &fine_grained_access_handler();
-  const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions() const;
-  const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions() const;
-#endif
-  nlohmann::json Serialize() const;
+constexpr PropertyPermissionType operator|(PropertyPermissionType a, PropertyPermissionType b) {
+  return static_cast<PropertyPermissionType>(std::to_underlying(a) | std::to_underlying(b));
+}
 
-  /// @throw AuthException if unable to deserialize.
-  static Role Deserialize(const nlohmann::json &data);
+constexpr PropertyPermissionType operator&(PropertyPermissionType a, PropertyPermissionType b) {
+  return static_cast<PropertyPermissionType>(std::to_underlying(a) & std::to_underlying(b));
+}
 
-  friend bool operator==(const Role &first, const Role &second);
+constexpr PropertyPermissionType operator~(PropertyPermissionType a) {
+  return static_cast<PropertyPermissionType>(~std::to_underlying(a));
+}
 
- private:
-  std::string rolename_;
-  Permissions permissions_;
-#ifdef MG_ENTERPRISE
-  FineGrainedAccessHandler fine_grained_access_handler_;
-#endif
+constexpr PropertyPermissionType &operator|=(PropertyPermissionType &a, PropertyPermissionType b) { return a = a | b; }
+
+constexpr PropertyPermissionType &operator&=(PropertyPermissionType &a, PropertyPermissionType b) { return a = a & b; }
+
+constexpr auto kAllPropertyPermissionTypes = PropertyPermissionType::READ | PropertyPermissionType::WRITE;
+
+struct PropertyPermission {
+  PropertyPermissionType grants{PropertyPermissionType::NONE};
+  PropertyPermissionType denies{PropertyPermissionType::NONE};
+
+  bool operator==(PropertyPermission const &) const = default;
 };
 
-bool operator==(const Role &first, const Role &second);
+struct PropertyAccessRule {
+  std::unordered_set<std::string> entities;
+  MatchingMode matching_mode{MatchingMode::ANY};
+  std::unordered_map<std::string, PropertyPermission> properties;
+  bool operator==(PropertyAccessRule const &) const = default;
+};
+
+class PropertyAccessPermissions final {
+  friend PropertyAccessPermissions Merge(PropertyAccessPermissions const &, PropertyAccessPermissions const &);
+
+ public:
+  PropertyAccessPermissions() = default;
+
+  void Grant(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
+             MatchingMode matching_mode = MatchingMode::ANY);
+  void Deny(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
+            MatchingMode matching_mode = MatchingMode::ANY);
+  void Revoke(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
+              MatchingMode matching_mode = MatchingMode::ANY);
+
+  void GrantGlobal(std::string const &property, PropertyPermissionType type);
+  void DenyGlobal(std::string const &property, PropertyPermissionType type);
+  void RevokeGlobal(std::string const &property, PropertyPermissionType type);
+
+  PermissionLevel Has(std::span<std::string const> entities, std::string const &property,
+                      PropertyPermissionType type) const;
+  PermissionLevel HasGlobal(std::string const &property, PropertyPermissionType type) const;
+
+  nlohmann::json Serialize() const;
+  static PropertyAccessPermissions Deserialize(nlohmann::json const &data);
+
+  bool operator==(PropertyAccessPermissions const &other) const = default;
+
+  auto const &GetRules() const { return rules_; }
+
+  auto const &GetGlobalRules() const { return global_; }
+
+  bool HasUnrestrictedAccess() const;
+
+ private:
+  PropertyAccessPermissions(std::vector<PropertyAccessRule> rules,
+                            std::unordered_map<std::string, PropertyPermission> global)
+      : rules_(std::move(rules)), global_(std::move(global)) {}
+
+  PropertyAccessRule &FindOrCreateRule(std::unordered_set<std::string> const &entities, MatchingMode matching_mode);
+
+  std::vector<PropertyAccessRule> rules_;
+  std::unordered_map<std::string, PropertyPermission> global_;
+};
+
+class PropertyAccessHandler final {
+ public:
+  PropertyAccessHandler() = default;
+
+  PropertyAccessPermissions const &label_properties() const;
+  PropertyAccessPermissions &label_properties();
+
+  PropertyAccessPermissions const &edge_type_properties() const;
+  PropertyAccessPermissions &edge_type_properties();
+
+  nlohmann::json Serialize() const;
+  static PropertyAccessHandler Deserialize(nlohmann::json const &data);
+
+  bool operator==(PropertyAccessHandler const &other) const = default;
+
+ private:
+  PropertyAccessPermissions label_properties_;
+  PropertyAccessPermissions edge_type_properties_;
+};
+
+#endif
 
 #ifdef MG_ENTERPRISE
 class Databases final {
  public:
-  Databases() : grants_dbs_{std::string{dbms::kDefaultDB}}, allow_all_(false), default_db_(dbms::kDefaultDB) {}
+  Databases() : grants_dbs_{std::string{dbms::kDefaultDB}}, allow_all_(false), main_db_(dbms::kDefaultDB) {}
 
   Databases(const Databases &) = default;
   Databases &operator=(const Databases &) = default;
@@ -260,7 +553,7 @@ class Databases final {
    *
    * @param db name of the database to grant access to
    */
-  void Add(std::string_view db);
+  void Grant(std::string_view db);
 
   /**
    * @brief Remove database to the list of granted access.
@@ -269,7 +562,7 @@ class Databases final {
    *
    * @param db name of the database to grant access to
    */
-  void Remove(const std::string &db);
+  void Deny(const std::string &db);
 
   /**
    * @brief Called when database is dropped. Removes it from granted (if allow_all is false) and denied set.
@@ -277,7 +570,7 @@ class Databases final {
    *
    * @param db name of the database to grant access to
    */
-  void Delete(const std::string &db);
+  void Revoke(const std::string &db);
 
   /**
    * @brief Set allow_all_ to true and clears grants and denied sets.
@@ -290,9 +583,14 @@ class Databases final {
   void DenyAll();
 
   /**
+   * @brief Set allow_all_ to false and clears grants and denied sets.
+   */
+  void RevokeAll();
+
+  /**
    * @brief Set the default database.
    */
-  bool SetDefault(std::string_view db);
+  bool SetMain(std::string_view db);
 
   /**
    * @brief Checks if access is grated to the database.
@@ -302,10 +600,17 @@ class Databases final {
    */
   bool Contains(std::string_view db) const;
 
+  bool Denies(std::string_view db_name) const { return denies_dbs_.contains(db_name); }
+
+  bool Grants(std::string_view db_name) const { return allow_all_ || grants_dbs_.contains(db_name); }
+
   bool GetAllowAll() const { return allow_all_; }
+
   const std::set<std::string, std::less<>> &GetGrants() const { return grants_dbs_; }
+
   const std::set<std::string, std::less<>> &GetDenies() const { return denies_dbs_; }
-  const std::string &GetDefault() const;
+
+  const std::string &GetMain() const;
 
   nlohmann::json Serialize() const;
   /// @throw AuthException if unable to deserialize.
@@ -317,14 +622,307 @@ class Databases final {
       : grants_dbs_(std::move(grant)),
         denies_dbs_(std::move(deny)),
         allow_all_(allow_all),
-        default_db_(std::move(default_db)) {}
+        main_db_(std::move(default_db)) {}
 
   std::set<std::string, std::less<>> grants_dbs_;  //!< set of databases with granted access
   std::set<std::string, std::less<>> denies_dbs_;  //!< set of databases with denied access
   bool allow_all_;                                 //!< flag to allow access to everything (denied overrides this)
-  std::string default_db_;                         //!< user's default database
+  std::string main_db_;                            //!< user's default database
 };
 #endif
+
+class Role {
+ public:
+  Role() = default;
+
+  explicit Role(const std::string &rolename);
+  Role(const std::string &rolename, const Permissions &permissions);
+#ifdef MG_ENTERPRISE
+  Role(const std::string &rolename, const Permissions &permissions,
+       FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {},
+       std::optional<UserImpersonation> usr_imp = std::nullopt, PropertyAccessHandler property_access_handler = {});
+#endif
+  Role(const Role &) = default;
+  Role &operator=(const Role &) = default;
+  Role(Role &&) noexcept = default;
+  Role &operator=(Role &&) noexcept = default;
+  ~Role() = default;
+
+  const std::string &rolename() const;
+  const Permissions &permissions() const;
+  Permissions &permissions();
+
+  Permissions GetPermissions(std::optional<std::string_view> db_name = std::nullopt) const {
+#ifdef MG_ENTERPRISE
+    if (!db_name || HasAccess(*db_name)) {
+      return permissions_;
+    }
+    return Permissions{};  // Return empty permissions if no access to the database
+#else
+    return permissions_;
+#endif
+  }
+#ifdef MG_ENTERPRISE
+  const FineGrainedAccessHandler &fine_grained_access_handler() const;
+  FineGrainedAccessHandler &fine_grained_access_handler();
+  const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  PropertyAccessHandler const &property_access_handler() const;
+  PropertyAccessHandler &property_access_handler();
+#endif
+
+#ifdef MG_ENTERPRISE
+  Databases &db_access() { return db_access_; }
+
+  const Databases &db_access() const { return db_access_; }
+
+  const std::string &GetMain() const { return db_access_.GetMain(); }
+
+  bool DeniesDB(std::string_view db_name) const { return db_access_.Denies(db_name); }
+
+  bool GrantsDB(std::string_view db_name) const { return db_access_.Grants(db_name); }
+
+  bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
+#endif
+
+#ifdef MG_ENTERPRISE
+  bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    // Check if we have access to the database if specified
+    if (db_name && !HasAccess(*db_name)) {
+      return false;
+    }
+    return user_impersonation_ && permissions_.Has(Permission::IMPERSONATE_USER) == PermissionLevel::GRANT &&
+           user_impersonation_->CanImpersonate(user);
+  }
+
+  bool UserImpIsGranted(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    if (db_name && !HasAccess(*db_name)) {
+      return false;
+    }
+    return user_impersonation_ && user_impersonation_->IsGranted(user);
+  }
+
+  bool UserImpIsDenied(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    if (db_name && !HasAccess(*db_name)) {
+      return false;
+    }
+    return user_impersonation_ && user_impersonation_->IsDenied(user);
+  }
+
+  void RevokeUserImp() { user_impersonation_.reset(); }
+
+  void GrantUserImp() {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->GrantAll();
+  }
+
+  void GrantUserImp(const std::vector<User> &users) {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->Grant(users);
+  }
+
+  void DenyUserImp(const std::vector<User> &users) {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->Deny(users);
+  }
+
+  const auto &user_impersonation() const { return user_impersonation_; }
+#endif
+
+  // Profile management moved to UserProfiles class
+
+  bool IsBuiltIn() const { return is_builtin_; }
+
+  void SetBuiltIn(bool value) { is_builtin_ = value; }
+
+  nlohmann::json Serialize() const;
+
+  /// @throw AuthException if unable to deserialize.
+  static Role Deserialize(const nlohmann::json &data);
+
+  friend bool operator==(const Role &first, const Role &second);
+
+ private:
+  std::string rolename_;
+  Permissions permissions_;
+  bool is_builtin_{false};
+#ifdef MG_ENTERPRISE
+  FineGrainedAccessHandler fine_grained_access_handler_;
+  PropertyAccessHandler property_access_handler_;
+  Databases db_access_;
+  std::optional<UserImpersonation> user_impersonation_;
+  // Profile data moved to UserProfiles class
+#endif
+};
+
+bool operator==(const Role &first, const Role &second);
+
+#ifdef MG_ENTERPRISE
+FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
+                                   const FineGrainedAccessPermissions &second);
+
+PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, PropertyAccessPermissions const &second);
+#endif
+
+}  // namespace memgraph::auth
+
+// Hash function for Role to enable use in unordered_set
+namespace std {
+template <>
+struct hash<memgraph::auth::Role> {
+  std::size_t operator()(const memgraph::auth::Role &role) const { return std::hash<std::string>{}(role.rolename()); }
+};
+}  // namespace std
+
+namespace memgraph::auth {
+
+// Class that encapsulates multiple roles and provides read-only API
+class Roles {
+ public:
+  Roles() = default;
+
+  explicit Roles(std::unordered_set<Role> roles) : roles_{std::move(roles)} {}
+
+  // Add a single role
+  void AddRole(const Role &role) {
+    RemoveRole(role.rolename());
+    roles_.insert(role);
+  }
+
+  // Remove a role by name
+  void RemoveRole(const std::string &rolename) {
+    auto it = std::ranges::find(roles_, rolename, &Role::rolename);
+    if (it != roles_.end()) {
+      roles_.erase(it);
+    }
+  }
+
+  // Get all roles
+  const std::unordered_set<Role> &GetRoles() const { return roles_; }
+
+  std::optional<Role> GetRole(const std::string &rolename) const {
+    auto it = std::ranges::find(roles_, rolename, &Role::rolename);
+    if (it == roles_.end()) {
+      return std::nullopt;
+    }
+    return *it;
+  }
+
+  // Get roles filtered by database access
+  std::unordered_set<Role> GetFilteredRoles(std::optional<std::string_view> db_name = std::nullopt) const {
+#ifdef MG_ENTERPRISE
+    if (!db_name) return roles_;
+
+    std::unordered_set<Role> filtered_roles;
+    for (const auto &role : roles_) {
+      if (role.HasAccess(*db_name)) {
+        filtered_roles.insert(role);
+      }
+    }
+    return filtered_roles;
+#else
+    return roles_;
+#endif
+  }
+
+  // Read-only API that combines permissions from all roles
+  std::vector<std::string> rolenames() const {
+    std::vector<std::string> names;
+    names.reserve(roles_.size());
+    for (const auto &role : roles_) {
+      names.push_back(role.rolename());
+    }
+    return names;
+  }
+
+  Permissions GetPermissions(std::optional<std::string_view> db_name = std::nullopt) const {
+    Permissions permissions;
+    for (const auto &role : roles_) {
+#ifdef MG_ENTERPRISE
+      if (!db_name || role.HasAccess(*db_name)) {
+        permissions = Permissions{permissions.grants() | role.permissions().grants(),
+                                  permissions.denies() | role.permissions().denies()};
+      }
+#else
+      permissions = Permissions{permissions.grants() | role.permissions().grants(),
+                                permissions.denies() | role.permissions().denies()};
+#endif
+    }
+    return permissions;
+  }
+
+#ifdef MG_ENTERPRISE
+  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+
+  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+
+  PropertyAccessPermissions GetPropertyLabelPermissions(std::optional<std::string_view> db_name = std::nullopt) const;
+  PropertyAccessPermissions GetPropertyEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+
+  // No way to define a higher priority database, so we return the first one
+  const std::string &GetMain() const {
+    static std::string empty_db;
+    return roles_.empty() ? empty_db : roles_.begin()->GetMain();
+  }
+
+  bool DeniesDB(std::string_view db_name) const {
+    return std::ranges::any_of(roles_, [db_name](const auto &role) { return role.DeniesDB(db_name); });
+  }
+
+  bool GrantsDB(std::string_view db_name) const {
+    return std::ranges::any_of(roles_, [db_name](const auto &role) { return role.GrantsDB(db_name); });
+  }
+
+  bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
+
+  bool UserImpIsGranted(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    return std::ranges::any_of(roles_,
+                               [&user, &db_name](const auto &role) { return role.UserImpIsGranted(user, db_name); });
+  }
+
+  bool UserImpIsDenied(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    return std::ranges::any_of(roles_,
+                               [&user, &db_name](const auto &role) { return role.UserImpIsDenied(user, db_name); });
+  }
+
+  bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    return !UserImpIsDenied(user, db_name) && UserImpIsGranted(user, db_name);
+  }
+
+  // Profile management moved to UserProfiles class
+#endif
+
+  // Iteration support
+  auto begin() { return roles_.begin(); }
+
+  auto end() { return roles_.end(); }
+
+  auto begin() const { return roles_.begin(); }
+
+  auto end() const { return roles_.end(); }
+
+  auto cbegin() const { return roles_.cbegin(); }
+
+  auto cend() const { return roles_.cend(); }
+
+  // Size and empty checks
+  bool empty() const { return roles_.empty(); }
+
+  size_t size() const { return roles_.size(); }
+
+  // Comparison operators
+  friend bool operator==(const Roles &first, const Roles &second) { return first.roles_ == second.roles_; }
+
+  friend bool operator!=(const Roles &first, const Roles &second) { return !(first == second); }
+
+ private:
+  std::unordered_set<Role> roles_;
+};
 
 // TODO (mferencevic): Implement password expiry.
 class User final {
@@ -332,10 +930,12 @@ class User final {
   User();
 
   explicit User(const std::string &username);
-  User(const std::string &username, std::string password_hash, const Permissions &permissions);
+  User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
+       utils::UUID uuid = {});
 #ifdef MG_ENTERPRISE
-  User(const std::string &username, std::string password_hash, const Permissions &permissions,
-       FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {});
+  User(const std::string &username, std::optional<HashedPassword> password_hash, const Permissions &permissions,
+       FineGrainedAccessHandler fine_grained_access_handler, Databases db_access = {}, utils::UUID uuid = {},
+       std::optional<UserImpersonation> usr_imp = std::nullopt, PropertyAccessHandler property_access_handler = {});
 #endif
   User(const User &) = default;
   User &operator=(const User &) = default;
@@ -345,33 +945,178 @@ class User final {
 
   /// @throw AuthException if unable to verify the password.
   bool CheckPassword(const std::string &password);
+  bool CheckPasswordExplicit(const std::string &password);
+
+  bool UpgradeHash(const std::string password) {
+    if (!password_hash_) return false;
+    if (password_hash_->IsSalted()) return false;
+
+    auto const algo = password_hash_->HashAlgo();
+    UpdatePassword(password, algo);
+    return true;
+  }
+
+  auto PasswordHashAlgo() const -> std::optional<PasswordHashAlgorithm> {
+    if (!password_hash_) return std::nullopt;
+    return password_hash_->HashAlgo();
+  }
 
   /// @throw AuthException if unable to set the password.
-  void UpdatePassword(const std::optional<std::string> &password = std::nullopt);
+  void UpdatePassword(const std::optional<std::string> &password = {},
+                      std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
+  void UpdateHash(HashedPassword hashed_password);
 
-  void SetRole(const Role &role);
+  void ClearAllRoles();
 
-  void ClearRole();
+  void AddRole(const Role &role);
 
-  Permissions GetPermissions() const;
+  void RemoveRole(const std::string &rolename) { roles_.RemoveRole(rolename); }
 
+  const Roles &roles() const { return roles_; }
+
+  Roles &roles() { return roles_; }
+
+// Multi-tenant role support
 #ifdef MG_ENTERPRISE
-  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions() const;
-  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions() const;
+  void AddMultiTenantRole(Role role, const std::string &db_name);
+  void RemoveMultiTenantRole(const std::string &rolename, const std::string &db_name);
+  void ClearMultiTenantRoles(const std::string &db_name);
+#endif
+
+  // Fine grained access control
+#ifdef MG_ENTERPRISE
+  FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  FineGrainedAccessPermissions GetUserFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  FineGrainedAccessPermissions GetUserFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  FineGrainedAccessPermissions GetRoleFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  FineGrainedAccessPermissions GetRoleFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
+  PropertyAccessHandler const &property_access_handler() const;
+  PropertyAccessHandler &property_access_handler();
+
+  PropertyAccessPermissions GetPropertyLabelPermissions(std::optional<std::string_view> db_name = std::nullopt) const;
+  PropertyAccessPermissions GetPropertyEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
 #endif
   const std::string &username() const;
 
   const Permissions &permissions() const;
   Permissions &permissions();
 
-  const Role *role() const;
-
+  // Multi-tenant access
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
+
   const Databases &db_access() const { return database_access_; }
+
+  const std::string &GetMain() const { return database_access_.GetMain(); }
+
+  bool DeniesDB(std::string_view db_name) const { return database_access_.Denies(db_name) || roles_.DeniesDB(db_name); }
+
+  bool GrantsDB(std::string_view db_name) const { return database_access_.Grants(db_name) || roles_.GrantsDB(db_name); }
+
+  bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
+
+  bool has_access(std::string_view db_name) const {
+    return !database_access_.Denies(db_name) && database_access_.Grants(db_name);
+  }
 #endif
+
+// Impersonate user
+#ifdef MG_ENTERPRISE
+  bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    if (GetPermissions(db_name).Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
+    if (db_name && !HasAccess(*db_name)) return false;  // Users+role level access check
+
+    // Use the Roles class methods that now support database filtering
+    bool role_grants = roles_.UserImpIsGranted(user, db_name);
+    bool role_denies = roles_.UserImpIsDenied(user, db_name);
+
+    if (!user_impersonation_) return !role_denies && role_grants;
+    bool user_grants = role_grants || user_impersonation_->IsGranted(user);
+    bool user_denies = role_denies || user_impersonation_->IsDenied(user);
+    return !user_denies && user_grants;
+  }
+
+  void RevokeUserImp() { user_impersonation_.reset(); }
+
+  void GrantUserImp() {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->GrantAll();
+  }
+
+  void GrantUserImp(const std::vector<User> &users) {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->Grant(users);
+  }
+
+  void DenyUserImp(const std::vector<User> &users) {
+    if (!user_impersonation_) user_impersonation_.emplace();
+    user_impersonation_->Deny(users);
+  }
+
+  const auto &user_impersonation() const { return user_impersonation_; }
+#endif
+
+  // Multi-tenant role management
+  Permissions GetPermissions(std::optional<std::string_view> db_name = std::nullopt) const {
+#ifdef MG_ENTERPRISE
+    if (db_name && !HasAccess(*db_name)) return Permissions{};  // Users+role level access check
+    // filter roles based on the database name and combine with user permissions
+    const auto &roles_permissions = roles_.GetPermissions(db_name);
+    if (!db_name || has_access(*db_name)) {  // User only level access check
+      return Permissions{permissions_.grants() | roles_permissions.grants(),
+                         permissions_.denies() | roles_permissions.denies()};
+    }
+    return roles_permissions;
+#else
+    const auto roles_permissions = roles_.GetPermissions();
+    return Permissions{permissions_.grants() | roles_permissions.grants(),
+                       permissions_.denies() | roles_permissions.denies()};
+#endif
+  }
+
+#ifdef MG_ENTERPRISE
+  std::unordered_set<Role> GetRoles(std::optional<std::string_view> db_name = std::nullopt) const {
+    return roles_.GetFilteredRoles(db_name);
+  }
+
+  std::unordered_set<Role> GetMultiTenantRoles(const std::string &db_name) const {
+    std::unordered_set<Role> roles;
+    try {
+      for (const auto &role : db_role_map_.at(db_name)) {
+        if (const auto &role_obj = roles_.GetRole(role); role_obj) {
+          DMG_ASSERT(role_obj->HasAccess(db_name), "Role {} does not have access to database {}", role, db_name);
+          roles.insert(role_obj.value());
+        }
+      }
+    } catch (const std::out_of_range &e) {
+      return {};
+    }
+    return roles;
+  }
+
+  // Get multi-tenant role mappings for storage
+  const std::unordered_map<std::string, std::unordered_set<std::string>> &GetMultiTenantRoleMappings() const {
+    return db_role_map_;
+  }
+
+#endif
+
+  const utils::UUID &uuid() const { return uuid_; }
+
+  // Profile management moved to UserProfiles class
+
+  // Read-only API that combines rolenames from all roles
+  std::vector<std::string> rolenames() const { return roles_.rolenames(); }
 
   nlohmann::json Serialize() const;
 
@@ -382,13 +1127,19 @@ class User final {
 
  private:
   std::string username_;
-  std::string password_hash_;
+  std::optional<HashedPassword> password_hash_;
   Permissions permissions_;
 #ifdef MG_ENTERPRISE
   FineGrainedAccessHandler fine_grained_access_handler_;
-  Databases database_access_;
+  PropertyAccessHandler property_access_handler_;
+  Databases database_access_{};
+  std::optional<UserImpersonation> user_impersonation_{};
+  std::unordered_map<std::string, std::unordered_set<std::string>> db_role_map_{};  // Map of database name to role name
+  std::unordered_map<std::string, std::unordered_set<std::string>> role_db_map_{};  // Map of role name to database name
+  // Profile data moved to UserProfiles class
 #endif
-  std::optional<Role> role_;
+  Roles roles_;
+  utils::UUID uuid_{};  // To uniquely identify a user
 };
 
 bool operator==(const User &first, const User &second);
@@ -397,4 +1148,10 @@ bool operator==(const User &first, const User &second);
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second);
 #endif
+
+constexpr int kCurrentEntityVersion = 4;
+
+/// Migrate a single user or role JSON object to the latest format in-place.
+void MigrateAuthJson(nlohmann::json &data);
+
 }  // namespace memgraph::auth

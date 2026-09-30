@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,12 @@
 
 #pragma once
 
+#include <array>
 #include <cstdint>
 
 namespace memgraph::communication::bolt {
 
-inline constexpr uint8_t kPreamble[4] = {0x60, 0x60, 0xB0, 0x17};
+inline constexpr auto kPreamble = std::array<uint8_t, 4>{0x60, 0x60, 0xB0, 0x17};
 
 enum class Signature : uint8_t {
   Noop = 0x00,
@@ -49,6 +50,13 @@ enum class Signature : uint8_t {
   Duration = 0x45,
   LocalDateTime = 0x64,
   LocalTime = 0x74,
+  DateTime = 0x49,
+  DateTimeZoneId = 0x69,
+  LegacyDateTime = 0x46,
+  LegacyDateTimeZoneId = 0x66,
+
+  Point2d = 0x58,
+  Point3d = 0x59,
 };
 
 enum class Marker : uint8_t {
@@ -60,7 +68,7 @@ enum class Marker : uint8_t {
   // TinyStructX represents the value of TinyStruct + X
   // This is defined to make decoding easier. To check if a marker is equal
   // to TinyStruct + 1 you should use something like:
-  //   underyling_cast(marker) == underyling_cast(Marker::TinyStruct) + 1
+  //   underlying_cast(marker) == underlying_cast(Marker::TinyStruct) + 1
   // This way you can just use:
   //   marker == Marker::TinyStruct1
   TinyStruct1 = 0xB1,
@@ -97,8 +105,8 @@ enum class Marker : uint8_t {
 };
 
 inline constexpr uint8_t MarkerString = 0, MarkerList = 1, MarkerMap = 2;
-inline constexpr Marker MarkerTiny[3] = {Marker::TinyString, Marker::TinyList, Marker::TinyMap};
-inline constexpr Marker Marker8[3] = {Marker::String8, Marker::List8, Marker::Map8};
-inline constexpr Marker Marker16[3] = {Marker::String16, Marker::List16, Marker::Map16};
-inline constexpr Marker Marker32[3] = {Marker::String32, Marker::List32, Marker::Map32};
+inline constexpr auto MarkerTiny = std::array{Marker::TinyString, Marker::TinyList, Marker::TinyMap};
+inline constexpr auto Marker8 = std::array{Marker::String8, Marker::List8, Marker::Map8};
+inline constexpr auto Marker16 = std::array{Marker::String16, Marker::List16, Marker::Map16};
+inline constexpr auto Marker32 = std::array{Marker::String32, Marker::List32, Marker::Map32};
 }  // namespace memgraph::communication::bolt

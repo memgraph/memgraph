@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,25 +11,20 @@
 
 #pragma once
 
-#include <fmt/core.h>
-#include "utils/simple_json.hpp"
+#include <cstdint>
+#include <string>
 
 namespace memgraph::storage {
 
 struct LabelIndexStats {
   uint64_t count;
   double avg_degree;
+
+  auto operator<=>(const LabelIndexStats &) const = default;
 };
 
-static inline std::string ToJson(const LabelIndexStats &in) {
-  return fmt::format(R"({{"count":{}, "avg_degree":{}}})", in.count, in.avg_degree);
-}
+std::string ToJson(const LabelIndexStats &in);
 
-static inline bool FromJson(const std::string &json, LabelIndexStats &out) {
-  bool res = true;
-  res &= utils::GetJsonValue(json, "count", out.count);
-  res &= utils::GetJsonValue(json, "avg_degree", out.avg_degree);
-  return res;
-}
+bool FromJson(const std::string &json, LabelIndexStats &out);
 
 }  // namespace memgraph::storage

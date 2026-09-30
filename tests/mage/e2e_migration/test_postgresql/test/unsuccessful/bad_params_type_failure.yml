@@ -1,0 +1,17 @@
+query: |
+  CALL migrate.postgresql(
+      'SELECT bigint_col FROM dummy_table WHERE bigint_col = %s',
+      {
+          host: 'postgresql_test',
+          port: 5432,
+          user: 'memgraph',
+          password: 'memgraph_password',
+          database: 'test_db'
+      },
+      '',
+      {bad: 'params'}
+  )
+  YIELD row
+  RETURN row
+
+exception: true

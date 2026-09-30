@@ -1,0 +1,15 @@
+// Hot/cold ISSU coverage. A tenant (db1) that existed BEFORE the upgrade has its
+// durability written by the old binary and migrated (V1 -> V2) on boot of the new
+// binary. It must survive a full SUSPEND -> COLD -> RESUME -> HOT round trip on the
+// upgraded instance. SUSPEND/RESUME do not exist on the old binary, so this can only
+// be exercised post-upgrade. Run as system_admin (multi-database DDL) on the default
+// db, NOT while USE-ing db1 (an active db1 accessor would block the freeze).
+// Data integrity is asserted by post_upgrade_db1.cypherl, which runs AFTER this file.
+// With --storage-snapshot-on-exit=false (see values_template.yaml) the suspend writes
+// no snapshot and RESUME reheats from WAL.
+SUSPEND DATABASE db1;
+RESUME DATABASE db1;
+// Re-resuming an already-HOT database is idempotent success (returns the distinct
+// "Database db1 is already resumed (HOT)." status, not an error).
+RESUME DATABASE db1;
+SHOW DATABASES;

@@ -1,0 +1,14 @@
+# `endNodes` is the identity counterpart of a '>' label: the node is returned but the walk carries on
+# through it, so D is both reported and expanded past.
+query: >
+  MATCH (a:Node {name: "A"}), (b:Node {name: "B"}), (d:Node {name: "D"})
+  CALL path.expand_config(a, {maxHops: 4, endNodes: [b, d]})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A", "B"]
+  - names: ["A", "E", "D"]
+  - names: ["A", "B", "C", "D"]
+  - names: ["A", "E", "D", "C", "B"]

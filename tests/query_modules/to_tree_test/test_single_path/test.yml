@@ -1,0 +1,13 @@
+query: >
+  MATCH p = (person:Person {name: 'Alice'})-[:OWNS]->(car:Car {model: 'Toyota'})
+  CALL convert_c.to_tree(p) YIELD value
+  RETURN value.name AS name,
+         value._type AS type,
+         size(value.owns) AS car_count,
+         [car IN value.owns | car.model] AS car_models
+
+output:
+  - name: Alice
+    type: Person
+    car_count: 1
+    car_models: ["Toyota"]

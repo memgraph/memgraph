@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,38 +11,50 @@
 
 #include "telemetry/telemetry.hpp"
 
+#include <chrono>
 #include <filesystem>
 #include <utility>
 
 #include <fmt/format.h>
 
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_state.hpp"
+#endif
 #include "communication/bolt/metrics.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "query/plan/operator.hpp"
 #include "requests/requests.hpp"
 #include "telemetry/collectors.hpp"
-#include "utils/event_counter.hpp"
 #include "utils/event_map.hpp"
 #include "utils/event_trigger.hpp"
-#include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/system_info.hpp"
 #include "utils/timestamp.hpp"
 #include "utils/uuid.hpp"
 #include "version.hpp"
 
+#include <mutex>
+
+namespace {
+constexpr auto kFirstShotAfter = std::chrono::seconds{60};
+constexpr auto kEventStartup = "startup";
+constexpr auto kEventShutdown = "shutdown";
+}  // namespace
+
 namespace memgraph::telemetry {
 
 constexpr auto kMaxBatchSize{100};
 
 Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, std::string uuid, std::string machine_id,
-                     bool ssl, std::filesystem::path root_directory, std::chrono::duration<int64_t> refresh_interval,
-                     const uint64_t send_every_n)
+                     bool const ssl, std::filesystem::path root_directory,
+                     std::chrono::duration<int64_t> refresh_interval, const uint64_t send_every_n)
     : url_(std::move(url)),
       uuid_(std::move(uuid)),
       machine_id_(std::move(machine_id)),
       ssl_(ssl),
       send_every_n_(send_every_n),
       storage_(std::move(storage_directory)) {
-  StoreData("startup", utils::GetSystemInfo());
+  StoreData(kEventStartup, utils::GetSystemInfo());
   AddCollector("resources", [&, root_directory = std::move(root_directory)]() -> nlohmann::json {
     return GetResourceUsage(root_directory);
   });
@@ -53,17 +65,48 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
          metrics::global_one_shot_events[metrics::OneShotEvents::kFirstSuccessfulQueryTs].load()},
         {"first_failed_query", metrics::global_one_shot_events[metrics::OneShotEvents::kFirstFailedQueryTs].load()}};
   });
-  scheduler_.Run("Telemetry", refresh_interval, [&] { CollectData(); });
+  AddCollector("environment", []() -> nlohmann::json {
+    return utils::DetectRuntimeEnv() == utils::RuntimeEnv::KUBERNETES ? "kubernetes" : "else";
+  });
+
+  scheduler_.Pause();  // Don't run until all collects have been added
+  scheduler_.SetInterval(
+      std::min(kFirstShotAfter, refresh_interval));  // use user-defined interval if shorter than first shot
+  scheduler_.Run(
+      "Telemetry",
+      [this, final_interval = refresh_interval, update_interval = kFirstShotAfter < refresh_interval]() mutable {
+        CollectData();
+        // First run after 60s; all subsequent runs at the user-defined interval
+        if (update_interval) {
+          update_interval = false;
+          scheduler_.SetInterval(final_interval);
+        }
+      });
 }
 
-void Telemetry::AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func) {
-  std::lock_guard<std::mutex> guard(lock_);
-  collectors_.emplace_back(name, func);
+void Telemetry::Start() { scheduler_.Resume(); }
+
+void Telemetry::AddCollector(std::string name, FuncSig func) {
+  auto guard = std::lock_guard{lock_};
+  collectors_.emplace_back(std::move(name), std::move(func));
 }
 
-Telemetry::~Telemetry() {
+void Telemetry::Stop() {
+  abort_.store(true, std::memory_order_relaxed);
   scheduler_.Stop();
-  CollectData("shutdown");
+}
+
+Telemetry::~Telemetry() noexcept {
+  try {
+    Stop();
+    // Clear the abort flag so the final shutdown collection can actually send
+    // data (with the 10s timeout). Without this, the in-flight curl transfer
+    // would be aborted immediately because the flag is still set.
+    abort_.store(false, std::memory_order_relaxed);
+    CollectData(kEventShutdown);
+  } catch (...) {
+    (void)0;  // clang-tidy
+  }
 }
 
 void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &data) {
@@ -78,7 +121,7 @@ void Telemetry::StoreData(const nlohmann::json &event, const nlohmann::json &dat
   storage_.Put(fmt::format("{}:{}", uuid_, event.dump()), payload.dump());
 }
 
-void Telemetry::SendData() {
+void Telemetry::SendData(int timeout_seconds) {
   std::vector<std::string> keys;
   nlohmann::json payload = nlohmann::json::array();
 
@@ -88,12 +131,14 @@ void Telemetry::SendData() {
     try {
       payload.push_back(nlohmann::json::parse(it->second));
     } catch (const nlohmann::json::parse_error &e) {
-      SPDLOG_WARN("Couldn't convert {} to json", it->second);
+      SPDLOG_WARN("Couldn't convert {} to json. Error: {}", it->second, e.what());
     }
   }
 
-  if (requests::RequestPostJson(url_, payload,
-                                /* timeout_in_seconds = */ 2 * 60)) {
+  if (requests::RequestPostJson(url_,
+                                payload,
+                                /* timeout_in_seconds = */ timeout_seconds,
+                                &abort_)) {
     for (const auto &key : keys) {
       if (!storage_.Delete(key)) {
         SPDLOG_WARN(
@@ -108,42 +153,43 @@ void Telemetry::SendData() {
 void Telemetry::CollectData(const std::string &event) {
   nlohmann::json data = nlohmann::json::object();
   {
-    std::lock_guard<std::mutex> guard(lock_);
-    for (auto &collector : collectors_) {
+    auto guard = std::lock_guard{lock_};
+    for (auto &[name, func] : collectors_) {
       try {
-        data[collector.first] = collector.second();
+        if (auto res = func(); res.has_value()) {
+          data[name] = std::move(*res);
+        }
       } catch (std::exception &e) {
         spdlog::warn(fmt::format(
-            "Unknwon exception occured on in telemetry server {}, please contact support on https://memgr.ph/unknown ",
+            "Unknown exception occurred on in telemetry server {}, please contact support on https://memgr.ph/unknown ",
             e.what()));
       }
     }
   }
-  if (event == "") {
+  if (event.empty()) {
     StoreData(num_++, data);
   } else {
     StoreData(event, data);
   }
-  if (num_ % send_every_n_ == 0 || event == "shutdown") {
-    SendData();
+  if (num_ % send_every_n_ == 0 || event == kEventShutdown) {
+    // Use shorter timeout for shutdown event
+    int const timeout = (event == kEventShutdown) ? 10 : (2 * 60);
+    SendData(timeout);
   }
 }
 
-const nlohmann::json Telemetry::GetUptime() { return timer_.Elapsed().count(); }
+nlohmann::json Telemetry::GetUptime() const { return timer_.Elapsed().count(); }
 
 void Telemetry::AddQueryModuleCollector() {
   AddCollector("query_module_counters",
                []() -> nlohmann::json { return memgraph::query::plan::CallProcedure::GetAndResetCounters(); });
 }
+
 void Telemetry::AddEventsCollector() {
-  AddCollector("event_counters", []() -> nlohmann::json {
-    nlohmann::json ret;
-    for (size_t i = 0; i < memgraph::metrics::CounterEnd(); ++i) {
-      ret[memgraph::metrics::GetCounterName(i)] = memgraph::metrics::global_counters[i].load(std::memory_order_relaxed);
-    }
-    return ret;
-  });
+  AddCollector("event_counters",
+               []() -> nlohmann::json { return memgraph::metrics::Metrics().GetTelemetryCounters(); });
 }
+
 void Telemetry::AddClientCollector() {
   AddCollector("client", []() -> nlohmann::json { return memgraph::communication::bolt_metrics.ToJson(); });
 }
@@ -162,12 +208,13 @@ void Telemetry::AddDatabaseCollector(dbms::DbmsHandler &dbms_handler) {
 #else
 #endif
 
-void Telemetry::AddStorageCollector(
-    dbms::DbmsHandler &dbms_handler,
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> &auth) {
-  AddCollector("storage", [&dbms_handler, &auth]() -> nlohmann::json {
+void Telemetry::AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth,
+                                    memgraph::parameters::Parameters const &parameters) {
+  AddCollector("storage", [&dbms_handler, &auth, &parameters]() -> nlohmann::json {
     auto stats = dbms_handler.Stats();
     stats.users = auth->AllUsers().size();
+    stats.roles = auth->AllRoles().size();
+    stats.num_parameters = parameters.CountParameters();
     return ToJson(stats);
   });
 }
@@ -176,9 +223,21 @@ void Telemetry::AddExceptionCollector() {
   AddCollector("exception", []() -> nlohmann::json { return memgraph::metrics::global_counters_map.ToJson(); });
 }
 
-void Telemetry::AddReplicationCollector() {
-  // TODO Waiting for the replication refactor to be done before implementing the telemetry
-  AddCollector("replication", []() -> nlohmann::json { return {{"async", -1}, {"sync", -1}}; });
+void Telemetry::AddReplicationCollector(
+    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> const &repl_state) {
+  // Optional because only main returns telemetry json data, replica returns empty o
+  AddCollector("replication",
+               [&repl_state]() -> std::optional<nlohmann::json> { return repl_state.ReadLock()->GetTelemetryJson(); });
 }
+
+#ifdef MG_ENTERPRISE
+void Telemetry::AddCoordinatorCollector(std::weak_ptr<coordination::CoordinatorState> coordinator_state) {
+  // Both leader and followers return the data
+  AddCollector("coordination", [coordinator_state]() -> std::optional<nlohmann::json> {
+    if (auto state = coordinator_state.lock(); state && state->IsCoordinator()) return state->GetTelemetryJson();
+    return std::nullopt;
+  });
+}
+#endif
 
 }  // namespace memgraph::telemetry

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@ namespace memgraph::integrations {
 
 inline constexpr int64_t kDefaultCheckBatchLimit{1};
 inline constexpr int64_t kMinimumStartBatchLimit{1};
-inline constexpr std::chrono::milliseconds kDefaultCheckTimeout{30000};
+inline constexpr std::chrono::milliseconds kDefaultCheckTimeout{30'000};
 inline constexpr std::chrono::milliseconds kMinimumInterval{1};
 inline constexpr int64_t kMinimumSize{1};
 const std::string kReducted{"<REDUCTED>"};

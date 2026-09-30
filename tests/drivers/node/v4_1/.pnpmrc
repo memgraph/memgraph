@@ -1,0 +1,3 @@
+resolution-mode=time-based
+minimum-release-age=10080
+resolution-trust-policy=no-downgrade

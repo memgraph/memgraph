@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,179 +9,215 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <sys/socket.h>
-
-#include <algorithm>
-
-#include "endpoint.hpp"
 #include "io/network/endpoint.hpp"
+
+#include <arpa/inet.h>
+#include <fmt/format.h>
+#include <netdb.h>
+#include <netinet/in.h>
+#include <spdlog/spdlog.h>
+#include <sys/socket.h>
+#include <array>
+#include <cerrno>
+#include <compare>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <limits>
+#include <nlohmann/json.hpp>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <tuple>
+#include <utility>
+#include <vector>
+
 #include "io/network/network_error.hpp"
-#include "utils/logging.hpp"
 #include "utils/message.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/string.hpp"
+
+namespace {
+constexpr std::string_view delimiter = ":";
+}  // namespace
 
 namespace memgraph::io::network {
 
-Endpoint::IpFamily Endpoint::GetIpFamily(const std::string &address) {
-  in_addr addr4;
-  in6_addr addr6;
-  int ipv4_result = inet_pton(AF_INET, address.c_str(), &addr4);
-  int ipv6_result = inet_pton(AF_INET6, address.c_str(), &addr6);
-  if (ipv4_result == 1) {
-    return IpFamily::IP4;
-  } else if (ipv6_result == 1) {
-    return IpFamily::IP6;
-  } else {
-    return IpFamily::NONE;
-  }
-}
+Endpoint::Endpoint(std::string address, uint16_t port) : address_(std::move(address)), port_(port) {}
 
-std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrIpAddress(
-    const std::string &address, const std::optional<uint16_t> default_port = {}) {
-  /// expected address format:
-  ///   - "ip_address:port_number"
-  ///   - "ip_address"
-  /// We parse the address first. If it's an IP address, a default port must
-  // be given, or we return nullopt. If it's a socket address, we try to parse
-  // it into an ip address and a port number; even if a default port is given,
-  // it won't be used, as we expect that it is given in the address string.
-  const std::string delimiter = ":";
-  std::string ip_address;
+auto Endpoint::SocketAddress() const -> std::string { return fmt::format("{}{}{}", address_, delimiter, port_); }
 
-  std::vector<std::string> parts = utils::Split(address, delimiter);
-  if (parts.size() == 1) {
-    if (default_port) {
-      if (GetIpFamily(address) == IpFamily::NONE) {
-        return std::nullopt;
-      }
-      return std::pair{address, *default_port};
-    }
-  } else if (parts.size() == 2) {
-    ip_address = std::move(parts[0]);
-    if (GetIpFamily(ip_address) == IpFamily::NONE) {
-      return std::nullopt;
-    }
-    int64_t int_port{0};
-    try {
-      int_port = utils::ParseInt(parts[1]);
-    } catch (utils::BasicException &e) {
-      spdlog::error(utils::MessageWithLink("Invalid port number {}.", parts[1], "https://memgr.ph/ports"));
-      return std::nullopt;
-    }
-    if (int_port < 0) {
-      spdlog::error(utils::MessageWithLink("Invalid port number {}. The port number must be a positive integer.",
-                                           int_port, "https://memgr.ph/ports"));
-      return std::nullopt;
-    }
-    if (int_port > std::numeric_limits<uint16_t>::max()) {
-      spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
-                                           "https://memgr.ph/ports"));
-      return std::nullopt;
-    }
-
-    return std::pair{ip_address, static_cast<uint16_t>(int_port)};
+auto Endpoint::GetResolvedSocketAddress() const -> std::string {
+  auto const result = TryResolveAddress(address_, port_);
+  if (!result) {
+    throw NetworkError("Couldn't resolve {}:{}.", address_, port_);
   }
 
-  return std::nullopt;
+  auto resolved_address = std::get<0>(*result);
+  auto resolved_port = std::get<1>(*result);
+
+  return fmt::format("{}{}{}", resolved_address, delimiter, resolved_port);
 }
 
-std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseHostname(
-    const std::string &address, const std::optional<uint16_t> default_port = {}) {
-  const std::string delimiter = ":";
-  std::string ip_address;
-  std::vector<std::string> parts = utils::Split(address, delimiter);
-  if (parts.size() == 1) {
-    if (default_port) {
-      if (!IsResolvableAddress(address, *default_port)) {
-        return std::nullopt;
-      }
-      return std::pair{address, *default_port};
-    }
-  } else if (parts.size() == 2) {
-    int64_t int_port{0};
-    auto hostname = std::move(parts[0]);
-    try {
-      int_port = utils::ParseInt(parts[1]);
-    } catch (utils::BasicException &e) {
-      spdlog::error(utils::MessageWithLink("Invalid port number {}.", parts[1], "https://memgr.ph/ports"));
+auto Endpoint::GetResolvedIPAddress() const -> std::string {
+  auto const result = TryResolveAddress(address_, port_);
+  if (!result) {
+    throw NetworkError("Couldn't resolve {}:{}.", address_, port_);
+  }
+
+  auto resolved_address = std::get<0>(*result);
+
+  return resolved_address;
+}
+
+[[nodiscard]] auto Endpoint::GetIpFamily() const -> IpFamily {
+  auto const result = TryResolveAddress(address_, port_);
+  if (!result) {
+    throw NetworkError("Couldn't resolve {}:{}.", address_, port_);
+  }
+
+  return std::get<2>(*result);
+}
+
+std::optional<Endpoint::RetValue> Endpoint::TryResolveAddress(std::string_view address, uint16_t port) {
+  auto const process_ipv4_family = [address](addrinfo *socket_addr, uint16_t port) -> std::optional<RetValue> {
+    std::array<char, INET_ADDRSTRLEN> buffer;  // intentionally uninitialized
+    auto *socket_address_ipv4 = reinterpret_cast<struct sockaddr_in *>(socket_addr->ai_addr);
+    auto const *res = inet_ntop(socket_addr->ai_family, &(socket_address_ipv4->sin_addr), buffer.data(), buffer.size());
+    if (res == NULL) {    // NOLINT
+      int errsv = errno;  // don't reorder, otherwise errno could get reassigned.
+      spdlog::error("inet_ntop failed with errno {} when resolving {} to ipv4 address.", errsv, address);
       return std::nullopt;
     }
-    if (int_port < 0) {
-      spdlog::error(utils::MessageWithLink("Invalid port number {}. The port number must be a positive integer.",
-                                           int_port, "https://memgr.ph/ports"));
-      return std::nullopt;
-    }
-    if (int_port > std::numeric_limits<uint16_t>::max()) {
-      spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
-                                           "https://memgr.ph/ports"));
-      return std::nullopt;
-    }
-    if (IsResolvableAddress(hostname, static_cast<uint16_t>(int_port))) {
-      return std::pair{hostname, static_cast<u_int16_t>(int_port)};
-    }
-  }
-  return std::nullopt;
-}
-
-std::string Endpoint::SocketAddress() const {
-  auto ip_address = address.empty() ? "EMPTY" : address;
-  return ip_address + ":" + std::to_string(port);
-}
-
-Endpoint::Endpoint(std::string ip_address, uint16_t port) : address(std::move(ip_address)), port(port) {
-  IpFamily ip_family = GetIpFamily(address);
-  if (ip_family == IpFamily::NONE) {
-    throw NetworkError("Not a valid IPv4 or IPv6 address: {}", ip_address);
-  }
-  family = ip_family;
-}
-
-// NOLINTNEXTLINE
-Endpoint::Endpoint(needs_resolving_t, std::string hostname, uint16_t port)
-    : address(std::move(hostname)), port(port), family{GetIpFamily(address)} {}
-
-std::ostream &operator<<(std::ostream &os, const Endpoint &endpoint) {
-  // no need to cover the IpFamily::NONE case, as you can't even construct an
-  // Endpoint object if the IpFamily is NONE (i.e. the IP address is invalid)
-  // unless you use DNS hostname
-  if (endpoint.family == Endpoint::IpFamily::IP6) {
-    return os << "[" << endpoint.address << "]"
-              << ":" << endpoint.port;
-  }
-  return os << endpoint.address << ":" << endpoint.port;
-}
-
-bool Endpoint::IsResolvableAddress(const std::string &address, uint16_t port) {
-  addrinfo hints{
-      .ai_flags = AI_PASSIVE,
-      .ai_family = AF_UNSPEC,     // IPv4 and IPv6
-      .ai_socktype = SOCK_STREAM  // TCP socket
+    return std::tuple{std::string{buffer.data()}, port, Endpoint::IpFamily::IP4};
   };
-  addrinfo *info = nullptr;
-  auto status = getaddrinfo(address.c_str(), std::to_string(port).c_str(), &hints, &info);
-  if (info) freeaddrinfo(info);
-  return status == 0;
+
+  auto const process_ipv6_family = [address](addrinfo *socket_addr, uint16_t port) -> std::optional<RetValue> {
+    std::array<char, INET6_ADDRSTRLEN> buffer;  // intentionally uninitialized
+    auto *socket_address_ipv6 = reinterpret_cast<sockaddr_in6 *>(socket_addr->ai_addr);
+    auto const *res =
+        inet_ntop(socket_addr->ai_family, &(socket_address_ipv6->sin6_addr), buffer.data(), buffer.size());
+    if (res == NULL) {    // NOLINT
+      int errsv = errno;  // don't reorder, otherwise errno could get reassigned.
+      spdlog::error("inet_ntop failed with errno {} when resolving {} to ipv6 address.", errsv, address);
+      return std::nullopt;
+    }
+    return std::tuple{std::string{buffer.data()}, port, Endpoint::IpFamily::IP6};
+  };
+
+  auto const parse_ip_family = [&address, &port](
+                                   std::function<std::optional<RetValue>(addrinfo *, uint16_t)> const &processing_fn,
+                                   auto family) -> std::optional<RetValue> {
+    addrinfo const hints{
+        .ai_flags = AI_PASSIVE,      // fill with IPv4 or IPv6
+        .ai_family = family,         // IPv4 or IPv6
+        .ai_socktype = SOCK_STREAM,  // TCP socket
+        .ai_protocol = 0,            // any protocol
+    };
+
+    addrinfo *info{nullptr};
+    utils::OnScopeExit const free_info{[&info]() {
+      if (info) {
+        freeaddrinfo(info);
+      }
+    }};
+
+    auto status = getaddrinfo(std::string(address).c_str(), std::to_string(port).c_str(), &hints, &info);
+    if (status != 0) {
+      spdlog::error("getaddrinfo finished unsuccessfully while resolving {}:{}. Error occurred: {}",
+                    address,
+                    port,
+                    gai_strerror(status));
+      return std::nullopt;
+    }
+
+    auto *socket_addr = info;
+    while (socket_addr != nullptr) {
+      if (family != socket_addr->ai_family) {
+        socket_addr = socket_addr->ai_next;
+        continue;
+      }
+      return processing_fn(socket_addr, port);
+    }
+
+    return std::nullopt;
+  };
+
+  auto ip_v4_family = parse_ip_family(process_ipv4_family, AF_INET);
+  if (ip_v4_family) {
+    return std::move(*ip_v4_family);
+  }
+  return parse_ip_family(process_ipv6_family, AF_INET6);
 }
 
-std::optional<std::pair<std::string, uint16_t>> Endpoint::ParseSocketOrAddress(
-    const std::string &address, const std::optional<uint16_t> default_port) {
-  const std::string delimiter = ":";
-  std::vector<std::string> parts = utils::Split(address, delimiter);
-  if (parts.size() == 1) {
-    if (GetIpFamily(address) == IpFamily::NONE) {
-      return ParseHostname(address, default_port);
-    }
-    return ParseSocketOrIpAddress(address, default_port);
+std::optional<Endpoint> Endpoint::ParseAndCreateSocketOrAddress(std::string_view address,
+                                                                std::optional<uint16_t> default_port) {
+  auto const parts = utils::SplitView(address, delimiter);
+
+  if (parts.size() > 2) {
+    return std::nullopt;
   }
-  if (parts.size() == 2) {
-    if (GetIpFamily(parts[0]) == IpFamily::NONE) {
-      return ParseHostname(address, default_port);
+
+  auto const port = [default_port, &parts]() -> std::optional<uint16_t> {
+    if (parts.size() == 2) {
+      return static_cast<uint16_t>(utils::ParseInt(parts[1]));
     }
-    return ParseSocketOrIpAddress(address, default_port);
+    return default_port;
+  }();
+
+  if (!ValidatePort(port)) {
+    return std::nullopt;
   }
-  return std::nullopt;
+
+  auto const addr = [address, &parts]() {
+    if (parts.size() == 2) {
+      return parts[0];
+    }
+    return address;
+  }();
+
+  return Endpoint{std::string(addr), *port};  // NOLINT
+}
+
+auto Endpoint::ValidatePort(std::optional<uint16_t> port) -> bool {
+  if (!port) {
+    return false;
+  }
+
+  if (port < 0) {
+    spdlog::error(utils::MessageWithLink(
+        "Invalid port number {}. The port number must be a positive integer.", *port, "https://memgr.ph/ports"));
+    return false;
+  }
+
+  if (port > std::numeric_limits<uint16_t>::max()) {
+    spdlog::error(utils::MessageWithLink("Invalid port number. The port number exceedes the maximum possible size.",
+                                         "https://memgr.ph/ports"));
+    return false;
+  }
+
+  return true;
+}
+
+[[nodiscard]] auto Endpoint::GetAddress() const -> std::string const & { return address_; }
+
+[[nodiscard]] auto Endpoint::GetAddress() -> std::string & { return address_; }
+
+[[nodiscard]] auto Endpoint::GetPort() const -> uint16_t const & { return port_; }
+
+[[nodiscard]] auto Endpoint::GetPort() -> uint16_t & { return port_; }
+
+void Endpoint::SetAddress(std::string address) { address_ = std::move(address); }
+
+void Endpoint::SetPort(uint16_t port) { port_ = port; }
+
+void to_json(nlohmann::json &j, Endpoint const &config) {
+  j = nlohmann::json{{"address", config.GetAddress()}, {"port", config.GetPort()}};
+}
+
+void from_json(nlohmann::json const &j, Endpoint &config) {
+  config.SetAddress(j.at("address").get<std::string>());
+  config.SetPort(j.at("port").get<uint16_t>());
 }
 
 }  // namespace memgraph::io::network

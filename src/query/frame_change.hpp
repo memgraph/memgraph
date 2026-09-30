@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -8,76 +8,83 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
+#pragma once
+
+#include <regex>
 #include <tuple>
 #include <utility>
+#include "query/frontend/ast/query/named_expression.hpp"
+#include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
-#include "utils/fnv.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
-#include "utils/pmr/vector.hpp"
+
+#include "absl/container/flat_hash_set.h"
+#include "utils/frame_change_id.hpp"
+
 namespace memgraph::query {
-
-// Key is hash output, value is vector of unique elements
-using CachedType = utils::pmr::unordered_map<size_t, utils::pmr::vector<TypedValue>>;
-
-struct CachedValue {
-  using allocator_type = utils::Allocator<CachedValue>;
+struct CachedSet {
+  using allocator_type = utils::Allocator<CachedSet>;
+  using alloc_traits = std::allocator_traits<allocator_type>;
 
   // Cached value, this can be probably templateized
-  CachedType cache_;
+  absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, TypedValue::BoolEqual, allocator_type>
+      cache_;
 
-  explicit CachedValue(utils::MemoryResource *mem) : cache_{mem} {};
-  CachedValue(const CachedValue &other, utils::MemoryResource *mem) : cache_(other.cache_, mem) {}
-  CachedValue(CachedValue &&other, utils::MemoryResource *mem) : cache_(std::move(other.cache_), mem){};
+  /// Whether a lookup here answers the equality question `IN` asks.
+  ///
+  /// The set is keyed by equivalence, which holds a pair alike that equality leaves undecided or
+  /// answers false. The two part company over an element holding a Null or a NaN.
+  bool answers_equality_{true};
 
-  CachedValue(CachedValue &&other) noexcept : CachedValue(std::move(other), other.GetMemoryResource()) {}
+  explicit CachedSet(allocator_type alloc) : cache_{alloc} {}
 
-  CachedValue(const CachedValue &other)
-      : CachedValue(other, std::allocator_traits<allocator_type>::select_on_container_copy_construction(
-                               other.GetMemoryResource())
-                               .GetMemoryResource()) {}
+  CachedSet(const CachedSet &other, allocator_type alloc)
+      : cache_(other.cache_, alloc), answers_equality_(other.answers_equality_) {}
 
-  utils::MemoryResource *GetMemoryResource() const { return cache_.get_allocator().GetMemoryResource(); }
+  CachedSet(CachedSet &&other, allocator_type alloc)
+      : cache_(std::move(other.cache_), alloc), answers_equality_(other.answers_equality_) {}
 
-  CachedValue &operator=(const CachedValue &) = delete;
-  CachedValue &operator=(CachedValue &&) = delete;
+  CachedSet(CachedSet &&other) noexcept : CachedSet(std::move(other), other.get_allocator()) {}
 
-  ~CachedValue() = default;
+  CachedSet(const CachedSet &other)
+      : CachedSet(other, alloc_traits::select_on_container_copy_construction(other.get_allocator())) {}
 
-  bool CacheValue(const TypedValue &maybe_list) {
+  auto get_allocator() const -> allocator_type { return cache_.get_allocator(); }
+
+  CachedSet &operator=(const CachedSet &) = delete;
+  CachedSet &operator=(CachedSet &&) = delete;
+
+  ~CachedSet() = default;
+
+  void Reset() {
+    cache_.clear();
+    answers_equality_ = true;
+  }
+
+  bool SetValue(const TypedValue &maybe_list) {
     if (!maybe_list.IsList()) {
       return false;
     }
     const auto &list = maybe_list.ValueList();
-    TypedValue::Hash hash{};
     for (const auto &element : list) {
-      const auto key = hash(element);
-      auto &vector_values = cache_[key];
-      if (!IsValueInVec(vector_values, element)) {
-        vector_values.emplace_back(element);
-      }
+      // An element that equality does not hold equal to itself costs the set its exactness: a
+      // lookup reports it present where equality would answer Null, for an element holding a
+      // Null, or false, for one holding a NaN.
+      //
+      // A top-level Null is the exception, answered by the explicit lookup for one.
+      if (!element.IsNull() && !relations::equality::EqualsItself(element)) answers_equality_ = false;
+      cache_.insert(element);
     }
     return true;
   }
 
   // Func to check if cache_ contains value
-  bool ContainsValue(const TypedValue &value) const {
-    TypedValue::Hash hash{};
-    const auto key = hash(value);
-    if (cache_.contains(key)) {
-      return IsValueInVec(cache_.at(key), value);
-    }
-    return false;
-  }
+  bool Contains(const TypedValue &value) const { return cache_.contains(value); }
 
- private:
-  static bool IsValueInVec(const utils::pmr::vector<TypedValue> &vec_values, const TypedValue &value) {
-    return std::any_of(vec_values.begin(), vec_values.end(), [&value](auto &vec_value) {
-      const auto is_value_equal = vec_value == value;
-      if (is_value_equal.IsNull()) return false;
-      return is_value_equal.ValueBool();
-    });
-  }
+  /// Whether a lookup here answers the equality question `IN` asks.
+  bool AnswersEquality() const { return answers_equality_; }
 };
 
 // Class tracks keys for which user can cache values which help with faster search or faster retrieval
@@ -85,68 +92,225 @@ struct CachedValue {
 class FrameChangeCollector {
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<FrameChangeCollector>;
+  using alloc_traits = std::allocator_traits<allocator_type>;
 
  public:
-  explicit FrameChangeCollector(utils::MemoryResource *mem = utils::NewDeleteResource()) : tracked_values_{mem} {}
+  explicit FrameChangeCollector(allocator_type alloc = {})
+      : inlist_cache_{alloc}, regex_cache_{alloc}, invalidators_{alloc} {}
 
-  FrameChangeCollector(FrameChangeCollector &&other, utils::MemoryResource *mem)
-      : tracked_values_(std::move(other.tracked_values_), mem) {}
-  FrameChangeCollector(const FrameChangeCollector &other, utils::MemoryResource *mem)
-      : tracked_values_(other.tracked_values_, mem) {}
+  FrameChangeCollector(const FrameChangeCollector &) = delete;
+  FrameChangeCollector(FrameChangeCollector &&) = delete;
+  FrameChangeCollector &operator=(const FrameChangeCollector &) = delete;
+  FrameChangeCollector &operator=(FrameChangeCollector &&) noexcept = delete;
+  ~FrameChangeCollector() = default;
 
-  FrameChangeCollector(const FrameChangeCollector &other)
-      : FrameChangeCollector(other, std::allocator_traits<allocator_type>::select_on_container_copy_construction(
-                                        other.GetMemoryResource())
-                                        .GetMemoryResource()){};
+  auto get_allocator() const -> allocator_type { return inlist_cache_.get_allocator(); }
 
-  FrameChangeCollector(FrameChangeCollector &&other) noexcept
-      : FrameChangeCollector(std::move(other), other.GetMemoryResource()) {}
-
-  /** Copy assign other, utils::MemoryResource of `this` is used */
-  FrameChangeCollector &operator=(const FrameChangeCollector &) = default;
-
-  /** Move assign other, utils::MemoryResource of `this` is used. */
-  FrameChangeCollector &operator=(FrameChangeCollector &&) noexcept = default;
-
-  utils::MemoryResource *GetMemoryResource() const { return tracked_values_.get_allocator().GetMemoryResource(); }
-
-  CachedValue &AddTrackingKey(const std::string &key) {
-    const auto &[it, _] = tracked_values_.emplace(
-        std::piecewise_construct, std::forward_as_tuple(utils::pmr::string(key, utils::NewDeleteResource())),
-        std::forward_as_tuple());
+  auto AddInListKey(utils::FrameChangeId const &key) -> CachedSet & {
+    const auto &[it, _] =
+        inlist_cache_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple());
     return it->second;
   }
 
-  bool IsKeyTracked(const std::string &key) const {
-    return tracked_values_.contains(utils::pmr::string(key, utils::NewDeleteResource()));
+  // This will only happen when walking through the AST to see what is cacheable
+  auto AddRegexKey(utils::FrameChangeId const &key) -> std::optional<std::reference_wrapper<std::regex const>> {
+    regex_cache_.try_emplace(key, std::nullopt);
+    return std::nullopt;
   }
 
-  bool IsKeyValueCached(const std::string &key) const {
-    return IsKeyTracked(key) && !tracked_values_.at(utils::pmr::string(key, utils::NewDeleteResource())).cache_.empty();
+  auto AddRegexKey(utils::FrameChangeId const &key, std::regex regex)
+      -> std::optional<std::reference_wrapper<std::regex const>> {
+    auto it = regex_cache_.find(key);
+    DMG_ASSERT(it != regex_cache_.cend(), "Regex key should be tracked");
+    it->second = std::move(regex);
+    return std::optional{std::cref(*it->second)};
   }
 
-  bool ResetTrackingValue(const std::string &key) {
-    if (!tracked_values_.contains(utils::pmr::string(key, utils::NewDeleteResource()))) {
-      return false;
+  bool IsInlistKeyTracked(utils::FrameChangeId const &key) const { return inlist_cache_.contains(key); }
+
+  bool IsRegexKeyTracked(utils::FrameChangeId const &key) const { return regex_cache_.contains(key); }
+
+  auto TryGetInlistCachedValue(utils::FrameChangeId const &key) const
+      -> std::optional<std::reference_wrapper<CachedSet const>> {
+    auto const it = inlist_cache_.find(key);
+    if (it == inlist_cache_.cend()) {
+      return std::nullopt;
     }
-    tracked_values_.erase(utils::pmr::string(key, utils::NewDeleteResource()));
-    AddTrackingKey(key);
+    // Empty is considered unpopulated
+    if (it->second.cache_.empty()) {
+      return std::nullopt;
+    }
+    return std::optional{std::cref(it->second)};
+  }
+
+  auto TryGetRegexCachedValue(utils::FrameChangeId const &key) const
+      -> std::optional<std::reference_wrapper<std::regex const>> {
+    auto const it = regex_cache_.find(key);
+    if (it == regex_cache_.cend()) {
+      return std::nullopt;
+    }
+    // nullopt if tracked but not populated
+    if (!it->second.has_value()) {
+      return std::nullopt;
+    }
+    return std::optional{std::cref(*it->second)};
+  }
+
+  void ResetCache(Symbol const &symbol) {
+    ResetInListCacheInternal(symbol.position_);
+    ResetRegexCacheInternal(symbol.position_);
+  }
+
+  void ResetCache(NamedExpression const &named_expression) {
+    ResetInListCacheInternal(named_expression.symbol_pos_);
+    ResetRegexCacheInternal(named_expression.symbol_pos_);
+  }
+
+  void ResetInListCache(Symbol const &symbol) { ResetInListCacheInternal(symbol.position_); }
+
+  void ResetInListCache(NamedExpression const &named_expression) {
+    ResetInListCacheInternal(named_expression.symbol_pos_);
+  }
+
+  auto GetInlistCachedValue(utils::FrameChangeId const &key) -> CachedSet & {
+    auto const it = inlist_cache_.find(key);
+    DMG_ASSERT(it != inlist_cache_.cend());
+    return it->second;
+  }
+
+  auto GetRegexCachedValue(utils::FrameChangeId const &key) -> std::optional<std::reference_wrapper<std::regex const>> {
+    auto const it = regex_cache_.find(key);
+    if (it == regex_cache_.cend() || !it->second) {
+      return std::nullopt;
+    }
+    return std::optional{std::cref(*it->second)};
+  }
+
+  void AddInvalidator(utils::FrameChangeId const &key, Symbol::Position_t symbol_pos) {
+    invalidators_[symbol_pos].emplace_back(key);
+  }
+
+  // Merge data from another FrameChangeCollector into this one
+  void MergeFrom(FrameChangeCollector &&other) {
+    // Merge inlist_cache_: combine cached values (union of sets)
+    for (auto &&[key, cached_set] : other.inlist_cache_) {
+      auto [it, inserted] = inlist_cache_.emplace(key, CachedSet(get_allocator()));
+      // Whether a lookup still answers equality is a property of what the set holds, and the
+      // merged set holds what both sides held. Inserting the values below goes around SetValue,
+      // which is where that is worked out, so it is carried over here instead: exactness survives
+      // only where neither side lost it.
+      it->second.answers_equality_ = it->second.answers_equality_ && cached_set.answers_equality_;
+      // Merge the cached values (union of sets) - works for both new and existing keys
+      for (auto &&value : cached_set.cache_) {
+        it->second.cache_.emplace(value);
+      }
+    }
+
+    // Merge regex_cache_: if key doesn't exist in main, insert it
+    // If it exists and main doesn't have a value but branch does, use branch's value
+    for (auto &[key, regex_opt] : other.regex_cache_) {
+      auto [it, inserted] = regex_cache_.emplace(key, std::nullopt);
+      if (!inserted) {
+        // Key exists in both - if main doesn't have a value but branch does, use branch's value
+        if (!it->second.has_value() && regex_opt.has_value()) {
+          it->second = std::move(regex_opt);
+        }
+      } else {
+        // Key didn't exist in main, copy from branch
+        it->second = std::move(regex_opt);
+      }
+    }
+
+    // Merge invalidators_: combine invalidator lists
+    for (auto &[symbol_pos, invalidator_list] : other.invalidators_) {
+      auto &main_list = invalidators_[symbol_pos];
+      main_list.insert(main_list.end(),
+                       std::make_move_iterator(invalidator_list.begin()),
+                       std::make_move_iterator(invalidator_list.end()));
+    }
+  }
+
+  // Copy the cache structure (keys and invalidators) from another collector without copying cached values.
+  // This is used when creating branch collectors for parallel execution.
+  // Branch collectors start with empty caches and will populate them as needed.
+  // Cache invalidation across branches is handled by batch version tracking in ScanParallelCursor.
+  void CopyStructureFrom(const FrameChangeCollector &other) {
+    // Copy inlist_cache_ keys but with empty cached values
+    for (const auto &entry : other.inlist_cache_) {
+      inlist_cache_.emplace(entry.first, CachedSet(get_allocator()));
+    }
+
+    // Copy regex_cache_ keys but with empty (nullopt) values
+    for (const auto &entry : other.regex_cache_) {
+      regex_cache_.emplace(entry.first, std::nullopt);
+    }
+
+    // Copy invalidators_ - used for normal symbol-based invalidation within a batch
+    for (const auto &[symbol_pos, invalidator_list] : other.invalidators_) {
+      auto &main_list = invalidators_[symbol_pos];
+      main_list.insert(main_list.end(), invalidator_list.begin(), invalidator_list.end());
+    }
+  }
+
+  bool AnyCaches() const { return !inlist_cache_.empty() || !regex_cache_.empty(); }
+
+  bool AnyInListCaches() const { return !inlist_cache_.empty(); }
+
+  bool AnyRegexCaches() const { return !regex_cache_.empty(); }
+
+  // Clear all cached values without removing the cache structure.
+  // Used when input changes in parallel execution (e.g., UNWIND produces new value)
+  // to ensure all branches re-evaluate expressions with fresh data.
+  void ClearAllCaches() {
+    for (auto &[key, cached_set] : inlist_cache_) {
+      cached_set.Reset();
+    }
+    for (auto &[key, regex_opt] : regex_cache_) {
+      regex_opt = std::nullopt;
+    }
+  }
+
+  // Clear caches if the batch version has changed since last check.
+  // Used in parallel execution: when ScanParallelCursor gets a new input batch,
+  // all branch collectors must clear their caches to avoid using stale values.
+  // Returns true if caches were cleared.
+  bool ClearCachesIfBatchChanged(uint64_t current_batch_version) {
+    if (last_batch_version_ == current_batch_version) {
+      return false;  // Same batch, caches are still valid
+    }
+    last_batch_version_ = current_batch_version;
+    ClearAllCaches();
     return true;
   }
 
-  CachedValue &GetCachedValue(const std::string &key) {
-    return tracked_values_.at(utils::pmr::string(key, utils::NewDeleteResource()));
+ private:
+  void ResetInListCacheInternal(Symbol::Position_t const &symbol_pos) {
+    auto const it = invalidators_.find(symbol_pos);
+    if (it == invalidators_.cend()) [[likely]]
+      return;
+    for (auto const &key : it->second) {
+      if (auto const it2 = inlist_cache_.find(key); it2 != inlist_cache_.cend()) {
+        it2->second.Reset();
+      }
+    }
   }
 
-  bool IsTrackingValues() const { return !tracked_values_.empty(); }
+  void ResetRegexCacheInternal(Symbol::Position_t const &symbol_pos) {
+    auto const it = invalidators_.find(symbol_pos);
+    if (it == invalidators_.cend()) [[likely]]
+      return;
+    for (auto const &key : it->second) {
+      if (auto it2 = regex_cache_.find(key); it2 != regex_cache_.cend()) {
+        it2->second = std::nullopt;  // tracked but not populated
+      }
+    }
+  }
 
-  ~FrameChangeCollector() = default;
-
- private:
-  struct PmrStringHash {
-    size_t operator()(const utils::pmr::string &key) const { return utils::Fnv(key); }
-  };
-
-  utils::pmr::unordered_map<utils::pmr::string, CachedValue, PmrStringHash> tracked_values_;
+  utils::pmr::unordered_map<utils::FrameChangeId, CachedSet> inlist_cache_;
+  utils::pmr::unordered_map<utils::FrameChangeId, std::optional<std::regex>> regex_cache_;
+  utils::pmr::unordered_map<Symbol::Position_t, utils::pmr::vector<utils::FrameChangeId>> invalidators_;
+  // Tracks the last batch version seen by this collector.
+  // Used by ScanParallelCursor to detect when input changes and caches need clearing.
+  uint64_t last_batch_version_{0};
 };
 }  // namespace memgraph::query

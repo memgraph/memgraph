@@ -1,0 +1,97 @@
+name: Manual Vulnerability Scan
+concurrency:
+  group: manual-cve-scan-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+# The CVE scanning workflow lives in the memgraph/infra repo. This workflow
+# collects the scan parameters and triggers it via a `repository_dispatch`
+# event (event_type "cve-scan"); the scan itself runs in infra.
+
+on:
+  workflow_dispatch:
+    inputs:
+      arch:
+        type: choice
+        description: "Image architecture (amd|arm)"
+        default: amd
+        options:
+          - amd
+          - arm
+      image:
+        type: string
+        description: "Image to scan: a Docker repo:tag, a bare version (e.g. 3.10.1), or a URL to an image archive."
+        required: true
+      run_trivy:
+        type: boolean
+        description: "Scan with Trivy"
+        default: true
+      run_grype:
+        type: boolean
+        description: "Scan with Grype"
+        default: true
+      send_slack_message:
+        type: boolean
+        description: "Send a Slack message"
+        default: false
+
+run-name: Manual CVE Scan for ${{ inputs.arch }} ${{ inputs.image }}
+
+jobs:
+  trigger-cve-scan:
+    name: Trigger CVE Scan in infra
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Dispatch cve-scan to memgraph/infra
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
+          ARCH: ${{ inputs.arch }}
+          IMAGE: ${{ inputs.image }}
+          RUN_TRIVY: ${{ inputs.run_trivy }}
+          RUN_GRYPE: ${{ inputs.run_grype }}
+          SEND_SLACK_MESSAGE: ${{ inputs.send_slack_message }}
+        run: |
+          # Classify the input as a Docker repo:tag or a URL. issu_image_type.py
+          # prints "<class> <value>", converting a bare version to a repo:tag.
+          classified="$(python3 tools/ci/issu_image_type.py "$IMAGE")"
+          cls="${classified%% *}"
+          value="${classified#* }"
+
+          case "$cls" in
+            docker) image="$value"; image_url="" ;;
+            url)     image="";      image_url="$value" ;;
+            *)
+              echo "Could not classify '$IMAGE' as a Docker repo:tag, version, or URL" >&2
+              exit 1
+              ;;
+          esac
+
+          # Build the client_payload with jq so booleans serialize as JSON
+          # booleans (not strings).
+          payload=$(jq -nc \
+            --arg arch "$ARCH" \
+            --arg image "$image" \
+            --arg image_url "$image_url" \
+            --argjson run_trivy "$RUN_TRIVY" \
+            --argjson run_grype "$RUN_GRYPE" \
+            --argjson send_slack_message "$SEND_SLACK_MESSAGE" \
+            '{event_type: "cve-scan", client_payload: {scans: [{
+              arch: $arch,
+              image: $image,
+              image_url: $image_url,
+              run_trivy: $run_trivy,
+              run_grype: $run_grype,
+              send_slack_message: $send_slack_message
+            }]}}')
+
+          echo "Dispatching cve-scan to memgraph/infra:"
+          echo "$payload" | jq .
+
+          curl --proto '=https' --tlsv1.2 -fsSL -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/memgraph/infra/dispatches \
+            -d "$payload"

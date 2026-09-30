@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,8 @@
 #pragma once
 
 #include <netdb.h>
-
+#include <cstddef>
+#include <cstdint>
 #include <iterator>
 #include <memory>
 #include <string>
@@ -51,10 +52,11 @@ class AddrInfo {
     addrinfo *ptr_{nullptr};
   };
 
-  AddrInfo(const std::string &addr, uint16_t port);
+  AddrInfo(const std::string &non_resolved_addr, uint16_t port);
   explicit AddrInfo(const Endpoint &endpoint);
 
   auto begin() const noexcept { return Iterator(info_.get()); }
+
   auto end() const noexcept { return Iterator{nullptr}; }
 
  private:

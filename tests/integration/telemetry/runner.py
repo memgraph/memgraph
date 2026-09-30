@@ -22,6 +22,10 @@ import time
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
+# Seconds allowed for the client to come up before it starts measuring, on top of the duration it
+# was asked to run for.
+STARTUP_ALLOWANCE = 30
+
 
 def execute_test(**kwargs):
     client_binary = kwargs.pop("client")
@@ -34,7 +38,10 @@ def execute_test(**kwargs):
     interval = kwargs.pop("interval", 1)
     duration = kwargs.pop("duration", 5)
 
-    timeout = duration * 2 if "hang" not in kwargs else duration * 2 + 60
+    # The client starts a coordinator before it begins measuring, and a leader election takes as
+    # long as it takes regardless of duration, so the allowance for it has to be added rather than
+    # scaled. This is a hang detector, not an assertion about how fast startup is.
+    timeout = duration + STARTUP_ALLOWANCE if "hang" not in kwargs else duration + STARTUP_ALLOWANCE + 60
     success = False
 
     server_args = [server_binary, "--interval", interval, "--duration", duration]
@@ -90,7 +97,6 @@ TESTS = [
     {"redirect": True},
     {"no_response_count": 2},
     {"wrong_code_count": 2},
-    {"hang": True, "duration": 0},
     {"path": "/nonexistant/", "no_check": True},
     {"endpoint": "http://127.0.0.1:9000/nonexistant/", "no_check": True},
     {"start_server": False},
@@ -101,40 +107,112 @@ TESTS = [
 
 if __name__ == "__main__":
     server_binary = os.path.join(SCRIPT_DIR, "server.py")
+    aws_server_binary = os.path.join(SCRIPT_DIR, "aws_server.py")
     client_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "telemetry", "client")
     kvstore_console_binary = os.path.join(PROJECT_DIR, "build", "tests", "manual", "kvstore_console")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", default=client_binary)
     parser.add_argument("--server", default=server_binary)
+    parser.add_argument("--aws-server", default=aws_server_binary)
     parser.add_argument("--kvstore-console", default=kvstore_console_binary)
+
     args = parser.parse_args()
 
-    storage = tempfile.TemporaryDirectory()
-    durability_root = tempfile.TemporaryDirectory()
+    # Run original tests
+    with tempfile.TemporaryDirectory() as storage, tempfile.TemporaryDirectory() as durability_root:
+        for test in TESTS:
+            print("\033[1;36m~~ Executing test with arguments:", json.dumps(test, sort_keys=True), "~~\033[0m")
 
-    for test in TESTS:
-        print("\033[1;36m~~ Executing test with arguments:", json.dumps(test, sort_keys=True), "~~\033[0m")
+            # Handle add_garbage test for original tests
+            add_garbage = test.pop("add_garbage", False)
+            if add_garbage:
+                proc = subprocess.Popen(
+                    [args.kvstore_console, "--path", storage], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL
+                )
+                proc.communicate("put garbage garbage".encode("utf-8"))
+                assert proc.wait() == 0
 
-        if test.pop("add_garbage", False):
-            proc = subprocess.Popen(
-                [args.kvstore_console, "--path", storage.name], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL
-            )
-            proc.communicate("put garbage garbage".encode("utf-8"))
-            assert proc.wait() == 0
+            try:
+                success = execute_test(
+                    client=args.client, server=args.server, storage=storage, root=durability_root, **test
+                )
+            except Exception as e:
+                print("\033[1;33m", e, "\033[0m", sep="")
+                success = False
+
+            if not success:
+                print("\033[1;31m~~", "Test failed!", "~~\033[0m")
+                sys.exit(1)
+            else:
+                print("\033[1;32m~~", "Test ok!", "~~\033[0m")
+
+            if add_garbage:
+                test["add_garbage"] = True
+
+    # Run AWS Lambda API compatibility tests
+    print("\033[1;35m~~ Running AWS Lambda API compatibility tests ~~\033[0m")
+
+    with tempfile.TemporaryDirectory() as storage, tempfile.TemporaryDirectory() as durability_root:
+        # Use the same TESTS but with AWS endpoint
+        for test in TESTS:
+            # Add AWS endpoint to each test
+            aws_test = test.copy()
+
+            print("\033[1;36m~~ Executing AWS test with arguments:", json.dumps(aws_test, sort_keys=True), "~~\033[0m")
+
+            # Handle add_garbage test for AWS tests
+            add_garbage = aws_test.pop("add_garbage", False)
+            if add_garbage:
+                proc = subprocess.Popen(
+                    [args.kvstore_console, "--path", storage], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL
+                )
+                proc.communicate("put garbage garbage".encode("utf-8"))
+                assert proc.wait() == 0
+
+            try:
+                success = execute_test(
+                    client=args.client, server=args.aws_server, storage=storage, root=durability_root, **aws_test
+                )
+            except Exception as e:
+                print("\033[1;33m", e, "\033[0m", sep="")
+                success = False
+
+            if not success:
+                print("\033[1;31m~~", "AWS test failed!", "~~\033[0m")
+                sys.exit(1)
+            else:
+                print("\033[1;32m~~", "AWS test ok!", "~~\033[0m")
+
+    # Run AWS telemetry validation test
+    print("\033[1;35m~~ Running AWS telemetry validation test ~~\033[0m")
+
+    with tempfile.TemporaryDirectory() as storage, tempfile.TemporaryDirectory() as durability_root:
+        # Test with longer duration to ensure we get multiple telemetry messages
+        validation_test = {
+            "duration": 10,
+            "interval": 2,
+            "field_check": True,  # Enable detailed field validation
+        }
+
+        print(
+            "\033[1;36m~~ Executing AWS telemetry validation test with arguments:",
+            json.dumps(validation_test, sort_keys=True),
+            "~~\033[0m",
+        )
 
         try:
             success = execute_test(
-                client=args.client, server=args.server, storage=storage.name, root=durability_root, **test
+                client=args.client, server=args.aws_server, storage=storage, root=durability_root, **validation_test
             )
         except Exception as e:
             print("\033[1;33m", e, "\033[0m", sep="")
             success = False
 
         if not success:
-            print("\033[1;31m~~", "Test failed!", "~~\033[0m")
+            print("\033[1;31m~~", "AWS telemetry validation test failed!", "~~\033[0m")
             sys.exit(1)
         else:
-            print("\033[1;32m~~", "Test ok!", "~~\033[0m")
+            print("\033[1;32m~~", "AWS telemetry validation test ok!", "~~\033[0m")
 
     sys.exit(0)

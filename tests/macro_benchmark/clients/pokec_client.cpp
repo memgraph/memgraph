@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,13 +22,15 @@
 #include <vector>
 
 #include <gflags/gflags.h>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
+#include "communication/bolt/v1/value.hpp"
 #include "io/network/utils.hpp"
+#include "long_running_common.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/timer.hpp"
 
-#include "long_running_common.hpp"
+#include "communication/bolt/v1/fmt.hpp"
 
 using memgraph::communication::bolt::Edge;
 using memgraph::communication::bolt::Value;
@@ -155,9 +157,7 @@ class PokecClient : public TestClient {
   }
 
   void ReturnVertexAndEdges(const VertexAndEdges &vertex_and_edges, const std::string &label) {
-    int num_queries = 0;
     CreateVertex(vertex_and_edges.vertex);
-    ++num_queries;
 
     for (int i = 0; i < static_cast<int>(vertex_and_edges.vertices.size()); ++i) {
       auto records =
@@ -165,7 +165,6 @@ class PokecClient : public TestClient {
                      vertex_and_edges.vertices[i].properties.at("id").ValueInt(), vertex_and_edges.edges[i])
               ->records;
       MG_ASSERT(records.size() == 1U, "Graph in invalid state {}", vertex_and_edges.vertex.properties.at("id"));
-      ++num_queries;
     }
   }
 

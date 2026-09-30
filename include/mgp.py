@@ -143,6 +143,11 @@ class AuthorizationError(_mgp.AuthorizationError):
     pass
 
 
+def is_enterprise_valid():
+    """Checks if Memgraph has a valid enterprise license"""
+    return _mgp.Utils.is_enterprise_valid()
+
+
 class Label:
     """Label of a `Vertex`."""
 
@@ -1255,6 +1260,27 @@ class Graph:
             raise InvalidContextError()
         return self._graph.is_mutable()
 
+    @property
+    def start_timestamp(self) -> int:
+        """
+        Get a stable identifier for the current logical query, preserved across
+        `USING PERIODIC COMMIT` boundaries. Backed by the start_timestamp of the
+        original transaction at query start. Useful as a cache key in batched
+        procedures whose state must survive periodic commits.
+
+        Returns:
+            An `int` that is stable for the duration of one logical query.
+
+        Raises:
+            InvalidContextError: If context is invalid.
+
+        Examples:
+            ```graph.start_timestamp```
+        """
+        if not self.is_valid():
+            raise InvalidContextError()
+        return self._graph.get_start_timestamp()
+
     def create_vertex(self) -> Vertex:
         """
         Create an empty vertex.
@@ -1416,7 +1442,124 @@ LocalDateTime = datetime.datetime
 
 Duration = datetime.timedelta
 
-Any = typing.Union[bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration]
+
+class ZonedDateTime:
+    """Type annotation marker for zoned date-time values.
+
+    At runtime, zoned date-time values are represented as ``datetime.datetime``
+    objects with ``tzinfo`` set.  This class exists solely so that procedure
+    signatures can distinguish ``ZonedDateTime`` from ``LocalDateTime``
+    (which is also ``datetime.datetime`` but without ``tzinfo``).
+    """
+
+    pass
+
+
+class Point2d:
+    """Represents a 2D geographic point with x, y coordinates and SRID."""
+
+    __slots__ = ("_x", "_y", "_srid")
+
+    def __init__(self, x: float, y: float, srid: int):
+        self._x = float(x)
+        self._y = float(y)
+        self._srid = int(srid)
+
+    @property
+    def x(self) -> float:
+        return self._x
+
+    @property
+    def y(self) -> float:
+        return self._y
+
+    @property
+    def srid(self) -> int:
+        return self._srid
+
+    def __eq__(self, other):
+        if not isinstance(other, Point2d):
+            return NotImplemented
+        return self._x == other._x and self._y == other._y and self._srid == other._srid
+
+    def __hash__(self):
+        return hash((self._x, self._y, self._srid))
+
+    def __repr__(self):
+        return f"Point2d(x={self._x}, y={self._y}, srid={self._srid})"
+
+
+class Point3d:
+    """Represents a 3D geographic point with x, y, z coordinates and SRID."""
+
+    __slots__ = ("_x", "_y", "_z", "_srid")
+
+    def __init__(self, x: float, y: float, z: float, srid: int):
+        self._x = float(x)
+        self._y = float(y)
+        self._z = float(z)
+        self._srid = int(srid)
+
+    @property
+    def x(self) -> float:
+        return self._x
+
+    @property
+    def y(self) -> float:
+        return self._y
+
+    @property
+    def z(self) -> float:
+        return self._z
+
+    @property
+    def srid(self) -> int:
+        return self._srid
+
+    def __eq__(self, other):
+        if not isinstance(other, Point3d):
+            return NotImplemented
+        return self._x == other._x and self._y == other._y and self._z == other._z and self._srid == other._srid
+
+    def __hash__(self):
+        return hash((self._x, self._y, self._z, self._srid))
+
+    def __repr__(self):
+        return f"Point3d(x={self._x}, y={self._y}, z={self._z}, srid={self._srid})"
+
+
+class Enum:
+    """Represents an enum value with a type name and value name."""
+
+    __slots__ = ("_type_name", "_value_name")
+
+    def __init__(self, type_name: str, value_name: str):
+        self._type_name = str(type_name)
+        self._value_name = str(value_name)
+
+    @property
+    def type_name(self) -> str:
+        return self._type_name
+
+    @property
+    def value_name(self) -> str:
+        return self._value_name
+
+    def __eq__(self, other):
+        if not isinstance(other, Enum):
+            return NotImplemented
+        return self._type_name == other._type_name and self._value_name == other._value_name
+
+    def __hash__(self):
+        return hash((self._type_name, self._value_name))
+
+    def __repr__(self):
+        return f"Enum(type_name='{self._type_name}', value_name='{self._value_name}')"
+
+
+Any = typing.Union[
+    bool, str, Number, Map, Path, list, Date, LocalTime, LocalDateTime, Duration, ZonedDateTime, Point2d, Point3d, Enum
+]
 
 List = typing.List
 
@@ -1457,6 +1600,10 @@ def _typing_to_cypher_type(type_):
         LocalTime: _mgp.type_local_time(),
         LocalDateTime: _mgp.type_local_date_time(),
         Duration: _mgp.type_duration(),
+        ZonedDateTime: _mgp.type_zoned_date_time(),
+        Point2d: _mgp.type_point_2d(),
+        Point3d: _mgp.type_point_3d(),
+        Enum: _mgp.type_enum(),
     }
     try:
         return simple_types[type_]
@@ -1476,9 +1623,12 @@ def _typing_to_cypher_type(type_):
                 if len(types) == 1:
                     (type_arg,) = types
                 else:
-                    # We cannot do typing.Union[*types], so do the equivalent
-                    # with __getitem__ which does not even need arg unpacking.
-                    type_arg = typing.Union.__getitem__(types)
+                    # Subscripting Union with the tuple directly is equivalent to
+                    # typing.Union[*types] without needing arg unpacking. Use the
+                    # subscript form (not Union.__getitem__) because on Python
+                    # 3.14 typing.Union is a class whose __getitem__ is unbound,
+                    # so Union.__getitem__(types) raises a descriptor TypeError.
+                    type_arg = typing.Union[types]
                 return _mgp.type_nullable(_typing_to_cypher_type(type_arg))
         elif complex_type == list:
             (type_arg,) = type_args
@@ -1569,6 +1719,10 @@ def _is_typing_same(type1_, type2_):
         LocalTime: 15,
         LocalDateTime: 16,
         Duration: 17,
+        ZonedDateTime: 18,
+        Point2d: 19,
+        Point3d: 20,
+        Enum: 21,
     }
     try:
         return simple_types[type1_] == simple_types[type2_]
@@ -1604,8 +1758,8 @@ def _is_typing_same(type1_, type2_):
                 (type_arg1,) = types1
                 (type_arg2,) = types2
             else:
-                type_arg1 = typing.Union.__getitem__(types1)
-                type_arg2 = typing.Union.__getitem__(types2)
+                type_arg1 = typing.Union[types1]
+                type_arg2 = typing.Union[types2]
             return _is_typing_same(type_arg1, type_arg2)
     elif complex_type1 == list:
         (type_arg1,) = type_args1

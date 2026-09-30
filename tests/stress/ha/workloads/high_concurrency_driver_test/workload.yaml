@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: high-concurrency-driver-test
+      script: "ha/workloads/high_concurrency_driver_test/workload.py"
+      timeout_min: 20

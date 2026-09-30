@@ -9,8 +9,8 @@ pip install poetry
 
 ## Making changes
 1. Make changes to the package
-2. Bump version in `pyproject.tml`
-3. `poetry build`
+2. Bump version in `pyproject.toml`
+3. Run `./build.sh` from this directory (copies `include/mgp.py` into this directory and builds the package)
 4. `poetry publish`
 
 ## Why is this not automatized?

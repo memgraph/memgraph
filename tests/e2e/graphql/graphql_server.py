@@ -7,32 +7,62 @@ import subprocess
 import time
 from uuid import UUID
 
-import pytest
-
 import requests
+
+try:
+    from memgraph import PORT_REMAP
+
+    def _effective_port(port):
+        # Under runner_parallel.py ports move into the worker's window; node has to be told explicitly.
+        return PORT_REMAP.map_port(port)
+
+except Exception:  # Plain runner.py: nothing is remapped.
+
+    def _effective_port(port):
+        return port
+
+
+BOLT_PORT = 7687
+SERVER_PORT = 4000
 
 
 class GraphQLServer:
     def __init__(self, config_file_path: str):
-        self.url = "http://127.0.0.1:4000"
+        # The Python side is remapped transparently, so the well-known port is used here.
+        self.url = f"http://127.0.0.1:{SERVER_PORT}"
 
-        self.graphql_lib = subprocess.Popen(["node", config_file_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.graphql_lib = subprocess.Popen(
+            ["node", os.path.join("graphql/graphql_library_config/server.js"), config_file_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env={
+                **os.environ,
+                "GRAPHQL_E2E_BOLT_PORT": str(_effective_port(BOLT_PORT)),
+                "GRAPHQL_E2E_SERVER_PORT": str(_effective_port(SERVER_PORT)),
+            },
+        )
 
-        self.__wait_process_to_init(7687)
-        self.__wait_process_to_init(4000)
+        self.__wait_process_to_init(BOLT_PORT)
+        self.__wait_process_to_init(SERVER_PORT)
         atexit.register(self.__shut_down)
         print(f"GraphQLServer started")
 
-    def send_query(self, query: str, timeout=5.0) -> requests.Response:
+    def send_query(self, query: str, variables=None, timeout=5.0) -> requests.Response:
+        headers = {
+            "Content-Type": "application/json",
+        }
+        json = {"query": query, "variables": variables or {}}
+
         try:
-            response = requests.post(self.url, json={"query": query}, timeout=timeout)
+            response = requests.post(self.url, headers=headers, json=json, timeout=timeout)
         except requests.exceptions.Timeout as err:
             print("Request to GraphQL server has timed out. Details:", err)
         else:
             return response
 
-    def __wait_process_to_init(self, port):
+    def __wait_process_to_init(self, port, timeout_s=60):
         host = "127.0.0.1"
+        deadline = time.monotonic() + timeout_s
         try:
             while True:
                 # Create a socket object
@@ -41,6 +71,13 @@ class GraphQLServer:
                     result = s.connect_ex((host, port))
                     if result == 0:
                         break
+                # Fail instead of hanging when the node server dies (e.g. graphql/setup.sh was never run).
+                if self.graphql_lib.poll() is not None:
+                    stderr = self.graphql_lib.stderr.read().decode(errors="replace")
+                    raise RuntimeError(f"GraphQL server exited with code {self.graphql_lib.returncode}:\n{stderr}")
+                if time.monotonic() > deadline:
+                    raise RuntimeError(f"Port {port} did not open within {timeout_s}s")
+                time.sleep(0.1)
 
         except socket.error as e:
             print(f"Error occurred while checking port {port}: {e}")
@@ -48,7 +85,7 @@ class GraphQLServer:
 
     def __shut_down(self):
         self.graphql_lib.kill()
-        ls = subprocess.Popen(("lsof", "-t", "-i:4000"), stdout=subprocess.PIPE)
+        ls = subprocess.Popen(("lsof", "-t", f"-i:{_effective_port(SERVER_PORT)}"), stdout=subprocess.PIPE)
         subprocess.check_output(("xargs", "-r", "kill"), stdin=ls.stdout)
         ls.wait()
 
@@ -65,7 +102,7 @@ def _ordered(obj: any) -> any:
 def _flatten(x: any) -> list:
     result = []
     for el in x:
-        if isinstance(x, collections.abc.Iterable) and not isinstance(el, str):
+        if isinstance(x, collections.abc.Iterable) and not isinstance(el, None | str | int | float):
             result.extend(_flatten(el))
         else:
             result.append(el)
@@ -75,7 +112,7 @@ def _flatten(x: any) -> list:
 def _valid_uuid(uuid_to_test: any, version: int = 4) -> any:
     try:
         uuid_obj = UUID(uuid_to_test, version=version)
-    except ValueError:
+    except (ValueError, AttributeError):
         return False
     return str(uuid_obj) == uuid_to_test
 
@@ -102,49 +139,3 @@ def get_uuid_from_response(response: requests.Response) -> list:
         if _valid_uuid(item):
             uuids.append(str(item))
     return uuids
-
-
-def create_node_query(server: GraphQLServer):
-    query = 'mutation{createUsers(input:[{name:"John Doe"}]){users{id name}}}'
-    gotten = server.send_query(query)
-    uuids = get_uuid_from_response(gotten)
-    return uuids[0]
-
-
-def create_related_nodes_query(server: GraphQLServer):
-    query = """
-        mutation {
-            createUsers(input: [
-                {
-                    name: "John Doe"
-                    posts: {
-                        create: [
-                            {
-                                node: {
-                                    content: "Hi, my name is John!"
-                                }
-                            }
-                        ]
-                    }
-                }
-            ]) {
-                users {
-                    id
-                    name
-                    posts {
-                        id
-                        content
-                    }
-                }
-            }
-        }
-    """
-
-    gotten_response = server.send_query(query)
-    return get_uuid_from_response(gotten_response)
-
-
-@pytest.fixture
-def query_server() -> GraphQLServer:
-    path = os.path.join("graphql/graphql_library_config/crud.js")
-    return GraphQLServer(path)

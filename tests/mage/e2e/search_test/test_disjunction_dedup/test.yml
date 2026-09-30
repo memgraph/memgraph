@@ -1,0 +1,6 @@
+query: >
+  CALL search.node({Movie: ['title', 'tagline']}, 'exact', 'Matrix') YIELD node
+  RETURN node;
+
+output:
+  - node: {"labels": ["Movie"], "properties": {"title": "Matrix", "tagline": "Matrix"}}

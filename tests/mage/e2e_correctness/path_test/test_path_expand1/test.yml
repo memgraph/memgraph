@@ -1,0 +1,8 @@
+memgraph_query: >
+  MATCH (d:Dog), (h:Human)
+  CALL path.expand([d,id(h)],[],[],1,10) YIELD result RETURN result;
+
+
+neo4j_query: >
+  MATCH (d:Dog), (h:Human)
+  CALL apoc.path.expand([d,h],"","",1,10) YIELD path RETURN path;

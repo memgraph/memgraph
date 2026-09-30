@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,20 +11,21 @@
 
 #pragma once
 
+#include <librdkafka/rdkafka.h>
+#include <librdkafka/rdkafkacpp.h>
 #include <atomic>
 #include <chrono>
+#include <cstdint>
+#include <expected>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <thread>
-#include <utility>
+#include <unordered_map>
 #include <vector>
-
-#include <librdkafka/rdkafka.h>
-#include <librdkafka/rdkafkacpp.h>
-#include "utils/result.hpp"
 
 namespace memgraph::integrations::kafka {
 
@@ -77,6 +78,7 @@ class Message final {
 };
 
 using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
+using ConsumerThreadFactory = std::function<std::thread(std::function<void()>)>;
 
 /// ConsumerInfo holds all the information necessary to create a Consumer.
 struct ConsumerInfo {
@@ -100,7 +102,7 @@ class Consumer final : public RdKafka::EventCb {
   ///
   /// @throws ConsumerFailedToInitializeException if the consumer can't connect
   ///         to the Kafka endpoint.
-  Consumer(ConsumerInfo info, ConsumerFunction consumer_function);
+  Consumer(ConsumerInfo info, ConsumerFunction consumer_function, ConsumerThreadFactory thread_factory = {});
   ~Consumer() override;
 
   Consumer(const Consumer &other) = delete;
@@ -157,9 +159,11 @@ class Consumer final : public RdKafka::EventCb {
   /// This function returns the empty string on success or an error message otherwise.
   ///
   /// @param offset: the offset to set.
-  [[nodiscard]] utils::BasicResult<std::string> SetConsumerOffsets(int64_t offset);
+  [[nodiscard]] std::expected<void, std::string> SetConsumerOffsets(int64_t offset);
 
   const ConsumerInfo &Info() const;
+
+  void SetThreadFactory(ConsumerThreadFactory thread_factory);
 
  private:
   void event_cb(RdKafka::Event &event) override;
@@ -185,9 +189,10 @@ class Consumer final : public RdKafka::EventCb {
 
   ConsumerInfo info_;
   ConsumerFunction consumer_function_;
+  ConsumerThreadFactory thread_factory_;
   mutable std::atomic<bool> is_running_{false};
   mutable std::vector<RdKafka::TopicPartition *> last_assignment_;  // Protected by is_running_
-  std::unique_ptr<RdKafka::KafkaConsumer, std::function<void(RdKafka::KafkaConsumer *)>> consumer_;
+  std::unique_ptr<RdKafka::KafkaConsumer, std::move_only_function<void(RdKafka::KafkaConsumer *)>> consumer_;
   std::thread thread_;
   ConsumerRebalanceCb cb_;
 };

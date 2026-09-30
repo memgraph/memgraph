@@ -1,0 +1,33 @@
+# Native Standalone Workload Registry
+# List all workloads to run for this deployment type.
+# Set enabled: false to skip a workload.
+
+workloads:
+  - config: workloads/supernode_edge_abort/workload.yaml
+    enabled: true
+
+  - config: workloads/parallel_execution/workload.yaml
+    enabled: true
+
+  - config: workloads/analytical_memory/workload.yaml
+    enabled: true
+
+  - config: workloads/ring/workload.yaml
+    enabled: true
+
+  # Hot/cold databases (SUSPEND/RESUME). Each workload starts memgraph with its
+  # own args (e.g. memory ceiling) appropriate to what it stresses.
+  - config: workloads/hot_cold/workload.yaml
+    enabled: true
+
+  - config: workloads/hot_cold_indexes/workload.yaml
+    enabled: true
+
+  - config: workloads/hot_cold_oom/workload.yaml
+    enabled: true
+
+  - config: workloads/hot_cold_triggers/workload.yaml
+    enabled: true
+
+  - config: workloads/hot_cold_ttl/workload.yaml
+    enabled: true

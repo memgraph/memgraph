@@ -1,4 +1,4 @@
-# Copyright 2023 Memgraph Ltd.
+# Copyright 2024 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,14 +12,26 @@
 import typing
 
 import mgclient
+import pytest
 
 
-def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
-    cursor.execute(query, params)
-    return cursor.fetchall()
-
-
-def connect(**kwargs) -> mgclient.Connection:
+@pytest.fixture(scope="module")
+def cursor(**kwargs) -> mgclient.Connection:
     connection = mgclient.connect(host="localhost", port=7687, **kwargs)
     connection.autocommit = True
-    return connection
+    cursor = connection.cursor()
+
+    cursor.execute("FOREACH (i IN range(1, 1000) | CREATE (n:Node {id: i}));")
+    cursor.execute("CREATE INDEX ON :Node(id);")
+    cursor.execute("CREATE INDEX ON :Node")
+
+    yield cursor
+
+    cursor.execute("DROP INDEX ON :Node(id);")
+    cursor.execute("DROP INDEX ON :Node;")
+    cursor.execute("MATCH (n:Node) DELETE n;")
+
+
+def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = dict()) -> typing.List[tuple]:
+    cursor.execute(query, params)
+    return cursor.fetchall()

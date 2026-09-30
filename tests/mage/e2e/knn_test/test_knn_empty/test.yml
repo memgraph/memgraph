@@ -1,0 +1,5 @@
+query: >
+  CALL knn.get({nodeProperties: ["embedding"]}) YIELD node, neighbour, similarity
+  RETURN node.id as node_id, neighbour.id as neighbour_id, similarity
+
+output: []

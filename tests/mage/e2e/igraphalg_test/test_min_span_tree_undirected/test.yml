@@ -1,0 +1,7 @@
+query: >
+  CALL igraphalg.spanning_tree()
+  YIELD tree
+  RETURN extract(path IN tree | extract (node in path | node.id)) AS tree;
+
+output:
+    - tree: [[0,1],[0,2],[1,3],[2,4],[3,5]]

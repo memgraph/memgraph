@@ -1,0 +1,9 @@
+query: >
+    CALL json_util.load_from_str('{"first_name": "James", "last_name": "Bond"}')
+    YIELD objects
+    UNWIND objects AS o
+    RETURN o.first_name AS name, o.last_name AS surname;
+
+output:
+    - name: "James"
+      surname: "Bond"

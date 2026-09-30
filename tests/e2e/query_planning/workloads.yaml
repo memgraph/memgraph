@@ -6,9 +6,68 @@ queries_cluster: &queries_cluster
       setup_queries: []
       validation_queries: []
 
-
 workloads:
   - name: "Query planning cartesian"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["query_planning/query_planning_cartesian.py"]
     <<: *queries_cluster
+
+  - name: "Query planning point index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_point_index.py"]
+    <<: *queries_cluster
+
+  - name: "Query planning valid query plans"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_valid_query_plans.py"]
+    <<: *queries_cluster
+
+  - name: "Query planning optional"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_optional.py"]
+    <<: *queries_cluster
+
+  - name: "Query planning subquery"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_subquery.py"]
+    <<: *queries_cluster
+
+  - name: "Query planning BFS cost based"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_bfs_cost_based.py"]
+    <<: *queries_cluster
+
+  - name: "Query planning pruning BFS"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_pruning_bfs.py"]
+    <<: *queries_cluster
+
+  - name: "Query planning ORDER BY index elimination"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_orderby_index.py"]
+    <<: *queries_cluster
+
+  - name: "Query planning IN list cardinality"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_in_list.py"]
+    <<: *queries_cluster
+
+  - name: "Query planning string operators"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_string_operators.py"]
+    cluster:
+      main:
+        args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges=TRUE"]
+        log_file: "query_planning.log"
+        setup_queries: []
+        validation_queries: []
+
+  - name: "Query planning string operators on disk"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["query_planning/query_planning_string_operators_on_disk.py"]
+    cluster:
+      main:
+        args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges=TRUE"]
+        log_file: "query_planning.log"
+        setup_queries: []
+        validation_queries: []

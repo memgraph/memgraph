@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,132 +10,201 @@
 // licenses/APL.txt.
 
 #include "communication/context.hpp"
+
+#include <openssl/opensslv.h>
+#include <openssl/ssl.h>
+#include <boost/asio/ssl.hpp>
 #include <boost/asio/ssl/context.hpp>
 #include <boost/asio/ssl/verify_mode.hpp>
 #include <boost/system/detail/error_code.hpp>
+#include <utility>
 
+#include "communication/cluster_tls.hpp"
+#include "communication/init.hpp"
+#include "utils/fips.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::communication {
 
-ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl), ctx_(nullptr) {
+bool ApplyTlsVersionPolicy(SSL_CTX *ctx) {
+  if (!utils::FipsEnabled()) return true;
+
+  // Raise the floor, never lower it.
+  if (SSL_CTX_get_min_proto_version(ctx) >= kFipsMinTlsVersion) return true;
+
+  return SSL_CTX_set_min_proto_version(ctx, kFipsMinTlsVersion) == 1;
+}
+
+ClientContext::ClientContext(bool use_ssl) : use_ssl_(use_ssl) {
   if (use_ssl_) {
 #if OPENSSL_VERSION_NUMBER < 0x10100000L
-    ctx_ = SSL_CTX_new(SSLv23_client_method());
+    SSL_CTX *raw = SSL_CTX_new(SSLv23_client_method());
 #else
-    ctx_ = SSL_CTX_new(TLS_client_method());
+    SSL_CTX *raw = SSL_CTX_new(TLS_client_method());
 #endif
-    MG_ASSERT(ctx_ != nullptr, "Couldn't create client SSL_CTX object!");
+    MG_ASSERT(raw != nullptr, "Couldn't create client SSL_CTX object!");
 
     // Disable legacy SSL support. Other options can be seen here:
     // https://www.openssl.org/docs/man1.0.2/ssl/SSL_CTX_set_options.html
-    SSL_CTX_set_options(ctx_, SSL_OP_NO_SSLv3);
+    SSL_CTX_set_options(raw, SSL_OP_NO_SSLv3 | SSL_OP_NO_SSLv2);
+
+    MG_ASSERT(ApplyTlsVersionPolicy(raw), "Couldn't apply the TLS version policy to the client SSL_CTX!");
+
+    // boost::asio::ssl::context takes ownership of the raw SSL_CTX and calls
+    // SSL_CTX_free on destruction — the shared_ptr is now the sole owner.
+    ctx_ = std::make_shared<boost::asio::ssl::context>(raw);
   }
 }
 
 ClientContext::ClientContext(const std::string &key_file, const std::string &cert_file) : ClientContext(true) {
   if (!key_file.empty() && !cert_file.empty()) {
-    MG_ASSERT(SSL_CTX_use_certificate_file(ctx_, cert_file.c_str(), SSL_FILETYPE_PEM) == 1,
-              "Couldn't load client certificate from file: {}", cert_file);
-    MG_ASSERT(SSL_CTX_use_PrivateKey_file(ctx_, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
-              "Couldn't load client private key from file: ", key_file);
+    auto *raw = ctx_->native_handle();
+    MG_ASSERT(SSL_CTX_use_certificate_file(raw, cert_file.c_str(), SSL_FILETYPE_PEM) == 1,
+              "Couldn't load client certificate from file: {}",
+              cert_file);
+    MG_ASSERT(SSL_CTX_use_PrivateKey_file(raw, key_file.c_str(), SSL_FILETYPE_PEM) == 1,
+              "Couldn't load client private key from file: {}",
+              key_file);
   }
 }
 
-ClientContext::ClientContext(ClientContext &&other) noexcept : use_ssl_(other.use_ssl_), ctx_(other.ctx_) {
-  other.use_ssl_ = false;
-  other.ctx_ = nullptr;
-}
-
-ClientContext &ClientContext::operator=(ClientContext &&other) noexcept {
-  if (this == &other) return *this;
-
-  // destroy my objects
-  if (use_ssl_) {
-    SSL_CTX_free(ctx_);
-  }
-
-  // move other objects to self
-  use_ssl_ = other.use_ssl_;
-  ctx_ = other.ctx_;
-
-  // reset other objects
-  other.use_ssl_ = false;
-  other.ctx_ = nullptr;
-
-  return *this;
-}
-
-ClientContext::~ClientContext() {
-  if (use_ssl_) {
-    SSL_CTX_free(ctx_);
-  }
-}
-
-SSL_CTX *ClientContext::context() { return ctx_; }
-
-bool ClientContext::use_ssl() { return use_ssl_; }
-
-ServerContext::ServerContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file,
-                             bool verify_peer) {
-  namespace ssl = boost::asio::ssl;
-  ctx_.emplace(ssl::context::tls_server);
-  // NOLINTNEXTLINE(hicpp-signed-bitwise)
-  ctx_->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
-                    ssl::context::single_dh_use);
-  ctx_->set_default_verify_paths();
-  // TODO: add support for encrypted private keys
-  // TODO: add certificate revocation list (CRL)
-  boost::system::error_code ec;
-  ctx_->use_certificate_chain_file(cert_file, ec);
-  MG_ASSERT(!ec, "Couldn't load server certificate from file: {}", cert_file);
-  ctx_->use_private_key_file(key_file, ssl::context::pem, ec);
-  MG_ASSERT(!ec, "Couldn't load server private key from file: {}", key_file);
-
-  ctx_->set_options(SSL_OP_NO_SSLv3, ec);
-  MG_ASSERT(!ec, "Setting options to SSL context failed!");
-
+ClientContext::ClientContext(const std::string &key_file, const std::string &cert_file, const std::string &ca_file)
+    : ClientContext(key_file, cert_file) {
   if (!ca_file.empty()) {
-    // Load the certificate authority file.
-    boost::system::error_code ec;
-    ctx_->load_verify_file(ca_file, ec);
-    MG_ASSERT(!ec, "Couldn't load certificate authority from file: {}", ca_file);
-
-    if (verify_peer) {
-      // Enable verification of the client certificate.
-      // NOLINTNEXTLINE(hicpp-signed-bitwise)
-      ctx_->set_verify_mode(ssl::verify_peer | ssl::verify_fail_if_no_peer_cert, ec);
-      MG_ASSERT(!ec, "Setting SSL verification mode failed!");
-    }
+    auto *raw = ctx_->native_handle();
+    MG_ASSERT(
+        SSL_CTX_load_verify_locations(raw, ca_file.c_str(), nullptr) == 1, "Couldn't load CA from file {}", ca_file);
+    SSL_CTX_set_verify(raw, SSL_VERIFY_PEER, nullptr);
   }
 }
 
-ServerContext::ServerContext(ServerContext &&other) noexcept { std::swap(ctx_, other.ctx_); }
+ClientContext ClientContext::FromClusterSingleton() { return ClientContext{Mode::ClusterView}; }
 
-ServerContext &ServerContext::operator=(ServerContext &&other) noexcept {
-  if (this == &other) return *this;
-
-  // move other objects to self
-  ctx_ = std::move(other.ctx_);
-
-  // reset other objects
-  other.ctx_.reset();
-
-  return *this;
+std::shared_ptr<boost::asio::ssl::context> ClientContext::context() {
+  if (mode_ == Mode::ClusterView) {
+    auto ptr = ClusterClientSsl::Instance().CurrentContext();
+    MG_ASSERT(ptr, "ClusterView ClientContext used before ClusterClientSsl::Init");
+    return ptr;
+  }
+  return ctx_;
 }
+
+auto ClientContext::use_ssl() const -> bool {
+  if (mode_ == Mode::ClusterView) {
+    return ClusterClientSsl::Instance().CurrentContext() != nullptr;
+  }
+  return use_ssl_;
+}
+
+ServerContext::ServerContext(std::string key_file, std::string cert_file, std::string ca_file, bool const verify_peer)
+    : mode_(Mode::Standalone),
+      key_file_(std::move(key_file)),
+      cert_file_(std::move(cert_file)),
+      ca_file_(std::move(ca_file)),
+      verify_peer_(verify_peer) {
+  if (auto const res = reload(); !res.has_value()) {
+    LOG_FATAL(res.error().msg);
+  }
+}
+
+ServerContext ServerContext::FromClusterSingleton() { return ServerContext{Mode::ClusterView}; }
 
 ServerContext::~ServerContext() = default;
 
-SSL_CTX *ServerContext::context() {
-  MG_ASSERT(ctx_);
-  return ctx_->native_handle();
+std::shared_ptr<boost::asio::ssl::context> ServerContext::context_clone() {
+  auto ptr =
+      mode_ == Mode::ClusterView ? ClusterServerSsl::Instance().CurrentContext() : ctx_.load(std::memory_order_acquire);
+  MG_ASSERT(ptr, "Trying to use uninitialized SSL context");
+  return ptr;
 }
 
-boost::asio::ssl::context &ServerContext::context_clone() {
-  MG_ASSERT(ctx_);
-  return *ctx_;
+bool ServerContext::use_ssl() const {
+  if (mode_ == Mode::ClusterView) {
+    return ClusterServerSsl::Instance().CurrentContext() != nullptr;
+  }
+  return ctx_.load(std::memory_order_acquire) != nullptr;
 }
 
-bool ServerContext::use_ssl() const { return ctx_.has_value(); }
+auto ServerContext::reload() -> std::expected<void, utils::SSL_CTX_Error> {
+  // ClusterView contexts are read-only views of the cluster TLS singleton.
+  // Callers must reload via `ClusterServerSsl::Instance().{Prepare,Commit}`
+  // directly; calling reload() on a view is a programming error.
+  MG_ASSERT(mode_ == Mode::Standalone,
+            "ServerContext::reload() called on a ClusterView context — use ClusterServerSsl directly");
+  if (key_file_.empty() || cert_file_.empty()) {
+    return std::unexpected{
+        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FLAGS_NOT_CONFIGURED,
+                             .msg = "Unable to reload SSL configuration because key or certificate file aren't set."}};
+  }
+
+  namespace ssl = boost::asio::ssl;
+
+  auto new_ctx = std::make_shared<boost::asio::ssl::context>(ssl::context::tls_server);
+
+  // NOLINTNEXTLINE(hicpp-signed-bitwise)
+  new_ctx->set_options(ssl::context::default_workarounds | ssl::context::no_sslv2 | ssl::context::no_sslv3 |
+                       ssl::context::single_dh_use);
+
+  if (!ApplyTlsVersionPolicy(new_ctx->native_handle())) {
+    static constexpr auto kErrMsg = "Unable to apply the TLS version policy to the server SSL context.";
+    spdlog::error(kErrMsg);
+    return std::unexpected{utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_SET_OPTIONS, .msg = kErrMsg}};
+  }
+
+  // We deliberately do NOT call `set_default_verify_paths()` here. The trust
+  // store is consulted only when `verify_peer_` is true (i.e. on the
+  // intra-cluster mTLS path), and there the operator-supplied `ca_file_` must
+  // be the SOLE trust anchor — unioning it with the OS root store would let
+  // any publicly-issued cert authenticate against the cluster, which defeats
+  // the purpose of the private CA. For Bolt's server-only TLS (verify_peer
+  // is false) this changes nothing because the trust store is never consulted.
+
+  // TODO: add support for encrypted private keys
+  // TODO: add certificate revocation list (CRL)
+  boost::system::error_code ec;
+  // NOLINTNEXTLINE(bugprone-unused-return-value)
+  new_ctx->use_certificate_chain_file(cert_file_, ec);
+  if (ec) {
+    auto err_msg = fmt::format("Couldn't load server certificate from file {}. Error: {}", cert_file_, ec.message());
+    spdlog::error(err_msg);
+    return std::unexpected{
+        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_CERT_FILE, .msg = std::move(err_msg)}};
+  }
+  // NOLINTNEXTLINE(bugprone-unused-return-value)
+  new_ctx->use_private_key_file(key_file_, ssl::context::pem, ec);
+  if (ec) {
+    auto err_msg = fmt::format("Couldn't load server private key from file {}. Error: {}", key_file_, ec.message());
+    spdlog::error(err_msg);
+    return std::unexpected{
+        utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_KEY_FILE, .msg = std::move(err_msg)}};
+  }
+
+  if (!ca_file_.empty()) {
+    // Load the certificate authority file.
+    boost::system::error_code ec;
+    // NOLINTNEXTLINE(bugprone-unused-return-value)
+    new_ctx->load_verify_file(ca_file_, ec);
+    if (ec) {
+      auto err_msg = fmt::format("Couldn't load certificate authority from file {}. Error: {}", ca_file_, ec.message());
+      spdlog::error(err_msg);
+      return std::unexpected{
+          utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_LOAD_CA, .msg = std::move(err_msg)}};
+    }
+
+    if (verify_peer_) {
+      // Enable verification of the client certificate.
+      // NOLINTNEXTLINE(hicpp-signed-bitwise, bugprone-unused-return-value)
+      new_ctx->set_verify_mode(ssl::verify_peer | ssl::verify_fail_if_no_peer_cert, ec);
+      if (ec) {
+        auto err_msg = fmt::format("Setting SSL verification mode failed! Error: {}", ec.message());
+        spdlog::error(err_msg);
+        return std::unexpected{utils::SSL_CTX_Error{.err_type = utils::SSL_CTX_ERR_TYPE::FAIL_SET_SSL_VERIFICATION_MODE,
+                                                    .msg = std::move(err_msg)}};
+      }
+    }
+  }
+  ctx_.store(std::move(new_ctx), std::memory_order_release);
+  return {};
+}
 
 }  // namespace memgraph::communication

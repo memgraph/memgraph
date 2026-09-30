@@ -1,0 +1,4 @@
+query: >
+  RETURN text.compare_cleaned('Hello, World!','hello world') AS result;
+output:
+  - result: true

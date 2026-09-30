@@ -1,0 +1,14 @@
+concurrency_cluster: &concurrency_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-delta-on-identical-property-update=false"]
+      log_file: "concurrency.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Concurrency"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["concurrency/concurrency.py"]
+    <<: *concurrency_cluster

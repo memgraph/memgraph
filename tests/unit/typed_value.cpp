@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,21 +13,34 @@
 // Copyright 2017 Memgraph
 // Created by Florijan Stamenkovic on 24.01.17..
 //
-#include <functional>
-#include <map>
-#include <set>
+#include <cmath>
+#include <limits>
 #include <vector>
+
+#include <nlohmann/json.hpp>
 
 #include "gtest/gtest.h"
 
 #include "disk_test_utils.hpp"
+#include "query/db_accessor.hpp"
 #include "query/graph.hpp"
+#include "query/relations/comparability.hpp"
+#include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/point.hpp"
+#include "tests/unit/typed_value_shapes.hpp"
 
 using memgraph::query::TypedValue;
 using memgraph::query::TypedValueException;
+using memgraph::storage::Enum;
+using memgraph::storage::EnumTypeId;
+using memgraph::storage::EnumValueId;
+using memgraph::storage::Point2d;
+using memgraph::storage::Point3d;
+using memgraph::storage::PropertyValue;
+using enum memgraph::storage::CoordinateReferenceSystem;
 
 template <typename StorageType>
 class AllTypesFixture : public testing::Test {
@@ -37,47 +50,30 @@ class AllTypesFixture : public testing::Test {
   std::vector<TypedValue> values_;
   memgraph::storage::Config config_{disk_test_utils::GenerateOnDiskConfig(testSuite)};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config_)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{
-      db->Access(memgraph::replication::ReplicationRole::MAIN)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
 
-  void SetUp() override {
-    values_.emplace_back(TypedValue());
-    values_.emplace_back(true);
-    values_.emplace_back(42);
-    values_.emplace_back(3.14);
-    values_.emplace_back("something");
-    values_.emplace_back(std::vector<TypedValue>{TypedValue(true), TypedValue("something"), TypedValue(42),
-                                                 TypedValue(0.5), TypedValue()});
-    values_.emplace_back(std::map<std::string, TypedValue>{{"a", TypedValue(true)},
-                                                           {"b", TypedValue("something")},
-                                                           {"c", TypedValue(42)},
-                                                           {"d", TypedValue(0.5)},
-                                                           {"e", TypedValue()}});
-    auto vertex = dba.InsertVertex();
-    values_.emplace_back(vertex);
-    auto edge = dba.InsertEdge(&vertex, &vertex, dba.NameToEdgeType("et"));
-    values_.emplace_back(*edge);
-    values_.emplace_back(memgraph::query::Path(dba.InsertVertex()));
-    memgraph::query::Graph graph{memgraph::utils::NewDeleteResource()};
-    graph.InsertVertex(vertex);
-    graph.InsertEdge(*edge);
-    values_.emplace_back(std::move(graph));
-  }
+  void SetUp() override { values_ = memgraph::test::shapes::EveryTypedValueShape(&dba); }
 
   void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(AllTypesFixture, StorageTypes);
+TYPED_TEST_SUITE(AllTypesFixture, StorageTypes);
 
-void EXPECT_PROP_FALSE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue::Type::Bool && !a.ValueBool()); }
+void EXPECT_PROP_FALSE(const TypedValue &a) {
+  ASSERT_EQ(a.type(), TypedValue::Type::Bool);
+  ASSERT_FALSE(a.ValueBool());
+}
 
-void EXPECT_PROP_TRUE(const TypedValue &a) { EXPECT_TRUE(a.type() == TypedValue::Type::Bool && a.ValueBool()); }
+void EXPECT_PROP_TRUE(const TypedValue &a) {
+  ASSERT_EQ(a.type(), TypedValue::Type::Bool);
+  ASSERT_TRUE(a.ValueBool());
+}
 
 void EXPECT_PROP_EQ(const TypedValue &a, const TypedValue &b) { EXPECT_PROP_TRUE(a == b); }
 
-void EXPECT_PROP_ISNULL(const TypedValue &a) { EXPECT_TRUE(a.IsNull()); }
+void EXPECT_PROP_ISNULL(const TypedValue &a) { ASSERT_TRUE(a.IsNull()); }
 
 void EXPECT_PROP_NE(const TypedValue &a, const TypedValue &b) { EXPECT_PROP_TRUE(a != b); }
 
@@ -95,6 +91,11 @@ TEST(TypedValue, CreationTypes) {
 
   EXPECT_TRUE(TypedValue(0.0).type() == TypedValue::Type::Double);
   EXPECT_TRUE(TypedValue(42.5).type() == TypedValue::Type::Double);
+
+  EXPECT_TRUE(TypedValue(Enum{EnumTypeId{2}, EnumValueId{42}}).type() == TypedValue::Type::Enum);
+
+  EXPECT_TRUE(TypedValue(Point2d{Cartesian_2d, 1.0, 2.0}).type() == TypedValue::Type::Point2d);
+  EXPECT_TRUE(TypedValue(Point3d{Cartesian_3d, 1.0, 2.0, 3.0}).type() == TypedValue::Type::Point3d);
 }
 
 TEST(TypedValue, CreationValues) {
@@ -107,6 +108,14 @@ TEST(TypedValue, CreationValues) {
   EXPECT_EQ(TypedValue(55).ValueInt(), 55);
 
   EXPECT_FLOAT_EQ(TypedValue(66.6).ValueDouble(), 66.6);
+
+  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
+  EXPECT_EQ(TypedValue(enum_val).ValueEnum(), enum_val);
+
+  auto point2d_val = Point2d{Cartesian_2d, 1.0, 2.0};
+  EXPECT_EQ(TypedValue(point2d_val).ValuePoint2d(), point2d_val);
+  auto point3d_val = Point3d{Cartesian_3d, 1.0, 2.0, 3.0};
+  EXPECT_EQ(TypedValue(point3d_val).ValuePoint3d(), point3d_val);
 }
 
 TEST(TypedValue, Equals) {
@@ -118,7 +127,7 @@ TEST(TypedValue, Equals) {
 
   // compare two ints close to 2 ^ 62
   // this will fail if they are converted to float at any point
-  EXPECT_PROP_NE(TypedValue(4611686018427387905), TypedValue(4611686018427387900));
+  EXPECT_PROP_NE(TypedValue(4'611'686'018'427'387'905), TypedValue(4'611'686'018'427'387'900));
 
   EXPECT_PROP_NE(TypedValue(0.5), TypedValue(0.12));
   EXPECT_PROP_EQ(TypedValue(0.123), TypedValue(0.123));
@@ -145,6 +154,180 @@ TEST(TypedValue, Equals) {
                  TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(2)}}));
   EXPECT_PROP_NE(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}}),
                  TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}, {"b", TypedValue(1)}}));
+
+  const auto date_1 = TypedValue(memgraph::utils::Date({2024, 3, 19}));
+  const auto date_2 = TypedValue(memgraph::utils::Date({2024, 3, 20}));
+
+  EXPECT_PROP_EQ(date_1, date_1);
+  EXPECT_PROP_NE(date_1, date_2);
+
+  const auto local_time_1 = TypedValue(memgraph::utils::LocalTime({10, 56, 2, 7, 100}));
+  const auto local_time_2 = TypedValue(memgraph::utils::LocalTime({10, 56, 2, 7, 200}));
+
+  EXPECT_PROP_EQ(local_time_1, local_time_1);
+  EXPECT_PROP_NE(local_time_1, local_time_2);
+
+  const auto local_date_time_1 = TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 100}));
+  const auto local_date_time_2 = TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 200}));
+
+  EXPECT_PROP_EQ(local_date_time_1, local_date_time_1);
+  EXPECT_PROP_NE(local_date_time_1, local_date_time_2);
+
+  auto enum_val_1 = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
+  auto enum_val_2 = TypedValue{Enum{EnumTypeId{1}, EnumValueId{12}}};
+  auto enum_val_3 = TypedValue{Enum{EnumTypeId{2}, EnumValueId{11}}};
+  EXPECT_PROP_EQ(enum_val_1, enum_val_1);
+  EXPECT_PROP_NE(enum_val_1, enum_val_2);
+  EXPECT_PROP_NE(enum_val_1, enum_val_3);
+
+  auto point_1 = TypedValue(Point2d{Cartesian_2d, 1.0, 2.0});
+  auto point_2 = TypedValue(Point2d{WGS84_2d, 1.0, 2.0});
+  auto point_3 = TypedValue(Point3d{Cartesian_3d, 1.0, 2.0, 3.0});
+  auto point_4 = TypedValue(Point3d{WGS84_3d, 1.0, 2.0, 3.0});
+
+  EXPECT_PROP_EQ(point_1, point_1);
+  EXPECT_PROP_EQ(point_3, point_3);
+  EXPECT_PROP_NE(point_1, point_2);
+  EXPECT_PROP_NE(point_1, point_3);
+  EXPECT_PROP_NE(point_1, point_4);
+}
+
+TEST(TypedValue, Comparison) {
+  auto run_comparison_cases = [](const TypedValue &lesser, const TypedValue &greater) {
+    EXPECT_PROP_TRUE(lesser < greater);
+    EXPECT_PROP_TRUE(greater > lesser);
+    EXPECT_PROP_FALSE(lesser > greater);
+    EXPECT_PROP_FALSE(greater < lesser);
+
+    EXPECT_PROP_FALSE(lesser > lesser);
+    EXPECT_PROP_FALSE(lesser < lesser);
+
+    EXPECT_PROP_TRUE(lesser <= lesser);
+    EXPECT_PROP_TRUE(lesser <= greater);
+    EXPECT_PROP_FALSE(greater <= lesser);
+
+    EXPECT_PROP_TRUE(greater >= lesser);
+    EXPECT_PROP_TRUE(greater >= greater);
+    EXPECT_PROP_FALSE(lesser >= greater);
+  };
+
+  const auto date_1 = TypedValue(memgraph::utils::Date({2024, 3, 19}));
+  const auto date_2 = TypedValue(memgraph::utils::Date({2024, 3, 20}));
+
+  run_comparison_cases(date_1, date_2);
+
+  const auto local_time_1 = TypedValue(memgraph::utils::LocalTime({10, 56, 2, 7, 100}));
+  const auto local_time_2 = TypedValue(memgraph::utils::LocalTime({10, 56, 2, 7, 200}));
+
+  run_comparison_cases(local_time_1, local_time_2);
+
+  const auto local_date_time_1 = TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 100}));
+  const auto local_date_time_2 = TypedValue(memgraph::utils::LocalDateTime({2024, 3, 20}, {10, 56, 2, 7, 200}));
+
+  run_comparison_cases(local_date_time_1, local_date_time_2);
+
+  // An enum and a point carry no order of their own, so comparability places no
+  // pair of them and answers Null rather than refusing the question.
+  auto enum_val = TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}};
+  EXPECT_PROP_ISNULL(enum_val < enum_val);
+
+  auto point_1 = TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}};
+  auto point_2 = TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}};
+
+  EXPECT_PROP_ISNULL(point_1 < point_1);
+  EXPECT_PROP_ISNULL(point_2 < point_2);
+}
+
+namespace {
+TypedValue List(std::vector<TypedValue> elements) { return TypedValue(std::move(elements)); }
+
+TypedValue Map(std::map<std::string, TypedValue> entries) { return TypedValue(std::move(entries)); }
+}  // namespace
+
+TEST(TypedValue, ComparabilityLeavesAnUnorderedPairFalseInAllFourReadings) {
+  // Comparability is partial. A NaN has no order against anything, itself
+  // included, so all four comparisons are false for it. Reading one as the
+  // negation of another assumes every pair is ordered and turns the missing
+  // order into a true.
+  auto const nan = TypedValue(std::numeric_limits<double>::quiet_NaN());
+  for (auto const &other : {TypedValue(0), TypedValue(1.5), nan}) {
+    EXPECT_PROP_FALSE(nan < other);
+    EXPECT_PROP_FALSE(nan <= other);
+    EXPECT_PROP_FALSE(nan > other);
+    EXPECT_PROP_FALSE(nan >= other);
+    EXPECT_PROP_FALSE(other < nan);
+    EXPECT_PROP_FALSE(other <= nan);
+    EXPECT_PROP_FALSE(other > nan);
+    EXPECT_PROP_FALSE(other >= nan);
+  }
+}
+
+TEST(TypedValue, ComparabilityPlacesBooleans) {
+  // A boolean carries an order Cypher gives it, and refusing to read it made a
+  // range over such a column impossible to write.
+  EXPECT_PROP_TRUE(TypedValue(false) < TypedValue(true));
+  EXPECT_PROP_FALSE(TypedValue(true) < TypedValue(false));
+  EXPECT_PROP_TRUE(TypedValue(false) <= TypedValue(false));
+  EXPECT_PROP_TRUE(TypedValue(true) > TypedValue(false));
+}
+
+TEST(TypedValue, ComparabilityAnswersNullForAPairItCannotPlace) {
+  // A pair of unlike types has no order between it, and neither has a pair of
+  // one type carrying no order of its own. Neither raises: having no order is
+  // an answer this relation gives rather than a question it refuses.
+  EXPECT_PROP_ISNULL(TypedValue(1) < TypedValue("a"));
+  EXPECT_PROP_ISNULL(TypedValue("a") < TypedValue(1));
+
+  // Maps: ORDER BY sorts them, but all four comparisons answer Null.
+  EXPECT_PROP_ISNULL(Map({{"k", TypedValue(1)}}) < Map({{"k", TypedValue(2)}}));
+
+  // Lists compare by their elements, and are Null where an element pair is.
+  EXPECT_PROP_TRUE(List({TypedValue(1)}) < List({TypedValue(2)}));
+  EXPECT_PROP_ISNULL(List({TypedValue()}) < List({TypedValue()}));
+
+  // A NaN element makes the pair Null, although a NaN scalar compares false.
+  EXPECT_PROP_ISNULL(List({TypedValue(std::nan(""))}) < List({TypedValue(1)}));
+  EXPECT_PROP_ISNULL(List({TypedValue(std::nan(""))}) >= List({TypedValue(1)}));
+  EXPECT_PROP_FALSE(TypedValue(std::nan("")) < TypedValue(1));
+}
+
+TEST(TypedValue, EqualityOfAContainerHoldingNullIsUndecided) {
+  // A Null element stands for a value nobody knows, so a comparison that has to
+  // read one cannot answer. It answers Null, exactly as `null = null` does.
+  EXPECT_PROP_ISNULL(List({TypedValue()}) == List({TypedValue()}));
+  EXPECT_PROP_ISNULL(List({TypedValue(1), TypedValue(), TypedValue(3)}) ==
+                     List({TypedValue(1), TypedValue(), TypedValue(3)}));
+  EXPECT_PROP_ISNULL(List({TypedValue()}) != List({TypedValue()}));
+  EXPECT_PROP_ISNULL(Map({{"k", TypedValue()}}) == Map({{"k", TypedValue()}}));
+
+  // Null against a known value is undecided for the same reason: nothing here
+  // shows the two differ.
+  EXPECT_PROP_ISNULL(List({TypedValue()}) == List({TypedValue(1)}));
+  EXPECT_PROP_ISNULL(Map({{"k", TypedValue()}}) == Map({{"k", TypedValue(1)}}));
+}
+
+TEST(TypedValue, EqualityOfAContainerAnswersWhereOneElementSettlesIt) {
+  // An element that differs proves the two containers differ, whatever else
+  // they hold, so a Null elsewhere does not hide it.
+  EXPECT_PROP_NE(List({TypedValue(), TypedValue(1)}), List({TypedValue(), TypedValue(2)}));
+  EXPECT_PROP_NE(Map({{"a", TypedValue()}, {"b", TypedValue(1)}}), Map({{"a", TypedValue()}, {"b", TypedValue(2)}}));
+
+  // So does a length that differs, or a key one side does not have.
+  EXPECT_PROP_NE(List({TypedValue()}), List({TypedValue(), TypedValue()}));
+  EXPECT_PROP_NE(Map({{"a", TypedValue()}}), Map({{"b", TypedValue()}}));
+
+  // And a container holding no Null at all still answers.
+  EXPECT_PROP_EQ(List({TypedValue(1)}), List({TypedValue(1)}));
+  EXPECT_PROP_NE(List({TypedValue(1)}), List({TypedValue(2)}));
+}
+
+TEST(TypedValue, EquivalenceOfAContainerHoldingNullDecides) {
+  // Equivalence is two-valued, which is what a hash container needs: it holds a
+  // Null equivalent to a Null so a key can be found again.
+  auto eq = TypedValue::BoolEqual{};
+  EXPECT_TRUE(eq(List({TypedValue()}), List({TypedValue()})));
+  EXPECT_TRUE(eq(Map({{"k", TypedValue()}}), Map({{"k", TypedValue()}})));
+  EXPECT_FALSE(eq(List({TypedValue()}), List({TypedValue(1)})));
 }
 
 TEST(TypedValue, BoolEquals) {
@@ -168,6 +351,13 @@ TEST(TypedValue, Hash) {
             hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})));
   EXPECT_EQ(hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})),
             hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})));
+  EXPECT_EQ(hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}),
+            hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}));
+  EXPECT_EQ(hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}));
+  EXPECT_EQ(hash(TypedValue{Point2d{WGS84_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{WGS84_2d, 1.0, 2.0}}));
+  EXPECT_EQ(hash(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}),
+            hash(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}));
+  EXPECT_EQ(hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}));
 
   // these tests are not really true since they expect
   // hashes to differ, but it's the thought that counts
@@ -178,19 +368,89 @@ TEST(TypedValue, Hash) {
             hash(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})));
   EXPECT_NE(hash(TypedValue(std::map<std::string, TypedValue>{{"b", TypedValue(1)}})),
             hash(TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}})));
+  EXPECT_NE(hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}),
+            hash(TypedValue{Enum{EnumTypeId{2}, EnumValueId{11}}}));
+  EXPECT_NE(hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{11}}}),
+            hash(TypedValue{Enum{EnumTypeId{1}, EnumValueId{12}}}));
+  EXPECT_NE(hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{Cartesian_2d, 1.0, 0.0}}));
+  EXPECT_NE(hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{WGS84_2d, 1.0, 2.0}}));
+  EXPECT_NE(hash(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}));
+  EXPECT_NE(hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 0.0}}));
+}
+
+TEST(TypedValue, ListToPropertyValueList) {
+  memgraph::storage::NameIdMapper name_id_mapper;
+  auto typed_value_int_list = TypedValue(std::vector<int>{33, 0, -33});
+  auto typed_value_double_list = TypedValue(std::vector<double>{33.0, 0.0, -33.33});
+  auto typed_value_numeric_list =
+      TypedValue(std::vector<TypedValue>{TypedValue(33), TypedValue(0.0), TypedValue(-33.33)});
+  auto typed_value_mixed_types_list =
+      TypedValue(std::vector<TypedValue>{TypedValue(33), TypedValue("string"), TypedValue(-33.33)});
+
+  auto property_value_int_list = PropertyValue(std::vector<int>{33, 0, -33});
+  auto property_value_double_list = PropertyValue(std::vector<double>{33.0, 0.0, -33.33});
+  auto property_value_numeric_list = PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.33});
+  auto property_value_mixed_types_list =
+      PropertyValue(PropertyValue::list_t{PropertyValue(33), PropertyValue("string"), PropertyValue(-33.33)});
+
+  ASSERT_EQ(typed_value_int_list.ToPropertyValue(&name_id_mapper).type(), property_value_int_list.type());
+  ASSERT_EQ(typed_value_double_list.ToPropertyValue(&name_id_mapper).type(), property_value_double_list.type());
+  ASSERT_EQ(typed_value_numeric_list.ToPropertyValue(&name_id_mapper).type(), property_value_numeric_list.type());
+  ASSERT_EQ(typed_value_mixed_types_list.ToPropertyValue(&name_id_mapper).type(),
+            property_value_mixed_types_list.type());
+}
+
+TYPED_TEST(AllTypesFixture, CreationValuesFromPropertyValues) {
+  auto pv_true = PropertyValue{true};
+  EXPECT_EQ(TypedValue(pv_true, this->storage_dba->GetNameIdMapper()).ValueBool(), true);
+  EXPECT_EQ(TypedValue(PropertyValue{true}, this->storage_dba->GetNameIdMapper()).ValueBool(), true);
+
+  auto pv_false = PropertyValue{false};
+  EXPECT_EQ(TypedValue(pv_false, this->storage_dba->GetNameIdMapper()).ValueBool(), false);
+  EXPECT_EQ(TypedValue(PropertyValue{false}, this->storage_dba->GetNameIdMapper()).ValueBool(), false);
+
+  auto pv_str1 = PropertyValue{std::string("bla")};
+  EXPECT_EQ(TypedValue(pv_str1, this->storage_dba->GetNameIdMapper()).ValueString(), "bla");
+  EXPECT_EQ(TypedValue(PropertyValue{std::string("bla")}, this->storage_dba->GetNameIdMapper()).ValueString(), "bla");
+
+  auto pv_str2 = PropertyValue{"bla2"};
+  EXPECT_EQ(TypedValue(pv_str2, this->storage_dba->GetNameIdMapper()).ValueString(), "bla2");
+  EXPECT_EQ(TypedValue(PropertyValue{"bla2"}, this->storage_dba->GetNameIdMapper()).ValueString(), "bla2");
+
+  auto pv_int = PropertyValue{55};
+  EXPECT_EQ(TypedValue(pv_int, this->storage_dba->GetNameIdMapper()).ValueInt(), 55);
+  EXPECT_EQ(TypedValue(PropertyValue{55}, this->storage_dba->GetNameIdMapper()).ValueInt(), 55);
+
+  auto pv_double = PropertyValue{66.6};
+  EXPECT_FLOAT_EQ(TypedValue(pv_double, this->storage_dba->GetNameIdMapper()).ValueDouble(), 66.6);
+  EXPECT_FLOAT_EQ(TypedValue(PropertyValue{66.6}, this->storage_dba->GetNameIdMapper()).ValueDouble(), 66.6);
+
+  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
+  auto pv_enum = PropertyValue{enum_val};
+  EXPECT_EQ(TypedValue(pv_enum, this->storage_dba->GetNameIdMapper()).ValueEnum(), enum_val);
+  EXPECT_EQ(TypedValue(PropertyValue{enum_val}, this->storage_dba->GetNameIdMapper()).ValueEnum(), enum_val);
+
+  auto point2d_val = Point2d{Cartesian_2d, 1.0, 2.0};
+  auto pv_point2d = PropertyValue{point2d_val};
+  EXPECT_EQ(TypedValue(pv_point2d, this->storage_dba->GetNameIdMapper()).ValuePoint2d(), point2d_val);
+  EXPECT_EQ(TypedValue(PropertyValue{pv_point2d}, this->storage_dba->GetNameIdMapper()).ValuePoint2d(), point2d_val);
+
+  auto point3d_val = Point3d{Cartesian_3d, 1.0, 2.0, 3.0};
+  auto pv_point3d = PropertyValue{point3d_val};
+  EXPECT_EQ(TypedValue(pv_point3d, this->storage_dba->GetNameIdMapper()).ValuePoint3d(), point3d_val);
+  EXPECT_EQ(TypedValue(PropertyValue{pv_point3d}, this->storage_dba->GetNameIdMapper()).ValuePoint3d(), point3d_val);
 }
 
 TYPED_TEST(AllTypesFixture, Less) {
-  // 'Less' is legal only between numerics, Null and strings.
-  auto is_string_compatible = [](const TypedValue &v) { return v.IsNull() || v.type() == TypedValue::Type::String; };
-  auto is_numeric_compatible = [](const TypedValue &v) { return v.IsNull() || v.IsNumeric(); };
+  // Comparability answers for every pair it is handed, and none of them raises.
+  // Where it has no order to give it says so with Null, which is every pair of
+  // unlike types that are not both numbers.
   for (TypedValue &a : this->values_) {
     for (TypedValue &b : this->values_) {
-      if (is_numeric_compatible(a) && is_numeric_compatible(b)) continue;
-      if (is_string_compatible(a) && is_string_compatible(b)) continue;
-      // Comparison should raise an exception. Cast to (void) so the compiler
-      // does not complain about unused comparison result.
-      EXPECT_THROW((void)(a < b), TypedValueException);
+      EXPECT_NO_THROW((void)(a < b));
+      if (a.type() != b.type() && !(a.IsNumeric() && b.IsNumeric())) {
+        EXPECT_PROP_ISNULL(a < b);
+      }
     }
   }
 
@@ -229,6 +489,9 @@ TEST(TypedValue, LogicalNot) {
   EXPECT_THROW(!TypedValue(0), TypedValueException);
   EXPECT_THROW(!TypedValue(0.2), TypedValueException);
   EXPECT_THROW(!TypedValue("something"), TypedValueException);
+  EXPECT_THROW(!TypedValue(Enum{EnumTypeId{1}, EnumValueId{11}}), TypedValueException);
+  EXPECT_THROW(!TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), TypedValueException);
+  EXPECT_THROW(!TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), TypedValueException);
 }
 
 TEST(TypedValue, UnaryMinus) {
@@ -239,6 +502,9 @@ TEST(TypedValue, UnaryMinus) {
 
   EXPECT_THROW(-TypedValue(true), TypedValueException);
   EXPECT_THROW(-TypedValue("something"), TypedValueException);
+  EXPECT_THROW(-TypedValue(Enum{EnumTypeId{1}, EnumValueId{11}}), TypedValueException);
+  EXPECT_THROW(-TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), TypedValueException);
+  EXPECT_THROW(-TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), TypedValueException);
 }
 
 TEST(TypedValue, UnaryPlus) {
@@ -249,6 +515,9 @@ TEST(TypedValue, UnaryPlus) {
 
   EXPECT_THROW(+TypedValue(true), TypedValueException);
   EXPECT_THROW(+TypedValue("something"), TypedValueException);
+  EXPECT_THROW(+TypedValue(Enum{EnumTypeId{1}, EnumValueId{11}}), TypedValueException);
+  EXPECT_THROW(+TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), TypedValueException);
+  EXPECT_THROW(+TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), TypedValueException);
 }
 
 template <typename StorageType>
@@ -284,10 +553,27 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
       }
     };
 
+    // Which pairs of temporal values an addition or a subtraction accepts is a
+    // matrix `valid` does not describe, and each accepted pair has a test of
+    // its own.
+    auto is_temporal = [](const TypedValue &value) {
+      switch (value.type()) {
+        case TypedValue::Type::Date:
+        case TypedValue::Type::LocalTime:
+        case TypedValue::Type::LocalDateTime:
+        case TypedValue::Type::ZonedDateTime:
+        case TypedValue::Type::Duration:
+          return true;
+        default:
+          return false;
+      }
+    };
+
     for (const TypedValue &a : this->values_) {
       for (const TypedValue &b : this->values_) {
         if (always_valid(a) || always_valid(b)) continue;
         if (valid(a) && valid(b)) continue;
+        if (is_temporal(a) || is_temporal(b)) continue;
         EXPECT_THROW(op(a, b), TypedValueException);
         EXPECT_THROW(op(b, a), TypedValueException);
       }
@@ -301,7 +587,7 @@ class TypedValueArithmeticTest : public AllTypesFixture<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(TypedValueArithmeticTest, StorageTypes);
+TYPED_TEST_SUITE(TypedValueArithmeticTest, StorageTypes);
 
 TYPED_TEST(TypedValueArithmeticTest, Sum) {
   this->ExpectArithmeticThrowsAndNull(true, [](const TypedValue &a, const TypedValue &b) { return a + b; });
@@ -319,8 +605,14 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   std::vector<TypedValue> in{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
   std::vector<TypedValue> out1{TypedValue(2), TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
   std::vector<TypedValue> out2{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a"), TypedValue(2)};
-  std::vector<TypedValue> out3{TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a"),
-                               TypedValue(1), TypedValue(2), TypedValue(true), TypedValue("a")};
+  std::vector<TypedValue> out3{TypedValue(1),
+                               TypedValue(2),
+                               TypedValue(true),
+                               TypedValue("a"),
+                               TypedValue(1),
+                               TypedValue(2),
+                               TypedValue(true),
+                               TypedValue("a")};
   EXPECT_PROP_EQ(TypedValue(2) + TypedValue(in), TypedValue(out1));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(2), TypedValue(out2));
   EXPECT_PROP_EQ(TypedValue(in) + TypedValue(in), TypedValue(out3));
@@ -329,9 +621,13 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Duration(1)));
   // Date
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) + TypedValue(memgraph::utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::Date(1)));
-  EXPECT_THROW(TypedValue(memgraph::utils::Date(1)) + TypedValue(memgraph::utils::Date(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) +
+                  TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) +
+                  TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})));
+  EXPECT_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) +
+                   TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})),
+               TypedValueException);
   // LocalTime
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) + TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::LocalTime(1)));
@@ -341,6 +637,24 @@ TYPED_TEST(TypedValueArithmeticTest, Sum) {
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) + TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::LocalDateTime(1)));
   EXPECT_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) + TypedValue(memgraph::utils::LocalDateTime(1)),
+               TypedValueException);
+
+  // Zoned temporal types
+  // ZonedDateTime
+  const auto duration = memgraph::utils::AsSysTime(1);
+  const auto tz = memgraph::utils::Timezone("America/Los_Angeles");
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) + TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) + TypedValue(memgraph::utils::ZonedDateTime(duration, tz)));
+  EXPECT_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) +
+                   TypedValue(memgraph::utils::ZonedDateTime(duration, tz)),
+               TypedValueException);
+
+  // Spatial types
+  EXPECT_THROW(
+      TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}) + TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}),
+      TypedValueException);
+  EXPECT_THROW(TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}) +
+                   TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}),
                TypedValueException);
 }
 
@@ -354,13 +668,18 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
   // implicit casting
   EXPECT_FLOAT_EQ((TypedValue(2) - TypedValue(0.5)).ValueDouble(), 1.5);
   EXPECT_FLOAT_EQ((TypedValue(2.5) - TypedValue(2)).ValueDouble(), 0.5);
+
   // Temporal Types
   // Duration
   EXPECT_NO_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Duration(1)));
   // Date
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) - TypedValue(memgraph::utils::Duration(1)));
-  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(1)) - TypedValue(memgraph::utils::Date(1)));
-  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Date(1)), TypedValueException);
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) -
+                  TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})) -
+                  TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})));
+  EXPECT_THROW(
+      TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::Date(std::chrono::microseconds{1})),
+      TypedValueException);
   // LocalTime
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) - TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalTime(1)) - TypedValue(memgraph::utils::LocalTime(1)));
@@ -370,6 +689,24 @@ TYPED_TEST(TypedValueArithmeticTest, Difference) {
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) - TypedValue(memgraph::utils::Duration(1)));
   EXPECT_NO_THROW(TypedValue(memgraph::utils::LocalDateTime(1)) - TypedValue(memgraph::utils::LocalDateTime(1)));
   EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::LocalDateTime(1)),
+               TypedValueException);
+
+  // Zoned temporal types
+  // ZonedDateTime
+  const auto duration = memgraph::utils::AsSysTime(1);
+  const auto tz = memgraph::utils::Timezone("America/Los_Angeles");
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) - TypedValue(memgraph::utils::Duration(1)));
+  EXPECT_NO_THROW(TypedValue(memgraph::utils::ZonedDateTime(duration, tz)) -
+                  TypedValue(memgraph::utils::ZonedDateTime(duration, tz)));
+  EXPECT_THROW(TypedValue(memgraph::utils::Duration(1)) - TypedValue(memgraph::utils::ZonedDateTime(duration, tz)),
+               TypedValueException);
+
+  // Spatial types
+  EXPECT_THROW(
+      TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}) - TypedValue(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}),
+      TypedValueException);
+  EXPECT_THROW(TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}) -
+                   TypedValue(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}),
                TypedValueException);
 }
 
@@ -437,7 +774,65 @@ class TypedValueLogicTest : public AllTypesFixture<StorageType> {
   }
 };
 
-TYPED_TEST_CASE(TypedValueLogicTest, StorageTypes);
+TEST(TypedValue, ToJsonFromJsonRoundTrip) {
+  auto round_trip = [](const TypedValue &v) {
+    nlohmann::json j;
+    memgraph::query::to_json(j, v);
+    TypedValue w;
+    memgraph::query::from_json(j, w);
+    EXPECT_TRUE(TypedValue::BoolEqual{}(v, w)) << "Round-trip failed for type " << static_cast<int>(v.type());
+  };
+
+  round_trip(TypedValue());
+  round_trip(TypedValue(true));
+  round_trip(TypedValue(false));
+  round_trip(TypedValue(42));
+  round_trip(TypedValue(-1));
+  round_trip(TypedValue(3.14));
+  round_trip(TypedValue(-2.5));
+  round_trip(TypedValue(""));
+  round_trip(TypedValue("hello"));
+  round_trip(TypedValue(std::vector<TypedValue>{}));
+  round_trip(TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue("a"), TypedValue(true)}));
+  round_trip(TypedValue(std::map<std::string, TypedValue>{}));
+  round_trip(TypedValue(
+      std::map<std::string, TypedValue>{{"k1", TypedValue(1)},
+                                        {"k2", TypedValue("v2")},
+                                        {"k3", TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)})}}));
+}
+
+TEST(TypedValue, ToJsonProducesExpectedJson) {
+  nlohmann::json j;
+
+  memgraph::query::to_json(j, TypedValue());
+  EXPECT_TRUE(j.is_null());
+
+  memgraph::query::to_json(j, TypedValue(true));
+  EXPECT_TRUE(j.get<bool>());
+
+  memgraph::query::to_json(j, TypedValue(42));
+  EXPECT_EQ(j.get<int64_t>(), 42);
+
+  memgraph::query::to_json(j, TypedValue(3.14));
+  EXPECT_DOUBLE_EQ(j.get<double>(), 3.14);
+
+  memgraph::query::to_json(j, TypedValue("value"));
+  EXPECT_EQ(j.get<std::string>(), "value");
+
+  memgraph::query::to_json(j, TypedValue(std::vector<TypedValue>{TypedValue(1), TypedValue(2)}));
+  EXPECT_TRUE(j.is_array());
+  EXPECT_EQ(j.size(), 2);
+  EXPECT_EQ(j[0].get<int64_t>(), 1);
+  EXPECT_EQ(j[1].get<int64_t>(), 2);
+
+  memgraph::query::to_json(j,
+                           TypedValue(std::map<std::string, TypedValue>{{"a", TypedValue(1)}, {"b", TypedValue("x")}}));
+  EXPECT_TRUE(j.is_object());
+  EXPECT_EQ(j["a"].get<int64_t>(), 1);
+  EXPECT_EQ(j["b"].get<std::string>(), "x");
+};
+
+TYPED_TEST_SUITE(TypedValueLogicTest, StorageTypes);
 
 TYPED_TEST(TypedValueLogicTest, LogicalAnd) {
   this->TestLogicalThrows([](const TypedValue &p1, const TypedValue &p2) { return p1 && p2; });
@@ -468,16 +863,40 @@ TYPED_TEST(TypedValueLogicTest, LogicalXor) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(AllTypesFixture, CopyConstruction) {
+  for (auto const &value : this->values_) {
+    auto cpy = value;
+    if (value.IsGraph()) continue;  // A graph is not compared.
+
+    // Equivalence decides that the copy is the same value whatever it holds, and
+    // it is the relation that has to, since a hash container is keyed by it.
+    EXPECT_TRUE(TypedValue::BoolEqual{}(cpy, value))
+        << "a copy of a value of type " << static_cast<unsigned>(value.type()) << " is not equivalent to it";
+
+    // Equality answers each of its three ways here, and which one it gives says
+    // what the value holds: a NaN settles the question false wherever it sits,
+    // a Null with no NaN beside it leaves the question open.
+    if (memgraph::test::shapes::HoldsANaN(value)) {
+      EXPECT_PROP_FALSE(cpy == value);
+    } else if (memgraph::query::relations::equality::HoldsANull(value)) {
+      EXPECT_PROP_ISNULL(cpy == value);
+    } else {
+      EXPECT_PROP_EQ(cpy, value);
+    }
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(AllTypesFixture, ConstructionWithMemoryResource) {
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
   std::vector<TypedValue> values_with_custom_memory;
   for (const auto &value : this->values_) {
-    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     TypedValue copy_constructed_value(value, &monotonic_memory);
-    EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(copy_constructed_value.get_allocator().resource(), &monotonic_memory);
     values_with_custom_memory.emplace_back(std::move(copy_constructed_value));
     const auto &move_constructed_value = values_with_custom_memory.back();
-    EXPECT_EQ(move_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(move_constructed_value.get_allocator().resource(), &monotonic_memory);
   }
 }
 
@@ -485,15 +904,15 @@ TYPED_TEST(AllTypesFixture, ConstructionWithMemoryResource) {
 TYPED_TEST(AllTypesFixture, AssignmentWithMemoryResource) {
   std::vector<TypedValue> values_with_default_memory;
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
-  for (const auto &value : this->values_) {
-    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+  for (TypedValue const &value : this->values_) {
+    ASSERT_EQ(value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     TypedValue copy_assigned_value(&monotonic_memory);
     copy_assigned_value = value;
-    EXPECT_EQ(copy_assigned_value.GetMemoryResource(), &monotonic_memory);
+    ASSERT_TRUE(copy_assigned_value.get_allocator().resource()->is_equal(monotonic_memory)) << value.type();
     values_with_default_memory.emplace_back(memgraph::utils::NewDeleteResource());
     auto &move_assigned_value = values_with_default_memory.back();
     move_assigned_value = std::move(copy_assigned_value);
-    EXPECT_EQ(move_assigned_value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    ASSERT_EQ(move_assigned_value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
   }
 }
 
@@ -502,15 +921,15 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
   std::vector<TypedValue, memgraph::utils::Allocator<TypedValue>> values_with_custom_memory(&monotonic_memory);
   for (const auto &value : this->values_) {
-    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     values_with_custom_memory.emplace_back(value);
     const auto &copy_constructed_value = values_with_custom_memory.back();
-    EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(copy_constructed_value.get_allocator().resource(), &monotonic_memory);
     TypedValue copy(values_with_custom_memory.back());
-    EXPECT_EQ(copy.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(copy.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     values_with_custom_memory.emplace_back(std::move(copy));
     const auto &move_constructed_value = values_with_custom_memory.back();
-    EXPECT_EQ(move_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(move_constructed_value.get_allocator().resource(), &monotonic_memory);
     if (value.type() == TypedValue::Type::List) {
       ASSERT_EQ(move_constructed_value.type(), value.type());
       const auto &original = value.ValueList();
@@ -519,9 +938,9 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       ASSERT_EQ(moved.size(), original.size());
       ASSERT_EQ(copied.size(), original.size());
       for (size_t i = 0; i < value.ValueList().size(); ++i) {
-        EXPECT_EQ(original[i].GetMemoryResource(), memgraph::utils::NewDeleteResource());
-        EXPECT_EQ(moved[i].GetMemoryResource(), &monotonic_memory);
-        EXPECT_EQ(copied[i].GetMemoryResource(), &monotonic_memory);
+        EXPECT_EQ(original[i].get_allocator().resource(), memgraph::utils::NewDeleteResource());
+        EXPECT_EQ(moved[i].get_allocator().resource(), &monotonic_memory);
+        EXPECT_EQ(copied[i].get_allocator().resource(), &monotonic_memory);
         EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], moved[i]));
         EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], copied[i]));
       }
@@ -531,8 +950,8 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       const auto &moved = move_constructed_value.ValueMap();
       const auto &copied = copy_constructed_value.ValueMap();
       auto expect_allocator = [](const auto &kv, auto *memory_resource) {
-        EXPECT_EQ(*kv.first.get_allocator().GetMemoryResource(), *memory_resource);
-        EXPECT_EQ(*kv.second.GetMemoryResource(), *memory_resource);
+        EXPECT_EQ(*kv.first.get_allocator().resource(), *memory_resource);
+        EXPECT_EQ(*kv.second.get_allocator().resource(), *memory_resource);
       };
       for (const auto &kv : original) {
         expect_allocator(kv, memgraph::utils::NewDeleteResource());
@@ -550,25 +969,25 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       const auto &original = value.ValuePath();
       const auto &moved = move_constructed_value.ValuePath();
       const auto &copied = copy_constructed_value.ValuePath();
-      EXPECT_EQ(original.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+      EXPECT_EQ(original.get_allocator().resource(), memgraph::utils::NewDeleteResource());
       EXPECT_EQ(moved.vertices(), original.vertices());
       EXPECT_EQ(moved.edges(), original.edges());
-      EXPECT_EQ(moved.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(moved.get_allocator().resource(), &monotonic_memory);
       EXPECT_EQ(copied.vertices(), original.vertices());
       EXPECT_EQ(copied.edges(), original.edges());
-      EXPECT_EQ(copied.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(copied.get_allocator().resource(), &monotonic_memory);
     } else if (value.type() == TypedValue::Type::Graph) {
       ASSERT_EQ(move_constructed_value.type(), value.type());
       const auto &original = value.ValueGraph();
       const auto &moved = move_constructed_value.ValueGraph();
       const auto &copied = copy_constructed_value.ValueGraph();
-      EXPECT_EQ(original.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+      EXPECT_EQ(original.get_allocator().resource(), memgraph::utils::NewDeleteResource());
       EXPECT_EQ(moved.vertices(), original.vertices());
       EXPECT_EQ(moved.edges(), original.edges());
-      EXPECT_EQ(moved.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(moved.get_allocator().resource(), &monotonic_memory);
       EXPECT_EQ(copied.vertices(), original.vertices());
       EXPECT_EQ(copied.edges(), original.edges());
-      EXPECT_EQ(copied.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(copied.get_allocator().resource(), &monotonic_memory);
     }
   }
 }

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,35 +11,156 @@
 
 #include "query/procedure/py_module.hpp"
 
-#include <datetime.h>
-#include <methodobject.h>
-#include <objimpl.h>
-#include <pyerrors.h>
 #include <array>
 #include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 
 #include "mg_procedure.h"
 #include "query/exceptions.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "spdlog/spdlog.h"
+#include "storage/v2/point.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "utils/memory.hpp"
+#include "utils/concepts.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/pmr/vector.hpp"
 
 namespace memgraph::query::procedure {
 
 namespace {
+
+// =========================================================================
+// Python datetime: stable-ABI shims
+//
+// The `PyDateTime_*` C macros and the `<datetime.h>` capsule are NOT in the
+// Python stable ABI. We cache strong references to the `datetime` module's
+// classes once at module init and route every type-check, accessor, and
+// constructor call through the Python-level API. This is slower per call
+// than the macros, but is the only way to keep the binary version-portable.
+//
+// All globals here are initialised by `InitDateTimeRefs()` from
+// `PyInitMgpModule`, while the GIL is held and there are no other Python
+// threads running, so plain pointers are safe.
+// =========================================================================
+PyObject *g_dt_date = nullptr;       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *g_dt_time = nullptr;       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *g_dt_datetime = nullptr;   // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *g_dt_timedelta = nullptr;  // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *g_dt_timezone = nullptr;   // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+
+bool InitDateTimeRefs() {
+  if (g_dt_date != nullptr) return true;
+  const py::Object module(PyImport_ImportModule("datetime"));
+  if (!module) return false;
+  // Fetch into owned locals first. If any lookup fails, the py::Object
+  // destructors release the ones that succeeded (no leak) and the globals stay
+  // null — so the `g_dt_date` guard above keeps reflecting "not initialised" and
+  // the function remains safely re-callable. We only publish to the globals once
+  // every lookup has succeeded (all-or-nothing), so callers can never observe a
+  // partially-initialised state.
+  py::Object date(PyObject_GetAttrString(module.Ptr(), "date"));
+  py::Object time(PyObject_GetAttrString(module.Ptr(), "time"));
+  py::Object datetime(PyObject_GetAttrString(module.Ptr(), "datetime"));
+  py::Object timedelta(PyObject_GetAttrString(module.Ptr(), "timedelta"));
+  py::Object timezone(PyObject_GetAttrString(module.Ptr(), "timezone"));
+  if (!date || !time || !datetime || !timedelta || !timezone) return false;
+  g_dt_date = date.Steal();
+  g_dt_time = time.Steal();
+  g_dt_datetime = datetime.Steal();
+  g_dt_timedelta = timedelta.Steal();
+  g_dt_timezone = timezone.Steal();
+  return true;
+}
+
+// Type-check helpers replacing the `PyDate_CheckExact` etc. C macros.
+bool IsDateExact(PyObject *o) { return Py_TYPE(o) == reinterpret_cast<PyTypeObject *>(g_dt_date); }
+
+bool IsTimeExact(PyObject *o) { return Py_TYPE(o) == reinterpret_cast<PyTypeObject *>(g_dt_time); }
+
+bool IsDateTimeExact(PyObject *o) { return Py_TYPE(o) == reinterpret_cast<PyTypeObject *>(g_dt_datetime); }
+
+bool IsDeltaExact(PyObject *o) { return Py_TYPE(o) == reinterpret_cast<PyTypeObject *>(g_dt_timedelta); }
+
+// Read an integer attribute (`obj.<name>`) and return it as `int`. On failure
+// the Python error indicator is set and the return is 0; callers must check
+// `PyErr_Occurred()` if they care.
+int GetIntAttr(PyObject *obj, const char *name) {
+  const py::Object v(PyObject_GetAttrString(obj, name));
+  if (!v) return 0;
+  const long n = PyLong_AsLong(v.Ptr());
+  return static_cast<int>(n);
+}
+
+// Get the borrowed `tzinfo` attribute for a `datetime`/`time` object. Returns
+// nullptr if the object has no tzinfo or tzinfo is None. This replaces the
+// pre-3.10 internal shim that used to read the struct member directly.
+//
+// The returned reference is owned by the caller (i.e. caller must `Py_DECREF`
+// or wrap in `py::Object`). Returns nullptr both on "no tzinfo / tzinfo is
+// None" and on error; callers that need to distinguish must check
+// `PyErr_Occurred()`.
+PyObject *GetTzInfo(PyObject *obj) {
+  PyObject *tzinfo = PyObject_GetAttrString(obj, "tzinfo");
+  if (!tzinfo) {
+    PyErr_Clear();
+    return nullptr;
+  }
+  if (tzinfo == Py_None) {
+    Py_DECREF(tzinfo);
+    return nullptr;
+  }
+  return tzinfo;
+}
+
+// Replacement for `Py_TYPE(self)->tp_free(self)` plus the obligatory
+// heap-type `Py_DECREF(Py_TYPE(self))`. Must be the last thing a `dealloc`
+// callback does — `self` is invalid after this call.
+void HeapTypeFree(PyObject *self) {
+  PyTypeObject *tp = Py_TYPE(self);
+  auto free_fn = reinterpret_cast<freefunc>(PyType_GetSlot(tp, Py_tp_free));
+  free_fn(self);
+  Py_DECREF(tp);
+}
+
+// Allocate an instance of one of our heap types. The counterpart to the
+// type-refcount handling on teardown (`HeapTypeFree`, or the default
+// `subtype_dealloc` for types without a custom one): a heap-type instance owns
+// a strong reference to its type, so destruction always does `Py_DECREF(type)`.
+//
+// We must NOT use `PyObject_New` here: it only increments a heap type's
+// refcount (via `_PyObject_Init`) on Python >= 3.12. Because the binary is
+// built once (against one Python) but must run against any libpython >= the
+// abi3 floor, a binary built on 3.12 would, when run against a 3.10/3.11
+// libpython, never take that incref while teardown still decrements — the
+// type's refcount underflows, the type object is freed mid-run, and the
+// resulting heap corruption shows up as unrelated fatal errors (e.g.
+// "none_dealloc: deallocating None"). `PyType_GenericAlloc` increments the
+// heap type's refcount exactly once on every supported version, keeping
+// creation and destruction balanced. It also zero-initialises the instance,
+// which our call sites overwrite immediately.
+template <class T>
+T *MakeHeapInstance(PyTypeObject *type) {
+  return reinterpret_cast<T *>(PyType_GenericAlloc(type, 0));
+}
+
 // Set this as a __reduce__ special method on our types to prevent `pickle` and
 // `copy` module operations on our types.
 PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
-  auto *type = Py_TYPE(self);
+  const py::Object type_name(PyObject_GetAttrString(reinterpret_cast<PyObject *>(Py_TYPE(self)), "__name__"));
   std::stringstream ss;
-  ss << "cannot pickle nor copy '" << type->tp_name << "' object";
+  ss << "cannot pickle nor copy '";
+  if (type_name) {
+    const char *utf8 = PyUnicode_AsUTF8(type_name.Ptr());
+    ss << (utf8 ? utf8 : "<unknown>");
+  } else {
+    PyErr_Clear();
+    ss << "<unknown>";
+  }
+  ss << "' object";
   const auto &msg = ss.str();
   PyErr_SetString(PyExc_TypeError, msg.c_str());
   return nullptr;
@@ -57,12 +178,19 @@ PyObject *gMgpImmutableObjectError{nullptr};     // NOLINT(cppcoreguidelines-avo
 PyObject *gMgpValueConversionError{nullptr};     // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpSerializationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 PyObject *gMgpAuthorizationError{nullptr};       // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
+PyObject *gMgNotYetImplementedError{nullptr};    // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
 
 constexpr auto kMicrosecondsInMillisecond{1000};
-constexpr auto kMicrosecondsInSecond{1000000};
+constexpr auto kMicrosecondsInSecond{1'000'000};
 
-// Returns true if an exception is raised
+// Returns true if an exception is raised.
+//
+// Threading: the gMgp* globals are written once in PyInitMgpModule, which runs
+// on the main thread during Py_InitializeEx (via PyImport_AppendInittab) before
+// any worker threads are spawned.  All subsequent accesses are read-only, so no
+// synchronisation is needed beyond the thread-creation happens-before fence.
 bool RaiseExceptionFromErrorCode(const mgp_error error) {
+  MG_ASSERT(gMgpUnknownError != nullptr, "RaiseExceptionFromErrorCode called before _mgp module was initialised");
   switch (error) {
     case mgp_error::MGP_ERROR_NO_ERROR:
       return false;
@@ -114,6 +242,10 @@ bool RaiseExceptionFromErrorCode(const mgp_error error) {
       PyErr_SetString(gMgpAuthorizationError, "Authorization Error. Permission Denied.");
       return true;
     }
+    case mgp_error::MGP_ERROR_NOT_YET_IMPLEMENTED: {
+      PyErr_SetString(gMgNotYetImplementedError, "Not Yet Implemented Error.");
+      return true;
+    }
   }
 }
 
@@ -162,6 +294,7 @@ struct PyGraph {
   mgp_graph *graph;
   mgp_memory *memory;
 };
+
 // clang-format on
 
 // clang-format off
@@ -170,6 +303,7 @@ struct PyVerticesIterator {
   mgp_vertices_iterator *it;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 PyObject *MakePyVertex(mgp_vertex &vertex, PyGraph *py_graph);
@@ -182,7 +316,7 @@ void PyVerticesIteratorDealloc(PyVerticesIterator *self) {
   // execution, so we may cause a double free issue.
   if (self->py_graph->graph) mgp_vertices_iterator_destroy(self->it);
   Py_DECREF(self->py_graph);
-  Py_TYPE(self)->tp_free(self);
+  HeapTypeFree(reinterpret_cast<PyObject *>(self));
 }
 
 PyObject *PyVerticesIteratorGet(PyVerticesIterator *self, PyObject *Py_UNUSED(ignored)) {
@@ -217,24 +351,36 @@ PyObject *PyVerticesIteratorNext(PyVerticesIterator *self, PyObject *Py_UNUSED(i
 
 static PyMethodDef PyVerticesIteratorMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"get", reinterpret_cast<PyCFunction>(PyVerticesIteratorGet), METH_NOARGS,
+    {"get",
+     reinterpret_cast<PyCFunction>(PyVerticesIteratorGet),
+     METH_NOARGS,
      "Get the current vertex pointed to by the iterator or return None."},
-    {"next", reinterpret_cast<PyCFunction>(PyVerticesIteratorNext), METH_NOARGS,
+    {"next",
+     reinterpret_cast<PyCFunction>(PyVerticesIteratorNext),
+     METH_NOARGS,
      "Advance the iterator to the next vertex and return it."},
     {nullptr, {}, {}, {}},
 };
 
-// clang-format off
-static PyTypeObject PyVerticesIteratorType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.VerticesIterator",
-    .tp_basicsize = sizeof(PyVerticesIterator),
-    .tp_dealloc = reinterpret_cast<destructor>(PyVerticesIteratorDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_vertices_iterator.",
-    .tp_methods = PyVerticesIteratorMethods,
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyVerticesIteratorType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_vertices_iterator.")},
+    {Py_tp_dealloc, reinterpret_cast<void *>(PyVerticesIteratorDealloc)},
+    {Py_tp_methods, PyVerticesIteratorMethods},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+static PyType_Spec PyVerticesIteratorType_spec = {
+    "_mgp.VerticesIterator",
+    sizeof(PyVerticesIterator),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyVerticesIteratorType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyVerticesIteratorType = nullptr;
 
 // clang-format off
 struct PyEdgesIterator {
@@ -242,6 +388,7 @@ struct PyEdgesIterator {
   mgp_edges_iterator *it;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 PyObject *MakePyEdge(mgp_edge &edge, PyGraph *py_graph);
@@ -254,7 +401,7 @@ void PyEdgesIteratorDealloc(PyEdgesIterator *self) {
   // execution, so we may cause a double free issue.
   if (self->py_graph->graph) mgp_edges_iterator_destroy(self->it);
   Py_DECREF(self->py_graph);
-  Py_TYPE(self)->tp_free(self);
+  HeapTypeFree(reinterpret_cast<PyObject *>(self));
 }
 
 PyObject *PyEdgesIteratorGet(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored)) {
@@ -289,24 +436,36 @@ PyObject *PyEdgesIteratorNext(PyEdgesIterator *self, PyObject *Py_UNUSED(ignored
 
 static PyMethodDef PyEdgesIteratorMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"get", reinterpret_cast<PyCFunction>(PyEdgesIteratorGet), METH_NOARGS,
+    {"get",
+     reinterpret_cast<PyCFunction>(PyEdgesIteratorGet),
+     METH_NOARGS,
      "Get the current edge pointed to by the iterator or return None."},
-    {"next", reinterpret_cast<PyCFunction>(PyEdgesIteratorNext), METH_NOARGS,
+    {"next",
+     reinterpret_cast<PyCFunction>(PyEdgesIteratorNext),
+     METH_NOARGS,
      "Advance the iterator to the next edge and return it."},
     {nullptr, {}, {}, {}},
 };
 
-// clang-format off
-static PyTypeObject PyEdgesIteratorType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.EdgesIterator",
-    .tp_basicsize = sizeof(PyEdgesIterator),
-    .tp_dealloc = reinterpret_cast<destructor>(PyEdgesIteratorDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_edges_iterator.",
-    .tp_methods = PyEdgesIteratorMethods,
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyEdgesIteratorType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_edges_iterator.")},
+    {Py_tp_dealloc, reinterpret_cast<void *>(PyEdgesIteratorDealloc)},
+    {Py_tp_methods, PyEdgesIteratorMethods},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+static PyType_Spec PyEdgesIteratorType_spec = {
+    "_mgp.EdgesIterator",
+    sizeof(PyEdgesIterator),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyEdgesIteratorType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyEdgesIteratorType = nullptr;
 
 PyObject *PyGraphInvalidate(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   self->graph = nullptr;
@@ -323,6 +482,17 @@ PyObject *PyGraphIsValid(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
 PyObject *PyGraphIsMutable(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   return PyBool_FromLong(CallBool(mgp_graph_is_mutable, self->graph));
 }
+
+namespace {
+PyObject *PyGraphGetStartTimestamp(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
+  MG_ASSERT(PyGraphIsValidImpl(*self));
+  int64_t start_ts{0};
+  if (RaiseExceptionFromErrorCode(mgp_graph_get_start_timestamp(self->graph, &start_ts))) {
+    return nullptr;
+  }
+  return PyLong_FromLongLong(start_ts);
+}
+}  // namespace
 
 PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph);
 
@@ -374,7 +544,7 @@ PyObject *PyGraphIterVertices(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
   if (RaiseExceptionFromErrorCode(mgp_graph_iter_vertices(self->graph, self->memory, &vertices_it))) {
     return nullptr;
   }
-  auto *py_vertices_it = PyObject_New(PyVerticesIterator, &PyVerticesIteratorType);
+  auto *py_vertices_it = MakeHeapInstance<PyVerticesIterator>(PyVerticesIteratorType);
   if (!py_vertices_it) {
     mgp_vertices_iterator_destroy(vertices_it);
     return nullptr;
@@ -392,40 +562,65 @@ PyObject *PyGraphMustAbort(PyGraph *self, PyObject *Py_UNUSED(ignored)) {
 
 static PyMethodDef PyGraphMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"invalidate", reinterpret_cast<PyCFunction>(PyGraphInvalidate), METH_NOARGS,
+    {"invalidate",
+     reinterpret_cast<PyCFunction>(PyGraphInvalidate),
+     METH_NOARGS,
      "Invalidate the Graph context thus preventing the Graph from being used."},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyGraphIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyGraphIsValid),
+     METH_NOARGS,
      "Return True if Graph is in valid context and may be used."},
-    {"is_mutable", reinterpret_cast<PyCFunction>(PyGraphIsMutable), METH_NOARGS,
+    {"is_mutable",
+     reinterpret_cast<PyCFunction>(PyGraphIsMutable),
+     METH_NOARGS,
      "Return True if Graph is mutable and can be used to modify vertices and edges."},
-    {"get_vertex_by_id", reinterpret_cast<PyCFunction>(PyGraphGetVertexById), METH_VARARGS,
+    {"get_start_timestamp",
+     reinterpret_cast<PyCFunction>(PyGraphGetStartTimestamp),
+     METH_NOARGS,
+     "Return a stable per-query identifier (the start_timestamp of the original transaction)."},
+    {"get_vertex_by_id",
+     reinterpret_cast<PyCFunction>(PyGraphGetVertexById),
+     METH_VARARGS,
      "Get the vertex or raise IndexError."},
     {"create_vertex", reinterpret_cast<PyCFunction>(PyGraphCreateVertex), METH_NOARGS, "Create a vertex."},
     {"create_edge", reinterpret_cast<PyCFunction>(PyGraphCreateEdge), METH_VARARGS, "Create an edge."},
     {"delete_vertex", reinterpret_cast<PyCFunction>(PyGraphDeleteVertex), METH_VARARGS, "Delete a vertex."},
-    {"detach_delete_vertex", reinterpret_cast<PyCFunction>(PyGraphDetachDeleteVertex), METH_VARARGS,
+    {"detach_delete_vertex",
+     reinterpret_cast<PyCFunction>(PyGraphDetachDeleteVertex),
+     METH_VARARGS,
      "Delete a vertex and all of its edges."},
     {"delete_edge", reinterpret_cast<PyCFunction>(PyGraphDeleteEdge), METH_VARARGS, "Delete an edge."},
     {"iter_vertices", reinterpret_cast<PyCFunction>(PyGraphIterVertices), METH_NOARGS, "Return _mgp.VerticesIterator."},
-    {"must_abort", reinterpret_cast<PyCFunction>(PyGraphMustAbort), METH_NOARGS,
+    {"must_abort",
+     reinterpret_cast<PyCFunction>(PyGraphMustAbort),
+     METH_NOARGS,
      "Check whether the running procedure should abort"},
     {nullptr, {}, {}, {}},
 };
 
-// clang-format off
-static PyTypeObject PyGraphType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Graph",
-    .tp_basicsize = sizeof(PyGraph),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_graph.",
-    .tp_methods = PyGraphMethods,
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyGraphType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_graph.")},
+    {Py_tp_methods, PyGraphMethods},
+    {0, nullptr},
 };
+
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+static PyType_Spec PyGraphType_spec = {
+    "_mgp.Graph",
+    sizeof(PyGraph),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyGraphType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyGraphType = nullptr;
 // clang-format on
 
 PyObject *MakePyGraph(mgp_graph *graph, mgp_memory *memory) {
   MG_ASSERT(!graph || (graph && memory));
-  auto *py_graph = PyObject_New(PyGraph, &PyGraphType);
+  auto *py_graph = MakeHeapInstance<PyGraph>(PyGraphType);
   if (!py_graph) return nullptr;
   py_graph->graph = graph;
   py_graph->memory = memory;
@@ -437,21 +632,30 @@ struct PyCypherType {
   PyObject_HEAD
   mgp_type *type;
 };
+
 // clang-format on
 
-// clang-format off
-static PyTypeObject PyCypherTypeType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Type",
-    .tp_basicsize = sizeof(PyCypherType),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_type.",
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyCypherTypeType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_type.")},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+static PyType_Spec PyCypherTypeType_spec = {
+    "_mgp.Type",
+    sizeof(PyCypherType),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyCypherTypeType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyCypherTypeType = nullptr;
 
 PyObject *MakePyCypherType(mgp_type *type) {
   MG_ASSERT(type);
-  auto *py_type = PyObject_New(PyCypherType, &PyCypherTypeType);
+  auto *py_type = MakeHeapInstance<PyCypherType>(PyCypherTypeType);
   if (!py_type) return nullptr;
   py_type->type = type;
   return reinterpret_cast<PyObject *>(py_type);
@@ -462,6 +666,7 @@ struct PyQueryProc {
   PyObject_HEAD
   mgp_proc *callable;
 };
+
 // clang-format on
 
 // clang-format off
@@ -469,6 +674,7 @@ struct PyMagicFunc{
   PyObject_HEAD
   mgp_func *callable;
 };
+
 // clang-format on
 
 template <typename T>
@@ -479,7 +685,7 @@ PyObject *PyCallableAddArg(TCall *self, PyObject *args) {
   MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
-  if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
+  if (!PyArg_ParseTuple(args, "sO!", &name, PyCypherTypeType, &py_type)) return nullptr;
   auto *type = py_type->type;
 
   if constexpr (std::is_same_v<TCall, PyQueryProc>) {
@@ -501,9 +707,9 @@ PyObject *PyCallableAddOptArg(TCall *self, PyObject *args) {
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
   PyObject *py_value = nullptr;
-  if (!PyArg_ParseTuple(args, "sO!O", &name, &PyCypherTypeType, &py_type, &py_value)) return nullptr;
+  if (!PyArg_ParseTuple(args, "sO!O", &name, PyCypherTypeType, &py_type, &py_value)) return nullptr;
   auto *type = py_type->type;
-  mgp_memory memory{self->callable->opt_args.get_allocator().GetMemoryResource()};
+  mgp_memory memory{self->callable->opt_args.get_allocator().resource()};
   mgp_value *value = PyObjectToMgpValueWithPythonExceptions(py_value, &memory);
   if (value == nullptr) {
     return nullptr;
@@ -532,7 +738,7 @@ PyObject *PyQueryProcAddResult(PyQueryProc *self, PyObject *args) {
   MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
-  if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
+  if (!PyArg_ParseTuple(args, "sO!", &name, PyCypherTypeType, &py_type)) return nullptr;
 
   auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
   if (RaiseExceptionFromErrorCode(mgp_proc_add_result(self->callable, name, type))) {
@@ -545,7 +751,7 @@ PyObject *PyQueryProcAddDeprecatedResult(PyQueryProc *self, PyObject *args) {
   MG_ASSERT(self->callable);
   const char *name = nullptr;
   PyCypherType *py_type = nullptr;
-  if (!PyArg_ParseTuple(args, "sO!", &name, &PyCypherTypeType, &py_type)) return nullptr;
+  if (!PyArg_ParseTuple(args, "sO!", &name, PyCypherTypeType, &py_type)) return nullptr;
   auto *type = reinterpret_cast<PyCypherType *>(py_type)->type;
   if (RaiseExceptionFromErrorCode(mgp_proc_add_deprecated_result(self->callable, name, type))) {
     return nullptr;
@@ -555,27 +761,43 @@ PyObject *PyQueryProcAddDeprecatedResult(PyQueryProc *self, PyObject *args) {
 
 static PyMethodDef PyQueryProcMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"add_arg", reinterpret_cast<PyCFunction>(PyQueryProcAddArg), METH_VARARGS,
+    {"add_arg",
+     reinterpret_cast<PyCFunction>(PyQueryProcAddArg),
+     METH_VARARGS,
      "Add a required argument to a procedure."},
-    {"add_opt_arg", reinterpret_cast<PyCFunction>(PyQueryProcAddOptArg), METH_VARARGS,
+    {"add_opt_arg",
+     reinterpret_cast<PyCFunction>(PyQueryProcAddOptArg),
+     METH_VARARGS,
      "Add an optional argument with a default value to a procedure."},
-    {"add_result", reinterpret_cast<PyCFunction>(PyQueryProcAddResult), METH_VARARGS,
+    {"add_result",
+     reinterpret_cast<PyCFunction>(PyQueryProcAddResult),
+     METH_VARARGS,
      "Add a result field to a procedure."},
-    {"add_deprecated_result", reinterpret_cast<PyCFunction>(PyQueryProcAddDeprecatedResult), METH_VARARGS,
+    {"add_deprecated_result",
+     reinterpret_cast<PyCFunction>(PyQueryProcAddDeprecatedResult),
+     METH_VARARGS,
      "Add a result field to a procedure and mark it as deprecated."},
     {nullptr, {}, {}, {}},
 };
 
-// clang-format off
-static PyTypeObject PyQueryProcType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Proc",
-    .tp_basicsize = sizeof(PyQueryProc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_proc.",
-    .tp_methods = PyQueryProcMethods,
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyQueryProcType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_proc.")},
+    {Py_tp_methods, PyQueryProcMethods},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+static PyType_Spec PyQueryProcType_spec = {
+    "_mgp.Proc",
+    sizeof(PyQueryProc),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyQueryProcType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyQueryProcType = nullptr;
 
 PyObject *PyMagicFuncAddArg(PyMagicFunc *self, PyObject *args) { return PyCallableAddArg(self, args); }
 
@@ -584,31 +806,42 @@ PyObject *PyMagicFuncAddOptArg(PyMagicFunc *self, PyObject *args) { return PyCal
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyMagicFuncMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"add_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddArg), METH_VARARGS,
+    {"add_arg",
+     reinterpret_cast<PyCFunction>(PyMagicFuncAddArg),
+     METH_VARARGS,
      "Add a required argument to a function."},
-    {"add_opt_arg", reinterpret_cast<PyCFunction>(PyMagicFuncAddOptArg), METH_VARARGS,
+    {"add_opt_arg",
+     reinterpret_cast<PyCFunction>(PyMagicFuncAddOptArg),
+     METH_VARARGS,
      "Add an optional argument with a default value to a function."},
     {nullptr, {}, {}, {}},
 };
 
-// clang-format off
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject PyMagicFuncType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Func",
-    .tp_basicsize = sizeof(PyMagicFunc),
-    // NOLINTNEXTLINE(hicpp-signed-bitwise)
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_func.",
-    .tp_methods = PyMagicFuncMethods,
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyMagicFuncType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_func.")},
+    {Py_tp_methods, PyMagicFuncMethods},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyType_Spec PyMagicFuncType_spec = {
+    "_mgp.Func",
+    sizeof(PyMagicFunc),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyMagicFuncType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyMagicFuncType = nullptr;
 
 // clang-format off
 struct PyQueryModule {
   PyObject_HEAD
   mgp_module *module;
 };
+
 // clang-format on
 
 struct PyMessages {
@@ -732,7 +965,9 @@ PyObject *PyMessageGetOffset(PyMessage *self, PyObject *Py_UNUSED(ignored)) {
 // NOLINTNEXTLINE
 static PyMethodDef PyMessageMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyMessageIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyMessageIsValid),
+     METH_NOARGS,
      "Return True if messages is in valid context and may be used."},
     {"source_type", reinterpret_cast<PyCFunction>(PyMessageGetSourceType), METH_NOARGS, "Get stream source type."},
     {"payload", reinterpret_cast<PyCFunction>(PyMessageGetPayload), METH_NOARGS, "Get payload"},
@@ -749,21 +984,28 @@ void PyMessageDealloc(PyMessage *self) {
   MG_ASSERT(self->messages);
   // NOLINTNEXTLINE
   Py_DECREF(self->messages);
-  // NOLINTNEXTLINE
-  Py_TYPE(self)->tp_free(self);
+  HeapTypeFree(reinterpret_cast<PyObject *>(self));
 }
 
-// NOLINTNEXTLINE
-static PyTypeObject PyMessageType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Message",
-    .tp_basicsize = sizeof(PyMessage),
-    .tp_dealloc = reinterpret_cast<destructor>(PyMessageDealloc),
-    // NOLINTNEXTLINE
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_message.",
-    // NOLINTNEXTLINE
-    .tp_methods = PyMessageMethods,
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyMessageType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_message.")},
+    {Py_tp_dealloc, reinterpret_cast<void *>(PyMessageDealloc)},
+    {Py_tp_methods, PyMessageMethods},
+    {0, nullptr},
 };
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyType_Spec PyMessageType_spec = {
+    "_mgp.Message",
+    sizeof(PyMessage),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyMessageType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyMessageType = nullptr;
 
 PyObject *PyMessagesInvalidate(PyMessages *self, PyObject *Py_UNUSED(ignored)) {
   self->messages = nullptr;
@@ -791,7 +1033,7 @@ PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
   if (id < 0 || id >= self->messages->messages.size()) return nullptr;
   auto *message = &self->messages->messages[id];
   // NOLINTNEXTLINE
-  auto *py_message = PyObject_New(PyMessage, &PyMessageType);
+  auto *py_message = MakeHeapInstance<PyMessage>(PyMessageType);
   if (!py_message) {
     return nullptr;
   }
@@ -811,61 +1053,96 @@ PyObject *PyMessagesGetMessageAt(PyMessages *self, PyObject *args) {
 // NOLINTNEXTLINE
 static PyMethodDef PyMessagesMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"invalidate", reinterpret_cast<PyCFunction>(PyMessagesInvalidate), METH_NOARGS,
+    {"invalidate",
+     reinterpret_cast<PyCFunction>(PyMessagesInvalidate),
+     METH_NOARGS,
      "Invalidate the messages context thus preventing the messages from being used"},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyMessagesIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyMessagesIsValid),
+     METH_NOARGS,
      "Return True if messages is in valid context and may be used."},
-    {"total_messages", reinterpret_cast<PyCFunction>(PyMessagesGetTotalMessages), METH_VARARGS,
+    {"total_messages",
+     reinterpret_cast<PyCFunction>(PyMessagesGetTotalMessages),
+     METH_VARARGS,
      "Get number of messages available"},
-    {"message_at", reinterpret_cast<PyCFunction>(PyMessagesGetMessageAt), METH_VARARGS,
+    {"message_at",
+     reinterpret_cast<PyCFunction>(PyMessagesGetMessageAt),
+     METH_VARARGS,
      "Get message at index idx from messages"},
     {nullptr, {}, {}, {}},
 };
 
-// NOLINTNEXTLINE
-static PyTypeObject PyMessagesType = {
-    PyVarObject_HEAD_INIT(nullptr, 0).tp_name = "_mgp.Messages",
-    .tp_basicsize = sizeof(PyMessages),
-    // NOLINTNEXTLINE
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_messages.",
-    // NOLINTNEXTLINE
-    .tp_methods = PyMessagesMethods,
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyMessagesType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_messages.")},
+    {Py_tp_methods, PyMessagesMethods},
+    {0, nullptr},
 };
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyType_Spec PyMessagesType_spec = {
+    "_mgp.Messages",
+    sizeof(PyMessages),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyMessagesType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyMessagesType = nullptr;
 
 PyObject *MakePyMessages(mgp_messages *msgs, mgp_memory *memory) {
   MG_ASSERT(!msgs || (msgs && memory));
   // NOLINTNEXTLINE
-  auto *py_messages = PyObject_New(PyMessages, &PyMessagesType);
+  auto *py_messages = MakeHeapInstance<PyMessages>(PyMessagesType);
   if (!py_messages) return nullptr;
   py_messages->messages = msgs;
   py_messages->memory = memory;
   return reinterpret_cast<PyObject *>(py_messages);
 }
 
-py::Object MgpListToPyTuple(mgp_list *list, PyGraph *py_graph) {
+namespace {
+// Internal helpers that accept a pre-imported `mgp` module to avoid
+// re-importing on every recursive value conversion.
+py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyObject *py_mgp);
+
+py::Object MgpListToPyTupleImpl(mgp_list *list, PyGraph *py_graph, PyObject *py_mgp) {
   MG_ASSERT(list);
   MG_ASSERT(py_graph);
   const auto len = list->elems.size();
   py::Object py_tuple(PyTuple_New(len));
   if (!py_tuple) return nullptr;
   for (size_t i = 0; i < len; ++i) {
-    auto elem = MgpValueToPyObject(list->elems[i], py_graph);
+    auto elem = MgpValueToPyObjectImpl(list->elems[i], py_graph, py_mgp);
     if (!elem) return nullptr;
-    // Explicitly convert `py_tuple`, which is `py::Object`, via static_cast.
-    // Then the macro will cast it to `PyTuple *`.
-    PyTuple_SET_ITEM(py_tuple.Ptr(), i, elem.Steal());
+    // Note: PyTuple_SetItem (unlike the SET_ITEM macro) returns -1 on error
+    // and steals the reference even on failure. Safe to call here because the
+    // tuple is fresh and we never set the same index twice.
+    PyTuple_SetItem(py_tuple.Ptr(), static_cast<Py_ssize_t>(i), elem.Steal());
   }
   return py_tuple;
 }
 
-py::Object MgpListToPyTuple(mgp_list *list, PyObject *py_graph) {
-  if (Py_TYPE(py_graph) != &PyGraphType) {
+py::Object MgpListToPyTuple(mgp_list *list, PyGraph *py_graph) {
+  MG_ASSERT(list);
+  MG_ASSERT(py_graph);
+  py::Object const py_mgp(PyImport_ImportModule("mgp"));
+  return MgpListToPyTupleImpl(list, py_graph, py_mgp.Ptr());
+}
+
+py::Object MgpListToPyTupleFromPyObject(mgp_list *list, PyObject *py_graph) {
+  if (Py_TYPE(py_graph) != PyGraphType) {
     PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Graph.");
     return nullptr;
   }
   return MgpListToPyTuple(list, reinterpret_cast<PyGraph *>(py_graph));
 }
+
+PyObject *MgpIsEnterpriseValid() {
+  if (mgp_is_enterprise_valid()) Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
+}
+}  // namespace
 
 void PyCollectGarbage() {
   // NOTE: No need to call _Py_IsFinalizing(), we ensure
@@ -888,6 +1165,22 @@ void PyCollectGarbage() {
   }
 }
 
+void RegisterPyThread() {
+  // Pre-register this thread with the Python interpreter by acquiring and
+  // releasing the GIL. This creates a Python thread state for this thread,
+  // which will be reused in subsequent PyGILState_Ensure() calls.
+  //
+  // This prevents the "PyGILState_Ensure: Couldn't create thread-state for new thread"
+  // error that can occur when many threads simultaneously try to acquire the GIL
+  // for the first time during parallel execution.
+  if (!Py_IsInitialized()) {
+    return;
+  }
+
+  auto gil = py::EnsureGIL();
+  // Thread state is now cached for this thread - nothing else needed
+}
+
 namespace {
 struct RecordFieldCache {
   PyObject *key;
@@ -901,7 +1194,7 @@ std::optional<py::ExceptionInfo> InsertField(PyObject *key, PyObject *val, mgp_r
   if (mgp_result_record_insert(record, field_name, field_val) != mgp_error::MGP_ERROR_NO_ERROR) {
     std::stringstream ss;
     ss << "Unable to insert field '" << py::Object::FromBorrow(key) << "' with value: '" << py::Object::FromBorrow(val)
-       << "'; did you set the correct field type?";
+       << "'; did you set the correct field type? Please check if the procedure signature matches the return values.";
     const auto &msg = ss.str();
     PyErr_SetString(PyExc_ValueError, msg.c_str());
     mgp_value_destroy(field_val);
@@ -955,9 +1248,10 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     }
   }};
 
-  Py_ssize_t len = PyList_GET_SIZE(items.Ptr());
+  const Py_ssize_t len = PyList_Size(items.Ptr());
+  if (len < 0) return py::FetchError();
   for (Py_ssize_t i = 0; i < len; ++i) {
-    auto *item = PyList_GET_ITEM(items.Ptr(), i);
+    auto *item = PyList_GetItem(items.Ptr(), i);
     if (!item) return py::FetchError();
     MG_ASSERT(PyTuple_Check(item));
     PyObject *key = PyTuple_GetItem(item, 0);
@@ -971,10 +1265,10 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     }
     const char *field_name = PyUnicode_AsUTF8(key);
     if (!field_name) return py::FetchError();
-    PyObject *val = PyTuple_GetItem(item, 1);
+    const py::Object val(py::Object::FromBorrow(PyTuple_GetItem(item, 1)));
     if (!val) return py::FetchError();
     // This memory is one dedicated for mg_procedure.
-    mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val, memory);
+    mgp_value *field_val = PyObjectToMgpValueWithPythonExceptions(val.Ptr(), memory);
     if (field_val == nullptr) {
       return py::FetchError();
     }
@@ -986,9 +1280,9 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
         return std::nullopt;
       }
       current_record_cache.emplace_back(
-          RecordFieldCache{.key = key, .val = val, .field_name = field_name, .field_val = field_val});
+          RecordFieldCache{.key = key, .val = val.Ptr(), .field_name = field_name, .field_val = field_val});
     } else {
-      auto maybe_exc = InsertField(key, val, record, field_name, field_val);
+      auto maybe_exc = InsertField(key, val.Ptr(), record, field_name, field_val);
       if (maybe_exc) return maybe_exc;
     }
   }
@@ -1002,8 +1296,11 @@ std::optional<py::ExceptionInfo> AddRecordFromPython(mgp_result *result, py::Obj
     return py::FetchError();
   }
   for (auto &cache_entry : current_record_cache) {
-    auto maybe_exc =
-        InsertField(cache_entry.key, cache_entry.val, record, cache_entry.field_name, cache_entry.field_val);
+    // move ownership of the value to avoid double free
+    // no longer the cache's responsibility to cleanup this value
+    // as InsertField will take ownership
+    auto *field_val = std::exchange(cache_entry.field_val, nullptr);
+    auto maybe_exc = InsertField(cache_entry.key, cache_entry.val, record, cache_entry.field_name, field_val);
     if (maybe_exc) return maybe_exc;
   }
 
@@ -1016,7 +1313,7 @@ std::optional<py::ExceptionInfo> AddMultipleRecordsFromPython(mgp_result *result
   if (len == -1) return py::FetchError();
   result->rows.reserve(len);
   // This proved to be good enough constant not to lose performance on transformation
-  static constexpr auto del_cnt{100000};
+  static constexpr auto del_cnt{100'000};
   for (Py_ssize_t i = 0, curr_item = 0; i < len; ++i, ++curr_item) {
     py::Object py_record(PySequence_GetItem(py_seq.Ptr(), curr_item));
     if (!py_record) return py::FetchError();
@@ -1055,6 +1352,13 @@ std::function<void()> PyObjectCleanup(py::Object &py_object) {
     // of our `_mgp` instances then this will prevent them from using those
     // objects (whose internal `mgp_*` pointers are now invalid and would cause
     // a crash).
+    //
+    // During C++ stack unwinding (e.g., memory limit exceeded), skip cleanup entirely.
+    // The query is failing anyway, and calling Python C API during unwinding is risky
+    // (Python may have a pending exception that would cause CallMethod to fail).
+    if (std::uncaught_exceptions() > 0) {
+      return;
+    }
     if (!py_object.CallMethod("invalidate")) {
       LOG_FATAL(py::FetchError().value());
     }
@@ -1075,10 +1379,20 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
   };
 
   auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
-    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    const py::Object py_args(MgpListToPyTupleFromPyObject(args, py_graph.Ptr()));
     if (!py_args) return py::FetchError();
     auto py_res = py_cb.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
+    if (py_res.Ptr() == Py_None) {
+      if (!result->signature.empty()) {
+        result->error_msg.emplace(
+            "Procedure implementation returned None, but its signature declares result fields. "
+            "Did you forget a 'return mgp.Record(...)' statement?");
+        return std::nullopt;
+      }
+      // Void procedure - no records to process.
+      return std::nullopt;
+    }
     if (PySequence_Check(py_res.Ptr())) {
       if (is_batched) {
         return AddMultipleBatchRecordsFromPython(result, py_res, graph, memory);
@@ -1115,7 +1429,14 @@ void CallPythonProcedure(const py::Object &py_cb, mgp_list *args, mgp_graph *gra
 
 void CallPythonCleanup(const py::Object &py_cleanup) {
   auto gil = py::EnsureGIL();
-  auto py_res = py_cleanup.Call();
+  const auto py_res = py_cleanup.Call();
+  if (py_res) return;
+  // A cleanup runs while the query that started the stream is already finishing, so there is nothing
+  // left to report a failure to. The error still has to be taken off the thread: left set, it is
+  // found by whichever unrelated Python call runs next, which then fails instead of this one.
+  const auto exc_info = py::FetchError();
+  spdlog::warn("Ignoring an exception from a query module's cleanup: {}",
+               exc_info ? py::FormatException(*exc_info) : std::string{"unknown error"});
 }
 
 void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
@@ -1130,7 +1451,7 @@ void CallPythonInitializer(const py::Object &py_initializer, mgp_list *args, mgp
   };
 
   auto call = [&](py::Object py_graph) -> std::optional<py::ExceptionInfo> {
-    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
+    const py::Object py_args(MgpListToPyTupleFromPyObject(args, py_graph.Ptr()));
     if (!py_args) return py::FetchError();
     auto py_res = py_initializer.Call(py_graph, py_args);
     if (!py_res) return py::FetchError();
@@ -1216,12 +1537,12 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
     return py::FormatException(*exc_info, /* skip_first_line = */ true);
   };
 
-  auto call = [&](py::Object py_graph) -> utils::BasicResult<std::optional<py::ExceptionInfo>, mgp_value *> {
-    py::Object py_args(MgpListToPyTuple(args, py_graph.Ptr()));
-    if (!py_args) return {py::FetchError()};
+  auto call = [&](py::Object py_graph) -> std::expected<mgp_value *, std::optional<py::ExceptionInfo>> {
+    const py::Object py_args(MgpListToPyTupleFromPyObject(args, py_graph.Ptr()));
+    if (!py_args) return std::unexpected{py::FetchError()};
     const auto is_transactional = storage::IsTransactional(graph->storage_mode);
     auto py_res = py_cb.Call(py_graph, py_args);
-    if (!py_res) return {py::FetchError()};
+    if (!py_res) return std::unexpected{py::FetchError()};
     mgp_value *ret_val = PyObjectToMgpValueWithPythonExceptions(py_res.Ptr(), memory);
     if (!is_transactional && ContainsDeleted(ret_val)) {
       mgp_value_destroy(ret_val);
@@ -1241,7 +1562,7 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
     }
 
     if (ret_val == nullptr) {
-      return {py::FetchError()};
+      return std::unexpected(py::FetchError());
     }
     return ret_val;
   };
@@ -1261,11 +1582,11 @@ void CallPythonFunction(const py::Object &py_cb, mgp_list *args, mgp_graph *grap
     utils::OnScopeExit clean_up(PyObjectCleanup(py_graph));
     if (py_graph) {
       auto maybe_result = call(py_graph);
-      if (!maybe_result.HasError()) {
-        static_cast<void>(mgp_func_result_set_value(result, maybe_result.GetValue(), memory));
+      if (maybe_result) {
+        static_cast<void>(mgp_func_result_set_value(result, maybe_result.value(), memory));
         return;
       }
-      maybe_msg = error_to_msg(maybe_result.GetError());
+      maybe_msg = error_to_msg(maybe_result.error());
     } else {
       maybe_msg = error_to_msg(py::FetchError());
     }
@@ -1291,18 +1612,19 @@ PyObject *PyQueryModuleAddProcedure(PyQueryModule *self, PyObject *cb, bool is_w
     PyErr_SetString(PyExc_ValueError, "Procedure name is not a valid identifier");
     return nullptr;
   }
-  auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
+  auto *memory = self->module->procedures.get_allocator().resource();
   mgp_proc proc(name,
                 [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
                   CallPythonProcedure(py_cb, args, graph, result, memory, false);
                 },
-                memory, {.is_write = is_write_procedure});
+                memory,
+                {.graph_access = is_write_procedure ? GraphAccess::Write : GraphAccess::Read});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
     return nullptr;
   }
-  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_proc = MakeHeapInstance<PyQueryProc>(PyQueryProcType);
   if (!py_proc) return nullptr;
   py_proc->callable = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
@@ -1332,7 +1654,7 @@ PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *args, bo
     PyErr_SetString(PyExc_ValueError, "Procedure name is not a valid identifier");
     return nullptr;
   }
-  auto *memory = self->module->procedures.get_allocator().GetMemoryResource();
+  auto *memory = self->module->procedures.get_allocator().resource();
   mgp_proc proc(
       name,
       [py_cb](mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
@@ -1341,13 +1663,15 @@ PyObject *PyQueryModuleAddBatchProcedure(PyQueryModule *self, PyObject *args, bo
       [py_initializer](mgp_list *args, mgp_graph *graph, mgp_memory *memory) {
         CallPythonInitializer(py_initializer, args, graph, memory);
       },
-      [py_cleanup] { CallPythonCleanup(py_cleanup); }, memory, {.is_write = is_write_procedure, .is_batched = true});
+      [py_cleanup] { CallPythonCleanup(py_cleanup); },
+      memory,
+      {.graph_access = is_write_procedure ? GraphAccess::Write : GraphAccess::Read, .is_batched = true});
   const auto &[proc_it, did_insert] = self->module->procedures.emplace(name, std::move(proc));
   if (!did_insert) {
     PyErr_SetString(PyExc_ValueError, "Already registered a procedure with the same name.");
     return nullptr;
   }
-  auto *py_proc = PyObject_New(PyQueryProc, &PyQueryProcType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_proc = MakeHeapInstance<PyQueryProc>(PyQueryProcType);
   if (!py_proc) return nullptr;
   py_proc->callable = &proc_it->second;
   return reinterpret_cast<PyObject *>(py_proc);
@@ -1385,7 +1709,7 @@ PyObject *PyQueryModuleAddTransformation(PyQueryModule *self, PyObject *cb) {
     PyErr_SetString(PyExc_ValueError, "Transformation name is not a valid identifier");
     return nullptr;
   }
-  auto *memory = self->module->transformations.get_allocator().GetMemoryResource();
+  auto *memory = self->module->transformations.get_allocator().resource();
   mgp_trans trans(
       name,
       [py_cb](mgp_messages *msgs, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
@@ -1414,7 +1738,7 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
     PyErr_SetString(PyExc_ValueError, "Function name is not a valid identifier");
     return nullptr;
   }
-  auto *memory = self->module->functions.get_allocator().GetMemoryResource();
+  auto *memory = self->module->functions.get_allocator().resource();
   mgp_func func(
       name,
       [py_cb](mgp_list *args, mgp_func_context *func_ctx, mgp_func_result *result, mgp_memory *memory) {
@@ -1427,7 +1751,7 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
     PyErr_SetString(PyExc_ValueError, "Already registered a function with the same name.");
     return nullptr;
   }
-  auto *py_func = PyObject_New(PyMagicFunc, &PyMagicFuncType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_func = MakeHeapInstance<PyMagicFunc>(PyMagicFuncType);
   if (!py_func) return nullptr;
   py_func->callable = &func_it->second;
   return reinterpret_cast<PyObject *>(py_func);
@@ -1435,42 +1759,62 @@ PyObject *PyQueryModuleAddFunction(PyQueryModule *self, PyObject *cb) {
 
 static PyMethodDef PyQueryModuleMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"add_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure), METH_O,
+    {"add_read_procedure",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddReadProcedure),
+     METH_O,
      "Register a read-only procedure with this module."},
-    {"add_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddWriteProcedure), METH_O,
+    {"add_write_procedure",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddWriteProcedure),
+     METH_O,
      "Register a writeable procedure with this module."},
-    {"add_batch_read_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchReadProcedure), METH_VARARGS,
+    {"add_batch_read_procedure",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchReadProcedure),
+     METH_VARARGS,
      "Register a read-only batch procedure with this module."},
-    {"add_batch_write_procedure", reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchWriteProcedure), METH_VARARGS,
+    {"add_batch_write_procedure",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddBatchWriteProcedure),
+     METH_VARARGS,
      "Register a writeable batched procedure with this module."},
-    {"add_transformation", reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation), METH_O,
+    {"add_transformation",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddTransformation),
+     METH_O,
      "Register a transformation with this module."},
-    {"add_function", reinterpret_cast<PyCFunction>(PyQueryModuleAddFunction), METH_O,
+    {"add_function",
+     reinterpret_cast<PyCFunction>(PyQueryModuleAddFunction),
+     METH_O,
      "Register a function with this module."},
     {nullptr, {}, {}, {}},
 };
 
-// clang-format off
-static PyTypeObject PyQueryModuleType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Module",
-    .tp_basicsize = sizeof(PyQueryModule),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_module.",
-    .tp_methods = PyQueryModuleMethods,
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyQueryModuleType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_module.")},
+    {Py_tp_methods, PyQueryModuleMethods},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+static PyType_Spec PyQueryModuleType_spec = {
+    "_mgp.Module",
+    sizeof(PyQueryModule),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyQueryModuleType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyQueryModuleType = nullptr;
 
 PyObject *MakePyQueryModule(mgp_module *module) {
   MG_ASSERT(module);
-  auto *py_query_module = PyObject_New(PyQueryModule, &PyQueryModuleType);
+  auto *py_query_module = MakeHeapInstance<PyQueryModule>(PyQueryModuleType);
   if (!py_query_module) return nullptr;
   py_query_module->module = module;
   return reinterpret_cast<PyObject *>(py_query_module);
 }
 
 PyObject *PyMgpModuleTypeNullable(PyObject *mod, PyObject *obj) {
-  if (Py_TYPE(obj) != &PyCypherTypeType) {
+  if (Py_TYPE(obj) != PyCypherTypeType) {
     PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Type.");
     return nullptr;
   }
@@ -1483,7 +1827,7 @@ PyObject *PyMgpModuleTypeNullable(PyObject *mod, PyObject *obj) {
 }
 
 PyObject *PyMgpModuleTypeList(PyObject *mod, PyObject *obj) {
-  if (Py_TYPE(obj) != &PyCypherTypeType) {
+  if (Py_TYPE(obj) != PyCypherTypeType) {
     PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Type.");
     return nullptr;
   }
@@ -1505,6 +1849,7 @@ PyObject *PyMgpModuleTypeList(PyObject *mod, PyObject *obj) {
     return MakePyCypherType(type);                                                            \
   }
 
+namespace {
 DEFINE_PY_MGP_MODULE_TYPE(Any, any);
 DEFINE_PY_MGP_MODULE_TYPE(Bool, bool);
 DEFINE_PY_MGP_MODULE_TYPE(String, string);
@@ -1519,9 +1864,16 @@ DEFINE_PY_MGP_MODULE_TYPE(Date, date);
 DEFINE_PY_MGP_MODULE_TYPE(LocalTime, local_time);
 DEFINE_PY_MGP_MODULE_TYPE(LocalDateTime, local_date_time);
 DEFINE_PY_MGP_MODULE_TYPE(Duration, duration);
+DEFINE_PY_MGP_MODULE_TYPE(ZonedDateTime, zoned_date_time);
+DEFINE_PY_MGP_MODULE_TYPE(Point2d, point_2d);
+DEFINE_PY_MGP_MODULE_TYPE(Point3d, point_3d);
+DEFINE_PY_MGP_MODULE_TYPE(Enum, enum);
+}  // namespace
 
 static PyMethodDef PyMgpModuleMethods[] = {
-    {"type_nullable", PyMgpModuleTypeNullable, METH_O,
+    {"type_nullable",
+     PyMgpModuleTypeNullable,
+     METH_O,
      "Build a type representing either a `null` value or a value of given "
      "type."},
     {"type_list", PyMgpModuleTypeList, METH_O, "Build a type representing a list of values of given type."},
@@ -1533,14 +1885,22 @@ static PyMethodDef PyMgpModuleMethods[] = {
     {"type_number", PyMgpModuleTypeNumber, METH_NOARGS, "Get the type representing any number value."},
     {"type_map", PyMgpModuleTypeMap, METH_NOARGS, "Get the type representing map values."},
     {"type_node", PyMgpModuleTypeNode, METH_NOARGS, "Get the type representing graph node values."},
-    {"type_relationship", PyMgpModuleTypeRelationship, METH_NOARGS,
+    {"type_relationship",
+     PyMgpModuleTypeRelationship,
+     METH_NOARGS,
      "Get the type representing graph relationship values."},
-    {"type_path", PyMgpModuleTypePath, METH_NOARGS,
+    {"type_path",
+     PyMgpModuleTypePath,
+     METH_NOARGS,
      "Get the type representing a graph path (walk) from one node to another."},
     {"type_date", PyMgpModuleTypeDate, METH_NOARGS, "Get the type representing a Date."},
     {"type_local_time", PyMgpModuleTypeLocalTime, METH_NOARGS, "Get the type representing a LocalTime."},
     {"type_local_date_time", PyMgpModuleTypeLocalDateTime, METH_NOARGS, "Get the type representing a LocalDateTime."},
     {"type_duration", PyMgpModuleTypeDuration, METH_NOARGS, "Get the type representing a Duration."},
+    {"type_zoned_date_time", PyMgpModuleTypeZonedDateTime, METH_NOARGS, "Get the type representing a ZonedDateTime."},
+    {"type_point_2d", PyMgpModuleTypePoint2d, METH_NOARGS, "Get the type representing a Point2d."},
+    {"type_point_3d", PyMgpModuleTypePoint3d, METH_NOARGS, "Get the type representing a Point3d."},
+    {"type_enum", PyMgpModuleTypeEnum, METH_NOARGS, "Get the type representing an Enum."},
     {nullptr, {}, {}, {}},
 };
 
@@ -1560,6 +1920,7 @@ struct PyPropertiesIterator {
   mgp_properties_iterator *it;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 void PyPropertiesIteratorDealloc(PyPropertiesIterator *self) {
@@ -1570,7 +1931,7 @@ void PyPropertiesIteratorDealloc(PyPropertiesIterator *self) {
   // execution, so we may cause a double free issue.
   if (self->py_graph->graph) mgp_properties_iterator_destroy(self->it);
   Py_DECREF(self->py_graph);
-  Py_TYPE(self)->tp_free(self);
+  HeapTypeFree(reinterpret_cast<PyObject *>(self));
 }
 
 PyObject *PyPropertiesIteratorGet(PyPropertiesIterator *self, PyObject *Py_UNUSED(ignored)) {
@@ -1612,24 +1973,36 @@ PyObject *PyPropertiesIteratorNext(PyPropertiesIterator *self, PyObject *Py_UNUS
 }
 
 static PyMethodDef PyPropertiesIteratorMethods[] = {
-    {"get", reinterpret_cast<PyCFunction>(PyPropertiesIteratorGet), METH_NOARGS,
+    {"get",
+     reinterpret_cast<PyCFunction>(PyPropertiesIteratorGet),
+     METH_NOARGS,
      "Get the current proprety pointed to by the iterator or return None."},
-    {"next", reinterpret_cast<PyCFunction>(PyPropertiesIteratorNext), METH_NOARGS,
+    {"next",
+     reinterpret_cast<PyCFunction>(PyPropertiesIteratorNext),
+     METH_NOARGS,
      "Advance the iterator to the next property and return it."},
     {nullptr, {}, {}, {}},
 };
 
-// clang-format off
-static PyTypeObject PyPropertiesIteratorType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.PropertiesIterator",
-    .tp_basicsize = sizeof(PyPropertiesIterator),
-    .tp_dealloc = reinterpret_cast<destructor>(PyPropertiesIteratorDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_properties_iterator.",
-    .tp_methods = PyPropertiesIteratorMethods,
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyPropertiesIteratorType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_properties_iterator.")},
+    {Py_tp_dealloc, reinterpret_cast<void *>(PyPropertiesIteratorDealloc)},
+    {Py_tp_methods, PyPropertiesIteratorMethods},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+static PyType_Spec PyPropertiesIteratorType_spec = {
+    "_mgp.PropertiesIterator",
+    sizeof(PyPropertiesIterator),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyPropertiesIteratorType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyPropertiesIteratorType = nullptr;
 
 // clang-format off
 struct PyEdge {
@@ -1637,6 +2010,7 @@ struct PyEdge {
   mgp_edge *edge;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 PyObject *PyEdgeGetTypeName(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
@@ -1675,7 +2049,7 @@ void PyEdgeDealloc(PyEdge *self) {
   // cause a double free issue.
   if (self->py_graph->graph) mgp_edge_destroy(self->edge);
   Py_DECREF(self->py_graph);
-  Py_TYPE(self)->tp_free(self);
+  HeapTypeFree(reinterpret_cast<PyObject *>(self));
 }
 
 PyObject *PyEdgeIsValid(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
@@ -1711,7 +2085,7 @@ PyObject *PyEdgeIterProperties(PyEdge *self, PyObject *Py_UNUSED(ignored)) {
   if (RaiseExceptionFromErrorCode(mgp_edge_iter_properties(self->edge, self->py_graph->memory, &properties_it))) {
     return nullptr;
   }
-  auto *py_properties_it = PyObject_New(PyPropertiesIterator, &PyPropertiesIteratorType);
+  auto *py_properties_it = MakeHeapInstance<PyPropertiesIterator>(PyPropertiesIteratorType);
   if (!py_properties_it) {
     mgp_properties_iterator_destroy(properties_it);
     return nullptr;
@@ -1812,47 +2186,68 @@ PyObject *PyEdgeSetProperties(PyEdge *self, PyObject *args) {
 
   Py_RETURN_NONE;
 }
+
 static PyMethodDef PyEdgeMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyEdgeIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyEdgeIsValid),
+     METH_NOARGS,
      "Return True if the edge is in valid context and may be used."},
-    {"underlying_graph_is_mutable", reinterpret_cast<PyCFunction>(PyEdgeUnderlyingGraphIsMutable), METH_NOARGS,
+    {"underlying_graph_is_mutable",
+     reinterpret_cast<PyCFunction>(PyEdgeUnderlyingGraphIsMutable),
+     METH_NOARGS,
      "Return True if the edge is mutable and can be modified."},
     {"get_id", reinterpret_cast<PyCFunction>(PyEdgeGetId), METH_NOARGS, "Return edge id."},
     {"get_type_name", reinterpret_cast<PyCFunction>(PyEdgeGetTypeName), METH_NOARGS, "Return the edge's type name."},
     {"from_vertex", reinterpret_cast<PyCFunction>(PyEdgeFromVertex), METH_NOARGS, "Return the edge's source vertex."},
     {"to_vertex", reinterpret_cast<PyCFunction>(PyEdgeToVertex), METH_NOARGS, "Return the edge's destination vertex."},
-    {"iter_properties", reinterpret_cast<PyCFunction>(PyEdgeIterProperties), METH_NOARGS,
+    {"iter_properties",
+     reinterpret_cast<PyCFunction>(PyEdgeIterProperties),
+     METH_NOARGS,
      "Return _mgp.PropertiesIterator for this edge."},
-    {"get_property", reinterpret_cast<PyCFunction>(PyEdgeGetProperty), METH_VARARGS,
+    {"get_property",
+     reinterpret_cast<PyCFunction>(PyEdgeGetProperty),
+     METH_VARARGS,
      "Return edge property with given name."},
-    {"set_property", reinterpret_cast<PyCFunction>(PyEdgeSetProperty), METH_VARARGS,
+    {"set_property",
+     reinterpret_cast<PyCFunction>(PyEdgeSetProperty),
+     METH_VARARGS,
      "Set the value of the property on the edge."},
-    {"set_properties", reinterpret_cast<PyCFunction>(PyEdgeSetProperties), METH_VARARGS,
+    {"set_properties",
+     reinterpret_cast<PyCFunction>(PyEdgeSetProperties),
+     METH_VARARGS,
      "Set the values of the properties on the edge."},
     {nullptr, {}, {}, {}},
 };
 
 PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op);
 
-// clang-format off
-static PyTypeObject PyEdgeType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Edge",
-    .tp_basicsize = sizeof(PyEdge),
-    .tp_dealloc = reinterpret_cast<destructor>(PyEdgeDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_edge.",
-    .tp_richcompare = PyEdgeRichCompare,
-    .tp_methods = PyEdgeMethods,
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyEdgeType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_edge.")},
+    {Py_tp_dealloc, reinterpret_cast<void *>(PyEdgeDealloc)},
+    {Py_tp_richcompare, reinterpret_cast<void *>(PyEdgeRichCompare)},
+    {Py_tp_methods, PyEdgeMethods},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+static PyType_Spec PyEdgeType_spec = {
+    "_mgp.Edge",
+    sizeof(PyEdge),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyEdgeType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyEdgeType = nullptr;
 
 PyObject *MakePyEdgeWithoutCopy(mgp_edge &edge, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
   MG_ASSERT(edge.GetMemoryResource() == py_graph->memory->impl);
-  auto *py_edge = PyObject_New(PyEdge, &PyEdgeType);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast)
+  auto *py_edge = MakeHeapInstance<PyEdge>(PyEdgeType);
   if (!py_edge) return nullptr;
   py_edge->edge = &edge;
   py_edge->py_graph = py_graph;
@@ -1882,7 +2277,7 @@ PyObject *PyEdgeRichCompare(PyObject *self, PyObject *other, int op) {
   MG_ASSERT(self);
   MG_ASSERT(other);
 
-  if (Py_TYPE(self) != &PyEdgeType || Py_TYPE(other) != &PyEdgeType || op != Py_EQ) {
+  if (Py_TYPE(self) != PyEdgeType || Py_TYPE(other) != PyEdgeType || op != Py_EQ) {
     Py_RETURN_NOTIMPLEMENTED;
   }
 
@@ -1899,6 +2294,7 @@ struct PyVertex {
   mgp_vertex *vertex;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 void PyVertexDealloc(PyVertex *self) {
@@ -1909,7 +2305,7 @@ void PyVertexDealloc(PyVertex *self) {
   // execution, so  we may cause a double free issue.
   if (self->py_graph->graph) mgp_vertex_destroy(self->vertex);
   Py_DECREF(self->py_graph);
-  Py_TYPE(self)->tp_free(self);
+  HeapTypeFree(reinterpret_cast<PyObject *>(self));
 }
 
 PyObject *PyVertexIsValid(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
@@ -1974,7 +2370,7 @@ PyObject *PyVertexIterInEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   if (RaiseExceptionFromErrorCode(mgp_vertex_iter_in_edges(self->vertex, self->py_graph->memory, &edges_it))) {
     return nullptr;
   }
-  auto *py_edges_it = PyObject_New(PyEdgesIterator, &PyEdgesIteratorType);
+  auto *py_edges_it = MakeHeapInstance<PyEdgesIterator>(PyEdgesIteratorType);
   if (!py_edges_it) {
     mgp_edges_iterator_destroy(edges_it);
     return nullptr;
@@ -1994,7 +2390,7 @@ PyObject *PyVertexIterOutEdges(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   if (RaiseExceptionFromErrorCode(mgp_vertex_iter_out_edges(self->vertex, self->py_graph->memory, &edges_it))) {
     return nullptr;
   }
-  auto *py_edges_it = PyObject_New(PyEdgesIterator, &PyEdgesIteratorType);
+  auto *py_edges_it = MakeHeapInstance<PyEdgesIterator>(PyEdgesIteratorType);
   if (!py_edges_it) {
     mgp_edges_iterator_destroy(edges_it);
     return nullptr;
@@ -2014,7 +2410,7 @@ PyObject *PyVertexIterProperties(PyVertex *self, PyObject *Py_UNUSED(ignored)) {
   if (RaiseExceptionFromErrorCode(mgp_vertex_iter_properties(self->vertex, self->py_graph->memory, &properties_it))) {
     return nullptr;
   }
-  auto *py_properties_it = PyObject_New(PyPropertiesIterator, &PyPropertiesIteratorType);
+  auto *py_properties_it = MakeHeapInstance<PyPropertiesIterator>(PyPropertiesIteratorType);
   if (!py_properties_it) {
     mgp_properties_iterator_destroy(properties_it);
     return nullptr;
@@ -2151,53 +2547,83 @@ PyObject *PyVertexRemoveLabel(PyVertex *self, PyObject *args) {
 
 static PyMethodDef PyVertexMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported."},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyVertexIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyVertexIsValid),
+     METH_NOARGS,
      "Return True if the vertex is in valid context and may be used."},
-    {"underlying_graph_is_mutable", reinterpret_cast<PyCFunction>(PyVertexUnderlyingGraphIsMutable), METH_NOARGS,
+    {"underlying_graph_is_mutable",
+     reinterpret_cast<PyCFunction>(PyVertexUnderlyingGraphIsMutable),
+     METH_NOARGS,
      "Return True if the vertex is mutable and can be modified."},
     {"get_id", reinterpret_cast<PyCFunction>(PyVertexGetId), METH_NOARGS, "Return vertex id."},
-    {"labels_count", reinterpret_cast<PyCFunction>(PyVertexLabelsCount), METH_NOARGS,
+    {"labels_count",
+     reinterpret_cast<PyCFunction>(PyVertexLabelsCount),
+     METH_NOARGS,
      "Return number of lables of a vertex."},
-    {"label_at", reinterpret_cast<PyCFunction>(PyVertexLabelAt), METH_VARARGS,
+    {"label_at",
+     reinterpret_cast<PyCFunction>(PyVertexLabelAt),
+     METH_VARARGS,
      "Return label of a vertex on a given index."},
     {"add_label", reinterpret_cast<PyCFunction>(PyVertexAddLabel), METH_VARARGS, "Add the label to the vertex."},
-    {"remove_label", reinterpret_cast<PyCFunction>(PyVertexRemoveLabel), METH_VARARGS,
+    {"remove_label",
+     reinterpret_cast<PyCFunction>(PyVertexRemoveLabel),
+     METH_VARARGS,
      "Remove the label from the vertex."},
-    {"iter_in_edges", reinterpret_cast<PyCFunction>(PyVertexIterInEdges), METH_NOARGS,
+    {"iter_in_edges",
+     reinterpret_cast<PyCFunction>(PyVertexIterInEdges),
+     METH_NOARGS,
      "Return _mgp.EdgesIterator for in edges."},
-    {"iter_out_edges", reinterpret_cast<PyCFunction>(PyVertexIterOutEdges), METH_NOARGS,
+    {"iter_out_edges",
+     reinterpret_cast<PyCFunction>(PyVertexIterOutEdges),
+     METH_NOARGS,
      "Return _mgp.EdgesIterator for out edges."},
-    {"iter_properties", reinterpret_cast<PyCFunction>(PyVertexIterProperties), METH_NOARGS,
+    {"iter_properties",
+     reinterpret_cast<PyCFunction>(PyVertexIterProperties),
+     METH_NOARGS,
      "Return _mgp.PropertiesIterator for this vertex."},
-    {"get_property", reinterpret_cast<PyCFunction>(PyVertexGetProperty), METH_VARARGS,
+    {"get_property",
+     reinterpret_cast<PyCFunction>(PyVertexGetProperty),
+     METH_VARARGS,
      "Return vertex property with given name."},
-    {"set_property", reinterpret_cast<PyCFunction>(PyVertexSetProperty), METH_VARARGS,
+    {"set_property",
+     reinterpret_cast<PyCFunction>(PyVertexSetProperty),
+     METH_VARARGS,
      "Set the value of the property on the vertex."},
-    {"set_properties", reinterpret_cast<PyCFunction>(PyVertexSetProperties), METH_VARARGS,
+    {"set_properties",
+     reinterpret_cast<PyCFunction>(PyVertexSetProperties),
+     METH_VARARGS,
      "Set the values of the properties on the vertex."},
     {nullptr, {}, {}, {}},
 };
 
 PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op);
 
-// clang-format off
-static PyTypeObject PyVertexType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Vertex",
-    .tp_basicsize = sizeof(PyVertex),
-    .tp_dealloc = reinterpret_cast<destructor>(PyVertexDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_vertex.",
-    .tp_richcompare = PyVertexRichCompare,
-    .tp_methods = PyVertexMethods,
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyVertexType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_vertex.")},
+    {Py_tp_dealloc, reinterpret_cast<void *>(PyVertexDealloc)},
+    {Py_tp_richcompare, reinterpret_cast<void *>(PyVertexRichCompare)},
+    {Py_tp_methods, PyVertexMethods},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+static PyType_Spec PyVertexType_spec = {
+    "_mgp.Vertex",
+    sizeof(PyVertex),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyVertexType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyVertexType = nullptr;
 
 PyObject *MakePyVertexWithoutCopy(mgp_vertex &vertex, PyGraph *py_graph) {
   MG_ASSERT(py_graph);
   MG_ASSERT(py_graph->graph && py_graph->memory);
   MG_ASSERT(vertex.GetMemoryResource() == py_graph->memory->impl);
-  auto *py_vertex = PyObject_New(PyVertex, &PyVertexType);
+  auto *py_vertex = MakeHeapInstance<PyVertex>(PyVertexType);
   if (!py_vertex) return nullptr;
   py_vertex->vertex = &vertex;
   py_vertex->py_graph = py_graph;
@@ -2224,7 +2650,7 @@ PyObject *PyVertexRichCompare(PyObject *self, PyObject *other, int op) {
   MG_ASSERT(self);
   MG_ASSERT(other);
 
-  if (Py_TYPE(self) != &PyVertexType || Py_TYPE(other) != &PyVertexType || op != Py_EQ) {
+  if (Py_TYPE(self) != PyVertexType || Py_TYPE(other) != PyVertexType || op != Py_EQ) {
     Py_RETURN_NOTIMPLEMENTED;
   }
 
@@ -2242,6 +2668,7 @@ struct PyPath {
   mgp_path *path;
   PyGraph *py_graph;
 };
+
 // clang-format on
 
 void PyPathDealloc(PyPath *self) {
@@ -2252,7 +2679,7 @@ void PyPathDealloc(PyPath *self) {
   // execution, so  we may cause a double free issue.
   if (self->py_graph->graph) mgp_path_destroy(self->path);
   Py_DECREF(self->py_graph);
-  Py_TYPE(self)->tp_free(self);
+  HeapTypeFree(reinterpret_cast<PyObject *>(self));
 }
 
 PyObject *PyPathIsValid(PyPath *self, PyObject *Py_UNUSED(ignored)) {
@@ -2265,7 +2692,7 @@ PyObject *PyPathExpand(PyPath *self, PyObject *edge) {
   MG_ASSERT(self->path);
   MG_ASSERT(self->py_graph);
   MG_ASSERT(self->py_graph->graph);
-  if (Py_TYPE(edge) != &PyEdgeType) {
+  if (Py_TYPE(edge) != PyEdgeType) {
     PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Edge.");
     return nullptr;
   }
@@ -2329,39 +2756,59 @@ PyObject *PyPathEdgeAt(PyPath *self, PyObject *args) {
 
 static PyMethodDef PyPathMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"is_valid", reinterpret_cast<PyCFunction>(PyPathIsValid), METH_NOARGS,
+    {"is_valid",
+     reinterpret_cast<PyCFunction>(PyPathIsValid),
+     METH_NOARGS,
      "Return True if Path is in valid context and may be used."},
-    {"make_with_start", reinterpret_cast<PyCFunction>(PyPathMakeWithStart), METH_O | METH_CLASS,
+    {"make_with_start",
+     reinterpret_cast<PyCFunction>(PyPathMakeWithStart),
+     METH_O | METH_CLASS,
      "Create a path with a starting vertex."},
-    {"expand", reinterpret_cast<PyCFunction>(PyPathExpand), METH_O,
+    {"expand",
+     reinterpret_cast<PyCFunction>(PyPathExpand),
+     METH_O,
      "Append an edge continuing from the last vertex on the path."},
-    {"pop", reinterpret_cast<PyCFunction>(PyPathPop), METH_NOARGS,
+    {"pop",
+     reinterpret_cast<PyCFunction>(PyPathPop),
+     METH_NOARGS,
      "Remove the last node and the last relationship from the path."},
     {"size", reinterpret_cast<PyCFunction>(PyPathSize), METH_NOARGS, "Return the number of edges in a mgp_path."},
-    {"vertex_at", reinterpret_cast<PyCFunction>(PyPathVertexAt), METH_VARARGS,
+    {"vertex_at",
+     reinterpret_cast<PyCFunction>(PyPathVertexAt),
+     METH_VARARGS,
      "Return the vertex from a path at given index."},
-    {"edge_at", reinterpret_cast<PyCFunction>(PyPathEdgeAt), METH_VARARGS,
+    {"edge_at",
+     reinterpret_cast<PyCFunction>(PyPathEdgeAt),
+     METH_VARARGS,
      "Return the edge from a path at given index."},
     {nullptr, {}, {}, {}},
 };
 
-// clang-format off
-static PyTypeObject PyPathType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Path",
-    .tp_basicsize = sizeof(PyPath),
-    .tp_dealloc = reinterpret_cast<destructor>(PyPathDealloc),
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Wraps struct mgp_path.",
-    .tp_methods = PyPathMethods,
+// NOLINTNEXTLINE(modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyPathType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Wraps struct mgp_path.")},
+    {Py_tp_dealloc, reinterpret_cast<void *>(PyPathDealloc)},
+    {Py_tp_methods, PyPathMethods},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(misc-use-anonymous-namespace)
+static PyType_Spec PyPathType_spec = {
+    "_mgp.Path",
+    sizeof(PyPath),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyPathType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyPathType = nullptr;
 
 PyObject *MakePyPath(mgp_path *path, PyGraph *py_graph) {
   MG_ASSERT(path);
   MG_ASSERT(py_graph->graph && py_graph->memory);
   MG_ASSERT(path->GetMemoryResource() == py_graph->memory->impl);
-  auto *py_path = PyObject_New(PyPath, &PyPathType);
+  auto *py_path = MakeHeapInstance<PyPath>(PyPathType);
   if (!py_path) return nullptr;
   py_path->path = path;
   py_path->py_graph = py_graph;
@@ -2383,11 +2830,11 @@ PyObject *MakePyPath(mgp_path &path, PyGraph *py_graph) {
 }
 
 PyObject *PyPathMakeWithStart(PyTypeObject *type, PyObject *vertex) {
-  if (type != &PyPathType) {
+  if (type != PyPathType) {
     PyErr_SetString(PyExc_TypeError, "Expected '<class _mgp.Path>' as the first argument.");
     return nullptr;
   }
-  if (Py_TYPE(vertex) != &PyVertexType) {
+  if (Py_TYPE(vertex) != PyVertexType) {
     PyErr_SetString(PyExc_TypeError, "Expected a '_mgp.Vertex' as the second argument.");
     return nullptr;
   }
@@ -2405,6 +2852,7 @@ PyObject *PyPathMakeWithStart(PyTypeObject *type, PyObject *vertex) {
 struct PyLogger {
   PyObject_HEAD
 };
+
 // clang-format on
 
 PyObject *PyLoggerLog(PyLogger *self, PyObject *args, const mgp_log_level level) {
@@ -2448,33 +2896,86 @@ PyObject *PyLoggerLogDebug(PyLogger *self, PyObject *args) {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 static PyMethodDef PyLoggerMethods[] = {
     {"__reduce__", reinterpret_cast<PyCFunction>(DisallowPickleAndCopy), METH_NOARGS, "__reduce__ is not supported"},
-    {"info", reinterpret_cast<PyCFunction>(PyLoggerLogInfo), METH_VARARGS,
+    {"info",
+     reinterpret_cast<PyCFunction>(PyLoggerLogInfo),
+     METH_VARARGS,
      "Logs a message with level INFO on this logger."},
-    {"warning", reinterpret_cast<PyCFunction>(PyLoggerLogWarning), METH_VARARGS,
+    {"warning",
+     reinterpret_cast<PyCFunction>(PyLoggerLogWarning),
+     METH_VARARGS,
      "Logs a message with level WARNNING on this logger."},
-    {"error", reinterpret_cast<PyCFunction>(PyLoggerLogError), METH_VARARGS,
+    {"error",
+     reinterpret_cast<PyCFunction>(PyLoggerLogError),
+     METH_VARARGS,
      "Logs a message with level ERROR on this logger."},
-    {"critical", reinterpret_cast<PyCFunction>(PyLoggerLogCritical), METH_VARARGS,
+    {"critical",
+     reinterpret_cast<PyCFunction>(PyLoggerLogCritical),
+     METH_VARARGS,
      "Logs a message with level CRITICAL on this logger."},
-    {"trace", reinterpret_cast<PyCFunction>(PyLoggerLogTrace), METH_VARARGS,
+    {"trace",
+     reinterpret_cast<PyCFunction>(PyLoggerLogTrace),
+     METH_VARARGS,
      "Logs a message with level TRACE on this logger."},
-    {"debug", reinterpret_cast<PyCFunction>(PyLoggerLogDebug), METH_VARARGS,
+    {"debug",
+     reinterpret_cast<PyCFunction>(PyLoggerLogDebug),
+     METH_VARARGS,
      "Logs a message with level DEBUG on this logger."},
     {nullptr, {}, {}, {}},
 };
 
-// clang-format off
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-static PyTypeObject PyLoggerType = {
-    PyVarObject_HEAD_INIT(nullptr, 0)
-    .tp_name = "_mgp.Logger",
-    .tp_basicsize = sizeof(PyLogger),
-    // NOLINTNEXTLINE(hicpp-signed-bitwise)
-    .tp_flags = Py_TPFLAGS_DEFAULT,
-    .tp_doc = "Logging API.",
-    .tp_methods = PyLoggerMethods,
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,modernize-avoid-c-arrays,misc-use-anonymous-namespace)
+static PyType_Slot PyLoggerType_slots[] = {
+    {Py_tp_doc, const_cast<char *>("Logging API.")},
+    {Py_tp_methods, PyLoggerMethods},
+    {0, nullptr},
 };
-// clang-format on
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyType_Spec PyLoggerType_spec = {
+    "_mgp.Logger",
+    sizeof(PyLogger),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyLoggerType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-use-anonymous-namespace)
+static PyTypeObject *PyLoggerType = nullptr;
+
+struct PyUtils {
+  PyObject_HEAD
+};
+
+namespace {
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+PyMethodDef PyUtilsMethods[] = {  // NOSONAR
+    {"is_enterprise_valid",
+     reinterpret_cast<PyCFunction>(MgpIsEnterpriseValid),
+     METH_NOARGS | METH_STATIC,
+     "Check if enterprise license is valid."},
+    {nullptr, {}, {}, {}}};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,modernize-avoid-c-arrays)
+PyType_Slot PyUtilsType_slots[] = {
+    // NOSONAR
+    {Py_tp_doc, const_cast<char *>("Utils API.")},
+    {Py_tp_methods, PyUtilsMethods},
+    {0, nullptr},
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+PyType_Spec PyUtilsType_spec = {
+    // NOSONAR
+    "_mgp.Utils",
+    sizeof(PyUtils),
+    0,
+    Py_TPFLAGS_DEFAULT,
+    PyUtilsType_slots,
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+PyTypeObject *PyUtilsType = nullptr;  // NOSONAR
+}  // namespace
 
 struct PyMgpError {
   const char *name;
@@ -2498,36 +2999,49 @@ bool AddModuleConstants(PyObject &module) {
 PyObject *PyInitMgpModule() {
   PyObject *mgp = PyModule_Create(&PyMgpModule);
   if (!mgp) return nullptr;
-  auto register_type = [mgp](auto *type, const auto *name) -> bool {
-    if (PyType_Ready(type) < 0) {
+
+  // Heap-type registration. PyType_FromSpec creates a new heap type each call
+  // and returns a new strong reference; we own that reference for the lifetime
+  // of the embedded interpreter and additionally hand a borrowed reference to
+  // the module via PyModule_AddObject (which steals the ref we pass).
+  auto register_type = [mgp](PyTypeObject **out, PyType_Spec *spec, const char *name) -> bool {
+    PyObject *type = PyType_FromSpec(spec);
+    if (!type) {
       Py_DECREF(mgp);
       return false;
     }
-    Py_INCREF(type);
-    if (PyModule_AddObject(mgp, name, reinterpret_cast<PyObject *>(type)) < 0) {
-      Py_DECREF(type);
+    *out = reinterpret_cast<PyTypeObject *>(type);
+    Py_INCREF(type);  // one ref for the module, one ref stays in `*out`
+    if (PyModule_AddObject(mgp, name, type) < 0) {
+      Py_DECREF(type);  // PyModule_AddObject failed: undo the INCREF we just did
+      Py_DECREF(type);  // and drop our retained reference
+      *out = nullptr;
       Py_DECREF(mgp);
       return false;
     }
     return true;
   };
 
-  if (!AddModuleConstants(*mgp)) return nullptr;
+  if (!AddModuleConstants(*mgp)) {
+    Py_DECREF(mgp);  // consistent with register_type below: drop the module ref on failure
+    return nullptr;
+  }
 
-  if (!register_type(&PyPropertiesIteratorType, "PropertiesIterator")) return nullptr;
-  if (!register_type(&PyVerticesIteratorType, "VerticesIterator")) return nullptr;
-  if (!register_type(&PyEdgesIteratorType, "EdgesIterator")) return nullptr;
-  if (!register_type(&PyGraphType, "Graph")) return nullptr;
-  if (!register_type(&PyEdgeType, "Edge")) return nullptr;
-  if (!register_type(&PyQueryProcType, "Proc")) return nullptr;
-  if (!register_type(&PyMagicFuncType, "Func")) return nullptr;
-  if (!register_type(&PyQueryModuleType, "Module")) return nullptr;
-  if (!register_type(&PyVertexType, "Vertex")) return nullptr;
-  if (!register_type(&PyPathType, "Path")) return nullptr;
-  if (!register_type(&PyCypherTypeType, "Type")) return nullptr;
-  if (!register_type(&PyMessagesType, "Messages")) return nullptr;
-  if (!register_type(&PyMessageType, "Message")) return nullptr;
-  if (!register_type(&PyLoggerType, "Logger")) return nullptr;
+  if (!register_type(&PyPropertiesIteratorType, &PyPropertiesIteratorType_spec, "PropertiesIterator")) return nullptr;
+  if (!register_type(&PyVerticesIteratorType, &PyVerticesIteratorType_spec, "VerticesIterator")) return nullptr;
+  if (!register_type(&PyEdgesIteratorType, &PyEdgesIteratorType_spec, "EdgesIterator")) return nullptr;
+  if (!register_type(&PyGraphType, &PyGraphType_spec, "Graph")) return nullptr;
+  if (!register_type(&PyEdgeType, &PyEdgeType_spec, "Edge")) return nullptr;
+  if (!register_type(&PyQueryProcType, &PyQueryProcType_spec, "Proc")) return nullptr;
+  if (!register_type(&PyMagicFuncType, &PyMagicFuncType_spec, "Func")) return nullptr;
+  if (!register_type(&PyQueryModuleType, &PyQueryModuleType_spec, "Module")) return nullptr;
+  if (!register_type(&PyVertexType, &PyVertexType_spec, "Vertex")) return nullptr;
+  if (!register_type(&PyPathType, &PyPathType_spec, "Path")) return nullptr;
+  if (!register_type(&PyCypherTypeType, &PyCypherTypeType_spec, "Type")) return nullptr;
+  if (!register_type(&PyMessagesType, &PyMessagesType_spec, "Messages")) return nullptr;
+  if (!register_type(&PyMessageType, &PyMessageType_spec, "Message")) return nullptr;
+  if (!register_type(&PyLoggerType, &PyLoggerType_spec, "Logger")) return nullptr;
+  if (!register_type(&PyUtilsType, &PyUtilsType_spec, "Utils")) return nullptr;
 
   std::array py_mgp_errors{
       PyMgpError{"_mgp.UnknownError", gMgpUnknownError, PyExc_RuntimeError, nullptr},
@@ -2574,8 +3088,18 @@ PyObject *PyInitMgpModule() {
   }
   clean_up.Disable();
 
-  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
-  PyDateTime_IMPORT;
+  // Initialise the cached `datetime` module references. Under Py_LIMITED_API
+  // we cannot use the `PyDateTime_IMPORT` capsule from `<datetime.h>`; instead
+  // we import `datetime` and stash strong refs to its classes for the rest of
+  // the interpreter's lifetime.
+  if (!InitDateTimeRefs()) {
+    Py_DECREF(mgp);
+    return nullptr;
+  }
+
+  // Register the at-exit hook that flips `IsPythonFinalizing()` so that
+  // destructor paths in `py::Object` skip Python C API calls during shutdown.
+  py::EnsurePythonFinalizingHook();
 
   return mgp;
 }
@@ -2588,8 +3112,10 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   MG_ASSERT(py_mgp, "Expected builtin '_mgp' to be available for import");
   py::Object py_mgp_module(py_mgp.GetAttr("_MODULE"));
   MG_ASSERT(py_mgp_module, "Expected '_mgp' to have attribute '_MODULE'");
-  // NOTE: This check is not thread safe, but this should only go through
-  // ModuleRegistry::LoadModuleLibrary which ought to serialize loading.
+  // Thread safety: module loading must be serialised by the caller
+  // (ModuleRegistry::LoadModuleLibrary holds the registry write-lock before
+  // reaching here).  The MG_ASSERT below fires if concurrent loading is
+  // detected, making the invariant visible rather than silently corrupt.
   MG_ASSERT(py_mgp_module.Ptr() == Py_None,
             "Expected '_mgp._MODULE' to be None as we are just starting to "
             "import a new module. Is some other thread also importing Python "
@@ -2600,7 +3126,7 @@ auto WithMgpModule(mgp_module *module_def, const TFun &fun) {
   MG_ASSERT(py_mgp.SetAttr("_MODULE", py_query_module));
 
   // NOLINTNEXTLINE(cppcoreguidelines-pro-type-cstyle-cast)
-  auto *py_logger = reinterpret_cast<PyObject *>(PyObject_New(PyLogger, &PyLoggerType));
+  auto *py_logger = reinterpret_cast<PyObject *>(MakeHeapInstance<PyLogger>(PyLoggerType));
   MG_ASSERT(py_mgp.SetAttr("_LOGGER", py_logger));
 
   auto ret = fun();
@@ -2623,7 +3149,7 @@ py::Object ReloadPyModule(PyObject *py_module, mgp_module *module_def) {
 }
 
 py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph) {
-  if (Py_TYPE(py_graph) != &PyGraphType) {
+  if (Py_TYPE(py_graph) != PyGraphType) {
     PyErr_SetString(PyExc_TypeError, "Expected a _mgp.Graph.");
     return nullptr;
   }
@@ -2631,6 +3157,12 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyObject *py_graph) {
 }
 
 py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
+  py::Object const py_mgp(PyImport_ImportModule("mgp"));
+  return MgpValueToPyObjectImpl(value, py_graph, py_mgp.Ptr());
+}
+
+namespace {
+py::Object MgpValueToPyObjectImpl(const mgp_value &value, PyGraph *py_graph, PyObject *py_mgp) {
   switch (value.type) {
     case MGP_VALUE_TYPE_NULL:
       Py_INCREF(Py_None);
@@ -2644,72 +3176,148 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_STRING:
       return py::Object(PyUnicode_FromString(value.string_v.c_str()));
     case MGP_VALUE_TYPE_LIST:
-      return MgpListToPyTuple(value.list_v, py_graph);
+      return MgpListToPyTupleImpl(value.list_v, py_graph, py_mgp);
     case MGP_VALUE_TYPE_MAP: {
       auto *map = value.map_v;
       py::Object py_dict(PyDict_New());
       if (!py_dict) {
         return nullptr;
       }
-      for (const auto &[key, val] : map->items) {
-        auto py_val = MgpValueToPyObject(val, py_graph);
-        if (!py_val) {
-          return nullptr;
-        }
-        // Unlike PyList_SET_ITEM, PyDict_SetItem does not steal the value.
-        if (PyDict_SetItemString(py_dict.Ptr(), key.c_str(), py_val.Ptr()) != 0) return nullptr;
-      }
+      std::visit(
+          [&py_dict, py_graph, py_mgp](const auto &items) {
+            for (const auto &[key, val] : items) {
+              auto py_val = MgpValueToPyObjectImpl(val, py_graph, py_mgp);
+              if (!py_val) {
+                return;
+              }
+              // Unlike PyList_SET_ITEM, PyDict_SetItem does not steal the value.
+              if (PyDict_SetItemString(py_dict.Ptr(), key.c_str(), py_val.Ptr()) != 0) return;
+            }
+          },
+          map->items);
       return py_dict;
     }
     case MGP_VALUE_TYPE_VERTEX: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       auto *v = value.vertex_v;
       py::Object py_vertex(reinterpret_cast<PyObject *>(MakePyVertex(*v, py_graph)));
-      return py_mgp.CallMethod("Vertex", py_vertex);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Vertex", py_vertex);
     }
     case MGP_VALUE_TYPE_EDGE: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       auto *e = value.edge_v;
       py::Object py_edge(reinterpret_cast<PyObject *>(MakePyEdge(*e, py_graph)));
-      return py_mgp.CallMethod("Edge", py_edge);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Edge", py_edge);
     }
     case MGP_VALUE_TYPE_PATH: {
-      py::Object py_mgp(PyImport_ImportModule("mgp"));
       if (!py_mgp) return nullptr;
       auto *p = value.path_v;
       py::Object py_path(reinterpret_cast<PyObject *>(MakePyPath(*p, py_graph)));
-      return py_mgp.CallMethod("Path", py_path);
+      return py::Object::FromBorrow(py_mgp).CallMethod("Path", py_path);
     }
     case MGP_VALUE_TYPE_DATE: {
       const auto &date = value.date_v->date;
-      py::Object py_date(PyDate_FromDate(date.year, date.month, date.day));
+      py::Object py_date(PyObject_CallFunction(g_dt_date, "iii", date.year, date.month, date.day));
       return py_date;
     }
     case MGP_VALUE_TYPE_LOCAL_TIME: {
       const auto &local_time = value.local_time_v->local_time;
       py::Object py_local_time(
-          PyTime_FromTime(local_time.hour, local_time.minute, local_time.second,
-                          local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
+          PyObject_CallFunction(g_dt_time,
+                                "iiii",
+                                local_time.hour,
+                                local_time.minute,
+                                local_time.second,
+                                (local_time.millisecond * kMicrosecondsInMillisecond) + local_time.microsecond));
       return py_local_time;
     }
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME: {
-      const auto &local_time = value.local_date_time_v->local_date_time.local_time;
-      const auto &date = value.local_date_time_v->local_date_time.date;
-      py::Object py_local_date_time(PyDateTime_FromDateAndTime(
-          date.year, date.month, date.day, local_time.hour, local_time.minute, local_time.second,
-          local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
+      const auto &local_time = value.local_date_time_v->local_date_time.local_time();
+      const auto &date = value.local_date_time_v->local_date_time.date();
+      py::Object py_local_date_time(
+          PyObject_CallFunction(g_dt_datetime,
+                                "iiiiiii",
+                                date.year,
+                                date.month,
+                                date.day,
+                                local_time.hour,
+                                local_time.minute,
+                                local_time.second,
+                                (local_time.millisecond * kMicrosecondsInMillisecond) + local_time.microsecond));
       return py_local_date_time;
     }
     case MGP_VALUE_TYPE_DURATION: {
       const auto &duration = value.duration_v->duration;
-      py::Object py_duration(PyDelta_FromDSU(0, duration.microseconds / kMicrosecondsInSecond,
-                                             duration.microseconds % kMicrosecondsInSecond));
+      py::Object py_duration(PyObject_CallFunction(g_dt_timedelta,
+                                                   "iii",
+                                                   0,
+                                                   duration.microseconds / kMicrosecondsInSecond,
+                                                   duration.microseconds % kMicrosecondsInSecond));
       return py_duration;
+    }
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
+      auto const local_time = value.zoned_date_time_v->zoned_date_time.AsLocalTime();
+      auto const date = value.zoned_date_time_v->zoned_date_time.AsLocalDate();
+      auto const offset_seconds =
+          static_cast<int32_t>(value.zoned_date_time_v->zoned_date_time.OffsetSeconds().count());
+
+      // Python's `timedelta` cannot be constructed with -negative values,
+      // so convert a negative second offset to a positive one.
+      int32_t days = offset_seconds / 86'400;
+      int32_t seconds = offset_seconds % 86'400;
+      if (seconds < 0) {
+        seconds += 86'400;
+        --days;
+      }
+
+      py::Object const offset_delta(PyObject_CallFunction(g_dt_timedelta, "iii", days, seconds, 0));
+      if (!offset_delta) return nullptr;
+      py::Object const tz(PyObject_CallFunction(g_dt_timezone, "O", offset_delta.Ptr()));
+      if (!tz) return nullptr;
+
+      py::Object py_zoned_date_time(
+          PyObject_CallFunction(g_dt_datetime,
+                                "iiiiiiiO",
+                                date.year,
+                                date.month,
+                                date.day,
+                                local_time.hour,
+                                local_time.minute,
+                                local_time.second,
+                                (local_time.millisecond * kMicrosecondsInMillisecond) + local_time.microsecond,
+                                tz.Ptr()));
+
+      return py_zoned_date_time;
+    }
+    case MGP_VALUE_TYPE_POINT_2D: {
+      if (!py_mgp) return nullptr;
+      const auto &pt = value.point_2d_v->point;
+      const py::Object py_x(PyFloat_FromDouble(pt.x()));
+      const py::Object py_y(PyFloat_FromDouble(pt.y()));
+      const py::Object py_srid(PyLong_FromLong(memgraph::storage::CrsToSrid(pt.crs()).value_of()));
+      return py::Object::FromBorrow(py_mgp).CallMethod("Point2d", py_x, py_y, py_srid);
+    }
+    case MGP_VALUE_TYPE_POINT_3D: {
+      if (!py_mgp) return nullptr;
+      const auto &pt = value.point_3d_v->point;
+      const py::Object py_x(PyFloat_FromDouble(pt.x()));
+      const py::Object py_y(PyFloat_FromDouble(pt.y()));
+      const py::Object py_z(PyFloat_FromDouble(pt.z()));
+      const py::Object py_srid(PyLong_FromLong(memgraph::storage::CrsToSrid(pt.crs()).value_of()));
+      return py::Object::FromBorrow(py_mgp).CallMethod("Point3d", py_x, py_y, py_z, py_srid);
+    }
+    case MGP_VALUE_TYPE_ENUM: {
+      if (!py_mgp) return nullptr;
+      const auto &e = *value.enum_v;
+      const py::Object py_type_name(
+          PyUnicode_FromStringAndSize(e.type_name.c_str(), static_cast<Py_ssize_t>(e.type_name.size())));
+      const py::Object py_value_name(
+          PyUnicode_FromStringAndSize(e.value_name.c_str(), static_cast<Py_ssize_t>(e.value_name.size())));
+      return py::Object::FromBorrow(py_mgp).CallMethod("Enum", py_type_name, py_value_name);
     }
   }
 }
+}  // namespace
 
 mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   auto py_seq_to_list = [memory](PyObject *seq, Py_ssize_t len, const auto &py_seq_get_item) {
@@ -2744,14 +3352,23 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     return v;
   };
 
-  auto is_mgp_instance = [](PyObject *obj, const char *mgp_type_name) {
-    py::Object py_mgp(PyImport_ImportModule("mgp"));
-    if (!py_mgp) {
+  // Import 'mgp' once for the lifetime of this conversion; is_mgp_instance is
+  // called up to 6 times per value so re-importing each call is measurable.
+  py::Object cached_mgp(nullptr);
+  auto get_mgp_module = [&cached_mgp]() -> PyObject * {
+    if (!cached_mgp) cached_mgp = py::Object(PyImport_ImportModule("mgp"));
+    return cached_mgp.Ptr();
+  };
+
+  auto is_mgp_instance = [&get_mgp_module](PyObject *obj, const char *mgp_type_name) {
+    PyObject *py_mgp = get_mgp_module();
+    if (py_mgp == nullptr) {
       PyErr_Clear();
       // This way we skip conversions of types from user-facing 'mgp' module.
       return false;
     }
-    auto mgp_type = py_mgp.GetAttr(mgp_type_name);
+    py::Object const mgp_obj(py::Object::FromBorrow(py_mgp));
+    auto mgp_type = mgp_obj.GetAttr(mgp_type_name);
     if (!mgp_type) {
       PyErr_Clear();
       std::stringstream ss;
@@ -2786,11 +3403,13 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
   } else if (PyFloat_Check(o)) {
     last_error = mgp_value_make_double(PyFloat_AsDouble(o), memory, &mgp_v);
   } else if (PyUnicode_Check(o)) {  // NOLINT(hicpp-signed-bitwise)
-    last_error = mgp_value_make_string(PyUnicode_AsUTF8(o), memory, &mgp_v);
+    const char *s = PyUnicode_AsUTF8(o);
+    if (!s) throw std::invalid_argument("Failed to decode Python string as UTF-8");
+    last_error = mgp_value_make_string(s, memory, &mgp_v);
   } else if (PyList_Check(o)) {
-    mgp_v = py_seq_to_list(o, PyList_Size(o), [](auto *list, const auto i) { return PyList_GET_ITEM(list, i); });
+    mgp_v = py_seq_to_list(o, PyList_Size(o), [](auto *list, const auto i) { return PyList_GetItem(list, i); });
   } else if (PyTuple_Check(o)) {
-    mgp_v = py_seq_to_list(o, PyTuple_Size(o), [](auto *tuple, const auto i) { return PyTuple_GET_ITEM(tuple, i); });
+    mgp_v = py_seq_to_list(o, PyTuple_Size(o), [](auto *tuple, const auto i) { return PyTuple_GetItem(tuple, i); });
   } else if (PyDict_Check(o)) {  // NOLINT(hicpp-signed-bitwise)
     MgpUniquePtr<mgp_map> map{nullptr, mgp_map_destroy};
     const auto map_err = CreateMgpObject(map, mgp_map_make_empty, memory);
@@ -2814,7 +3433,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
 
       if (!k) {
         PyErr_Clear();
-        throw std::bad_alloc{};
+        throw std::invalid_argument("Failed to decode Python dict key as UTF-8");
       }
 
       MgpUniquePtr<mgp_value> v{PyObjectToMgpValue(value, memory), mgp_value_destroy};
@@ -2832,7 +3451,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::runtime_error{"Unexpected error during creating mgp_value"};
     }
     static_cast<void>(map.release());
-  } else if (Py_TYPE(o) == &PyEdgeType) {
+  } else if (Py_TYPE(o) == PyEdgeType) {
     MgpUniquePtr<mgp_edge> e{nullptr, mgp_edge_destroy};
     // Copy the edge and pass the ownership to the created mgp_value.
 
@@ -2848,7 +3467,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::runtime_error{"Unexpected error during copying mgp_edge"};
     }
     static_cast<void>(e.release());
-  } else if (Py_TYPE(o) == &PyPathType) {
+  } else if (Py_TYPE(o) == PyPathType) {
     MgpUniquePtr<mgp_path> p{nullptr, mgp_path_destroy};
     // Copy the edge and pass the ownership to the created mgp_value.
 
@@ -2864,7 +3483,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::runtime_error{"Unexpected error during copying mgp_path"};
     }
     static_cast<void>(p.release());
-  } else if (Py_TYPE(o) == &PyVertexType) {
+  } else if (Py_TYPE(o) == PyVertexType) {
     MgpUniquePtr<mgp_vertex> v{nullptr, mgp_vertex_destroy};
     // Copy the edge and pass the ownership to the created mgp_value.
 
@@ -2901,11 +3520,9 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::invalid_argument("'mgp.Path' is missing '_path' attribute");
     }
     return PyObjectToMgpValue(path.Ptr(), memory);
-  } else if (PyDate_CheckExact(o)) {
+  } else if (IsDateExact(o)) {
     mgp_date_parameters parameters{
-        .year = PyDateTime_GET_YEAR(o),    // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-        .month = PyDateTime_GET_MONTH(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-        .day = PyDateTime_GET_DAY(o)};     // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+        .year = GetIntAttr(o, "year"), .month = GetIntAttr(o, "month"), .day = GetIntAttr(o, "day")};
     MgpUniquePtr<mgp_date> date{nullptr, mgp_date_destroy};
 
     if (const auto err = CreateMgpObject(date, mgp_date_from_parameters, &parameters, memory);
@@ -2920,17 +3537,13 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
     static_cast<void>(date.release());
-  } else if (PyTime_CheckExact(o)) {
-    mgp_local_time_parameters parameters{
-        .hour = PyDateTime_TIME_GET_HOUR(o),      // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-        .minute = PyDateTime_TIME_GET_MINUTE(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-        .second = PyDateTime_TIME_GET_SECOND(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-        .millisecond =
-            PyDateTime_TIME_GET_MICROSECOND(o) /  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-            1000,
-        .microsecond =
-            PyDateTime_TIME_GET_MICROSECOND(o) %  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-            1000};
+  } else if (IsTimeExact(o)) {
+    const int microsecond = GetIntAttr(o, "microsecond");
+    mgp_local_time_parameters parameters{.hour = GetIntAttr(o, "hour"),
+                                         .minute = GetIntAttr(o, "minute"),
+                                         .second = GetIntAttr(o, "second"),
+                                         .millisecond = microsecond / 1000,
+                                         .microsecond = microsecond % 1000};
     MgpUniquePtr<mgp_local_time> local_time{nullptr, mgp_local_time_destroy};
 
     if (const auto err = CreateMgpObject(local_time, mgp_local_time_from_parameters, &parameters, memory);
@@ -2946,49 +3559,75 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
     static_cast<void>(local_time.release());
-  } else if (PyDateTime_CheckExact(o)) {
+  } else if (IsDateTimeExact(o)) {
     mgp_date_parameters date_parameters{
-        .year = PyDateTime_GET_YEAR(o),    // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-        .month = PyDateTime_GET_MONTH(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-        .day = PyDateTime_GET_DAY(o)};     // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-    mgp_local_time_parameters local_time_parameters{
-        .hour = PyDateTime_DATE_GET_HOUR(o),      // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-        .minute = PyDateTime_DATE_GET_MINUTE(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-        .second = PyDateTime_DATE_GET_SECOND(o),  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-        .millisecond =
-            PyDateTime_DATE_GET_MICROSECOND(o) /  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-            1000,
-        .microsecond =
-            PyDateTime_DATE_GET_MICROSECOND(o) %  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-            1000};
+        .year = GetIntAttr(o, "year"), .month = GetIntAttr(o, "month"), .day = GetIntAttr(o, "day")};
+    const int dt_microsecond = GetIntAttr(o, "microsecond");
+    mgp_local_time_parameters local_time_parameters{.hour = GetIntAttr(o, "hour"),
+                                                    .minute = GetIntAttr(o, "minute"),
+                                                    .second = GetIntAttr(o, "second"),
+                                                    .millisecond = dt_microsecond / 1000,
+                                                    .microsecond = dt_microsecond % 1000};
 
-    mgp_local_date_time_parameters parameters{&date_parameters, &local_time_parameters};
+    if (const py::Object tzinfo(GetTzInfo(o)); tzinfo) {
+      py::Object const offset(PyObject_CallMethod(tzinfo.Ptr(), "utcoffset", "O", o));
+      if (!offset) {
+        throw std::runtime_error{"Cannot read timezone offset"};
+      }
 
-    MgpUniquePtr<mgp_local_date_time> local_date_time{nullptr, mgp_local_date_time_destroy};
+      constexpr int SECONDS_PER_DAY = 86'400;
+      constexpr int SECONDS_PER_MINUTE = 60;
+      auto const offset_days = static_cast<int32_t>(GetIntAttr(offset.Ptr(), "days"));
+      auto const offset_seconds = static_cast<int32_t>(GetIntAttr(offset.Ptr(), "seconds"));
 
-    if (const auto err = CreateMgpObject(local_date_time, mgp_local_date_time_from_parameters, &parameters, memory);
-        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
-      throw std::bad_alloc{};
-    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::runtime_error{"Unexpected error while creating mgp_local_date_time"};
+      // Convert total offset to minutes
+      int32_t const total_offset_seconds = offset_days * SECONDS_PER_DAY + offset_seconds;
+      int32_t const offset_minutes = total_offset_seconds / SECONDS_PER_MINUTE;
+
+      mgp_zoned_date_time_parameters parameters{
+          &date_parameters, &local_time_parameters, {.offset_in_minutes = offset_minutes}, 0};
+
+      MgpUniquePtr<mgp_zoned_date_time> zoned_date_time{nullptr, mgp_zoned_date_time_destroy};
+
+      if (const auto err = CreateMgpObject(zoned_date_time, mgp_zoned_date_time_from_parameters, &parameters, memory);
+          err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error while creating mgp_zoned_date_time"};
+      }
+      if (const auto err = mgp_value_make_zoned_date_time(zoned_date_time.get(), &mgp_v);
+          err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error while creating mgp_value"};
+      }
+      [[maybe_unused]] auto *ptr = zoned_date_time.release();
+    } else {
+      mgp_local_date_time_parameters parameters{&date_parameters, &local_time_parameters};
+
+      MgpUniquePtr<mgp_local_date_time> local_date_time{nullptr, mgp_local_date_time_destroy};
+
+      if (const auto err = CreateMgpObject(local_date_time, mgp_local_date_time_from_parameters, &parameters, memory);
+          err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error while creating mgp_local_date_time"};
+      }
+      if (const auto err = mgp_value_make_local_date_time(local_date_time.get(), &mgp_v);
+          err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error while creating mgp_value"};
+      }
+      [[maybe_unused]] auto *ptr = local_date_time.release();
     }
-    if (const auto err = mgp_value_make_local_date_time(local_date_time.get(), &mgp_v);
-        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
-      throw std::bad_alloc{};
-    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::runtime_error{"Unexpected error while creating mgp_value"};
-    }
-    static_cast<void>(local_date_time.release());
-  } else if (PyDelta_CheckExact(o)) {
+  } else if (IsDeltaExact(o)) {
     static constexpr int64_t microseconds_in_days =
         static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
-    const auto days =
-        PyDateTime_DELTA_GET_DAYS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-    auto microseconds =
-        std::abs(days) * microseconds_in_days +
-        PyDateTime_DELTA_GET_SECONDS(o) * 1000 *  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
-            1000 +
-        PyDateTime_DELTA_GET_MICROSECONDS(o);  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
+    const auto days = GetIntAttr(o, "days");
+    auto microseconds = (std::abs(days) * microseconds_in_days) +
+                        (static_cast<int64_t>(GetIntAttr(o, "seconds")) * kMicrosecondsInSecond) +
+                        GetIntAttr(o, "microseconds");
     microseconds *= days < 0 ? -1 : 1;
 
     MgpUniquePtr<mgp_duration> duration{nullptr, mgp_duration_destroy};
@@ -3005,7 +3644,101 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::runtime_error{"Unexpected error while creating mgp_value"};
     }
-    static_cast<void>(duration.release());
+    static_cast<void>(duration.release());  // NOLINT(bugprone-unused-return-value)
+  } else if (is_mgp_instance(o, "Point2d")) {
+    const py::Object py_x(PyObject_GetAttrString(o, "x"));
+    const py::Object py_y(PyObject_GetAttrString(o, "y"));
+    const py::Object py_srid(PyObject_GetAttrString(o, "srid"));
+    if (!py_x || !py_y || !py_srid) {
+      PyErr_Clear();
+      throw std::invalid_argument("'mgp.Point2d' is missing x, y, or srid attribute");
+    }
+    const double x = PyFloat_AsDouble(py_x.Ptr());
+    const double y = PyFloat_AsDouble(py_y.Ptr());
+    const long srid_long = PyLong_AsLong(py_srid.Ptr());
+    if (PyErr_Occurred()) {
+      PyErr_Clear();
+      throw std::invalid_argument("'mgp.Point2d' has invalid x, y, or srid value");
+    }
+    if (srid_long < 0 || std::cmp_greater(srid_long, std::numeric_limits<uint16_t>::max())) {
+      throw std::invalid_argument("'mgp.Point2d' srid must be between 0 and 65535");
+    }
+    auto srid = static_cast<uint16_t>(srid_long);
+    MgpUniquePtr<mgp_point_2d> mgp_pt{nullptr, mgp_point_2d_destroy};
+    if (const auto err = CreateMgpObject(mgp_pt, mgp_point_2d_make, x, y, srid, memory);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_point_2d"};
+    }
+    if (const auto err = mgp_value_make_point_2d(mgp_pt.get(), &mgp_v);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_value from Point2d"};
+    }
+    static_cast<void>(mgp_pt.release());  // NOLINT(bugprone-unused-return-value)
+  } else if (is_mgp_instance(o, "Point3d")) {
+    const py::Object py_x(PyObject_GetAttrString(o, "x"));
+    const py::Object py_y(PyObject_GetAttrString(o, "y"));
+    const py::Object py_z(PyObject_GetAttrString(o, "z"));
+    const py::Object py_srid(PyObject_GetAttrString(o, "srid"));
+    if (!py_x || !py_y || !py_z || !py_srid) {
+      PyErr_Clear();
+      throw std::invalid_argument("'mgp.Point3d' is missing x, y, z, or srid attribute");
+    }
+    const double x = PyFloat_AsDouble(py_x.Ptr());
+    const double y = PyFloat_AsDouble(py_y.Ptr());
+    const double z = PyFloat_AsDouble(py_z.Ptr());
+    const long srid_long = PyLong_AsLong(py_srid.Ptr());
+    if (PyErr_Occurred()) {
+      PyErr_Clear();
+      throw std::invalid_argument("'mgp.Point3d' has invalid x, y, z, or srid value");
+    }
+    if (srid_long < 0 || std::cmp_greater(srid_long, std::numeric_limits<uint16_t>::max())) {
+      throw std::invalid_argument("'mgp.Point3d' srid must be between 0 and 65535");
+    }
+    auto srid = static_cast<uint16_t>(srid_long);
+    MgpUniquePtr<mgp_point_3d> mgp_pt{nullptr, mgp_point_3d_destroy};
+    if (const auto err = CreateMgpObject(mgp_pt, mgp_point_3d_make, x, y, z, srid, memory);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_point_3d"};
+    }
+    if (const auto err = mgp_value_make_point_3d(mgp_pt.get(), &mgp_v);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_value from Point3d"};
+    }
+    static_cast<void>(mgp_pt.release());  // NOLINT(bugprone-unused-return-value)
+  } else if (is_mgp_instance(o, "Enum")) {
+    const py::Object py_type_name(PyObject_GetAttrString(o, "type_name"));
+    const py::Object py_value_name(PyObject_GetAttrString(o, "value_name"));
+    if (!py_type_name || !py_value_name) {
+      PyErr_Clear();
+      throw std::invalid_argument("'mgp.Enum' is missing type_name or value_name attribute");
+    }
+    const char *type_name = PyUnicode_AsUTF8(py_type_name.Ptr());
+    const char *value_name = PyUnicode_AsUTF8(py_value_name.Ptr());
+    if (!type_name || !value_name) {
+      PyErr_Clear();
+      throw std::invalid_argument("'mgp.Enum' type_name and value_name must be strings");
+    }
+    MgpUniquePtr<mgp_enum> mgp_e{nullptr, mgp_enum_destroy};
+    if (const auto err = CreateMgpObject(mgp_e, mgp_enum_make, type_name, value_name, memory);
+        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_enum"};
+    }
+    if (const auto err = mgp_value_make_enum(mgp_e.get(), &mgp_v); err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+      throw std::bad_alloc{};
+    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::runtime_error{"Unexpected error while creating mgp_value from Enum"};
+    }
+    static_cast<void>(mgp_e.release());  // NOLINT(bugprone-unused-return-value)
   } else {
     throw std::invalid_argument("Unsupported PyObject conversion");
   }
@@ -3026,12 +3759,17 @@ PyObject *PyGraphCreateEdge(PyGraph *self, PyObject *args) {
   PyVertex *from{nullptr};
   PyVertex *to{nullptr};
   const char *edge_type{nullptr};
-  if (!PyArg_ParseTuple(args, "O!O!s", &PyVertexType, &from, &PyVertexType, &to, &edge_type)) {
+  if (!PyArg_ParseTuple(args, "O!O!s", PyVertexType, &from, PyVertexType, &to, &edge_type)) {
     return nullptr;
   }
   MgpUniquePtr<mgp_edge> new_edge{nullptr, mgp_edge_destroy};
-  if (RaiseExceptionFromErrorCode(CreateMgpObject(new_edge, mgp_graph_create_edge, self->graph, from->vertex,
-                                                  to->vertex, mgp_edge_type{edge_type}, self->memory))) {
+  if (RaiseExceptionFromErrorCode(CreateMgpObject(new_edge,
+                                                  mgp_graph_create_edge,
+                                                  self->graph,
+                                                  from->vertex,
+                                                  to->vertex,
+                                                  mgp_edge_type{edge_type},
+                                                  self->memory))) {
     return nullptr;
   }
   auto *py_edge = MakePyEdgeWithoutCopy(*new_edge, self);
@@ -3045,7 +3783,7 @@ PyObject *PyGraphDeleteVertex(PyGraph *self, PyObject *args) {
   MG_ASSERT(PyGraphIsValidImpl(*self));
   MG_ASSERT(self->memory);
   PyVertex *vertex{nullptr};
-  if (!PyArg_ParseTuple(args, "O!", &PyVertexType, &vertex)) {
+  if (!PyArg_ParseTuple(args, "O!", PyVertexType, &vertex)) {
     return nullptr;
   }
   if (RaiseExceptionFromErrorCode(mgp_graph_delete_vertex(self->graph, vertex->vertex))) {
@@ -3058,7 +3796,7 @@ PyObject *PyGraphDetachDeleteVertex(PyGraph *self, PyObject *args) {
   MG_ASSERT(PyGraphIsValidImpl(*self));
   MG_ASSERT(self->memory);
   PyVertex *vertex{nullptr};
-  if (!PyArg_ParseTuple(args, "O!", &PyVertexType, &vertex)) {
+  if (!PyArg_ParseTuple(args, "O!", PyVertexType, &vertex)) {
     return nullptr;
   }
   if (RaiseExceptionFromErrorCode(mgp_graph_detach_delete_vertex(self->graph, vertex->vertex))) {
@@ -3071,7 +3809,7 @@ PyObject *PyGraphDeleteEdge(PyGraph *self, PyObject *args) {
   MG_ASSERT(PyGraphIsValidImpl(*self));
   MG_ASSERT(self->memory);
   PyEdge *edge{nullptr};
-  if (!PyArg_ParseTuple(args, "O!", &PyEdgeType, &edge)) {
+  if (!PyArg_ParseTuple(args, "O!", PyEdgeType, &edge)) {
     return nullptr;
   }
   if (RaiseExceptionFromErrorCode(mgp_graph_delete_edge(self->graph, edge->edge))) {

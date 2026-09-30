@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.sum(null) AS result;
+
+output:
+  - result: null

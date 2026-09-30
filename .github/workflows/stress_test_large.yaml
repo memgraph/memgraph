@@ -1,0 +1,48 @@
+name: Stress test large
+concurrency:
+  group: stress-test-large-${{ github.event_name == 'workflow_dispatch' && 'manual' || 'scheduled' }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_type:
+        type: choice
+        description: "Memgraph Build type. Default value is Release."
+        default: 'Release'
+        options:
+          - Release
+          - RelWithDebInfo
+      os:
+        type: choice
+        description: "Target OS on which the release tests will be run. Select 'all' if you want to package for every listed OS."
+        default: 'ubuntu-24.04'
+        options:
+          - all
+          - ubuntu-24.04
+
+jobs:
+  StressTestLargeIndividual:
+    if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: ${{ github.event.inputs.os || 'ubuntu-24.04' }}
+      arch: "amd"
+      build_type: ${{ github.event.inputs.build_type || 'Release' }}
+      run_stress_large: 'true'
+      run_release_tests: 'false'
+    secrets: inherit
+
+  StressTestLargeAll:
+    if: ${{ github.event.inputs.os == 'all' }}
+    strategy:
+      matrix:
+        os: [ubuntu-24.04]  # currently only Ubuntu 24.04 is used, we may add in other distributions if required
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: ${{ matrix.os }}
+      arch: "amd"
+      build_type: ${{ github.event.inputs.build_type || 'Release' }}
+      run_stress_large: 'true'
+      run_release_tests: 'false'
+    secrets: inherit

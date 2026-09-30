@@ -1,0 +1,14 @@
+user_changing_its_own_password_cluster: &user_changing_its_own_password_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "user_changing_its_own_password.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "User changing password"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["user_changing_its_own_password/user_changing_its_own_password.py"]
+    <<: *user_changing_its_own_password_cluster

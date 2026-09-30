@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,24 +20,34 @@ const uint64_t kMaxNum = 10000000;
 int main() {
   memgraph::utils::SkipList<uint64_t> list;
 
-  for (int i = 0; i < kMaxNum * kNumThreads; ++i) {
-    auto acc = list.access();
-    auto ret = acc.insert(i);
-    MG_ASSERT(ret.first != acc.end());
-    MG_ASSERT(ret.second);
+  // Fills the ranges the removers will each take. Populating the list is this test's setup rather
+  // than what it measures, so it is not left to one thread.
+  {
+    std::vector<std::jthread> loaders;
+    loaders.reserve(kNumThreads);
+    for (int i = 0; i < kNumThreads; ++i) {
+      loaders.emplace_back([&list, i] {
+        auto acc = list.access();
+        for (uint64_t num = i * kMaxNum; num < (i + 1) * kMaxNum; ++num) {
+          auto ret = acc.insert(num);
+          MG_ASSERT(ret.first != acc.end());
+          MG_ASSERT(ret.second);
+        }
+      });
+    }
   }
 
-  std::vector<std::thread> threads;
-  for (int i = 0; i < kNumThreads; ++i) {
-    threads.push_back(std::thread([&list, i] {
-      for (uint64_t num = i * kMaxNum; num < (i + 1) * kMaxNum; ++num) {
-        auto acc = list.access();
-        MG_ASSERT(acc.remove(num));
-      }
-    }));
-  }
-  for (int i = 0; i < kNumThreads; ++i) {
-    threads[i].join();
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(kNumThreads);
+    for (int i = 0; i < kNumThreads; ++i) {
+      threads.emplace_back([&list, i] {
+        for (uint64_t num = i * kMaxNum; num < (i + 1) * kMaxNum; ++num) {
+          auto acc = list.access();
+          MG_ASSERT(acc.remove(num));
+        }
+      });
+    }
   }
 
   MG_ASSERT(list.size() == 0);

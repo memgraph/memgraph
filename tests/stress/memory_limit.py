@@ -27,13 +27,7 @@ from dataclasses import dataclass
 from functools import wraps
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from common import (
-    OutputData,
-    SessionCache,
-    connection_argument_parser,
-    execute_till_success,
-    try_execute,
-)
+from common import OutputData, SessionCache, connection_argument_parser, execute_till_success, try_execute
 
 log = logging.getLogger(__name__)
 output_data = OutputData()
@@ -60,8 +54,6 @@ def parse_args() -> Args:
         "--logging", default="INFO", choices=["INFO", "DEBUG", "WARNING", "ERROR"], help="Logging level"
     )
     parser.add_argument("--repetition-count", type=int, default=1000, help="Number of times to perform the action")
-    parser.add_argument("--isolation-level", type=str, required=True, help="Database isolation level.")
-    parser.add_argument("--storage-mode", type=str, required=True, help="Database storage mode.")
 
     return parser.parse_args()
 
@@ -127,12 +119,6 @@ def clean_database() -> None:
 def create_indices() -> None:
     session = SessionCache.argument_session(args)
     execute_till_success(session, "CREATE INDEX ON :Node")
-
-
-def setup_database_mode() -> None:
-    session = SessionCache.argument_session(args)
-    execute_till_success(session, f"STORAGE MODE {args.storage_mode}")
-    execute_till_success(session, f"SET GLOBAL TRANSACTION ISOLATION LEVEL {args.isolation_level}")
 
 
 def get_tracker_data(session) -> Optional[float]:
@@ -243,8 +229,6 @@ def execute_function(worker: Worker) -> Worker:
 def execution_handler() -> None:
     clean_database()
     log.info("Database is clean.")
-
-    setup_database_mode()
 
     create_indices()
 

@@ -1,0 +1,494 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "coordination/coordinator_cluster_state.hpp"
+#include "io/network/endpoint.hpp"
+#include "replication_coordination_glue/role.hpp"
+#include "utils/uuid.hpp"
+
+#include <gflags/gflags.h>
+#include <gtest/gtest.h>
+#include "libnuraft/nuraft.hxx"
+
+#include <nlohmann/json.hpp>
+#include <vector>
+
+using memgraph::coordination::CoordinatorClusterState;
+using memgraph::coordination::CoordinatorClusterStateDelta;
+using memgraph::coordination::CoordinatorInstanceContext;
+using memgraph::coordination::CoordinatorRole;
+using memgraph::coordination::DataInstanceConfig;
+using memgraph::coordination::DataInstanceContext;
+using memgraph::coordination::InstanceUUIDUpdate;
+using memgraph::io::network::Endpoint;
+using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::replication_coordination_glue::ReplicationRole;
+using memgraph::utils::UUID;
+using nuraft::buffer;
+using nuraft::ptr;
+
+// No networking communication in this test.
+class CoordinatorClusterStateTest : public ::testing::Test {
+ protected:
+  void SetUp() override {}
+
+  void TearDown() override {}
+};
+
+TEST_F(CoordinatorClusterStateTest, TestUpgrade) {
+  std::vector<DataInstanceContext> data_instances;
+
+  auto config = DataInstanceConfig{.instance_name = "instance2",
+                                   .mgt_server = Endpoint{"127.0.0.1", 10'111},
+                                   .bolt_server = Endpoint{"127.0.0.1", 7688},
+                                   .replication_client_info = {.instance_name = "instance_name",
+                                                               .replication_mode = ReplicationMode::ASYNC,
+                                                               .replication_server = Endpoint{"127.0.0.1", 10'010}}};
+
+  auto const uuid = UUID{};
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
+
+  std::vector coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  {
+    nlohmann::json legacy_json = {{memgraph::coordination::kDataInstances.data(), data_instances},
+                                  {memgraph::coordination::kMainUUID.data(), uuid},
+                                  {memgraph::coordination::kCoordinatorInstances.data(), coord_instances},
+                                  {memgraph::coordination::kEnabledReadsOnMain.data(), true},
+                                  {memgraph::coordination::kSyncFailoverOnly.data(), false},
+                                  {memgraph::coordination::kMaxFailoverLagOnReplica.data(), 20}};
+
+    CoordinatorClusterState legacy_state;
+    nlohmann::from_json(legacy_json, legacy_state);
+  }
+
+  {
+    nlohmann::json legacy_json = {{memgraph::coordination::kClusterState.data(), data_instances},
+                                  {memgraph::coordination::kMainUUID.data(), uuid},
+                                  {memgraph::coordination::kCoordinatorInstances.data(), coord_instances},
+                                  {memgraph::coordination::kEnabledReadsOnMain.data(), true},
+                                  {memgraph::coordination::kSyncFailoverOnly.data(), false},
+                                  {memgraph::coordination::kMaxFailoverLagOnReplica.data(), 20}
+
+    };
+    CoordinatorClusterState legacy_state;
+    nlohmann::from_json(legacy_json, legacy_state);
+  }
+}
+
+TEST_F(CoordinatorClusterStateTest, RegisterReplicationInstance) {
+  CoordinatorClusterState cluster_state{};
+  std::vector<DataInstanceContext> data_instances;
+
+  auto config = DataInstanceConfig{.instance_name = "instance3",
+                                   .mgt_server = Endpoint{"127.0.0.1", 10'112},
+                                   .bolt_server = Endpoint{"127.0.0.1", 7687},
+                                   .replication_client_info = {.instance_name = "instance_name",
+                                                               .replication_mode = ReplicationMode::ASYNC,
+                                                               .replication_server = Endpoint{"127.0.0.1", 10'001}}};
+
+  auto const uuid = UUID{};
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                 .current_main_uuid_ = uuid};
+
+  cluster_state.DoAction(delta_state);
+
+  auto const data_instances_res = cluster_state.GetDataInstancesContext();
+  ASSERT_EQ(data_instances_res.size(), 1);
+  ASSERT_EQ(data_instances_res[0].config, config);
+  ASSERT_EQ(data_instances_res[0].status, ReplicationRole::REPLICA);
+}
+
+TEST_F(CoordinatorClusterStateTest, SetInstanceToReplica) {
+  std::vector<DataInstanceContext> data_instances;
+  CoordinatorClusterState cluster_state{};
+  {
+    auto config = DataInstanceConfig{.instance_name = "instance1",
+                                     .mgt_server = Endpoint{"127.0.0.1", 10'112},
+                                     .bolt_server = Endpoint{"127.0.0.1", 7687},
+                                     .replication_client_info = {.instance_name = "instance1",
+                                                                 .replication_mode = ReplicationMode::ASYNC,
+                                                                 .replication_server = Endpoint{"127.0.0.1", 10'001}}};
+    auto const uuid = UUID{};
+    data_instances.emplace_back(config, ReplicationRole::MAIN, uuid);
+
+    // NOLINTNEXTLINE
+    CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances, .current_main_uuid_ = uuid};
+    cluster_state.DoAction(delta_state);
+  }
+  {
+    auto config = DataInstanceConfig{.instance_name = "instance2",
+                                     .mgt_server = Endpoint{"127.0.0.1", 10'111},
+                                     .bolt_server = Endpoint{"127.0.0.1", 7688},
+                                     .replication_client_info = {.instance_name = "instance2",
+                                                                 .replication_mode = ReplicationMode::ASYNC,
+                                                                 .replication_server = Endpoint{"127.0.0.1", 10'010}}};
+
+    auto const uuid = UUID{};
+    data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
+
+    // NOLINTNEXTLINE
+    CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                   .current_main_uuid_ = uuid};
+    cluster_state.DoAction(delta_state);
+  }
+
+  auto const repl_instances = cluster_state.GetDataInstancesContext();
+  ASSERT_EQ(repl_instances.size(), 2);
+  ASSERT_EQ(repl_instances[0].status, ReplicationRole::MAIN);
+  ASSERT_EQ(repl_instances[1].status, ReplicationRole::REPLICA);
+  ASSERT_TRUE(cluster_state.MainExists());
+  ASSERT_TRUE(cluster_state.HasMainState("instance1"));
+  ASSERT_FALSE(cluster_state.HasMainState("instance2"));
+  ASSERT_FALSE(cluster_state.IsCurrentMain("instance2"));
+}
+
+TEST_F(CoordinatorClusterStateTest, Coordinators) {
+  CoordinatorClusterState cluster_state;
+
+  std::vector<CoordinatorInstanceContext> const coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = std::move(coord_instances),
+                                                 .current_main_uuid_ = UUID{}};
+  cluster_state.DoAction(delta_state);
+
+  auto const coord_instances_res = cluster_state.GetCoordinatorInstancesContext();
+  ASSERT_EQ(coord_instances_res.size(), 2);
+  ASSERT_EQ(coord_instances_res[0].bolt_server, "127.0.0.1:7690");
+  ASSERT_EQ(coord_instances_res[0].id, 1);
+  ASSERT_EQ(coord_instances_res[1].bolt_server, "127.0.0.1:7691");
+  ASSERT_EQ(coord_instances_res[1].id, 2);
+}
+
+TEST_F(CoordinatorClusterStateTest, Marshalling) {
+  CoordinatorClusterState cluster_state;
+  std::vector<DataInstanceContext> data_instances;
+
+  auto config = DataInstanceConfig{.instance_name = "instance2",
+                                   .mgt_server = Endpoint{"127.0.0.1", 10'111},
+                                   .bolt_server = Endpoint{"127.0.0.1", 7688},
+                                   .replication_client_info = {.instance_name = "instance_name",
+                                                               .replication_mode = ReplicationMode::ASYNC,
+                                                               .replication_server = Endpoint{"127.0.0.1", 10'010}}};
+
+  auto const uuid = UUID{};
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
+
+  std::vector<CoordinatorInstanceContext> coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  // test default settings
+  ASSERT_TRUE(cluster_state.GetSyncFailoverOnly());
+  ASSERT_EQ(cluster_state.GetDeltasBatchProgressSize(), 100'000);
+  ASSERT_EQ(cluster_state.GetInstanceDownTimeoutSec(), 5);
+  ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{1});
+  ASSERT_FALSE(cluster_state.GetGlobalReadOnly());
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = std::move(data_instances),
+                                                 .coordinator_instances_ = coord_instances,
+                                                 .current_main_uuid_ = uuid,
+                                                 .enabled_reads_on_main_ = true,
+                                                 .sync_failover_only_ = false,
+                                                 .max_failover_replica_lag_ = 25,
+                                                 .max_replica_read_lag_ = 10,
+                                                 .deltas_batch_progress_size_ = 50'000,
+                                                 .instance_down_timeout_sec_ = 10,
+                                                 .instance_health_check_frequency_sec_ = 3,
+                                                 .global_read_only_ = true};
+  cluster_state.DoAction(delta_state);
+
+  ptr<buffer> data;
+  cluster_state.Serialize(data);
+
+  auto deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  ASSERT_EQ(cluster_state, deserialized_cluster_state);
+  ASSERT_TRUE(cluster_state.GetEnabledReadsOnMain());
+  ASSERT_FALSE(cluster_state.GetSyncFailoverOnly());
+  ASSERT_EQ(cluster_state.GetMaxFailoverReplicaLag(), 25);
+  ASSERT_EQ(cluster_state.GetMaxReplicaReadLag(), 10);
+  ASSERT_EQ(cluster_state.GetDeltasBatchProgressSize(), 50'000);
+  ASSERT_EQ(cluster_state.GetInstanceDownTimeoutSec(), 10);
+  ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{3});
+  ASSERT_TRUE(cluster_state.GetGlobalReadOnly());
+  ASSERT_TRUE(deserialized_cluster_state.GetGlobalReadOnly());
+}
+
+TEST_F(CoordinatorClusterStateTest, GlobalReadOnlyDoActionAndBackwardCompat) {
+  CoordinatorClusterState cluster_state{};
+
+  // Default is false.
+  ASSERT_FALSE(cluster_state.GetGlobalReadOnly());
+
+  // DoAction applies the delta.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const enable_delta{.global_read_only_ = true};
+  cluster_state.DoAction(enable_delta);
+  ASSERT_TRUE(cluster_state.GetGlobalReadOnly());
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const disable_delta{.global_read_only_ = false};
+  cluster_state.DoAction(disable_delta);
+  ASSERT_FALSE(cluster_state.GetGlobalReadOnly());
+
+  // A delta that doesn't touch global_read_only leaves it unchanged.
+  cluster_state.DoAction(enable_delta);
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const unrelated_delta{.enabled_reads_on_main_ = true};
+  cluster_state.DoAction(unrelated_delta);
+  ASSERT_TRUE(cluster_state.GetGlobalReadOnly());
+
+  // from_json defaults global_read_only to false when the key is absent (backward compatibility).
+  auto const uuid = UUID{};
+  auto json =
+      nlohmann::json{{memgraph::coordination::kDataInstances.data(), std::vector<DataInstanceContext>{}},
+                     {memgraph::coordination::kMainUUID.data(), uuid},
+                     {memgraph::coordination::kCoordinatorInstances.data(), std::vector<CoordinatorInstanceContext>{}}};
+  CoordinatorClusterState legacy_state;
+  nlohmann::from_json(json, legacy_state);
+  ASSERT_FALSE(legacy_state.GetGlobalReadOnly());
+
+  // When present, from_json reads the stored value.
+  json[memgraph::coordination::kGlobalReadOnly.data()] = true;
+  CoordinatorClusterState feature_state;
+  nlohmann::from_json(json, feature_state);
+  ASSERT_TRUE(feature_state.GetGlobalReadOnly());
+}
+
+TEST_F(CoordinatorClusterStateTest, RolesAddDropList) {
+  CoordinatorClusterState cluster_state{};
+
+  // Empty by default.
+  ASSERT_TRUE(cluster_state.GetRoles().empty());
+
+  // Add roles. The delta always carries the full updated vector (matching how the leader builds it). Each role carries
+  // its coordinator permission mask.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const add_delta{
+      .roles_ =
+          std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}, {.name = "readonly", .permissions = 1}}};
+  cluster_state.DoAction(add_delta);
+  ASSERT_EQ(
+      cluster_state.GetRoles(),
+      (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}, {.name = "readonly", .permissions = 1}}));
+
+  // Drop one role.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const drop_delta{.roles_ =
+                                                    std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}}};
+  cluster_state.DoAction(drop_delta);
+  ASSERT_EQ(cluster_state.GetRoles(), (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}}));
+
+  // A delta that doesn't touch roles leaves them unchanged.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const unrelated_delta{.enabled_reads_on_main_ = true};
+  cluster_state.DoAction(unrelated_delta);
+  ASSERT_EQ(cluster_state.GetRoles(), (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}}));
+
+  // Drop all roles.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const clear_delta{.roles_ = std::vector<CoordinatorRole>{}};
+  cluster_state.DoAction(clear_delta);
+  ASSERT_TRUE(cluster_state.GetRoles().empty());
+}
+
+TEST_F(CoordinatorClusterStateTest, RolesMarshalling) {
+  CoordinatorClusterState cluster_state{};
+
+  // Roundtrip must preserve each role's name AND its privilege mask.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{
+      .roles_ = std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3},
+                                             {.name = "readonly", .permissions = 1},
+                                             {.name = "bare", .permissions = 0}}};
+  cluster_state.DoAction(delta_state);
+
+  ptr<buffer> data;
+  cluster_state.Serialize(data);
+
+  auto deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  ASSERT_EQ(cluster_state, deserialized_cluster_state);
+  ASSERT_EQ(deserialized_cluster_state.GetRoles(),
+            (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3},
+                                          {.name = "readonly", .permissions = 1},
+                                          {.name = "bare", .permissions = 0}}));
+}
+
+TEST_F(CoordinatorClusterStateTest, RolesBackwardCompat) {
+  auto const uuid = UUID{};
+
+  // A full-state snapshot serialized before coordinator SSO has no "roles" key; from_json must default to empty.
+  auto json =
+      nlohmann::json{{memgraph::coordination::kDataInstances.data(), std::vector<DataInstanceContext>{}},
+                     {memgraph::coordination::kMainUUID.data(), uuid},
+                     {memgraph::coordination::kCoordinatorInstances.data(), std::vector<CoordinatorInstanceContext>{}}};
+  CoordinatorClusterState legacy_state;
+  nlohmann::from_json(json, legacy_state);
+  ASSERT_TRUE(legacy_state.GetRoles().empty());
+
+  // When present, from_json reads the stored value including the mask.
+  json[memgraph::coordination::kRoles.data()] = std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}};
+  CoordinatorClusterState feature_state;
+  nlohmann::from_json(json, feature_state);
+  ASSERT_EQ(feature_state.GetRoles(), (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}}));
+}
+
+TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
+  CoordinatorClusterState cluster_state{};
+  std::vector<DataInstanceContext> data_instances;
+
+  auto config = DataInstanceConfig{.instance_name = "instance2",
+                                   .mgt_server = Endpoint{"127.0.0.1", 10'111},
+                                   .bolt_server = Endpoint{"127.0.0.1", 7688},
+                                   .replication_client_info = {.instance_name = "instance_name",
+                                                               .replication_mode = ReplicationMode::ASYNC,
+                                                               .replication_server = Endpoint{"127.0.0.1", 10'010}}};
+
+  auto const uuid = UUID{};
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, uuid);
+
+  std::vector coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  auto json = nlohmann::json{{memgraph::coordination::kDataInstances.data(), data_instances},
+                             {memgraph::coordination::kMainUUID.data(), uuid},
+                             {memgraph::coordination::kCoordinatorInstances.data(), coord_instances}};
+
+  auto const log = json.dump();
+  ptr<buffer> data = buffer::alloc(sizeof(uint32_t) + log.size());
+  nuraft::buffer_serializer bs(data);
+  bs.put_str(log);
+
+  auto deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  ASSERT_EQ(deserialized_cluster_state.GetCoordinatorInstancesContext(), coord_instances);
+  ASSERT_EQ(deserialized_cluster_state.GetDataInstancesContext(), data_instances);
+  ASSERT_EQ(deserialized_cluster_state.GetCurrentMainUUID(), uuid);
+  // by default read false
+  ASSERT_FALSE(deserialized_cluster_state.GetEnabledReadsOnMain());
+  // by default read true
+  ASSERT_TRUE(deserialized_cluster_state.GetSyncFailoverOnly());
+  // by default read uint64_t::max()
+  ASSERT_EQ(deserialized_cluster_state.GetMaxFailoverReplicaLag(), std::numeric_limits<uint64_t>::max());
+  ASSERT_EQ(deserialized_cluster_state.GetMaxReplicaReadLag(), std::numeric_limits<uint64_t>::max());
+  // by default read 5 and 1
+  ASSERT_EQ(deserialized_cluster_state.GetInstanceDownTimeoutSec(), 5);
+  ASSERT_EQ(deserialized_cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{1});
+}
+
+TEST_F(CoordinatorClusterStateTest, DedupCoordinatorsOnDoAction) {
+  CoordinatorClusterState cluster_state;
+
+  // Duplicate id 1 with a different bolt server, as created by older versions which allowed re-adding an
+  // existing coordinator.
+  std::vector<CoordinatorInstanceContext> coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7699"},
+  };
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.coordinator_instances_ = std::move(coord_instances)};
+  cluster_state.DoAction(delta_state);
+
+  auto const coord_instances_res = cluster_state.GetCoordinatorInstancesContext();
+  ASSERT_EQ(coord_instances_res.size(), 2);
+  ASSERT_EQ(coord_instances_res[0].id, 1);
+  ASSERT_EQ(coord_instances_res[0].bolt_server, "127.0.0.1:7690");
+  ASSERT_EQ(coord_instances_res[1].id, 2);
+  ASSERT_EQ(coord_instances_res[1].bolt_server, "127.0.0.1:7691");
+}
+
+TEST_F(CoordinatorClusterStateTest, DedupCoordinatorsOnDeserialize) {
+  std::vector<DataInstanceContext> data_instances;
+  auto const uuid = UUID{};
+
+  std::vector coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7699"},
+  };
+
+  auto json = nlohmann::json{{memgraph::coordination::kDataInstances.data(), data_instances},
+                             {memgraph::coordination::kMainUUID.data(), uuid},
+                             {memgraph::coordination::kCoordinatorInstances.data(), coord_instances}};
+
+  auto const log = json.dump();
+  ptr<buffer> data = buffer::alloc(sizeof(uint32_t) + log.size());
+  nuraft::buffer_serializer bs(data);
+  bs.put_str(log);
+
+  auto deserialized_cluster_state = CoordinatorClusterState::Deserialize(*data);
+  std::vector const expected_coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+  ASSERT_EQ(deserialized_cluster_state.GetCoordinatorInstancesContext(), expected_coord_instances);
+}
+
+// A 0 committed by a version that still accepted it is fatal on the read side: StartStateCheck() MG_ASSERTs on it, so
+// without clamping every coordinator recovering this state aborts, on every restart.
+TEST_F(CoordinatorClusterStateTest, ClampZeroHealthCheckFreqOnDoAction) {
+  CoordinatorClusterState cluster_state;
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const zero_delta{.instance_health_check_frequency_sec_ = 0};
+  cluster_state.DoAction(zero_delta);
+  ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(),
+            std::chrono::seconds{memgraph::coordination::kMinInstanceHealthCheckFreqSec});
+
+  // A valid value is applied verbatim, so the clamp is not just pinning everything to the minimum.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const valid_delta{.instance_health_check_frequency_sec_ = 7};
+  cluster_state.DoAction(valid_delta);
+  ASSERT_EQ(cluster_state.GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{7});
+}
+
+TEST_F(CoordinatorClusterStateTest, ClampZeroHealthCheckFreqOnDeserialize) {
+  auto const serialize = [](nlohmann::json json) {
+    auto const log = json.dump();
+    ptr<buffer> data = buffer::alloc(sizeof(uint32_t) + log.size());
+    nuraft::buffer_serializer bs(data);
+    bs.put_str(log);
+    return CoordinatorClusterState::Deserialize(*data);
+  };
+
+  auto const base =
+      nlohmann::json{{memgraph::coordination::kDataInstances.data(), std::vector<DataInstanceContext>{}},
+                     {memgraph::coordination::kMainUUID.data(), UUID{}},
+                     {memgraph::coordination::kCoordinatorInstances.data(), std::vector<CoordinatorInstanceContext>{}}};
+
+  auto zero = base;
+  zero[memgraph::coordination::kInstanceHealthCheckFreqSec.data()] = 0;
+  ASSERT_EQ(serialize(zero).GetInstanceHealthCheckFrequencySec(),
+            std::chrono::seconds{memgraph::coordination::kMinInstanceHealthCheckFreqSec});
+
+  auto valid = base;
+  valid[memgraph::coordination::kInstanceHealthCheckFreqSec.data()] = 7;
+  ASSERT_EQ(serialize(valid).GetInstanceHealthCheckFrequencySec(), std::chrono::seconds{7});
+
+  // A snapshot written before the key existed must still land on the default, not on 0.
+  ASSERT_EQ(serialize(base).GetInstanceHealthCheckFrequencySec(),
+            std::chrono::seconds{memgraph::coordination::kMinInstanceHealthCheckFreqSec});
+}

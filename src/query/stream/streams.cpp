@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,36 +11,34 @@
 
 #include "query/stream/streams.hpp"
 
+#include <ranges>
 #include <shared_mutex>
 #include <string_view>
 #include <utility>
 
 #include <spdlog/spdlog.h>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "integrations/constants.hpp"
 #include "mg_procedure.h"
-#include "query/db_accessor.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/exceptions.hpp"
 #include "query/interpreter.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/query_user.hpp"
 #include "query/stream/sources.hpp"
 #include "query/typed_value.hpp"
-#include "utils/event_counter.hpp"
+#include "utils/fips.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/variant_helpers.hpp"
-
-namespace memgraph::metrics {
-extern const Event MessagesConsumed;
-}  // namespace memgraph::metrics
 
 namespace memgraph::query::stream {
 namespace {
@@ -49,7 +47,7 @@ inline constexpr auto kCheckStreamResultSize = 2;
 const utils::pmr::string query_param_name{"query", utils::NewDeleteResource()};
 const utils::pmr::string params_param_name{"parameters", utils::NewDeleteResource()};
 
-const std::map<std::string, storage::PropertyValue> empty_parameters{};
+const std::map<std::string, storage::ExternalPropertyValue> empty_parameters{};
 
 auto GetStream(auto &map, const std::string &stream_name) {
   if (auto it = map.find(stream_name); it != map.end()) {
@@ -59,21 +57,25 @@ auto GetStream(auto &map, const std::string &stream_name) {
 }
 
 std::pair<TypedValue /*query*/, TypedValue /*parameters*/> ExtractTransformationResult(
-    const utils::pmr::map<utils::pmr::string, TypedValue> &values, const std::string_view transformation_name,
-    const std::string_view stream_name) {
+    const utils::pmr::vector<TypedValue> &values,
+    const memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> &signature,
+    const std::string_view transformation_name, const std::string_view stream_name) {
   if (values.size() != kExpectedTransformationResultSize) {
     throw StreamsException(
         "Transformation '{}' in stream '{}' did not yield all fields (query, parameters) as required.",
-        transformation_name, stream_name);
+        transformation_name,
+        stream_name);
   }
 
   auto get_value = [&](const utils::pmr::string &field_name) mutable -> const TypedValue & {
-    auto it = values.find(field_name);
-    if (it == values.end()) {
+    auto it = signature.find(field_name);
+    if (it == signature.end()) {
       throw StreamsException{"Transformation '{}' in stream '{}' did not yield a record with '{}' field.",
-                             transformation_name, stream_name, field_name};
+                             transformation_name,
+                             stream_name,
+                             field_name};
     };
-    return it->second;
+    return values[it->second.field_id];
   };
 
   const auto &query_value = get_value(query_param_name);
@@ -89,27 +91,34 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
                               utils::MemoryResource &memory_resource, const std::string &stream_name) {
   DbAccessor db_accessor{&storage_accessor};
   {
-    auto maybe_transformation =
-        procedure::FindTransformation(procedure::gModuleRegistry, transformation_name, utils::NewDeleteResource());
+    auto maybe_transformation = procedure::FindTransformation(procedure::gModuleRegistry, transformation_name);
 
     if (!maybe_transformation) {
       throw StreamsException("Couldn't find transformation {} for stream '{}'", transformation_name, stream_name);
     };
     const auto &trans = *maybe_transformation->second;
     mgp_messages mgp_messages{mgp_messages::storage_type{&memory_resource}};
-    std::transform(messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages),
-                   [](const TMessage &message) { return mgp_message{message}; });
+    std::transform(
+        messages.begin(), messages.end(), std::back_inserter(mgp_messages.messages), [](const TMessage &message) {
+          return mgp_message{message};
+        });
     mgp_graph graph{&db_accessor, storage::View::OLD, nullptr, db_accessor.GetStorageMode()};
     mgp_memory memory{&memory_resource};
     result.rows.clear();
     result.error_msg.reset();
-    result.signature = &trans.results;
 
-    MG_ASSERT(result.signature->size() == kExpectedTransformationResultSize);
-    MG_ASSERT(result.signature->contains(query_param_name));
-    MG_ASSERT(result.signature->contains(params_param_name));
+    auto signature_query_it = trans.results.find(query_param_name);
+    MG_ASSERT(signature_query_it != trans.results.end());
+    result.signature.emplace(query_param_name,
+                             ResultsMetadata{signature_query_it->second.first, signature_query_it->second.second, 0});
+
+    auto signature_params_it = trans.results.find(params_param_name);
+    MG_ASSERT(signature_params_it != trans.results.end());
+    result.signature.emplace(params_param_name,
+                             ResultsMetadata{signature_params_it->second.first, signature_params_it->second.second, 1});
 
     spdlog::trace("Calling transformation in stream '{}'", stream_name);
+    const utils::MemoryTracker::RefusalHandledScope refusal_handled;
     trans.cb(&mgp_messages, &graph, &result, &memory);
   }
   if (result.error_msg.has_value()) {
@@ -117,7 +126,7 @@ void CallCustomTransformation(const std::string &transformation_name, const std:
   }
 }
 
-template <Stream TStream>
+template <typename TStream>
 StreamStatus<TStream> CreateStatus(std::string stream_name, std::string transformation_name,
                                    std::optional<std::string> owner, const TStream &stream) {
   return {.name = std::move(stream_name),
@@ -131,10 +140,11 @@ StreamStatus<TStream> CreateStatus(std::string stream_name, std::string transfor
 const std::string kStreamName{"name"};
 const std::string kIsRunningKey{"is_running"};
 const std::string kOwner{"owner"};
+const std::string kOwnerRoles{"owner_roles"};
 const std::string kType{"type"};
 }  // namespace
 
-template <Stream TStream>
+template <typename TStream>
 void to_json(nlohmann::json &data, StreamStatus<TStream> &&status) {
   data[kStreamName] = std::move(status.name);
   data[kType] = status.type;
@@ -142,6 +152,11 @@ void to_json(nlohmann::json &data, StreamStatus<TStream> &&status) {
 
   if (status.owner.has_value()) {
     data[kOwner] = std::move(*status.owner);
+    if (!status.owner_roles.empty()) {
+      data[kOwnerRoles] = std::move(status.owner_roles);
+    } else {
+      data[kOwnerRoles] = nullptr;
+    }
   } else {
     data[kOwner] = nullptr;
   }
@@ -149,13 +164,18 @@ void to_json(nlohmann::json &data, StreamStatus<TStream> &&status) {
   to_json(data, std::move(status.info));
 }
 
-template <Stream TStream>
+template <typename TStream>
 void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   data.at(kStreamName).get_to(status.name);
   data.at(kIsRunningKey).get_to(status.is_running);
 
   if (const auto &owner = data.at(kOwner); !owner.is_null()) {
     status.owner = owner.get<typename decltype(status.owner)::value_type>();
+    if (const auto &owner_roles = data.at(kOwnerRoles); !owner_roles.is_null()) {
+      owner_roles.get_to(status.owner_roles);
+    } else {
+      status.owner_roles.clear();
+    }
   } else {
     status.owner = {};
   }
@@ -163,9 +183,18 @@ void from_json(const nlohmann::json &data, StreamStatus<TStream> &status) {
   from_json(data, status.info);
 }
 
-Streams::Streams(std::filesystem::path directory) : storage_(std::move(directory)) { RegisterProcedures(); }
+Streams::Streams(std::filesystem::path directory, memory::ArenaPool *arena_pool)
+    : storage_(std::move(directory)), arena_pool_(arena_pool) {
+  RegisterProcedures();
+}
 
 void Streams::RegisterProcedures() {
+  // Registering goes through the C procedure API, which reports a refused allocation as an error
+  // return. This caller has no way to act on one: it registers the fixed set of procedures that
+  // makes a database's streams usable at all, and a database registers them whenever it is created
+  // or resumed, which an instance at its memory limit still has to be able to do. The bytes stay
+  // tracked and still count towards the limit; they just cannot be refused.
+  const utils::MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
   RegisterKafkaProcedures();
   RegisterPulsarProcedures();
 }
@@ -173,8 +202,8 @@ void Streams::RegisterProcedures() {
 void Streams::RegisterKafkaProcedures() {
   {
     static constexpr std::string_view proc_name = "kafka_set_stream_offset";
-    auto set_stream_offset = [this](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
-                                    mgp_memory * /*memory*/) {
+    auto set_stream_offset = [this](
+                                 mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory * /*memory*/) {
       auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
       const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
       auto *arg_offset = procedure::Call<mgp_value *>(mgp_list_at, args, 1);
@@ -184,10 +213,11 @@ void Streams::RegisterKafkaProcedures() {
       std::visit(utils::Overloaded{[&](StreamData<KafkaStream> &kafka_stream) {
                                      auto stream_source_ptr = kafka_stream.stream_source->Lock();
                                      const auto error = stream_source_ptr->SetStreamOffset(offset);
-                                     if (error.HasError()) {
-                                       MG_ASSERT(mgp_result_set_error_msg(result, error.GetError().c_str()) ==
+                                     if (!error) {
+                                       MG_ASSERT(mgp_result_set_error_msg(result, error.error().c_str()) ==
                                                      mgp_error::MGP_ERROR_NO_ERROR,
-                                                 "Unable to set procedure error message of procedure: {}", proc_name);
+                                                 "Unable to set procedure error message of procedure: {}",
+                                                 proc_name);
                                      }
                                    },
                                    [](auto && /*other*/) {
@@ -207,13 +237,13 @@ void Streams::RegisterKafkaProcedures() {
   }
 
   {
-    static constexpr std::string_view proc_name = "kafka_stream_info";
-
-    static constexpr std::string_view consumer_group_result_name = "consumer_group";
-    static constexpr std::string_view topics_result_name = "topics";
-    static constexpr std::string_view bootstrap_servers_result_name = "bootstrap_servers";
-    static constexpr std::string_view configs_result_name = "configs";
-    static constexpr std::string_view credentials_result_name = "credentials";
+    // Using const char* for C API compatibility (mgp_proc_add_result takes const char*)
+    static constexpr const char *proc_name = "kafka_stream_info";
+    static constexpr const char *consumer_group_result_name = "consumer_group";
+    static constexpr const char *topics_result_name = "topics";
+    static constexpr const char *bootstrap_servers_result_name = "bootstrap_servers";
+    static constexpr const char *configs_result_name = "configs";
+    static constexpr const char *credentials_result_name = "credentials";
 
     auto get_stream_info = [this](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
       auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
@@ -239,8 +269,8 @@ void Streams::RegisterKafkaProcedures() {
                 procedure::MgpUniquePtr<mgp_list> topic_names{nullptr, mgp_list_destroy};
                 if (!procedure::TryOrSetError(
                         [&] {
-                          return procedure::CreateMgpObject(topic_names, mgp_list_make_empty, info.topics.size(),
-                                                            memory);
+                          return procedure::CreateMgpObject(
+                              topic_names, mgp_list_make_empty, info.topics.size(), memory);
                         },
                         result)) {
                   return;
@@ -285,7 +315,8 @@ void Streams::RegisterKafkaProcedures() {
                     if (!value_value) {
                       return configs_value;
                     }
-                    configs->items.emplace(key, std::move(*value_value));
+                    std::visit([key, &value_value](auto &items) { items.emplace(key, std::move(*value_value)); },
+                               configs->items);
                   }
 
                   if (!procedure::TryOrSetError(
@@ -304,38 +335,37 @@ void Streams::RegisterKafkaProcedures() {
 
                 using CredentialsType = decltype(KafkaStream::StreamInfo::credentials);
                 CredentialsType reducted_credentials;
-                std::transform(info.credentials.begin(), info.credentials.end(),
-                               std::inserter(reducted_credentials, reducted_credentials.end()),
-                               [](const auto &pair) -> CredentialsType::value_type {
-                                 return {pair.first, integrations::kReducted};
-                               });
+                std::ranges::transform(info.credentials,
+                                       std::inserter(reducted_credentials, reducted_credentials.end()),
+                                       [](const auto &pair) -> CredentialsType::value_type {
+                                         return {pair.first, integrations::kReducted};
+                                       });
 
                 const auto credentials_value = convert_config_map(reducted_credentials);
                 if (credentials_value == nullptr) {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, consumer_group_result_name.data(),
-                                                       consumer_group_value.get())) {
+                if (!procedure::InsertResultOrSetError(
+                        result, record, consumer_group_result_name, consumer_group_value.get())) {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, topics_result_name.data(), topics_value.get())) {
+                if (!procedure::InsertResultOrSetError(result, record, topics_result_name, topics_value.get())) {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, bootstrap_servers_result_name.data(),
-                                                       bootstrap_servers_value.get())) {
+                if (!procedure::InsertResultOrSetError(
+                        result, record, bootstrap_servers_result_name, bootstrap_servers_value.get())) {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, configs_result_name.data(),
-                                                       configs_value.get())) {
+                if (!procedure::InsertResultOrSetError(result, record, configs_result_name, configs_value.get())) {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, credentials_result_name.data(),
-                                                       credentials_value.get())) {
+                if (!procedure::InsertResultOrSetError(
+                        result, record, credentials_result_name, credentials_value.get())) {
                   return;
                 }
               },
@@ -348,17 +378,18 @@ void Streams::RegisterKafkaProcedures() {
     mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource());
     MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
               mgp_error::MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, consumer_group_result_name.data(),
-                                  procedure::Call<mgp_type *>(mgp_type_string)) == mgp_error::MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, consumer_group_result_name, procedure::Call<mgp_type *>(mgp_type_string)) ==
+              mgp_error::MGP_ERROR_NO_ERROR);
     MG_ASSERT(
-        mgp_proc_add_result(&proc, topics_result_name.data(),
+        mgp_proc_add_result(&proc,
+                            topics_result_name,
                             procedure::Call<mgp_type *>(mgp_type_list, procedure::Call<mgp_type *>(mgp_type_string))) ==
         mgp_error::MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, bootstrap_servers_result_name.data(),
-                                  procedure::Call<mgp_type *>(mgp_type_string)) == mgp_error::MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, configs_result_name.data(), procedure::Call<mgp_type *>(mgp_type_map)) ==
+    MG_ASSERT(mgp_proc_add_result(&proc, bootstrap_servers_result_name, procedure::Call<mgp_type *>(mgp_type_string)) ==
               mgp_error::MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, credentials_result_name.data(), procedure::Call<mgp_type *>(mgp_type_map)) ==
+    MG_ASSERT(mgp_proc_add_result(&proc, configs_result_name, procedure::Call<mgp_type *>(mgp_type_map)) ==
+              mgp_error::MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, credentials_result_name, procedure::Call<mgp_type *>(mgp_type_map)) ==
               mgp_error::MGP_ERROR_NO_ERROR);
 
     procedure::gModuleRegistry.RegisterMgProcedure(proc_name, std::move(proc));
@@ -367,9 +398,10 @@ void Streams::RegisterKafkaProcedures() {
 
 void Streams::RegisterPulsarProcedures() {
   {
-    static constexpr std::string_view proc_name = "pulsar_stream_info";
-    static constexpr std::string_view service_url_result_name = "service_url";
-    static constexpr std::string_view topics_result_name = "topics";
+    // Using const char* for C API compatibility (mgp_proc_add_result takes const char*)
+    static constexpr const char *proc_name = "pulsar_stream_info";
+    static constexpr const char *service_url_result_name = "service_url";
+    static constexpr const char *topics_result_name = "topics";
     auto get_stream_info = [this](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
       auto *arg_stream_name = procedure::Call<mgp_value *>(mgp_list_at, args, 0);
       const auto *stream_name = procedure::Call<const char *>(mgp_value_get_string, arg_stream_name);
@@ -393,8 +425,8 @@ void Streams::RegisterPulsarProcedures() {
                 procedure::MgpUniquePtr<mgp_list> topic_names{nullptr, mgp_list_destroy};
                 if (!procedure::TryOrSetError(
                         [&] {
-                          return procedure::CreateMgpObject(topic_names, mgp_list_make_empty, info.topics.size(),
-                                                            memory);
+                          return procedure::CreateMgpObject(
+                              topic_names, mgp_list_make_empty, info.topics.size(), memory);
                         },
                         result)) {
                   return;
@@ -417,12 +449,12 @@ void Streams::RegisterPulsarProcedures() {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, topics_result_name.data(), topics_value.get())) {
+                if (!procedure::InsertResultOrSetError(result, record, topics_result_name, topics_value.get())) {
                   return;
                 }
 
-                if (!procedure::InsertResultOrSetError(result, record, service_url_result_name.data(),
-                                                       service_url_value.get())) {
+                if (!procedure::InsertResultOrSetError(
+                        result, record, service_url_result_name, service_url_value.get())) {
                   return;
                 }
               },
@@ -435,11 +467,12 @@ void Streams::RegisterPulsarProcedures() {
     mgp_proc proc(proc_name, get_stream_info, utils::NewDeleteResource());
     MG_ASSERT(mgp_proc_add_arg(&proc, "stream_name", procedure::Call<mgp_type *>(mgp_type_string)) ==
               mgp_error::MGP_ERROR_NO_ERROR);
-    MG_ASSERT(mgp_proc_add_result(&proc, service_url_result_name.data(),
-                                  procedure::Call<mgp_type *>(mgp_type_string)) == mgp_error::MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_proc_add_result(&proc, service_url_result_name, procedure::Call<mgp_type *>(mgp_type_string)) ==
+              mgp_error::MGP_ERROR_NO_ERROR);
 
     MG_ASSERT(
-        mgp_proc_add_result(&proc, topics_result_name.data(),
+        mgp_proc_add_result(&proc,
+                            topics_result_name,
                             procedure::Call<mgp_type *>(mgp_type_list, procedure::Call<mgp_type *>(mgp_type_string))) ==
         mgp_error::MGP_ERROR_NO_ERROR);
 
@@ -447,12 +480,12 @@ void Streams::RegisterPulsarProcedures() {
   }
 }
 
-template <Stream TStream, typename TDbAccess>
+template <typename TStream, typename TDbAccess>
 void Streams::Create(const std::string &stream_name, typename TStream::StreamInfo info,
-                     std::optional<std::string> owner, TDbAccess db_acc, InterpreterContext *ic) {
+                     std::shared_ptr<QueryUserOrRole> owner, TDbAccess db_acc, InterpreterContext *ic) {
   auto locked_streams = streams_.Lock();
-  auto it = CreateConsumer<TStream, TDbAccess>(*locked_streams, stream_name, std::move(info), std::move(owner),
-                                               std::move(db_acc), ic);
+  auto it = CreateConsumer<TStream, TDbAccess>(
+      *locked_streams, stream_name, std::move(info), std::move(owner), std::move(db_acc), ic);
 
   try {
     std::visit(
@@ -469,41 +502,54 @@ void Streams::Create(const std::string &stream_name, typename TStream::StreamInf
 
 template void Streams::Create<KafkaStream, dbms::DatabaseAccess>(const std::string &stream_name,
                                                                  KafkaStream::StreamInfo info,
-                                                                 std::optional<std::string> owner,
+                                                                 std::shared_ptr<QueryUserOrRole> owner,
                                                                  dbms::DatabaseAccess db, InterpreterContext *ic);
 template void Streams::Create<PulsarStream, dbms::DatabaseAccess>(const std::string &stream_name,
                                                                   PulsarStream::StreamInfo info,
-                                                                  std::optional<std::string> owner,
+                                                                  std::shared_ptr<QueryUserOrRole> owner,
                                                                   dbms::DatabaseAccess db, InterpreterContext *ic);
 
-template <Stream TStream, typename TDbAccess>
+template <typename TStream, typename TDbAccess>
 Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std::string &stream_name,
                                                       typename TStream::StreamInfo stream_info,
-                                                      std::optional<std::string> owner, TDbAccess db_acc,
+                                                      std::shared_ptr<QueryUserOrRole> owner, TDbAccess db_acc,
                                                       InterpreterContext *interpreter_context) {
   if (map.contains(stream_name)) {
     throw StreamsException{"Stream already exists with name '{}'", stream_name};
   }
 
+  auto ownername = owner->username();
+  auto rolenames = owner->rolenames();
+
   auto *memory_resource = utils::NewDeleteResource();
 
-  auto consumer_function = [interpreter_context, memory_resource, stream_name,
-                            transformation_name = stream_info.common_info.transformation_name, owner = owner,
+  auto consumer_function = [interpreter_context,
+                            memory_resource,
+                            stream_name,
+                            transformation_name = stream_info.common_info.transformation_name,
+                            owner = std::move(owner),
                             interpreter = std::make_shared<Interpreter>(interpreter_context, std::move(db_acc)),
-                            result = mgp_result{nullptr, memory_resource},
+                            result = mgp_result{memory_resource},
                             total_retries = interpreter_context->config.stream_transaction_conflict_retries,
                             retry_interval = interpreter_context->config.stream_transaction_retry_interval](
                                const std::vector<typename TStream::Message> &messages) mutable {
+    // Set interpreter's user to the stream owner
+    // NOTE: We generate an empty user to avoid generating interpreter's fine grained access control and rely only on
+    // the global auth_checker used in the stream itself
+    // TODO: Fix auth inconsistency
+    interpreter->SetUser(interpreter_context->auth_checker->GenEmptyUser());
 #ifdef MG_ENTERPRISE
     interpreter->OnChangeCB([](auto) { return false; });  // Disable database change
 #endif
-    auto accessor = interpreter->current_db_.db_acc_->get()->Access();
+    auto accessor = interpreter->current_db_.db_acc_->get()->Access(memgraph::storage::WRITE);
+    const auto &db_name = interpreter->current_db_.db_acc_->get()->name();
     // register new interpreter into interpreter_context
     interpreter_context->interpreters->insert(interpreter.get());
     utils::OnScopeExit interpreter_cleanup{
         [interpreter_context, interpreter]() { interpreter_context->interpreters->erase(interpreter.get()); }};
 
-    memgraph::metrics::IncrementCounter(memgraph::metrics::MessagesConsumed, messages.size());
+    interpreter->current_db_.db_acc_->get()->metric_handles()->messages_consumed.Increment(
+        static_cast<double>(messages.size()));
     CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
     DiscardValueResultStream stream;
@@ -513,32 +559,36 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
       result.rows.clear();
       interpreter->Abort();
     }};
-
-    const static std::map<std::string, storage::PropertyValue> empty_parameters{};
+    const static storage::ExternalPropertyValue::map_t empty_parameters{};
     uint32_t i = 0;
     while (true) {
       try {
         interpreter->BeginTransaction();
         for (auto &row : result.rows) {
           spdlog::trace("Processing row in stream '{}'", stream_name);
-          auto [query_value, params_value] = ExtractTransformationResult(row.values, transformation_name, stream_name);
-          storage::PropertyValue params_prop{params_value};
-
+          auto [query_value, params_value] =
+              ExtractTransformationResult(row.values, result.signature, transformation_name, stream_name);
+          storage::ExternalPropertyValue params_prop{params_value};
           std::string query{query_value.ValueString()};
           spdlog::trace("Executing query '{}' in stream '{}'", query, stream_name);
-          auto prepare_result =
-              interpreter->Prepare(query, params_prop.IsNull() ? empty_parameters : params_prop.ValueMap(), {});
-          if (!interpreter_context->auth_checker->IsUserAuthorized(owner, prepare_result.privileges, "")) {
+          auto prepare_result = interpreter->Prepare(
+              query,
+              [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters; },
+              {});
+          if (!owner->IsAuthorized(prepare_result.privileges, db_name, &up_to_date_policy)) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",
-                query, stream_name};
+                query,
+                stream_name};
           }
           interpreter->PullAll(&stream);
         }
 
         spdlog::trace("Commit transaction in stream '{}'", stream_name);
-        interpreter->CommitTransaction();
+        if (auto const commit_notification = interpreter->CommitTransaction()) {
+          spdlog::warn("Commit in stream '{}': {}", stream_name, commit_notification->title);
+        }
         result.rows.clear();
         break;
       } catch (const query::TransactionSerializationException &e) {
@@ -548,14 +598,22 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
         }
         ++i;
         std::this_thread::sleep_for(retry_interval);
+      } catch (const DatabaseContextRequiredException &e) {
+        // No database; we are shutting down
+        interpreter->Abort();
+        spdlog::trace("No database associated with stream '{}'; shuting down...", stream_name);
+        break;
       }
     }
   };
 
   auto insert_result = map.try_emplace(
-      stream_name, StreamData<TStream>{std::move(stream_info.common_info.transformation_name), std::move(owner),
-                                       std::make_unique<SynchronizedStreamSource<TStream>>(
-                                           stream_name, std::move(stream_info), std::move(consumer_function))});
+      stream_name,
+      StreamData<TStream>{std::move(stream_info.common_info.transformation_name),
+                          std::move(ownername),
+                          std::move(rolenames),
+                          std::make_unique<SynchronizedStreamSource<TStream>>(
+                              stream_name, std::move(stream_info), std::move(consumer_function), arena_pool_)});
   MG_ASSERT(insert_result.second, "Unexpected error during storing consumer '{}'", stream_name);
   return insert_result.first;
 }
@@ -575,6 +633,7 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
     const auto create_consumer = [&, &stream_name = stream_name]<typename T>(StreamStatus<T> status,
                                                                              auto &&stream_json_data) {
       try {
+        // TODO: Migration
         stream_json_data.get_to(status);
       } catch (const nlohmann::json::type_error &exception) {
         spdlog::warn(get_failed_message("invalid type conversion", exception.what()));
@@ -585,9 +644,16 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
       }
       MG_ASSERT(status.name == stream_name, "Expected stream name is '{}', but got '{}'", status.name, stream_name);
 
+      std::shared_ptr<query::QueryUserOrRole> owner = nullptr;
       try {
-        auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(status.owner),
-                                    db, ic);
+        owner = ic->auth_checker->GenQueryUser(status.owner, status.owner_roles);
+      } catch (const utils::BasicException &e) {
+        spdlog::warn(
+            fmt::format("Failed to load stream '{}' because its owner is not an existing Memgraph user.", stream_name));
+        return;
+      }
+      try {
+        auto it = CreateConsumer<T>(*locked_streams_map, stream_name, std::move(status.info), std::move(owner), db, ic);
         if (status.is_running) {
           std::visit(
               [&](const auto &stream_data) {
@@ -598,7 +664,13 @@ void Streams::RestoreStreams(TDbAccess db, InterpreterContext *ic) {
         }
         spdlog::info("Stream '{}' is loaded", stream_name);
       } catch (const utils::BasicException &exception) {
-        spdlog::warn(get_failed_message("unexpected error", exception.what()));
+        auto message = get_failed_message("unexpected error", exception.what());
+        if (utils::FipsEnabled()) {
+          message +=
+              " FIPS mode is enabled: approved mode restricts the TLS versions and ciphers available to the stream's "
+              "client library, so a broker requiring TLS below 1.2 or a non-approved cipher will no longer connect.";
+        }
+        spdlog::warn(message);
       }
     };
 
@@ -735,6 +807,22 @@ void Streams::StopAll() {
   }
 }
 
+void Streams::Shutdown() {
+  auto locked_streams = streams_.Lock();
+  for (auto &[_, stream_data] : *locked_streams) {
+    std::visit(
+        [](const auto &stream_data) {
+          auto locked_stream_source = stream_data.stream_source->Lock();
+          if (locked_stream_source->IsRunning()) {
+            locked_stream_source->Stop();
+          }
+        },
+        stream_data);
+  }
+  // Destroy underlying streams
+  locked_streams->clear();
+}
+
 std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
   std::vector<StreamStatus<>> result;
   {
@@ -743,9 +831,12 @@ std::vector<StreamStatus<>> Streams::GetStreamInfo() const {
           [&, &stream_name = stream_name](const auto &stream_data) {
             auto locked_stream_source = stream_data.stream_source->ReadLock();
             auto info = locked_stream_source->Info(stream_data.transformation_name);
-            result.emplace_back(StreamStatus<>{stream_name, StreamType(*locked_stream_source),
-                                               locked_stream_source->IsRunning(), std::move(info.common_info),
-                                               stream_data.owner});
+            result.emplace_back(StreamStatus<>{stream_name,
+                                               StreamType(*locked_stream_source),
+                                               locked_stream_source->IsRunning(),
+                                               std::move(info.common_info),
+                                               stream_data.owner,
+                                               stream_data.owner_roles});
           },
           stream_data);
     }
@@ -769,12 +860,16 @@ TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db
         locked_streams.reset();
 
         auto *memory_resource = utils::NewDeleteResource();
-        mgp_result result{nullptr, memory_resource};
+        mgp_result result{memory_resource};
         TransformationResult test_result;
 
-        auto consumer_function = [&db_acc, memory_resource, &stream_name, &transformation_name = transformation_name,
-                                  &result, &test_result]<typename T>(const std::vector<T> &messages) mutable {
-          auto accessor = db_acc->Access();
+        auto consumer_function = [&db_acc,
+                                  memory_resource,
+                                  &stream_name,
+                                  &transformation_name = transformation_name,
+                                  &result,
+                                  &test_result]<typename T>(const std::vector<T> &messages) mutable {
+          auto accessor = db_acc->Access(memgraph::storage::WRITE);
           CallCustomTransformation(transformation_name, messages, result, *accessor, *memory_resource, stream_name);
 
           auto result_row = std::vector<TypedValue>();
@@ -783,7 +878,8 @@ TransformationResult Streams::Check(const std::string &stream_name, TDbAccess db
           auto queries_and_parameters = std::vector<TypedValue>(result.rows.size());
           std::transform(
               result.rows.cbegin(), result.rows.cend(), queries_and_parameters.begin(), [&](const auto &row) {
-                auto [query, parameters] = ExtractTransformationResult(row.values, transformation_name, stream_name);
+                auto [query, parameters] =
+                    ExtractTransformationResult(row.values, result.signature, transformation_name, stream_name);
 
                 return std::map<std::string, TypedValue>{{"query", std::move(query)},
                                                          {"parameters", std::move(parameters)}};

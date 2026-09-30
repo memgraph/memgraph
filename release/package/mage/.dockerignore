@@ -1,0 +1,9 @@
+*.egg-info
+.git
+.cache
+htmlcov
+dist
+**/__pycache__
+cpp/build
+Dockerfile*
+.dockerignore

@@ -10,8 +10,7 @@
 # licenses/APL.txt.
 
 import pytest
-
-from common import execute_and_fetch_all, connect
+from common import connect, execute_and_fetch_all
 
 
 # The fixture here is more complex because the connection has to be
@@ -42,3 +41,7 @@ def connection():
     if role_holder == "main":
         cursor = connection_holder.cursor()
         execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+
+
+def pytest_addoption(parser):
+    parser.addoption("--with-props", action="store_true", default=False, help="Run tests with properties enabled")

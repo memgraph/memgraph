@@ -1,0 +1,5 @@
+query: >
+    RETURN text.replace("Hello World!", "", "Memgraph") AS output;
+
+output:
+  - output: "Hello World!"

@@ -1,0 +1,6 @@
+query: >
+    WITH '<universe><galaxy name="Milky Way"><star name="Sun" type="G-type main-sequence"/><planet name="Earth" type="Terrestrial"><continent name="North America"><country name="United States"><state name="California"><city name="Los Angeles"/><city name="San Francisco"/></state></country></continent></planet></galaxy></universe>' AS xmlString
+    RETURN xml_module.parse(xmlString, true) AS value
+
+output:
+    - value: {"_type": "universe","_universe": [{"_galaxy": [{"_type": "star","name": "Sun","type": "G-type main-sequence"},{"_planet": [{"_continent": [{"_country": [{"_state": [{"_type": "city","name": "Los Angeles"},{"_type": "city","name": "San Francisco"}],"_type": "state","name": "California"}],"_type": "country","name": "United States"}],"_type": "continent","name": "North America"}],"_type": "planet","name": "Earth","type": "Terrestrial"}],"_type": "galaxy","name": "Milky Way"}]}

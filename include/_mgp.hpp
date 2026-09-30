@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,24 +46,26 @@ inline void MgExceptionHandle(mgp_error result_code) {
       throw mg_exception::ValueConversionException();
     case mgp_error::MGP_ERROR_SERIALIZATION_ERROR:
       throw mg_exception::SerializationException();
+    case mgp_error::MGP_ERROR_NOT_YET_IMPLEMENTED:
+      throw mg_exception::NotYetImplementedException();
     default:
       return;
   }
 }
 
 template <typename TResult, typename TFunc, typename... TArgs>
-TResult MgInvoke(TFunc func, TArgs... args) {
+TResult MgInvoke(TFunc func, TArgs &&...args) {
   TResult result{};
 
-  auto result_code = func(args..., &result);
+  auto result_code = func(std::forward<TArgs>(args)..., &result);
   MgExceptionHandle(result_code);
 
   return result;
 }
 
 template <typename TFunc, typename... TArgs>
-inline void MgInvokeVoid(TFunc func, TArgs... args) {
-  auto result_code = func(args...);
+inline void MgInvokeVoid(TFunc func, TArgs &&...args) {
+  auto result_code = func(std::forward<TArgs>(args)...);
   MgExceptionHandle(result_code);
 }
 }  // namespace
@@ -110,7 +112,17 @@ inline mgp_value *value_make_local_date_time(mgp_local_date_time *val) {
   return MgInvoke<mgp_value *>(mgp_value_make_local_date_time, val);
 }
 
+inline mgp_value *value_make_zoned_date_time(mgp_zoned_date_time *val) {
+  return MgInvoke<mgp_value *>(mgp_value_make_zoned_date_time, val);
+}
+
 inline mgp_value *value_make_duration(mgp_duration *val) { return MgInvoke<mgp_value *>(mgp_value_make_duration, val); }
+
+inline mgp_value *value_make_point_2d(mgp_point_2d *val) { return MgInvoke<mgp_value *>(mgp_value_make_point_2d, val); }
+
+inline mgp_value *value_make_point_3d(mgp_point_3d *val) { return MgInvoke<mgp_value *>(mgp_value_make_point_3d, val); }
+
+inline mgp_value *value_make_enum(mgp_enum *val) { return MgInvoke<mgp_value *>(mgp_value_make_enum, val); }
 
 // Copy value
 
@@ -164,9 +176,23 @@ inline mgp_local_date_time *value_get_local_date_time(mgp_value *val) {
   return MgInvoke<mgp_local_date_time *>(mgp_value_get_local_date_time, val);
 }
 
+inline mgp_zoned_date_time *value_get_zoned_date_time(mgp_value *val) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_value_get_zoned_date_time, val);
+}
+
 inline mgp_duration *value_get_duration(mgp_value *val) {
   return MgInvoke<mgp_duration *>(mgp_value_get_duration, val);
 }
+
+inline mgp_point_2d *value_get_point_2d(mgp_value *val) {
+  return MgInvoke<mgp_point_2d *>(mgp_value_get_point_2d, val);
+}
+
+inline mgp_point_3d *value_get_point_3d(mgp_value *val) {
+  return MgInvoke<mgp_point_3d *>(mgp_value_get_point_3d, val);
+}
+
+inline mgp_enum *value_get_enum(mgp_value *val) { return MgInvoke<mgp_enum *>(mgp_value_get_enum, val); }
 
 // Check type of value
 
@@ -200,6 +226,14 @@ inline bool value_is_local_date_time(mgp_value *val) { return MgInvoke<int>(mgp_
 
 inline bool value_is_duration(mgp_value *val) { return MgInvoke<int>(mgp_value_is_duration, val); }
 
+inline bool value_is_zoned_date_time(mgp_value *val) { return MgInvoke<int>(mgp_value_is_zoned_date_time, val); }
+
+inline bool value_is_point_2d(mgp_value *val) { return MgInvoke<int>(mgp_value_is_point_2d, val); }
+
+inline bool value_is_point_3d(mgp_value *val) { return MgInvoke<int>(mgp_value_is_point_3d, val); }
+
+inline bool value_is_enum(mgp_value *val) { return MgInvoke<int>(mgp_value_is_enum, val); }
+
 // Get type
 
 inline mgp_type *type_any() { return MgInvoke<mgp_type *>(mgp_type_any); }
@@ -232,6 +266,14 @@ inline mgp_type *type_local_date_time() { return MgInvoke<mgp_type *>(mgp_type_l
 
 inline mgp_type *type_duration() { return MgInvoke<mgp_type *>(mgp_type_duration); }
 
+inline mgp_type *type_zoned_date_time() { return MgInvoke<mgp_type *>(mgp_type_zoned_date_time); }
+
+inline mgp_type *type_point_2d() { return MgInvoke<mgp_type *>(mgp_type_point_2d); }
+
+inline mgp_type *type_point_3d() { return MgInvoke<mgp_type *>(mgp_type_point_3d); }
+
+inline mgp_type *type_enum() { return MgInvoke<mgp_type *>(mgp_type_enum); }
+
 inline mgp_type *type_nullable(mgp_type *type) { return MgInvoke<mgp_type *>(mgp_type_nullable, type); }
 
 inline bool create_label_index(mgp_graph *graph, const char *label) {
@@ -258,6 +300,18 @@ inline mgp_list *list_all_label_property_indices(mgp_graph *graph, mgp_memory *m
   return MgInvoke<mgp_list *>(mgp_list_all_label_property_indices, graph, memory);
 }
 
+inline bool create_vertex_property_index(mgp_graph *graph, const char *property) {
+  return MgInvoke<int>(mgp_create_vertex_property_index, graph, property);
+}
+
+inline bool drop_vertex_property_index(mgp_graph *graph, const char *property) {
+  return MgInvoke<int>(mgp_drop_vertex_property_index, graph, property);
+}
+
+inline mgp_list *list_all_vertex_property_indices(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_list *>(mgp_list_all_vertex_property_indices, graph, memory);
+}
+
 inline bool create_existence_constraint(mgp_graph *graph, const char *label, const char *property) {
   return MgInvoke<int>(mgp_create_existence_constraint, graph, label, property);
 }
@@ -270,11 +324,11 @@ inline mgp_list *list_all_existence_constraints(mgp_graph *graph, mgp_memory *me
   return MgInvoke<mgp_list *>(mgp_list_all_existence_constraints, graph, memory);
 }
 
-inline bool create_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_value *properties) {
+inline bool create_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_list *properties) {
   return MgInvoke<int>(mgp_create_unique_constraint, memgraph_graph, label, properties);
 }
 
-inline bool drop_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_value *properties) {
+inline bool drop_unique_constraint(mgp_graph *memgraph_graph, const char *label, mgp_list *properties) {
   return MgInvoke<int>(mgp_drop_unique_constraint, memgraph_graph, label, properties);
 }
 
@@ -283,10 +337,14 @@ inline mgp_list *list_all_unique_constraints(mgp_graph *graph, mgp_memory *memor
 }
 
 // mgp_graph
-  
+
 inline bool graph_is_transactional(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_transactional, graph); }
 
 inline bool graph_is_mutable(mgp_graph *graph) { return MgInvoke<int>(mgp_graph_is_mutable, graph); }
+
+inline int64_t graph_get_start_timestamp(mgp_graph *graph) {
+  return MgInvoke<int64_t>(mgp_graph_get_start_timestamp, graph);
+}
 
 inline mgp_vertex *graph_create_vertex(mgp_graph *graph, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_graph_create_vertex, graph, memory);
@@ -305,29 +363,88 @@ inline mgp_edge *graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_verte
   return MgInvoke<mgp_edge *>(mgp_graph_create_edge, graph, from, to, type, memory);
 }
 
-inline mgp_edge *graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
-                                     mgp_memory *memory) {
-  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_from, graph, e, new_from, memory);
-}
-
-inline mgp_edge *graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
-                                   mgp_memory *memory) {
-  return MgInvoke<mgp_edge *>(mgp_graph_edge_set_to, graph, e, new_to, memory);
-}
-
-inline mgp_edge *graph_edge_change_type(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_edge_type new_type,
-                                        mgp_memory *memory) {
-  return MgInvoke<mgp_edge *>(mgp_graph_edge_change_type, graph, e, new_type, memory);
-}
-
 inline void graph_delete_edge(mgp_graph *graph, mgp_edge *edge) { MgInvokeVoid(mgp_graph_delete_edge, graph, edge); }
 
 inline mgp_vertex *graph_get_vertex_by_id(mgp_graph *g, mgp_vertex_id id, mgp_memory *memory) {
   return MgInvoke<mgp_vertex *>(mgp_graph_get_vertex_by_id, g, id, memory);
 }
 
+// text index
+
+inline bool graph_has_text_index(mgp_graph *graph, const char *index_name) {
+  return MgInvoke<int>(mgp_graph_has_text_index, graph, index_name);
+}
+
+inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                        text_search_mode search_mode, std::size_t limit, std::uint8_t fuzzy_distance,
+                                        bool fuzzy_prefix, bool fuzzy_transpositions, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_index,
+                             graph,
+                             index_name,
+                             search_query,
+                             search_mode,
+                             limit,
+                             fuzzy_distance,
+                             fuzzy_prefix,
+                             fuzzy_transpositions,
+                             memory);
+}
+
+inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                                const char *aggregation_query, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(
+      mgp_graph_aggregate_over_text_index, graph, index_name, search_query, aggregation_query, memory);
+}
+
+inline mgp_map *graph_search_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                             text_search_mode search_mode, std::size_t limit,
+                                             std::uint8_t fuzzy_distance, bool fuzzy_prefix, bool fuzzy_transpositions,
+                                             mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_edge_index,
+                             graph,
+                             index_name,
+                             search_query,
+                             search_mode,
+                             limit,
+                             fuzzy_distance,
+                             fuzzy_prefix,
+                             fuzzy_transpositions,
+                             memory);
+}
+
+inline mgp_map *graph_aggregate_over_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                                     const char *aggregation_query, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(
+      mgp_graph_aggregate_over_text_edge_index, graph, index_name, search_query, aggregation_query, memory);
+}
+
 inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {
   return MgInvoke<mgp_vertices_iterator *>(mgp_graph_iter_vertices, g, memory);
+}
+
+inline size_t graph_approximate_vertex_count(mgp_graph *g) {
+  return MgInvoke<size_t>(mgp_graph_approximate_vertex_count, g);
+}
+
+inline size_t graph_approximate_edge_count(mgp_graph *g) {
+  return MgInvoke<size_t>(mgp_graph_approximate_edge_count, g);
+}
+
+// vector index
+
+inline mgp_map *graph_search_vector_index(mgp_graph *graph, const char *index_name, mgp_list *search_vector,
+                                          size_t result_size, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_vector_index, graph, index_name, search_vector, result_size, memory);
+}
+
+inline mgp_map *graph_search_vector_index_on_edges(mgp_graph *graph, const char *index_name, mgp_list *search_vector,
+                                                   size_t result_size, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(
+      mgp_graph_search_vector_index_on_edges, graph, index_name, search_vector, result_size, memory);
+}
+
+inline mgp_map *graph_show_index_info(mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_show_index_info, graph, memory);
 }
 
 // mgp_vertices_iterator
@@ -384,6 +501,8 @@ inline void list_append(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_
 
 inline void list_append_extend(mgp_list *list, mgp_value *val) { MgInvokeVoid(mgp_list_append_extend, list, val); }
 
+inline void list_reserve(mgp_list *list, size_t n) { MgInvokeVoid(mgp_list_reserve, list, n); }
+
 inline size_t list_size(mgp_list *list) { return MgInvoke<size_t>(mgp_list_size, list); }
 
 inline size_t list_capacity(mgp_list *list) { return MgInvoke<size_t>(mgp_list_capacity, list); }
@@ -393,6 +512,10 @@ inline mgp_value *list_at(mgp_list *list, size_t index) { return MgInvoke<mgp_va
 // mgp_map
 
 inline mgp_map *map_make_empty(mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_make_empty, memory); }
+
+inline mgp_map *unordered_map_make_empty(mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_unordered_map_make_empty, memory);
+}
 
 inline mgp_map *map_copy(mgp_map *map, mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_copy, map, memory); }
 
@@ -679,6 +802,10 @@ inline void local_date_time_destroy(mgp_local_date_time *local_date_time) {
   mgp_local_date_time_destroy(local_date_time);
 }
 
+inline void zoned_date_time_destroy(mgp_zoned_date_time *zoned_date_time) {
+  mgp_zoned_date_time_destroy(zoned_date_time);
+}
+
 inline bool local_date_time_equal(mgp_local_date_time *first, mgp_local_date_time *second) {
   return MgInvoke<int>(mgp_local_date_time_equal, first, second);
 }
@@ -777,6 +904,151 @@ inline mgp_duration *duration_sub(mgp_duration *first, mgp_duration *second, mgp
   return MgInvoke<mgp_duration *>(mgp_duration_sub, first, second, memory);
 }
 
+// mgp_zoned_date_time
+
+inline mgp_zoned_date_time *zoned_date_time_copy(mgp_zoned_date_time *zoned_date_time, mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_copy, zoned_date_time, memory);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_from_string(const char *string, mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_from_string, string, memory);
+}
+
+inline bool zoned_date_time_equal(mgp_zoned_date_time *first, mgp_zoned_date_time *second) {
+  return MgInvoke<int>(mgp_zoned_date_time_equal, first, second);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_from_parameters(mgp_zoned_date_time_parameters *parameters,
+                                                            mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_from_parameters, parameters, memory);
+}
+
+inline int zoned_date_time_get_year(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_year, zoned_date_time);
+}
+
+inline int zoned_date_time_get_month(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_month, zoned_date_time);
+}
+
+inline int zoned_date_time_get_day(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_day, zoned_date_time);
+}
+
+inline int zoned_date_time_get_hour(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_hour, zoned_date_time);
+}
+
+inline int zoned_date_time_get_minute(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_minute, zoned_date_time);
+}
+
+inline int zoned_date_time_get_second(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_second, zoned_date_time);
+}
+
+inline int zoned_date_time_get_millisecond(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_millisecond, zoned_date_time);
+}
+
+inline int zoned_date_time_get_microsecond(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_microsecond, zoned_date_time);
+}
+
+inline char const *zoned_date_time_get_timezone(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<char const *>(mgp_zoned_date_time_get_timezone, zoned_date_time);
+}
+
+inline int zoned_date_time_get_offset(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_offset, zoned_date_time);
+}
+
+inline int64_t zoned_date_time_timestamp(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int64_t>(mgp_zoned_date_time_timestamp, zoned_date_time);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_add_duration(mgp_zoned_date_time *zoned_date_time, mgp_duration *dur,
+                                                         mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_add_duration, zoned_date_time, dur, memory);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_sub_duration(mgp_zoned_date_time *zoned_date_time, mgp_duration *dur,
+                                                         mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_sub_duration, zoned_date_time, dur, memory);
+}
+
+inline mgp_duration *zoned_date_time_diff(mgp_zoned_date_time *first, mgp_zoned_date_time *second, mgp_memory *memory) {
+  return MgInvoke<mgp_duration *>(mgp_zoned_date_time_diff, first, second, memory);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_now(mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_now, memory);
+}
+
+// mgp_point_2d
+
+inline mgp_point_2d *point_2d_copy(mgp_point_2d *point, mgp_memory *memory) {
+  return MgInvoke<mgp_point_2d *>(mgp_point_2d_copy, point, memory);
+}
+
+inline void point_2d_destroy(mgp_point_2d *point) { mgp_point_2d_destroy(point); }
+
+inline mgp_point_2d *point_2d_make(double x, double y, uint16_t srid, mgp_memory *memory) {
+  return MgInvoke<mgp_point_2d *>(mgp_point_2d_make, x, y, srid, memory);
+}
+
+inline double point_2d_get_x(mgp_point_2d *point) { return MgInvoke<double>(mgp_point_2d_get_x, point); }
+
+inline double point_2d_get_y(mgp_point_2d *point) { return MgInvoke<double>(mgp_point_2d_get_y, point); }
+
+inline uint16_t point_2d_get_srid(mgp_point_2d *point) { return MgInvoke<uint16_t>(mgp_point_2d_get_srid, point); }
+
+inline bool point_2d_equal(mgp_point_2d *first, mgp_point_2d *second) {
+  return MgInvoke<int>(mgp_point_2d_equal, first, second);
+}
+
+// mgp_point_3d
+
+inline mgp_point_3d *point_3d_copy(mgp_point_3d *point, mgp_memory *memory) {
+  return MgInvoke<mgp_point_3d *>(mgp_point_3d_copy, point, memory);
+}
+
+inline void point_3d_destroy(mgp_point_3d *point) { mgp_point_3d_destroy(point); }
+
+inline mgp_point_3d *point_3d_make(double x, double y, double z, uint16_t srid, mgp_memory *memory) {
+  return MgInvoke<mgp_point_3d *>(mgp_point_3d_make, x, y, z, srid, memory);
+}
+
+inline double point_3d_get_x(mgp_point_3d *point) { return MgInvoke<double>(mgp_point_3d_get_x, point); }
+
+inline double point_3d_get_y(mgp_point_3d *point) { return MgInvoke<double>(mgp_point_3d_get_y, point); }
+
+inline double point_3d_get_z(mgp_point_3d *point) { return MgInvoke<double>(mgp_point_3d_get_z, point); }
+
+inline uint16_t point_3d_get_srid(mgp_point_3d *point) { return MgInvoke<uint16_t>(mgp_point_3d_get_srid, point); }
+
+inline bool point_3d_equal(mgp_point_3d *first, mgp_point_3d *second) {
+  return MgInvoke<int>(mgp_point_3d_equal, first, second);
+}
+
+// mgp_enum
+
+inline mgp_enum *enum_copy(mgp_enum *val, mgp_memory *memory) {
+  return MgInvoke<mgp_enum *>(mgp_enum_copy, val, memory);
+}
+
+inline void enum_destroy(mgp_enum *val) { mgp_enum_destroy(val); }
+
+inline mgp_enum *enum_make(const char *type_name, const char *value_name, mgp_memory *memory) {
+  return MgInvoke<mgp_enum *>(mgp_enum_make, type_name, value_name, memory);
+}
+
+inline const char *enum_get_type_name(mgp_enum *val) { return MgInvoke<const char *>(mgp_enum_get_type_name, val); }
+
+inline const char *enum_get_value_name(mgp_enum *val) { return MgInvoke<const char *>(mgp_enum_get_value_name, val); }
+
+inline bool enum_equal(mgp_enum *first, mgp_enum *second) { return MgInvoke<int>(mgp_enum_equal, first, second); }
+
 // Procedure
 
 inline mgp_proc *module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb) {
@@ -851,4 +1123,27 @@ inline void func_result_set_value(mgp_func_result *res, mgp_value *value, mgp_me
   MgInvokeVoid(mgp_func_result_set_value, res, value, memory);
 }
 
+inline mgp_execution_result *execute_query(mgp_graph *graph, const char *query, mgp_map *params, mgp_memory *memory) {
+  return MgInvoke<mgp_execution_result *>(mgp_execute_query, graph, memory, query, params);
+}
+
+inline void execution_result_destroy(mgp_execution_result *execution_result) {
+  mgp_execution_result_destroy(execution_result);
+}
+
+inline mgp_execution_headers *fetch_execution_headers(mgp_execution_result *exec_result) {
+  return MgInvoke<mgp_execution_headers *>(mgp_fetch_execution_headers, exec_result);
+}
+
+inline size_t execution_headers_size(mgp_execution_headers *headers) {
+  return MgInvoke<size_t>(mgp_execution_headers_size, headers);
+}
+
+inline const char *execution_headers_at(mgp_execution_headers *headers, size_t index) {
+  return MgInvoke<const char *>(mgp_execution_headers_at, headers, index);
+}
+
+inline mgp_map *pull_one(mgp_execution_result *result, mgp_graph *graph, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_pull_one, result, graph, memory);
+}
 }  // namespace mgp

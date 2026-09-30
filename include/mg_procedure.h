@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -50,7 +50,20 @@ MGP_ENUM_CLASS MGP_NODISCARD mgp_error{
     MGP_ERROR_VALUE_CONVERSION,
     MGP_ERROR_SERIALIZATION_ERROR,
     MGP_ERROR_AUTHORIZATION_ERROR,
+    MGP_ERROR_NOT_YET_IMPLEMENTED,
 };
+///@}
+
+/// @name License check
+///
+///@{
+
+/// Functions used for checking validity of the enterprise license
+
+/// Doesn't allocate anything and can't fail therefore doesn't use
+/// enum mgp_error
+int mgp_is_enterprise_valid();
+
 ///@}
 
 /// @name Memory Allocation
@@ -165,8 +178,20 @@ struct mgp_local_time;
 /// Local date-time stored in Memgraph.
 struct mgp_local_date_time;
 
+/// Zoned date-time stored in Memgraph.
+struct mgp_zoned_date_time;
+
 /// Duration stored in Memgraph.
 struct mgp_duration;
+
+/// 2D point stored in Memgraph.
+struct mgp_point_2d;
+
+/// 3D point stored in Memgraph.
+struct mgp_point_3d;
+
+/// Enum value stored in Memgraph.
+struct mgp_enum;
 
 /// All available types that can be stored in a mgp_value
 enum mgp_value_type {
@@ -185,6 +210,10 @@ enum mgp_value_type {
   MGP_VALUE_TYPE_LOCAL_TIME,
   MGP_VALUE_TYPE_LOCAL_DATE_TIME,
   MGP_VALUE_TYPE_DURATION,
+  MGP_VALUE_TYPE_ZONED_DATE_TIME,
+  MGP_VALUE_TYPE_POINT_2D,
+  MGP_VALUE_TYPE_POINT_3D,
+  MGP_VALUE_TYPE_ENUM
 };
 
 enum mgp_error mgp_value_copy(struct mgp_value *val, struct mgp_memory *memory, struct mgp_value **result);
@@ -282,6 +311,14 @@ enum mgp_error mgp_value_make_local_time(struct mgp_local_time *val, struct mgp_
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
 enum mgp_error mgp_value_make_local_date_time(struct mgp_local_date_time *val, struct mgp_value **result);
 
+/// Create a mgp_value storing a mgp_zoned_date_time.
+/// You need to free the instance through mgp_value_destroy. The ownership of
+/// the zoned date-time is transferred to the created mgp_value and destroying the mgp_value will
+/// destroy the mgp_zoned_date_time. Therefore, if a mgp_value is successfully created you
+/// must not call mgp_zoned_date_time_destroy on the given zoned date-time.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_zoned_date_time(struct mgp_zoned_date_time *val, struct mgp_value **result);
+
 /// Create a mgp_value storing a mgp_duration.
 /// You need to free the instance through mgp_value_destroy. The ownership of
 /// the duration is transferred to the created mgp_value and destroying the mgp_value will
@@ -289,6 +326,27 @@ enum mgp_error mgp_value_make_local_date_time(struct mgp_local_date_time *val, s
 /// must not call mgp_duration_destroy on the given duration.
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
 enum mgp_error mgp_value_make_duration(struct mgp_duration *val, struct mgp_value **result);
+
+/// Create a mgp_value storing a mgp_point_2d. Ownership of the point is transferred
+/// to the created mgp_value and destroying the mgp_value will destroy the mgp_point_2d.
+/// Therefore, if a mgp_value is successfully created you must not call mgp_point_2d_destroy
+/// on the given point.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_point_2d(struct mgp_point_2d *val, struct mgp_value **result);
+
+/// Create a mgp_value storing a mgp_point_3d. Ownership of the point is transferred
+/// to the created mgp_value and destroying the mgp_value will destroy the mgp_point_3d.
+/// Therefore, if a mgp_value is successfully created you must not call mgp_point_3d_destroy
+/// on the given point.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_point_3d(struct mgp_point_3d *val, struct mgp_value **result);
+
+/// Create a mgp_value storing a mgp_enum. Ownership of the enum is transferred
+/// to the created mgp_value and destroying the mgp_value will destroy the mgp_enum.
+/// Therefore, if a mgp_value is successfully created you must not call mgp_enum_destroy
+/// on the given enum.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_enum(struct mgp_enum *val, struct mgp_value **result);
 
 /// Get the type of the value contained in mgp_value.
 /// Current implementation always returns without errors.
@@ -349,6 +407,22 @@ enum mgp_error mgp_value_is_local_date_time(struct mgp_value *val, int *result);
 /// Result is non-zero if the given mgp_value stores a duration.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_duration(struct mgp_value *val, int *result);
+
+/// Result is non-zero if the given mgp_value stores a zoned date-time.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_zoned_date_time(struct mgp_value *val, int *result);
+
+/// Result is non-zero if the given mgp_value stores a 2D point.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_point_2d(struct mgp_value *val, int *result);
+
+/// Result is non-zero if the given mgp_value stores a 3D point.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_point_3d(struct mgp_value *val, int *result);
+
+/// Result is non-zero if the given mgp_value stores an enum value.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_enum(struct mgp_value *val, int *result);
 
 /// Get the contained boolean value.
 /// Non-zero values represent `true`, while zero represents `false`.
@@ -416,6 +490,26 @@ enum mgp_error mgp_value_get_local_date_time(struct mgp_value *val, struct mgp_l
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_duration(struct mgp_value *val, struct mgp_duration **result);
 
+/// Get the contained zoned date-time.
+/// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_get_zoned_date_time(struct mgp_value *val, struct mgp_zoned_date_time **result);
+
+/// Get the contained 2D point.
+/// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_get_point_2d(struct mgp_value *val, struct mgp_point_2d **result);
+
+/// Get the contained 3D point.
+/// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_get_point_3d(struct mgp_value *val, struct mgp_point_3d **result);
+
+/// Get the contained enum value.
+/// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_get_enum(struct mgp_value *val, struct mgp_enum **result);
+
 /// Create an empty list with given capacity.
 /// You need to free the created instance with mgp_list_destroy.
 /// The created list will have allocated enough memory for `capacity` elements
@@ -449,6 +543,12 @@ enum mgp_error mgp_list_append(struct mgp_list *list, struct mgp_value *val);
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
 enum mgp_error mgp_list_append_extend(struct mgp_list *list, struct mgp_value *val);
 
+enum mgp_error mgp_list_append_move(struct mgp_list *list, struct mgp_value *val);
+
+/// Ensure the underlying capacity of the mgp_list is at least n.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_list_reserve(struct mgp_list *list, size_t n);
+
 /// Get the number of elements stored in mgp_list.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_list_size(struct mgp_list *list, size_t *result);
@@ -466,6 +566,7 @@ enum mgp_error mgp_list_at(struct mgp_list *list, size_t index, struct mgp_value
 /// You need to free the created instance with mgp_map_destroy.
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_map.
 enum mgp_error mgp_map_make_empty(struct mgp_memory *memory, struct mgp_map **result);
+enum mgp_error mgp_unordered_map_make_empty(struct mgp_memory *memory, struct mgp_map **result);
 
 enum mgp_error mgp_map_copy(struct mgp_map *map, struct mgp_memory *memory, struct mgp_map **result);
 
@@ -484,6 +585,8 @@ enum mgp_error mgp_map_contains_deleted(struct mgp_map *map, int *result);
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if a previous mapping already exists.
 enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, struct mgp_value *value);
 
+enum mgp_error mgp_map_insert_move(struct mgp_map *map, const char *key, struct mgp_value *value);
+
 /// Insert a mapping from a NULL terminated character string to a value.
 /// If a mapping with the same key already exists, it is replaced.
 /// In case of update, both the string and the value are copied into the map.
@@ -491,6 +594,8 @@ enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, struct mgp_v
 /// you still need to free their memory explicitly.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate for insertion.
 enum mgp_error mgp_map_update(struct mgp_map *map, const char *key, struct mgp_value *value);
+
+enum mgp_error mgp_map_update_move(struct mgp_map *map, const char *key, struct mgp_value *value);
 
 // Erase a mapping by key.
 // If the key doesn't exist in the map nothing happens
@@ -615,12 +720,17 @@ enum mgp_error mgp_result_set_error_msg(struct mgp_result *res, const char *erro
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_result_record.
 enum mgp_error mgp_result_new_record(struct mgp_result *res, struct mgp_result_record **result);
 
+/// Reserve memory for n records in the result.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory for the records.
+enum mgp_error mgp_result_reserve(struct mgp_result *res, size_t n);
+
 /// Assign a value to a field in the given record.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate memory to copy the mgp_value to
 /// mgp_result_record. Return mgp_error::MGP_ERROR_OUT_OF_RANGE if there is no field named `field_name`. Return
 /// mgp_error::MGP_ERROR_LOGIC_ERROR `val` does not satisfy the type of the field name `field_name`.
 enum mgp_error mgp_result_record_insert(struct mgp_result_record *record, const char *field_name,
                                         struct mgp_value *val);
+
 ///@}
 
 /// @name Graph Constructs
@@ -891,6 +1001,59 @@ enum mgp_error mgp_edge_iter_properties(struct mgp_edge *e, struct mgp_memory *m
 enum mgp_error mgp_graph_get_vertex_by_id(struct mgp_graph *g, struct mgp_vertex_id id, struct mgp_memory *memory,
                                           struct mgp_vertex **result);
 
+/// Result is non-zero if the index with the given name exists.
+/// The current implementation always returns without errors.
+enum mgp_error mgp_graph_has_text_index(struct mgp_graph *graph, const char *index_name, int *result);
+
+/// Available modes of searching text indices.
+MGP_ENUM_CLASS text_search_mode{
+    SPECIFIED_PROPERTIES,
+    REGEX,
+    ALL_PROPERTIES,
+    // Fuzzy phrase search (ordered, adjacent terms; last term a prefix) over a single
+    // `data.<property>`. Appended last to keep the existing values' numbering stable.
+    FUZZY_PHRASE,
+};
+
+/// Search the named text index for the given query. The result is a map with the "search_results" and "error_msg" keys.
+/// The "search_results" key contains the vertices whose text-indexed properties match the given query.
+/// In case of a Tantivy error, the "search_results" key is absent, and "error_msg" contains the error message.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
+/// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
+enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
+                                           enum text_search_mode search_mode, size_t limit, uint8_t fuzzy_distance,
+                                           int fuzzy_prefix, int fuzzy_transpositions, struct mgp_memory *memory,
+                                           struct mgp_map **result);
+
+/// Aggregate over the results of a search over the named text index. The result is a map with the "aggregation_results"
+/// and "error_msg" keys.
+/// The "aggregation_results" key contains the vertices whose text-indexed properties match the given query.
+/// In case of a Tantivy error, the "aggregation_results" key is absent, and "error_msg" contains the error message.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
+/// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
+enum mgp_error mgp_graph_aggregate_over_text_index(struct mgp_graph *graph, const char *index_name,
+                                                   const char *search_query, const char *aggregation_query,
+                                                   struct mgp_memory *memory, struct mgp_map **result);
+
+enum mgp_error mgp_graph_aggregate_over_text_edge_index(struct mgp_graph *graph, const char *index_name,
+                                                        const char *search_query, const char *aggregation_query,
+                                                        struct mgp_memory *memory, struct mgp_map **result);
+
+enum mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *index_name,
+                                                const char *search_query, enum text_search_mode search_mode,
+                                                size_t limit, uint8_t fuzzy_distance, int fuzzy_prefix,
+                                                int fuzzy_transpositions, struct mgp_memory *memory,
+                                                struct mgp_map **result);
+
+enum mgp_error mgp_graph_search_vector_index(struct mgp_graph *graph, const char *index_name, struct mgp_list *query,
+                                             int result_size, struct mgp_memory *memory, struct mgp_map **result);
+
+enum mgp_error mgp_graph_search_vector_index_on_edges(struct mgp_graph *graph, const char *index_name,
+                                                      struct mgp_list *query, int result_size,
+                                                      struct mgp_memory *memory, struct mgp_map **result);
+
+enum mgp_error mgp_graph_show_index_info(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_map **result);
+
 /// Creates label index for given label.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if label index already exists, result will be 0, otherwise 1.
@@ -918,6 +1081,20 @@ enum mgp_error mgp_drop_label_property_index(struct mgp_graph *graph, const char
 enum mgp_error mgp_list_all_label_property_indices(struct mgp_graph *graph, struct mgp_memory *memory,
                                                    struct mgp_list **result);
 
+/// Creates global vertex-property index for given property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if vertex-property index already exists, result will be 0, otherwise 1.
+enum mgp_error mgp_create_vertex_property_index(struct mgp_graph *graph, const char *property, int *result);
+
+/// Drops global vertex-property index for given property.
+/// mgp_error::MGP_ERROR_NO_ERROR is always returned.
+/// if dropping vertex-property index failed, result will be 0, otherwise 1.
+enum mgp_error mgp_drop_vertex_property_index(struct mgp_graph *graph, const char *property, int *result);
+
+/// List all global vertex-property indices.
+enum mgp_error mgp_list_all_vertex_property_indices(struct mgp_graph *graph, struct mgp_memory *memory,
+                                                    struct mgp_list **result);
+
 /// Creates existence constraint for given label and property.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if creating existence constraint failed, result will be 0, otherwise 1.
@@ -937,13 +1114,13 @@ enum mgp_error mgp_list_all_existence_constraints(struct mgp_graph *graph, struc
 /// Creates unique constraint for given label and properties.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if creating unique constraint failed, result will be 0, otherwise 1.
-enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
+enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_list *properties,
                                             int *result);
 
 /// Drops unique constraint for given label and properties.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if dropping unique constraint failed, result will be 0, otherwise 1.
-enum mgp_error mgp_drop_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
+enum mgp_error mgp_drop_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_list *properties,
                                           int *result);
 
 /// List all unique constraints
@@ -961,6 +1138,10 @@ enum mgp_error mgp_graph_is_mutable(struct mgp_graph *graph, int *result);
 /// because changes from other transactions are visible.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_graph_is_transactional(struct mgp_graph *graph, int *result);
+
+/// Stable per-query id; preserved across `USING PERIODIC COMMIT`.
+/// Use as a cache key in batched procedures.
+enum mgp_error mgp_graph_get_start_timestamp(struct mgp_graph *graph, int64_t *result);
 
 /// Add a new vertex to the graph.
 /// Resulting vertex must be freed using mgp_vertex_destroy.
@@ -987,29 +1168,6 @@ enum mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, struct mg
 /// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
 enum mgp_error mgp_graph_create_edge(struct mgp_graph *graph, struct mgp_vertex *from, struct mgp_vertex *to,
                                      struct mgp_edge_type type, struct mgp_memory *memory, struct mgp_edge **result);
-
-/// Change edge from vertex
-/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
-/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
-/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.
-/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
-enum mgp_error mgp_graph_edge_set_from(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_from,
-                                       struct mgp_memory *memory, struct mgp_edge **result);
-
-/// Change edge to vertex
-/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
-/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_edge.
-/// Return mgp_error::MGP_ERROR_DELETED_OBJECT if `from` or `to` has been deleted.
-/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `from` or `to` has been modified by another transaction.
-enum mgp_error mgp_graph_edge_set_to(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_vertex *new_to,
-                                     struct mgp_memory *memory, struct mgp_edge **result);
-
-/// Change edge type
-/// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
-/// Return mgp_error::MGP_ERROR_SERIALIZATION_ERROR if `edge`, its source or destination vertex has been modified by
-/// another transaction.
-enum mgp_error mgp_graph_edge_change_type(struct mgp_graph *graph, struct mgp_edge *e, struct mgp_edge_type new_type,
-                                          struct mgp_memory *memory, struct mgp_edge **result);
 
 /// Delete an edge from the graph.
 /// Return mgp_error::MGP_ERROR_IMMUTABLE_OBJECT if `graph` is immutable.
@@ -1039,6 +1197,12 @@ enum mgp_error mgp_vertices_iterator_underlying_graph_is_mutable(struct mgp_vert
 /// mgp_vertex is invalidated and its value must not be used.
 /// Result is NULL if the end of the iteration has been reached.
 enum mgp_error mgp_vertices_iterator_get(struct mgp_vertices_iterator *it, struct mgp_vertex **result);
+
+/// Gets the approximate number of vertices in the graph.
+enum mgp_error mgp_graph_approximate_vertex_count(struct mgp_graph *graph, size_t *result);
+
+/// Gets the approximate number of edges in the graph.
+enum mgp_error mgp_graph_approximate_edge_count(struct mgp_graph *graph, size_t *result);
 
 /// @name Temporal Types
 ///
@@ -1193,6 +1357,18 @@ struct mgp_local_date_time_parameters {
   struct mgp_local_time_parameters *local_time_parameters;
 };
 
+struct mgp_zoned_date_time_parameters {
+  struct mgp_date_parameters *date_parameters;
+  struct mgp_local_time_parameters *local_time_parameters;
+
+  union {
+    int32_t offset_in_minutes;
+    const char *timezone_name;
+  } timezone_info;
+
+  int is_named_timezone;
+};
+
 /// Create a local date-time from a string following the ISO 8601 format.
 /// Resulting local date-time must be freed with mgp_local_date_time_destroy.
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
@@ -1273,6 +1449,92 @@ enum mgp_error mgp_local_date_time_sub_duration(struct mgp_local_date_time *loca
 enum mgp_error mgp_local_date_time_diff(struct mgp_local_date_time *first, struct mgp_local_date_time *second,
                                         struct mgp_memory *memory, struct mgp_duration **result);
 
+/// Create a zoned date-time from a string following the ISO 8601 format.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_from_string(const char *string, struct mgp_memory *memory,
+                                               struct mgp_zoned_date_time **zoned_date_time);
+
+/// Create a zoned date-time from mgp_zoned_date_time_parameters.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the parameters cannot be parsed correctly.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zobed_date_time.
+enum mgp_error mgp_zoned_date_time_from_parameters(struct mgp_zoned_date_time_parameters *parameters,
+                                                   struct mgp_memory *memory,
+                                                   struct mgp_zoned_date_time **zoned_date_time);
+
+/// Copy a mgp_zoned_date_time.
+/// Resulting pointer must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_copy(struct mgp_zoned_date_time *zoned_date_time, struct mgp_memory *memory,
+                                        struct mgp_zoned_date_time **result);
+
+/// Free the memory used by a mgp_zoned_date_time.
+void mgp_zoned_date_time_destroy(struct mgp_zoned_date_time *zoned_date_time);
+
+/// Result is non-zero if given zoned date-times are equal, otherwise 0.
+enum mgp_error mgp_zoned_date_time_equal(struct mgp_zoned_date_time *first, struct mgp_zoned_date_time *second,
+                                         int *result);
+
+/// Get the year property of the zoned date-time
+enum mgp_error mgp_zoned_date_time_get_year(struct mgp_zoned_date_time *zoned_date_time, int *year);
+
+/// Get the month property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_month(struct mgp_zoned_date_time *zoned_date_time, int *month);
+
+/// Get the day property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_day(struct mgp_zoned_date_time *zoned_date_time, int *day);
+
+/// Get the hour property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_hour(struct mgp_zoned_date_time *zoned_date_time, int *hour);
+
+/// Get the minute property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_minute(struct mgp_zoned_date_time *zoned_date_time, int *minute);
+
+/// Get the second property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_second(struct mgp_zoned_date_time *zoned_date_time, int *second);
+
+/// Get the milisecond property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_millisecond(struct mgp_zoned_date_time *zoned_date_time, int *millisecond);
+
+/// Get the microsecond property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_microsecond(struct mgp_zoned_date_time *zoned_date_time, int *microsecond);
+
+/// Get the local date-time as microseconds from Unix epoch.
+enum mgp_error mgp_zoned_date_time_timestamp(struct mgp_zoned_date_time *zoned_date_time, int64_t *timestamp);
+
+/// Get the timezone property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_timezone(struct mgp_zoned_date_time *zoned_date_time, char const **timezone);
+
+/// Get the offset of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_offset(struct mgp_zoned_date_time *zoned_date_time, int *offset);
+
+/// Add a duration to the zoned date-time.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid zoned date-time.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_add_duration(struct mgp_zoned_date_time *zoned_date_time, struct mgp_duration *dur,
+                                                struct mgp_memory *memory, struct mgp_zoned_date_time **result);
+
+/// Subtract a duration from the zoned date-time.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid zoned date-time.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_sub_duration(struct mgp_zoned_date_time *zoned_date_time, struct mgp_duration *dur,
+                                                struct mgp_memory *memory, struct mgp_zoned_date_time **result);
+
+/// Get a duration between two zoned date-times.
+/// Resulting duration must be freed with mgp_duration_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_diff(struct mgp_zoned_date_time *first, struct mgp_zoned_date_time *second,
+                                        struct mgp_memory *memory, struct mgp_duration **result);
+
+/// Get the zoned date-time representing current date and time.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_now(struct mgp_memory *memory, struct mgp_zoned_date_time **zoned_date_time);
+
 struct mgp_duration_parameters {
   double day;
   double hour;
@@ -1334,6 +1596,89 @@ enum mgp_error mgp_duration_add(struct mgp_duration *first, struct mgp_duration 
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_duration.
 enum mgp_error mgp_duration_sub(struct mgp_duration *first, struct mgp_duration *second, struct mgp_memory *memory,
                                 struct mgp_duration **result);
+
+/// Copy a mgp_point_2d.
+/// Resulting pointer must be freed with mgp_point_2d_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_point_2d.
+enum mgp_error mgp_point_2d_copy(struct mgp_point_2d *point, struct mgp_memory *memory, struct mgp_point_2d **result);
+
+/// Free the memory used by a mgp_point_2d.
+void mgp_point_2d_destroy(struct mgp_point_2d *point);
+
+/// Copy a mgp_point_3d.
+/// Resulting pointer must be freed with mgp_point_3d_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_point_3d.
+enum mgp_error mgp_point_3d_copy(struct mgp_point_3d *point, struct mgp_memory *memory, struct mgp_point_3d **result);
+
+/// Free the memory used by a mgp_point_3d.
+void mgp_point_3d_destroy(struct mgp_point_3d *point);
+
+/// Copy a mgp_enum.
+/// Resulting pointer must be freed with mgp_enum_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_enum.
+enum mgp_error mgp_enum_copy(struct mgp_enum *val, struct mgp_memory *memory, struct mgp_enum **result);
+
+/// Free the memory used by a mgp_enum.
+void mgp_enum_destroy(struct mgp_enum *val);
+
+/// Create a mgp_point_2d from components.
+/// Resulting pointer must be freed with mgp_point_2d_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_point_2d.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if srid is not a valid 2D SRID.
+enum mgp_error mgp_point_2d_make(double x, double y, uint16_t srid, struct mgp_memory *memory,
+                                 struct mgp_point_2d **result);
+
+/// Get the x coordinate of the point.
+enum mgp_error mgp_point_2d_get_x(struct mgp_point_2d *point, double *result);
+
+/// Get the y coordinate of the point.
+enum mgp_error mgp_point_2d_get_y(struct mgp_point_2d *point, double *result);
+
+/// Get the SRID of the point.
+enum mgp_error mgp_point_2d_get_srid(struct mgp_point_2d *point, uint16_t *result);
+
+/// Result is non-zero if given points are equal, otherwise 0.
+enum mgp_error mgp_point_2d_equal(struct mgp_point_2d *first, struct mgp_point_2d *second, int *result);
+
+/// Create a mgp_point_3d from components.
+/// Resulting pointer must be freed with mgp_point_3d_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_point_3d.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if srid is not a valid 3D SRID.
+enum mgp_error mgp_point_3d_make(double x, double y, double z, uint16_t srid, struct mgp_memory *memory,
+                                 struct mgp_point_3d **result);
+
+/// Get the x coordinate of the point.
+enum mgp_error mgp_point_3d_get_x(struct mgp_point_3d *point, double *result);
+
+/// Get the y coordinate of the point.
+enum mgp_error mgp_point_3d_get_y(struct mgp_point_3d *point, double *result);
+
+/// Get the z coordinate of the point.
+enum mgp_error mgp_point_3d_get_z(struct mgp_point_3d *point, double *result);
+
+/// Get the SRID of the point.
+enum mgp_error mgp_point_3d_get_srid(struct mgp_point_3d *point, uint16_t *result);
+
+/// Result is non-zero if given points are equal, otherwise 0.
+enum mgp_error mgp_point_3d_equal(struct mgp_point_3d *first, struct mgp_point_3d *second, int *result);
+
+/// Create a mgp_enum from type name and value name strings.
+/// Resulting pointer must be freed with mgp_enum_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_enum.
+/// @note Enum values are read-only in procedures. They can be received from property reads
+/// but cannot be written back as property values because the name-to-ID resolution
+/// requires internal EnumStore context that is not exposed through the C API.
+enum mgp_error mgp_enum_make(const char *type_name, const char *value_name, struct mgp_memory *memory,
+                             struct mgp_enum **result);
+
+/// Get the type name of the enum value.
+enum mgp_error mgp_enum_get_type_name(struct mgp_enum *val, const char **result);
+
+/// Get the value name of the enum value.
+enum mgp_error mgp_enum_get_value_name(struct mgp_enum *val, const char **result);
+
+/// Result is non-zero if given enum values are equal, otherwise 0.
+enum mgp_error mgp_enum_equal(struct mgp_enum *first, struct mgp_enum *second, int *result);
 ///@}
 
 /// Advance the iterator to the next vertex and return it.
@@ -1435,6 +1780,22 @@ enum mgp_error mgp_type_local_date_time(struct mgp_type **result);
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
 enum mgp_error mgp_type_duration(struct mgp_type **result);
 
+/// Get the type representing a zoned date-time.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
+enum mgp_error mgp_type_zoned_date_time(struct mgp_type **result);
+
+/// Get the type representing a 2D point.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
+enum mgp_error mgp_type_point_2d(struct mgp_type **result);
+
+/// Get the type representing a 3D point.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
+enum mgp_error mgp_type_point_3d(struct mgp_type **result);
+
+/// Get the type representing an enum value.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
+enum mgp_error mgp_type_enum(struct mgp_type **result);
+
 /// Build a type representing either a `null` value or a value of given `type`.
 ///
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate the new type.
@@ -1466,8 +1827,12 @@ struct mgp_func;
 
 /// All available log levels that can be used in mgp_log function
 MGP_ENUM_CLASS mgp_log_level{
-    MGP_LOG_LEVEL_TRACE, MGP_LOG_LEVEL_DEBUG, MGP_LOG_LEVEL_INFO,
-    MGP_LOG_LEVEL_WARN,  MGP_LOG_LEVEL_ERROR, MGP_LOG_LEVEL_CRITICAL,
+    MGP_LOG_LEVEL_TRACE,
+    MGP_LOG_LEVEL_DEBUG,
+    MGP_LOG_LEVEL_INFO,
+    MGP_LOG_LEVEL_WARN,
+    MGP_LOG_LEVEL_ERROR,
+    MGP_LOG_LEVEL_CRITICAL,
 };
 
 /// Entry-point for a query module read procedure, invoked through openCypher.
@@ -1800,6 +2165,26 @@ enum mgp_error mgp_func_result_set_error_msg(struct mgp_func_result *result, con
 /// mgp_func_result.
 enum mgp_error mgp_func_result_set_value(struct mgp_func_result *result, struct mgp_value *value,
                                          struct mgp_memory *memory);
+
+struct mgp_execution_headers;
+
+enum mgp_error mgp_execution_headers_at(struct mgp_execution_headers *headers, size_t index, const char **result);
+
+enum mgp_error mgp_execution_headers_size(struct mgp_execution_headers *headers, size_t *result);
+
+struct mgp_execution_result;
+
+enum mgp_error mgp_execute_query(struct mgp_graph *graph, struct mgp_memory *memory, const char *query,
+                                 struct mgp_map *params, struct mgp_execution_result **result);
+
+enum mgp_error mgp_fetch_execution_headers(struct mgp_execution_result *exec_result,
+                                           struct mgp_execution_headers **result);
+
+enum mgp_error mgp_pull_one(struct mgp_execution_result *exec_result, struct mgp_graph *graph,
+                            struct mgp_memory *memory, struct mgp_map **result);
+
+void mgp_execution_result_destroy(struct mgp_execution_result *exec_result);
+
 /// @}
 
 #ifdef __cplusplus

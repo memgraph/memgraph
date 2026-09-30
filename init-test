@@ -1,0 +1,149 @@
+#!/bin/bash -e
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
+source "$DIR/environment/util.sh"
+
+# this should fix --break-system-packages not being available in older distros
+export PIP_BREAK_SYSTEM_PACKAGES=1
+
+local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
+WGET_TIMEOUT=60
+use_cache=true
+if [[ "${local_cache_host%:*}" == "false" ]]; then
+  use_cache=false
+  echo -e "\n--- Not using cache for Neo4j download ---\n"
+fi
+
+function file_get_try_double () {
+    primary_url="$1"
+    secondary_url="$2"
+    if [[ -z "$primary_url" ]]; then echo "Primary should not be empty." && exit 1; fi
+    if [[ -z "$secondary_url" ]]; then echo "Secondary should not be empty." && exit 1; fi
+    filename="$(basename "$secondary_url")"
+    if [[ "$use_cache" == true ]]; then
+      echo "Download primary from $primary_url secondary from $secondary_url"
+      timeout $WGET_TIMEOUT wget -nv "$primary_url" -O "$filename" >/dev/null 2>&1 || timeout $WGET_TIMEOUT wget -nv "$secondary_url" -O "$filename" || return 1
+    else
+      echo "Download from $secondary_url"
+      timeout $WGET_TIMEOUT wget -nv "$secondary_url" -O "$filename" || return 1
+    fi
+}
+
+function setup_virtualenv () {
+    pushd $1 > /dev/null
+    echo "Setting up virtualenv for: $1"
+
+    # remove old virtualenv
+    if [ -d ve3 ]; then
+        rm -rf ve3
+    fi
+
+    if [[ "$use_uv" == "true" ]]; then
+        uv venv --seed --python python3 ve3 || exit 1
+        # The committed lockfile is the source of truth; only regenerate it when missing.
+        if [ ! -f requirements.lock ]; then
+            echo "requirements.lock not found, generating it from requirements.txt"
+            uv pip compile --python ve3/bin/python requirements.txt -o requirements.lock || exit 1
+        fi
+        uv pip sync --python ve3/bin/python requirements.lock || exit 1
+    else
+        python3 -m venv ve3 || exit 1
+        source ve3/bin/activate
+        pip install -r requirements.txt || exit 1
+        deactivate
+    fi
+
+    popd > /dev/null
+}
+
+function setup_neo4j () {
+    pushd libs > /dev/null
+    echo "Setting up Neo4j in libs/"
+    ./cleanup.sh
+
+    local neo4j_archive="neo4j-community-5.6.0-unix.tar.gz"
+    local neo4j_dir="neo4j-community-5.6.0"
+    local primary_url="http://${local_cache_host}/${neo4j_archive}"
+    local secondary_url="https://dist.neo4j.org/${neo4j_archive}"
+    local max_attempts=5
+    local attempt
+    local backoff=5
+    for (( attempt=1; attempt<=max_attempts; attempt++ )); do
+        if file_get_try_double "$primary_url" "$secondary_url"; then
+            break
+        fi
+        if (( attempt == max_attempts )); then
+            echo "Failed to download Neo4j after $max_attempts attempts." && exit 1
+        fi
+        echo "Download failed (attempt $attempt/$max_attempts), retrying in ${backoff}s..."
+        sleep "$backoff"
+        backoff=$(( backoff * 2 ))
+    done
+
+    tar -xzf "$neo4j_archive"
+    mv "$neo4j_dir" neo4j
+    rm "$neo4j_archive"
+    popd > /dev/null
+}
+
+function print_help () {
+  echo "Usage: $0 [--skip-prep-testing] [--ci] [--uv]"
+  echo "  --skip-prep-testing: Skip the preparation of the testing environment"
+  echo "  --ci: Run the tests in CI mode"
+  echo "  --uv: Use uv instead of pip to set up the test virtualenv from tests/requirements.lock"
+}
+
+ci=false
+prep_testing=true
+use_uv=false
+while(($#)); do
+    case "$1" in
+      --skip-prep-testing)
+          shift
+          prep_testing=false
+      ;;
+      --ci)
+          shift
+          ci=true
+      ;;
+      --uv)
+          shift
+          use_uv=true
+      ;;
+      *)
+          # unknown option
+          echo "Invalid argument provided: $1"
+          print_help
+          exit 1
+      ;;
+    esac
+done
+
+DISTRO=$(operating_system)
+
+if [[ "$use_uv" == "true" ]]; then
+  if ! command -v uv >/dev/null 2>&1; then
+    echo "--uv requested but uv is not on PATH" && exit 1
+  fi
+  # Never reuse cached packages (stale-cache issues in CI containers) and never download a managed Python.
+  export UV_NO_CACHE=1
+  export UV_PYTHON_DOWNLOADS=never
+fi
+
+# Fix for centos 7 during release
+if [[ "$ci" == "false" ]]; then
+  if [ "${DISTRO}" = "debian-11" ]; then
+    if python3 -m pip show virtualenv >/dev/null 2>/dev/null; then
+      python3 -m pip uninstall -y virtualenv
+    fi
+    python3 -m pip install virtualenv
+  fi
+fi
+
+if [[ "$prep_testing" == "true" ]]; then
+  setup_neo4j
+  setup_virtualenv tests
+  cd tests
+  ./setup.sh
+  cd ..
+fi

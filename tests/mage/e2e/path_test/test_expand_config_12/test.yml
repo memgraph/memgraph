@@ -1,0 +1,10 @@
+# bfs (the default) emits every path of one length before any longer one. Two branches of equal depth
+# make the assertion independent of which branch is walked first.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: ['R>'], maxHops: 3, bfs: true})
+  YIELD result
+  RETURN collect(size(nodes(result)) - 1) AS lengths;
+
+output:
+  - lengths: [0, 1, 1, 2, 2, 3, 3]

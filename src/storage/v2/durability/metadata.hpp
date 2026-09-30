@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,10 +17,15 @@
 #include <utility>
 #include <vector>
 
+#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/ttl.hpp"
 
 namespace memgraph::storage::durability {
 
@@ -29,25 +34,39 @@ struct RecoveryInfo {
   uint64_t next_vertex_id{0};
   uint64_t next_edge_id{0};
   uint64_t next_timestamp{0};
-
   // last timestamp read from a WAL file
-  std::optional<uint64_t> last_commit_timestamp;
+  uint64_t last_durable_timestamp{0};
+  uint64_t num_committed_txns{0};
 
   std::vector<std::pair<Gid /*first vertex gid*/, uint64_t /*batch size*/>> vertex_batches;
+
+  // TTL info recovered from snapshot
+  std::optional<storage::ttl::TtlInfo> recovered_ttl_info;
 };
 
 /// Structure used to track indices and constraints during recovery.
 struct RecoveredIndicesAndConstraints {
   struct IndicesMetadata {
     std::vector<LabelId> label;
-    std::vector<std::pair<LabelId, PropertyId>> label_property;
+    std::vector<std::pair<LabelId, std::vector<PropertyPath>>> label_properties;
+    std::vector<std::pair<LabelId, std::vector<PropertyPath>>> label_properties_desc;
+    std::vector<std::pair<LabelId, PropertyId>> point_label_property;
     std::vector<std::pair<LabelId, LabelIndexStats>> label_stats;
-    std::vector<std::pair<LabelId, std::pair<PropertyId, LabelPropertyIndexStats>>> label_property_stats;
+    std::vector<std::pair<LabelId, std::pair<std::vector<PropertyPath>, LabelPropertyIndexStats>>> label_property_stats;
+    std::vector<EdgeTypeId> edge;
+    std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
+    std::vector<PropertyId> edge_property;
+    std::vector<PropertyId> vertex_property;
+    std::vector<TextIndexSpec> text_indices;
+    std::vector<TextEdgeIndexSpec> text_edge_indices;
+    std::vector<VectorIndexRecoveryInfo> vector_indices;
+    std::vector<VectorEdgeIndexRecoveryInfo> vector_edge_indices;
   } indices;
 
   struct ConstraintsMetadata {
     std::vector<std::pair<LabelId, PropertyId>> existence;
     std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
+    std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> type;
   } constraints;
 };
 
@@ -75,6 +94,25 @@ void RemoveRecoveredIndexConstraint(std::vector<TObj> *list, TObj obj, const cha
     list->pop_back();
   } else {
     throw RecoveryFailure(error_message);
+  }
+}
+
+// Removes an index that a replayed drop refers to, tolerating its absence.
+//
+// The log can legitimately hold two drops of one index: a drop settles that the index exists when
+// its statement runs and evicts when it commits, so two transactions can both record one. Older
+// snapshots reach the same place from the other side, recording the index as gone under a durable
+// timestamp below the drop's.
+//
+// Applying a drop to something already absent is idempotent, so tolerating it hides no corruption.
+// It does give up a canary for an index that vanished for another reason, which is why the strict
+// RemoveRecoveredIndexConstraint stays in use everywhere else.
+template <typename TObj>
+void RemoveRecoveredIndexIfPresent(std::vector<TObj> *list, TObj obj) {
+  auto it = std::find(list->begin(), list->end(), obj);
+  if (it != list->end()) {
+    std::swap(*it, list->back());
+    list->pop_back();
   }
 }
 

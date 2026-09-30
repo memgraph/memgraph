@@ -1,0 +1,1051 @@
+Feature: Vector search related features
+
+    Scenario: Create vector index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                | label | property | count |
+            | 'label+property_vector'   | ':L1'  | 'prop1'  | 0     |
+
+    Scenario: Create vector index with all config options
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": 2, "capacity": 10, "metric": "cos", "resize_coefficient": 2, "scalar_kind": "i8"}
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'label+property_vector' |
+
+    Scenario: Create vector index with parameterized config with all options
+        Given an empty graph
+        And parameters are:
+            | config | {dimension: 2, capacity: 10, metric: "cos", resize_coefficient: 2, scalar_kind: "i8"} |
+        And having executed
+            """
+            CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG $config
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'cos'  | 0    | 'i8'        | 'label+property_vector' |
+
+    Scenario: Create vector index with parameterized config values
+        Given an empty graph
+        And parameters are:
+            | dim | 2  |
+            | cap | 10 |
+        And having executed
+            """
+            CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG {"dimension": $dim, "capacity": $cap}
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+
+    Scenario: Create vector index with parameterized config that is not a map raises error
+        Given an empty graph
+        And parameters are:
+            | config | 42 |
+        When executing query:
+            """
+            CREATE VECTOR INDEX test_index ON :L1(prop1) WITH CONFIG $config
+            """
+        Then an error should be raised
+
+    Scenario: Add node to vector index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                | label | property | count |
+            | 'label+property_vector'   | ':L1'  | 'prop1'  | 1     |
+
+    Scenario: Remove node from vector index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.0, 2.0]});
+            """
+        And having executed
+            """
+            MATCH (n) DELETE n
+            """
+        And having executed:
+            """
+            FREE MEMORY
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                | label | property | count |
+            | 'label+property_vector'   | ':L1'  | 'prop1'  | 0     |
+
+    Scenario: Drop vector index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            DROP VECTOR INDEX test_index
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type             | label | property | count |
+
+    Scenario: Get vector index info
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        When executing query:
+            """
+            CALL vector_search.show_index_info() YIELD * RETURN *;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+
+    Scenario: Get vector index info with cypher
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+
+    Scenario: Search vector index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.0, 2.0]})
+            CREATE (:L1 {prop1: [1.0, 1.0]})
+            CREATE (:L1 {prop1: [100.0, 150.0]})
+            """
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 2, [1.0, 1.0]) YIELD * RETURN *;
+            """
+        Then the result should be:
+            | distance   | node                    | similarity |
+            | 0.0        | (:L1 {prop1: [1.0, 1.0]}) | 1.0        |
+            | 1.0        | (:L1 {prop1: [1.0, 2.0]}) | 0.5        |
+
+    Scenario: Vector search performs on float values
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.5, 1.5]})
+            """
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 1, [1.0, 1.0]) YIELD * RETURN node;
+            """
+        Then the result should be:
+            | node                      |
+            | (:L1 {prop1: [1.5, 1.5]}) |
+
+    Scenario: Vector search performs on integer values
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [2.1, 2.1]})
+            """
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 1, [2, 2]) YIELD *
+            RETURN node, [x IN node.prop1 | round(x)] AS rounded_prop;
+            """
+        Then the result should be:
+            | node                                          | rounded_prop    |
+            | (:L1 {prop1: [2.0999999046325684, 2.0999999046325684]}) | [2.0, 2.0]      |
+
+    Scenario: Vector index raises error on property with wrong dimension
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        When executing query:
+            """
+            CREATE (:L1 {prop1: [1.1, 1.1, 1.1]});
+            """
+        Then an error should be raised
+
+    Scenario: Vector search raises error on value that is not integer or double
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.5, 1.5]})
+            CREATE (:L1 {prop1: [2.5, 2.5]})
+            """
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 1, ["invalid", "invalid"]) YIELD * RETURN node;
+            """
+        Then an error should be raised
+
+    Scenario: Vector property stored in index not shown in node return
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                    |
+            | (:L1 {prop1: [1.0, 2.0]}) |
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN n.prop1;
+            """
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+
+    Scenario: Removing label removes node from vector index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1 {prop1: [1.0, 2.0]});
+            """
+        And having executed
+            """
+            MATCH (n:L1) REMOVE n:L1;
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                     |
+            | ({prop1: [1.0, 2.0]}) |
+
+    Scenario: Removing property removes node from vector index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1 {prop1: [1.0, 2.0]});
+            """
+        And having executed
+            """
+            MATCH (n:L1) SET n.prop1 = null;
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n     |
+            | (:L1) |
+
+    Scenario: Setting property after index creation adds to vector index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1);
+            """
+        And having executed
+            """
+            MATCH (n:L1) SET n.prop1 = [3.0, 4.0];
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                    |
+            | (:L1 {prop1: [3.0, 4.0]}) |
+        When executing query:
+            """
+            MATCH (n) RETURN n.prop1;
+            """
+        Then the result should be:
+            | n.prop1    |
+            | [3.0, 4.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                      |
+
+    Scenario: Adding label after creating node with property adds to vector index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n {prop1: [5.0, 6.0]});
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+        And having executed
+            """
+            MATCH (n {prop1: [5.0, 6.0]}) SET n:L1;
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                    |
+            | (:L1 {prop1: [5.0, 6.0]}) |
+        When executing query:
+            """
+            MATCH (n) RETURN n.prop1;
+            """
+        Then the result should be:
+            | n.prop1    |
+            | [5.0, 6.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+
+
+
+    Scenario: Vertex with both labels remains in one index when removing one label
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And with new vector index test_index2 on :L2(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1:L2 {prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
+        And having executed
+            """
+            MATCH (n:L1:L2) REMOVE n:L1;
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                    |
+            | (:L2 {prop1: [1.0, 2.0]}) |
+        When executing query:
+            """
+            MATCH (n) RETURN n.prop1;
+            """
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+
+    Scenario: Vertex with both labels transfers property to property store when removing both labels
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And with new vector index test_index2 on :L2(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1:L2 {prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
+        And having executed
+            """
+            MATCH (n:L1:L2) REMOVE n:L1, n:L2;
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                     |
+            | ({prop1: [1.0, 2.0]}) |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 20                       |
+
+    Scenario: Adding second label to vertex with one label adds to second index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And with new vector index test_index2 on :L2(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1 {prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 0    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+        And having executed
+            """
+            MATCH (n:L1) SET n:L2;
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                        |
+            | (:L1:L2 {prop1: [1.0, 2.0]}) |
+        When executing query:
+            """
+            MATCH (n) RETURN n.prop1;
+            """
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
+
+    Scenario: Updating property when vertex has both labels updates both indices
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And with new vector index test_index2 on :L2(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1:L2 {prop1: [1.0, 2.0]});
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
+        And having executed
+            """
+            MATCH (n:L1:L2) SET n.prop1 = [3.0, 4.0];
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                        |
+            | (:L1:L2 {prop1: [3.0, 4.0]}) |
+        When executing query:
+            """
+            MATCH (n) RETURN n.prop1;
+            """
+        Then the result should be:
+            | n.prop1    |
+            | [3.0, 4.0] |
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
+
+    Scenario: Two indices on different properties work independently
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And with new vector index test_index2 on :L2(prop2) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (:L1 {prop1: [1.0, 2.0]})
+            CREATE (:L2 {prop2: [3.0, 4.0]})
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop2'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n;
+            """
+        Then the result should be:
+            | n                    |
+            | (:L1 {prop1: [1.0, 2.0]}) |
+        When executing query:
+            """
+            MATCH (n:L2) RETURN n;
+            """
+        Then the result should be:
+            | n                    |
+            | (:L2 {prop2: [3.0, 4.0]}) |
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n.prop1;
+            """
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+        When executing query:
+            """
+            MATCH (n:L2) RETURN n.prop2;
+            """
+        Then the result should be:
+            | n.prop2    |
+            | [3.0, 4.0] |
+        When executing query:
+            """
+            MATCH (n:L1) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+        When executing query:
+            """
+            MATCH (n:L2) RETURN propertySize(n, "prop2");
+            """
+        Then the result should be:
+            | propertySize(n, "prop2") |
+            | 11                       |
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 1, [1.0, 2.0]) YIELD * RETURN *;
+            """
+        Then the result should be:
+            | distance | node                    | similarity |
+            | 0.0      | (:L1 {prop1: [1.0, 2.0]}) | 1.0        |
+        When executing query:
+            """
+            CALL vector_search.search("test_index2", 1, [3.0, 4.0]) YIELD * RETURN *;
+            """
+        Then the result should be:
+            | distance | node                    | similarity |
+            | 0.0      | (:L2 {prop2: [3.0, 4.0]}) | 1.0        |
+
+    Scenario: Dropping vector index restores vectors to vertex properties
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n1:L1 {prop1: [1.0, 2.0]})
+            CREATE (n2:L1 {prop1: [3.0, 4.0]})
+            CREATE (n3:L1 {prop1: [5.0, 6.0]})
+            """
+
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index' | ':L1'  | 'prop1'  | 'l2sq' | 3    | 'f32'       | 'label+property_vector' |
+
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n.prop1;
+            """
+
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+            | [3.0, 4.0] |
+            | [5.0, 6.0] |
+
+        When executing query:
+            """
+            MATCH (n:L1) RETURN propertySize(n, "prop1") ORDER BY n.prop1[0];
+            """
+
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+            | 11                       |
+            | 11                       |
+
+        And having executed
+            """
+            DROP VECTOR INDEX test_index
+            """
+
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+
+        Then the result should be:
+            | capacity | dimension | index_name   | label | property | metric | size | scalar_kind | index_type              |
+
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];
+            """
+
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+            | [3.0, 4.0] |
+            | [5.0, 6.0] |
+
+        When executing query:
+            """
+            MATCH (n:L1) RETURN propertySize(n, "prop1") ORDER BY n.prop1[0];
+            """
+
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 20                       |
+            | 20                       |
+            | 20                       |
+
+    Scenario: Dropping one vector index preserves vectors for remaining index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And with new vector index test_index2 on :L2(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1:L2 {prop1: [1.0, 2.0]})
+            """
+
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+
+        When executing query:
+            """
+            MATCH (n) RETURN n.prop1 ORDER BY n.prop1[0];
+            """
+
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
+
+        And having executed
+            """
+            DROP VECTOR INDEX test_index
+            """
+
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                        |
+            | (:L1:L2 {prop1: [1.0, 2.0]}) |
+
+        When executing query:
+            """
+            MATCH (n:L1) RETURN n.prop1 ORDER BY n.prop1[0];
+            """
+        Then the result should be:
+            | n.prop1    |
+            | [1.0, 2.0] |
+
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+
+        When executing query:
+            """
+            CALL vector_search.search("test_index2", 2, [1.0, 2.0]) YIELD * RETURN *;
+            """
+
+        Then the result should be:
+            | distance | node                        | similarity |
+            | 0.0      | (:L1:L2 {prop1: [1.0, 2.0]}) | 1.0        |
+
+    Scenario: Creating index after vector is already in another index
+        Given an empty graph
+        And with new vector index test_index on :L1(prop1) with dimension 2 and capacity 10
+        And having executed
+            """
+            CREATE (n:L1:L2 {prop1: [1.0, 2.0]})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 11                       |
+        And having executed
+            """
+            CREATE VECTOR INDEX test_index2 ON :L2(prop1) WITH CONFIG {"dimension": 2, "capacity": 10};
+            """
+        When executing query:
+            """
+            SHOW VECTOR INDEX INFO;
+            """
+
+        Then the result should be:
+            | capacity | dimension | index_name    | label | property | metric | size | scalar_kind | index_type              |
+            | 64       | 2         | 'test_index'  | ':L1'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+            | 64       | 2         | 'test_index2' | ':L2'  | 'prop1'  | 'l2sq' | 1    | 'f32'       | 'label+property_vector' |
+
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                        |
+            | (:L1:L2 {prop1: [1.0, 2.0]}) |
+
+        When executing query:
+            """
+            MATCH (n) RETURN propertySize(n, "prop1");
+            """
+        Then the result should be:
+            | propertySize(n, "prop1") |
+            | 19                       |
+
+        When executing query:
+            """
+            CALL vector_search.search("test_index2", 2, [1.0, 2.0]) YIELD * RETURN *;
+            """
+        Then the result should be:
+            | distance | node                        | similarity |
+            | 0.0      | (:L1:L2 {prop1: [1.0, 2.0]}) | 1.0        |
+
+        When executing query:
+            """
+            CALL vector_search.search("test_index", 2, [1.0, 2.0]) YIELD * RETURN *;
+            """
+
+        Then the result should be:
+            | distance | node                        | similarity |
+            | 0.0      | (:L1:L2 {prop1: [1.0, 2.0]}) | 1.0       |
+
+    Scenario: Create wildcard vector index
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX wildcard_idx ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:A {embedding: [1.0, 2.0]})
+            CREATE (:B {embedding: [3.0, 4.0]})
+            CREATE ({embedding: [5.0, 6.0]});
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                | label | property    | count |
+            | 'label+property_vector'   | '*'   | 'embedding' | 3     |
+        When executing query:
+            """
+            CALL vector_search.search("wildcard_idx", 10, [1.0, 2.0]) YIELD * RETURN distance ORDER BY distance;
+            """
+        Then the result should be:
+            | distance |
+            | 0.0      |
+            | 8.0      |
+            | 32.0     |
+
+    Scenario: Wildcard vector index shows '*' label in SHOW INDEX INFO
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX wildcard_idx ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                | label | property    | count |
+            | 'label+property_vector'   | '*'   | 'embedding' | 0     |
+
+    Scenario: Create OR vector index on multiple labels (with optional colon prefix)
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX or_idx ON :A|:B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:A {embedding: [1.0, 2.0]})
+            CREATE (:B {embedding: [3.0, 4.0]})
+            CREATE (:C {embedding: [5.0, 6.0]});
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                | label    | property    | count |
+            | 'label+property_vector'   | ':A\|B'  | 'embedding' | 2     |
+        When executing query:
+            """
+            CALL vector_search.search("or_idx", 10, [1.0, 2.0]) YIELD * RETURN distance ORDER BY distance;
+            """
+        Then the result should be:
+            | distance |
+            | 0.0      |
+            | 8.0      |
+
+    Scenario: Create AND vector index on multiple labels
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX and_idx ON :A&B(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE (:A:B {embedding: [1.0, 2.0]})
+            CREATE (:A {embedding: [3.0, 4.0]})
+            CREATE (:B {embedding: [5.0, 6.0]});
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                | label    | property    | count |
+            | 'label+property_vector'   | ':A&B'   | 'embedding' | 1     |
+        When executing query:
+            """
+            CALL vector_search.search("and_idx", 10, [1.0, 2.0]) YIELD * RETURN distance;
+            """
+        Then the result should be:
+            | distance |
+            | 0.0      |
+
+    Scenario: SHOW INDEX INFO lists every vector index mode
+        Given an empty graph
+        And having executed
+            """
+            CREATE VECTOR INDEX node_single ON :Person(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR INDEX node_or ON :Person|Movie(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR INDEX node_and ON :Person&Star(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR INDEX node_wildcard ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX edge_single ON :KNOWS(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX edge_or ON :KNOWS|LIKES(embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        And having executed
+            """
+            CREATE VECTOR EDGE INDEX edge_wildcard ON (embedding) WITH CONFIG {"dimension": 2, "capacity": 10}
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                  | label             | property    | count |
+            | 'edge-type+property_vector' | '*'               | 'embedding' | 0     |
+            | 'edge-type+property_vector' | ':KNOWS'          | 'embedding' | 0     |
+            | 'edge-type+property_vector' | ':KNOWS\|LIKES'   | 'embedding' | 0     |
+            | 'label+property_vector'     | '*'               | 'embedding' | 0     |
+            | 'label+property_vector'     | ':Person'         | 'embedding' | 0     |
+            | 'label+property_vector'     | ':Person&Star'    | 'embedding' | 0     |
+            | 'label+property_vector'     | ':Person\|Movie'  | 'embedding' | 0     |

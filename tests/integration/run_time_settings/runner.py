@@ -24,6 +24,10 @@ from typing import List
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 SIGNAL_SIGTERM = 15
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
 
 
 def wait_for_server(port: int, delay: float = 0.1) -> float:
@@ -43,7 +47,7 @@ def execute_tester(
     check_failure=True,
     connection_should_fail=False,
 ):
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if should_fail:
         args.append("--should-fail")
     if failure_message:
@@ -57,7 +61,7 @@ def execute_tester(
 
 
 def execute_query(binary: str, queries: List[str], username: str = "", password: str = "") -> None:
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     args.extend(queries)
     subprocess.run(args).check_returncode()
 
@@ -73,7 +77,7 @@ def start_memgraph(memgraph_args: List[any]) -> subprocess:
     )
     time.sleep(0.1)
     assert memgraph.poll() is None, "Memgraph process died prematurely!"
-    wait_for_server(7687)
+    wait_for_server(BOLT_PORT)
     # Make the stdout and stderr pipes non-blocking
     make_non_blocking(memgraph.stdout.fileno())
     make_non_blocking(memgraph.stderr.fileno())
@@ -81,12 +85,12 @@ def start_memgraph(memgraph_args: List[any]) -> subprocess:
 
 
 def check_flag(tester_binary: str, flag: str, value: str) -> None:
-    args = [tester_binary, "--field", flag, "--value", value]
+    args = [tester_binary, "--port", str(BOLT_PORT), "--field", flag, "--value", value]
     subprocess.run(args).check_returncode()
 
 
 def check_config(tester_binary: str, flag: str, value: str) -> None:
-    args = [tester_binary, "--config", flag, "--value", value]
+    args = [tester_binary, "--port", str(BOLT_PORT), "--config", flag, "--value", value]
     subprocess.run(args).check_returncode()
 
 
@@ -100,11 +104,14 @@ def cleanup(memgraph: subprocess):
         time.sleep(1)
 
 
-def run_test(tester_binary: str, memgraph_args: List[str], server_name: str, query_tx: str):
+def run_test(
+    tester_binary: str, memgraph_args: List[str], server_name: str, query_tx: str, storage_access_timeout: str = "1"
+):
     memgraph = start_memgraph(memgraph_args)
     atexit.register(cleanup, memgraph)
     check_flag(tester_binary, "server.name", server_name)
     check_flag(tester_binary, "query.timeout", query_tx)
+    check_flag(tester_binary, "storage.access_timeout_sec", storage_access_timeout)
     cleanup(memgraph)
     atexit.unregister(cleanup)
 
@@ -114,8 +121,10 @@ def run_test_w_query(tester_binary: str, memgraph_args: List[str], executor_bina
     atexit.register(cleanup, memgraph)
     execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Name';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'query.timeout' TO '123';"])
+    execute_query(executor_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '30';"])
     check_flag(tester_binary, "server.name", "New Name")
     check_flag(tester_binary, "query.timeout", "123")
+    check_flag(tester_binary, "storage.access_timeout_sec", "30")
     cleanup(memgraph)
     atexit.unregister(cleanup)
 
@@ -154,13 +163,13 @@ def run_log_test(tester_binary: str, memgraph_args: List[str], executor_binary: 
         tester_binary,
         ["SET DATABASE SETTING 'log.to_stderr' TO 'something'"],
         should_fail=True,
-        failure_message="'something' not valid for 'log.to_stderr'",
+        failure_message="Cannot update setting 'log.to_stderr': Boolean value supports only 'false' or 'true' as the input.",
     )
     execute_tester(
         tester_binary,
         ["SET DATABASE SETTING 'log.level' TO 'something'"],
         should_fail=True,
-        failure_message="'something' not valid for 'log.level'",
+        failure_message="Cannot update setting 'log.level': Unsupported log level. Log level must be defined as one of the following strings: TRACE, DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
     cleanup(memgraph)
     atexit.unregister(cleanup)
@@ -172,9 +181,41 @@ def run_check_config(tester_binary: str, memgraph_args: List[str], executor_bina
     execute_query(executor_binary, ["SET DATABASE SETTING 'server.name' TO 'New Name';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'query.timeout' TO '123';"])
     execute_query(executor_binary, ["SET DATABASE SETTING 'log.level' TO 'CRITICAL';"])
+    execute_query(executor_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '30';"])
     check_config(tester_binary, "bolt_server_name_for_init", "New Name")
     check_config(tester_binary, "query_execution_timeout_sec", "123")
     check_config(tester_binary, "log_level", "CRITICAL")
+    check_config(tester_binary, "storage_access_timeout_sec", "30")
+    cleanup(memgraph)
+    atexit.unregister(cleanup)
+
+
+def run_storage_access_validation_test(tester_binary: str, memgraph_args: List[str]):
+    memgraph = start_memgraph(memgraph_args)
+    atexit.register(cleanup, memgraph)
+    # Valid boundary values
+    execute_tester(tester_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '1'"])
+    execute_tester(tester_binary, ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '1000000'"])
+    # Out of range
+    execute_tester(
+        tester_binary,
+        ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '0'"],
+        should_fail=True,
+        failure_message="Cannot update setting 'storage.access_timeout_sec': storage.access_timeout_sec must be in range [1, 1000000]",
+    )
+    execute_tester(
+        tester_binary,
+        ["SET DATABASE SETTING 'storage.access_timeout_sec' TO '1000001'"],
+        should_fail=True,
+        failure_message="Cannot update setting 'storage.access_timeout_sec': storage.access_timeout_sec must be in range [1, 1000000]",
+    )
+    # Non-integer
+    execute_tester(
+        tester_binary,
+        ["SET DATABASE SETTING 'storage.access_timeout_sec' TO 'abc'"],
+        should_fail=True,
+        failure_message="Cannot update setting 'storage.access_timeout_sec': storage.access_timeout_sec must be a valid unsigned integer",
+    )
     cleanup(memgraph)
     atexit.unregister(cleanup)
 
@@ -183,7 +224,13 @@ def execute_test(
     memgraph_binary: str, tester_binary: str, flag_tester_binary: str, executor_binary: str, test_config_binary: str
 ) -> None:
     storage_directory = tempfile.TemporaryDirectory()
-    memgraph_args = [memgraph_binary, "--data-directory", storage_directory.name]
+    memgraph_args = [
+        memgraph_binary,
+        "--data-directory",
+        storage_directory.name,
+        "--metrics-format=OpenMetrics",
+        *PORT_ARGS,
+    ]
 
     print("\033[1;36m~~ Starting run-time settings check test ~~\033[0m")
 
@@ -194,9 +241,18 @@ def execute_test(
     # Check changing flags via command-line arguments
     run_test(
         flag_tester_binary,
-        memgraph_args + ["--bolt-server-name-for-init", "Memgraph", "--query-execution-timeout-sec", "1000"],
+        memgraph_args
+        + [
+            "--bolt-server-name-for-init",
+            "Memgraph",
+            "--query-execution-timeout-sec",
+            "1000",
+            "--storage-access-timeout-sec",
+            "60",
+        ],
         "Memgraph",
         "1000",
+        "60",
     )
 
     # Check changing flags via query
@@ -209,6 +265,9 @@ def execute_test(
     print("\033[1;34m~~ check show config ~~\033[0m")
     # Check log settings
     run_check_config(test_config_binary, memgraph_args, executor_binary)
+
+    print("\033[1;34m~~ storage.access_timeout_sec validation ~~\033[0m")
+    run_storage_access_validation_test(tester_binary, memgraph_args)
 
     print("\033[1;36m~~ Finished run-time settings check test ~~\033[0m")
 

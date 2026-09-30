@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,12 +20,11 @@
 #include <utility>
 #include <vector>
 
-#include "query/db_accessor.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/compile_time.hpp"
 #include "utils/concepts.hpp"
-#include "utils/fnv.hpp"
 
 namespace memgraph::query {
 namespace detail {
@@ -46,6 +45,7 @@ struct CreatedObject {
   explicit CreatedObject(const TAccessor &object) : object{object} {}
 
   bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}}};
   }
@@ -58,6 +58,7 @@ struct DeletedObject {
   explicit DeletedObject(const TAccessor &object) : object{object} {}
 
   bool IsValid() const { return object.IsVisible(storage::View::OLD); }
+
   std::map<std::string, TypedValue> ToMap([[maybe_unused]] DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}}};
   }
@@ -65,15 +66,19 @@ struct DeletedObject {
   TAccessor object;
 };
 
+struct ObjectCommonMethods {
+  static auto PropertyToName(DbAccessor *dba, storage::PropertyId key) -> TypedValue;
+};
+
 template <ObjectAccessor TAccessor>
-struct SetObjectProperty {
+struct SetObjectProperty : ObjectCommonMethods {
   explicit SetObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value,
                              TypedValue new_value)
       : object{object}, key{key}, old_value{std::move(old_value)}, new_value{std::move(new_value)} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
     return {{ObjectString<TAccessor>(), TypedValue{object}},
-            {"key", TypedValue{dba->PropertyToName(key)}},
+            {"key", PropertyToName(dba, key)},
             {"old", old_value},
             {"new", new_value}};
   }
@@ -87,14 +92,12 @@ struct SetObjectProperty {
 };
 
 template <ObjectAccessor TAccessor>
-struct RemovedObjectProperty {
+struct RemovedObjectProperty : ObjectCommonMethods {
   explicit RemovedObjectProperty(const TAccessor &object, storage::PropertyId key, TypedValue old_value)
       : object{object}, key{key}, old_value{std::move(old_value)} {}
 
   std::map<std::string, TypedValue> ToMap(DbAccessor *dba) const {
-    return {{ObjectString<TAccessor>(), TypedValue{object}},
-            {"key", TypedValue{dba->PropertyToName(key)}},
-            {"old", old_value}};
+    return {{ObjectString<TAccessor>(), TypedValue{object}}, {"key", PropertyToName(dba, key)}, {"old", old_value}};
   }
 
   bool IsValid() const { return object.IsVisible(storage::View::OLD); }
@@ -164,6 +167,7 @@ const char *TriggerEventTypeToString(TriggerEventType event_type);
 class TriggerContext {
  public:
   TriggerContext() = default;
+
   TriggerContext(std::vector<detail::CreatedObject<VertexAccessor>> created_vertices,
                  std::vector<detail::DeletedObject<VertexAccessor>> deleted_vertices,
                  std::vector<detail::SetObjectProperty<VertexAccessor>> set_vertex_properties,
@@ -184,6 +188,7 @@ class TriggerContext {
         deleted_edges_{std::move(deleted_edges)},
         set_edge_properties_{std::move(set_edge_properties)},
         removed_edge_properties_{std::move(removed_edge_properties)} {}
+
   TriggerContext(const TriggerContext &) = default;
   TriggerContext(TriggerContext &&) = default;
   TriggerContext &operator=(const TriggerContext &) = default;
@@ -322,20 +327,37 @@ class TriggerContextCollector {
   void RegisterRemovedVertexLabel(const VertexAccessor &vertex, storage::LabelId label_id);
   [[nodiscard]] TriggerContext TransformToTriggerContext() &&;
 
+  // Merge another TriggerContextCollector into this one.
+  // Used when unifying contexts from parallel execution branches.
+  void MergeFrom(TriggerContextCollector &&other);
+
+  // Create an empty collector with the same configuration flags (what to track)
+  // but no collected data. Used for parallel execution branches.
+  [[nodiscard]] TriggerContextCollector CreateEmptyWithSameConfig() const;
+
  private:
   template <detail::ObjectAccessor TAccessor>
-  const Registry<TAccessor> &GetRegistry() const {
+  auto GetRegistry() const -> Registry<TAccessor> const & {
     if constexpr (std::same_as<TAccessor, VertexAccessor>) {
       return vertex_registry_;
-    } else {
+    } else if constexpr (std::same_as<TAccessor, EdgeAccessor>) {
       return edge_registry_;
+    } else {
+      static_assert(utils::always_false<TAccessor>, "Should be VertexAccessor/EdgeAccessor");
+      std::unreachable();
     }
   }
 
   template <detail::ObjectAccessor TAccessor>
-  Registry<TAccessor> &GetRegistry() {
-    return const_cast<Registry<TAccessor> &>(
-        const_cast<const TriggerContextCollector *>(this)->GetRegistry<TAccessor>());
+  auto GetRegistry() -> Registry<TAccessor> & {
+    if constexpr (std::same_as<TAccessor, VertexAccessor>) {
+      return vertex_registry_;
+    } else if constexpr (std::same_as<TAccessor, EdgeAccessor>) {
+      return edge_registry_;
+    } else {
+      static_assert(utils::always_false<TAccessor>, "Should be VertexAccessor/EdgeAccessor");
+      std::unreachable();
+    }
   }
 
   using LabelChangesMap = std::unordered_map<std::pair<VertexAccessor, storage::LabelId>, int8_t, HashPairWithAccessor>;

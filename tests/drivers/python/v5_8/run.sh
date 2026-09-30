@@ -13,7 +13,7 @@ fi
 if [ ! -d "ve3" ]; then
     virtualenv -p python3 ve3 || exit 1
     source ve3/bin/activate
-    python3 -m pip install neo4j==5.8.0 || exit 1
+    python3 -m pip install neo4j==5.14.0 || exit 1
     deactivate
 fi
 
@@ -26,4 +26,10 @@ python3 max_query_length.py || exit 1
 python3 transactions.py || exit 1
 python3 path.py || exit 1
 python3 server_name.py || exit 1
+python3 metadata.py || exit 1
+python3 multi_tenancy.py || exit 1
+# disabled due to debug being too slow
+# python3 parallel_execution.py || exit 1
+python3 impersonate_user.py || exit 1
+# flaky due to unknown snapshot duration python3 create_snapshots.py || exit 1
 # python3 parallel_edge_import.py || exit 1

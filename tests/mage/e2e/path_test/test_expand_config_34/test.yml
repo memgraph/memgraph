@@ -1,0 +1,13 @@
+# The string form is split on '|', so both pieces name a filter. A reader that took the whole string
+# as one entry would look for a type literally called 'R>|OTHER>' and reach neither neighbour.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: 'R>|OTHER>', maxHops: 1})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]
+  - names: ["A", "E"]

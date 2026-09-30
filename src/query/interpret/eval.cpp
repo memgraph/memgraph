@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,15 +11,64 @@
 
 #include "query/interpret/eval.hpp"
 
+#include "query/auth_checker.hpp"
+#include "query/graph.hpp"
+#include "query/virtual_graph.hpp"
+
+#include <ranges>
+#include <regex>
+
 namespace memgraph::query {
 
-int64_t EvaluateInt(ExpressionEvaluator *evaluator, Expression *expr, const std::string &what) {
-  TypedValue value = expr->Accept(*evaluator);
+namespace r = std::ranges;
+namespace rv = r::views;
+
+namespace {
+template <r::input_range R>
+TypedValue RangeToTypedValueList(R &&range, utils::MemoryResource *memory) {
+  utils::pmr::vector<TypedValue> out(memory);
+  if constexpr (r::sized_range<R>) out.reserve(r::size(range));
+  for (const auto &item : range) out.emplace_back(TypedValue(item, memory));
+  return {std::move(out), memory};
+}
+}  // namespace
+
+int64_t EvaluateInt(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
+  TypedValue value = expr->Accept(eval);
   try {
     return value.ValueInt();
   } catch (TypedValueException &e) {
-    throw QueryRuntimeException(what + " must be an int");
+    throw QueryRuntimeException(std::string(what) + " must be an int");
   }
+}
+
+std::optional<int64_t> EvaluateUint(ExpressionVisitor<TypedValue> &eval, Expression *expr, std::string_view what) {
+  if (!expr) {
+    return std::nullopt;
+  }
+
+  TypedValue value = expr->Accept(eval);
+  try {
+    auto value_uint = value.ValueInt();
+    if (value_uint < 0) {
+      throw QueryRuntimeException(std::string(what) + " must be a non-negative integer");
+    }
+    return value_uint;
+  } catch (TypedValueException &e) {
+    throw QueryRuntimeException(std::string(what) + " must be a non-negative integer");
+  }
+}
+
+std::optional<int64_t> EvaluateHopsLimit(ExpressionVisitor<TypedValue> &eval, Expression *expr) {
+  return EvaluateUint(eval, expr, "Hops limit");
+}
+
+std::optional<int64_t> EvaluateCommitFrequency(ExpressionVisitor<TypedValue> &eval, Expression *expr) {
+  return EvaluateUint(eval, expr, "Commit frequency");
+}
+
+std::optional<int64_t> EvaluateDeleteBufferSize(ExpressionVisitor<TypedValue> &eval, Expression *expr) {
+  return EvaluateUint(eval, expr, "Delete buffer size");
 }
 
 std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, Expression *memory_limit,
@@ -32,5 +81,499 @@ std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, E
   if (std::numeric_limits<size_t>::max() / memory_scale < limit) throw QueryRuntimeException("Memory limit overflow.");
   return limit * memory_scale;
 }
+
+TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
+  auto target_string_value = regex_match.string_expr_->Accept(*this);
+  if (target_string_value.IsNull()) {
+    return TypedValue(ctx_->memory);
+  }
+  if (target_string_value.type() != TypedValue::Type::String) {
+    // Instead of error, we return Null which makes it compatible in case we
+    // use indexed lookup which filters out any non-string properties.
+    // Assuming a property lookup is the target_string_value.
+    return TypedValue(ctx_->memory);
+  }
+
+  auto valid_regex_str = [&](TypedValue const &regex) {
+    if (regex.IsNull()) {
+      return false;
+    }
+    if (regex.type() != TypedValue::Type::String) {
+      throw QueryRuntimeException("Regular expression must evaluate to a string, got {}.", regex.type());
+    }
+    return true;
+  };
+
+  auto build_regex = [](std::pmr::string const &str) {
+    try {
+      return std::regex{str};
+    } catch (const std::regex_error &e) {
+      throw QueryRuntimeException("Regex error in '{}': {}", str, e.what());
+    }
+  };
+
+  if (frame_change_collector_) {
+    const auto cached_id = memgraph::utils::GetFrameChangeId(regex_match);
+    if (frame_change_collector_->IsRegexKeyTracked(cached_id)) {
+      auto cached_value_ref = frame_change_collector_->TryGetRegexCachedValue(cached_id);
+      if (!cached_value_ref) {
+        // Check only first time if everything is okay, later when we use
+        // cache there is no need to check again as we did check first time
+        const auto regex_str = regex_match.regex_->Accept(*this);
+
+        if (!valid_regex_str(regex_str)) {
+          return TypedValue(ctx_->memory);
+        }
+        auto cached_value = frame_change_collector_->AddRegexKey(cached_id, build_regex(regex_str.ValueString()));
+        cached_value_ref = cached_value;
+      }
+      return TypedValue(std::regex_match(target_string_value.ValueString(), cached_value_ref->get()), ctx_->memory);
+    }
+  }
+
+  // When caching is not an option, we need to evaluate regex literal every time
+  auto regex_value = regex_match.regex_->Accept(*this);
+  if (!valid_regex_str(regex_value)) {
+    return TypedValue(ctx_->memory);
+  }
+  return TypedValue(std::regex_match(target_string_value.ValueString(), build_regex(regex_value.ValueString())),
+                    ctx_->memory);
+}
+
+TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup) {
+  TypedValue::TMap result(ctx_->memory);
+
+  auto expression_result = all_properties_lookup.expression_->Accept(*this);
+  switch (expression_result.type()) {
+    case TypedValue::Type::Null:
+      return TypedValue(ctx_->memory);
+    case TypedValue::Type::Vertex: {
+      for (const auto &[property_id, value] : GetAllProperties(expression_result.ValueVertex())) {
+        auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
+        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
+      }
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::Edge: {
+      for (const auto &[property_id, value] : GetAllProperties(expression_result.ValueEdge())) {
+        auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
+        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
+      }
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::VirtualEdge: {
+      for (auto const &[prop_id, prop_value] : expression_result.ValueVirtualEdge().Properties()) {
+        result.emplace(TypedValue::TString(dba_->PropertyToName(prop_id), ctx_->memory),
+                       TypedValue(prop_value, GetNameIdMapper(), ctx_->memory));
+      }
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::Map: {
+      for (auto &[name, value] : expression_result.ValueMap()) {
+        result.emplace(name, value);
+      }
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::Duration: {
+      const auto &dur = expression_result.ValueDuration();
+      result.emplace(TypedValue::TString("day", ctx_->memory), TypedValue(dur.Days(), ctx_->memory));
+      result.emplace(TypedValue::TString("hour", ctx_->memory), TypedValue(dur.SubDaysAsHours(), ctx_->memory));
+      result.emplace(TypedValue::TString("minute", ctx_->memory), TypedValue(dur.SubDaysAsMinutes(), ctx_->memory));
+      result.emplace(TypedValue::TString("second", ctx_->memory), TypedValue(dur.SubDaysAsSeconds(), ctx_->memory));
+      result.emplace(TypedValue::TString("millisecond", ctx_->memory),
+                     TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory));
+      result.emplace(TypedValue::TString("microseconds", ctx_->memory),
+                     TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory));
+      result.emplace(TypedValue::TString("nanoseconds", ctx_->memory),
+                     TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory));
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::Date: {
+      const auto &date = expression_result.ValueDate();
+      result.emplace(TypedValue::TString("year", ctx_->memory), TypedValue(date.year, ctx_->memory));
+      result.emplace(TypedValue::TString("month", ctx_->memory), TypedValue(date.month, ctx_->memory));
+      result.emplace(TypedValue::TString("day", ctx_->memory), TypedValue(date.day, ctx_->memory));
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::LocalTime: {
+      const auto &lt = expression_result.ValueLocalTime();
+      result.emplace(TypedValue::TString("hour", ctx_->memory), TypedValue(lt.hour, ctx_->memory));
+      result.emplace(TypedValue::TString("minute", ctx_->memory), TypedValue(lt.minute, ctx_->memory));
+      result.emplace(TypedValue::TString("second", ctx_->memory), TypedValue(lt.second, ctx_->memory));
+      result.emplace(TypedValue::TString("millisecond", ctx_->memory), TypedValue(lt.millisecond, ctx_->memory));
+      result.emplace(TypedValue::TString("microsecond", ctx_->memory), TypedValue(lt.microsecond, ctx_->memory));
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::LocalDateTime: {
+      const auto &ldt = expression_result.ValueLocalDateTime();
+      const auto &date = ldt.date();
+      const auto &lt = ldt.local_time();
+      result.emplace(TypedValue::TString("year", ctx_->memory), TypedValue(date.year, ctx_->memory));
+      result.emplace(TypedValue::TString("month", ctx_->memory), TypedValue(date.month, ctx_->memory));
+      result.emplace(TypedValue::TString("day", ctx_->memory), TypedValue(date.day, ctx_->memory));
+      result.emplace(TypedValue::TString("hour", ctx_->memory), TypedValue(lt.hour, ctx_->memory));
+      result.emplace(TypedValue::TString("minute", ctx_->memory), TypedValue(lt.minute, ctx_->memory));
+      result.emplace(TypedValue::TString("second", ctx_->memory), TypedValue(lt.second, ctx_->memory));
+      result.emplace(TypedValue::TString("millisecond", ctx_->memory), TypedValue(lt.millisecond, ctx_->memory));
+      result.emplace(TypedValue::TString("microsecond", ctx_->memory), TypedValue(lt.microsecond, ctx_->memory));
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::ZonedDateTime: {
+      throw QueryRuntimeException("Can't coerce `{}` to Map.", expression_result.ValueZonedDateTime().ToString());
+    }
+    case TypedValue::Type::Point2d: {
+      auto const &point_2d = expression_result.ValuePoint2d();
+      result.emplace(TypedValue::TString("x", ctx_->memory), TypedValue(point_2d.x(), ctx_->memory));
+      result.emplace(TypedValue::TString("y", ctx_->memory), TypedValue(point_2d.y(), ctx_->memory));
+      result.emplace(TypedValue::TString("srid", ctx_->memory),
+                     TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory));
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::Point3d: {
+      auto const &point_3d = expression_result.ValuePoint3d();
+      result.emplace(TypedValue::TString("x", ctx_->memory), TypedValue(point_3d.x(), ctx_->memory));
+      result.emplace(TypedValue::TString("y", ctx_->memory), TypedValue(point_3d.y(), ctx_->memory));
+      result.emplace(TypedValue::TString("z", ctx_->memory), TypedValue(point_3d.z(), ctx_->memory));
+      result.emplace(TypedValue::TString("srid", ctx_->memory),
+                     TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory));
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::VirtualNode: {
+      for (auto const &[prop_id, prop_value] : expression_result.ValueVirtualNode().Properties()) {
+        result.emplace(TypedValue::TString(dba_->PropertyToName(prop_id), ctx_->memory),
+                       TypedValue(prop_value, GetNameIdMapper(), ctx_->memory));
+      }
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::Graph: {
+      const auto &graph = expression_result.ValueGraph();
+      result.emplace(TypedValue::TString("nodes", ctx_->memory), RangeToTypedValueList(graph.vertices(), ctx_->memory));
+      result.emplace(TypedValue::TString("edges", ctx_->memory), RangeToTypedValueList(graph.edges(), ctx_->memory));
+      return {result, ctx_->memory};
+    }
+    case TypedValue::Type::VirtualGraph: {
+      const auto &vg = expression_result.ValueVirtualGraph();
+      result.emplace(TypedValue::TString("nodes", ctx_->memory),
+                     RangeToTypedValueList(vg.nodes() | rv::values |
+                                               rv::transform([](const auto &sp) -> const VirtualNode & { return *sp; }),
+                                           ctx_->memory));
+      result.emplace(TypedValue::TString("edges", ctx_->memory), RangeToTypedValueList(vg.edges(), ctx_->memory));
+      return {result, ctx_->memory};
+    }
+
+    default:
+      throw QueryRuntimeException(
+          "Only nodes, edges, maps, temporal types, points, and graphs have properties to be looked up.");
+  }
+}
+
+TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
+  ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, ctx_);
+
+  TypedValue const *expression_result_ptr = property_lookup.expression_->Accept(referenceExpressionEvaluator);
+  TypedValue expression_result;
+
+  if (nullptr == expression_result_ptr) {
+    expression_result = property_lookup.expression_->Accept(*this);
+    expression_result_ptr = &expression_result;
+  }
+  auto maybe_date = [this](const auto &date, const auto &prop_name) -> std::optional<TypedValue> {
+    if (prop_name == "year") {
+      return TypedValue(date.year, ctx_->memory);
+    }
+    if (prop_name == "month") {
+      return TypedValue(date.month, ctx_->memory);
+    }
+    if (prop_name == "day") {
+      return TypedValue(date.day, ctx_->memory);
+    }
+    return std::nullopt;
+  };
+  auto maybe_local_time = [this](const auto &lt, const auto &prop_name) -> std::optional<TypedValue> {
+    if (prop_name == "hour") {
+      return TypedValue(lt.hour, ctx_->memory);
+    }
+    if (prop_name == "minute") {
+      return TypedValue(lt.minute, ctx_->memory);
+    }
+    if (prop_name == "second") {
+      return TypedValue(lt.second, ctx_->memory);
+    }
+    if (prop_name == "millisecond") {
+      return TypedValue(lt.millisecond, ctx_->memory);
+    }
+    if (prop_name == "microsecond") {
+      return TypedValue(lt.microsecond, ctx_->memory);
+    }
+    return std::nullopt;
+  };
+  auto maybe_duration = [this](const auto &dur, const auto &prop_name) -> std::optional<TypedValue> {
+    if (prop_name == "day") {
+      return TypedValue(dur.Days(), ctx_->memory);
+    }
+    if (prop_name == "hour") {
+      return TypedValue(dur.SubDaysAsHours(), ctx_->memory);
+    }
+    if (prop_name == "minute") {
+      return TypedValue(dur.SubDaysAsMinutes(), ctx_->memory);
+    }
+    if (prop_name == "second") {
+      return TypedValue(dur.SubDaysAsSeconds(), ctx_->memory);
+    }
+    if (prop_name == "millisecond") {
+      return TypedValue(dur.SubDaysAsMilliseconds(), ctx_->memory);
+    }
+    if (prop_name == "microsecond") {
+      return TypedValue(dur.SubDaysAsMicroseconds(), ctx_->memory);
+    }
+    if (prop_name == "nanosecond") {
+      return TypedValue(dur.SubDaysAsNanoseconds(), ctx_->memory);
+    }
+    return std::nullopt;
+  };
+  auto maybe_zoned_date_time = [this](const auto &zdt, const auto &prop_name) -> std::optional<TypedValue> {
+    if (prop_name == "year") {
+      return TypedValue(zdt.LocalYear(), ctx_->memory);
+    }
+    if (prop_name == "month") {
+      return TypedValue(std::bit_cast<int64_t>(zdt.LocalMonth()), ctx_->memory);
+    }
+    if (prop_name == "day") {
+      return TypedValue(std::bit_cast<int64_t>(zdt.LocalDay()), ctx_->memory);
+    }
+    if (prop_name == "hour") {
+      return TypedValue(zdt.LocalHour(), ctx_->memory);
+    }
+    if (prop_name == "minute") {
+      return TypedValue(zdt.LocalMinute(), ctx_->memory);
+    }
+    if (prop_name == "second") {
+      return TypedValue(zdt.LocalSecond(), ctx_->memory);
+    }
+    if (prop_name == "millisecond") {
+      return TypedValue(zdt.LocalMillisecond(), ctx_->memory);
+    }
+    if (prop_name == "microsecond") {
+      return TypedValue(zdt.LocalMicrosecond(), ctx_->memory);
+    }
+    if (prop_name == "timezone") {
+      return TypedValue(zdt.GetTimezone().ToString(), ctx_->memory);
+    }
+    return std::nullopt;
+  };
+  auto maybe_point2d = [this](const auto &point_2d, const auto &prop_name) -> std::optional<TypedValue> {
+    auto is_wgs = point_2d.crs() == storage::CoordinateReferenceSystem::WGS84_2d;
+    if (prop_name == "x") {
+      return TypedValue(point_2d.x(), ctx_->memory);
+    }
+    if (prop_name == "longitude") {
+      if (!is_wgs) throw QueryRuntimeException("Use x instead of longitude for cartesian point types");
+      return TypedValue(point_2d.x(), ctx_->memory);
+    }
+    if (prop_name == "y") {
+      return TypedValue(point_2d.y(), ctx_->memory);
+    }
+    if (prop_name == "latitude") {
+      if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
+      return TypedValue(point_2d.y(), ctx_->memory);
+    }
+    if (prop_name == "crs") {
+      return TypedValue(storage::CrsToString(point_2d.crs()), ctx_->memory);
+    }
+    if (prop_name == "srid") {
+      return TypedValue(storage::CrsToSrid(point_2d.crs()).value_of(), ctx_->memory);
+    }
+    return std::nullopt;
+  };
+  auto maybe_point3d = [this](const auto &point_3d, const auto &prop_name) -> std::optional<TypedValue> {
+    auto is_wgs = point_3d.crs() == storage::CoordinateReferenceSystem::WGS84_3d;
+    if (prop_name == "x") {
+      return TypedValue(point_3d.x(), ctx_->memory);
+    }
+    if (prop_name == "longitude") {
+      if (!is_wgs) throw QueryRuntimeException("Use x instead of longitude for cartesian point types");
+      return TypedValue(point_3d.x(), ctx_->memory);
+    }
+    if (prop_name == "y") {
+      return TypedValue(point_3d.y(), ctx_->memory);
+    }
+    if (prop_name == "latitude") {
+      if (!is_wgs) throw QueryRuntimeException("Use y instead of latitude for cartesian point types");
+      return TypedValue(point_3d.y(), ctx_->memory);
+    }
+    if (prop_name == "z") {
+      return TypedValue(point_3d.z(), ctx_->memory);
+    }
+    if (prop_name == "height") {
+      if (!is_wgs) throw QueryRuntimeException("Use z instead of height for cartesian point types");
+      return TypedValue(point_3d.z(), ctx_->memory);
+    }
+    if (prop_name == "crs") {
+      return TypedValue(storage::CrsToString(point_3d.crs()), ctx_->memory);
+    }
+    if (prop_name == "srid") {
+      return TypedValue(storage::CrsToSrid(point_3d.crs()).value_of(), ctx_->memory);
+    }
+    return std::nullopt;
+  };
+  auto maybe_graph = [this](const auto &graph, const auto &prop_name) -> std::optional<TypedValue> {
+    if (prop_name == "nodes") return RangeToTypedValueList(graph.vertices(), ctx_->memory);
+    if (prop_name == "edges") return RangeToTypedValueList(graph.edges(), ctx_->memory);
+    return std::nullopt;
+  };
+  auto maybe_virtual_graph = [this](const auto &vg, const auto &prop_name) -> std::optional<TypedValue> {
+    if (prop_name == "nodes") {
+      return RangeToTypedValueList(
+          vg.nodes() | rv::values | rv::transform([](const auto &sp) -> const VirtualNode & { return *sp; }),
+          ctx_->memory);
+    }
+    if (prop_name == "edges") return RangeToTypedValueList(vg.edges(), ctx_->memory);
+    return std::nullopt;
+  };
+  switch (expression_result_ptr->type()) {
+    case TypedValue::Type::Null:
+      return TypedValue(ctx_->memory);
+    case TypedValue::Type::Vertex:
+      if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
+        auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
+        if (!property_lookup_cache_.contains(symbol_pos)) {
+          property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
+        }
+
+        auto property_id = ctx_->properties[property_lookup.property_.ix];
+        if (property_lookup_cache_[symbol_pos].contains(property_id)) {
+          return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
+        }
+        return TypedValue(ctx_->memory);
+      } else {
+        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_),
+                GetNameIdMapper(),
+                ctx_->memory};
+      }
+    case TypedValue::Type::Edge:
+      if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
+        auto symbol_pos = static_cast<Identifier *>(property_lookup.expression_)->symbol_pos_;
+        if (!property_lookup_cache_.contains(symbol_pos)) {
+          property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
+        }
+
+        auto property_id = ctx_->properties[property_lookup.property_.ix];
+        if (property_lookup_cache_[symbol_pos].contains(property_id)) {
+          return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
+        }
+        return TypedValue(ctx_->memory);
+      } else {
+        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_),
+                GetNameIdMapper(),
+                ctx_->memory};
+      }
+    case TypedValue::Type::VirtualEdge: {
+      auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
+      auto prop_value = expression_result_ptr->ValueVirtualEdge().GetProperty(prop_id);
+      if (prop_value.IsNull()) return TypedValue(ctx_->memory);
+      return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
+    }
+    case TypedValue::Type::VirtualNode: {
+      auto prop_id = dba_->NameToProperty(property_lookup.property_.name);
+      auto prop_value = expression_result_ptr->ValueVirtualNode().GetProperty(prop_id);
+      if (prop_value.IsNull()) return TypedValue(ctx_->memory);
+      return {std::move(prop_value), GetNameIdMapper(), ctx_->memory};
+    }
+    case TypedValue::Type::Map: {
+      auto &map = expression_result_ptr->ValueMap();
+      auto found = map.find(property_lookup.property_.name.c_str());
+      if (found == map.end()) return TypedValue(ctx_->memory);
+      return {found->second, ctx_->memory};
+    }
+    case TypedValue::Type::Duration: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &dur = expression_result_ptr->ValueDuration();
+      if (auto dur_field = maybe_duration(dur, prop_name); dur_field) {
+        return {*dur_field, ctx_->memory};
+      }
+      throw QueryRuntimeException("Invalid property name {} for Duration", prop_name);
+    }
+    case TypedValue::Type::Date: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &date = expression_result_ptr->ValueDate();
+      if (auto date_field = maybe_date(date, prop_name); date_field) {
+        return {*date_field, ctx_->memory};
+      }
+      throw QueryRuntimeException("Invalid property name {} for Date", prop_name);
+    }
+    case TypedValue::Type::LocalTime: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &lt = expression_result_ptr->ValueLocalTime();
+      if (auto lt_field = maybe_local_time(lt, prop_name); lt_field) {
+        return std::move(*lt_field);
+      }
+      throw QueryRuntimeException("Invalid property name {} for LocalTime", prop_name);
+    }
+    case TypedValue::Type::LocalDateTime: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &ldt = expression_result_ptr->ValueLocalDateTime();
+      if (auto date_field = maybe_date(ldt.date(), prop_name); date_field) {
+        return std::move(*date_field);
+      }
+      if (auto lt_field = maybe_local_time(ldt.local_time(), prop_name); lt_field) {
+        return {*lt_field, ctx_->memory};
+      }
+      throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
+    }
+    case TypedValue::Type::ZonedDateTime: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &zdt = expression_result_ptr->ValueZonedDateTime();
+      if (auto zdt_field = maybe_zoned_date_time(zdt, prop_name); zdt_field) {
+        return {*zdt_field, ctx_->memory};
+      }
+      throw QueryRuntimeException("Invalid property name {} for ZonedDateTime", prop_name);
+    }
+    case TypedValue::Type::Point2d: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &point_2d = expression_result_ptr->ValuePoint2d();
+      if (auto point_2d_field = maybe_point2d(point_2d, prop_name); point_2d_field) {
+        return {*point_2d_field, ctx_->memory};
+      }
+      throw QueryRuntimeException("Invalid property name {} for Point2d", prop_name);
+    }
+    case TypedValue::Type::Point3d: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &point_3d = expression_result_ptr->ValuePoint3d();
+      if (auto point_3d_field = maybe_point3d(point_3d, prop_name); point_3d_field) {
+        return {*point_3d_field, ctx_->memory};
+      }
+      throw QueryRuntimeException("Invalid property name {} for Point3d", prop_name);
+    }
+    case TypedValue::Type::Graph: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &graph = expression_result_ptr->ValueGraph();
+      if (auto graph_field = maybe_graph(graph, prop_name); graph_field) {
+        return {*graph_field, ctx_->memory};
+      }
+      throw QueryRuntimeException("Invalid property name {} for Graph", prop_name);
+    }
+    case TypedValue::Type::VirtualGraph: {
+      const auto &prop_name = property_lookup.property_.name;
+      const auto &vg = expression_result_ptr->ValueVirtualGraph();
+      if (auto vg_field = maybe_virtual_graph(vg, prop_name); vg_field) {
+        return {*vg_field, ctx_->memory};
+      }
+      throw QueryRuntimeException("Invalid property name {} for VirtualGraph", prop_name);
+    }
+    default:
+      throw QueryRuntimeException(
+          "Only nodes, edges, maps, temporal types and graphs have properties to be looked up.");
+  }
+}
+
+#ifdef MG_ENTERPRISE
+bool ExpressionEvaluator::IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
+  return PropertyReadAllowed(auth_checker_, accessor, view_, prop);
+}
+
+bool ExpressionEvaluator::IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
+  return PropertyReadAllowed(auth_checker_, accessor, prop);
+}
+#endif
 
 }  // namespace memgraph::query

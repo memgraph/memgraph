@@ -1,0 +1,10 @@
+# '*' is a label wildcard, not a relationship one: a relationship step says "any type" with a bare
+# direction marker. Reading '*' as a type name would silently match nothing.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.expand_config(p, {maxHops: 2, relationshipFilter: 'NEXT>,*'})
+  YIELD result
+  RETURN result;
+
+exception_contains: >
+  '*' is not a wildcard for relationship types

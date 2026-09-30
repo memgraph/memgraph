@@ -1,0 +1,13 @@
+--- a/include/libnuraft/cluster_config.hxx
++++ b/include/libnuraft/cluster_config.hxx
+@@ -76,6 +76,10 @@
+         return servers_;
+     }
+ 
++    const std::list<ptr<srv_config>>& get_servers() const {
++        return servers_;
++    }
++
+     ptr<srv_config> get_server(int id) const {
+         for (auto& entry: servers_) {
+             const ptr<srv_config>& srv = entry;

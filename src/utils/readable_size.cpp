@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,9 +11,9 @@
 
 #include "utils/readable_size.hpp"
 
-#include <array>
-
 #include <fmt/format.h>
+#include <array>
+#include <cstddef>
 
 namespace memgraph::utils {
 

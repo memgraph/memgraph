@@ -1,0 +1,7 @@
+include(default)
+
+[settings]
+compiler.cstd=gnu17
+
+[conf]
+m4/*:tools.build:cflags=["-std=gnu17"]

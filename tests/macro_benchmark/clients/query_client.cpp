@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,6 +22,7 @@
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 
+#include <iostream>
 #include "common.hpp"
 
 DEFINE_int32(num_workers, 1, "Number of workers");
@@ -35,17 +36,18 @@ DEFINE_string(password, "", "Password for the database");
 DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 
 using memgraph::communication::bolt::Value;
+using bolt_map_t = memgraph::communication::bolt::map_t;
 
 const int MAX_RETRIES = 50;
 
-void PrintJsonMetadata(std::ostream &os, const std::vector<std::map<std::string, Value>> &metadata) {
+void PrintJsonMetadata(std::ostream &os, const std::vector<bolt_map_t> &metadata) {
   os << "[";
   memgraph::utils::PrintIterable(os, metadata, ", ",
                                  [](auto &stream, const auto &item) { PrintJsonValue(stream, item); });
   os << "]";
 }
 
-void PrintSummary(std::ostream &os, double duration, const std::vector<std::map<std::string, Value>> &metadata) {
+void PrintSummary(std::ostream &os, double duration, const std::vector<bolt_map_t> &metadata) {
   os << "{\"wall_time\": " << duration << ", "
      << "\"metadatas\": ";
   PrintJsonMetadata(os, metadata);
@@ -57,7 +59,7 @@ void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostre
 
   memgraph::utils::SpinLock spinlock;
   uint64_t last = 0;
-  std::vector<std::map<std::string, Value>> metadata;
+  std::vector<bolt_map_t> metadata;
 
   metadata.resize(queries.size());
 
@@ -74,7 +76,7 @@ void ExecuteQueries(const std::vector<std::string> &queries, std::ostream &ostre
       while (true) {
         uint64_t pos;
         {
-          std::lock_guard<memgraph::utils::SpinLock> lock(spinlock);
+          auto lock = std::lock_guard{spinlock};
           if (last == queries.size()) {
             break;
           }

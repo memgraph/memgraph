@@ -1,0 +1,8 @@
+query: >
+  call node2vec.get_embeddings() yield nodes, embeddings
+  unwind embeddings as embedding
+  return count(embedding) as embeddings_num;
+
+
+output:
+    - embeddings_num: 5

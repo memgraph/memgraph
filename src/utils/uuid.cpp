@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,27 +10,28 @@
 // licenses/APL.txt.
 
 #include "utils/uuid.hpp"
-#include <uuid/uuid.h>
-#include "slk/serialization.hpp"
+
+#include <array>
+#include <cstddef>
+#include <nlohmann/json.hpp>
 
 namespace memgraph::utils {
 
+void to_json(nlohmann::json &j, const UUID &uuid) { j = nlohmann::json(uuid.uuid); }
+
+void from_json(const nlohmann::json &j, UUID &uuid) {
+  auto arr = UUID::arr_t{};
+  j.get_to(arr);
+  uuid = UUID(arr);
+}
+
 std::string GenerateUUID() {
   uuid_t uuid;
-  char decoded[37];  // magic size from: man 2 uuid_unparse
+  constexpr size_t kUuidStringLength = 36;          // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+  std::array<char, kUuidStringLength + 1> decoded;  // +1 for null terminator written by uuid_unparse
   uuid_generate(uuid);
-  uuid_unparse(uuid, decoded);
-  return std::string(decoded);
+  uuid_unparse(uuid, decoded.data());
+  return {decoded.data(), kUuidStringLength};
 }
 
 }  // namespace memgraph::utils
-
-// Serialize UUID
-namespace memgraph::slk {
-void Save(const memgraph::utils::UUID &self, memgraph::slk::Builder *builder) {
-  const auto &arr = static_cast<utils::UUID::arr_t>(self);
-  memgraph::slk::Save(arr, builder);
-}
-
-void Load(memgraph::utils::UUID *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(&self->uuid, reader); }
-}  // namespace memgraph::slk

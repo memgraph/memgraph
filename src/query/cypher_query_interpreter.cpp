@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,62 +10,146 @@
 // licenses/APL.txt.
 
 #include "query/cypher_query_interpreter.hpp"
+
+#include <nlohmann/json.hpp>
+
+#include "flags/experimental.hpp"
+#include "frontend/ast/ast.hpp"
+#include "frontend/semantic/required_privileges.hpp"
+#include "frontend/semantic/rw_checker.hpp"
+#include "frontend/semantic/symbol_generator.hpp"
+#include "plan/read_write_type_checker.hpp"
+#include "plan_v2/frontend/egraph_converter.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/plan/planner.hpp"
+#include "query/plan/rewrite/pruning_bfs.hpp"
+#include "query/plan/rule_based_planner.hpp"
+#include "query/plan/used_index_checker.hpp"
+#include "query/plan/vertex_count_cache.hpp"
+#include "query/procedure/module.hpp"
+#include "utils/flag_validation.hpp"
+#include "utils/memory_tracker.hpp"
+#include "utils/string.hpp"
+
+#include "parameters/parameters.hpp"
+#include "query/plan_v2/frontend/ast_converter.hpp"
+#include "query/plan_v2/rewrite/rewrites.hpp"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query plans to cache.",
                        FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_int32(query_ast_cache_max_size, 1000,
+                       "Maximum number of parsed query ASTs to cache (0 disables the cache).",
+                       FLAG_IN_RANGE(0, std::numeric_limits<int32_t>::max()));
 
 namespace memgraph::query {
-PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
+namespace {
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
-                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config) {
+/// A cached artifact is generation-checked only when building its AST read the query-module
+/// registry. A query naming no procedure and no user-defined function bakes in nothing that a
+/// module reload can invalidate, so it survives one untouched.
+bool IsFresh(AstStorage const &ast_storage, uint64_t stamped_generation, uint64_t current_generation) {
+  return !ast_storage.DependsOnModules() || stamped_generation == current_generation;
+}
+
+}  // namespace
+
+PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan, uint64_t module_generation)
+    : plan_(std::move(plan)), module_generation_(module_generation) {
+  auto checker = plan::UsedIndexChecker{};
+  // G_Lloyd: I am so SORRY, const_cast is BAD, but I'm not fixing Visitable and HierarchicalLogicalOperatorVisitor
+  //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
+  const_cast<plan::LogicalOperator &>(plan_->GetRoot()).Accept(checker);
+  required_indices_ = std::move(checker.required_indices_);
+}
+
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            parameters::Parameters const *server_parameters, std::string_view database_uuid)
+    -> Parameters {
+  Parameters parameters{stripped_query.literals()};
+
+  auto try_server_param = [&](int param_index, std::string_view param_key, std::string_view scope) -> bool {
+    if (!server_parameters) return false;
+    auto opt = server_parameters->GetParameter(param_key, scope);
+    if (!opt) return false;
+    TypedValue value;
+    query::from_json(nlohmann::json::parse(*opt), value);
+    parameters.Add(param_index, static_cast<storage::ExternalPropertyValue>(value));
+    return true;
+  };
+
+  for (const auto &[param_index, param_key] : stripped_query.parameters()) {
+    auto it = user_parameters.find(param_key);
+    if (it != user_parameters.end()) {
+      parameters.Add(param_index, it->second);
+      continue;
+    }
+    if (try_server_param(param_index, param_key, database_uuid)) continue;
+    if (try_server_param(param_index, param_key, parameters::kGlobalScope)) continue;
+    throw UnprovidedParameterError("Parameter ${} not provided.", param_key);
+  }
+  return parameters;
+}
+
+ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const &user_parameters, AstCache *cache,
+                       const InterpreterConfig::Query &query_config, std::string_view database_uuid,
+                       parameters::Parameters const *server_parameters) {
+  // Drop leading whitespace so prefix-stripping consumers (EXPLAIN, PROFILE)
+  // can rely on the query starting with its first significant character.
+  std::string query_string{utils::LTrim(raw_query_string)};
+
   // Strip the query for caching purposes. The process of stripping a query
   // "normalizes" it by replacing any literals with new parameters. This
   // results in just the *structure* of the query being taken into account for
   // caching.
   frontend::StrippedQuery stripped_query{query_string};
 
-  // Copy over the parameters that were introduced during stripping.
-  Parameters parameters{stripped_query.literals()};
-
-  // Check that all user-specified parameters are provided.
-  for (const auto &param_pair : stripped_query.parameters()) {
-    auto it = params.find(param_pair.second);
-
-    if (it == params.end()) {
-      throw query::UnprovidedParameterError("Parameter ${} not provided.", param_pair.second);
-    }
-
-    parameters.Add(param_pair.first, it->second);
-  }
+  // Get parameters (user + database-scoped then global server parameters when database_uuid provided).
+  // Used for visitor resolution of dynamic labels/edge types and for execution.
+  auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters, server_parameters, database_uuid);
 
   // Cache the query's AST if it isn't already.
-  auto hash = stripped_query.hash();
-  auto accessor = cache->access();
-  auto it = accessor.find(hash);
+  auto const &cache_key = stripped_query.stripped_query();
+  // sample the module generation under the cache lock so a reload while waiting for the lock isn't missed
+  uint64_t module_generation = 0;
+  std::shared_ptr<const CachedQuery> cached;
+  cache->WithLock([&](auto &lru) {
+    module_generation = procedure::gModuleRegistry.ModuleGeneration();
+    auto entry = lru.get(cache_key);
+    if (!entry) return;
+    if (IsFresh((*entry)->ast_storage, (*entry)->module_generation, module_generation)) {
+      cached = *entry;
+    } else {
+      // known dead: drop it now rather than leave it holding an AstStorage until the insert path replaces it
+      lru.invalidate(cache_key);
+    }
+  });
   std::unique_ptr<frontend::opencypher::Parser> parser;
 
   // Return a copy of both the AST storage and the query.
   CachedQuery result;
   bool is_cacheable = true;
 
-  auto get_information_from_cache = [&](const auto &cached_query) {
+  auto get_information_from_cache = [&](const CachedQuery &cached_query) {
     result.ast_storage.properties_ = cached_query.ast_storage.properties_;
     result.ast_storage.labels_ = cached_query.ast_storage.labels_;
     result.ast_storage.edge_types_ = cached_query.ast_storage.edge_types_;
+    result.ast_storage.user_functions_ = cached_query.ast_storage.user_functions_;
+    result.ast_storage.call_procedures_ = cached_query.ast_storage.call_procedures_;
 
     result.query = cached_query.query->Clone(&result.ast_storage);
     result.required_privileges = cached_query.required_privileges;
+    result.is_cypher_read = cached_query.is_cypher_read;
+    result.using_schema_assert = cached_query.using_schema_assert;
   };
 
-  if (it == accessor.end()) {
+  if (!cached) {
     try {
-      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.query());
+      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.stripped_query().str());
     } catch (const SyntaxException &e) {
       // There is a syntax exception in the stripped query. Re-run the parser
       // on the original query to get an appropriate error messsage.
@@ -79,7 +163,7 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
     // Convert the ANTLR4 parse tree into an AST.
     AstStorage ast_storage;
     frontend::ParsingContext context{.is_query_cached = true};
-    frontend::CypherMainVisitor visitor(context, &ast_storage, &parameters);
+    frontend::CypherMainVisitor visitor(context, &ast_storage, &query_parameters);
 
     visitor.visit(parser->tree());
 
@@ -87,64 +171,176 @@ ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::stri
       throw utils::BasicException("Load CSV not allowed on this instance because it was disabled by a config.");
     }
 
+    auto read_check = [&] {
+      query::RWChecker rw_checker;
+      if (auto *cypher_query = utils::Downcast<CypherQuery>(visitor.query())) cypher_query->Accept(rw_checker);
+      if (auto *profile_query = utils::Downcast<ProfileQuery>(visitor.query()))
+        profile_query->cypher_query_->Accept(rw_checker);
+      return !rw_checker.IsWrite();
+    };
+
     if (visitor.GetQueryInfo().is_cacheable) {
-      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
-      it = accessor.insert({hash, std::move(cached_query)}).first;
+      std::shared_ptr<const CachedQuery> cached_query = std::make_shared<CachedQuery>(
+          CachedQuery{.ast_storage = std::move(ast_storage),
+                      .query = visitor.query(),
+                      .required_privileges = query::GetRequiredPrivileges(visitor.query()),
+                      .is_cypher_read = read_check(),
+                      .using_schema_assert = visitor.GetQueryInfo().has_schema_assert,
+                      .module_generation = module_generation});
+      cache->WithLock([&](auto &lru) {
+        auto winner = lru.get(cache_key);
+        if (winner && IsFresh((*winner)->ast_storage, (*winner)->module_generation, module_generation)) {
+          cached_query = *winner;
+        } else {
+          // put won't overwrite an existing key, so drop a stale-generation entry before inserting the fresh one
+          lru.invalidate(cache_key);
+          lru.put(cache_key, cached_query);
+        }
+      });
 
-      get_information_from_cache(it->second);
+      get_information_from_cache(*cached_query);
     } else {
-      result.ast_storage.properties_ = ast_storage.properties_;
-      result.ast_storage.labels_ = ast_storage.labels_;
-      result.ast_storage.edge_types_ = ast_storage.edge_types_;
-
-      result.query = visitor.query()->Clone(&result.ast_storage);
+      // Carefully use the query we just built, preserving the ast_storage we used to build it
       result.required_privileges = query::GetRequiredPrivileges(visitor.query());
+      result.query = visitor.query();
+      result.ast_storage = std::move(ast_storage);
 
+      result.is_cypher_read = read_check();
+      result.using_schema_assert = visitor.GetQueryInfo().has_schema_assert;
       is_cacheable = false;
     }
   } else {
-    get_information_from_cache(it->second);
+    get_information_from_cache(*cached);
   }
 
-  return ParsedQuery{query_string,
-                     params,
-                     std::move(parameters),
-                     std::move(stripped_query),
-                     std::move(result.ast_storage),
-                     result.query,
-                     std::move(result.required_privileges),
-                     is_cacheable};
+  return ParsedQuery{
+      .query_string = std::move(query_string),
+      .stripped_query = std::move(stripped_query),
+      .ast_storage = std::move(result.ast_storage),
+      .query = result.query,
+      .required_privileges = std::move(result.required_privileges),
+      .is_cypher_read = result.is_cypher_read,
+      .using_schema_assert = result.using_schema_assert,
+      .is_cacheable = is_cacheable,
+      .module_generation = module_generation,
+      .user_parameters = user_parameters,
+      .parameters = std::move(query_parameters),
+  };
 }
 
-std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             DbAccessor *db_accessor,
-                                             const std::vector<Identifier *> &predefined_identifiers) {
-  auto vertex_counts = plan::MakeVertexCountCache(db_accessor);
-  auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
-  auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-  auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-  return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
-                                                 std::move(symbol_table));
+auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
+                     const std::vector<Identifier *> &predefined_identifiers,
+                     plan::v2::QueryPlannerContext &planner_context) -> LogicalPlanResult {
+  // TODO: we need to make sure we decouple symbol position from frame position
+  //       symbols are needed for debugging (a semantic name)
+  //       during evaluation frame slots are dumping ground for temporary evaluation results
+  //       planner may remove need for all symbols (hence we shouldn't waste frame slots that are unused)
+  bool is_cacheable = false;
+  auto result = std::invoke([&] {
+    // TODO: this is problem multi tenant queries (ATM we assume a single active database for whole query)
+    auto vertex_counts = plan::VertexCountCache(db_accessor);
+    auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
+
+    if (flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2)) {
+      // WITH 1 AS tmp RETURN tmp AS result;
+      //  SymTbl: tmp result
+      auto [egraph, root] = plan::v2::ConvertToEgraph(*query, symbol_table);
+
+      // Apply e-graph rewrites (inline identifiers, etc.)
+      plan::v2::ApplyAllRewrites(egraph);
+
+      // Extraction produces a compact SymbolTable covering only the symbols in
+      // the extracted plan; return it in place of the parse-time table so
+      // downstream lookups target the authoritative one.
+
+      // A v2 plan's shape tracks a planner still being developed, so it is never
+      // offered to the cache.
+      is_cacheable = false;
+      return ConvertToLogicalOperator(egraph, root, planner_context);
+    }
+    auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
+    auto [plan, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+    // A v1 plan's shape follows the stripped query, which is what the cache is
+    // keyed on, so the values a particular execution supplies cannot change it.
+    is_cacheable = true;
+    return plan::v2::ExtractionResult{.plan = std::move(plan),
+                                      .cost = cost,
+                                      .ast_storage = std::move(ast_storage),
+                                      .symbol_table = std::move(symbol_table)};
+  });
+
+  auto rw_type_checker = plan::ReadWriteTypeChecker();
+  rw_type_checker.InferRWType(*result.plan);
+  auto plan = std::make_unique<SingleNodeLogicalPlan>(std::move(result.plan),
+                                                      result.cost,
+                                                      std::move(result.ast_storage),
+                                                      std::move(result.symbol_table),
+                                                      rw_type_checker.type);
+  return LogicalPlanResult{.plan = std::move(plan), .is_cacheable = is_cacheable};
 }
 
-std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                               const Parameters &parameters, PlanCacheLRU *plan_cache,
-                                               DbAccessor *db_accessor,
+namespace {
+
+bool RequiresNoIndices(storage::IndicesCollection const &indices) {
+  return indices.label_.empty() && indices.label_properties_.empty() && indices.edge_type_.empty() &&
+         indices.edge_type_properties_.empty() && indices.edge_property_.empty() && indices.vertex_property_.empty();
+}
+
+}  // namespace
+
+std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
+                                               CypherQuery *query, const Parameters &parameters,
+                                               PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
+                                               plan::v2::QueryPlannerContext &planner_context,
+                                               uint64_t module_generation,
                                                const std::vector<Identifier *> &predefined_identifiers) {
-  if (plan_cache) {
-    auto existing_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(hash); });
-    if (existing_plan.has_value()) {
-      return existing_plan.value();
+  // Enforce the global memory limit during query preparation. Without this,
+  // MemoryTrackerCanThrow() is false here (the per-cursor
+  // OutOfMemoryExceptionEnablers only cover execution), so a runaway allocation
+  // while planning would bypass --memory-limit and let the kernel OOM-kill the
+  // whole server instead of aborting just the query.
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler const oom_exception_enabler;
+
+  // Skip plan cache when using experimental v2 planner - plans may change as v2 evolves
+  const bool use_plan_cache = plan_cache && !flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2);
+  if (use_plan_cache) {
+    auto existing_plan =
+        plan_cache->WithLock([&](PlanCache_t &cache) { return cache.get(stripped_query.stripped_query()); });
+    if (existing_plan) {
+      // validate the index usage
+      auto &ptr = existing_plan.value();
+
+      // Index readiness cannot be checked without an accessor, so a cached plan is reusable without one
+      // only if it needs no indices.
+      auto const all_satisfied = db_accessor != nullptr ? db_accessor->CheckIndicesAreReady(ptr->required_indices())
+                                                        : RequiresNoIndices(ptr->required_indices());
+      if (all_satisfied && IsFresh(ptr->ast_storage(), ptr->module_generation(), module_generation)) {
+        return ptr;
+      } else {
+        plan_cache->WithLock([&](PlanCache_t &cache) { cache.invalidate(stripped_query.stripped_query()); });
+      }
     }
   }
 
-  auto plan = std::make_shared<PlanWrapper>(
-      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
+  auto [logical_plan, is_cacheable_plan] =
+      MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers, planner_context);
+  auto plan = std::make_shared<PlanWrapper>(std::move(logical_plan), module_generation);
 
-  if (plan_cache) {
-    plan_cache->WithLock([&](auto &cache) { cache.put(hash, plan); });
+  if (use_plan_cache && is_cacheable_plan) {
+    plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });
   }
 
   return plan;
 }
+
+SingleNodeLogicalPlan::SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost,
+                                             AstStorage storage, SymbolTable symbol_table,
+                                             plan::ReadWriteTypeChecker::RWType rw_type)
+    : root_(std::move(root)),
+      cost_(cost),
+      storage_(std::move(storage)),
+      symbol_table_(std::move(symbol_table)),
+      rw_type_{rw_type} {}
+
+const SymbolTable &SingleNodeLogicalPlan::GetSymbolTable() const { return symbol_table_; }
 }  // namespace memgraph::query

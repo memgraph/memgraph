@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,16 +12,21 @@
 #pragma once
 
 #include "dbms/database.hpp"
+#include "dbms/database_protector.hpp"
 #include "query/db_accessor.hpp"
 #include "query/stream.hpp"
 #include "storage/v2/storage.hpp"
 
 namespace memgraph::query {
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc);
+class FineGrainedAuthChecker;
+
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc,
+                                 FineGrainedAuthChecker const *auth_checker = nullptr);
 
 struct PullPlanDump {
-  explicit PullPlanDump(query::DbAccessor *dba, dbms::DatabaseAccess db_acc);
+  explicit PullPlanDump(query::DbAccessor *dba, dbms::DatabaseAccess db_acc,
+                        FineGrainedAuthChecker const *auth_checker = nullptr);
 
   /// Pull the dump results lazily
   /// @return true if all results were returned, false otherwise
@@ -29,6 +34,7 @@ struct PullPlanDump {
 
  private:
   query::DbAccessor *dba_ = nullptr;
+  FineGrainedAuthChecker const *auth_checker_ = nullptr;
   dbms::DatabaseAccess db_acc_;
 
   std::optional<storage::IndicesInfo> indices_info_ = std::nullopt;
@@ -38,7 +44,7 @@ struct PullPlanDump {
   using VertexAccessorIterableIterator = decltype(std::declval<VertexAccessorIterable>().begin());
 
   using EdgeAccessorIterable = decltype(std::declval<VertexAccessor>().OutEdges(storage::View::OLD));
-  using EdgeAccessorIterableIterator = decltype(std::declval<EdgeAccessorIterable>().GetValue().edges.begin());
+  using EdgeAccessorIterableIterator = decltype(std::declval<EdgeAccessorIterable>().value().edges.begin());
 
   VertexAccessorIterable vertices_iterable_;
   bool internal_index_created_ = false;
@@ -53,15 +59,28 @@ struct PullPlanDump {
   // function, otherwise std::nullopt is returned.
   std::vector<PullChunk> pull_chunks_;
 
+  PullChunk CreateEnumsPullChunk();
   PullChunk CreateLabelIndicesPullChunk();
-  PullChunk CreateLabelPropertyIndicesPullChunk();
+  PullChunk CreateLabelPropertiesIndicesPullChunk();
+  PullChunk CreateTextIndicesPullChunk();
+  PullChunk CreateTextEdgeIndicesPullChunk();
+  PullChunk CreatePointIndicesPullChunk();
+  PullChunk CreateVectorIndicesPullChunk();
+  PullChunk CreateVectorEdgeIndicesPullChunk();
   PullChunk CreateExistenceConstraintsPullChunk();
   PullChunk CreateUniqueConstraintsPullChunk();
+  PullChunk CreateTypeConstraintsPullChunk();
   PullChunk CreateInternalIndexPullChunk();
   PullChunk CreateVertexPullChunk();
   PullChunk CreateEdgePullChunk();
   PullChunk CreateDropInternalIndexPullChunk();
   PullChunk CreateInternalIndexCleanupPullChunk();
   PullChunk CreateTriggersPullChunk();
+  PullChunk CreateEdgeTypeIndicesPullChunk();
+  PullChunk CreateEdgeTypePropertyIndicesPullChunk();
+  PullChunk CreateEdgePropertyIndicesPullChunk();
+  PullChunk CreateVertexPropertyIndicesPullChunk();
+  PullChunk CreateTTLConfigPullChunk();
+  PullChunk CreateDescriptionsPullChunk();
 };
 }  // namespace memgraph::query

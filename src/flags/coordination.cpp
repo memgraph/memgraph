@@ -1,0 +1,35 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
+#include <cstdint>
+#include <limits>
+
+#include "flags/coord_flag_env_handler.hpp"
+#include "utils/flag_validation.hpp"
+
+#ifdef MG_ENTERPRISE
+// NOLINTBEGIN(performance-avoid-endl)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_int32(management_port, 0, "Port on which coordinator servers will be started.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));  // NOLINT
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_int32(coordinator_port, 0, "Port on which raft servers will be started.",
+                       FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));  // NOLINT
+// NOLINTEND(performance-avoid-endl)
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_int32(coordinator_id, memgraph::flags::kUnsetCoordinatorId, "Unique ID of the raft server.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(nuraft_log_file, "", "Path to the file where NuRaft logs are saved.");
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(coordinator_hostname, "", "Instance's hostname. Used as output of SHOW INSTANCES query.");
+#endif

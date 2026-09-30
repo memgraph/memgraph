@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,29 +11,37 @@
 
 #pragma once
 
-#include <variant>
-
-#include "dbms/constants.hpp"
-#include "dbms/replication_handler.hpp"
-#include "replication/state.hpp"
+#include "metrics/metric_handles.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
 namespace memgraph::dbms {
 
-inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(storage::Config config,
-                                                               ::memgraph::replication::ReplicationState &repl_state) {
-  const auto name = config.salient.name;
-  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config));
+inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
+    storage::Config config,
+    storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
+    metrics::DatabaseMetricHandles metric_handles = {},
+    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr,
+    memgraph::memory::ArenaPool *db_arena = nullptr, utils::MemoryTracker *db_embedding_memory_tracker = nullptr) {
+  // Use default safe factory from Storage constructor for basic usage
+  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config),
+                                                            std::nullopt,
+                                                            std::move(invalidator),
+                                                            std::move(metric_handles),
+                                                            std::move(database_protector_factory),
+                                                            db_arena,
+                                                            db_embedding_memory_tracker);
 
-  // Connect replication state and storage
-  storage->CreateSnapshotHandler(
-      [storage = storage.get(), &repl_state]() -> utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError> {
-        return storage->CreateSnapshot(repl_state.GetRole());
-      });
-
-  return std::move(storage);
+  storage->CreateSnapshotHandler([storage = storage.get()](std::string_view trigger)
+                                     -> std::expected<void, storage::InMemoryStorage::CreateSnapshotError> {
+    auto result = storage->CreateSnapshot(false, trigger);
+    if (!result) {
+      return std::unexpected(result.error());
+    }
+    return {};
+  });
+  return storage;
 }
 
 }  // namespace memgraph::dbms

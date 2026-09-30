@@ -1,0 +1,4 @@
+query: >-
+  RETURN llm.complete("") AS result;
+output:
+  - result: ""

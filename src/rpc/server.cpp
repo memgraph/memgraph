@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@ Server::Server(io::network::Endpoint endpoint, communication::ServerContext *con
 
 bool Server::Start() { return server_.Start(); }
 
-void Server::Shutdown() { server_.Shutdown(); }
+[[nodiscard]] bool Server::Shutdown() { return server_.Shutdown(); }
 
 void Server::AwaitShutdown() { server_.AwaitShutdown(); }
 

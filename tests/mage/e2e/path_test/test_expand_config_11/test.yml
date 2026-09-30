@@ -1,0 +1,8 @@
+# A null start node has nowhere to walk from, so it yields no rows instead of being rejected as a type
+# error. The argument is registered nullable so the null reaches the procedure at all.
+query: >
+  CALL path.expand_config(null, {maxHops: 3})
+  YIELD result
+  RETURN result;
+
+output: []

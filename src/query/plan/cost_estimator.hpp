@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,15 +11,26 @@
 
 #pragma once
 
-#include "query/frontend/ast/ast.hpp"
+#include <cmath>
+
 #include "query/parameters.hpp"
+#include "query/plan/cost_constants.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/rewrite/index_lookup.hpp"
-#include "query/typed_value.hpp"
-#include "utils/algorithm.hpp"
 #include "utils/math.hpp"
 
 namespace memgraph::query::plan {
+
+// The `IN` -> `Unwind` lowering wraps the original list in toSet(coalesce(list, [])).
+// Extracts and returns the inner `ListLiteral` if the expression matches that
+// form, else returns `nullptr`.
+inline auto ExtractListFromInUnwind(Expression *expr) -> ListLiteral * {
+  auto *func = utils::Downcast<Function>(expr);
+  if (!func || func->function_name_ != "TOSET" || func->arguments_.size() != 1) return nullptr;
+  auto *coalesce = utils::Downcast<Coalesce>(func->arguments_[0]);
+  if (!coalesce || coalesce->expressions_.empty()) return nullptr;
+  return utils::Downcast<ListLiteral>(coalesce->expressions_[0]);
+}
 
 /**
  * The symbol statistics specify essential DB statistics which
@@ -70,11 +81,15 @@ struct PlanCost {
  * can never reduce it's input cardinality), but since Merge always happens
  * after the read part, and can't be reoredered, we can ignore that.
  *
- * Limiting and accumulating (Aggregate, OrderBy, Accumulate) operations are
+ * Limiting and accumulating (Aggregate, Accumulate) operations are
  * cardinality modifiers that always execute at the end of the query part. Their
  * cardinality influence is irrelevant because they execute the same
  * for all plans for a single query part, and query part reordering is not
  * allowed.
+ *
+ * OrderBy is an exception: index-scan rewriting can eliminate an OrderBy when
+ * the scan already provides the required order, so plans with and without
+ * OrderBy must have different costs. We model it as O(n log n) work.
  *
  * This kind of cost estimation can only be used for comparing logical plans.
  * It's aim is to estimate cost(A) to be less then cost(B) in every case where
@@ -84,34 +99,6 @@ struct PlanCost {
 template <class TDbAccessor>
 class CostEstimator : public HierarchicalLogicalOperatorVisitor {
  public:
-  struct CostParam {
-    static constexpr double kScanAll{1.0};
-    static constexpr double kScanAllByLabel{1.1};
-    static constexpr double MakeScanAllByLabelPropertyValue{1.1};
-    static constexpr double MakeScanAllByLabelPropertyRange{1.1};
-    static constexpr double MakeScanAllByLabelProperty{1.1};
-    static constexpr double kExpand{2.0};
-    static constexpr double kExpandVariable{3.0};
-    static constexpr double kFilter{1.5};
-    static constexpr double kEdgeUniquenessFilter{1.5};
-    static constexpr double kUnwind{1.3};
-    static constexpr double kForeach{1.0};
-    static constexpr double kUnion{1.0};
-    static constexpr double kSubquery{1.0};
-  };
-
-  struct CardParam {
-    static constexpr double kExpand{3.0};
-    static constexpr double kExpandVariable{9.0};
-    static constexpr double kFilter{0.25};
-    static constexpr double kEdgeUniquenessFilter{0.95};
-  };
-
-  struct MiscParam {
-    static constexpr double kUnwindNoLiteral{10.0};
-    static constexpr double kForeachNoLiteral{10.0};
-  };
-
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
 
@@ -132,106 +119,193 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(ScanAllByLabel &scan_all_by_label) override {
     auto index_stats = db_accessor_->GetIndexStats(scan_all_by_label.label_);
-    if (index_stats.has_value()) {
+    if (index_stats) {
       SaveStatsFor(scan_all_by_label.output_symbol_, index_stats.value());
     }
-
     cardinality_ *= db_accessor_->VerticesCount(scan_all_by_label.label_);
     if (index_hints_.HasLabelIndex(db_accessor_, scan_all_by_label.label_)) {
       use_index_hints_ = true;
     }
-
     IncrementCost(CostParam::kScanAllByLabel);
     return true;
   }
 
-  bool PostVisit(ScanAllByLabelPropertyValue &logical_op) override {
-    // This cardinality estimation depends on the property value (expression).
-    // If it's a constant, we can evaluate cardinality exactly, otherwise
-    // we estimate
-    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
-    if (index_stats.has_value()) {
+  bool PostVisit(ScanAllByLabelProperties &logical_op) override {
+    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.properties_);
+    if (index_stats) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }
-
-    auto property_value = ConstPropertyValue(logical_op.expression_);
-    double factor = 1.0;
-    if (property_value)
-      // get the exact influence based on ScanAll(label, property, value)
-      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_, property_value.value());
-    else
-      // estimate the influence as ScanAll(label, property) * filtering
-      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_) * CardParam::kFilter;
-
-    cardinality_ *= factor;
-
-    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+    cardinality_ *=
+        EstimateLabelPropertiesCardinality(logical_op.label_, logical_op.properties_, logical_op.expression_ranges_);
+    if (index_hints_.HasLabelPropertiesIndex(db_accessor_, logical_op.label_, logical_op.properties_)) {
       use_index_hints_ = true;
     }
-
-    // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::MakeScanAllByLabelPropertyValue);
+    IncrementCost(CostParam::kScanAllByLabelProperties);
     return true;
   }
 
-  bool PostVisit(ScanAllByLabelPropertyRange &logical_op) override {
-    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
-    if (index_stats.has_value()) {
-      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
-    }
-
-    // this cardinality estimation depends on Bound expressions.
-    // if they are literals we can evaluate cardinality properly
-    auto lower = BoundToPropertyValue(logical_op.lower_bound_);
-    auto upper = BoundToPropertyValue(logical_op.upper_bound_);
-
-    int64_t factor = 1;
-    if (upper || lower)
-      // if we have either Bound<PropertyValue>, use the value index
-      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_, lower, upper);
-    else
-      // no values, but we still have the label
-      factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
-
-    // if we failed to take either bound from the op into account, then apply
-    // the filtering constant to the factor
-    if ((logical_op.upper_bound_ && !upper) || (logical_op.lower_bound_ && !lower)) factor *= CardParam::kFilter;
-
-    cardinality_ *= factor;
-
-    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+  bool PostVisit(ScanAllByPointDistance &logical_op) override {
+    // FYI, no stats for point types
+    cardinality_ *= EstimatePointQueryCardinality(logical_op.label_, logical_op.property_);
+    if (index_hints_.HasPointIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
       use_index_hints_ = true;
     }
-
-    // ScanAll performs some work for every element that is produced
-    IncrementCost(CostParam::MakeScanAllByLabelPropertyRange);
+    IncrementCost(CostParam::kScanAllByPointDistance);
     return true;
   }
 
-  bool PostVisit(ScanAllByLabelProperty &logical_op) override {
-    auto index_stats = db_accessor_->GetIndexStats(logical_op.label_, logical_op.property_);
-    if (index_stats.has_value()) {
-      SaveStatsFor(logical_op.output_symbol_, index_stats.value());
-    }
-
-    const auto factor = db_accessor_->VerticesCount(logical_op.label_, logical_op.property_);
-    cardinality_ *= factor;
-    if (index_hints_.HasLabelPropertyIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
+  bool PostVisit(ScanAllByPointWithinbbox &logical_op) override {
+    // FYI, no stats for point types
+    cardinality_ *= EstimatePointQueryCardinality(logical_op.label_, logical_op.property_);
+    if (index_hints_.HasPointIndex(db_accessor_, logical_op.label_, logical_op.property_)) {
       use_index_hints_ = true;
     }
-
-    IncrementCost(CostParam::MakeScanAllByLabelProperty);
+    IncrementCost(CostParam::kScanAllByPointWithinbbox);
     return true;
   }
 
-  // TODO: Cost estimate ScanAllById?
+  bool PostVisit(ScanAllByEdgeType &op) override {
+    auto edge_type = op.GetEdgeType();
+    cardinality_ *= db_accessor_->EdgesCount(edge_type);
+    IncrementCost(CostParam::kScanAllByEdgeType);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeTypeProperty &op) override {
+    cardinality_ *= EstimateEdgeTypePropertyCardinality(op.GetEdgeType(), op.property_, op.expression_range_);
+    IncrementCost(CostParam::kScanAllByEdgeTypeProperty);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByEdgeProperty &op) override {
+    cardinality_ *= EstimateEdgePropertyCardinality(op.property_, op.expression_range_);
+    IncrementCost(CostParam::kScanAllByEdgeProperty);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByVertexProperty &op) override {
+    cardinality_ *= EstimateVertexPropertyCardinality(op.property_, op.expression_range_);
+    IncrementCost(CostParam::kScanAllByVertexProperty);
+    return true;
+  }
+
+  bool PostVisit(OrderBy & /*op*/) override {
+    // OrderBy doesn't change cardinality; cardinality_ here is the sort input size
+    IncrementOrderByCost();
+    return true;
+  }
+
+  bool PreVisit(AggregateParallel &op) override {
+    // Start of parallel execution
+    // Set parallel execution mode for cost calculation
+    num_threads_ = op.num_threads_;
+    // NOTE No cost for Aggregate (regardless of parallel vs single threaded)
+    return true;
+  }
+
+  bool PreVisit(OrderByParallel &op) override {
+    // Start of parallel execution
+    // Set parallel execution mode for cost calculation
+    num_threads_ = op.num_threads_;
+    return true;
+  }
+
+  bool PostVisit(OrderByParallel & /*op*/) override {
+    IncrementOrderByCost();
+    return true;
+  }
+
+  bool PostVisit(ScanChunk &op) override {
+    // ScanChunk has the output symbol, so we need to save the stats here
+    if (last_index_stats_) {
+      std::visit([&](auto index_stats) { SaveStatsFor(op.output_symbol_, std::move(index_stats)); },
+                 std::move(*last_index_stats_));
+    }
+    return true;
+  }
+
+  bool PostVisit(ScanChunkByEdge &op) override {
+    // ScanChunk has the output symbol, so we need to save the stats here
+    if (last_index_stats_) {
+      std::visit([&](auto index_stats) { SaveStatsFor(op.output_symbol_, std::move(index_stats)); },
+                 std::move(*last_index_stats_));
+    }
+    return true;
+  }
+
+  bool PostVisit(ScanParallel & /* op */) override {
+    cardinality_ *= db_accessor_->VerticesCount();
+    IncrementCost(CostParam::kScanAll);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByLabel &op) override {
+    auto index_stats = db_accessor_->GetIndexStats(op.label_);
+    last_index_stats_ = index_stats ? std::make_optional(std::move(index_stats.value())) : std::nullopt;
+    cardinality_ *= db_accessor_->VerticesCount(op.label_);
+    if (index_hints_.HasLabelIndex(db_accessor_, op.label_)) {
+      use_index_hints_ = true;
+    }
+    IncrementCost(CostParam::kScanAllByLabel);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByLabelProperties &op) override {
+    auto index_stats = db_accessor_->GetIndexStats(op.label_, op.properties_);
+    last_index_stats_ = index_stats ? std::make_optional(std::move(index_stats.value())) : std::nullopt;
+    cardinality_ *= EstimateLabelPropertiesCardinality(op.label_, op.properties_, op.expression_ranges_);
+    if (index_hints_.HasLabelPropertiesIndex(db_accessor_, op.label_, op.properties_)) {
+      use_index_hints_ = true;
+    }
+    IncrementCost(CostParam::kScanAllByLabelProperties);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByEdgeType &op) override {
+    cardinality_ *= db_accessor_->EdgesCount(op.edge_type_);
+    IncrementCost(CostParam::kScanAllByEdgeType);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByEdgeTypeProperty &op) override {
+    cardinality_ *= EstimateEdgeTypePropertyCardinality(op.edge_type_, op.property_, op.expression_range_);
+    IncrementCost(CostParam::kScanAllByEdgeTypeProperty);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByEdgeProperty &op) override {
+    cardinality_ *= EstimateEdgePropertyCardinality(op.property_, op.expression_range_);
+    IncrementCost(CostParam::kScanAllByEdgeProperty);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByVertexProperty &op) override {
+    cardinality_ *= EstimateVertexPropertyCardinality(op.property_, op.expression_range_);
+    IncrementCost(CostParam::kScanAllByVertexProperty);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
+
+  bool PostVisit(ScanParallelByEdge & /* op */) override {
+    // ScanParallelByEdge is not yet implemented (throws NotYetImplemented)
+    // For cost estimation, we'll use a placeholder cost
+    IncrementCost(CostParam::kScanAllByEdgeType);
+    num_threads_ = 1;  // End of parallel section
+    return true;
+  }
 
   bool PostVisit(Expand &expand) override {
     auto card_param = CardParam::kExpand;
     auto stats = GetStatsFor(expand.input_symbol_);
 
-    if (stats.has_value()) {
-      card_param = stats.value().degree;
+    if (stats) {
+      card_param = stats->degree;
     }
 
     cardinality_ *= card_param;
@@ -260,7 +334,6 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;                                      \
   }
 
-  POST_VISIT_COST_FIRST(Filter, kFilter)
   POST_VISIT_COST_FIRST(EdgeUniquenessFilter, kEdgeUniquenessFilter);
 
 #undef POST_VISIT_COST_FIRST
@@ -275,10 +348,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // if the Unwind expression is a list literal, we can deduce cardinality
     // exactly, otherwise we approximate
     double unwind_value;
-    if (auto *literal = utils::Downcast<query::ListLiteral>(unwind.input_expression_))
+    if (auto *literal = utils::Downcast<query::ListLiteral>(unwind.input_expression_)) {
       unwind_value = literal->elements_.size();
-    else
+    } else if (auto *list = ExtractListFromInUnwind(unwind.input_expression_)) {
+      unwind_value = list->elements_.size();
+    } else {
       unwind_value = MiscParam::kUnwindNoLiteral;
+    }
 
     cardinality_ *= unwind_value;
     return true;
@@ -318,14 +394,26 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // translate all the stats to the scope outside the return
     for (const auto &symbol : op.ModifiedSymbols(table_)) {
       auto stats = GetStatsFor(symbol);
-      if (stats.has_value()) {
-        scope.symbol_stats[symbol.name()] =
-            SymbolStatistics{.count = stats.value().count, .degree = stats.value().degree};
+      if (stats) {
+        scope.symbol_stats[symbol.name()] = SymbolStatistics{.count = stats->count, .degree = stats->degree};
       }
     }
 
     scopes_.push_back(std::move(scope));
     return true;
+  }
+
+  bool PreVisit(Filter &op) override {
+    op.input_->Accept(*this);
+    auto total_branch_cost = 0.0;
+    for (auto const &pattern_filter : op.pattern_filters_) {
+      auto &last_scope = scopes_.back();
+      CostEstimation pattern_estimation = EstimateCostOnBranch(&pattern_filter, last_scope);
+      total_branch_cost += pattern_estimation.cost;
+    }
+    IncrementCost(std::max(total_branch_cost, CostParam::kFilter));
+    cardinality_ *= CardParam::kFilter;
+    return false;
   }
 
   bool PreVisit(Apply &op) override {
@@ -397,7 +485,9 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool Visit(Once &) override { return true; }
 
   auto cost() const { return cost_; }
+
   auto cardinality() const { return cardinality_; }
+
   auto use_index_hints() const { return use_index_hints_; }
 
  private:
@@ -406,8 +496,11 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   double cost_{0};
 
   // cardinality estimation (how many times an operator gets executed)
-  // cardinality is a double to make it easier to work with
+  // cardinality is a double to k it easier to work with
   double cardinality_{1};
+
+  size_t num_threads_{1};
+  std::optional<std::variant<storage::LabelIndexStats, storage::LabelPropertyIndexStats>> last_index_stats_{};
 
   // accessor used for cardinality estimates in ScanAll and ScanAllByLabel
   TDbAccessor *db_accessor_;
@@ -417,7 +510,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   IndexHints index_hints_;
   bool use_index_hints_{false};
 
-  void IncrementCost(double param) { cost_ += param * cardinality_; }
+  void IncrementCost(double param) {
+    const auto delta = std::max(CostParam::kMinimumCost, param * cardinality_);
+    cost_ += delta / num_threads_;
+  }
+
+  void IncrementOrderByCost() {
+    IncrementCost(CostParam::kOrderBy * std::log2(std::max(CostParam::kOrderByMinCardinality, cardinality_)));
+  }
 
   CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch) {
     CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, index_hints_);
@@ -425,7 +525,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return CostEstimation{.cost = cost_estimator.cost(), .cardinality = cost_estimator.cardinality()};
   }
 
-  CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> *branch, Scope scope) {
+  CostEstimation EstimateCostOnBranch(std::shared_ptr<LogicalOperator> const *branch, Scope scope) {
     CostEstimator<TDbAccessor> cost_estimator(db_accessor_, table_, parameters, scope, index_hints_);
     (*branch)->Accept(cost_estimator);
     return CostEstimation{.cost = cost_estimator.cost(), .cardinality = cost_estimator.cardinality()};
@@ -434,18 +534,22 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   // converts an optional ScanAll range bound into a property value
   // if the bound is present and is a constant expression convertible to
   // a property value. otherwise returns nullopt
-  std::optional<utils::Bound<storage::PropertyValue>> BoundToPropertyValue(
-      std::optional<ScanAllByLabelPropertyRange::Bound> bound) {
+  template <typename BoundType>
+  std::optional<utils::Bound<storage::PropertyValue>> BoundToPropertyValue(std::optional<BoundType> bound) {
     if (bound) {
-      auto property_value = ConstPropertyValue(bound->value());
-      if (property_value) return utils::Bound<storage::PropertyValue>(*property_value, bound->type());
+      auto intermediate_property_value = ConstPropertyValue(bound->value());
+      if (intermediate_property_value)
+        return utils::Bound<storage::PropertyValue>(
+            storage::ToPropertyValue(*intermediate_property_value,
+                                     db_accessor_->GetStorageAccessor()->GetNameIdMapper()),
+            bound->type());
     }
     return std::nullopt;
   }
 
   // If the expression is a constant property value, it is returned. Otherwise,
   // return nullopt.
-  std::optional<storage::PropertyValue> ConstPropertyValue(const Expression *expression) {
+  std::optional<storage::ExternalPropertyValue> ConstPropertyValue(const Expression *expression) {
     if (auto *literal = utils::Downcast<const PrimitiveLiteral>(expression)) {
       return literal->value_;
     } else if (auto *param_lookup = utils::Downcast<const ParameterLookup>(expression)) {
@@ -454,7 +558,321 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return std::nullopt;
   }
 
-  bool HasStatsFor(const Symbol &symbol) const { return utils::Contains(scopes_.back().symbol_stats, symbol.name()); }
+  bool HasStatsFor(const Symbol &symbol) const { return scopes_.back().symbol_stats.contains(symbol.name()); }
+
+  // Helper function to estimate cardinality for edge property range queries.
+  // Used by both single-threaded and parallel scan operators.
+  double EstimateEdgePropertyRangeCardinality(storage::EdgeTypeId edge_type, storage::PropertyId property,
+                                              std::optional<utils::Bound<Expression *>> lower_bound,
+                                              std::optional<utils::Bound<Expression *>> upper_bound) {
+    auto lower = BoundToPropertyValue(lower_bound);
+    auto upper = BoundToPropertyValue(upper_bound);
+
+    int64_t factor = 1;
+    if (upper || lower) {
+      factor = db_accessor_->EdgesCount(edge_type, property, lower, upper);
+    } else {
+      factor = db_accessor_->EdgesCount(edge_type, property);
+    }
+
+    if ((upper_bound && !upper) || (lower_bound && !lower)) {
+      factor *= CardParam::kFilter;
+    }
+
+    return factor;
+  }
+
+  // Helper function to estimate cardinality for edge property range queries (without edge type).
+  // Used by both single-threaded and parallel scan operators.
+  double EstimateEdgePropertyRangeCardinality(storage::PropertyId property,
+                                              std::optional<utils::Bound<Expression *>> lower_bound,
+                                              std::optional<utils::Bound<Expression *>> upper_bound) {
+    auto lower = BoundToPropertyValue(lower_bound);
+    auto upper = BoundToPropertyValue(upper_bound);
+
+    int64_t factor = 1;
+    if (upper || lower) {
+      factor = db_accessor_->EdgesCount(property, lower, upper);
+    } else {
+      factor = db_accessor_->EdgesCount(property);
+    }
+
+    if ((upper_bound && !upper) || (lower_bound && !lower)) {
+      factor *= CardParam::kFilter;
+    }
+
+    return factor;
+  }
+
+  double EstimateVertexPropertyRangeCardinality(storage::PropertyId property,
+                                                std::optional<utils::Bound<Expression *>> lower_bound,
+                                                std::optional<utils::Bound<Expression *>> upper_bound) {
+    auto lower = BoundToPropertyValue(lower_bound);
+    auto upper = BoundToPropertyValue(upper_bound);
+
+    double factor = 1.0;
+    if (upper || lower) {
+      factor = db_accessor_->VerticesCount(property, lower, upper);
+    } else {
+      factor = db_accessor_->VerticesCount(property);
+    }
+
+    if ((upper_bound && !upper) || (lower_bound && !lower)) {
+      factor *= CardParam::kFilter;
+    }
+
+    return factor;
+  }
+
+  double EstimateVertexPropertyCardinality(storage::PropertyId property, ExpressionRange const &range) {
+    using Type = ExpressionRange::Type;
+    switch (range.type_) {
+      case Type::IS_NOT_NULL:
+        return db_accessor_->VerticesCount(property);
+      case Type::EQUAL: {
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->VerticesCount(
+              property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->VerticesCount(property) * CardParam::kFilter;
+      }
+      case Type::IN: {
+        if (auto *list = range.membership_list_) {
+          auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+          double sum = 0.0;
+          for (auto *elem : list->elements_) {
+            auto resolved = ExpressionRange::Equal(elem).ResolveAtPlantime(parameters, mapper);
+            if (!resolved) return db_accessor_->VerticesCount(property) * CardParam::kFilter;
+            // An element holding a Null matches nothing, and an empty range says so by carrying no
+            // bounds at all. It contributes nothing to the sum, and reading a bound it never set
+            // would read one that was never there.
+            if (resolved->type_ == storage::PropertyRangeType::INVALID) continue;
+            sum += db_accessor_->VerticesCount(property, resolved->lower_->value());
+          }
+          auto n = static_cast<double>(list->elements_.size());
+          return n > 0 ? sum / n : sum;
+        }
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->VerticesCount(
+              property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->VerticesCount(property) * CardParam::kFilter;
+      }
+      case Type::STARTS_WITH: {
+        // The prefix upper bound only materialises once the range is resolved, so estimating from
+        // the raw bounds would count every value >= the prefix instead of just the prefix span.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        if (auto resolved = range.ResolveAtPlantime(parameters, mapper)) {
+          // An empty range carries no bounds, which counted as unbounded would estimate the whole
+          // property rather than the nothing it matches.
+          if (resolved->type_ == storage::PropertyRangeType::INVALID) return 0.0;
+          return db_accessor_->VerticesCount(property, resolved->lower_, resolved->upper_);
+        }
+        return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
+      }
+      case Type::REGEX_MATCH:
+      case Type::CONTAINS:
+      case Type::ENDS_WITH: {
+        // The raw lower bound holds the search term, which is not a bound on what matches, so it
+        // cannot be counted as one. What the scan reads is the band the property's string values
+        // occupy, which the resolved range describes and which is the same for every term -- as it
+        // has to be, since the plan outlives the term that was current when it was costed.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        auto const resolved = range.ResolveAtPlantime(parameters, mapper);
+        if (!resolved) return db_accessor_->VerticesCount(property);
+        return db_accessor_->VerticesCount(property, resolved->lower_, resolved->upper_);
+      }
+      case Type::RANGE:
+        return EstimateVertexPropertyRangeCardinality(property, range.lower_, range.upper_);
+    }
+    std::unreachable();
+  }
+
+  double EstimateEdgeTypePropertyCardinality(storage::EdgeTypeId edge_type, storage::PropertyId property,
+                                             ExpressionRange const &range) {
+    using Type = ExpressionRange::Type;
+    switch (range.type_) {
+      case Type::IS_NOT_NULL:
+        return db_accessor_->EdgesCount(edge_type, property);
+      case Type::EQUAL: {
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->EdgesCount(
+              edge_type,
+              property,
+              storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->EdgesCount(edge_type, property) * CardParam::kFilter;
+      }
+      case Type::IN:
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->EdgesCount(
+              edge_type,
+              property,
+              storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->EdgesCount(edge_type, property) * CardParam::kFilter;
+      case Type::STARTS_WITH: {
+        // The prefix upper bound only materialises once the range is resolved, so estimating from
+        // the raw bounds would count every value >= the prefix instead of just the prefix span.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        if (auto resolved = range.ResolveAtPlantime(parameters, mapper)) {
+          // An empty range carries no bounds, which counted as unbounded would estimate the whole
+          // property rather than the nothing it matches.
+          if (resolved->type_ == storage::PropertyRangeType::INVALID) return 0.0;
+          return db_accessor_->EdgesCount(edge_type, property, resolved->lower_, resolved->upper_);
+        }
+        return EstimateEdgePropertyRangeCardinality(edge_type, property, range.lower_, range.upper_);
+      }
+      case Type::REGEX_MATCH:
+      case Type::CONTAINS:
+      case Type::ENDS_WITH: {
+        // The raw lower bound holds the search term, which is not a bound on what matches, so it
+        // cannot be counted as one. What the scan reads is the band the property's string values
+        // occupy, which the resolved range describes and which is the same for every term -- as it
+        // has to be, since the plan outlives the term that was current when it was costed.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        auto const resolved = range.ResolveAtPlantime(parameters, mapper);
+        return db_accessor_->EdgesCount(edge_type, property, resolved->lower_, resolved->upper_);
+      }
+      case Type::RANGE:
+        return EstimateEdgePropertyRangeCardinality(edge_type, property, range.lower_, range.upper_);
+    }
+    std::unreachable();
+  }
+
+  double EstimateEdgePropertyCardinality(storage::PropertyId property, ExpressionRange const &range) {
+    using Type = ExpressionRange::Type;
+    switch (range.type_) {
+      case Type::IS_NOT_NULL:
+        return db_accessor_->EdgesCount(property);
+      case Type::EQUAL: {
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->EdgesCount(
+              property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->EdgesCount(property) * CardParam::kFilter;
+      }
+      case Type::IN:
+        if (auto val = ConstPropertyValue(range.lower_->value())) {
+          return db_accessor_->EdgesCount(
+              property, storage::ToPropertyValue(*val, db_accessor_->GetStorageAccessor()->GetNameIdMapper()));
+        }
+        return db_accessor_->EdgesCount(property) * CardParam::kFilter;
+      case Type::STARTS_WITH: {
+        // The prefix upper bound only materialises once the range is resolved, so estimating from
+        // the raw bounds would count every value >= the prefix instead of just the prefix span.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        if (auto resolved = range.ResolveAtPlantime(parameters, mapper)) {
+          // An empty range carries no bounds, which counted as unbounded would estimate the whole
+          // property rather than the nothing it matches.
+          if (resolved->type_ == storage::PropertyRangeType::INVALID) return 0.0;
+          return db_accessor_->EdgesCount(property, resolved->lower_, resolved->upper_);
+        }
+        return EstimateEdgePropertyRangeCardinality(property, range.lower_, range.upper_);
+      }
+      case Type::REGEX_MATCH:
+      case Type::CONTAINS:
+      case Type::ENDS_WITH: {
+        // The raw lower bound holds the search term, which is not a bound on what matches, so it
+        // cannot be counted as one. What the scan reads is the band the property's string values
+        // occupy, which the resolved range describes and which is the same for every term -- as it
+        // has to be, since the plan outlives the term that was current when it was costed.
+        auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+        auto const resolved = range.ResolveAtPlantime(parameters, mapper);
+        return db_accessor_->EdgesCount(property, resolved->lower_, resolved->upper_);
+      }
+      case Type::RANGE:
+        return EstimateEdgePropertyRangeCardinality(property, range.lower_, range.upper_);
+    }
+    std::unreachable();
+  }
+
+  auto EstimateInListCardinality(storage::LabelId label, std::vector<storage::PropertyPath> const &properties,
+                                 ListLiteral const &list, size_t slot,
+                                 std::vector<std::optional<storage::PropertyValueRange>> const &resolved_ranges)
+      -> std::optional<double> {
+    auto pvrs = resolved_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) | ranges::to_vector;
+    return EstimateInListSum(db_accessor_, label, properties, list, slot, pvrs, parameters);
+  }
+
+  // Helper function to estimate cardinality for label properties queries.
+  // Used by both single-threaded and parallel scan operators.
+  double EstimateLabelPropertiesCardinality(storage::LabelId label,
+                                            std::vector<storage::PropertyPath> const &properties,
+                                            std::vector<ExpressionRange> const &expression_ranges) {
+    auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
+
+    auto maybe_ranges =
+        expression_ranges |
+        ranges::views::transform([&](ExpressionRange const &er) { return er.ResolveAtPlantime(parameters, mapper); }) |
+        ranges::to_vector;
+
+    if (ranges::none_of(maybe_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
+      auto pvrs = maybe_ranges | ranges::views::transform([](auto const &opt) { return *opt; }) | ranges::to_vector;
+      return db_accessor_->VerticesCount(label, properties, pvrs);
+    }
+
+    // Collect unresolved IN slots
+    std::vector<size_t> in_slots;
+    for (size_t i = 0; i < expression_ranges.size(); ++i) {
+      if (!maybe_ranges[i] && expression_ranges[i].membership_list_) in_slots.push_back(i);
+    }
+
+    if (in_slots.empty()) {
+      return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
+    }
+
+    // Temporarily set all IN slots to IsNotNull so each can be estimated independently
+    for (auto slot : in_slots) {
+      maybe_ranges[slot] = storage::PropertyValueRange::IsNotNull();
+    }
+
+    // If non-IN slots are still unresolved, fall back
+    if (ranges::any_of(maybe_ranges, [](auto const &pvr) { return pvr == std::nullopt; })) {
+      return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
+    }
+
+    // The Unwind above each IN slot already multiplies cardinality by the list
+    // length, so the scan factor must be per-input-row (i.e. divided by the
+    // product of list lengths) to avoid double-counting.
+    double unwind_factor = 1.0;
+    for (auto slot : in_slots) {
+      unwind_factor *= static_cast<double>(expression_ranges[slot].membership_list_->elements_.size());
+    }
+    if (unwind_factor == 0) return 0.0;
+
+    if (in_slots.size() == 1) {
+      auto sum = EstimateInListCardinality(
+          label, properties, *expression_ranges[in_slots[0]].membership_list_, in_slots[0], maybe_ranges);
+      auto total = sum.value_or(db_accessor_->VerticesCount(label, properties) * CardParam::kFilter);
+      return total / unwind_factor;
+    }
+
+    // Multiple IN slots: independence assumption. S_0 * S_1 * ... / T^(k-1)
+    auto const total =
+        db_accessor_->VerticesCount(label, properties, maybe_ranges | ranges::views::transform([](auto const &opt) {
+                                                         return *opt;
+                                                       }) | ranges::to_vector);
+    if (total == 0) return 0.0;
+
+    double result = 1.0;
+    for (auto slot : in_slots) {
+      auto marginal =
+          EstimateInListCardinality(label, properties, *expression_ranges[slot].membership_list_, slot, maybe_ranges);
+      if (!marginal) return db_accessor_->VerticesCount(label, properties) * CardParam::kFilter;
+      result *= *marginal;
+    }
+    result /= std::pow(static_cast<double>(total), static_cast<double>(in_slots.size() - 1));
+    result = std::min(result, static_cast<double>(total));
+    return result / unwind_factor;
+  }
+
+  // Helper function to estimate cardinality for point-based queries.
+  // Used by both single-threaded and parallel scan operators.
+  double EstimatePointQueryCardinality(storage::LabelId label, storage::PropertyId property) {
+    const auto factor = db_accessor_->VerticesPointCount(label, property);
+    return factor.value_or(1);
+  }
 
   std::optional<SymbolStatistics> GetStatsFor(const Symbol &symbol) {
     if (!HasStatsFor(symbol)) {

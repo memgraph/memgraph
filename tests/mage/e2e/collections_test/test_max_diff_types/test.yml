@@ -1,0 +1,5 @@
+query: >
+    RETURN collections.max([-1, -2, -3, "s"]) AS max;
+
+exception: >
+    Values have to be of the same type

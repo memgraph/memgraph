@@ -1,0 +1,132 @@
+name: "Jepsen HA Stress Tests"
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Jepsen mode"
+        type: choice
+        options:
+          - sync_mixed
+          - sync
+          - strict_sync
+          - strict_sync_mixed
+        default: strict_sync
+      run-mt:
+        description: "Run MT tests"
+        type: boolean
+        default: true
+      run-non-mt:
+        description: "Run non-MT tests"
+        type: boolean
+        default: true
+      time-limit-mt:
+        description: "Time limit for MT test (in seconds)"
+        type: string
+        default: "7200"
+      time-limit-non-mt:
+        description: "Time limit for non-MT test (in seconds)"
+        type: string
+        default: "25200"
+      num-tenants:
+        description: "Number of tenants used in the MT test"
+        type: string
+        default: "3"
+      concurrency:
+        description: "The number of worker threads. If not set, number of nodes will be used instead."
+        type: string
+        default: "6"
+      storage-backup-dir-enabled:
+        description: "If enabled, .old dir will be used."
+        type: boolean
+        default: true
+      shutdown-signal:
+        description: "Signal to use for terminating instances (KILL (SIGKILL), TERM (SIGTERM))"
+        type: choice
+        options:
+          - KILL
+          - TERM
+        default: KILL
+      intra-cluster-tls:
+        description: "If true, start each Memgraph instance with intra-cluster mTLS flags."
+        type: boolean
+        default: false
+
+
+  schedule:
+    - cron: "0 0 * * *"  # Run daily at midnight
+
+concurrency:
+  group: ${{ github.event_name == 'workflow_dispatch' && (endsWith(github.run_number, '0') || endsWith(github.run_number, '2') || endsWith(github.run_number, '4') || endsWith(github.run_number, '6') || endsWith(github.run_number, '8')) && 'jepsen-manual-slot-0' || github.event_name == 'workflow_dispatch' && 'jepsen-manual-slot-1' || 'jepsen-scheduled' }}
+  cancel-in-progress: false
+
+jobs:
+  determine-inputs:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    name: "Determine Test Inputs"
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.pick.outputs.mode }}
+      signal: ${{ steps.pick.outputs.signal }}
+      intra_tls: ${{ steps.pick.outputs.intra_tls }}
+    steps:
+      - name: Randomly pick mode, shutdown signal, and intra-cluster TLS
+        id: pick
+        run: |
+          MODES=(sync sync_mixed strict_sync strict_sync_mixed)
+          echo "mode=${MODES[$((RANDOM % 4))]}" >> $GITHUB_OUTPUT
+
+          SIGNALS=(KILL TERM)
+          echo "signal=${SIGNALS[$((RANDOM % 2))]}" >> $GITHUB_OUTPUT
+
+          TLS_CHOICES=(true false)
+          echo "intra_tls=${TLS_CHOICES[$((RANDOM % 2))]}" >> $GITHUB_OUTPUT
+
+  run-jepsen-tests:
+    needs: [determine-inputs]
+    strategy:
+      fail-fast: false
+      matrix:
+        mt: [true, false]
+    uses: ./.github/workflows/reusable_stress_jepsen.yaml
+    with:
+      name: "${{ needs.determine-inputs.outputs.mode }}${{ matrix.mt && '-mt' || '' }}"
+      mt: ${{ matrix.mt }}
+      mode: ${{ needs.determine-inputs.outputs.mode }}
+      time-limit: ${{ matrix.mt && '7200' || '25200' }}
+      num-tenants: ${{ matrix.mt && '3' || '1' }}
+      concurrency: ""
+      storage-backup-dir-enabled: true
+      shutdown-signal: ${{ needs.determine-inputs.outputs.signal }}
+      intra-cluster-tls: ${{ needs.determine-inputs.outputs.intra_tls == 'true' }}
+    secrets: inherit
+
+  run-manual-jepsen-tests:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-non-mt }}
+    uses: ./.github/workflows/reusable_stress_jepsen.yaml
+    with:
+      name: "${{ inputs.mode }}"
+      mt: false
+      mode: ${{ inputs.mode }}
+      time-limit: ${{ inputs.time-limit-non-mt }}
+      num-tenants: ${{ inputs.num-tenants }}
+      concurrency: ${{ inputs.concurrency }}
+      storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
+      shutdown-signal: ${{ inputs.shutdown-signal }}
+      intra-cluster-tls: ${{ inputs.intra-cluster-tls }}
+    secrets: inherit
+
+  run-manual-jepsen-tests-mt:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-mt }}
+    uses: ./.github/workflows/reusable_stress_jepsen.yaml
+    with:
+      name: "${{ inputs.mode }}-mt"
+      mt: true
+      mode: ${{ inputs.mode }}
+      time-limit: ${{ inputs.time-limit-mt }}
+      num-tenants: ${{ inputs.num-tenants }}
+      concurrency: ${{ inputs.concurrency }}
+      storage-backup-dir-enabled: ${{ inputs.storage-backup-dir-enabled }}
+      shutdown-signal: ${{ inputs.shutdown-signal }}
+      intra-cluster-tls: ${{ inputs.intra-cluster-tls }}
+    secrets: inherit

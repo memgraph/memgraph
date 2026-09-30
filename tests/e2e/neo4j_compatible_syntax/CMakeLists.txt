@@ -1,0 +1,8 @@
+function(copy_neo4j_compatible_syntax_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(neo4j_compatible_syntax ${FILE_NAME})
+endfunction()
+
+copy_neo4j_compatible_syntax_e2e_python_files(common.py)
+copy_neo4j_compatible_syntax_e2e_python_files(neo4j_syntax_indices.py)
+
+copy_e2e_files(neo4j_compatible_syntax workloads.yaml)

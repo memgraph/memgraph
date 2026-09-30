@@ -1,0 +1,10 @@
+query: >
+  CALL gnn.pyg_export(["feat"], ["weight"], "class")
+  YIELD json_data
+  WITH json_data
+  CALL gnn.pyg_import(json_data, "Imported", "IMP", ["feat"], ["weight"])
+  YIELD nodes_created, edges_created
+  RETURN nodes_created, edges_created;
+output:
+  - nodes_created: 3
+    edges_created: 2

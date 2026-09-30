@@ -8,4 +8,16 @@ DerivePointerAlignment: false
 PointerAlignment: Right
 ColumnLimit : 120
 IncludeBlocks: Preserve
+SeparateDefinitionBlocks: Always
+AllowShortFunctionsOnASingleLine: All
+EmptyLineBeforeAccessModifier: LogicalBlock
+BinPackArguments: false
+InsertTrailingCommas: Wrapped
+AllowShortLambdasOnASingleLine: All
+# Disabled: clang-format inserts separators in #if directives where the
+# preprocessor doesn't support C++14 digit separators (e.g., #if FMT_VERSION > 90'000)
+IntegerLiteralSeparator:
+  Binary: 0
+  Decimal: 0
+  Hex: 0
 ...

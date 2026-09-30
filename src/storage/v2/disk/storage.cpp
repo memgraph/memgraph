@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,11 +12,9 @@
 #include "storage/v2/disk/storage.hpp"
 
 #include <atomic>
-#include <charconv>
 #include <cstdint>
 #include <limits>
 #include <optional>
-#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,10 +27,11 @@
 #include <rocksdb/utilities/transaction.h>
 #include <rocksdb/utilities/transaction_db.h>
 
-#include "kvstore/kvstore.hpp"
+#include "flags/experimental.hpp"
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/delta.hpp"
+#include "storage/v2/disk/delta_utils.hpp"
 #include "storage/v2/disk/edge_import_mode_cache.hpp"
 #include "storage/v2/disk/label_index.hpp"
 #include "storage/v2/disk/label_property_index.hpp"
@@ -41,33 +40,29 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/edge_ref.hpp"
+#include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/modified_edge.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/result.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/disk_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
-#include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/message.hpp"
-#include "utils/on_scope_exit.hpp"
-#include "utils/readable_size.hpp"
-#include "utils/result.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/skip_list.hpp"
+#include "utils/small_vector.hpp"
 #include "utils/stat.hpp"
 #include "utils/string.hpp"
-#include "utils/typeinfo.hpp"
 
 namespace memgraph::storage {
 
@@ -114,11 +109,13 @@ constexpr const char *kOutEdgesHandle = "out_edges";
 constexpr const char *kInEdgesHandle = "in_edges";
 constexpr const char *kLabelPropertyIndexStr = "label_property_index";
 constexpr const char *kExistenceConstraintsStr = "existence_constraints";
+constexpr const char *kErrorMessage =
+    "Consider switching to the IN_MEMORY_TRANSACTIONAL storage mode or contact the Memgraph team for support.";
 
 /// TODO: (andi) Maybe a better way of checking would be if the first delta is DELETE_DESERIALIZED
 /// then we now that the vertex has only been deserialized and nothing more has been done on it.
 bool VertexNeedsToBeSerialized(const Vertex &vertex) {
-  Delta *head = vertex.delta;
+  Delta *head = vertex.delta();
   while (head != nullptr) {
     if (head->action == Delta::Action::ADD_LABEL || head->action == Delta::Action::REMOVE_LABEL ||
         head->action == Delta::Action::DELETE_OBJECT || head->action == Delta::Action::RECREATE_OBJECT ||
@@ -131,20 +128,20 @@ bool VertexNeedsToBeSerialized(const Vertex &vertex) {
 }
 
 bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transaction, View view) {
-  bool deleted = vertex.deleted;
-  bool has_label = std::find(vertex.labels.begin(), vertex.labels.end(), label) != vertex.labels.end();
-  Delta *delta = vertex.delta;
+  bool deleted = vertex.deleted();
+  bool has_label = std::ranges::contains(vertex.labels, label);
+  Delta *delta = vertex.delta();
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &has_label, label](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::REMOVE_LABEL: {
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(has_label, "Invalid database state!");
           has_label = false;
         }
         break;
       }
       case Delta::Action::ADD_LABEL: {
-        if (delta.label == label) {
+        if (delta.label.value == label) {
           MG_ASSERT(!has_label, "Invalid database state!");
           has_label = true;
         }
@@ -170,14 +167,14 @@ bool VertexHasLabel(const Vertex &vertex, LabelId label, Transaction *transactio
 }
 
 PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
-  bool deleted = vertex.deleted;
+  bool deleted = vertex.deleted();
   PropertyValue value = vertex.properties.GetProperty(property);
-  Delta *delta = vertex.delta;
+  Delta *delta = vertex.delta();
   ApplyDeltasForRead(transaction, delta, view, [&deleted, &value, property](const Delta &delta) {
     switch (delta.action) {
       case Delta::Action::SET_PROPERTY: {
         if (delta.property.key == property) {
-          value = delta.property.value;
+          value = *delta.property.value;
         }
         break;
       }
@@ -203,6 +200,21 @@ PropertyValue GetVertexProperty(const Vertex &vertex, PropertyId property, Trans
   return value;
 }
 
+/// Removes from @p gathered every vertex whose @p property the predicate rejects.
+/// The disk scan applies only the range bounds while gathering, so the predicate
+/// runs here as a second pass. The plan has no filter left to drop these rows.
+void DropWhatAPredicateTurnsDown(utils::SkipListDb<Vertex> &gathered, PropertyId property,
+                                 PropertyValueRange::ValuePredicateFn const &keeps, Transaction *transaction,
+                                 View view) {
+  auto accessor = gathered.access();
+
+  auto turned_down = std::vector<Gid>{};
+  for (auto const &vertex : accessor) {
+    if (!keeps(GetVertexProperty(vertex, property, transaction, view))) turned_down.push_back(vertex.gid);
+  }
+  for (auto const gid : turned_down) accessor.remove(gid);
+}
+
 bool HasVertexProperty(const Vertex &vertex, PropertyId property, Transaction *transaction, View view) {
   return !GetVertexProperty(vertex, property, transaction, view).IsNull();
 }
@@ -212,14 +224,25 @@ bool VertexHasEqualPropertyValue(const Vertex &vertex, PropertyId property_id, P
   return GetVertexProperty(vertex, property_id, transaction, view) == property_value;
 }
 
+bool BoundsSpanWholeType(const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                         const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
+  return lower_bound && upper_bound && BoundsMarkAWholeStretch(*lower_bound, *upper_bound);
+}
+
 bool IsPropertyValueWithinInterval(const PropertyValue &value,
                                    const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                    const std::optional<utils::Bound<PropertyValue>> &upper_bound) {
-  if (lower_bound && (!PropertyValue::AreComparableTypes(value.type(), lower_bound->value().type()) ||
+  // Requiring each bound to be one the value can be compared against is how a one-sided range is
+  // kept inside its own stretch of the order here, but it rejects every value of a whole-stretch
+  // range, whose bounds are two types by construction. Comparing against the bounds is enough
+  // there: the pair *is* the stretch.
+  bool const spans_whole_type = BoundsSpanWholeType(lower_bound, upper_bound);
+
+  if (lower_bound && ((!spans_whole_type && !AreComparable(value, lower_bound->value())) ||
                       value < lower_bound->value() || (lower_bound->IsExclusive() && value == lower_bound->value()))) {
     return false;
   }
-  if (upper_bound && (!PropertyValue::AreComparableTypes(value.type(), upper_bound->value().type()) ||
+  if (upper_bound && ((!spans_whole_type && !AreComparable(value, upper_bound->value())) ||
                       value > upper_bound->value() || (upper_bound->IsExclusive() && value == upper_bound->value()))) {
     return false;
   }
@@ -228,8 +251,11 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
-DiskStorage::DiskStorage(Config config)
-    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL),
+DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator, metrics::DatabaseMetricHandles metric_handles,
+                         std::function<storage::DatabaseProtectorPtr()> database_protector_factory,
+                         memory::ArenaPool *db_arena_pool, utils::MemoryTracker *db_embedding_memory_tracker)
+    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator), metric_handles, db_arena_pool,
+              db_embedding_memory_tracker, std::move(database_protector_factory)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
   LoadPersistingMetadataInfo();
@@ -247,18 +273,20 @@ DiskStorage::DiskStorage(Config config)
     column_families.emplace_back(kDefaultHandle, kvstore_->options_);
     column_families.emplace_back(kOutEdgesHandle, kvstore_->options_);
     column_families.emplace_back(kInEdgesHandle, kvstore_->options_);
-
-    logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
-                                                              config.disk.main_storage_directory, column_families,
-                                                              &column_handles, &kvstore_->db_));
+    logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_,
+                                                              rocksdb::TransactionDBOptions(),
+                                                              config.disk.main_storage_directory,
+                                                              column_families,
+                                                              &column_handles,
+                                                              &kvstore_->db_));
     kvstore_->vertex_chandle = column_handles[0];
     kvstore_->edge_chandle = column_handles[1];
     kvstore_->default_chandle = column_handles[2];
     kvstore_->out_edges_chandle = column_handles[3];
     kvstore_->in_edges_chandle = column_handles[4];
   } else {
-    logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(kvstore_->options_, rocksdb::TransactionDBOptions(),
-                                                              config.disk.main_storage_directory, &kvstore_->db_));
+    logging::AssertRocksDBStatus(rocksdb::TransactionDB::Open(
+        kvstore_->options_, rocksdb::TransactionDBOptions(), config.disk.main_storage_directory, &kvstore_->db_));
     logging::AssertRocksDBStatus(
         kvstore_->db_->CreateColumnFamily(kvstore_->options_, kVertexHandle, &kvstore_->vertex_chandle));
     logging::AssertRocksDBStatus(
@@ -271,8 +299,8 @@ DiskStorage::DiskStorage(Config config)
 }
 
 DiskStorage::~DiskStorage() {
-  durable_metadata_.SaveBeforeClosingDB(timestamp_, vertex_count_.load(std::memory_order_acquire),
-                                        edge_count_.load(std::memory_order_acquire));
+  durable_metadata_.UpdateMetaData(
+      timestamp_, vertex_count_.load(std::memory_order_acquire), edge_count_.load(std::memory_order_acquire));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->vertex_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->edge_chandle));
   logging::AssertRocksDBStatus(kvstore_->db_->DestroyColumnFamilyHandle(kvstore_->out_edges_chandle));
@@ -286,9 +314,9 @@ DiskStorage::~DiskStorage() {
   kvstore_->options_.comparator = nullptr;
 }
 
-DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level,
-                                        StorageMode storage_mode)
-    : Accessor(tag, storage, isolation_level, storage_mode, memgraph::replication::ReplicationRole::MAIN) {
+DiskStorage::DiskAccessor::DiskAccessor(DiskStorage *storage, std::optional<IsolationLevel> override_isolation_level,
+                                        utils::ResourceLockGuard guard)
+    : Accessor(storage, override_isolation_level, std::move(guard)) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
   transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
@@ -334,30 +362,30 @@ void DiskStorage::LoadPersistingMetadataInfo() {
 }
 
 std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelIndexCache(
-    Transaction *transaction, const std::string &key, const std::string &value, Delta *index_delta,
-    utils::SkipList<storage::Vertex>::Accessor index_accessor) {
+    Transaction *transaction, std::string_view key, std::string_view value, Delta *index_delta,
+    utils::SkipListDb<storage::Vertex>::Accessor index_accessor) {
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
-  if (ObjectExistsInCache(index_accessor, gid)) {
+  if (index_accessor.contains(gid)) {
     return std::nullopt;
   }
-  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
+  VertexKey labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
   PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
-  return CreateVertexFromDisk(transaction, index_accessor, gid, std::move(labels_id), std::move(properties),
-                              index_delta);
+  return CreateVertexFromDisk(
+      transaction, index_accessor, gid, std::move(labels_id), std::move(properties), index_delta);
 }
 
 /// TODO: can be decoupled by providing as arguments extractor functions and delta.
 std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToLabelPropertyIndexCache(
-    Transaction *transaction, const std::string &key, const std::string &value, Delta *index_delta,
-    utils::SkipList<storage::Vertex>::Accessor index_accessor) {
+    Transaction *transaction, std::string_view key, std::string_view value, Delta *index_delta,
+    utils::SkipListDb<storage::Vertex>::Accessor index_accessor) {
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
-  if (ObjectExistsInCache(index_accessor, gid)) {
+  if (index_accessor.contains(gid)) {
     return std::nullopt;
   }
-  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
+  VertexKey labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
   PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
-  return CreateVertexFromDisk(transaction, index_accessor, gid, std::move(labels_id), std::move(properties),
-                              index_delta);
+  return CreateVertexFromDisk(
+      transaction, index_accessor, gid, std::move(labels_id), std::move(properties), index_delta);
 }
 
 void DiskStorage::LoadVerticesToMainMemoryCache(Transaction *transaction) {
@@ -390,11 +418,15 @@ void DiskStorage::LoadVerticesFromMainStorageToEdgeImportCache(Transaction *tran
     std::string key = it->key().ToString();
     std::string value = it->value().ToString();
     storage::Gid gid = Gid::FromString(utils::ExtractGidFromMainDiskStorage(key));
-    if (ObjectExistsInCache(cache_accessor, gid)) continue;
+    if (cache_accessor.contains(gid)) continue;
 
-    std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
+    VertexKey labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
     PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
-    CreateVertexFromDisk(transaction, cache_accessor, gid, std::move(labels_id), std::move(properties),
+    CreateVertexFromDisk(transaction,
+                         cache_accessor,
+                         gid,
+                         std::move(labels_id),
+                         std::move(properties),
                          CreateDeleteDeserializedObjectDelta(transaction, std::move(key), kDeserializeTimestamp));
   }
 }
@@ -423,11 +455,15 @@ void DiskStorage::LoadVerticesFromLabelIndexStorageToEdgeImportCache(Transaction
     std::string value = it->value().ToString();
     if (key.starts_with(label_prefix)) {
       storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
-      if (ObjectExistsInCache(cache_accessor, gid)) continue;
+      if (cache_accessor.contains(gid)) continue;
 
-      std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
+      VertexKey labels_id{utils::DeserializeLabelsFromLabelIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelIndexStorage(value)};
-      CreateVertexFromDisk(transaction, cache_accessor, gid, std::move(labels_id), std::move(properties),
+      CreateVertexFromDisk(transaction,
+                           cache_accessor,
+                           gid,
+                           std::move(labels_id),
+                           std::move(properties),
                            CreateDeleteDeserializedObjectDelta(transaction, std::move(key), kDeserializeTimestamp));
     }
   }
@@ -473,11 +509,15 @@ void DiskStorage::LoadVerticesFromLabelPropertyIndexStorageToEdgeImportCache(Tra
     std::string value = it->value().ToString();
     if (key.starts_with(label_property_prefix)) {
       storage::Gid gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
-      if (ObjectExistsInCache(cache_accessor, gid)) continue;
+      if (cache_accessor.contains(gid)) continue;
 
-      std::vector<LabelId> labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
+      VertexKey labels_id{utils::DeserializeLabelsFromLabelPropertyIndexStorage(key, value)};
       PropertyStore properties{utils::DeserializePropertiesFromLabelPropertyIndexStorage(value)};
-      CreateVertexFromDisk(transaction, cache_accessor, gid, std::move(labels_id), std::move(properties),
+      CreateVertexFromDisk(transaction,
+                           cache_accessor,
+                           gid,
+                           std::move(labels_id),
+                           std::move(properties),
                            CreateDeleteDeserializedObjectDelta(transaction, std::move(key), kDeserializeTimestamp));
     }
   }
@@ -488,16 +528,21 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(View view) {
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleMainLoadingForEdgeImportCache(&transaction_);
 
-    return VerticesIterable(
-        AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(), storage_, &transaction_, view));
+    return VerticesIterable(AllVerticesIterable(disk_storage->edge_import_mode_cache_->AccessToVertices(),
+                                                storage_,
+                                                &transaction_,
+                                                view,
+                                                kIteratorNoGidUpperBound));
   }
   if (transaction_.scanned_all_vertices_) {
-    return VerticesIterable(AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view));
+    return VerticesIterable(
+        AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
   }
 
   disk_storage->LoadVerticesToMainMemoryCache(&transaction_);
   transaction_.scanned_all_vertices_ = true;
-  return VerticesIterable(AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(transaction_.vertices_->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
@@ -509,16 +554,17 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, View view) {
     return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(label, view, storage_, &transaction_));
   }
 
-  transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
+  transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipListDb<storage::Vertex>>());
   auto &indexed_vertices = transaction_.index_storage_.back();
   transaction_.index_deltas_storage_.emplace_back();
   auto &index_deltas = transaction_.index_deltas_storage_.back();
 
-  auto gids = disk_storage->MergeVerticesFromMainCacheWithLabelIndexCache(&transaction_, label, view, index_deltas,
-                                                                          indexed_vertices.get());
+  auto gids = disk_storage->MergeVerticesFromMainCacheWithLabelIndexCache(
+      &transaction_, label, view, index_deltas, indexed_vertices.get());
   disk_storage->LoadVerticesFromDiskLabelIndex(&transaction_, label, gids, index_deltas, indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, View view) {
@@ -526,17 +572,17 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
 
-    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(label, property, std::nullopt, std::nullopt,
-                                                                            view, storage_, &transaction_));
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
+        label, property, PropertyValueRange::Bounded(std::nullopt, std::nullopt), view, storage_, &transaction_));
   }
 
-  transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
+  transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipListDb<storage::Vertex>>());
   auto &indexed_vertices = transaction_.index_storage_.back();
   transaction_.index_deltas_storage_.emplace_back();
   auto &index_deltas = transaction_.index_deltas_storage_.back();
 
-  const auto label_property_filter = [this](const Vertex &vertex, LabelId label, PropertyId property,
-                                            View view) -> bool {
+  const auto label_property_filter = [this](
+                                         const Vertex &vertex, LabelId label, PropertyId property, View view) -> bool {
     return VertexHasLabel(vertex, label, &transaction_, view) &&
            HasVertexProperty(vertex, property, &transaction_, view);
   };
@@ -544,15 +590,18 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   const auto gids = disk_storage->MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
       &transaction_, label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
 
-  const auto disk_label_property_filter = [](const std::string &key, const std::string &label_property_prefix,
-                                             const std::unordered_set<Gid> &gids, Gid curr_gid) -> bool {
-    return key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid);
+  const auto disk_label_property_filter = [](std::string_view key,
+                                             std::string_view label_property_prefix,
+                                             const std::unordered_set<Gid> &gids,
+                                             Gid curr_gid) -> bool {
+    return key.starts_with(label_property_prefix) && !gids.contains(curr_gid);
   };
 
-  disk_storage->LoadVerticesFromDiskLabelPropertyIndex(&transaction_, label, property, gids, index_deltas,
-                                                       indexed_vertices.get(), disk_label_property_filter);
+  disk_storage->LoadVerticesFromDiskLabelPropertyIndex(
+      &transaction_, label, property, gids, index_deltas, indexed_vertices.get(), disk_label_property_filter);
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property, const PropertyValue &value,
@@ -561,18 +610,18 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
 
-    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
-        label, property, utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value), view, storage_,
-        &transaction_));
+    auto const range = PropertyValueRange::Bounded(utils::MakeBoundInclusive(value), utils::MakeBoundInclusive(value));
+    return VerticesIterable(
+        disk_storage->edge_import_mode_cache_->Vertices(label, property, range, view, storage_, &transaction_));
   }
 
-  transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
+  transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipListDb<storage::Vertex>>());
   auto &indexed_vertices = transaction_.index_storage_.back();
   transaction_.index_deltas_storage_.emplace_back();
   auto &index_deltas = transaction_.index_deltas_storage_.back();
 
-  auto label_property_filter = [this, &value](const Vertex &vertex, LabelId label, PropertyId property,
-                                              View view) -> bool {
+  auto label_property_filter = [this, &value](
+                                   const Vertex &vertex, LabelId label, PropertyId property, View view) -> bool {
     return VertexHasLabel(vertex, label, &transaction_, view) &&
            VertexHasEqualPropertyValue(vertex, property, value, &transaction_, view);
   };
@@ -580,10 +629,43 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   const auto gids = disk_storage->MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
       &transaction_, label, property, view, index_deltas, indexed_vertices.get(), label_property_filter);
 
-  disk_storage->LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(&transaction_, label, property, gids, value,
-                                                                           index_deltas, indexed_vertices.get());
+  disk_storage->LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
+      &transaction_, label, property, gids, value, index_deltas, indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
+}
+
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
+                                                     std::span<storage::PropertyValueRange const> property_ranges,
+                                                     View view, IndexOrder order) {
+  if (order == IndexOrder::DESC) throw utils::NotYetImplemented("DESC index for DiskStorage.");
+  if (properties.size() != 1) throw utils::NotYetImplemented("composite index");
+  if (properties[0].size() != 1) throw utils::NotYetImplemented("nested index");
+
+  auto const &range{property_ranges.front()};
+  auto const &property = properties[0][0];
+
+  // Edge import mode reads from its own cache, an in-memory index that applies the predicate itself.
+  auto *disk_storage = static_cast<DiskStorage *>(storage_);
+  if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
+    disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
+    return VerticesIterable(
+        disk_storage->edge_import_mode_cache_->Vertices(label, property, range, view, storage_, &transaction_));
+  }
+
+  // The scans below gather into a new index_storage_ entry; the predicate runs over it.
+  auto const gathered_before = transaction_.index_storage_.size();
+  auto found = range.type_ == PropertyRangeType::IS_NOT_NULL
+                   ? Vertices(label, property, view)
+                   : Vertices(label, property, range.lower_, range.upper_, view);
+
+  auto const &keeps = range.GetValuePredicate();
+  if (!keeps) return found;
+
+  MG_ASSERT(transaction_.index_storage_.size() > gathered_before, "The scan above gathered into no index_storage_");
+  DropWhatAPredicateTurnsDown(*transaction_.index_storage_.back(), property, *keeps, &transaction_, view);
+  return found;
 }
 
 VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId property,
@@ -594,11 +676,11 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   if (disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE) {
     disk_storage->HandleLoadingLabelPropertyForEdgeImportCache(&transaction_, label, property);
 
-    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(label, property, lower_bound, upper_bound,
-                                                                            view, storage_, &transaction_));
+    return VerticesIterable(disk_storage->edge_import_mode_cache_->Vertices(
+        label, property, PropertyValueRange::Bounded(lower_bound, upper_bound), view, storage_, &transaction_));
   }
 
-  transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipList<storage::Vertex>>());
+  transaction_.index_storage_.emplace_back(std::make_unique<utils::SkipListDb<storage::Vertex>>());
   auto &indexed_vertices = transaction_.index_storage_.back();
   transaction_.index_deltas_storage_.emplace_back();
   auto &index_deltas = transaction_.index_deltas_storage_.back();
@@ -609,13 +691,14 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   disk_storage->LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
       &transaction_, label, property, gids, lower_bound, upper_bound, index_deltas, indexed_vertices.get());
 
-  return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
+  return VerticesIterable(
+      AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view, kIteratorNoGidUpperBound));
 }
 
 /// TODO: (andi) This should probably go into some other class not the storage. All utils methods
 std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCache(
-    Transaction *transaction, LabelId label, View view, std::list<Delta> &index_deltas,
-    utils::SkipList<Vertex> *indexed_vertices) {
+    Transaction *transaction, LabelId label, View view, delta_container &index_deltas,
+    utils::SkipListDb<Vertex> *indexed_vertices) {
   auto main_cache_acc = transaction->vertices_->access();
   std::unordered_set<Gid> gids;
   gids.reserve(main_cache_acc.size());
@@ -624,9 +707,10 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCac
     gids.insert(vertex.gid);
     if (VertexHasLabel(vertex, label, transaction, view)) {
       spdlog::trace("Loaded vertex with gid: {} from main index storage to label index", vertex.gid.ToString());
-      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta);
+      const uint64_t ts = disk::GetEarliestTimestamp(vertex.delta());
       /// TODO: here are doing serialization and then later deserialization again -> expensive
-      LoadVertexToLabelIndexCache(transaction, utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
+      LoadVertexToLabelIndexCache(transaction,
+                                  utils::SerializeVertexAsKeyForLabelIndex(label, vertex.gid),
                                   utils::SerializeVertexAsValueForLabelIndex(label, vertex.labels, vertex.properties),
                                   CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
                                   indexed_vertices->access());
@@ -637,8 +721,8 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelIndexCac
 
 void DiskStorage::LoadVerticesFromDiskLabelIndex(Transaction *transaction, LabelId label,
                                                  const std::unordered_set<storage::Gid> &gids,
-                                                 std::list<Delta> &index_deltas,
-                                                 utils::SkipList<Vertex> *indexed_vertices) {
+                                                 delta_container &index_deltas,
+                                                 utils::SkipListDb<Vertex> *indexed_vertices) {
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto disk_index_transaction = disk_label_index->CreateRocksDBTransaction();
   disk_index_transaction->SetReadTimestampForValidation(transaction->start_timestamp);
@@ -654,11 +738,13 @@ void DiskStorage::LoadVerticesFromDiskLabelIndex(Transaction *transaction, Label
     std::string key = index_it->key().ToString();
     Gid curr_gid = Gid::FromString(utils::ExtractGidFromLabelIndexStorage(key));
     spdlog::trace("Loaded vertex with key: {} from label index storage", key);
-    if (key.starts_with(serialized_label) && !utils::Contains(gids, curr_gid)) {
+    if (key.starts_with(serialized_label) && !gids.contains(curr_gid)) {
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelIndexCache(
-          transaction, index_it->key().ToString(), index_it->value().ToString(),
+          transaction,
+          index_it->key().ToString(),
+          index_it->value().ToString(),
           CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), kDeserializeTimestamp),
           indexed_vertices->access());
     }
@@ -666,8 +752,8 @@ void DiskStorage::LoadVerticesFromDiskLabelIndex(Transaction *transaction, Label
 }
 
 std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelPropertyIndexCache(
-    Transaction *transaction, LabelId label, PropertyId property, View view, std::list<Delta> &index_deltas,
-    utils::SkipList<Vertex> *indexed_vertices, const auto &label_property_filter) {
+    Transaction *transaction, LabelId label, PropertyId property, View view, delta_container &index_deltas,
+    utils::SkipListDb<Vertex> *indexed_vertices, const auto &label_property_filter) {
   auto main_cache_acc = transaction->vertices_->access();
   std::unordered_set<storage::Gid> gids;
   gids.reserve(main_cache_acc.size());
@@ -675,11 +761,13 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
   for (const auto &vertex : main_cache_acc) {
     gids.insert(vertex.gid);
     if (label_property_filter(vertex, label, property, view)) {
-      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta);
+      const uint64_t ts = disk::GetEarliestTimestamp(vertex.delta());
       LoadVertexToLabelPropertyIndexCache(
-          transaction, utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
+          transaction,
+          utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
-          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts), indexed_vertices->access());
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
+          indexed_vertices->access());
     }
   }
 
@@ -688,8 +776,8 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
 
 void DiskStorage::LoadVerticesFromDiskLabelPropertyIndex(Transaction *transaction, LabelId label, PropertyId property,
                                                          const std::unordered_set<storage::Gid> &gids,
-                                                         std::list<Delta> &index_deltas,
-                                                         utils::SkipList<Vertex> *indexed_vertices,
+                                                         delta_container &index_deltas,
+                                                         utils::SkipListDb<Vertex> *indexed_vertices,
                                                          const auto &label_property_filter) {
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
@@ -709,7 +797,9 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndex(Transaction *transactio
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelPropertyIndexCache(
-          transaction, index_it->key().ToString(), index_it->value().ToString(),
+          transaction,
+          index_it->key().ToString(),
+          index_it->value().ToString(),
           CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), kDeserializeTimestamp),
           indexed_vertices->access());
     }
@@ -718,7 +808,7 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndex(Transaction *transactio
 
 void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
     Transaction *transaction, LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
-    const PropertyValue &value, std::list<Delta> &index_deltas, utils::SkipList<Vertex> *indexed_vertices) {
+    const PropertyValue &value, delta_container &index_deltas, utils::SkipListDb<Vertex> *indexed_vertices) {
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
   auto disk_index_transaction = disk_label_property_index->CreateRocksDBTransaction();
   disk_index_transaction->SetReadTimestampForValidation(transaction->start_timestamp);
@@ -734,12 +824,14 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
     std::string it_value = index_it->value().ToString();
     Gid curr_gid = Gid::FromString(utils::ExtractGidFromLabelPropertyIndexStorage(key));
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value);
-    if (key.starts_with(label_property_prefix) && !utils::Contains(gids, curr_gid) &&
+    if (key.starts_with(label_property_prefix) && !gids.contains(curr_gid) &&
         properties.IsPropertyEqual(property, value)) {
       // We should pass it->timestamp().ToString() instead of "0"
       // This is hack until RocksDB will support timestamp() in WBWI iterator
       LoadVertexToLabelPropertyIndexCache(
-          transaction, index_it->key().ToString(), index_it->value().ToString(),
+          transaction,
+          index_it->key().ToString(),
+          index_it->value().ToString(),
           CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key), kDeserializeTimestamp),
           indexed_vertices->access());
     }
@@ -749,8 +841,8 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexWithPointValueLookup(
 std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelPropertyIndexCacheForIntervalSearch(
     Transaction *transaction, LabelId label, PropertyId property, View view,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
-    utils::SkipList<Vertex> *indexed_vertices) {
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, delta_container &index_deltas,
+    utils::SkipListDb<Vertex> *indexed_vertices) {
   auto main_cache_acc = transaction->vertices_->access();
   std::unordered_set<storage::Gid> gids;
   gids.reserve(main_cache_acc.size());
@@ -760,11 +852,13 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
     auto prop_value = GetVertexProperty(vertex, property, transaction, view);
     if (VertexHasLabel(vertex, label, transaction, view) &&
         IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
-      uint64_t ts = utils::GetEarliestTimestamp(vertex.delta);
+      const uint64_t ts = disk::GetEarliestTimestamp(vertex.delta());
       LoadVertexToLabelPropertyIndexCache(
-          transaction, utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
+          transaction,
+          utils::SerializeVertexAsKeyForLabelPropertyIndex(label, property, vertex.gid),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, vertex.labels, vertex.properties),
-          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts), indexed_vertices->access());
+          CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::nullopt, ts),
+          indexed_vertices->access());
     }
   }
   return gids;
@@ -773,8 +867,8 @@ std::unordered_set<Gid> DiskStorage::MergeVerticesFromMainCacheWithLabelProperty
 void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
     Transaction *transaction, LabelId label, PropertyId property, const std::unordered_set<storage::Gid> &gids,
     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, std::list<Delta> &index_deltas,
-    utils::SkipList<Vertex> *indexed_vertices) {
+    const std::optional<utils::Bound<PropertyValue>> &upper_bound, delta_container &index_deltas,
+    utils::SkipListDb<Vertex> *indexed_vertices) {
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
   auto disk_index_transaction = disk_label_property_index->CreateRocksDBTransaction();
@@ -793,17 +887,58 @@ void DiskStorage::LoadVerticesFromDiskLabelPropertyIndexForIntervalSearch(
     /// TODO: andi this will be optimized
     PropertyStore properties = utils::DeserializePropertiesFromLabelPropertyIndexStorage(it_value_str);
     PropertyValue prop_value = properties.GetProperty(property);
-    if (!key_str.starts_with(label_property_prefix) || utils::Contains(gids, curr_gid) ||
+    if (!key_str.starts_with(label_property_prefix) || gids.contains(curr_gid) ||
         !IsPropertyValueWithinInterval(prop_value, lower_bound, upper_bound)) {
       continue;
     }
     // We should pass it->timestamp().ToString() instead of "0"
     // This is hack until RocksDB will support timestamp() in WBWI iterator
     LoadVertexToLabelPropertyIndexCache(
-        transaction, index_it->key().ToString(), index_it->value().ToString(),
+        transaction,
+        index_it->key().ToString(),
+        index_it->value().ToString(),
         CreateDeleteDeserializedIndexObjectDelta(index_deltas, std::move(key_str), kDeserializeTimestamp),
         indexed_vertices->access());
   }
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, View /*view*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, PropertyId /*property*/, View /*view*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
+                                               const PropertyValue & /*value*/, View /*view*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
+                                               PropertyValueRange const & /*range*/, View /*view*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, PropertyValueRange const & /*range*/,
+                                               View /*view*/) {
+  throw utils::NotYetImplemented(
+      "Edge property index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, View /*view*/) {
+  throw utils::NotYetImplemented("Edge index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+EdgesIterable DiskStorage::DiskAccessor::Edges(PropertyId /*property*/, const PropertyValue & /*value*/,
+                                               View /*view*/) {
+  throw utils::NotYetImplemented("Edge index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
 }
 
 uint64_t DiskStorage::DiskAccessor::ApproximateVertexCount() const {
@@ -824,7 +959,7 @@ uint64_t DiskStorage::GetDiskSpaceUsage() const {
          durability_disk_storage_size;
 }
 
-StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
+StorageInfo DiskStorage::GetBaseInfo() {
   StorageInfo info{};
   info.vertex_count = vertex_count_;
   info.edge_count = edge_count_.load(std::memory_order_acquire);
@@ -833,20 +968,25 @@ StorageInfo DiskStorage::GetBaseInfo(bool /* unused */) {
     info.average_degree = 2.0 * static_cast<double>(info.edge_count) / info.vertex_count;
   }
   info.memory_res = utils::GetMemoryRES();
+  info.peak_memory_res = metrics::Metrics().UpdateAndGetPeakMemoryRes(info.memory_res);
+  info.unreleased_delta_objects = static_cast<uint64_t>(metric_handles_.unreleased_delta_objects.Value());
+
   info.disk_usage = GetDiskSpaceUsage();
   return info;
 }
 
-StorageInfo DiskStorage::GetInfo(bool force_dir, memgraph::replication::ReplicationRole replication_role) {
-  StorageInfo info = GetBaseInfo(force_dir);
+StorageInfo DiskStorage::GetInfo() {
+  StorageInfo info = GetBaseInfo();
   {
-    auto access = Access(replication_role);
+    auto access = Access(StorageAccessType::READ);
     const auto &lbl = access->ListAllIndices();
     info.label_indices = lbl.label.size();
-    info.label_property_indices = lbl.label_property.size();
+    info.label_property_indices = lbl.label_properties.size();
+    info.text_indices = lbl.text_indices.size();
     const auto &con = access->ListAllConstraints();
     info.existence_constraints = con.existence.size();
     info.unique_constraints = con.unique.size();
+    info.type_constraints = 0;  // Type constraints not supported on disk storage
   }
   info.storage_mode = storage_mode_;
   info.isolation_level = isolation_level_;
@@ -855,7 +995,26 @@ StorageInfo DiskStorage::GetInfo(bool force_dir, memgraph::replication::Replicat
       config_.durability.snapshot_on_exit;
   info.durability_wal_enabled =
       config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  info.property_store_compression_enabled = config_.salient.items.property_store_compression_enabled;
+  info.property_store_compression_level = config_.salient.property_store_compression_level;
   return info;
+}
+
+std::unordered_map<LabelId, uint64_t> DiskStorage::GetLabelCounts() const {
+  std::unordered_map<LabelId, uint64_t> label_counts;
+  if (!config_.track_label_counts) {
+    return label_counts;
+  }
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+  auto storage_acc = const_cast<DiskStorage *>(this)->ReadOnlyAccess();
+  for (auto &&vertex : storage_acc->Vertices(View::OLD)) {
+    auto const labels_result = vertex.Labels(View::OLD);
+    if (!labels_result) continue;
+    for (auto const label : *labels_result) {
+      ++label_counts[label];
+    }
+  }
+  return label_counts;
 }
 
 void DiskStorage::SetEdgeImportMode(EdgeImportMode edge_import_status) {
@@ -901,6 +1060,17 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   return disk_storage->FindVertex(gid, &transaction_, view);
 }
 
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid /*gid*/, View /*view*/) {
+  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges. {}",
+                                 kErrorMessage);
+}
+
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid /*edge_gid*/, Gid /*from_vertex_gid*/,
+                                                                View /*view*/) {
+  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges. {}",
+                                 kErrorMessage);
+}
+
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges,
                                         bool detach) {
@@ -908,11 +1078,11 @@ DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std
 
   /// TODO: (andi) Refactor
   auto maybe_result = Storage::Accessor::DetachDelete(nodes, edges, detach);
-  if (maybe_result.HasError()) {
-    return maybe_result.GetError();
+  if (!maybe_result) {
+    return std::unexpected{maybe_result.error()};
   }
 
-  auto value = maybe_result.GetValue();
+  auto value = maybe_result.value();
   if (!value) {
     return std::make_optional<ReturnType>();
   }
@@ -944,7 +1114,7 @@ Result<EdgeAccessor> DiskStorage::DiskAccessor::CreateEdge(VertexAccessor *from,
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
-  if (from_vertex->deleted || to_vertex->deleted) return Error::DELETED_OBJECT;
+  if (from_vertex->deleted() || to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   auto gid = storage::Gid::FromUint(disk_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
@@ -987,7 +1157,7 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View vi
                                                                 VertexAccessor *from_vertex,
                                                                 VertexAccessor *to_vertex) {
   auto res = FindEdges(view, edge_type, from_vertex, to_vertex);
-  if (res.HasError()) return std::nullopt;  // TODO: use a Result type
+  if (!res) return std::nullopt;  // TODO: use a Result type
 
   auto const it = std::ranges::find_if(
       res->edges, [gid](EdgeAccessor const &edge_accessor) { return edge_accessor.edge_.ptr->gid == gid; });
@@ -997,27 +1167,12 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid gid, View vi
   return *it;
 }
 
-Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetFrom(EdgeAccessor * /*edge*/, VertexAccessor * /*new_from*/) {
-  MG_ASSERT(false, "EdgeSetFrom is currently only implemented for InMemory storage");
-  return Error::NONEXISTENT_OBJECT;
-}
-
-Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeSetTo(EdgeAccessor * /*edge*/, VertexAccessor * /*new_to*/) {
-  MG_ASSERT(false, "EdgeSetTo is currently only implemented for InMemory storage");
-  return Error::NONEXISTENT_OBJECT;
-}
-
-Result<EdgeAccessor> DiskStorage::DiskAccessor::EdgeChangeType(EdgeAccessor * /*edge*/, EdgeTypeId /*new_edge_type*/) {
-  MG_ASSERT(false, "EdgeChangeType is currently only implemented for InMemory storage");
-  return Error::NONEXISTENT_OBJECT;
-}
-
 bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, const Vertex &vertex) {
-  MG_ASSERT(transaction->commit_timestamp, "Writing vertex to disk but commit timestamp not set.");
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  MG_ASSERT(transaction->commit_info, "Writing vertex to disk but commit timestamp not set.");
+  auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   const auto ser_vertex = utils::SerializeVertex(vertex);
-  auto status = transaction->disk_transaction_->Put(kvstore_->vertex_chandle, ser_vertex,
-                                                    utils::SerializeProperties(vertex.properties));
+  auto status = transaction->disk_transaction_->Put(
+      kvstore_->vertex_chandle, ser_vertex, utils::SerializeProperties(vertex.properties));
   if (status.ok()) {
     spdlog::trace("rocksdb: Saved vertex with key {} and ts {} to vertex column family", ser_vertex, commit_ts);
     return true;
@@ -1026,10 +1181,10 @@ bool DiskStorage::WriteVertexToVertexColumnFamily(Transaction *transaction, cons
   return false;
 }
 
-bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, const std::string &serialized_edge_key,
-                                              const std::string &serialized_edge_value) {
-  MG_ASSERT(transaction->commit_timestamp, "Writing edge to disk but commit timestamp not set.");
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, std::string_view serialized_edge_key,
+                                              std::string_view serialized_edge_value) {
+  MG_ASSERT(transaction->commit_info, "Writing edge to disk but commit timestamp not set.");
+  auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   rocksdb::Status status =
       transaction->disk_transaction_->Put(kvstore_->edge_chandle, serialized_edge_key, serialized_edge_value);
 
@@ -1042,21 +1197,21 @@ bool DiskStorage::WriteEdgeToEdgeColumnFamily(Transaction *transaction, const st
 }
 
 /// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-bool DiskStorage::WriteEdgeToConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
-                                               const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle,
+bool DiskStorage::WriteEdgeToConnectivityIndex(Transaction *transaction, std::string_view vertex_gid,
+                                               std::string_view edge_gid, rocksdb::ColumnFamilyHandle *handle,
                                                std::string mode) {
-  MG_ASSERT(transaction->commit_timestamp, "Writing edge to disk but commit timestamp not set.");
-  std::string value;
-  const auto put_status = std::invoke([transaction, handle, &value, &vertex_gid, &edge_gid]() {
+  MG_ASSERT(transaction->commit_info, "Writing edge to disk but commit timestamp not set.");
+  const auto put_status = std::invoke([transaction, handle, &vertex_gid, &edge_gid]() {
     rocksdb::ReadOptions ro;
     std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
     rocksdb::Slice ts(strTs);
     ro.timestamp = &ts;
 
+    std::string value;
     if (transaction->disk_transaction_->Get(ro, handle, vertex_gid, &value).IsNotFound()) {
       return transaction->disk_transaction_->Put(handle, vertex_gid, edge_gid);
     }
-    return transaction->disk_transaction_->Put(handle, vertex_gid, value + "," + edge_gid);
+    return transaction->disk_transaction_->Put(handle, vertex_gid, std::format("{},{}", value, edge_gid));
   });
 
   if (put_status.ok()) {
@@ -1064,13 +1219,12 @@ bool DiskStorage::WriteEdgeToConnectivityIndex(Transaction *transaction, const s
     return true;
   }
 
-  spdlog::error("rocksdb: Failed to save edge {} to {} edges connectivity index for vertex {}", edge_gid, mode,
-                vertex_gid);
+  spdlog::error(
+      "rocksdb: Failed to save edge {} to {} edges connectivity index for vertex {}", edge_gid, mode, vertex_gid);
   return false;
 }
 
-bool DiskStorage::DeleteVertexFromDisk(Transaction *transaction, const std::string &vertex_gid,
-                                       const std::string &vertex) {
+bool DiskStorage::DeleteVertexFromDisk(Transaction *transaction, std::string_view vertex_gid, std::string_view vertex) {
   /// TODO: (andi) This should be atomic delete.
   auto vertex_del_status = transaction->disk_transaction_->Delete(kvstore_->vertex_chandle, vertex);
   auto vertex_out_conn_status = transaction->disk_transaction_->Delete(kvstore_->out_edges_chandle, vertex_gid);
@@ -1084,7 +1238,7 @@ bool DiskStorage::DeleteVertexFromDisk(Transaction *transaction, const std::stri
   return false;
 }
 
-bool DiskStorage::DeleteEdgeFromEdgeColumnFamily(Transaction *transaction, const std::string &edge_gid) {
+bool DiskStorage::DeleteEdgeFromEdgeColumnFamily(Transaction *transaction, std::string_view edge_gid) {
   if (!transaction->disk_transaction_->Delete(kvstore_->edge_chandle, edge_gid).ok()) {
     spdlog::error("rocksdb: Failed to delete edge {}", edge_gid);
     return false;
@@ -1096,8 +1250,8 @@ bool DiskStorage::DeleteEdgeFromEdgeColumnFamily(Transaction *transaction, const
 /// TODO: (andi) This is currently not optimal as it will for each edge deserialize all neighborhood edges
 /// and then remove the edge from the neighborhood edges. This can be optimized by saving vertices together with
 // deleted edges and then modifying the deletion procedure. This is currently bad if we have some supernode.
-bool DiskStorage::DeleteEdgeFromDisk(Transaction *transaction, const std::string &edge_gid,
-                                     const std::string &src_vertex_gid, const std::string &dst_vertex_gid) {
+bool DiskStorage::DeleteEdgeFromDisk(Transaction *transaction, std::string_view edge_gid,
+                                     std::string_view src_vertex_gid, std::string_view dst_vertex_gid) {
   /// TODO: (andi) Should be atomic deletion.
   if (!DeleteEdgeFromEdgeColumnFamily(transaction, edge_gid)) {
     return false;
@@ -1122,8 +1276,8 @@ bool DiskStorage::DeleteEdgeFromDisk(Transaction *transaction, const std::string
 }
 
 /// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, const std::string &vertex_gid,
-                                                  const std::string &edge_gid, rocksdb::ColumnFamilyHandle *handle,
+bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std::string_view vertex_gid,
+                                                  std::string_view edge_gid, rocksdb::ColumnFamilyHandle *handle,
                                                   std::string mode) {
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(transaction->start_timestamp);
@@ -1142,129 +1296,137 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
   MG_ASSERT(std::erase(edges_vec, edge_gid) > 0U, "Edge must be in the edges collection of vertex");
   if (edges_vec.empty()) {
     if (!transaction->disk_transaction_->Delete(handle, vertex_gid).ok()) {
-      spdlog::error("rocksdb: Failed to delete edge {} from edges connectivity index for vertex {}", edge_gid,
-                    vertex_gid);
+      spdlog::error(
+          "rocksdb: Failed to delete edge {} from edges connectivity index for vertex {}", edge_gid, vertex_gid);
       return false;
     }
     return true;
   }
 
   if (!transaction->disk_transaction_->Put(handle, vertex_gid, utils::Join(edges_vec, ",")).ok()) {
-    spdlog::error("rocksdb: Failed to delete edge {} from edges connectivity index for vertex {}", edge_gid,
-                  vertex_gid);
+    spdlog::error(
+        "rocksdb: Failed to delete edge {} from edges connectivity index for vertex {}", edge_gid, vertex_gid);
     return false;
   }
   return true;
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::CheckVertexConstraintsBeforeCommit(
+[[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::CheckVertexConstraintsBeforeCommit(
     const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage) const {
-  if (auto existence_constraint_validation_result = constraints_.existence_constraints_->Validate(vertex);
-      existence_constraint_validation_result.has_value()) {
-    return StorageManipulationError{existence_constraint_validation_result.value()};
+  if (auto existence_constraint_validation_result = constraints_.existence_constraints_->PerVertexValidate(vertex);
+      !existence_constraint_validation_result.has_value()) {
+    return std::unexpected{StorageManipulationError{existence_constraint_validation_result.error()}};
   }
 
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   if (auto unique_constraint_validation_result = disk_unique_constraints->Validate(vertex, unique_storage);
-      unique_constraint_validation_result.has_value()) {
-    return StorageManipulationError{unique_constraint_validation_result.value()};
+      !unique_constraint_validation_result.has_value()) {
+    return std::unexpected{StorageManipulationError{unique_constraint_validation_result.error()}};
   }
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushVertices(
+[[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::FlushVertices(
     Transaction *transaction, const auto &vertex_acc, std::vector<std::vector<PropertyValue>> &unique_storage) {
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   for (const Vertex &vertex : vertex_acc) {
     if (!VertexNeedsToBeSerialized(vertex)) {
       continue;
     }
-    if (auto check_result = CheckVertexConstraintsBeforeCommit(vertex, unique_storage); check_result.HasError()) {
-      return check_result.GetError();
+    if (auto check_result = CheckVertexConstraintsBeforeCommit(vertex, unique_storage); !check_result.has_value()) {
+      return std::unexpected{check_result.error()};
     }
 
-    if (vertex.deleted) {
+    if (vertex.deleted()) {
       continue;
     }
 
     /// NOTE: this deletion has to come before writing, otherwise RocksDB thinks that all entries are deleted
-    if (auto maybe_old_disk_key = utils::GetOldDiskKeyOrNull(vertex.delta); maybe_old_disk_key.has_value()) {
+    if (auto maybe_old_disk_key = disk::GetOldDiskKeyOrNull(vertex.delta()); maybe_old_disk_key.has_value()) {
       if (!DeleteVertexFromDisk(transaction, vertex.gid.ToString(), maybe_old_disk_key.value())) {
-        return StorageManipulationError{SerializationError{}};
+        return std::unexpected{StorageManipulationError{SerializationError{}}};
       }
     }
 
     if (!WriteVertexToVertexColumnFamily(transaction, vertex)) {
-      return StorageManipulationError{SerializationError{}};
+      return std::unexpected{StorageManipulationError{SerializationError{}}};
     }
 
     if (!disk_unique_constraints->SyncVertexToUniqueConstraintsStorage(vertex, commit_ts) ||
         !disk_label_index->SyncVertexToLabelIndexStorage(vertex, commit_ts) ||
         !disk_label_property_index->SyncVertexToLabelPropertyIndexStorage(vertex, commit_ts)) {
-      return StorageManipulationError{SerializationError{}};
+      return std::unexpected{StorageManipulationError{SerializationError{}}};
     }
   }
 
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::ClearDanglingVertices(
+[[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::ClearDanglingVertices(
     Transaction *transaction) {
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
-  if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction->start_timestamp, commit_ts) ||
-      !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts) ||
-      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts)) {
-    return StorageManipulationError{SerializationError{}};
+  auto *active_unique_constraints =
+      static_cast<DiskUniqueConstraints::ActiveConstraints *>(transaction->active_constraints_->unique_.get());
+
+  auto *label_active_indices = static_cast<DiskLabelIndex::ActiveIndices *>(transaction->active_indices_->label_.get());
+  auto *label_properties_active_indices =
+      static_cast<DiskLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_->label_properties_.get());
+
+  auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
+  if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(
+          active_unique_constraints->entries_for_deletion, transaction->start_timestamp, commit_ts) ||
+      !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(
+          transaction->start_timestamp, commit_ts, label_active_indices->entries_for_deletion_) ||
+      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(
+          transaction->start_timestamp, commit_ts, label_properties_active_indices->entries_for_deletion_)) {
+    return std::unexpected{StorageManipulationError{SerializationError{}}};
   }
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushIndexCache(
-    Transaction *transaction) {
+[[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::FlushIndexCache(Transaction *transaction) {
   std::vector<std::vector<PropertyValue>> unique_storage;
 
   for (const auto &vec : transaction->index_storage_) {
-    if (auto vertices_res = FlushVertices(transaction, vec->access(), unique_storage); vertices_res.HasError()) {
-      return vertices_res.GetError();
+    if (auto vertices_res = FlushVertices(transaction, vec->access(), unique_storage); !vertices_res.has_value()) {
+      return std::unexpected{vertices_res.error()};
     }
   }
 
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushDeletedVertices(
+[[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::FlushDeletedVertices(
     Transaction *transaction) {
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(constraints_.unique_constraints_.get());
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
-  auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
+  auto commit_ts = transaction->commit_info->timestamp.load(std::memory_order_relaxed);
   for (const auto &[vertex_gid, serialized_vertex_to_delete] : transaction->vertices_to_delete_) {
     if (!DeleteVertexFromDisk(transaction, vertex_gid, serialized_vertex_to_delete) ||
         !disk_unique_constraints->ClearDeletedVertex(vertex_gid, commit_ts) ||
         !disk_label_index->ClearDeletedVertex(vertex_gid, commit_ts) ||
         !disk_label_property_index->ClearDeletedVertex(vertex_gid, commit_ts)) {
-      return StorageManipulationError{SerializationError{}};
+      return std::unexpected{StorageManipulationError{SerializationError{}}};
     }
   }
 
   return {};
 }
 
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushDeletedEdges(
-    Transaction *transaction) {
+[[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::FlushDeletedEdges(Transaction *transaction) {
   for (const auto &[edge_to_delete, vertices] : transaction->edges_to_delete_) {
     const auto &[src_vertex_id, dst_vertex_id] = vertices;
     if (!DeleteEdgeFromDisk(transaction, edge_to_delete, src_vertex_id, dst_vertex_id)) {
-      return StorageManipulationError{SerializationError{}};
+      return std::unexpected{StorageManipulationError{SerializationError{}}};
     }
   }
   return {};
@@ -1275,8 +1437,8 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 /// std::map<src_vertex_gid, ...>
 /// std::map<dst_vertex_gid, ...>
 /// Here we also do flushing of too many things, we don't need to serialize edges in read-only txn, check that...
-[[nodiscard]] utils::BasicResult<StorageManipulationError, void> DiskStorage::FlushModifiedEdges(
-    Transaction *transaction, const auto &edge_acc) {
+[[nodiscard]] std::expected<void, StorageManipulationError> DiskStorage::FlushModifiedEdges(Transaction *transaction,
+                                                                                            const auto &edges_acc) {
   for (const auto &modified_edge : transaction->modified_edges_) {
     const std::string edge_gid = modified_edge.first.ToString();
     const Delta::Action root_action = modified_edge.second.delta_action;
@@ -1288,9 +1450,10 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       /// edge wasn't modified for sure.
       if (root_action == Delta::Action::DELETE_OBJECT &&
           !WriteEdgeToEdgeColumnFamily(
-              transaction, edge_gid,
+              transaction,
+              edge_gid,
               utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id))) {
-        return StorageManipulationError{SerializationError{}};
+        return std::unexpected{StorageManipulationError{SerializationError{}}};
       }
     } else {
       // If the delta is DELETE_OBJECT, the edge is just created so there is nothing to delete.
@@ -1299,24 +1462,25 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
       // This is done to avoid storing multiple versions of the same data.
       if (root_action == Delta::Action::DELETE_DESERIALIZED_OBJECT &&
           !DeleteEdgeFromEdgeColumnFamily(transaction, edge_gid)) {
-        return StorageManipulationError{SerializationError{}};
+        return std::unexpected{StorageManipulationError{SerializationError{}}};
       }
 
-      const auto &edge = edge_acc.find(modified_edge.first);
-      MG_ASSERT(edge != edge_acc.end(),
+      const auto &edge = edges_acc.find(modified_edge.first);
+      MG_ASSERT(edge != edges_acc.end(),
                 "Database in invalid state, commit not possible! Please restart your DB and start the import again.");
 
       /// TODO: (andi) I think this is not wrong but it would be better to use AtomicWrites across column families.
       if (!WriteEdgeToEdgeColumnFamily(
-              transaction, edge_gid,
+              transaction,
+              edge_gid,
               utils::SerializeEdgeAsValue(src_vertex_gid, dst_vertex_gid, modified_edge.second.edge_type_id, &*edge))) {
-        return StorageManipulationError{SerializationError{}};
+        return std::unexpected{StorageManipulationError{SerializationError{}}};
       }
     }
     if (root_action == Delta::Action::DELETE_OBJECT &&
         (!WriteEdgeToConnectivityIndex(transaction, src_vertex_gid, edge_gid, kvstore_->out_edges_chandle, "OUT") ||
          !WriteEdgeToConnectivityIndex(transaction, dst_vertex_gid, edge_gid, kvstore_->in_edges_chandle, "IN"))) {
-      return StorageManipulationError{SerializationError{}};
+      return std::unexpected{StorageManipulationError{SerializationError{}}};
     }
   }
   return {};
@@ -1324,24 +1488,28 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, cons
 
 /// NOTE: This will create Delta object which will cause deletion of old key entry on the disk
 std::optional<storage::VertexAccessor> DiskStorage::LoadVertexToMainMemoryCache(Transaction *transaction,
-                                                                                const std::string &key,
-                                                                                const std::string &value,
+                                                                                std::string_view key,
+                                                                                std::string_view value,
                                                                                 std::string &&ts) {
   auto main_storage_accessor = transaction->vertices_->access();
 
   storage::Gid gid = Gid::FromString(utils::ExtractGidFromKey(key));
-  if (ObjectExistsInCache(main_storage_accessor, gid)) {
+  if (main_storage_accessor.contains(gid)) {
     return std::nullopt;
   }
-  std::vector<LabelId> labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
+  VertexKey labels_id{utils::DeserializeLabelsFromMainDiskStorage(key)};
   PropertyStore properties{utils::DeserializePropertiesFromMainDiskStorage(value)};
-  return CreateVertexFromDisk(transaction, main_storage_accessor, gid, std::move(labels_id), std::move(properties),
+  return CreateVertexFromDisk(transaction,
+                              main_storage_accessor,
+                              gid,
+                              std::move(labels_id),
+                              std::move(properties),
                               CreateDeleteDeserializedObjectDelta(transaction, key, std::move(ts)));
 }
 
-VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction, utils::SkipList<Vertex>::Accessor &accessor,
-                                                 storage::Gid gid, std::vector<LabelId> label_ids,
-                                                 PropertyStore properties, Delta *delta) {
+VertexAccessor DiskStorage::CreateVertexFromDisk(Transaction *transaction,
+                                                 utils::SkipListDb<Vertex>::Accessor &accessor, storage::Gid gid,
+                                                 VertexKey label_ids, PropertyStore properties, Delta *delta) {
   auto [it, inserted] = accessor.insert(Vertex{gid, delta});
   MG_ASSERT(inserted, "The vertex must be inserted here!");
   MG_ASSERT(it != accessor.end(), "Invalid Vertex accessor!");
@@ -1386,7 +1554,7 @@ std::optional<VertexAccessor> DiskStorage::FindVertex(storage::Gid gid, Transact
 std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor *from, const VertexAccessor *to,
                                                             Transaction *transaction, EdgeTypeId edge_type,
                                                             storage::Gid gid, const std::string_view properties,
-                                                            const std::string &old_disk_key, std::string &&read_ts) {
+                                                            std::string_view old_disk_key, std::string &&read_ts) {
   auto *from_vertex = from->vertex_;
   auto *to_vertex = to->vertex_;
 
@@ -1410,8 +1578,8 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
     edge.ptr->properties.SetBuffer(properties);
   }
 
-  ModifiedEdgeInfo modified_edge(Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex->gid, to_vertex->gid, edge_type,
-                                 edge);
+  const ModifiedEdgeInfo modified_edge(
+      Delta::Action::DELETE_DESERIALIZED_OBJECT, from_vertex->gid, to_vertex->gid, edge_type, edge);
   if (transaction->AddModifiedEdge(gid, modified_edge)) {
     spdlog::trace("Edge {} added to out edges of vertex with gid {}", gid.ToString(), from_vertex->gid.AsUint());
     spdlog::trace("Edge {} added to in edges of vertex with gid {}", gid.ToString(), to_vertex->gid.AsUint());
@@ -1426,10 +1594,10 @@ std::optional<EdgeAccessor> DiskStorage::CreateEdgeFromDisk(const VertexAccessor
 
 std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex,
                                                 const std::vector<EdgeTypeId> &edge_types,
-                                                const VertexAccessor *destination, Transaction *transaction,
-                                                View view) {
+                                                const VertexAccessor *destination, Transaction *transaction, View view,
+                                                HopsLimit *hops_limit) {
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
-  if (view == View::NEW && src_vertex->vertex_->deleted) return {};
+  if (view == View::NEW && src_vertex->vertex_->deleted()) return {};
 
   const std::string src_vertex_gid = src_vertex->Gid().ToString();
   rocksdb::ReadOptions ro;
@@ -1448,40 +1616,63 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
 
   std::vector<EdgeAccessor> result;
   auto out_edges = utils::Split(out_edges_str, ",");
-  for (const std::string &edge_gid_str : out_edges) {
+  for (auto const &edge_gid_str : out_edges) {
+    if (hops_limit && hops_limit->IsUsed()) {
+      auto available_hops = hops_limit->IncrementHopsCount();
+      if (available_hops <= 0) break;
+    }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
 
     MG_ASSERT(edge_res.ok(), "rocksdb: Failed to find edge with gid {} in edge column family", edge_gid_str);
 
     auto edge_type_id = utils::ExtractEdgeTypeIdFromEdgeValue(edge_val_str);
-    if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
+    if (!edge_types.empty() && !std::ranges::contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
     auto properties_str =
         config_.salient.items.properties_on_edges ? utils::GetPropertiesFromEdgeValue(edge_val_str) : "";
 
-    const auto edge = std::invoke([this, destination, &edge_val_str, transaction, view, src_vertex, edge_type_id,
-                                   edge_gid, &properties_str, &edge_gid_str]() {
+    const auto edge = std::invoke([this,
+                                   destination,
+                                   &edge_val_str,
+                                   transaction,
+                                   view,
+                                   src_vertex,
+                                   edge_type_id,
+                                   edge_gid,
+                                   &properties_str,
+                                   &edge_gid_str]() {
       auto dst_vertex_gid = utils::ExtractDstVertexGidFromEdgeValue(edge_val_str);
       if (!destination) {
         auto dst_vertex = FindVertex(dst_vertex_gid, transaction, view);
         /// TODO: (andi) I think dst_vertex->deleted should be unnecessary
         /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
-        if (!dst_vertex.has_value() || (view == View::NEW && dst_vertex->vertex_->deleted))
-          return std::optional<EdgeAccessor>{};
+        if (!dst_vertex || (view == View::NEW && dst_vertex->vertex_->deleted())) return std::optional<EdgeAccessor>{};
 
-        return CreateEdgeFromDisk(src_vertex, &*dst_vertex, transaction, edge_type_id, edge_gid, properties_str,
-                                  edge_gid_str, kDeserializeTimestamp);
+        return CreateEdgeFromDisk(src_vertex,
+                                  &*dst_vertex,
+                                  transaction,
+                                  edge_type_id,
+                                  edge_gid,
+                                  properties_str,
+                                  edge_gid_str,
+                                  kDeserializeTimestamp);
       }
       /// This is needed for filtering
       /// Second check not needed I think
-      if (dst_vertex_gid != destination->Gid() || destination->vertex_->deleted) {
+      if (dst_vertex_gid != destination->Gid() || destination->vertex_->deleted()) {
         return std::optional<EdgeAccessor>{};
       }
 
-      return CreateEdgeFromDisk(src_vertex, destination, transaction, edge_type_id, edge_gid, properties_str,
-                                edge_gid_str, kDeserializeTimestamp);
+      return CreateEdgeFromDisk(src_vertex,
+                                destination,
+                                transaction,
+                                edge_type_id,
+                                edge_gid,
+                                properties_str,
+                                edge_gid_str,
+                                kDeserializeTimestamp);
     });
     if (edge.has_value()) result.emplace_back(*edge);
   }
@@ -1491,9 +1682,9 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
 
 std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
                                                const std::vector<EdgeTypeId> &edge_types, const VertexAccessor *source,
-                                               Transaction *transaction, View view) {
+                                               Transaction *transaction, View view, HopsLimit *hops_limit) {
   /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
-  if (view == View::NEW && dst_vertex->vertex_->deleted) return {};
+  if (view == View::NEW && dst_vertex->vertex_->deleted()) return {};
 
   const std::string dst_vertex_gid = dst_vertex->Gid().ToString();
   rocksdb::ReadOptions ro;
@@ -1512,37 +1703,54 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
 
   auto in_edges = utils::Split(in_edges_str, ",");
   std::vector<EdgeAccessor> result;
-  for (const std::string &edge_gid_str : in_edges) {
+  for (auto const &edge_gid_str : in_edges) {
+    if (hops_limit && hops_limit->IsUsed()) {
+      auto available_hops = hops_limit->IncrementHopsCount();
+      if (available_hops <= 0) break;
+    }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
 
     MG_ASSERT(edge_res.ok(), "rocksdb: Failed to find edge with gid {} in edge column family", edge_gid_str);
 
     auto edge_type_id = utils::ExtractEdgeTypeIdFromEdgeValue(edge_val_str);
-    if (!edge_types.empty() && !utils::Contains(edge_types, edge_type_id)) continue;
+    if (!edge_types.empty() && !std::ranges::contains(edge_types, edge_type_id)) continue;
 
     auto edge_gid = Gid::FromString(edge_gid_str);
     auto properties_str = utils::GetPropertiesFromEdgeValue(edge_val_str);
 
-    const auto edge = std::invoke([this, source, &edge_val_str, transaction, view, dst_vertex, edge_type_id, edge_gid,
-                                   &properties_str, &edge_gid_str]() {
+    const auto edge = std::invoke([this,
+                                   source,
+                                   &edge_val_str,
+                                   transaction,
+                                   view,
+                                   dst_vertex,
+                                   edge_type_id,
+                                   edge_gid,
+                                   &properties_str,
+                                   &edge_gid_str]() {
       auto src_vertex_gid = utils::ExtractSrcVertexGidFromEdgeValue(edge_val_str);
       if (!source) {
         auto src_vertex = FindVertex(src_vertex_gid, transaction, view);
         /// Check whether the vertex is deleted in the current tx only if View::NEW is requested
         /// TODO: (andi) Second check I think isn't necessary
-        if (!src_vertex.has_value() || (view == View::NEW && src_vertex->vertex_->deleted))
-          return std::optional<EdgeAccessor>{};
+        if (!src_vertex || (view == View::NEW && src_vertex->vertex_->deleted())) return std::optional<EdgeAccessor>{};
 
-        return CreateEdgeFromDisk(&*src_vertex, dst_vertex, transaction, edge_type_id, edge_gid, properties_str,
-                                  edge_gid_str, kDeserializeTimestamp);
+        return CreateEdgeFromDisk(&*src_vertex,
+                                  dst_vertex,
+                                  transaction,
+                                  edge_type_id,
+                                  edge_gid,
+                                  properties_str,
+                                  edge_gid_str,
+                                  kDeserializeTimestamp);
       }
       /// TODO: (andi) 2nd check not needed I think
-      if (src_vertex_gid != source->Gid() || source->vertex_->deleted) {
+      if (src_vertex_gid != source->Gid() || source->vertex_->deleted()) {
         return std::optional<EdgeAccessor>{};
       }
-      return CreateEdgeFromDisk(source, dst_vertex, transaction, edge_type_id, edge_gid, properties_str, edge_gid_str,
-                                kDeserializeTimestamp);
+      return CreateEdgeFromDisk(
+          source, dst_vertex, transaction, edge_type_id, edge_gid, properties_str, edge_gid_str, kDeserializeTimestamp);
     });
 
     if (edge.has_value()) result.emplace_back(*edge);
@@ -1551,8 +1759,8 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   return result;
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(
-    LabelId label, PropertyId property) const {
+[[nodiscard]] std::expected<void, ConstraintViolation>
+DiskStorage::CheckExistingVerticesBeforeCreatingExistenceConstraint(LabelId label, PropertyId property) const {
   rocksdb::ReadOptions ro;
   std::string strTs = utils::StringTimestamp(std::numeric_limits<uint64_t>::max());
   rocksdb::Slice ts(strTs);
@@ -1561,14 +1769,15 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(it->key().ToString());
     PropertyStore properties = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
-    if (utils::Contains(labels, label) && !properties.HasProperty(property)) {
-      return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
+    if (std::ranges::contains(labels, label) && !properties.HasProperty(property)) {
+      return std::unexpected{
+          ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}}};
     }
   }
-  return std::nullopt;
+  return {};
 }
 
-[[nodiscard]] utils::BasicResult<ConstraintViolation, std::vector<std::pair<std::string, std::string>>>
+[[nodiscard]] std::expected<std::vector<std::pair<std::string, std::string>>, ConstraintViolation>
 DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
                                                                  const std::set<PropertyId> &properties) const {
   std::set<std::vector<PropertyValue>> unique_storage;
@@ -1583,15 +1792,20 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
     const std::string key_str = it->key().ToString();
     std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
     PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
-    if (utils::Contains(labels, label) && property_store.HasAllProperties(properties)) {
-      if (auto target_property_values = property_store.ExtractPropertyValues(properties);
-          target_property_values.has_value() && !utils::Contains(unique_storage, *target_property_values)) {
+    if (std::ranges::contains(labels, label) && property_store.HasAllProperties(properties)) {
+      auto target_property_values = property_store.ExtractPropertyValues(properties);
+      // A value that is not equal to itself duplicates nothing, so it is kept
+      // out of the storage compared against.
+      if (target_property_values.has_value() && !EveryValueEqualsItself(*target_property_values)) {
+        continue;
+      }
+      if (target_property_values.has_value() && !unique_storage.contains(*target_property_values)) {
         unique_storage.insert(*target_property_values);
         vertices_for_constraints.emplace_back(
             utils::SerializeVertexAsKeyForUniqueConstraint(label, properties, utils::ExtractGidFromKey(key_str)),
             utils::SerializeVertexAsValueForUniqueConstraint(label, labels, property_store));
       } else {
-        return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};
+        return std::unexpected{ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties}};
       }
     }
   }
@@ -1599,141 +1813,217 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Commit(
-    CommitReplArgs reparg, DatabaseAccessProtector /*db_acc*/) {
+std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::PrepareForCommitPhase(
+    CommitArgs /*commit_args*/) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
-  MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
+  MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   bool edge_import_mode_active = disk_storage->edge_import_status_ == EdgeImportMode::ACTIVE;
 
   if (!transaction_.md_deltas.empty()) {
     // This is usually done by the MVCC, but it does not handle the metadata deltas
-    transaction_.EnsureCommitTimestampExists();
-    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-    commit_timestamp_.emplace(disk_storage->CommitTimestamp(reparg.desired_commit_timestamp));
-    transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+    transaction_.EnsureCommitInfoExists();
+    auto engine_guard = std::unique_lock{storage_->engine_lock_};
+    commit_timestamp_.emplace(disk_storage->GetCommitTimestamp());
+    transaction_.commit_info->timestamp.store(*commit_timestamp_, std::memory_order_release);
 
     for (const auto &md_delta : transaction_.md_deltas) {
       switch (md_delta.action) {
         case MetadataDelta::Action::LABEL_INDEX_CREATE: {
           if (!disk_storage->durable_metadata_.PersistLabelIndexCreation(md_delta.label)) {
-            return StorageManipulationError{PersistenceError{}};
+            return std::unexpected{StorageManipulationError{PersistenceError{}}};
           }
         } break;
-        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_CREATE: {
+        case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_CREATE: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintCreation(
                   info.label, info.property, kLabelPropertyIndexStr)) {
-            return StorageManipulationError{PersistenceError{}};
+            return std::unexpected{StorageManipulationError{PersistenceError{}}};
           }
         } break;
+        case MetadataDelta::Action::EDGE_INDEX_CREATE: {
+          throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode. {}",
+                                         kErrorMessage);
+        }
+        case MetadataDelta::Action::EDGE_PROPERTY_INDEX_CREATE: {
+          throw utils::NotYetImplemented(
+              "Edge-type + property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
+        case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE: {
+          throw utils::NotYetImplemented(
+              "Global edge property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
+        case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE: {
+          throw utils::NotYetImplemented(
+              "Global vertex property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
         case MetadataDelta::Action::LABEL_INDEX_DROP: {
           if (!disk_storage->durable_metadata_.PersistLabelIndexDeletion(md_delta.label)) {
-            return StorageManipulationError{PersistenceError{}};
+            return std::unexpected{StorageManipulationError{PersistenceError{}}};
           }
         } break;
-        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_DROP: {
+        case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_DROP: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintDeletion(
                   info.label, info.property, kLabelPropertyIndexStr)) {
-            return StorageManipulationError{PersistenceError{}};
+            return std::unexpected{StorageManipulationError{PersistenceError{}}};
           }
         } break;
+        case MetadataDelta::Action::EDGE_INDEX_DROP: {
+          throw utils::NotYetImplemented("Edge-type indexing is not yet implemented on on-disk storage mode. {}",
+                                         kErrorMessage);
+        }
+        case MetadataDelta::Action::EDGE_PROPERTY_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Edge-type + property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
+        case MetadataDelta::Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Global edge property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
+        case MetadataDelta::Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
+          throw utils::NotYetImplemented(
+              "Global vertex property indexing is not yet implemented on on-disk storage mode. {}", kErrorMessage);
+        }
         case MetadataDelta::Action::LABEL_INDEX_STATS_SET: {
-          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);
         } break;
         case MetadataDelta::Action::LABEL_INDEX_STATS_CLEAR: {
-          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage.");
+          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage. {}",
+                                         kErrorMessage);
         } break;
-        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
-          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage.");
+        case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
+          throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);
         } break;
-        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
-          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage.");
+        case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
+          throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage. {}",
+                                         kErrorMessage);
+        } break;
+        case MetadataDelta::Action::TEXT_INDEX_CREATE: {
+          const auto &info = md_delta.text_index;
+          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(info)) {
+            return std::unexpected{StorageManipulationError{PersistenceError{}}};
+          }
+        } break;
+        case MetadataDelta::Action::TEXT_INDEX_DROP: {
+          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(md_delta.index_name)) {
+            return std::unexpected{StorageManipulationError{PersistenceError{}}};
+          }
+        } break;
+        case MetadataDelta::Action::TEXT_EDGE_INDEX_CREATE: {
+          throw utils::NotYetImplemented("Text edge indexing is not yet implemented for on-disk storage. {}",
+                                         kErrorMessage);
         } break;
         case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintCreation(
                   info.label, info.property, kExistenceConstraintsStr)) {
-            return StorageManipulationError{PersistenceError{}};
+            return std::unexpected{StorageManipulationError{PersistenceError{}}};
           }
         } break;
         case MetadataDelta::Action::EXISTENCE_CONSTRAINT_DROP: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintDeletion(
                   info.label, info.property, kExistenceConstraintsStr)) {
-            return StorageManipulationError{PersistenceError{}};
+            return std::unexpected{StorageManipulationError{PersistenceError{}}};
           }
         } break;
         case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE: {
-          const auto &info = md_delta.label_properties;
+          const auto &info = md_delta.label_unordered_properties;
           if (!disk_storage->durable_metadata_.PersistUniqueConstraintCreation(info.label, info.properties)) {
-            return StorageManipulationError{PersistenceError{}};
+            return std::unexpected{StorageManipulationError{PersistenceError{}}};
           }
         } break;
         case MetadataDelta::Action::UNIQUE_CONSTRAINT_DROP: {
-          const auto &info = md_delta.label_properties;
+          const auto &info = md_delta.label_unordered_properties;
           if (!disk_storage->durable_metadata_.PersistUniqueConstraintDeletion(info.label, info.properties)) {
-            return StorageManipulationError{PersistenceError{}};
+            return std::unexpected{StorageManipulationError{PersistenceError{}}};
           }
         } break;
+
+        case MetadataDelta::Action::TYPE_CONSTRAINT_CREATE:
+        case MetadataDelta::Action::TYPE_CONSTRAINT_DROP: {
+          throw utils::NotYetImplemented("Type constraints are not implemented for DiskStorage. {}", kErrorMessage);
+          break;
+        }
+
+        case MetadataDelta::Action::ENUM_CREATE:
+        case MetadataDelta::Action::ENUM_ALTER_ADD:
+        case MetadataDelta::Action::ENUM_ALTER_UPDATE: {
+          throw utils::NotYetImplemented("Enum types is not implemented for DiskStorage. {}", kErrorMessage);
+          break;
+        }
+        case MetadataDelta::Action::POINT_INDEX_CREATE:
+        case MetadataDelta::Action::POINT_INDEX_DROP:
+          throw utils::NotYetImplemented("Point index is not implemented for DiskStorage. {}", kErrorMessage);
+        case MetadataDelta::Action::VECTOR_INDEX_CREATE:
+        case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE:
+        case MetadataDelta::Action::VECTOR_INDEX_DROP:
+          throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage. {}", kErrorMessage);
+        case MetadataDelta::Action::TTL_OPERATION:
+          throw utils::NotYetImplemented("TTL operations are not implemented for DiskStorage. {}", kErrorMessage);
+        case MetadataDelta::Action::DESCRIPTION_SET:
+        case MetadataDelta::Action::DESCRIPTION_DELETE:
+          throw utils::NotYetImplemented("Description operations are not implemented for DiskStorage. {}",
+                                         kErrorMessage);
       }
     }
-  } else if (transaction_.deltas.use().empty() ||
+  } else if (transaction_.deltas.empty() ||
              (!edge_import_mode_active &&
-              std::all_of(transaction_.deltas.use().begin(), transaction_.deltas.use().end(), [](const Delta &delta) {
+              std::all_of(transaction_.deltas.begin(), transaction_.deltas.end(), [](const Delta &delta) {
                 return delta.action == Delta::Action::DELETE_DESERIALIZED_OBJECT;
               }))) {
   } else {
-    std::unique_lock<utils::SpinLock> engine_guard(storage_->engine_lock_);
-    commit_timestamp_.emplace(disk_storage->CommitTimestamp(reparg.desired_commit_timestamp));
-    transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
+    auto engine_guard = std::unique_lock{storage_->engine_lock_};
+    commit_timestamp_.emplace(disk_storage->GetCommitTimestamp());
+    transaction_.commit_info->timestamp.store(*commit_timestamp_, std::memory_order_release);
 
     if (edge_import_mode_active) {
-      if (auto res =
-              disk_storage->FlushModifiedEdges(&transaction_, disk_storage->edge_import_mode_cache_->AccessToEdges());
-          res.HasError()) {
+      auto edges_acc = disk_storage->edge_import_mode_cache_->AccessToEdges();
+      if (auto res = disk_storage->FlushModifiedEdges(&transaction_, edges_acc); !res.has_value()) {
         Abort();
-        return res;
+        return std::unexpected{res.error()};
       }
-      if (auto del_edges_res = disk_storage->FlushDeletedEdges(&transaction_); del_edges_res.HasError()) {
+      if (auto del_edges_res = disk_storage->FlushDeletedEdges(&transaction_); !del_edges_res.has_value()) {
         Abort();
-        return del_edges_res.GetError();
+        return std::unexpected{del_edges_res.error()};
       }
     } else {
       std::vector<std::vector<PropertyValue>> unique_storage;
       if (auto vertices_flush_res =
               disk_storage->FlushVertices(&transaction_, transaction_.vertices_->access(), unique_storage);
-          vertices_flush_res.HasError()) {
+          !vertices_flush_res.has_value()) {
         Abort();
-        return vertices_flush_res.GetError();
+        return std::unexpected{vertices_flush_res.error()};
       }
 
-      if (auto del_vertices_res = disk_storage->FlushDeletedVertices(&transaction_); del_vertices_res.HasError()) {
+      if (auto del_vertices_res = disk_storage->FlushDeletedVertices(&transaction_); !del_vertices_res.has_value()) {
         Abort();
-        return del_vertices_res.GetError();
+        return std::unexpected{del_vertices_res.error()};
       }
 
-      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, transaction_.edges_->access());
-          modified_edges_res.HasError()) {
+      auto tx_edges_acc = transaction_.edges_->access();
+      if (auto modified_edges_res = disk_storage->FlushModifiedEdges(&transaction_, tx_edges_acc);
+          !modified_edges_res.has_value()) {
         Abort();
-        return modified_edges_res.GetError();
+        return std::unexpected{modified_edges_res.error()};
       }
 
-      if (auto del_edges_res = disk_storage->FlushDeletedEdges(&transaction_); del_edges_res.HasError()) {
+      if (auto del_edges_res = disk_storage->FlushDeletedEdges(&transaction_); !del_edges_res.has_value()) {
         Abort();
-        return del_edges_res.GetError();
+        return std::unexpected{del_edges_res.error()};
       }
 
-      if (auto clear_dangling_res = disk_storage->ClearDanglingVertices(&transaction_); clear_dangling_res.HasError()) {
+      if (auto clear_dangling_res = disk_storage->ClearDanglingVertices(&transaction_);
+          !clear_dangling_res.has_value()) {
         Abort();
-        return clear_dangling_res.GetError();
+        return std::unexpected{clear_dangling_res.error()};
       }
 
-      if (auto index_flush_res = disk_storage->FlushIndexCache(&transaction_); index_flush_res.HasError()) {
+      if (auto index_flush_res = disk_storage->FlushIndexCache(&transaction_); !index_flush_res.has_value()) {
         Abort();
-        return index_flush_res.GetError();
+        return std::unexpected{index_flush_res.error()};
       }
     }
   }
@@ -1743,18 +2033,34 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
     logging::AssertRocksDBStatus(transaction_.disk_transaction_->SetCommitTimestamp(*commit_timestamp_));
   }
   auto commitStatus = transaction_.disk_transaction_->Commit();
+  if (!commitStatus.ok()) {
+    Abort();
+    spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
+    return std::unexpected{StorageManipulationError{SerializationError{}}};
+  }
+
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
-  if (!commitStatus.ok()) {
-    spdlog::error("rocksdb: Commit failed with status {}", commitStatus.ToString());
-    return StorageManipulationError{SerializationError{}};
-  }
+
   spdlog::trace("rocksdb: Commit successful");
 
+  transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
+  disk_storage->durable_metadata_.UpdateMetaData(
+      disk_storage->timestamp_, disk_storage->vertex_count_, disk_storage->edge_count_);
+  // Run deferred publishes (index CREATE/DROP snapshot swap, etc.) now that
+  // the txn is fully committed. Commit timestamp is 0 if the txn had no
+  // writes — callbacks that care about ts can handle either case.
+  transaction_.commit_callbacks_.RunAll(commit_timestamp_.value_or(0));
+  transaction_.abort_callbacks_.Clear();
   is_transaction_active_ = false;
 
   return {};
 }
+
+// NOLINTNEXTLINE(google-default-arguments)
+std::expected<void, StorageManipulationError> DiskStorage::DiskAccessor::PeriodicCommit(CommitArgs /*commit_args*/) {
+  throw utils::NotYetImplemented("Periodic commit is not yet supported using on-disk storage mode. {}", kErrorMessage);
+};
 
 std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesForLabelIndex(LabelId label) {
   std::vector<std::pair<std::string, std::string>> vertices_to_be_indexed;
@@ -1769,7 +2075,7 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const std::string key_str = it->key().ToString();
     if (const std::vector<std::string> labels_str = utils::ExtractLabelsFromMainDiskStorage(key_str);
-        utils::Contains(labels_str, serialized_label)) {
+        std::ranges::contains(labels_str, serialized_label)) {
       std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
       PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToStringView());
       vertices_to_be_indexed.emplace_back(
@@ -1793,13 +2099,13 @@ std::vector<std::pair<std::string, std::string>> DiskStorage::SerializeVerticesF
   const std::string serialized_label = label.ToString();
   for (it->SeekToFirst(); it->Valid(); it->Next()) {
     const std::string key_str = it->key().ToString();
-    PropertyStore property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToString());
+    PropertyStore const property_store = utils::DeserializePropertiesFromMainDiskStorage(it->value().ToString());
     if (const std::vector<std::string> labels_str = utils::ExtractLabelsFromMainDiskStorage(key_str);
-        utils::Contains(labels_str, serialized_label) && property_store.HasProperty(property)) {
+        std::ranges::contains(labels_str, serialized_label) && property_store.HasProperty(property)) {
       std::vector<LabelId> labels = utils::DeserializeLabelsFromMainDiskStorage(key_str);
       vertices_to_be_indexed.emplace_back(
-          utils::SerializeVertexAsKeyForLabelPropertyIndex(label.ToString(), property.ToString(),
-                                                           utils::ExtractGidFromMainDiskStorage(key_str)),
+          utils::SerializeVertexAsKeyForLabelPropertyIndex(
+              label.ToString(), property.ToString(), utils::ExtractGidFromMainDiskStorage(key_str)),
           utils::SerializeVertexAsValueForLabelPropertyIndex(label, labels, property_store));
     }
   }
@@ -1810,13 +2116,14 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
   auto *disk_storage = static_cast<DiskStorage *>(storage_);
   uint64_t transaction_id = transaction_.transaction_id;
 
-  for (const auto &delta : transaction_.deltas.use()) {
+  for (const auto &delta : transaction_.deltas) {
     auto prev = delta.prev.Get();
     switch (prev.type) {
       case PreviousPtr::Type::VERTEX: {
         auto *vertex = prev.vertex;
-        Delta *current = vertex->delta;
-        while (current != nullptr && current->timestamp->load(std::memory_order_acquire) == transaction_id) {
+        Delta *current = vertex->delta();
+        while (current != nullptr &&
+               current->commit_info->timestamp.load(std::memory_order_acquire) == transaction_id) {
           switch (current->action) {
             case Delta::Action::DELETE_DESERIALIZED_OBJECT:
             case Delta::Action::DELETE_OBJECT: {
@@ -1845,7 +2152,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
           }
           current = current->next.load(std::memory_order_acquire);
         }
-        vertex->delta = current;
+        vertex->SetDelta(current);
         if (current != nullptr) {
           current->prev.Set(vertex);
         }
@@ -1854,7 +2161,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
       }
       case PreviousPtr::Type::EDGE:
       case PreviousPtr::Type::DELTA:
-      case PreviousPtr::Type::NULLPTR:
+      case PreviousPtr::Type::NULL_PTR:
         break;
     }
   }
@@ -1868,8 +2175,12 @@ void DiskStorage::DiskAccessor::Abort() {
   // query_plan_accumulate_aggregate.cpp
   transaction_.disk_transaction_->Rollback();
   transaction_.disk_transaction_->ClearSnapshot();
+
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
+
+  transaction_.abort_callbacks_.RunAll();
+
   is_transaction_active_ = false;
   UpdateObjectsCountOnAbort();
 }
@@ -1887,95 +2198,244 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
   }
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires unique access to the storage!");
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateIndex(
+    LabelId label, CheckCancelFunction /*cancel_check*/) {
+  MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
+
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+    return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
+
+  {
+    auto updater = storage_->indices_.MakeUpdater();
+    updater(disk_label_index->GetActiveIndices());
+  }
+
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(always_invalidate_plan_cache);
+  publisher(0 /*timestamp is ignored*/);
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
+  storage_->metric_handles_.active_label_indices.Increment();
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(LabelId label,
-                                                                                             PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateIndex(
+    LabelId label, PropertiesPaths properties, IndexOrder order, CheckCancelFunction /*cancel_check*/) {
+  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
+
+  if (order == IndexOrder::DESC) {
+    throw utils::NotYetImplemented("DESC index for DiskStorage.");
+  }
+  if (properties.size() != 1) {
+    throw utils::NotYetImplemented("composite index");
+  }
+  if (properties[0].size() != 1) {
+    throw utils::NotYetImplemented("nested index");
+  }
+
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  if (!disk_label_property_index->CreateIndex(label, property,
-                                              on_disk->SerializeVerticesForLabelPropertyIndex(label, property))) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  if (!disk_label_property_index->CreateIndex(
+          label, properties[0][0], on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0][0]))) {
+    return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, property);
+
+  {
+    auto updater = storage_->indices_.MakeUpdater();
+    updater(disk_label_property_index->GetActiveIndices());
+  }
+
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(always_invalidate_plan_cache);
+  publisher(0 /*timestamp is ignored*/);
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  storage_->metric_handles_.active_label_property_indices.Increment();
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateIndex(
+    EdgeTypeId /*edge_type*/, CheckCancelFunction /*cancel_check*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateIndex(
+    EdgeTypeId /*edge_type*/, PropertyId /*property*/, CheckCancelFunction /*cancel_check*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateGlobalEdgeIndex(
+    PropertyId /*property*/, CheckCancelFunction /*cancel_check*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(LabelId label,
+                                                                                      AbsentIndex /*absent*/) {
+  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
-  if (!disk_label_index->DropIndex(label)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  auto updater = storage_->indices_.MakeUpdater();
+  if (!disk_label_index->DropIndex(label, updater)) {
+    return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
+
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  storage_->invalidator_->invalidate_now(always_invalidate_plan_cache);
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
+  storage_->metric_handles_.active_label_indices.Decrement();
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label,
-                                                                                           PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(
+    LabelId label, std::vector<storage::PropertyPath> &&properties, std::optional<IndexOrder> order,
+    AbsentIndex /*absent*/) {
+  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
+
+  if (properties.size() != 1) {
+    throw utils::NotYetImplemented("composite index");
+  }
+  if (properties[0].size() != 1) {
+    throw utils::NotYetImplemented("nested index");
+  }
+
+  // Disk storage only supports ASC indices; selectively dropping DESC is a no-op miss.
+  if (order.has_value() && *order != IndexOrder::ASC) {
+    return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
+  }
+
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  if (!disk_label_property_index->DropIndex(label, property)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  auto updater = storage_->indices_.MakeUpdater();
+  if (!disk_label_property_index->DropIndex(label, properties, updater)) {
+    return std::unexpected{StorageIndexDefinitionError{IndexDefinitionError{}}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, property);
+
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  storage_->invalidator_->invalidate_now(always_invalidate_plan_cache);
+
+  transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
+  storage_->metric_handles_.active_label_property_indices.Decrement();
   return {};
 }
 
-utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
-DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create existence constraint requires a unique access to the storage!");
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
+                                                                                      AbsentIndex /*absent*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
+                                                                                      PropertyId /*property*/,
+                                                                                      AbsentIndex /*absent*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+std::expected<void, StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropGlobalEdgeIndex(
+    PropertyId /*property*/, AbsentIndex /*absent*/) {
+  throw utils::NotYetImplemented(
+      "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+}
+
+std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreatePointIndex(
+    storage::LabelId /*label*/, storage::PropertyId /*property*/, ProgressCallback const & /*on_progress*/) {
+  throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropPointIndex(
+    storage::LabelId /*label*/, storage::PropertyId /*property*/) {
+  throw utils::NotYetImplemented("Point index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateVectorIndex(
+    VectorIndexSpec /*spec*/, ProgressCallback const & /*on_progress*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::DropVectorIndex(
+    std::string_view /*index_name*/, ProgressCallback const & /*on_progress*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+utils::small_vector<uint64_t> DiskStorage::DiskAccessor::GetVectorIndexIdsForVertex(Vertex * /*vertex*/,
+                                                                                    PropertyId /*property*/) {
+  return {};
+}
+
+utils::small_vector<float> DiskStorage::DiskAccessor::GetVectorFromVectorIndex(Vertex * /*vertex*/,
+                                                                               std::string_view /*index_name*/) const {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+std::expected<void, storage::StorageIndexDefinitionError> DiskStorage::DiskAccessor::CreateVectorEdgeIndex(
+    VectorEdgeIndexSpec /*spec*/, ProgressCallback const & /*on_progress*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
+std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateExistenceConstraint(
+    LabelId label, PropertyId property, CheckCancelFunction /*cancel_check*/) {
+  MG_ASSERT(type() == UNIQUE, "Creating existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
-    return StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}};
+    return std::unexpected{StorageExistenceConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
   if (auto check = on_disk->CheckExistingVerticesBeforeCreatingExistenceConstraint(label, property);
-      check.has_value()) {
-    return StorageExistenceConstraintDefinitionError{check.value()};
+      !check.has_value()) {
+    return std::unexpected{StorageExistenceConstraintDefinitionError{check.error()}};
   }
-  existence_constraints->InsertConstraint(label, property);
+  // Register then immediately publish with kTimestampInitialId for immediate visibility
+  // Disk storage uses UNIQUE access so no MVCC needed
+  // We already verified !ConstraintRegistered above, so RegisterConstraint will succeed
+  [[maybe_unused]] const bool registered = existence_constraints->RegisterConstraint(label, property);
+  existence_constraints->PublishConstraint(label, property, kTimestampInitialId);
+  auto updater = on_disk->constraints_.MakeUpdater();
+  updater(existence_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_create, label, property);
   return {};
 }
 
-utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropExistenceConstraint(
+std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAccessor::DropExistenceConstraint(
     LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Drop existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping existence constraint requires unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
-    return StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}};
+    return std::unexpected{StorageExistenceConstraintDroppingError{ConstraintDefinitionError{}}};
   }
+  auto updater = on_disk->constraints_.MakeUpdater();
+  updater(existence_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::existence_constraint_drop, label, property);
   return {};
 }
 
-utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
-DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create unique constraint requires a unique access to the storage!");
+std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
+DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties,
+                                                  CheckCancelFunction /*cancel_check*/) {
+  MG_ASSERT(type() == UNIQUE, "Creating unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto constraint_check = disk_unique_constraints->CheckIfConstraintCanBeCreated(label, properties);
@@ -1983,84 +2443,205 @@ DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<
     return constraint_check;
   }
   auto check = on_disk->CheckExistingVerticesBeforeCreatingUniqueConstraint(label, properties);
-  if (check.HasError()) {
-    return StorageUniqueConstraintDefinitionError{check.GetError()};
+  if (!check) {
+    return std::unexpected{StorageUniqueConstraintDefinitionError{check.error()}};
   }
-  if (!disk_unique_constraints->InsertConstraint(label, properties, check.GetValue())) {
-    return StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}};
+  if (!disk_unique_constraints->InsertConstraint(label, properties, check.value())) {
+    return std::unexpected{StorageUniqueConstraintDefinitionError{ConstraintDefinitionError{}}};
   }
+  auto updater = on_disk->constraints_.MakeUpdater();
+  updater(disk_unique_constraints->GetActiveConstraints());
   transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
   return UniqueConstraints::CreationStatus::SUCCESS;
 }
 
 UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Drop unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Dropping unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto ret = disk_unique_constraints->DropConstraint(label, properties);
       ret != UniqueConstraints::DeletionStatus::SUCCESS) {
     return ret;
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_create, label, properties);
+  auto updater = on_disk->constraints_.MakeUpdater();
+  updater(disk_unique_constraints->GetActiveConstraints());
+  transaction_.md_deltas.emplace_back(MetadataDelta::unique_constraint_drop, label, properties);
   return UniqueConstraints::DeletionStatus::SUCCESS;
 }
 
-Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                           memgraph::replication::ReplicationRole /*is_main*/) {
+std::expected<void, StorageExistenceConstraintDefinitionError> DiskStorage::DiskAccessor::CreateTypeConstraint(
+    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/, CheckCancelFunction /**/) {
+  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage. {}", kErrorMessage);
+}
+
+std::expected<void, StorageExistenceConstraintDroppingError> DiskStorage::DiskAccessor::DropTypeConstraint(
+    LabelId /**/, PropertyId /**/, TypeConstraintKind /**/) {
+  throw utils::NotYetImplemented("Type constraints are not yet implemented for on-disk storage. {}", kErrorMessage);
+}
+
+void DiskStorage::DiskAccessor::DropGraph() {
+  throw utils::NotYetImplemented("Drop graph is not yet implemented for on-disk storage. {}", kErrorMessage);
+}
+
+auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
+                                              CoordinateReferenceSystem /*crs*/, PropertyValue const & /*point_value*/,
+                                              PropertyValue const & /*boundary_value*/,
+                                              PointDistanceCondition /*condition*/) -> PointIterable {
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
+}
+
+std::vector<std::tuple<VertexAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearchOnNodes(
+    const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
+}
+
+std::vector<std::tuple<EdgeAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearchOnEdges(
+    const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
+}
+
+std::vector<VectorIndexInfo> DiskStorage::DiskAccessor::ListAllVectorIndices() const {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
+};
+
+std::vector<VectorEdgeIndexInfo> DiskStorage::DiskAccessor::ListAllVectorEdgeIndices() const {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
+};
+
+auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
+                                              CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
+                                              PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
+    -> PointIterable {
+  throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
+};
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+PointIndexStorage DiskStorage::empty_point_index_ = PointIndexStorage{};
+
+Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   /// We acquire the transaction engine lock here because we access (and
   /// modify) the transaction engine variables (`transaction_id` and
   /// `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
   bool edge_import_mode_active{false};
+  ActiveIndicesPtr active_indices;
+  ActiveConstraintsPtr active_constraints;
   {
-    std::lock_guard<utils::SpinLock> guard(engine_lock_);
+    auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
     edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
+    active_indices = GetActiveIndices();
+    active_constraints = GetActiveConstraints();
   }
 
-  return {transaction_id, start_timestamp, isolation_level, storage_mode, edge_import_mode_active};
+  return {transaction_id,
+          start_timestamp,
+          isolation_level,
+          storage_mode,
+          edge_import_mode_active,
+          empty_point_index_.CreatePointIndexContext(),
+          std::move(active_indices),
+          std::move(active_constraints),
+          {},
+          std::nullopt,
+          0,
+          metric_handles_.unreleased_delta_objects};
 }
 
-uint64_t DiskStorage::CommitTimestamp(const std::optional<uint64_t> desired_commit_timestamp) {
-  if (!desired_commit_timestamp) {
-    return timestamp_++;
-  }
-  timestamp_ = std::max(timestamp_, *desired_commit_timestamp + 1);
-  return *desired_commit_timestamp;
-}
+uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 
-std::unique_ptr<Storage::Accessor> DiskStorage::Access(memgraph::replication::ReplicationRole /*replication_role*/,
-                                                       std::optional<IsolationLevel> override_isolation_level) {
+std::unique_ptr<Storage::Accessor> DiskStorage::Access(StorageAccessType rw_type,
+                                                       std::optional<IsolationLevel> override_isolation_level,
+                                                       std::optional<std::chrono::milliseconds> /*timeout*/) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
-    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
+    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_});
+      new DiskAccessor{this, override_isolation_level, AcquireGuardOrThrow(this, rw_type, std::nullopt)});
 }
-std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(
-    memgraph::replication::ReplicationRole /*replication_role*/,
-    std::optional<IsolationLevel> override_isolation_level) {
+
+std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                             std::optional<std::chrono::milliseconds> /*timeout*/) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
-    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level.");
+    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
-  return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
+  return std::unique_ptr<DiskAccessor>(new DiskAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::UNIQUE, std::nullopt)});
 }
+
+std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                               std::optional<std::chrono::milliseconds> /*timeout*/) {
+  auto isolation_level = override_isolation_level.value_or(isolation_level_);
+  if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
+    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
+  }
+  return std::unique_ptr<DiskAccessor>(new DiskAccessor{
+      this, override_isolation_level, AcquireGuardOrThrow(this, StorageAccessType::READ_ONLY, std::nullopt)});
+}
+
+bool DiskStorage::DiskAccessor::LabelPropertyIndexExists(LabelId label,
+                                                         std::span<PropertyPath const> properties) const {
+  return transaction_.active_indices_->label_properties_->IndexExists(label, properties);
+}
+
+bool DiskStorage::DiskAccessor::EdgeTypeIndexReady(EdgeTypeId /*edge_type*/) const {
+  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
+               kErrorMessage);
+  return false;
+}
+
+bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexReady(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
+  spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
+               kErrorMessage);
+  return false;
+}
+
+bool DiskStorage::DiskAccessor::EdgePropertyIndexExists(PropertyId /*property*/) const {
+  spdlog::info("Edge index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+  return false;
+}
+
+bool DiskStorage::DiskAccessor::EdgePropertyIndexReady(PropertyId /*property*/) const {
+  spdlog::info("Edge index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+  return false;
+}
+
+bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /*property*/) const {
+  spdlog::info("Point index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+  return false;
+}
+
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
-  auto *on_disk = static_cast<DiskStorage *>(storage_);
-  auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
-  auto *disk_label_property_index =
-      static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  return {disk_label_index->ListIndices(), disk_label_property_index->ListIndices()};
+  return {
+      .label = transaction_.active_indices_->label_->ListIndices(transaction_.start_timestamp),
+      .label_properties = transaction_.active_indices_->label_properties_->ListIndices(transaction_.start_timestamp),
+      .edge_type = {/* edge type indices */},
+      .edge_type_property = {/* edge_type_property */},
+      .edge_property = {/*edge property*/},
+      .vertex_property = {/*vertex property*/},
+      .text_indices = transaction_.active_indices_->text_->ListIndices(),
+      .text_edge_indices = {/* text edge indices */},
+      .point_label_property = {/* point indices */},
+      .vector_indices_spec = {/* vector indices */}};
 }
+
 ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
-  auto *disk_storage = static_cast<DiskStorage *>(storage_);
-  return {disk_storage->constraints_.existence_constraints_->ListConstraints(),
-          disk_storage->constraints_.unique_constraints_->ListConstraints()};
+  return {.existence = transaction_.active_constraints_->existence_->ListConstraints(transaction_.start_timestamp),
+          .unique = transaction_.active_constraints_->unique_->ListConstraints(transaction_.start_timestamp),
+          .type = transaction_.active_constraints_->type_->ListConstraints(transaction_.start_timestamp)};
 }
+
+void DiskStorage::DiskAccessor::DropAllIndexes() {
+  throw utils::NotYetImplemented("DROP ALL INDEXES is not supported for disk storage. {}", kErrorMessage);
+}
+
+void DiskStorage::DiskAccessor::DropAllConstraints() {
+  throw utils::NotYetImplemented("DROP ALL CONSTRAINTS is not supported for disk storage. {}", kErrorMessage);
+}
+
 }  // namespace memgraph::storage

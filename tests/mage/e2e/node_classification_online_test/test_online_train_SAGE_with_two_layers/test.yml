@@ -1,0 +1,6 @@
+- query: >
+        CALL node_classification.train(10) YIELD epoch;
+
+  output:
+        - epoch: 5
+        - epoch: 10

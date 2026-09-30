@@ -1,0 +1,146 @@
+name: Reusable Smoke Tests
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        description: "Architecture to build the image for (amd64/arm64)"
+        required: true
+      version:
+        type: string
+        required: false
+        description: "Version (x.y.z), daily build date (YYYYMMDD), or URL to Docker image: Default - latest daily build"
+      malloc:
+        type: boolean
+        default: false
+        description: "Used if the image is resolved from a build date"
+      cuda:
+        type: boolean
+        default: false
+        description: "Used if the image is resolved from a build date"
+      relwithdebinfo:
+        type: boolean
+        default: false
+        description: "Used if the image is resolved from a build date"
+      ref:
+        type: string
+        description: "Branch or tag to build"
+        default: ''
+      image_type:
+        type: string
+        description: "Image type to test (mage or memgraph)"
+        default: 'mage'
+
+env:
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  INPUT_VERSION: ${{ inputs.version }}
+  INPUT_ARCH: ${{ inputs.arch }}
+  INPUT_MALLOC: ${{ inputs.malloc }}
+  INPUT_CUDA: ${{ inputs.cuda }}
+  INPUT_RELWITHDEBINFO: ${{ inputs.relwithdebinfo }}
+  INPUT_IMAGE_TYPE: ${{ inputs.image_type }}
+  TOOLCHAIN: v8
+  OS: ubuntu-24.04
+  ARCH: ${{ inputs.arch }}
+
+jobs:
+  smoke-test-image:
+    name: "Smoke Test Image (${{ inputs.image_type }}; ${{ inputs.arch}}${{ inputs.malloc && ',malloc' || '' }}; ${{ inputs.version }})"
+    runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "ARM64"]') || fromJSON('["self-hosted", "X64"]') }}
+    steps:
+      - name: Checkout repository and submodules
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+          submodules: recursive
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
+      - name: Log in to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Log into AWS
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Determine Input Types
+        run: |
+          # default to latest daily build (from the previous day)
+          if [ -z "$INPUT_VERSION" ]; then
+            version="$(date -d "yesterday" +%Y%m%d)"
+          else
+            version="$INPUT_VERSION"
+          fi
+
+          read image_source image < <(python3 tools/ci/workflow_image_setup.py "${version}" "$INPUT_ARCH" "$INPUT_MALLOC" "$INPUT_CUDA" "$INPUT_RELWITHDEBINFO" "$INPUT_IMAGE_TYPE")
+          echo "TEST_IMAGE=${image}" >> $GITHUB_ENV
+          echo "TEST_IMAGE_SOURCE=${image_source}" >> $GITHUB_ENV
+
+      - name: Load Test Image (Docker)
+        if: ${{ env.TEST_IMAGE_SOURCE == 'docker' }}
+        run: |
+          docker pull "$TEST_IMAGE"
+          echo "MEMGRAPH_DOCKERHUB_IMAGE=${TEST_IMAGE}" >> $GITHUB_ENV
+
+      - name: Load Test Image (URL)
+        if: ${{ env.TEST_IMAGE_SOURCE == 'url' }}
+        run: |
+          curl -L ${{ env.TEST_IMAGE }} > image.tar.gz
+          load_output=$(docker load -i image.tar.gz)
+
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          rm image.tar.gz
+          echo "MEMGRAPH_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
+
+      - name: Run Tests
+        if: ${{ inputs.image_type == 'mage' }}
+        env:
+          MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+          MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-mage smoke \
+          --image "$MEMGRAPH_DOCKERHUB_IMAGE"
+
+      - name: Run Tests
+        if: ${{ inputs.image_type == 'memgraph' }}
+        env:
+          MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+          MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph smoke \
+          --image "$MEMGRAPH_DOCKERHUB_IMAGE"
+
+      - name: Clean up Docker images
+        if: always()
+        run: |
+          ./tools/ci/docker_cleanup.sh

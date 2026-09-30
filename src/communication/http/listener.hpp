@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@
 #include <boost/beast/core.hpp>
 
 #include "communication/context.hpp"
+#include "communication/fmt.hpp"
 #include "communication/http/session.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -32,6 +33,10 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
   using tcp = boost::asio::ip::tcp;
   using SessionHandler = Session<TRequestHandler, TSessionContext>;
   using std::enable_shared_from_this<Listener<TRequestHandler, TSessionContext>>::shared_from_this;
+
+  void LogErrorListener(boost::beast::error_code ec, const std::string_view what) {
+    spdlog::warn("HTTP listener failed on {}: {}", what, ec.message());
+  }
 
  public:
   Listener(const Listener &) = delete;
@@ -47,7 +52,17 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
 
   // Start accepting incoming connections
   void Run() { DoAccept(); }
-  tcp::endpoint GetEndpoint() const { return acceptor_.local_endpoint(); }
+
+  bool HasErrorHappened() const { return error_happened_; }
+
+  std::optional<tcp::endpoint> GetEndpoint() const {
+    try {
+      return acceptor_.local_endpoint();
+    } catch (const boost::system::system_error &e) {
+      spdlog::error("Failed to get remote endpoint for listener.");
+      return std::nullopt;
+    }
+  }
 
  private:
   Listener(boost::asio::io_context &ioc, TSessionContext *session_context, ServerContext *context,
@@ -58,31 +73,35 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
     // Open the acceptor
     acceptor_.open(endpoint.protocol(), ec);
     if (ec) {
-      LogError(ec, "open");
+      LogErrorListener(ec, "open");
+      error_happened_ = true;
       return;
     }
 
     // Allow address reuse
     acceptor_.set_option(boost::asio::socket_base::reuse_address(true), ec);
     if (ec) {
-      LogError(ec, "set_option");
+      LogErrorListener(ec, "set_option");
+      error_happened_ = true;
       return;
     }
 
     // Bind to the server address
     acceptor_.bind(endpoint, ec);
     if (ec) {
-      LogError(ec, "bind");
+      LogErrorListener(ec, "bind");
+      error_happened_ = true;
       return;
     }
 
     acceptor_.listen(boost::asio::socket_base::max_listen_connections, ec);
     if (ec) {
-      LogError(ec, "listen");
+      LogErrorListener(ec, "listen");
+      error_happened_ = true;
       return;
     }
 
-    spdlog::info("HTTP server is listening on {}:{}", endpoint.address(), endpoint.port());
+    spdlog::info("HTTP server is listening on {}", endpoint);
   }
 
   void DoAccept() {
@@ -93,7 +112,9 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
 
   void OnAccept(boost::beast::error_code ec, tcp::socket socket) {
     if (ec) {
-      return LogError(ec, "accept");
+      error_happened_ = true;
+      LogErrorListener(ec, "accept");
+      return;
     }
 
     SessionHandler::Create(std::move(socket), session_context_, *context_)->Run();
@@ -105,5 +126,6 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
   TSessionContext *session_context_;
   ServerContext *context_;
   tcp::acceptor acceptor_;
+  bool error_happened_{false};
 };
 }  // namespace memgraph::communication::http

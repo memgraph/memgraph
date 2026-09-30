@@ -1,0 +1,14 @@
+# Two entries for the same type merge instead of overwriting: listing it in both directions makes it
+# traversable either way. Overwriting dropped whichever direction was listed first, so the result
+# depended on the order of the list.
+query: >
+  MATCH (b:N {name: "B"})
+  CALL path.subgraph_nodes(b, {relationshipFilter: ['R>', '<R'], maxHops: 1})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: "A"
+  - name: "B"
+  - name: "C"
+  - name: "D"

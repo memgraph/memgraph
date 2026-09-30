@@ -1,0 +1,24 @@
+query: >
+    CALL leiden_community_detection.get() YIELD node, community_id, communities
+    RETURN node.id AS node_id, community_id
+    ORDER BY node_id ASC
+
+output:
+    - node_id: 0
+      community_id: 0
+    - node_id: 1
+      community_id: 0
+    - node_id: 2
+      community_id: 0
+    - node_id: 3
+      community_id: 1
+    - node_id: 4
+      community_id: 1
+    - node_id: 5
+      community_id: 1
+    - node_id: 6
+      community_id: 2
+    - node_id: 7
+      community_id: 2
+    - node_id: 8
+      community_id: 2

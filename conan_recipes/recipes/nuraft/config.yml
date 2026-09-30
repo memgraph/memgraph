@@ -1,0 +1,7 @@
+versions:
+  "3.0.0-memgraph":
+    folder: all
+  "2.1.0-memgraph":
+    folder: all
+  "2.0.0-memgraph":
+    folder: all

@@ -6,20 +6,24 @@ target_include_directories(global_memory_limit_proc PRIVATE ${CMAKE_SOURCE_DIR}/
 
 add_library(query_memory_limit_proc_multi_thread SHARED query_memory_limit_proc_multi_thread.cpp)
 target_include_directories(query_memory_limit_proc_multi_thread PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(query_memory_limit_proc_multi_thread mg-utils)
+target_link_libraries(query_memory_limit_proc_multi_thread mg-utils )
 
 add_library(query_memory_limit_proc SHARED query_memory_limit_proc.cpp)
 target_include_directories(query_memory_limit_proc PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(query_memory_limit_proc mg-utils)
+# Prevent compiler from assuming malloc succeeds (optimizer would replace ptr != nullptr with true)
+target_compile_options(query_memory_limit_proc PRIVATE -fno-builtin-malloc -fno-builtin-free)
+
+add_library(db_query_tracking_proc SHARED db_query_tracking_proc.cpp)
+target_include_directories(db_query_tracking_proc PRIVATE ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(db_query_tracking_proc mg-utils)
 
 add_library(global_memory_limit_thread_proc SHARED global_memory_limit_thread_proc.cpp)
 target_include_directories(global_memory_limit_thread_proc PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(global_memory_limit_thread_proc mg-utils)
 
-add_library(global_memory_limit_multi_thread_create_proc SHARED global_memory_limit_multi_thread_create_proc.cpp)
-target_include_directories(global_memory_limit_multi_thread_create_proc PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(global_memory_limit_multi_thread_create_proc mg-utils)
-
 add_library(proc_memory_limit SHARED proc_memory_limit.cpp)
 target_include_directories(proc_memory_limit PRIVATE ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(proc_memory_limit mg-utils)
+# Prevent compiler from assuming malloc succeeds (optimizer would replace ptr != nullptr with true)
+target_compile_options(proc_memory_limit PRIVATE -fno-builtin-malloc -fno-builtin-free)

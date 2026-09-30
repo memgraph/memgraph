@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,7 @@ class LruList {
   LruList(LruList &&) = delete;
   LruList &operator=(const LruList &) = delete;
   LruList &operator=(LruList &&) = delete;
+
   ~LruList() { Clear(); }
 
   Node<TKey, TValue> *AddPageToHead(const TKey &key, const TValue &value) {

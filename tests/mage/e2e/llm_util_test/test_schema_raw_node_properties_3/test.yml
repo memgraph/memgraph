@@ -1,0 +1,5 @@
+query: >
+    CALL llm_util.schema('raw') YIELD schema WITH schema.node_props AS nodes WITH nodes['City'] AS properties UNWIND properties AS property RETURN property["property"] AS prop, property["type"] AS type ORDER BY prop ASC;
+output:
+  - prop: "name"
+    type: "str"

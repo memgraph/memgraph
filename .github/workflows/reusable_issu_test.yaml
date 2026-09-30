@@ -1,0 +1,148 @@
+name: Reusable ISSU Test
+
+on:
+  workflow_call:
+    inputs:
+      last_image:
+        description: 'The last/previous Docker image (full repo:tag)'
+        required: true
+        type: string
+      next_image:
+        description: 'The next/new Docker image (full repo:tag)'
+        required: true
+        type: string
+      arch:
+        description: 'Image architecture (amd/arm)'
+        required: false
+        type: string
+        default: 'amd'
+      ref:
+        description: 'Branch or tag to test'
+        required: false
+        type: string
+        default: ''
+      run_id:
+        description: 'Run ID'
+        required: false
+        type: string
+        default: ''
+      helm_charts_branch:
+        description: 'helm-charts repo branch to install the HA chart from (enables direct OpenMetrics scraping). Empty = pinned published chart version (default).'
+        required: false
+        type: string
+        default: ''
+
+env:
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-issu-test"
+
+jobs:
+  test:
+    name: ${{ inputs.run_id != '' && format('ISSU Test - {0}', inputs.run_id) || 'ISSU Test' }}
+    runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "ARM64", "Kubernetes"]') || fromJSON('["self-hosted", "X64", "Kubernetes"]') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: ${{ inputs.ref != '' && inputs.ref || github.sha }}
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
+      - name: Log in to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+
+      - name: Determine Input Types
+        env:
+          INPUT_NEXT_IMAGE: ${{ inputs.next_image }}
+          INPUT_LAST_IMAGE: ${{ inputs.last_image }}
+        run: |
+          read next_type next_image < <(python3 tools/ci/issu_image_type.py "${INPUT_NEXT_IMAGE}")
+          echo "NEXT_IMAGE=${next_image}" >> $GITHUB_ENV
+          echo "NEXT_TYPE=${next_type}" >> $GITHUB_ENV
+          read last_type last_image < <(python3 tools/ci/issu_image_type.py "${INPUT_LAST_IMAGE}")
+          echo "LAST_IMAGE=${last_image}" >> $GITHUB_ENV
+          echo "LAST_TYPE=${last_type}" >> $GITHUB_ENV
+
+      - name: Load Next Image (Docker)
+        if: ${{ env.NEXT_TYPE == 'docker' }}
+        run: |
+          docker pull "$NEXT_IMAGE"
+          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${{ env.NEXT_IMAGE }}" >> $GITHUB_ENV
+
+      - name: Load Next Image (URL)
+        if: ${{ env.NEXT_TYPE == 'url' }}
+        run: |
+          curl -L ${{ env.NEXT_IMAGE }} > next.tar.gz
+          load_output=$(docker load -i next.tar.gz)
+
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
+
+      - name: Load Last Image (Docker)
+        if: ${{ env.LAST_TYPE == 'docker' }}
+        run: |
+          docker pull "$LAST_IMAGE"
+          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${{ env.LAST_IMAGE }}" >> $GITHUB_ENV
+
+      - name: Load Last Image (URL)
+        if: ${{ env.LAST_TYPE == 'url' }}
+        run: |
+          curl -L ${{ env.LAST_IMAGE }} > last.tar.gz
+          load_output=$(docker load -i last.tar.gz)
+
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
+
+      - name: Get Image Tags
+        run: |
+          LAST_TAG=${MEMGRAPH_LAST_DOCKERHUB_IMAGE##*:}
+          echo "MEMGRAPH_LAST_TAG=${LAST_TAG}" >> $GITHUB_ENV
+
+          NEXT_TAG=${MEMGRAPH_NEXT_DOCKERHUB_IMAGE##*:}
+          echo "MEMGRAPH_NEXT_TAG=${NEXT_TAG}" >> $GITHUB_ENV
+
+      - name: Run ISSU Test
+        env:
+          HELM_CHARTS_BRANCH: ${{ inputs.helm_charts_branch }}
+        run: |
+          cd tests/issu
+          ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing=false --debug=false
+
+      - name: Upload ISSU logs
+        if: always()
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: ${{ inputs.run_id != '' && format('issu-logs-{0}', inputs.run_id) || 'issu-logs' }}-${{ inputs.arch }}
+          path: tests/issu/artifacts/**
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh

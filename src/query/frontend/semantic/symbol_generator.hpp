@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,10 +16,13 @@
 #pragma once
 
 #include <optional>
+#include <unordered_set>
 #include <vector>
 
 #include "query/exceptions.hpp"
+// TODO: remove once ast has been split
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 
 namespace memgraph::query {
@@ -38,6 +41,9 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::Visit;
   using typename HierarchicalTreeVisitor::ReturnType;
 
+  // CypherQuery
+  bool PreVisit(CypherQuery &) override;
+
   // Query
   bool PreVisit(SingleQuery &) override;
 
@@ -54,6 +60,10 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(CallSubquery & /*unused*/) override;
   bool PreVisit(LoadCsv &) override;
   bool PostVisit(LoadCsv &) override;
+  bool PreVisit(LoadParquet &) override;
+  bool PostVisit(LoadParquet &) override;
+  bool PreVisit(LoadJsonl &) override;
+  bool PostVisit(LoadJsonl &) override;
   bool PreVisit(Return &) override;
   bool PostVisit(Return &) override;
   bool PreVisit(With &) override;
@@ -66,19 +76,27 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Match &) override;
   bool PreVisit(Foreach &) override;
   bool PostVisit(Foreach &) override;
-  bool PreVisit(SetProperty & /*set_property*/) override;
   bool PostVisit(SetProperty & /*set_property*/) override;
+  bool PostVisit(RemoveProperty & /*remove_property*/) override;
+  bool PreVisit(SetLabels &) override;
+  bool PostVisit(SetLabels & /*set_labels*/) override;
+  bool PreVisit(RemoveLabels &) override;
+  bool PostVisit(RemoveLabels & /*remove_labels*/) override;
+  bool PreVisit(Delete & /*delete*/) override;
 
   // Expressions
   ReturnType Visit(Identifier &) override;
+
   ReturnType Visit(PrimitiveLiteral &) override { return true; }
+
   bool PreVisit(MapLiteral &) override;
+
   bool PostVisit(MapLiteral &) override { return true; };
+
   ReturnType Visit(ParameterLookup &) override { return true; }
+
   bool PreVisit(Aggregation &) override;
   bool PostVisit(Aggregation &) override;
-  bool PreVisit(IfOperator &) override;
-  bool PostVisit(IfOperator &) override;
   bool PreVisit(All &) override;
   bool PreVisit(Single &) override;
   bool PreVisit(Any &) override;
@@ -86,9 +104,13 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PreVisit(Reduce &) override;
   bool PostVisit(Reduce &) override;
   bool PreVisit(Extract &) override;
-  bool PreVisit(Exists & /*exists*/) override;
-  bool PostVisit(Exists & /*exists*/) override;
+  bool PreVisit(SubqueryExpression & /*subquery*/) override;
+  bool PostVisit(SubqueryExpression & /*subquery*/) override;
   bool PreVisit(NamedExpression & /*unused*/) override;
+  bool PreVisit(ListComprehension &) override;
+  bool PostVisit(ListComprehension &) override;
+
+  ReturnType Visit(EnumValueAccess &) override { return true; }
 
   // Pattern and its subparts.
   bool PreVisit(Pattern &) override;
@@ -97,6 +119,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(NodeAtom &) override;
   bool PreVisit(EdgeAtom &) override;
   bool PostVisit(EdgeAtom &) override;
+  bool PreVisit(PatternComprehension &) override;
+  bool PostVisit(PatternComprehension &) override;
 
  private:
   // Scope stores the state of where we are when visiting the AST and a map of
@@ -123,11 +147,21 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool in_where{false};
     bool in_match{false};
     bool in_foreach{false};
-    bool in_exists{false};
+    bool in_subquery_pattern{false};
+    bool in_subquery_body{false};
+    /// Which construct opened the surrounding subquery, so its refusals name the spelling the user wrote.
+    SubqueryExpression::Fold subquery_fold{SubqueryExpression::Fold::kBool};
     bool in_reduce{false};
-    bool in_set_property{false};
     bool in_call_subquery{false};
     bool has_return{false};
+    bool in_set_labels{false};
+    bool in_remove_labels{false};
+    bool in_pattern_comprehension{false};
+    bool in_list_comprehension{false};
+    /// Nesting depth of expressions that bind a per-element identifier and evaluate a body once per element: a list
+    /// comprehension, all/any/none/single, extract, reduce, and an edge atom's filter/weight lambda. A depth so a
+    /// nested one does not clear its parent.
+    uint32_t element_lambda_depth{0};
     // True when visiting a pattern atom (node or edge) identifier, which can be
     // reused or created in the pattern itself.
     bool in_pattern_atom_identifier{false};
@@ -137,20 +171,37 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
     bool has_aggregation{false};
     // Map from variable names to symbols.
     std::map<std::string, Symbol> symbols;
+    // Symbols imported into a `CALL (v1, v2, ...) { ... }` subquery scope.
+    std::map<std::string, Symbol> call_subquery_imports;
+    // Index of the scope that opened the innermost enclosing `CALL {}`. A name resolving only below it belongs to
+    // the enclosing query and needs an explicit import.
+    std::optional<size_t> call_subquery_base;
     // Identifiers found in property maps of patterns or as variable length path
     // bounds in a single Match clause. They need to be checked after visiting
     // Match. Identifiers created by naming vertices, edges and paths are *not*
     // stored in here.
     std::vector<Identifier *> identifiers_in_match;
-    // Number of nested IfOperators.
-    int num_if_operators{0};
     std::unordered_set<std::string> prev_return_names{};
     std::unordered_set<std::string> curr_return_names{};
+    bool has_periodic_commit{false};
+    bool has_delete{false};
+  };
+
+  /// A subquery body being visited. Its external symbols are the referenced ones created before it opened.
+  struct OpenSubquery {
+    std::unordered_set<Symbol> referenced;
+    /// The first symbol position the body can create.
+    int32_t first_own_position{0};
   };
 
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
-  bool HasSymbol(const std::string &name) const;
+  /// The positions an EXISTS may appear in - the ones the planner has a splice point for. Default-deny, because an
+  /// unlisted position leaves the frame slot unwritten and the expression reads it without an error.
+  static bool IsSupportedSubqueryPosition(const Scope &scope);
+
+  // Whether @p name resolves in any scope from @p from outwards; pass `call_subquery_base` to ask about a subquery.
+  bool HasSymbol(const std::string &name, size_t from = 0) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
@@ -167,9 +218,12 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
 
+  // Record a reference in every open body, not just the innermost.
+  void RecordSubqueryReference(const Symbol &symbol);
+
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
-  void VisitWithIdentifiers(Expression *, const std::vector<Identifier *> &);
+  void VisitWithIdentifiers(std::vector<Expression *>, const std::vector<Identifier *> &);
 
   SymbolTable *symbol_table_;
 
@@ -177,6 +231,13 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // is mapped by its name.
   std::unordered_map<std::string, Identifier *> predefined_identifiers_;
   std::vector<Scope> scopes_;
+  Scope global_scope_;
+  // Symbols the CREATE clause being visited declares. A pattern comprehension inside it may not reference one -
+  // see Visit(Identifier &). CREATE pushes no scope of its own, so this cannot be derived from `scopes_`.
+  std::unordered_set<Symbol> create_clause_symbols_;
+  // Open subquery bodies, outermost first. External means created before the body, not visible outside it:
+  // `CALL (v) {}` imports `v` without creating a symbol, so `v` keeps its outer position.
+  std::vector<OpenSubquery> open_subqueries_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups
@@ -189,117 +250,286 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
 
   // Unary operators
   void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
-  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); };
-  void Visit(UnaryPlusOperator &op) override{};
-  void Visit(UnaryMinusOperator &op) override{};
+
+  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); }
+
+  void Visit(UnaryPlusOperator &op) override {}
+
+  void Visit(UnaryMinusOperator &op) override {}
 
   void Visit(OrOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   }
+
   void Visit(XorOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   }
+
   void Visit(AndOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
   }
+
   void Visit(NotEqualOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
+  }
+
   void Visit(EqualOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
+  }
+
   void Visit(InListOperator &op) override {
     op.expression1_->Accept(*this);
     op.expression2_->Accept(*this);
-  };
-  void Visit(AdditionOperator &op) override{};
-  void Visit(SubtractionOperator &op) override{};
-  void Visit(MultiplicationOperator &op) override{};
-  void Visit(DivisionOperator &op) override{};
-  void Visit(ModOperator &op) override{};
-  void Visit(LessOperator &op) override{};
-  void Visit(GreaterOperator &op) override{};
-  void Visit(LessEqualOperator &op) override{};
-  void Visit(GreaterEqualOperator &op) override{};
-  void Visit(SubscriptOperator &op) override{};
-  void Visit(ListSlicingOperator &op) override{};
-  void Visit(IfOperator &op) override{};
-  void Visit(ListLiteral &op) override{};
-  void Visit(MapLiteral &op) override{};
-  void Visit(MapProjectionLiteral &op) override{};
-  void Visit(LabelsTest &op) override{};
-  void Visit(Aggregation &op) override{};
-  void Visit(Function &op) override{};
-  void Visit(Reduce &op) override{};
-  void Visit(Coalesce &op) override{};
-  void Visit(Extract &op) override{};
-  void Visit(Exists &op) override{};
-  void Visit(All &op) override{};
-  void Visit(Single &op) override{};
-  void Visit(Any &op) override{};
-  void Visit(None &op) override{};
-  void Visit(Identifier &op) override{};
-  void Visit(PrimitiveLiteral &op) override{};
-  void Visit(AllPropertiesLookup &op) override{};
-  void Visit(ParameterLookup &op) override{};
+  }
+
+  void Visit(AdditionOperator &op) override {}
+
+  void Visit(SubtractionOperator &op) override {}
+
+  void Visit(MultiplicationOperator &op) override {}
+
+  void Visit(DivisionOperator &op) override {}
+
+  void Visit(ModOperator &op) override {}
+
+  void Visit(ExponentiationOperator &op) override {}
+
+  void Visit(LessOperator &op) override {}
+
+  void Visit(GreaterOperator &op) override {}
+
+  void Visit(LessEqualOperator &op) override {}
+
+  void Visit(GreaterEqualOperator &op) override {}
+
+  void Visit(RangeOperator &op) override {}
+
+  void Visit(SubscriptOperator &op) override {}
+
+  void Visit(ListSlicingOperator &op) override {}
+
+  void Visit(IfOperator &op) override {}
+
+  void Visit(ListLiteral &op) override {}
+
+  void Visit(MapLiteral &op) override {}
+
+  void Visit(MapProjectionLiteral &op) override {}
+
+  void Visit(LabelsTest &op) override {}
+
+  void Visit(EdgeTypesTest &op) override {}
+
+  void Visit(Aggregation &op) override {}
+
+  void Visit(Function &op) override {}
+
+  void Visit(Reduce &op) override {}
+
+  void Visit(Coalesce &op) override {}
+
+  void Visit(Extract &op) override {}
+
+  void Visit(SubqueryExpression &op) override {}
+
+  void Visit(All &op) override {}
+
+  void Visit(Single &op) override {}
+
+  void Visit(Any &op) override {}
+
+  void Visit(None &op) override {}
+
+  void Visit(ListComprehension &op) override {}
+
+  void Visit(Identifier &op) override {}
+
+  void Visit(PrimitiveLiteral &op) override {}
+
+  void Visit(AllPropertiesLookup &op) override {}
+
+  void Visit(ParameterLookup &op) override {}
+
   void Visit(NamedExpression &op) override { op.expression_->Accept(*this); };
-  void Visit(RegexMatch &op) override{};
-  void Visit(PatternComprehension &op) override{};
+
+  void Visit(RegexMatch &op) override {}
+
+  void Visit(PatternComprehension &op) override {}
+
+  void Visit(EnumValueAccess &op) override {}
 
   void Visit(PropertyLookup & /*property_lookup*/) override;
 
-  bool gather_property_lookup_counts{false};
-  bool assign_property_lookup_evaluations{false};
+  enum struct Phase : uint8_t { GATHER, ASSIGN };
+
+  Phase phase_{Phase::GATHER};
 
  private:
   std::unordered_map<std::string, uint64_t> property_lookup_counts_by_symbol{};
 };
 
+class PropertyLookupBaseIdentifierVisitor : public ExpressionVisitor<void> {
+ public:
+  explicit PropertyLookupBaseIdentifierVisitor() = default;
+
+  using ExpressionVisitor<void>::Visit;
+
+  // Unary operators
+  void Visit(NotOperator &op) override { op.expression_->Accept(*this); }
+
+  void Visit(IsNullOperator &op) override { op.expression_->Accept(*this); }
+
+  void Visit(UnaryPlusOperator &op) override {}
+
+  void Visit(UnaryMinusOperator &op) override {}
+
+  void Visit(OrOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(XorOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(AndOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(NotEqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(EqualOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(InListOperator &op) override {
+    op.expression1_->Accept(*this);
+    op.expression2_->Accept(*this);
+  }
+
+  void Visit(AdditionOperator &op) override {}
+
+  void Visit(SubtractionOperator &op) override {}
+
+  void Visit(MultiplicationOperator &op) override {}
+
+  void Visit(DivisionOperator &op) override {}
+
+  void Visit(ModOperator &op) override {}
+
+  void Visit(ExponentiationOperator &op) override {}
+
+  void Visit(LessOperator &op) override {}
+
+  void Visit(GreaterOperator &op) override {}
+
+  void Visit(LessEqualOperator &op) override {}
+
+  void Visit(GreaterEqualOperator &op) override {}
+
+  void Visit(RangeOperator &op) override {}
+
+  void Visit(SubscriptOperator &op) override {}
+
+  void Visit(ListSlicingOperator &op) override {}
+
+  void Visit(IfOperator &op) override {}
+
+  void Visit(ListLiteral &op) override {}
+
+  void Visit(MapLiteral &op) override {}
+
+  void Visit(MapProjectionLiteral &op) override {}
+
+  void Visit(LabelsTest &op) override {}
+
+  void Visit(EdgeTypesTest &op) override {}
+
+  void Visit(Aggregation &op) override {}
+
+  void Visit(Function &op) override {}
+
+  void Visit(Reduce &op) override {}
+
+  void Visit(Coalesce &op) override {}
+
+  void Visit(Extract &op) override {}
+
+  void Visit(SubqueryExpression &op) override {}
+
+  void Visit(All &op) override {}
+
+  void Visit(Single &op) override {}
+
+  void Visit(Any &op) override {}
+
+  void Visit(None &op) override {}
+
+  void Visit(ListComprehension &op) override {}
+
+  void Visit(Identifier &op) override {}
+
+  void Visit(PrimitiveLiteral &op) override {}
+
+  void Visit(AllPropertiesLookup &op) override {}
+
+  void Visit(ParameterLookup &op) override {}
+
+  void Visit(NamedExpression &op) override { op.expression_->Accept(*this); }
+
+  void Visit(RegexMatch &op) override {}
+
+  void Visit(PatternComprehension &op) override {}
+
+  void Visit(EnumValueAccess &op) override {}
+
+  void Visit(PropertyLookup & /*property_lookup*/) override;
+
+  Identifier *base_identifier{nullptr};
+};
+
 inline SymbolTable MakeSymbolTable(CypherQuery *query, const std::vector<Identifier *> &predefined_identifiers = {}) {
   SymbolTable symbol_table;
   SymbolGenerator symbol_generator(&symbol_table, predefined_identifiers);
-  query->single_query_->Accept(symbol_generator);
-  for (auto *cypher_union : query->cypher_unions_) {
-    cypher_union->Accept(symbol_generator);
-  }
+  query->Accept(symbol_generator);
   return symbol_table;
 }
 
 inline void SetEvaluationModeOnPropertyLookups(ReturnBody &body) {
   PropertyLookupEvaluationModeVisitor visitor;
 
-  visitor.gather_property_lookup_counts = true;
+  visitor.phase_ = PropertyLookupEvaluationModeVisitor::Phase::GATHER;
   for (auto *expr : body.named_expressions) {
     expr->Accept(visitor);
   }
-  visitor.gather_property_lookup_counts = false;
-
-  visitor.assign_property_lookup_evaluations = true;
+  visitor.phase_ = PropertyLookupEvaluationModeVisitor::Phase::ASSIGN;
   for (auto *expr : body.named_expressions) {
     expr->Accept(visitor);
   }
-  visitor.assign_property_lookup_evaluations = false;
 }
 
 inline void SetEvaluationModeOnPropertyLookups(MapLiteral &map_literal) {
   PropertyLookupEvaluationModeVisitor visitor;
 
-  visitor.gather_property_lookup_counts = true;
-  for (auto &pair : map_literal.elements_) {
-    pair.second->Accept(visitor);
+  visitor.phase_ = PropertyLookupEvaluationModeVisitor::Phase::GATHER;
+  for (auto &[_, expr] : map_literal.elements_) {
+    expr->Accept(visitor);
   }
-  visitor.gather_property_lookup_counts = false;
-
-  visitor.assign_property_lookup_evaluations = true;
-  for (auto &pair : map_literal.elements_) {
-    pair.second->Accept(visitor);
+  visitor.phase_ = PropertyLookupEvaluationModeVisitor::Phase::ASSIGN;
+  for (auto &[_, expr] : map_literal.elements_) {
+    expr->Accept(visitor);
   }
-  visitor.assign_property_lookup_evaluations = false;
 }
 
 }  // namespace memgraph::query

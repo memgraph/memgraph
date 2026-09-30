@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,27 +11,43 @@
 
 #include "io/network/addrinfo.hpp"
 
+#include <sys/socket.h>
+#include <cerrno>
 #include <concepts>
+#include <cstring>
 #include <iterator>
+#include <utility>
 
+#include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 
 namespace memgraph::io::network {
 
 static_assert(std::forward_iterator<AddrInfo::Iterator> && std::equality_comparable<AddrInfo::Iterator>);
 
-AddrInfo::AddrInfo(const Endpoint &endpoint) : AddrInfo(endpoint.address, endpoint.port) {}
+AddrInfo::AddrInfo(const Endpoint &endpoint) : AddrInfo(endpoint.GetAddress(), endpoint.GetPort()) {}
 
-AddrInfo::AddrInfo(const std::string &addr, uint16_t port) : info_{nullptr, nullptr} {
+AddrInfo::AddrInfo(const std::string &non_resolved_addr, uint16_t port) : info_{nullptr, &freeaddrinfo} {
   addrinfo hints{
       .ai_flags = AI_PASSIVE,
-      .ai_family = AF_UNSPEC,     // IPv4 and IPv6
-      .ai_socktype = SOCK_STREAM  // TCP socket
+      .ai_family = AF_UNSPEC,      // IPv4 and IPv6
+      .ai_socktype = SOCK_STREAM,  // TCP socket
+      .ai_protocol = 0,            // any protocol
   };
   addrinfo *info = nullptr;
-  auto status = getaddrinfo(addr.c_str(), std::to_string(port).c_str(), &hints, &info);
-  if (status != 0) throw NetworkError(gai_strerror(status));
-  info_ = std::unique_ptr<addrinfo, decltype(&freeaddrinfo)>(info, &freeaddrinfo);
+  auto status = getaddrinfo(non_resolved_addr.c_str(), std::to_string(port).c_str(), &hints, &info);
+  auto const err_ec = errno;
+  // Take ownership even on error so if info is non-null on error, it gets freed
+  info_.reset(info);
+  // If dealing with system error we want to get more info about what happened.
+  // As explained here https://man7.org/linux/man-pages/man3/getaddrinfo.3.html
+  // errno is then set to inidicate the error
+  if (status == EAI_SYSTEM) {
+    throw NetworkError("System error: {}", std::strerror(err_ec));
+  }
+  if (status != 0) {
+    throw NetworkError(gai_strerror(status));
+  }
 }
 
 AddrInfo::Iterator::Iterator(addrinfo *p) noexcept : ptr_(p) {}
@@ -46,6 +62,7 @@ AddrInfo::Iterator AddrInfo::Iterator::operator++(int) noexcept {
   ++(*this);
   return it;
 }
+
 AddrInfo::Iterator &AddrInfo::Iterator::operator++() noexcept {
   ptr_ = ptr_->ai_next;
   return *this;

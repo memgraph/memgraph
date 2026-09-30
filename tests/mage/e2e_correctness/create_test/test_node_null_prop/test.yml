@@ -1,0 +1,6 @@
+memgraph_query: >
+   CALL create.node(["a", "b", "c"], {id: 1, name: "node", surname: null}) YIELD node
+   RETURN node
+
+neo4j_query: >
+   CALL apoc.create.node(["a", "b", "c"], {id: 1, name: "node", surname: null});

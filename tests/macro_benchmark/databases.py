@@ -45,7 +45,7 @@ class Memgraph:
         argp.add_argument("--port", default="7687", help="Database and client port")
         argp.add_argument("--data-directory", default=None)
         argp.add_argument("--storage-snapshot-on-exit", action="store_true")
-        argp.add_argument("--storage-recover-on-startup", action="store_true")
+        argp.add_argument("--data-recovery-on-startup", action="store_true")
         self.log.info("Initializing Runner with arguments %r", args)
         self.args, _ = argp.parse_known_args(args)
         self.num_workers = num_workers
@@ -55,21 +55,34 @@ class Memgraph:
 
     def start(self):
         self.log.info("start")
-        database_args = ["--bolt-port", self.args.port, "--query-execution-timeout-sec", "0"]
+        database_args = [
+            "--bolt-port",
+            self.args.port,
+            "--query-execution-timeout-sec",
+            "0",
+            "--storage-mode",
+            "IN_MEMORY_ANALYTICAL",
+            "--log-level",
+            "TRACE",
+            "--also-log-to-stderr",
+        ]
         if self.num_workers:
             database_args += ["--bolt-num-workers", str(self.num_workers)]
         if self.args.data_directory:
             database_args += ["--data-directory", self.args.data_directory]
-        if self.args.storage_recover_on_startup:
-            database_args += ["--storage-recover-on-startup"]
         if self.args.storage_snapshot_on_exit:
             database_args += ["--storage-snapshot-on-exit"]
+
+        # SHOW SCHEMA INFO has to enable edge metadata (or edge index); otherwise it is unusable
+        database_args += ["--storage-properties-on-edges"]
+        database_args += ["--storage-enable-edges-metadata"]
+        database_args += ["--metrics-format", "OpenMetrics"]
 
         # find executable path
         runner_bin = self.args.runner_bin
 
         # start memgraph
-        self.database_bin.run(runner_bin, database_args, timeout=600)
+        self.database_bin.run(runner_bin, database_args, timeout=600, env=os.environ.copy())
         wait_for_server(self.args.port)
 
     def stop(self):
@@ -115,7 +128,8 @@ class Neo:
 
             # environment
             cwd = os.path.dirname(self.args.runner_bin)
-            env = {"NEO4J_HOME": self.neo4j_home_path}
+            env = os.environ.copy()
+            env["NEO4J_HOME"] = self.neo4j_home_path
 
             self.database_bin.run(self.args.runner_bin, args=["console"], env=env, timeout=600, cwd=cwd)
         except:

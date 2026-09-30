@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.mysql('SELECT float_col FROM dummy_table', {
+      host: 'mysql_test',
+      port: 3306,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.float_col) AS float_col_type, row.float_col AS float_col
+
+output:
+  - float_col_type: 'FLOAT'
+    float_col: 3.14159

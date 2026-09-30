@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,12 @@
 
 #include <gtest/gtest.h>
 #include <chrono>
+#include <nlohmann/json.hpp>
 #include <stop_token>
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 
 #include "interpreter_faker.hpp"
 #include "query/exceptions.hpp"
@@ -24,6 +26,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/exceptions.hpp"
 
 class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
@@ -44,8 +47,8 @@ TEST_P(StorageModeTest, Mode) {
           .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}});
 
   static_cast<memgraph::storage::InMemoryStorage *>(storage.get())->SetStorageMode(storage_mode);
-  auto creator = storage->Access(memgraph::replication::ReplicationRole::MAIN);
-  auto other_analytics_mode_reader = storage->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto creator = storage->Access(memgraph::storage::WRITE);
+  auto other_analytics_mode_reader = storage->Access(memgraph::storage::WRITE);
 
   ASSERT_EQ(CountVertices(*creator, memgraph::storage::View::OLD), 0);
   ASSERT_EQ(CountVertices(*other_analytics_mode_reader, memgraph::storage::View::OLD), 0);
@@ -61,11 +64,11 @@ TEST_P(StorageModeTest, Mode) {
     }
   }
 
-  ASSERT_FALSE(creator->Commit().HasError());
+  ASSERT_TRUE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
-INSTANTIATE_TEST_CASE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),
-                        StorageModeTest::PrintStringParamToName());
+INSTANTIATE_TEST_SUITE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),
+                         StorageModeTest::PrintStringParamToName());
 
 class StorageModeMultiTxTest : public ::testing::Test {
  protected:
@@ -79,9 +82,10 @@ class StorageModeMultiTxTest : public ::testing::Test {
 
   memgraph::storage::Config config{.durability.storage_directory = data_directory,
                                    .disk.main_storage_directory = data_directory / "disk"};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -90,21 +94,34 @@ class StorageModeMultiTxTest : public ::testing::Test {
         return db_acc;
       }()  // iile
   };
-  memgraph::query::InterpreterContext interpreter_context{{}, nullptr, &repl_state};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          nullptr,
+                                                          &repl_state,
+                                                          system_state,
+                                                          nullptr
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr,
+                                                          nullptr
+#endif
+  };
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 };
 
 TEST_F(StorageModeMultiTxTest, ModeSwitchInactiveTransaction) {
-  bool started = false;
+  std::atomic<bool> started{false};
   std::jthread running_thread = std::jthread(
       [this, &started](std::stop_token st, int thread_index) {
         running_interpreter.Interpret("CREATE ();");
-        started = true;
+        started.store(true, std::memory_order_release);
       },
       0);
 
   {
-    while (!started) {
+    while (!started.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     ASSERT_EQ(db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
@@ -123,19 +140,19 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
   ASSERT_EQ(db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL);
   main_interpreter.Interpret("BEGIN");
 
-  bool started = false;
-  bool finished = false;
+  std::atomic<bool> started{false};
+  std::atomic<bool> finished{false};
   std::jthread running_thread = std::jthread(
       [this, &started, &finished](std::stop_token st, int thread_index) {
-        started = true;
+        started.store(true, std::memory_order_release);
         // running interpreter try to change
         running_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
-        finished = true;
+        finished.store(true, std::memory_order_release);
       },
       0);
 
   {
-    while (!started) {
+    while (!started.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     // should not change still
@@ -143,7 +160,7 @@ TEST_F(StorageModeMultiTxTest, ModeSwitchActiveTransaction) {
 
     main_interpreter.Interpret("COMMIT");
 
-    while (!finished) {
+    while (!finished.load(std::memory_order_acquire)) {
       std::this_thread::sleep_for(std::chrono::milliseconds(20));
     }
     // should change state
@@ -163,4 +180,93 @@ TEST_F(StorageModeMultiTxTest, ErrorChangeIsolationLevel) {
 
   ASSERT_THROW(running_interpreter.Interpret("SET GLOBAL TRANSACTION ISOLATION LEVEL READ COMMITTED;"),
                memgraph::query::IsolationLevelModificationInAnalyticsException);
+}
+
+// Analytical index creation asks for read-only access, so it waits for writers but not for readers.
+TEST_F(StorageModeMultiTxTest, AnalyticalIndexCreationAccess) {
+  main_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
+  ASSERT_EQ(db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+
+  {
+    auto reader = db->storage()->Access(memgraph::storage::READ);
+    running_interpreter.Interpret("CREATE INDEX ON :Label1");
+    reader->Abort();
+  }
+  {
+    auto acc = db->storage()->Access(memgraph::storage::READ);
+    ASSERT_EQ(acc->ListAllIndices().label.size(), 1);
+    acc->Abort();
+  }
+
+  {
+    auto writer = db->storage()->Access(memgraph::storage::WRITE);
+    ASSERT_THROW(running_interpreter.Interpret("CREATE INDEX ON :Label2"), memgraph::storage::ReadOnlyAccessTimeout);
+    writer->Abort();
+  }
+}
+
+// Dropping asks for read-only access too: an aborted drop restores the index as it was captured, so
+// no writer may run between the drop and the commit.
+TEST_F(StorageModeMultiTxTest, AnalyticalIndexDropAccess) {
+  main_interpreter.Interpret("STORAGE MODE IN_MEMORY_ANALYTICAL");
+  ASSERT_EQ(db->GetStorageMode(), memgraph::storage::StorageMode::IN_MEMORY_ANALYTICAL);
+  main_interpreter.Interpret("CREATE INDEX ON :Label1");
+
+  {
+    auto writer = db->storage()->Access(memgraph::storage::WRITE);
+    ASSERT_THROW(running_interpreter.Interpret("DROP INDEX ON :Label1"), memgraph::storage::ReadOnlyAccessTimeout);
+    writer->Abort();
+  }
+
+  {
+    auto reader = db->storage()->Access(memgraph::storage::READ);
+    running_interpreter.Interpret("DROP INDEX ON :Label1");
+    reader->Abort();
+  }
+
+  auto acc = db->storage()->Access(memgraph::storage::READ);
+  ASSERT_EQ(acc->ListAllIndices().label.size(), 0);
+  acc->Abort();
+}
+
+// nlohmann ADL hooks for StorageMode (storage_mode.hpp): integer wire encoding + range-checked read.
+// These back the durable hot/cold cold_stats JSON and SalientConfig, which both rely on plain
+// integer encoding — switching to a string form would break read-back of existing entries.
+TEST(StorageModeJson, EncodesAsUnderlyingInteger) {
+  using memgraph::storage::StorageMode;
+  // to_json must emit the underlying integer, not a string (the on-disk format contract).
+  for (auto mode :
+       {StorageMode::IN_MEMORY_ANALYTICAL, StorageMode::IN_MEMORY_TRANSACTIONAL, StorageMode::ON_DISK_TRANSACTIONAL}) {
+    nlohmann::json j = mode;
+    ASSERT_TRUE(j.is_number_integer()) << "StorageMode must serialize as an integer";
+    EXPECT_EQ(j.get<int>(), std::to_underlying(mode));
+  }
+}
+
+TEST(StorageModeJson, RoundTrips) {
+  using memgraph::storage::StorageMode;
+  for (auto mode :
+       {StorageMode::IN_MEMORY_ANALYTICAL, StorageMode::IN_MEMORY_TRANSACTIONAL, StorageMode::ON_DISK_TRANSACTIONAL}) {
+    nlohmann::json j = mode;
+    EXPECT_EQ(j.get<StorageMode>(), mode);
+  }
+}
+
+TEST(StorageModeJson, ReadsRawIntegerFromOlderEntries) {
+  using memgraph::storage::StorageMode;
+  // A pre-hook durable entry / SalientConfig stores the bare integer (nlohmann's default enum form).
+  // The hook must read it back identically — proving the format is unchanged.
+  EXPECT_EQ(nlohmann::json(0).get<StorageMode>(), StorageMode::IN_MEMORY_ANALYTICAL);
+  EXPECT_EQ(nlohmann::json(1).get<StorageMode>(), StorageMode::IN_MEMORY_TRANSACTIONAL);
+  EXPECT_EQ(nlohmann::json(2).get<StorageMode>(), StorageMode::ON_DISK_TRANSACTIONAL);
+}
+
+TEST(StorageModeJson, OutOfRangeFallsBackWithoutThrowing) {
+  using memgraph::storage::StorageMode;
+  // A corrupt/out-of-range value must NOT blind-cast to a garbage enum (the latent gap in the
+  // built-in from_json) — from_json range-checks via NumToEnum and falls back to a safe default.
+  StorageMode out{};
+  nlohmann::json corrupt = 99;
+  ASSERT_NO_THROW(out = corrupt.get<StorageMode>());
+  EXPECT_EQ(out, StorageMode::IN_MEMORY_TRANSACTIONAL);
 }

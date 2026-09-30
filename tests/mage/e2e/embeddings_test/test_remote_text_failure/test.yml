@@ -1,0 +1,17 @@
+query: >
+    WITH {
+      model_name: "ollama/nomic-embed-text",
+      api_base: "http://127.0.0.1:1",
+      num_retries: 0,
+      timeout: 2
+    } AS configuration
+    CALL embeddings.text(["probe"], configuration)
+    YIELD success, embeddings, dimension
+    RETURN success,
+           embeddings IS NULL AS embeddings_null,
+           dimension IS NULL AS dimension_null;
+
+output:
+    - success: false
+      embeddings_null: true
+      dimension_null: true

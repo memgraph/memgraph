@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,16 @@
 #pragma once
 
 #include <cstdint>
+#include <nlohmann/json_fwd.hpp>
+#include <string_view>
+
+using namespace std::string_view_literals;
 
 namespace memgraph::replication_coordination_glue {
-enum class ReplicationMode : std::uint8_t { SYNC, ASYNC };
+
+enum class ReplicationMode : std::uint8_t { SYNC, ASYNC, STRICT_SYNC };
+
+void to_json(nlohmann::json &j, const ReplicationMode &e);
+void from_json(const nlohmann::json &j, ReplicationMode &e);
+
 }  // namespace memgraph::replication_coordination_glue

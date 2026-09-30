@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -23,6 +24,7 @@
 
 #include "communication/session.hpp"
 #include "io/network/epoll.hpp"
+#include "io/network/fmt.hpp"
 #include "io/network/socket.hpp"
 #include "utils/logging.hpp"
 #include "utils/signals.hpp"
@@ -47,7 +49,7 @@ class Listener final {
   // because each event represents the start of a network request and it doesn't
   // make sense to take more than one event because the processing of an event
   // can take a long time.
-  static const int kMaxEvents = 1;
+  static constexpr int kMaxEvents = 1;
 
   using SessionHandler = Session<TSession, TSessionContext>;
 
@@ -66,7 +68,7 @@ class Listener final {
     for (auto &thread : worker_threads_) {
       if (thread.joinable()) worker_alive = true;
     }
-    MG_ASSERT(!alive_ && !worker_alive && !timeout_thread_.joinable(),
+    MG_ASSERT(!alive_.load(std::memory_order_acquire) && !worker_alive && !timeout_thread_.joinable(),
               "You should call Shutdown and AwaitShutdown on "
               "communication::Listener!");
   }
@@ -82,7 +84,7 @@ class Listener final {
    * @param connection socket which should be added to the event pool
    */
   void AddConnection(io::network::Socket &&connection) {
-    std::lock_guard<utils::SpinLock> guard(lock_);
+    auto guard = std::lock_guard{lock_};
 
     // Remember fd before moving connection into Session.
     int fd = connection.fd();
@@ -104,8 +106,8 @@ class Listener final {
    * This function starts the listener
    */
   void Start() {
-    MG_ASSERT(!alive_, "The listener is already started!");
-    alive_.store(true);
+    MG_ASSERT(!alive_.load(std::memory_order_acquire), "The listener is already started!");
+    alive_.store(true, std::memory_order_release);
 
     spdlog::info("Starting {} {} workers", workers_count_, service_name_);
 
@@ -113,7 +115,7 @@ class Listener final {
     for (size_t i = 0; i < workers_count_; ++i) {
       worker_threads_.emplace_back([this, service_name, i]() {
         utils::ThreadSetName(fmt::format("{} worker {}", service_name, i + 1));
-        while (alive_) {
+        while (alive_.load(std::memory_order_acquire)) {
           WaitAndProcessEvents();
         }
       });
@@ -122,12 +124,14 @@ class Listener final {
     if (inactivity_timeout_sec_ > 0) {
       timeout_thread_ = std::thread([this, service_name]() {
         utils::ThreadSetName(fmt::format("{} timeout", service_name));
-        while (alive_) {
+        while (alive_.load(std::memory_order_acquire)) {
           {
-            std::lock_guard<utils::SpinLock> guard(lock_);
+            auto guard = std::lock_guard{lock_};
             for (auto &session : sessions_) {
               if (session->TimedOut()) {
-                spdlog::warn("{} session associated with {} timed out", service_name, session->socket().endpoint());
+                spdlog::warn("{} session associated with {} timed out",
+                             service_name,
+                             session->socket().endpoint().SocketAddress());
                 // Here we shutdown the socket to terminate any leftover
                 // blocking `Write` calls and to signal an event that the
                 // session is closed. Session cleanup will be done in the event
@@ -146,7 +150,7 @@ class Listener final {
   /**
    * This function starts a graceful shutdown of the listener.
    */
-  void Shutdown() { alive_.store(false); }
+  void Shutdown() { alive_.store(false, std::memory_order_release); }
 
   /**
    * This function blocks the calling thread until the listener shutdown is
@@ -159,7 +163,7 @@ class Listener final {
     }
     // Here we free all active connections to close them and notify the other
     // end that we won't process them because we stopped all worker threads.
-    std::lock_guard<utils::SpinLock> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     sessions_.clear();
   }
 
@@ -172,12 +176,12 @@ class Listener final {
   void WaitAndProcessEvents() {
     // This array can't be global because this function can be called from
     // multiple threads, therefore, it must be on the stack.
-    io::network::Epoll::Event events[kMaxEvents];
+    std::array<io::network::Epoll::Event, kMaxEvents> events;  // intentionally uninitialized
 
     // Waits for an events and returns a maximum of max_events (1)
     // and stores them in the events array. It waits for wait_timeout
     // milliseconds. If wait_timeout is achieved, returns 0.
-    int n = epoll_.Wait(events, kMaxEvents, 200);
+    int n = epoll_.Wait(events.data(), kMaxEvents, 200);
     if (n <= 0) return;
 
     // Process the event.
@@ -196,20 +200,22 @@ class Listener final {
     // segfault.
     if (event.events & EPOLLIN) {
       // Read and process all incoming data.
-      while (ExecuteSession(session))
-        ;
+      while (ExecuteSession(session));
     } else if (event.events & EPOLLRDHUP) {
       // The client closed the connection.
-      spdlog::info("{} client {} closed the connection.", service_name_, session.socket().endpoint());
+      spdlog::info("{} client {} closed the connection.", service_name_, session.socket().endpoint().SocketAddress());
       CloseSession(session);
     } else if (!(event.events & EPOLLIN) || event.events & (EPOLLHUP | EPOLLERR)) {
       // There was an error on the server side.
-      spdlog::error("Error occured in {} session associated with {}", service_name_, session.socket().endpoint());
+      spdlog::error(
+          "Error occured in {} session associated with {}", service_name_, session.socket().endpoint().SocketAddress());
       CloseSession(session);
     } else {
       // Unhandled epoll event.
-      spdlog::error("Unhandled event occured in {} session associated with {} events: {}", service_name_,
-                    session.socket().endpoint(), event.events);
+      spdlog::error("Unhandled event occured in {} session associated with {} events: {}",
+                    service_name_,
+                    session.socket().endpoint().SocketAddress(),
+                    event.events);
       CloseSession(session);
     }
   }
@@ -223,7 +229,7 @@ class Listener final {
         return false;
       }
     } catch (const SessionClosedException &e) {
-      spdlog::info("{} client {} closed the connection.", service_name_, session.socket().endpoint());
+      spdlog::info("{} client {} closed the connection.", service_name_, session.socket().endpoint().SocketAddress());
       CloseSession(session);
       return false;
     } catch (const std::exception &e) {
@@ -231,7 +237,8 @@ class Listener final {
       spdlog::error(
           "Exception was thrown while processing event in {} session "
           "associated with {}",
-          service_name_, session.socket().endpoint());
+          service_name_,
+          session.socket().endpoint().SocketAddress());
       spdlog::debug("Exception message: {}", e.what());
       CloseSession(session);
       return false;
@@ -246,8 +253,8 @@ class Listener final {
     // https://idea.popcount.org/2017-03-20-epoll-is-fundamentally-broken-22/
     epoll_.Delete(session.socket().fd());
 
-    std::lock_guard<utils::SpinLock> guard(lock_);
-    auto it = std::find_if(sessions_.begin(), sessions_.end(), [&](const auto &l) { return l.get() == &session; });
+    auto guard = std::lock_guard{lock_};
+    auto it = std::ranges::find_if(sessions_, [&](const auto &l) { return l.get() == &session; });
 
     MG_ASSERT(it != sessions_.end(), "Trying to remove session that is not found in sessions!");
     int i = it - sessions_.begin();

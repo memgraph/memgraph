@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT interval_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.interval_col) AS interval_col_type, toString(row.interval_col) AS interval_col
+
+output:
+  - interval_col_type: 'DURATION'
+    interval_col: 'P1DT2H3M0.000000S'

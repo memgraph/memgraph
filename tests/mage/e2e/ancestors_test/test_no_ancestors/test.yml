@@ -1,0 +1,7 @@
+query: >
+    MATCH (a:A)
+    CALL graph_util.ancestors(a) YIELD ancestors
+    RETURN size(ancestors) AS size
+
+output:
+    - size: 0

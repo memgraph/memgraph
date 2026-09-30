@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,60 +11,151 @@
 
 #pragma once
 
-#include <atomic>
+#include <functional>
+#include <memory>
 #include <optional>
-#include <thread>
 #include <variant>
 
+#include "absl/container/flat_hash_map.h"
+
+#include "metrics/metric_handles.hpp"
+#include "metrics/scoped_gauge.hpp"
+#include "storage/v2/common_function_signatures.hpp"
+#include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/constraints_mvcc.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
+#include "storage/v2/interesting_ids.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
 class ExistenceConstraints {
- private:
-  std::vector<std::pair<LabelId, PropertyId>> constraints_;
-
  public:
+  explicit ExistenceConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
+  /// Both validators call `cancel_check` once per vertex and throw PopulateCancel when it returns true. The parallel
+  /// one catches it per worker and re-throws after joining, so an escaping exception can never terminate the process.
   struct MultipleThreadsConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
-                                                  const LabelId &label, const PropertyId &property);
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
+                    const PropertyId &property, ProgressCallback const &on_progress = {},
+                    CheckCancelFunction const &cancel_check = neverCancel) const
+        -> std::expected<void, ConstraintViolation>;
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
+
   struct SingleThreadConstraintValidation {
-    std::optional<ConstraintViolation> operator()(const utils::SkipList<Vertex>::Accessor &vertices,
-                                                  const LabelId &label, const PropertyId &property);
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label,
+                    const PropertyId &property, ProgressCallback const &on_progress = {},
+                    CheckCancelFunction const &cancel_check = neverCancel) const
+        -> std::expected<void, ConstraintViolation>;
   };
 
-  [[nodiscard]] static std::optional<ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
-                                                                                     const LabelId &label,
-                                                                                     const PropertyId &property);
+  /// Key for constraint lookup in the container.
+  struct ConstraintKey {
+    LabelId label;
+    PropertyId property;
 
-  [[nodiscard]] static std::optional<ConstraintViolation> ValidateVerticesOnConstraint(
-      utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
-      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
+    friend auto operator<=>(const ConstraintKey &, const ConstraintKey &) = default;
 
-  static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
-      const std::optional<durability::ParallelizedSchemaCreationInfo> &);
+    template <typename H>
+    friend H AbslHashValue(H h, const ConstraintKey &c) {
+      return H::combine(std::move(h), c.label, c.property);
+    }
+  };
 
+  /// Individual constraint with MVCC status (accessed via shared_ptr for in-place modification).
+  /// This pattern matches indices and unique constraints for consistency.
+  struct IndividualConstraint {
+    ConstraintStatus status{};
+    metrics::ScopedGauge gauge_{};
+    ~IndividualConstraint();
+  };
+
+  using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
+  using Container = absl::flat_hash_map<ConstraintKey, IndividualConstraintPtr>;
+  using ContainerPtr = std::shared_ptr<Container const>;
+
+  struct ActiveConstraints {
+    explicit ActiveConstraints(ContainerPtr container = std::make_shared<Container>());
+
+    auto ListConstraints(uint64_t start_timestamp) const -> std::vector<std::pair<LabelId, PropertyId>>;
+    bool empty() const;
+
+    /// The properties and the labels any active existence constraint is keyed on, as two
+    /// independent unions rather than per-constraint pairs. Asked once per transaction, so a write
+    /// does not reach these.
+    auto ConstrainedProperties() const -> InterestingProperties;
+    auto ConstrainedLabels() const -> InterestingLabels;
+
+   private:
+    ContainerPtr container_;
+    // Sorted, and borrowed by every transaction started against this snapshot.
+    std::vector<PropertyId> constrained_properties_;
+    std::vector<LabelId> constrained_labels_;
+  };
+
+  /// Creates an ActiveConstraints snapshot for transaction use.
+  auto GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints>;
+
+  static auto GetCreationFunction(const std::optional<durability::ParallelizedSchemaCreationInfo> &)
+      -> std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation>;
+
+  /// Returns true if constraint is registered (even if still populating). Only used by OnDisk
   bool ConstraintExists(LabelId label, PropertyId property) const;
 
-  void InsertConstraint(LabelId label, PropertyId property);
+  /// Registers a fresh POPULATING constraint. Returns false if one already exists.
+  [[nodiscard]] bool RegisterConstraint(LabelId label, PropertyId property);
 
-  /// Returns true if the constraint was removed, and false if it doesn't exist.
-  bool DropConstraint(LabelId label, PropertyId property);
+  /// Publishes a constraint after validation, making it visible at the given commit timestamp.
+  /// Returns true on success, false if constraint not found.
+  bool PublishConstraint(LabelId label, PropertyId property, uint64_t commit_timestamp) const;
 
-  ///  Returns `std::nullopt` if all checks pass, and `ConstraintViolation` describing the violated constraint
-  ///  otherwise.
-  [[nodiscard]] std::optional<ConstraintViolation> Validate(const Vertex &vertex);
+  /// Drops a constraint. Returns the evicted IndividualConstraint so the caller can
+  /// reinstall it via RestoreConstraint on abort, or nullptr if no constraint
+  /// existed for {label, property}.
+  [[nodiscard]] IndividualConstraintPtr DropConstraint(LabelId label, PropertyId property);
 
-  std::vector<std::pair<LabelId, PropertyId>> ListConstraints() const;
+  /// Reinstalls a previously-evicted IndividualConstraint. No-op if the slot
+  /// has been reclaimed by a concurrent CREATE (constraint DDL runs under
+  /// READ_ONLY/UNIQUE, which does not serialize peers).
+  void RestoreConstraint(LabelId label, PropertyId property, IndividualConstraintPtr evicted);
 
+  /*
+   * VALIDATION
+   */
+
+  /// Commit time validation
+  auto Validate(const std::unordered_set<Vertex const *> &vertices_to_check) const
+      -> std::expected<void, ConstraintViolation>;
+
+  /// Create/Recover time validation
+  /// @throw PopulateCancel if `cancel_check` asks to stop; the caller is responsible for deregistering the constraint.
+  [[nodiscard]] static auto ValidateVerticesOnConstraint(
+      utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
+      ProgressCallback const &on_progress = {}, CheckCancelFunction const &cancel_check = neverCancel)
+      -> std::expected<void, ConstraintViolation>;
+
+  /// [OnDisk] alternative validation performs poorly but disk will be removed soon
+  auto PerVertexValidate(Vertex const &vertex) const -> std::expected<void, ConstraintViolation>;
+
+  /// [OnDisk]
   void LoadExistenceConstraints(const std::vector<std::string> &keys);
+
+  void DropGraphClearConstraints();
+
+ private:
+  auto GetIndividualConstraint(LabelId label, PropertyId property) const -> IndividualConstraintPtr;
+
+  bool InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr);
+
+  metrics::GaugeHandle gauge_{};
+  utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> constraints_{std::make_shared<Container const>()};
 };
 
 }  // namespace memgraph::storage

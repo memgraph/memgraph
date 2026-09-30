@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,8 @@
 #pragma once
 
 #include <concepts>
-#include <functional>
+#include <type_traits>
+#include <utility>
 
 namespace memgraph::utils {
 
@@ -32,30 +33,32 @@ namespace memgraph::utils {
  * void long_function() {
  *     resource.enable();
  *     OnScopeExit on_exit([&resource] { resource.disable(); });
- *     // long block of code, might trow an exception
+ *     // long block of code, might throw an exception
  * }
  */
-template <typename Callable>
+template <std::invocable Callable>
 class [[nodiscard]] OnScopeExit {
  public:
   template <typename U>
-  requires std::constructible_from<Callable, U>
+    requires std::constructible_from<Callable, U>
   explicit OnScopeExit(U &&function) : function_{std::forward<U>(function)}, doCall_{true} {}
+
   OnScopeExit(OnScopeExit const &) = delete;
   OnScopeExit(OnScopeExit &&) = delete;
   OnScopeExit &operator=(OnScopeExit const &) = delete;
   OnScopeExit &operator=(OnScopeExit &&) = delete;
-  ~OnScopeExit() {
+
+  ~OnScopeExit() noexcept(std::is_nothrow_invocable_v<Callable>) {
     if (doCall_) function_();
   }
 
   void Disable() { doCall_ = false; }
 
  private:
-  std::function<void()> function_;
+  Callable function_;
   bool doCall_;
 };
-template <typename Callable>
-OnScopeExit(Callable &&) -> OnScopeExit<Callable>;
 
+template <typename Callable>
+OnScopeExit(Callable &&) -> OnScopeExit<std::decay_t<Callable>>;
 }  // namespace memgraph::utils

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,6 +37,12 @@ enum class State : uint8_t {
   Idle,
 
   /**
+   * Query has been parsed (ast tree and priority), but not prepared (actual plan and storage accessors).
+   * Going to Result once query has been prepared.
+   */
+  Parsed,
+
+  /**
    * This state holds results of RUN command and waits for either PULL_ALL or
    * DISCARD_ALL command.
    */
@@ -53,6 +59,6 @@ enum class State : uint8_t {
    * the session that the client has sent malformed data and that the
    * session should be closed.
    */
-  Close
+  Close,
 };
 }  // namespace memgraph::communication::bolt

@@ -1,8 +1,0 @@
-datasets/
-ldbc_snb_datagen/
-ldbc_driver/
-ldbc-snb-impls/
-ve3/
-maven/
-hadoop/
-*.out

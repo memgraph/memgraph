@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,10 +11,23 @@
 
 #pragma once
 
-#include "query/stream/common.hpp"
+#include <chrono>
+#include <cstdint>
+#include <expected>
+#include <functional>
+#include <optional>
+#include <string>
+#include <unordered_map>
+#include <vector>
 
 #include "integrations/kafka/consumer.hpp"
 #include "integrations/pulsar/consumer.hpp"
+#include "nlohmann/json_fwd.hpp"
+#include "query/stream/common.hpp"
+
+namespace memgraph::memory {
+class ArenaPool;
+}  // namespace memgraph::memory
 
 namespace memgraph::query::stream {
 
@@ -31,7 +44,8 @@ struct KafkaStream {
   using Message = integrations::kafka::Message;
 
   KafkaStream(std::string stream_name, StreamInfo stream_info,
-              ConsumerFunction<integrations::kafka::Message> consumer_function);
+              ConsumerFunction<integrations::kafka::Message> consumer_function,
+              memory::ArenaPool *arena_pool = nullptr);
 
   StreamInfo Info(std::string transformation_name) const;
 
@@ -43,7 +57,7 @@ struct KafkaStream {
   void Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
              ConsumerFunction<Message> consumer_function) const;
 
-  utils::BasicResult<std::string> SetStreamOffset(int64_t offset);
+  std::expected<void, std::string> SetStreamOffset(int64_t offset);
 
  private:
   using Consumer = integrations::kafka::Consumer;
@@ -67,7 +81,8 @@ struct PulsarStream {
 
   using Message = integrations::pulsar::Message;
 
-  PulsarStream(std::string stream_name, StreamInfo stream_info, ConsumerFunction<Message> consumer_function);
+  PulsarStream(std::string stream_name, StreamInfo stream_info, ConsumerFunction<Message> consumer_function,
+               memory::ArenaPool *arena_pool = nullptr);
 
   StreamInfo Info(std::string transformation_name) const;
 

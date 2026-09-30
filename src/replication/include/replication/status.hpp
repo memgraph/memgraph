@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,17 +11,14 @@
 
 #pragma once
 
-#include <chrono>
 #include <cstdint>
+#include <nlohmann/json_fwd.hpp>
 #include <optional>
-#include <string>
 #include <variant>
 
-#include "json/json.hpp"
-
 #include "replication/config.hpp"
-#include "replication/epoch.hpp"
-#include "replication/role.hpp"
+#include "replication_coordination_glue/common.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::replication::durability {
 
@@ -31,32 +28,40 @@ constexpr auto *kReplicationReplicaPrefix{"__replication_replica:"};  // introdu
 
 enum class DurabilityVersion : uint8_t {
   V1,  // no distinct key for replicas
-  V2,  // this version, epoch, replica prefix introduced
+  V2,  // epoch, replica prefix introduced
+  V3,  // version where main uuid was introduced
+  V4,  // addresses as provided by users are saved to disk instead of eager evaluation
+  V5,  // epoch from main role is removed
+  V6   // Added deltas_batch_progress_size
 };
 
 // fragment of key: "__replication_role"
 struct MainRole {
-  ReplicationEpoch epoch{};
+  std::optional<utils::UUID> main_uuid{};
   friend bool operator==(MainRole const &, MainRole const &) = default;
 };
 
 // fragment of key: "__replication_role"
 struct ReplicaRole {
-  ReplicationServerConfig config{};
+  ReplicationServerConfig config;
+  utils::UUID main_uuid;
   friend bool operator==(ReplicaRole const &, ReplicaRole const &) = default;
 };
 
 // from key: "__replication_role"
 struct ReplicationRoleEntry {
   DurabilityVersion version =
-      DurabilityVersion::V2;  // if not latest then migration required for kReplicationReplicaPrefix
+      DurabilityVersion::V6;  // if not latest has been read then migration required to the latest
   std::variant<MainRole, ReplicaRole> role;
+  uint64_t deltas_batch_progress_size{replication_coordination_glue::kDefaultDeltasBatchProgressSize};
 
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;
 };
 
 // from key: "__replication_replica:"
 struct ReplicationReplicaEntry {
+  // NOTE: There are multiple versions of ReplicationReplicaEntry, but we distinguish them in terms of
+  // ReplicationRoleEntry.
   ReplicationClientConfig config;
   friend bool operator==(ReplicationReplicaEntry const &, ReplicationReplicaEntry const &) = default;
 };

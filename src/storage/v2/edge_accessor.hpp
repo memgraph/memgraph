@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,14 +11,9 @@
 
 #pragma once
 
-#include <optional>
-
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_ref.hpp"
-
-#include "storage/v2/config.hpp"
 #include "storage/v2/result.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
 namespace memgraph::storage {
@@ -28,6 +23,7 @@ class VertexAccessor;
 struct Indices;
 struct Constraints;
 class Storage;
+struct Transaction;
 
 class EdgeAccessor final {
  private:
@@ -37,12 +33,16 @@ class EdgeAccessor final {
   EdgeAccessor(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Storage *storage,
                Transaction *transaction, bool for_deleted = false)
       : edge_(edge),
-        edge_type_(edge_type),
         from_vertex_(from_vertex),
         to_vertex_(to_vertex),
         storage_(storage),
         transaction_(transaction),
+        edge_type_(edge_type),
         for_deleted_(for_deleted) {}
+
+  static std::optional<EdgeAccessor> Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
+                                            Storage *storage, Transaction *transaction, View view,
+                                            bool for_deleted = false);
 
   bool IsDeleted() const;
 
@@ -70,7 +70,7 @@ class EdgeAccessor final {
   /// Set property values only if property store is empty. Returns `true` if successully set all values,
   /// `false` otherwise.
   /// @throw std::bad_alloc
-  Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
   Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> UpdateProperties(
       std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
@@ -82,11 +82,23 @@ class EdgeAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  /// Returns the size of the encoded edge property in bytes.
+  Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
+
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
+  /// @throw std::bad_alloc
+  Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
+                                                                      View view) const;
+
+  /// Properties of this edge that are backed by a vector index.
+  std::vector<PropertyId> VectorIndexedProperties() const;
+
   auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }
+
   auto GidNoPropertiesOnEdges() const -> Gid { return edge_.gid; }
+
   Gid Gid() const noexcept;
 
   bool IsCycle() const { return from_vertex_ == to_vertex_; }
@@ -94,15 +106,15 @@ class EdgeAccessor final {
   bool operator==(const EdgeAccessor &other) const noexcept {
     return edge_ == other.edge_ && transaction_ == other.transaction_;
   }
+
   bool operator!=(const EdgeAccessor &other) const noexcept { return !(*this == other); }
 
   EdgeRef edge_;
-  EdgeTypeId edge_type_;
   Vertex *from_vertex_;
   Vertex *to_vertex_;
   Storage *storage_;
   Transaction *transaction_;
-
+  EdgeTypeId edge_type_;
   // if the accessor was created for a deleted edge.
   // Accessor behaves differently for some methods based on this
   // flag.

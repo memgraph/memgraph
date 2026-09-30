@@ -1,0 +1,11 @@
+query: >
+    RETURN collections.union([0, "s", 4.4], [2, "ib"]) AS union;
+
+output:
+    - union: [
+   "ib",
+   2,
+   4.4,
+   "s",
+   0
+]

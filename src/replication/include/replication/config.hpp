@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,48 +15,34 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+
+#include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
+#include "utils/tls.hpp"
 
 namespace memgraph::replication {
 
-inline constexpr uint16_t kDefaultReplicationPort = 10000;
+inline constexpr uint16_t kDefaultReplicationPort = 10'000;
 inline constexpr auto *kDefaultReplicationServerIp = "0.0.0.0";
 
 struct ReplicationClientConfig {
   std::string name;
   replication_coordination_glue::ReplicationMode mode{};
-  std::string ip_address;
-  uint16_t port{};
+  io::network::Endpoint repl_server_endpoint;  // could be IP or domain name
 
   // The default delay between main checking/pinging replicas is 1s because
   // that seems like a reasonable timeframe in which main should notice a
   // replica is down.
   std::chrono::seconds replica_check_frequency{1};
-
-  struct SSL {
-    std::string key_file;
-    std::string cert_file;
-
-    friend bool operator==(const SSL &, const SSL &) = default;
-  };
-
-  std::optional<SSL> ssl;
+  std::optional<utils::TlsConfig> tls_config{};
 
   friend bool operator==(ReplicationClientConfig const &, ReplicationClientConfig const &) = default;
 };
 
 struct ReplicationServerConfig {
-  std::string ip_address;
-  uint16_t port{};
-  struct SSL {
-    std::string key_file;
-    std::string cert_file;
-    std::string ca_file;
-    bool verify_peer{};
-    friend bool operator==(SSL const &, SSL const &) = default;
-  };
-
-  std::optional<SSL> ssl;
+  io::network::Endpoint repl_server;  // could be IP or domain name
+  std::optional<utils::TlsConfig>
+      tls_config;  // not persisted. Previously was persisted but always as nullptr and never actually read
 
   friend bool operator==(ReplicationServerConfig const &, ReplicationServerConfig const &) = default;
 };

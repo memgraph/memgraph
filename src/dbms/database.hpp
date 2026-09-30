@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,31 +11,51 @@
 
 #pragma once
 
-#include <algorithm>
-#include <filesystem>
-#include <iterator>
+#include <atomic>
+#include <chrono>
+#include <functional>
 #include <memory>
 #include <optional>
-#include <string_view>
-#include <unordered_map>
+#include <string>
 
-#include "query/cypher_query_interpreter.hpp"
-#include "query/stream/streams.hpp"
-#include "query/trigger.hpp"
-#include "storage/v2/storage.hpp"
+#include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "query/context.hpp"
+#include "query/plan_cache.hpp"
+#include "storage/v2/access_type.hpp"
+#include "storage/v2/config.hpp"
+#include "storage/v2/database_protector.hpp"
+#include "storage/v2/isolation_level.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "utils/gatekeeper.hpp"
-#include "utils/lru_cache.hpp"
-#include "utils/synchronized.hpp"
+#include "utils/safe_string.hpp"
+#include "utils/thread_pool.hpp"
+#include "utils/uuid.hpp"
+
+namespace memgraph::storage {
+class Storage;
+class Accessor;
+
+namespace ttl {
+class TTL;
+}  // namespace ttl
+}  // namespace memgraph::storage
+
+namespace memgraph::query {
+struct TriggerStore;
+
+namespace stream {
+class Streams;
+}  // namespace stream
+}  // namespace memgraph::query
+
+namespace memgraph::metrics {
+struct DatabaseMetricHandles;
+}  // namespace memgraph::metrics
 
 namespace memgraph::dbms {
 
-struct DatabaseInfo {
-  storage::StorageInfo storage_info;
-  uint64_t triggers;
-  uint64_t streams;
-};
-
-static inline nlohmann::json ToJson(const DatabaseInfo &info) { return ToJson(info.storage_info); }
+struct DatabaseInfo;
 
 /**
  * @brief Class containing everything associated with a single Database
@@ -47,8 +67,11 @@ class Database {
    * @brief Construct a new Database object
    *
    * @param config storage configuration
+   * @param database_protector_factory factory function to create database protectors for async operations
    */
-  explicit Database(storage::Config config, replication::ReplicationState &repl_state);
+  explicit Database(storage::Config config,
+                    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
+  ~Database();
 
   /**
    * @brief Returns the raw storage pointer.
@@ -58,51 +81,59 @@ class Database {
    * @return storage::Storage*
    */
   storage::Storage *storage() { return storage_.get(); }
+
   storage::Storage const *storage() const { return storage_.get(); }
 
   /**
    * @brief Storage's Accessor
    *
    * @param override_isolation_level
-   * @return std::unique_ptr<storage::Storage::Accessor>
+   * @return std::unique_ptr<storage::Accessor>
    */
-  std::unique_ptr<storage::Storage::Accessor> Access(
-      std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->Access(repl_state_->GetRole(), override_isolation_level);
-  }
+  std::unique_ptr<storage::Accessor> Access(storage::StorageAccessType rw_type = storage::StorageAccessType::WRITE,
+                                            std::optional<storage::IsolationLevel> override_isolation_level = {},
+                                            std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
-  std::unique_ptr<storage::Storage::Accessor> UniqueAccess(
-      std::optional<storage::IsolationLevel> override_isolation_level = {}) {
-    return storage_->UniqueAccess(repl_state_->GetRole(), override_isolation_level);
-  }
+  std::unique_ptr<storage::Accessor> UniqueAccess(std::optional<storage::IsolationLevel> override_isolation_level = {},
+                                                  std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+
+  std::unique_ptr<storage::Accessor> ReadOnlyAccess(
+      std::optional<storage::IsolationLevel> override_isolation_level = {},
+      std::optional<std::chrono::milliseconds> timeout = std::nullopt);
 
   /**
    * @brief Unique storage identified (name)
    *
-   * @return const std::string&
+   * @return std::string
    */
-  const std::string &name() const { return storage_->name(); }
+  std::string name() const;
+
+  utils::SafeString::ConstSafeWrapper name_view() const;
+
+  // Opt-in customization point utils::GatekeeperLabelFor<Database> detects via SFINAE (see
+  // gatekeeper.hpp) so ~Gatekeeper's stall warning can name the tenant — looks unused otherwise.
+  std::string gatekeeper_label() const { return name(); }
 
   /**
    * @brief Unique storage identified (uuid)
    *
    * @return const utils::UUID&
    */
-  const utils::UUID &uuid() const { return storage_->uuid(); }
+  const utils::UUID &uuid() const;
 
   /**
    * @brief Returns the storage configuration
    *
    * @return const storage::Config&
    */
-  const storage::Config &config() const { return storage_->config_; }
+  const storage::Config &config() const;
 
   /**
    * @brief Get the storage mode
    *
    * @return storage::StorageMode
    */
-  storage::StorageMode GetStorageMode() const noexcept { return storage_->GetStorageMode(); }
+  storage::StorageMode GetStorageMode() const noexcept;
 
   /**
    * @brief Get the storage info
@@ -110,13 +141,7 @@ class Database {
    * @param force_directory Use the configured directory, do not try to decipher the multi-db version
    * @return DatabaseInfo
    */
-  DatabaseInfo GetInfo(bool force_directory, replication::ReplicationRole replication_role) const {
-    DatabaseInfo info;
-    info.storage_info = storage_->GetInfo(force_directory, replication_role);
-    info.triggers = trigger_store_.GetTriggerInfo().size();
-    info.streams = streams_.GetStreamInfo().size();
-    return info;
-  }
+  DatabaseInfo GetInfo() const;
 
   /**
    * @brief Switch storage to OnDisk
@@ -129,14 +154,14 @@ class Database {
    *
    * @return query::TriggerStore*
    */
-  query::TriggerStore *trigger_store() { return &trigger_store_; }
+  query::TriggerStore *trigger_store() { return trigger_store_.get(); }
 
   /**
    * @brief Returns the raw Streams pointer
    *
    * @return query::stream::Streams*
    */
-  query::stream::Streams *streams() { return &streams_; }
+  query::stream::Streams *streams() { return streams_.get(); }
 
   /**
    * @brief Returns the raw ThreadPool pointer (used for after commit triggers)
@@ -145,36 +170,115 @@ class Database {
    */
   utils::ThreadPool *thread_pool() { return &after_commit_trigger_pool_; }
 
+  // See after_commit_trigger_status_.
+  std::atomic<query::TransactionStatus> *after_commit_trigger_status() { return &after_commit_trigger_status_; }
+
   /**
-   * @brief Add task to the after commit trigger thread pool
+   * @brief Add task to the after commit trigger thread pool.
+   *
+   * A task scheduled after StopAllBackgroundTasks() is dropped and logged, not run.
    *
    * @param new_task
    */
-  void AddTask(std::function<void()> new_task) { after_commit_trigger_pool_.AddTask(std::move(new_task)); }
+  void AddTask(utils::ThreadPool::TaskSignature new_task);
 
-  /**
-   * @brief Returns the PlanCache vector raw pointer
-   *
-   * @return utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<PlanWrapper>>, utils::RWSpinLock>
-   */
   query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
+  storage::ttl::TTL &ttl();
+
+  /**
+   * @brief Useful when trying to gracefully destroy Database.
+   *
+   * Tasks might have an accessor to the database, and so, might forbid it from being destroyed.
+   * Call this function before attempting to destroy a database object.
+   * This does not affect stream's, trigger's or ttl's durable data. We will restore to the state prior to shutdown.
+   *
+   */
+  void StopAllBackgroundTasks();
+
+  /// Returns the database arena pool for per-thread arena management
+  memory::ArenaPool &Arena() noexcept;
+  memory::ArenaPool &Arena() const noexcept;
+
+  /// Total memory tracked for this database (storage + embeddings + query).
+  /// This is the sum of all per-DB trackers and represents the tenant enforcement total.
+  /// Note: Allocations from unpinned query threads may not be fully captured.
+  int64_t DbMemoryUsage() const noexcept { return db_total_memory_tracker_.Amount(); }
+
+  /// Peak of total memory tracked for this database.
+  int64_t DbPeakMemoryUsage() const noexcept { return db_total_memory_tracker_.Peak(); }
+
+  /// Storage memory only (vertices, edges, indices). Tracked via per-DB arena hooks.
+  int64_t DbStorageMemoryUsage() const noexcept { return db_memory_tracker_.Amount(); }
+
+  /// Vector index (embedding) memory only. Tracked via per-DB arena hooks.
+  int64_t DbEmbeddingMemoryUsage() const noexcept { return db_embedding_memory_tracker_.Amount(); }
+
+  /// Query execution (PMR) memory only. Tracked via TrackingMemoryResource.
+  int64_t DbQueryMemoryUsage() const noexcept { return db_query_memory_tracker_.Amount(); }
+
+  utils::MemoryTracker *DbQueryMemoryTracker() noexcept { return &db_query_memory_tracker_; }
+
+  void SetTenantMemoryLimit(int64_t bytes) { db_total_memory_tracker_.SetHardLimit(bytes); }
+
+  int64_t TenantMemoryLimit() const noexcept { return db_total_memory_tracker_.HardLimit(); }
+
+  // RAII guard used by utils::Gatekeeper<Database> to ensure construction and
+  // destruction of Database happen with a clean arena TLS state, preventing
+  // cross-DB arena pool collisions and tcache mis-attribution.
+  struct GatekeeperGuard {
+    memory::DbArenaTlsState prev_;
+
+    GatekeeperGuard() noexcept : prev_(std::exchange(memory::tls_db_arena_state, {})) {}
+
+    GatekeeperGuard(const GatekeeperGuard &) noexcept = delete;
+    GatekeeperGuard &operator=(const GatekeeperGuard &) noexcept = delete;
+    GatekeeperGuard(GatekeeperGuard &&) noexcept = delete;
+    GatekeeperGuard &operator=(GatekeeperGuard &&) noexcept = delete;
+
+    ~GatekeeperGuard() noexcept { memory::tls_db_arena_state = prev_; }
+  };
+
+  metrics::DatabaseMetricHandles const *metric_handles() const { return &metrics_.handles(); }
+
+  metrics::DatabaseMetricHandles *metric_handles() { return &metrics_.handles(); }
+
  private:
-  std::unique_ptr<storage::Storage> storage_;       //!< Underlying storage
-  query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
-  utils::ThreadPool after_commit_trigger_pool_{1};  //!< Thread pool for executing after commit triggers
-  query::stream::Streams streams_;                  //!< Streams associated with the storage
+  // Declared first so it is released last: the storage's garbage collector writes to these metrics
+  // until it is joined, which happens while the storage is being destroyed.
+  metrics::PrometheusMetrics::Registration metrics_;
 
-  // TODO: Move to a better place
-  query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage
+  // Enforcement-only: caps total per-DB memory (tenant profile limit).
+  // No parent — does not roll up to any global. Per-DB domain trackers list this
+  // as their second parent so every allocation is counted here AND in the domain global.
+  utils::MemoryTracker db_total_memory_tracker_;
+  // Domain trackers: parent1 = global domain aggregator (for AI_PLATFORM license limits),
+  //                  parent2 = db_total_memory_tracker_ (for tenant limit enforcement).
+  utils::MemoryTracker db_memory_tracker_{&utils::graph_memory_tracker, &db_total_memory_tracker_};
+  utils::MemoryTracker db_embedding_memory_tracker_{&utils::vector_index_memory_tracker, &db_total_memory_tracker_};
+  // Query memory tracker: only enforces tenant limits. Domain aggregation happens via
+  // extent hooks on the default arena (global_graph_arena_hooks → graph_memory_tracker).
+  // Avoids double-counting: if this had graph_memory_tracker as parent, we'd count each
+  // query PMR byte twice (once via TrackingMemoryResource::Alloc, once via arena hooks).
+  utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
+  std::unique_ptr<memory::ArenaPool> db_arena_;  //!< Per-DB jemalloc arena pool with tracking hooks
 
-  const replication::ReplicationState *repl_state_;
+  std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
+  std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
+  // One-way latch: transitions ACTIVE → TERMINATED exactly once (during force-drop teardown) and is
+  // never reset. After-commit triggers run on after_commit_trigger_pool_ outside the interpreter's
+  // transaction registry, so they cannot be aborted through the normal transaction-status path; this
+  // atomic is the cooperative abort signal. StopAllBackgroundTasks() stores TERMINATED here BEFORE
+  // joining the pool, so a running trigger observes the transition via StoppingContext::MustAbort()
+  // and exits promptly.
+  // Declaration order matters: members destruct in reverse declaration order, so declaring this
+  // BEFORE after_commit_trigger_pool_ guarantees the atomic outlives the pool's worker-thread join
+  // at destruction — mirroring the store-before-join guarantee provided at runtime.
+  std::atomic<query::TransactionStatus> after_commit_trigger_status_{query::TransactionStatus::ACTIVE};
+  utils::ThreadPool after_commit_trigger_pool_{1};   //!< Thread pool for after commit triggers
+  std::unique_ptr<query::stream::Streams> streams_;  //!< Streams associated with the storage
+  query::PlanCacheLRU plan_cache_;                   //!< Plan cache associated with the storage
 };
 
 }  // namespace memgraph::dbms
-
 extern template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
-
-namespace memgraph::dbms {
-using DatabaseAccess = memgraph::utils::Gatekeeper<memgraph::dbms::Database>::Accessor;
-}  // namespace memgraph::dbms

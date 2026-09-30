@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,6 +24,8 @@ class Timer {
   TDuration Elapsed() const {
     return std::chrono::duration_cast<TDuration>(std::chrono::steady_clock::now() - start_time_);
   }
+
+  void ResetStartTime() { start_time_ = std::chrono::steady_clock::now(); }
 
  private:
   std::chrono::steady_clock::time_point start_time_;

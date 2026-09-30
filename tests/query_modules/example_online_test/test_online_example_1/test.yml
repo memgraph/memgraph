@@ -1,0 +1,21 @@
+- query: >-
+    MATCH (n) RETURN n ORDER BY n.id ASC;
+  output:
+    - n:
+        labels: ["Device"]
+        properties:
+          id: 1
+          status: "inactive"
+- query: >-
+    MATCH (n) RETURN n ORDER BY n.id ASC;
+  output:
+    - n:
+        labels: ["Device"]
+        properties:
+          id: 1
+          status: "inactive"
+    - n:
+        labels: ["Device"]
+        properties:
+          id: 2
+          status: "active"

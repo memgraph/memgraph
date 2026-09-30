@@ -287,7 +287,283 @@ Feature: List operators
             MATCH (keanu:Person {name: 'Keanu Reeves'})
             RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years
             """
-        Then an error should be raised
-#        Then the result should be:
-#            | years                 |
-#            | [2021,2003,2003,1999] |
+        Then the result should be:
+            | years                    |
+            | [2003, 2003, 1999, 2021] |
+
+    Scenario: List pattern comprehension and property
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years, keanu.name
+            """
+        Then the result should be:
+            | years                    | keanu.name     |
+            | [2003, 2003, 1999, 2021] | 'Keanu Reeves' |
+
+    Scenario: List pattern comprehension with function on selected property
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [(keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | size(b.title)] AS movie_lens;
+            """
+        Then the result should be:
+            | movie_lens       |
+            | [22, 19, 10, 24] |
+
+     Scenario: Multiple entries with list pattern comprehension
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n:Person)
+            RETURN n.name, [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years
+            """
+        Then the result should be:
+            | n.name               | years                    |
+            | 'Keanu Reeves'       | [2003, 2003, 1999, 2021] |
+            | 'Carrie-Anne Moss'   | [1999, 2003]             |
+            | 'Laurence Fishburne' | [1999]                   |
+
+     Scenario: Multiple list pattern comprehensions in Return
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n:Person)
+            RETURN n.name,
+                [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years,
+                [(n)-->(c:Movie) WHERE c.title CONTAINS 'Matrix' | c.title] AS titles
+            """
+        Then the result should be:
+            | n.name               | years                 | titles                                                                            |
+            | 'Keanu Reeves'       | [2003,2003,1999,2021] | ['TheMatrixRevolutions','TheMatrixReloaded','TheMatrix','TheMatrixResurrections'] |
+            | 'Carrie-Anne Moss'   | [1999,2003]           | ['TheMatrix','TheMatrixReloaded']                                                 |
+            | 'Laurence Fishburne' | [1999]                | ['The Matrix']                                                                    |
+
+     Scenario: Multiple list pattern comprehensions with the same symbol name inside in Return
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n:Person)
+            RETURN n.name,
+                [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years,
+                [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.title] AS titles
+            """
+        Then the result should be:
+            | n.name               | years                 | titles                                                                            |
+            | 'Keanu Reeves'       | [2003,2003,1999,2021] | ['TheMatrixRevolutions','TheMatrixReloaded','TheMatrix','TheMatrixResurrections'] |
+            | 'Carrie-Anne Moss'   | [1999,2003]           | ['TheMatrix','TheMatrixReloaded']                                                 |
+            | 'Laurence Fishburne' | [1999]                | ['The Matrix']                                                                    |
+
+     Scenario: Function inside pattern comprehension's expression
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (keanu:Person {name: 'Keanu Reeves'})
+            RETURN [p = (keanu)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | size(nodes(p))] AS nodes
+            """
+        Then the result should be:
+            | nodes        |
+            | [2, 2, 2, 2] |
+
+     Scenario: Multiple list pattern comprehensions in With
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n:Person) WHERE size(n.name) > 5
+            WITH
+                n AS actor,
+                [(n)-->(m) WHERE m.released > 2000 | m.title] AS titles,
+                [(n)-->(m) WHERE m.released > 2000 | m.released] AS years
+            RETURN actor.name, years, titles;
+            """
+        Then the result should be:
+            | actor.name           | years            | titles                                                                |
+            | 'Keanu Reeves'       | [2003,2003,2021] | ['TheMatrixRevolutions','TheMatrixReloaded','TheMatrixResurrections'] |
+            | 'Carrie-Anne Moss'   | [2003]           | ['TheMatrixReloaded']                                                 |
+            | 'Laurence Fishburne' | []               | []                                                                    |
+
+     Scenario: Multiple list pattern comprehensions with filters in With and Return
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n:Person) WHERE size(n.name) > 5
+            WITH
+                n AS actor,
+                [(n)-->(m) WHERE m.released > 2000 | m.title] AS titles,
+                [(n)-->(m) WHERE m.released > 2000 | m.released] AS years
+            RETURN actor.name, years, titles, [(actor)-->(m) WHERE m.released > 2000 | m.released] AS years_in_return;
+            """
+        Then the result should be:
+            | actor.name           | years            | titles                                                                | years_in_return  |
+            | 'Keanu Reeves'       | [2003,2003,2021] | ['TheMatrixRevolutions','TheMatrixReloaded','TheMatrixResurrections'] | [2003,2003,2021] |
+            | 'Carrie-Anne Moss'   | [2003]           | ['TheMatrixReloaded']                                                 | [2003]           |
+            | 'Laurence Fishburne' | []               | []                                                                    | []               |
+
+     Scenario: Multiple list pattern comprehensions in With and Return
+        Given graph "graph_keanu"
+        When executing query:
+            """
+            MATCH (n) WHERE size(n.name) > 15
+            WITH
+                n AS actor,
+                [(n)-->(m) | m.title] AS titles,
+                [(n)-->(m) | m.released] AS years
+            RETURN
+                actor.name,
+                years,
+                titles,
+                [(actor)-->(m) | m.released] AS years_in_return;
+            """
+        Then the result should be:
+            | actor.name           | years       | titles                            | years_in_return |
+            | 'Carrie-Anne Moss'   | [1999,2003] | ['TheMatrix','TheMatrixReloaded'] | [1999,2003]     |
+            | 'Laurence Fishburne' | [1999]      | ['TheMatrix']                     | [1999]          |
+
+    Scenario: Multiple list pattern comprehensions in Return and label index
+        Given graph "graph_keanu"
+        And with new index :Person
+        When executing query:
+            """
+            MATCH (n:Person)
+            RETURN
+                n.name,
+                [(n)-->(b:Movie) WHERE b.title CONTAINS 'Matrix' | b.released] AS years,
+                [(n)-->(c:Movie) WHERE c.title CONTAINS 'Matrix' | c.title] AS titles;
+            """
+        Then the result should be:
+            | n.name               | years                 | titles                                                                            |
+            | 'Keanu Reeves'       | [2003,2003,1999,2021] | ['TheMatrixRevolutions','TheMatrixReloaded','TheMatrix','TheMatrixResurrections'] |
+            | 'Carrie-Anne Moss'   | [1999,2003]           | ['TheMatrix','TheMatrixReloaded']                                                 |
+            | 'Laurence Fishburne' | [1999]                | ['The Matrix']                                                                    |
+
+    Scenario: Access map property inside a list
+        Given any graph
+        When executing query:
+            """
+             RETURN [{x: 42}][0].x AS x;
+            """
+        Then the result should be, in order:
+            | x  |
+            | 42 |
+
+    Scenario: Access list property inside a map
+        Given any graph
+        When executing query:
+            """
+             RETURN {arr: [2, 3, 5]}.arr[1] AS x;
+            """
+        Then the result should be, in order:
+            | x |
+            | 3 |
+
+     Scenario: Access map property inside a list inside a map
+        Given any graph
+        When executing query:
+            """
+             RETURN {arr: [{x: 23}]}.arr[0].x AS x;
+            """
+        Then the result should be, in order:
+            | x  |
+            | 23 |
+
+    Scenario: Access list property inside a map inside a list
+        Given any graph
+        When executing query:
+            """
+             RETURN [{scores: [2, 3, 5]}][0].scores[2] AS x
+            """
+        Then the result should be, in order:
+            | x |
+            | 5 |
+
+    Scenario: Encode and decode mixed list type
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {prop: ['string', [1, 2], [1, 2.5], [1.3, 1.4], ['string', 1]]})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                                                                       |
+            | (:Node {prop: ['string', [1, 2], [1, 2.5], [1.3, 1.4], ['string', 1]]}) |
+
+    Scenario: Numeric list equality between int and double lists
+        When executing query:
+            """
+            RETURN [1, 2, 3, 4] = [1.0, 2.0, 3.0, 4.0] AND [1.0, 2.0, 3.0, 4.0] = [1, 2, 3, 4.0] AND [1, 2, 3, 4] = [1, 2, 3, 4.0] AS x
+            """
+        Then the result should be:
+            | x    |
+            | true |
+
+    Scenario: Numeric list equality between int and double lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1, 2, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2.0, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Numeric list equality between int and numeric lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1, 2, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Numeric list equality between int and numeric lists stored as property
+        Given an empty graph
+        And with new index :L(lst)
+        And having executed:
+            """
+            CREATE (:L {lst: [1.0, 2.0, 3]});
+            """
+        When executing query:
+            """
+            MATCH (n:L) WHERE n.lst = [1.0, 2.0, 3.0] RETURN count(*) = 1 AS result
+            """
+        Then the result should be:
+            | result |
+            | true   |
+
+    Scenario: Lists compare lexicographically
+        When executing query:
+            """
+            RETURN [1, 2] < [1, 3] AS a, [2] > [1, 9] AS b, [1] < [1, 0] AS c, [1] < [1, null] AS d,
+                   [1, 2] >= [1, null] AS e, [null, 1] < [null, 2] AS f, [1, 'a'] < [1, 1] AS g,
+                   [1, 'a'] < [2, 1] AS h, [[1, 2], [3]] > [[1, 2], [2, 9]] AS i, [1] < 1 AS j,
+                   [] < [null] AS k, [1] <= [1.0] AS l
+            """
+        Then the result should be:
+            | a    | b    | c    | d    | e    | f    | g    | h    | i    | j    | k    | l    |
+            | true | true | true | true | null | null | null | true | true | null | true | true |
+
+    Scenario: A NaN element leaves two lists incomparable
+        When executing query:
+            """
+            RETURN [1] < [0.0 / 0.0] AS a, [0.0 / 0.0, 1] < [0.0 / 0.0, 2] AS b, [[0.0 / 0.0]] < [[1]] AS c,
+                   NOT ([1] < [0.0 / 0.0]) AS d, [1, 0.0 / 0.0] < [2] AS e, 1 < 0.0 / 0.0 AS f
+            """
+        Then the result should be:
+            | a    | b    | c    | d    | e    | f     |
+            | null | null | null | null | true | false |

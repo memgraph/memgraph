@@ -1,0 +1,10 @@
+# The same long-label filter through the subgraph walk, as a blacklist: B is excluded and, because
+# it is never expanded through, C is unreachable.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {labelFilter: ['-MiddleLabelLongerThanSso'], maxHops: 5})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name ASC;
+
+output:
+  - name: A

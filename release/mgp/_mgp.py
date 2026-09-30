@@ -145,7 +145,6 @@ class OutOfRangeError(Exception):
 
 
 class LogicErrorError(Exception):
-
     pass
 
 
@@ -234,6 +233,22 @@ def type_local_date_time():
 
 
 def type_duration():
+    pass
+
+
+def type_zoned_date_time():
+    pass
+
+
+def type_point_2d():
+    pass
+
+
+def type_point_3d():
+    pass
+
+
+def type_enum():
     pass
 
 

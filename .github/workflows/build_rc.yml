@@ -1,0 +1,420 @@
+name: Build Release Candidate
+concurrency:
+  group: Build-Release-Candidate-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        type: string
+        description: "Version of the release candidate (X.Y.Z)."
+        required: true
+      rc_number:
+        type: string
+        description: "Release candidate number (e.g., rc1, rc2, etc.)."
+        required: true
+      overwrite_tag:
+        type: boolean
+        description: "Overwrite the existing tag if it exists."
+        default: false
+      run_tests:
+        type: boolean
+        description: "Run tests."
+        default: true
+      run_stress_large:
+        type: boolean
+        description: "Run stress test large."
+        default: true
+      run_stress_tests:
+        type: boolean
+        description: "Run stress tests."
+        default: true
+      build_memgraph:
+        type: boolean
+        description: "Build Memgraph packages (deb/rpm) and Docker images. Docker production within the job is determined per-matrix-entry via build_docker_image."
+        default: true
+      run_issu_test:
+        type: boolean
+        description: "Run ISSU test."
+        default: true
+      build_mage:
+        type: boolean
+        description: "Build MAGE."
+        default: true
+      run_cve_scan:
+        type: boolean
+        description: "Run CVE scan on the RC Memgraph and MAGE docker images."
+        default: true
+      mock:
+        type: boolean
+        description: "Build mock RC."
+        default: false
+
+jobs:
+  PrepareReleaseBranch:
+    name: Prepare Release Branch
+    runs-on: ubuntu-24.04
+    outputs:
+      branch_name: ${{ steps.check_branch.outputs.branch_name }}
+      tag_name: ${{ steps.check_tag.outputs.tag_name }}
+      short_version: ${{ steps.create_short_version.outputs.short_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Git user
+        run: |
+          git config user.name github-actions
+          git config user.email actions@github.com
+
+      - name: Create Short Version
+        id: create_short_version
+        run: |
+          short_version=$(echo "${{ inputs.version }}" | sed -E 's/^([0-9]+\.[0-9]+)\.0$/\1/')
+          echo "short_version=$short_version" >> $GITHUB_OUTPUT
+
+      - name: Check if release branch exists and checkout
+        id: check_branch
+        run: |
+          branch_name="release/${{ steps.create_short_version.outputs.short_version }}"
+          if git ls-remote --exit-code --heads origin "$branch_name"; then
+            echo "Branch $branch_name exists. Checking out."
+            git checkout "$branch_name"
+          else
+            echo "Branch $branch_name does not exist. Creating a new branch."
+            git checkout -b "$branch_name"
+          fi
+          echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+
+      - name: Set Memgraph Override Version
+        run: |
+          sed -i "s/set(MEMGRAPH_OVERRIDE_VERSION \"\")/set(MEMGRAPH_OVERRIDE_VERSION \"${{ inputs.version }}\")/" CMakeLists.txt
+          git add CMakeLists.txt
+          # this will fail if there are no changes, but we don't care
+          git commit -m "Update CMakeLists.txt with new memgraph override version" || true
+
+      - name: Check if tag exists
+        id: check_tag
+        run: |
+          tag_name="v${{ inputs.version }}-${{ inputs.rc_number }}"
+          if git ls-remote --exit-code --tags origin "$tag_name"; then
+            echo "Tag $tag_name exists."
+            if [ "${{ inputs.overwrite_tag }}" == "true" ]; then
+              echo "Overwriting existing tag."
+              git tag -d "$tag_name"
+              git push origin ":refs/tags/$tag_name"
+            else
+              echo "Skipping tag creation as it already exists."
+              exit 1
+            fi
+          else
+            echo "Tag $tag_name does not exist. Proceeding to create a new tag."
+          fi
+          echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
+
+      - name: Create and push tag
+        run: |
+          git push --set-upstream origin "${{ steps.check_branch.outputs.branch_name }}"
+          git tag "${{ steps.check_tag.outputs.tag_name }}"
+          git push origin "${{ steps.check_tag.outputs.tag_name }}"
+
+  TestRC:
+    if: ${{ inputs.run_tests }}
+    name: Test Release Candidate
+    needs: PrepareReleaseBranch
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: ubuntu-24.04
+      arch: amd
+      build_type: RelWithDebInfo
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  StressTestLarge:
+    if: ${{ inputs.run_stress_large }}
+    name: Stress Test Large
+    needs: PrepareReleaseBranch
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: ubuntu-24.04
+      arch: "amd"
+      build_type: RelWithDebInfo
+      run_stress_large: 'true'
+      run_release_tests: 'false'
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  PackageArtifact:
+    if: ${{ inputs.build_memgraph }}
+    name: Package Artifact
+    needs: PrepareReleaseBranch
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd, arm]
+        additional_build_args: ['', '--disable-jemalloc']
+        fips: [false]
+        include:
+          - arch: amd
+            additional_build_args: ''
+            fips: true
+          - arch: arm
+            additional_build_args: ''
+            fips: true
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-24.04"
+      arch: ${{ matrix.arch }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ matrix.fips && 'prod' || (matrix.additional_build_args == '' && 'both' || 'debug') }}
+      fips: ${{ matrix.fips }}
+      push_to_github: 'false'
+      push_to_s3: 'true'
+      print_output_url: true
+      s3_dest_dir: "memgraph${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
+      additional_build_args: ${{ matrix.additional_build_args }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+      generate_sbom: ${{ (matrix.arch == 'amd' && matrix.additional_build_args == '' && !matrix.fips) && true || false }}
+      run_smoke_tests: true
+      package_smoke_os: "all"
+      upload_debug_symbols: true
+    secrets: inherit
+
+  BuildAndTestMAGE:
+    if: ${{ inputs.build_mage }}
+    name: Build and Test MAGE
+    needs: [PrepareReleaseBranch, PackageArtifact]
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build_arch: "amd"
+            build_docker_image: "both"
+            malloc: false
+            cuda: false
+            cugraph: false
+          - build_arch: "arm"
+            build_docker_image: "both"
+            malloc: false
+            cuda: false
+            cugraph: false
+          - build_arch: "amd"
+            build_docker_image: "both"
+            malloc: true
+            cuda: false
+            cugraph: false
+          - build_arch: "arm"
+            build_docker_image: "debug"
+            malloc: true
+            cuda: false
+            cugraph: false
+          - build_arch: "amd"
+            build_docker_image: "debug"
+            cuda: true
+            malloc: false
+            cugraph: false
+          - build_arch: "amd"
+            build_docker_image: "debug"
+            cuda: false
+            malloc: false
+            cugraph: true
+    with:
+      arch: ${{ matrix.build_arch }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ matrix.build_docker_image }}
+      os: ubuntu-24.04
+      memgraph_download_link: >-
+        ${{
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}-deb{3}/memgraph_{4}-1_{5}.deb',
+            inputs.mock && '-mock-rc' || '',
+            needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            inputs.version,
+            matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+          )
+        }}
+      memgraph_rpm_download_link: >-
+        ${{
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}-rpm{3}/memgraph-{4}_1-1.{5}.rpm',
+            inputs.mock && '-mock-rc' || '',
+            needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            inputs.version,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64'
+          )
+        }}
+      memgraph_debuginfo_download_link: >-
+        ${{
+          (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') &&
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph{0}/{1}/{2}-deb{3}/memgraph-debuginfo_{4}-1_{5}.deb',
+            inputs.mock && '-mock-rc' || '',
+            needs.PrepareReleaseBranch.outputs.tag_name,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            inputs.version,
+            matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+          ) || ''
+        }}
+      s3_dest_dir: "mage${{ inputs.mock && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
+      cuda: ${{ matrix.cuda }}
+      cugraph: ${{ matrix.cugraph }}
+      push_to_s3: true
+      print_output_url: true
+      malloc: ${{ matrix.malloc }}
+      run_smoke_tests: ${{ !matrix.cugraph }}
+      upload_debug_symbols: true
+      run_tests: true
+      package_mage: "default"
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+      version: ${{ inputs.version }}
+    secrets: inherit
+
+  SetupISSUImageOutputs:
+    if: ${{ inputs.run_issu_test }}
+    name: Setup ISSU Image Outputs
+    needs: [PrepareReleaseBranch, PackageArtifact]
+    runs-on: ubuntu-24.04
+    outputs:
+      amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
+      arm_image_url: ${{ steps.set_image_urls.outputs.arm_image_url }}
+      last_image_version: ${{ steps.set_last_image_version.outputs.last_image_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+
+      - name: Set Image URLs
+        id: set_image_urls
+        env:
+          MOCK: "${{ inputs.mock }}"
+          VERSION: "${{ inputs.version }}"
+        run: |
+          echo "Setting next image URLs"
+          amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-x86_64/memgraph-${VERSION}-docker.tar.gz"
+          arm_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-aarch64/memgraph-${VERSION}-docker.tar.gz"
+          echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
+          echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
+          echo "AMD Image URL: $amd_image_url"
+          echo "ARM Image URL: $arm_image_url"
+
+      - name: Set last image version
+        id: set_last_image_version
+        run: |
+          echo "Setting last image version"
+          last_image_version=$(./tools/ci/get_latest_tag.sh)
+          echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
+
+  SetupStressImageOutputs:
+    if: ${{ inputs.run_stress_tests }}
+    name: Setup Stress Image Outputs
+    needs: [PrepareReleaseBranch, BuildAndTestMAGE]
+    runs-on: ubuntu-24.04
+    outputs:
+      amd_mage_image_url: ${{ steps.set_image_urls.outputs.amd_mage_image_url }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+
+      - name: Set Image URLs
+        id: set_image_urls
+        env:
+          MOCK: "${{ inputs.mock }}"
+          VERSION: "${{ inputs.version }}"
+        run: |
+          echo "Setting next image URLs"
+          amd_mage_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/mage${{ env.MOCK == 'true' && '-mock-rc' || '' }}/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-x86_64/mage-${VERSION}.tar.gz"
+          echo "amd_mage_image_url=$amd_mage_image_url" >> $GITHUB_OUTPUT
+          echo "AMD MAGE Image URL: $amd_mage_image_url"
+
+
+  RunISSUTest:
+    if: ${{ inputs.run_issu_test }}
+    name: Run ISSU Tests
+    needs: [SetupISSUImageOutputs, PrepareReleaseBranch]
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd
+            next_image: ${{ needs.SetupISSUImageOutputs.outputs.amd_image_url }}
+          - arch: arm
+            next_image: ${{ needs.SetupISSUImageOutputs.outputs.arm_image_url }}
+    with:
+      last_image: ${{ needs.SetupISSUImageOutputs.outputs.last_image_version }}
+      next_image: ${{ matrix.next_image }}
+      arch: ${{ matrix.arch }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+
+  StressTestsNativeStandalone:
+    needs: [PrepareReleaseBranch]
+    name: "Stress Tests Native Standalone"
+    if: ${{ inputs.run_stress_tests }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: standalone/native
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  StressTestsNativeHA:
+    needs: [PrepareReleaseBranch]
+    name: "Stress Tests Native HA"
+    if: ${{ inputs.run_stress_tests }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/native
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  StressTestsDockerHA:
+    name: "Stress Tests Docker HA"
+    needs: [PrepareReleaseBranch, SetupStressImageOutputs]
+    if: ${{ inputs.run_stress_tests && needs.SetupStressImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/docker
+      memgraph_image: ${{ needs.SetupStressImageOutputs.outputs.amd_mage_image_url }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  StressTestsEKSHA:
+    name: "Stress Tests EKS HA"
+    needs: [PrepareReleaseBranch, SetupStressImageOutputs]
+    if: ${{ inputs.run_stress_tests && needs.SetupStressImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/eks
+      memgraph_image: ${{ needs.SetupStressImageOutputs.outputs.amd_mage_image_url }}
+      workload: ../workloads/publications/workload.yaml
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+    secrets: inherit
+
+  TriggerCVEScan:
+    name: Trigger CVE Scan
+    needs: [PackageArtifact, BuildAndTestMAGE]
+    if: ${{ inputs.run_cve_scan && inputs.build_memgraph && inputs.build_mage }}
+    uses: ./.github/workflows/cve_scan.yml
+    with:
+      version: ${{ inputs.version }}
+      rc_number: ${{ inputs.rc_number }}
+      mock: ${{ inputs.mock }}
+    secrets: inherit

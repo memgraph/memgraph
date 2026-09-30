@@ -1,0 +1,9 @@
+- query: >-
+    MATCH (p1:PERSON {NAME: "John Doe"}), (p2:PERSON {EMAIL: "John@Doe.com"}) CALL refactor.merge_nodes([p2, p1], {properties: "override", mergeRels: true}) YIELD node RETURN "success" as status;
+  output:
+    - status: "success"
+
+- query: >-
+    MATCH p = ()-[rel]->() RETURN rel.LEVEL as level;
+  output:
+    - level: "besties"

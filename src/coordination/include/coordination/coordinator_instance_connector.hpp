@@ -1,0 +1,46 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#ifdef MG_ENTERPRISE
+
+#pragma once
+
+#include "coordination/coordinator_instance_client.hpp"
+#include "utils/tls.hpp"
+
+#include <optional>
+
+namespace memgraph::coordination {
+
+class CoordinatorInstanceConnector {
+ public:
+  explicit CoordinatorInstanceConnector(ManagementServerConfig const &config,
+                                        std::optional<utils::TlsConfig> const &tls_config)
+      : client_{config, tls_config} {}
+
+  // nullopt if the response couldn't be received, otherwise the response's payload.
+  template <rpc::IsRpc Rpc, typename... Args>
+  auto SendRpc(Args &&...args) -> std::optional<decltype(std::declval<typename Rpc::Response>().arg_)> {
+    try {
+      auto stream{client_.RpcClient().Stream<Rpc>(std::forward<Args>(args)...)};
+      return stream.SendAndWait().arg_;
+    } catch (std::exception const &e) {
+      spdlog::warn("Failed to receive response to {}: {}", Rpc::Request::kType.name, e.what());
+      return std::nullopt;
+    }
+  }
+
+ private:
+  mutable CoordinatorInstanceClient client_;
+};
+
+}  // namespace memgraph::coordination
+#endif

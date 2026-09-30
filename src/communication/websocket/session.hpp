@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,11 +22,10 @@
 #include <boost/beast/core/tcp_stream.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/websocket.hpp>
-#include <json/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "communication/context.hpp"
 #include "communication/websocket/auth.hpp"
-#include "utils/result.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -61,7 +60,7 @@ class Session : public std::enable_shared_from_this<Session> {
 
   bool IsAuthenticated() const;
 
-  utils::BasicResult<std::string> Authorize(const nlohmann::json &creds);
+  std::expected<void, std::string> Authorize(const nlohmann::json &creds);
 
   void DoShutdown();
 
@@ -76,7 +75,7 @@ class Session : public std::enable_shared_from_this<Session> {
 
   std::variant<PlainWebSocket, SSLWebSocket> CreateWebSocket(tcp::socket &&socket, ServerContext &context);
 
-  std::optional<std::reference_wrapper<boost::asio::ssl::context>> ssl_context_;
+  std::shared_ptr<boost::asio::ssl::context> ssl_context_;
   std::variant<PlainWebSocket, SSLWebSocket> ws_;
   boost::beast::flat_buffer buffer_;
   std::deque<std::shared_ptr<std::string>> messages_;

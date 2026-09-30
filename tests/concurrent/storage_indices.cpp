@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,17 +9,18 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <stop_token>
 #include <thread>
 #include <unordered_map>
 
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/thread.hpp"
-
-using memgraph::replication::ReplicationRole;
 
 const uint64_t kNumVerifiers = 5;
 const uint64_t kNumMutators = 1;
@@ -33,11 +34,12 @@ TEST(Storage, LabelIndex) {
 
   auto label = store->NameToLabel("label");
   {
-    auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
-    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
+    auto unique_acc = store->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  std::vector<std::thread> verifiers;
+  std::vector<std::jthread> verifiers;
   verifiers.reserve(kNumVerifiers);
   for (uint64_t i = 0; i < kNumVerifiers; ++i) {
     verifiers.emplace_back([&store, label, num = i] {
@@ -46,16 +48,16 @@ TEST(Storage, LabelIndex) {
       gids.reserve(kNumIterations * kVerifierBatchSize);
       for (uint64_t i = 0; i < kNumIterations; ++i) {
         for (uint64_t j = 0; j < kVerifierBatchSize; ++j) {
-          auto acc = store->Access(ReplicationRole::MAIN);
+          auto acc = store->Access(memgraph::storage::WRITE);
           auto vertex = acc->CreateVertex();
           gids.emplace(vertex.Gid(), false);
           auto ret = vertex.AddLabel(label);
-          ASSERT_TRUE(ret.HasValue());
+          ASSERT_TRUE(ret.has_value());
           ASSERT_TRUE(*ret);
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
         {
-          auto acc = store->Access(ReplicationRole::MAIN);
+          auto acc = store->Access(memgraph::storage::WRITE);
           auto vertices = acc->Vertices(label, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
             auto it = gids.find(vertex.Gid());
@@ -64,51 +66,48 @@ TEST(Storage, LabelIndex) {
               it->second = true;
             }
           }
-          for (auto &item : gids) {
-            ASSERT_TRUE(item.second);
-            item.second = false;
-          }
+        }
+        for (auto &item : gids) {
+          ASSERT_TRUE(item.second);
+          item.second = false;
         }
       }
     });
   }
 
-  std::vector<std::thread> mutators;
-  std::atomic<bool> mutators_run = true;
+  std::vector<std::jthread> mutators;
   mutators.reserve(kNumMutators);
   for (uint64_t i = 0; i < kNumMutators; ++i) {
-    mutators.emplace_back([&store, &mutators_run, label, num = i] {
+    mutators.emplace_back([&store, label, num = i](std::stop_token stop) {
       memgraph::utils::ThreadSetName(fmt::format("mutator{}", num));
       std::vector<memgraph::storage::Gid> gids;
       gids.resize(kMutatorBatchSize);
-      while (mutators_run.load(std::memory_order_acquire)) {
+      while (!stop.stop_requested()) {
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
-          auto acc = store->Access(ReplicationRole::MAIN);
+          auto acc = store->Access(memgraph::storage::WRITE);
           auto vertex = acc->CreateVertex();
           gids[i] = vertex.Gid();
           auto ret = vertex.AddLabel(label);
-          ASSERT_TRUE(ret.HasValue());
+          ASSERT_TRUE(ret.has_value());
           ASSERT_TRUE(*ret);
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
-          auto acc = store->Access(ReplicationRole::MAIN);
+          auto acc = store->Access(memgraph::storage::WRITE);
           auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex);
-          ASSERT_TRUE(acc->DeleteVertex(&*vertex).HasValue());
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
+          ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
       }
     });
   }
 
-  for (uint64_t i = 0; i < kNumVerifiers; ++i) {
-    verifiers[i].join();
-  }
-
-  mutators_run.store(false, std::memory_order_release);
-  for (uint64_t i = 0; i < kNumMutators; ++i) {
-    mutators[i].join();
+  // Joined here rather than left to scope exit: the verifiers have to run to completion while the
+  // mutators are still writing, which is the whole point of running them together. The mutators are
+  // asked to stop and joined when they go out of scope.
+  for (auto &verifier : verifiers) {
+    verifier.join();
   }
 }
 
@@ -118,11 +117,12 @@ TEST(Storage, LabelPropertyIndex) {
   auto label = store->NameToLabel("label");
   auto prop = store->NameToProperty("prop");
   {
-    auto unique_acc = store->UniqueAccess(ReplicationRole::MAIN);
-    ASSERT_FALSE(unique_acc->CreateIndex(label, prop).HasError());
+    auto unique_acc = store->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(label, {prop}).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
-  std::vector<std::thread> verifiers;
+  std::vector<std::jthread> verifiers;
   verifiers.reserve(kNumVerifiers);
   for (uint64_t i = 0; i < kNumVerifiers; ++i) {
     verifiers.emplace_back([&store, label, prop, num = i] {
@@ -131,24 +131,25 @@ TEST(Storage, LabelPropertyIndex) {
       gids.reserve(kNumIterations * kVerifierBatchSize);
       for (uint64_t i = 0; i < kNumIterations; ++i) {
         for (uint64_t j = 0; j < kVerifierBatchSize; ++j) {
-          auto acc = store->Access(ReplicationRole::MAIN);
+          auto acc = store->Access(memgraph::storage::WRITE);
           auto vertex = acc->CreateVertex();
           gids.emplace(vertex.Gid(), false);
           {
             auto ret = vertex.AddLabel(label);
-            ASSERT_TRUE(ret.HasValue());
+            ASSERT_TRUE(ret.has_value());
             ASSERT_TRUE(*ret);
           }
           {
             auto old_value = vertex.SetProperty(prop, memgraph::storage::PropertyValue(vertex.Gid().AsInt()));
-            ASSERT_TRUE(old_value.HasValue());
+            ASSERT_TRUE(old_value.has_value());
             ASSERT_TRUE(old_value->IsNull());
           }
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
         {
-          auto acc = store->Access(ReplicationRole::MAIN);
-          auto vertices = acc->Vertices(label, prop, memgraph::storage::View::OLD);
+          auto acc = store->Access(memgraph::storage::WRITE);
+          auto vertices =
+              acc->Vertices(label, std::array{memgraph::storage::PropertyPath{prop}}, memgraph::storage::View::OLD);
           for (auto vertex : vertices) {
             auto it = gids.find(vertex.Gid());
             if (it != gids.end()) {
@@ -156,58 +157,55 @@ TEST(Storage, LabelPropertyIndex) {
               it->second = true;
             }
           }
-          for (auto &item : gids) {
-            ASSERT_TRUE(item.second);
-            item.second = false;
-          }
+        }
+        for (auto &item : gids) {
+          ASSERT_TRUE(item.second);
+          item.second = false;
         }
       }
     });
   }
 
-  std::vector<std::thread> mutators;
-  std::atomic<bool> mutators_run = true;
+  std::vector<std::jthread> mutators;
   mutators.reserve(kNumMutators);
   for (uint64_t i = 0; i < kNumMutators; ++i) {
-    mutators.emplace_back([&store, &mutators_run, label, prop, num = i] {
+    mutators.emplace_back([&store, label, prop, num = i](std::stop_token stop) {
       memgraph::utils::ThreadSetName(fmt::format("mutator{}", num));
       std::vector<memgraph::storage::Gid> gids;
       gids.resize(kMutatorBatchSize);
-      while (mutators_run.load(std::memory_order_acquire)) {
+      while (!stop.stop_requested()) {
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
-          auto acc = store->Access(ReplicationRole::MAIN);
+          auto acc = store->Access(memgraph::storage::WRITE);
           auto vertex = acc->CreateVertex();
           gids[i] = vertex.Gid();
           {
             auto ret = vertex.AddLabel(label);
-            ASSERT_TRUE(ret.HasValue());
+            ASSERT_TRUE(ret.has_value());
             ASSERT_TRUE(*ret);
           }
           {
             auto old_value = vertex.SetProperty(prop, memgraph::storage::PropertyValue(vertex.Gid().AsInt()));
-            ASSERT_TRUE(old_value.HasValue());
+            ASSERT_TRUE(old_value.has_value());
             ASSERT_TRUE(old_value->IsNull());
           }
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
-          auto acc = store->Access(ReplicationRole::MAIN);
+          auto acc = store->Access(memgraph::storage::WRITE);
           auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex);
-          ASSERT_TRUE(acc->DeleteVertex(&*vertex).HasValue());
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
+          ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
         }
       }
     });
   }
 
-  for (uint64_t i = 0; i < kNumVerifiers; ++i) {
-    verifiers[i].join();
-  }
-
-  mutators_run.store(false, std::memory_order_release);
-  for (uint64_t i = 0; i < kNumMutators; ++i) {
-    mutators[i].join();
+  // Joined here rather than left to scope exit: the verifiers have to run to completion while the
+  // mutators are still writing, which is the whole point of running them together. The mutators are
+  // asked to stop and joined when they go out of scope.
+  for (auto &verifier : verifiers) {
+    verifier.join();
   }
 }
 

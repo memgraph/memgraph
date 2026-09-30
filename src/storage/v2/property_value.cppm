@@ -1,0 +1,2030 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+module;
+
+#include <compare>
+#include <cstdint>
+#include <iosfwd>
+#include <limits>
+#include <memory>
+#include <memory_resource>
+#include <string>
+#include <utility>
+#include <variant>
+#include <vector>
+
+#include <boost/container/flat_map.hpp>
+#include "storage/v2/enum.hpp"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/point.hpp"
+#include "storage/v2/temporal.hpp"
+#include "utils/algorithm.hpp"
+#include "utils/exceptions.hpp"
+#include "utils/small_vector.hpp"
+#include "value_order/numbers.hpp"
+
+export module memgraph.storage.property_value;
+
+import memgraph.utils.fnv;
+
+export namespace memgraph::storage {
+
+enum class PropertyValueType : uint8_t {
+  Null = 0,
+  Bool = 1,
+  Int = 2,
+  Double = 3,
+  String = 4,
+  List = 5,
+  Map = 6,
+  TemporalData = 7,
+  ZonedTemporalData = 8,
+  Enum = 9,
+  Point2d = 10,
+  Point3d = 11,
+  IntList = 12,
+  DoubleList = 13,
+  NumericList = 14,
+  VectorIndexId = 15,
+};
+
+struct IntListTag {};
+
+struct DoubleListTag {};
+
+struct NumericListTag {};
+
+/// The three tags naming a packed form of a list.
+template <typename T>
+concept OneOfTheListTags =
+    std::same_as<T, IntListTag> || std::same_as<T, DoubleListTag> || std::same_as<T, NumericListTag>;
+
+/// Whether the type is one of the four a list is held in.
+///
+/// A list whose elements are all numbers is packed into a narrower
+/// representation, so one list arrives as one of several types according to what
+/// is in it. All four hold a list and are compared as one.
+inline bool IsAnyListType(PropertyValueType type) {
+  return type == PropertyValueType::List || type == PropertyValueType::IntList ||
+         type == PropertyValueType::DoubleList || type == PropertyValueType::NumericList;
+}
+
+inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
+  return (a == b) || (a == PropertyValueType::Int && b == PropertyValueType::Double) ||
+         (a == PropertyValueType::Double && b == PropertyValueType::Int) || (IsAnyListType(a) && IsAnyListType(b));
+}
+
+/// The runs the stored order is made of, lowest first.
+///
+/// A stored value sits in exactly one of these, and a range fenced to one type
+/// runs from that type's own stretch up to the next, so this sequence is the
+/// only statement of where a type sits: a comparison of two unlike values reads
+/// it, both ends of such a range are read off it, and a type cannot move for one
+/// without moving for the other.
+///
+/// The sequence is the one a sort reads. A plan is allowed to drop a sort
+/// because a scan already walked its column, and that holds only where the two
+/// agree, so the agreement is arranged here rather than checked for later.
+enum class Stretch : std::uint8_t {
+  Map,
+  /// The boxed list and the three representations that pack a list's elements.
+  List,
+  /// The four kinds a date, a time, a date and time, and a duration are held in,
+  /// which the stored type orders among themselves.
+  ///
+  /// These and the three below them are types the specification does not name,
+  /// and it forbids seating one above a NaN. A NaN is the largest number, so
+  /// they sit below the strings rather than above the numbers.
+  Temporal,
+  ZonedTemporal,
+  Enum,
+  Point2d,
+  Point3d,
+  String,
+  Bool,
+  /// One stretch for both numeric types, which are ordered against each other as
+  /// the numbers they are rather than by their types.
+  Number,
+  /// A stretch nothing is stored in, naming where the numbers stop. Every
+  /// comparison against a NaN is false, so a range built from one must not reach
+  /// the NaNs, which sort above every other number.
+  AboveEveryNumber,
+  /// Carried by no user value, and placed below the nulls so that a null stays
+  /// last of everything.
+  VectorIndexId,
+  Null,
+  /// Nothing begins above the last stretch, so it has no upper bound.
+  Count,
+};
+
+/// The stretch a type's values are kept in.
+///
+/// The switch has no default, so a type added to the value has to be placed
+/// before this compiles.
+constexpr Stretch StretchOf(PropertyValueType type) {
+  switch (type) {
+    using enum PropertyValueType;
+    case Map:
+      return Stretch::Map;
+    // The representations that pack a list's elements hold what a boxed list
+    // holds, so they are kept where a list is kept.
+    case List:
+    case NumericList:
+    case IntList:
+    case DoubleList:
+      return Stretch::List;
+    case String:
+      return Stretch::String;
+    case Bool:
+      return Stretch::Bool;
+    case Int:
+    case Double:
+      return Stretch::Number;
+    case TemporalData:
+      return Stretch::Temporal;
+    case ZonedTemporalData:
+      return Stretch::ZonedTemporal;
+    case Enum:
+      return Stretch::Enum;
+    case Point2d:
+      return Stretch::Point2d;
+    case Point3d:
+      return Stretch::Point3d;
+    case VectorIndexId:
+      return Stretch::VectorIndexId;
+    case Null:
+      return Stretch::Null;
+  }
+  return Stretch::Null;
+}
+
+/// Reads a number held as either of the types a list packs its elements at.
+///
+/// A list that packs its elements holds them at one width and a list that boxes
+/// them at another, so a pair drawn from two lists need not hold the same type.
+/// Read through a pointer rather than by visiting: a visit is allowed to raise for a variant
+/// holding nothing, which these never are, and this is reached from a comparison declared not to
+/// raise.
+template <typename Int, typename Double>
+inline double AsDouble(std::variant<Int, Double> const &numeric) noexcept {
+  if (auto const *as_int = std::get_if<Int>(&numeric)) return static_cast<double>(*as_int);
+  if (auto const *as_double = std::get_if<Double>(&numeric)) return static_cast<double>(*as_double);
+  std::unreachable();
+}
+
+// The arithmetic below is stated over the numbers alone, so that the store and
+// a query place a pair the same way without either carrying a copy of it.
+using value_order::CompareDoublesNaNLast;
+using value_order::PlaceIntegerAgainstDouble;
+using value_order::PlaceIntegerAgainstDoubleNaNLast;
+using value_order::ReversedOrder;
+
+/// Orders two numbers, whichever numeric types the two variants hold.
+///
+/// The two variants need not hold the same types. A list that boxes its
+/// elements stores an integer wider than one that packs them, so comparing the
+/// two means reading each at the width it is stored at.
+/// Each side is read through a pointer rather than by visiting, for the reason `AsDouble` gives.
+template <typename LhsInt, typename LhsDouble, typename RhsInt, typename RhsDouble>
+inline std::partial_ordering CompareNumericValues(std::variant<LhsInt, LhsDouble> const &a,
+                                                  std::variant<RhsInt, RhsDouble> const &b) noexcept {
+  auto const *a_int = std::get_if<LhsInt>(&a);
+  auto const *b_int = std::get_if<RhsInt>(&b);
+  if (a_int) {
+    if (b_int) return *a_int <=> *b_int;
+    return PlaceIntegerAgainstDouble(*a_int, *std::get_if<RhsDouble>(&b));
+  }
+  auto const *a_double = std::get_if<LhsDouble>(&a);
+  if (b_int) return ReversedOrder(PlaceIntegerAgainstDouble(*b_int, *a_double));
+  return *a_double <=> *std::get_if<RhsDouble>(&b);
+}
+
+class PropertyValueException : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(PropertyValueException)
+};
+
+/// Whether the integer fits the width a packed list holds its elements at.
+///
+/// A packed list stores each integer narrower than a boxed list does, which is
+/// what the packing buys. Whoever chooses to pack a list asks this of every
+/// integer in it first, and leaves the list boxed when one does not fit.
+inline bool FitsAPackedList(std::int64_t whole) { return std::in_range<int>(whole); }
+
+/// The integer at the width a packed list holds it at.
+///
+/// @throws PropertyValueException if it does not fit. Narrowing it instead
+/// would store a different number from the one handed over, and nothing later
+/// could tell that it had happened.
+inline int PackedForAList(std::int64_t whole) {
+  if (!FitsAPackedList(whole)) {
+    throw PropertyValueException("Cannot pack a list holding an integer wider than the packed form");
+  }
+  return static_cast<int>(whole);
+}
+
+template <typename T>
+concept Reservable = requires(T &t, std::size_t n) {
+  { t.reserve(n) } -> std::same_as<void>;
+};
+
+// While we are temporarily using std::map, we need to disable the reserve
+// This code is here to do nothing right now, but to ensure we put back in
+// reserves when we go back to flat_map
+template <typename T>
+void do_reserve(T &v, std::size_t n) {
+  if constexpr (Reservable<T>) {
+    v.reserve(n);
+  }
+}
+
+/// Encapsulation of a value and its type in a class that has no compile-time
+/// info about the type.
+///
+/// Values can be of a number of predefined types that are enumerated in
+/// PropertyValue::Type. Each such type corresponds to exactly one C++ type.
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+class PropertyValueImpl {
+ public:
+  using allocator_type = Alloc;
+  using alloc_trait = std::allocator_traits<allocator_type>;
+
+  /// A value type, each type corresponds to exactly one C++ type.
+  using Type = PropertyValueType;
+
+  using string_t = std::basic_string<char, std::char_traits<char>, typename alloc_trait::template rebind_alloc<char>>;
+  using map_t =
+      boost::container::flat_map<KeyType, PropertyValueImpl, std::less<>,
+                                 typename alloc_trait::template rebind_alloc<std::pair<KeyType, PropertyValueImpl>>>;
+
+  using list_t = std::vector<PropertyValueImpl, typename alloc_trait::template rebind_alloc<PropertyValueImpl>>;
+  using int_list_t = std::vector<int, typename alloc_trait::template rebind_alloc<int>>;
+  using double_list_t = std::vector<double, typename alloc_trait::template rebind_alloc<double>>;
+  using numeric_list_t =
+      std::vector<std::variant<int, double>, typename alloc_trait::template rebind_alloc<std::variant<int, double>>>;
+
+  /// What a tag names: the list a packed form is held in, and the element it
+  /// holds. Written beside the three lists so that a fourth is added here.
+  template <typename Tag>
+  using packed_list_t =
+      std::conditional_t<std::same_as<Tag, NumericListTag>, numeric_list_t,
+                         std::conditional_t<std::same_as<Tag, IntListTag>, int_list_t, double_list_t>>;
+
+  template <typename Tag>
+  using packed_element_t = std::conditional_t<std::same_as<Tag, NumericListTag>, std::variant<int, double>,
+                                              std::conditional_t<std::same_as<Tag, IntListTag>, int, double>>;
+
+  using vector_index_id_t = utils::small_vector<VectorIndexIdType>;
+
+  struct VectorIndexIdData {
+    vector_index_id_t ids;
+    utils::small_vector<float> vector;
+  };
+
+  /// Make a Null value
+  PropertyValueImpl(allocator_type const &alloc = allocator_type{}) : alloc_{alloc}, type_(Type::Null) {}
+
+  // constructors for primitive types
+  explicit PropertyValueImpl(const bool value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, bool_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(const int value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, int_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(const int64_t value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, int_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(const double value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, double_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(const TemporalData value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, temporal_data_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(const ZonedTemporalData value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, zoned_temporal_data_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(const Enum value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, enum_data_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(const Point2d value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, point2d_data_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(const Point3d value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, point3d_data_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(const VectorIndexIdData &value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, vector_index_id_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(VectorIndexIdData &&value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, vector_index_id_v{.val_ = std::move(value)} {}
+
+  // copy constructors for non-primitive types
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(string_t const &value) : alloc_{value.get_allocator()}, string_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(string_t &&value) : alloc_{value.get_allocator()}, string_v{.val_ = std::move(value)} {}
+
+  explicit PropertyValueImpl(string_t const &value, allocator_type const &alloc)
+      : alloc_{alloc}, string_v{.val_ = string_t{value, alloc}} {}
+
+  explicit PropertyValueImpl(string_t &&value, allocator_type const &alloc)
+      : alloc_{alloc}, string_v{.val_ = string_t{std::move(value), alloc}} {}
+
+  /// @throw std::bad_alloc
+  /// @throw std::length_error if length of value exceeds
+  ///        std::string::max_length().
+  explicit PropertyValueImpl(std::string_view value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, string_v{.val_ = string_t{value, alloc}} {}
+
+  explicit PropertyValueImpl(char const *value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, string_v{.val_ = string_t{value, alloc}} {}
+
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(list_t const &value) : alloc_{value.get_allocator()}, list_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(list_t &&value) : alloc_{value.get_allocator()}, list_v{.val_ = std::move(value)} {}
+
+  explicit PropertyValueImpl(list_t const &value, allocator_type const &alloc)
+      : alloc_{alloc}, list_v{.val_ = list_t{value, alloc}} {}
+
+  explicit PropertyValueImpl(list_t &&value, allocator_type const &alloc)
+      : alloc_{alloc}, list_v{.val_ = list_t{std::move(value), alloc}} {}
+
+ private:
+  /// Reads a list into the form the tag names, element by element.
+  ///
+  /// The whole run is built before the value owns any of it. An element of the
+  /// wrong type, or an integer too wide for the packed form, leaves the
+  /// conversion part way through, and a value whose constructor has not
+  /// returned is never destroyed, so anything it had already taken would not be
+  /// given back.
+  template <typename Tag>
+  static auto PackedAs(list_t const &value, allocator_type const &alloc) -> packed_list_t<Tag> {
+    auto packed = packed_list_t<Tag>{alloc};
+    packed.reserve(value.size());
+    std::transform(
+        value.begin(), value.end(), std::back_inserter(packed), [](auto const &elem) -> packed_element_t<Tag> {
+          if constexpr (!std::same_as<Tag, IntListTag>) {
+            if (elem.IsDouble()) return elem.ValueDouble();
+          }
+          if (elem.IsInt()) {
+            if constexpr (std::same_as<Tag, DoubleListTag>) {
+              return static_cast<double>(elem.ValueInt());
+            } else {
+              return PackedForAList(elem.ValueInt());
+            }
+          }
+          if constexpr (std::same_as<Tag, IntListTag>) {
+            throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
+          } else if constexpr (std::same_as<Tag, DoubleListTag>) {
+            throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
+          } else {
+            throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
+          }
+        });
+    return packed;
+  }
+
+ public:
+  /// Builds a list in the packed form the tag names.
+  ///
+  /// One constructor over the three tags rather than one per tag: each reads
+  /// the same list the same way and differs only in what it holds the elements
+  /// at, which the tag settles.
+  ///
+  /// @throw std::bad_alloc
+  /// @throw PropertyValueException if an element does not fit the packed form
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
+    auto packed = PackedAs<Tag>(value, alloc);
+    if constexpr (std::same_as<Tag, NumericListTag>) {
+      type_ = Type::NumericList;
+      alloc_trait::construct(alloc_, &numeric_list_v.val_, std::move(packed));
+    } else if constexpr (std::same_as<Tag, IntListTag>) {
+      type_ = Type::IntList;
+      alloc_trait::construct(alloc_, &int_list_v.val_, std::move(packed));
+    } else {
+      type_ = Type::DoubleList;
+      alloc_trait::construct(alloc_, &double_list_v.val_, std::move(packed));
+    }
+  }
+
+  /// Reads the list rather than taking it, whichever way it arrives: an element
+  /// is held at a different width once packed, so there is nothing to move.
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag tag, list_t const &value) : PropertyValueImpl{tag, value, value.get_allocator()} {}
+
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag tag, list_t &&value) : PropertyValueImpl{tag, value, value.get_allocator()} {}
+
+  template <typename Tag>
+    requires OneOfTheListTags<Tag>
+  explicit PropertyValueImpl(Tag tag, list_t &&value, allocator_type const &alloc)
+      : PropertyValueImpl{tag, value, alloc} {}
+
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(map_t const &value) : alloc_{value.get_allocator()}, map_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(map_t &&value) : alloc_{value.get_allocator()}, map_v{.val_ = std::move(value)} {}
+
+  explicit PropertyValueImpl(map_t const &value, allocator_type const &alloc)
+      : alloc_{alloc}, map_v{.val_ = map_t{value, alloc}} {}
+
+  explicit PropertyValueImpl(map_t &&value, allocator_type const &alloc)
+      : alloc_{alloc}, map_v{.val_ = map_t{std::move(value), alloc}} {}
+
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(int_list_t const &value) : alloc_{value.get_allocator()}, int_list_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(int_list_t &&value)
+      : alloc_{value.get_allocator()}, int_list_v{.val_ = std::move(value)} {}
+
+  explicit PropertyValueImpl(int_list_t const &value, allocator_type const &alloc)
+      : alloc_{alloc}, int_list_v{.val_ = int_list_t{value, alloc}} {}
+
+  explicit PropertyValueImpl(int_list_t &&value, allocator_type const &alloc)
+      : alloc_{alloc}, int_list_v{.val_ = int_list_t{std::move(value), alloc}} {}
+
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(double_list_t const &value)
+      : alloc_{value.get_allocator()}, double_list_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(double_list_t &&value)
+      : alloc_{value.get_allocator()}, double_list_v{.val_ = std::move(value)} {}
+
+  explicit PropertyValueImpl(double_list_t const &value, allocator_type const &alloc)
+      : alloc_{alloc}, double_list_v{.val_ = double_list_t{value, alloc}} {}
+
+  explicit PropertyValueImpl(double_list_t &&value, allocator_type const &alloc)
+      : alloc_{alloc}, double_list_v{.val_ = double_list_t{std::move(value), alloc}} {}
+
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(numeric_list_t const &value)
+      : alloc_{value.get_allocator()}, numeric_list_v{.val_ = value} {}
+
+  explicit PropertyValueImpl(numeric_list_t &&value)
+      : alloc_{value.get_allocator()}, numeric_list_v{.val_ = std::move(value)} {}
+
+  explicit PropertyValueImpl(numeric_list_t const &value, allocator_type const &alloc)
+      : alloc_{alloc}, numeric_list_v{.val_ = numeric_list_t{value, alloc}} {}
+
+  explicit PropertyValueImpl(numeric_list_t &&value, allocator_type const &alloc)
+      : alloc_{alloc}, numeric_list_v{.val_ = numeric_list_t{std::move(value), alloc}} {}
+
+  // copy constructor
+  /// @throw std::bad_alloc
+  PropertyValueImpl(const PropertyValueImpl &other);
+  PropertyValueImpl(const PropertyValueImpl &other, allocator_type const &alloc);
+
+  // move constructor
+  PropertyValueImpl(PropertyValueImpl &&other) noexcept;
+  PropertyValueImpl(PropertyValueImpl &&other, allocator_type const &alloc) noexcept;
+
+  // copy assignment
+  /// @throw std::bad_alloc
+  PropertyValueImpl &operator=(const PropertyValueImpl &other);
+
+  // move assignment
+  PropertyValueImpl &operator=(PropertyValueImpl &&other) noexcept(
+      alloc_trait::is_always_equal::value || alloc_trait::propagate_on_container_move_assignment::value);
+
+  // TODO: Implement copy assignment operators for primitive types.
+  // TODO: Implement copy and move assignment operators for non-primitive types.
+
+  template <typename AllocOther, typename KeyTypeOther, typename VectorIndexIdTypeOther>
+  friend class PropertyValueImpl;
+
+  /// Copy accross allocators
+  template <typename AllocOther, typename KeyTypeOther, typename VectorIndexIdTypeOther>
+    requires(!std::same_as<allocator_type, AllocOther> && std::same_as<KeyType, KeyTypeOther>)
+  PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther, VectorIndexIdTypeOther> const &other,
+                    allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, type_{other.type_} {
+    switch (other.type_) {
+      case Type::Null:
+        return;
+      case Type::Bool:
+        bool_v.val_ = other.bool_v.val_;
+        return;
+      case Type::Int:
+        int_v.val_ = other.int_v.val_;
+        return;
+      case Type::Double:
+        double_v.val_ = other.double_v.val_;
+        return;
+      case Type::String:
+        alloc_trait::construct(alloc_, &string_v.val_, other.string_v.val_);
+        return;
+      case Type::List:
+        alloc_trait::construct(alloc_, &list_v.val_, other.list_v.val_.begin(), other.list_v.val_.end());
+        return;
+      case Type::Map:
+        alloc_trait::construct(alloc_, &map_v.val_, other.map_v.val_.begin(), other.map_v.val_.end());
+        return;
+      case Type::TemporalData:
+        temporal_data_v.val_ = other.temporal_data_v.val_;
+        return;
+      case Type::ZonedTemporalData:
+        zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+        return;
+      case Type::Enum:
+        enum_data_v.val_ = other.enum_data_v.val_;
+        return;
+      case Type::Point2d:
+        point2d_data_v.val_ = other.point2d_data_v.val_;
+        return;
+      case Type::Point3d:
+        point3d_data_v.val_ = other.point3d_data_v.val_;
+        return;
+      case Type::IntList:
+        alloc_trait::construct(alloc_, &int_list_v.val_, other.int_list_v.val_.begin(), other.int_list_v.val_.end());
+        return;
+      case Type::DoubleList:
+        alloc_trait::construct(
+            alloc_, &double_list_v.val_, other.double_list_v.val_.begin(), other.double_list_v.val_.end());
+        return;
+      case Type::NumericList:
+        alloc_trait::construct(
+            alloc_, &numeric_list_v.val_, other.numeric_list_v.val_.begin(), other.numeric_list_v.val_.end());
+        return;
+      case Type::VectorIndexId:
+        alloc_trait::construct(alloc_,
+                               &vector_index_id_v.val_.ids,
+                               other.vector_index_id_v.val_.ids.begin(),
+                               other.vector_index_id_v.val_.ids.end());
+        alloc_trait::construct(alloc_,
+                               &vector_index_id_v.val_.vector,
+                               other.vector_index_id_v.val_.vector.begin(),
+                               other.vector_index_id_v.val_.vector.end());
+        return;
+    }
+  }
+
+  ~PropertyValueImpl() {
+    switch (type_) {
+      // destructor for primitive types does nothing
+      case Type::Null:
+      case Type::Bool:
+      case Type::Int:
+      case Type::Double:
+      case Type::TemporalData:
+      case Type::ZonedTemporalData:
+        // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB
+      case Type::Enum:
+      case Type::Point2d:
+      case Type::Point3d:
+        return;
+      // destructor for non primitive types since we used placement new
+      case Type::String:
+        alloc_trait::destroy(alloc_, &string_v.val_);
+        return;
+      case Type::List:
+        alloc_trait::destroy(alloc_, &list_v.val_);
+        return;
+      case Type::Map:
+        alloc_trait::destroy(alloc_, &map_v.val_);
+        return;
+      case Type::IntList:
+        alloc_trait::destroy(alloc_, &int_list_v.val_);
+        return;
+      case Type::DoubleList:
+        alloc_trait::destroy(alloc_, &double_list_v.val_);
+        return;
+      case Type::NumericList:
+        alloc_trait::destroy(alloc_, &numeric_list_v.val_);
+        return;
+      case Type::VectorIndexId:
+        alloc_trait::destroy(alloc_, &vector_index_id_v.val_.ids);
+        alloc_trait::destroy(alloc_, &vector_index_id_v.val_.vector);
+        return;
+    }
+  }
+
+  Type type() const { return type_; }
+
+  // type checkers
+  bool IsNull() const { return type_ == Type::Null; }
+
+  bool IsBool() const { return type_ == Type::Bool; }
+
+  bool IsInt() const { return type_ == Type::Int; }
+
+  bool IsDouble() const { return type_ == Type::Double; }
+
+  bool IsString() const { return type_ == Type::String; }
+
+  bool IsList() const { return type_ == Type::List; }
+
+  bool IsAnyList() const { return IsAnyListType(type_); }
+
+  bool IsMap() const { return type_ == Type::Map; }
+
+  bool IsEnum() const { return type_ == Type::Enum; }
+
+  bool IsTemporalData() const { return type_ == Type::TemporalData; }
+
+  bool IsZonedTemporalData() const { return type_ == Type::ZonedTemporalData; }
+
+  bool IsPoint2d() const { return type_ == Type::Point2d; }
+
+  bool IsPoint3d() const { return type_ == Type::Point3d; }
+
+  bool IsIntList() const { return type_ == Type::IntList; }
+
+  bool IsDoubleList() const { return type_ == Type::DoubleList; }
+
+  bool IsNumericList() const { return type_ == Type::NumericList; }
+
+  bool IsVectorIndexId() const { return type_ == Type::VectorIndexId; }
+
+  size_t ListSize() const {
+    switch (type_) {
+      case Type::List:
+        return list_v.val_.size();
+      case Type::IntList:
+        return int_list_v.val_.size();
+      case Type::DoubleList:
+        return double_list_v.val_.size();
+      case Type::NumericList:
+        return numeric_list_v.val_.size();
+      default:
+        throw PropertyValueException("The value isn't a list!");
+    }
+  }
+
+  /// @pre `IsAnyList()`. See the unchecked getters below for why.
+  size_t ListSizeUnchecked() const noexcept {
+    switch (type_) {
+      case Type::List:
+        return list_v.val_.size();
+      case Type::IntList:
+        return int_list_v.val_.size();
+      case Type::DoubleList:
+        return double_list_v.val_.size();
+      case Type::NumericList:
+        return numeric_list_v.val_.size();
+      default:
+        std::unreachable();
+    }
+  }
+
+  // value getters for primitive types
+  /// @throw PropertyValueException if value isn't of correct type.
+  bool ValueBool() const {
+    if (type_ != Type::Bool) [[unlikely]] {
+      throw PropertyValueException("The value isn't a bool!");
+    }
+    return bool_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueInt() const -> int64_t {
+    if (type_ != Type::Int) [[unlikely]] {
+      throw PropertyValueException("The value isn't an int!");
+    }
+    return int_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueDouble() const -> double {
+    if (type_ != Type::Double) [[unlikely]] {
+      throw PropertyValueException("The value isn't a double!");
+    }
+    return double_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueTemporalData() const -> TemporalData {
+    if (type_ != Type::TemporalData) [[unlikely]] {
+      throw PropertyValueException("The value isn't a temporal data!");
+    }
+
+    return temporal_data_v.val_;
+  }
+
+  auto ValueZonedTemporalData() const -> ZonedTemporalData {
+    if (type_ != Type::ZonedTemporalData) [[unlikely]] {
+      throw PropertyValueException("The value isn't a zoned temporal datum!");
+    }
+
+    return zoned_temporal_data_v.val_;
+  }
+
+  auto ValueEnum() const -> Enum {
+    if (type_ != Type::Enum) [[unlikely]] {
+      throw PropertyValueException("The value isn't an enum!");
+    }
+
+    return enum_data_v.val_;
+  }
+
+  auto ValuePoint2d() const -> Point2d {
+    if (type_ != Type::Point2d) [[unlikely]] {
+      throw PropertyValueException("The value isn't a 2d point!");
+    }
+
+    return point2d_data_v.val_;
+  }
+
+  auto ValuePoint3d() const -> Point3d {
+    if (type_ != Type::Point3d) [[unlikely]] {
+      throw PropertyValueException("The value isn't a 3d point!");
+    }
+
+    return point3d_data_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueIntList() const -> int_list_t const & {
+    if (type_ != Type::IntList) [[unlikely]] {
+      throw PropertyValueException("The value isn't an int list!");
+    }
+    return int_list_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueDoubleList() const -> double_list_t const & {
+    if (type_ != Type::DoubleList) [[unlikely]] {
+      throw PropertyValueException("The value isn't a double list!");
+    }
+    return double_list_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueNumericList() const -> numeric_list_t const & {
+    if (type_ != Type::NumericList) [[unlikely]] {
+      throw PropertyValueException("The value isn't a numeric list!");
+    }
+    return numeric_list_v.val_;
+  }
+
+  auto ValueVectorIndexIds() const -> vector_index_id_t const & {
+    if (type_ != Type::VectorIndexId) [[unlikely]] {
+      throw PropertyValueException("The value isn't a vector index ID!");
+    }
+    return vector_index_id_v.val_.ids;
+  }
+
+  auto ValueVectorIndexList() const -> utils::small_vector<float> const & {
+    if (type_ != Type::VectorIndexId) [[unlikely]] {
+      throw PropertyValueException("The value isn't a vector index list!");
+    }
+    return vector_index_id_v.val_.vector;
+  }
+
+  // const value getters for non-primitive types
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueString() const -> string_t const & {
+    if (type_ != Type::String) [[unlikely]] {
+      throw PropertyValueException("The value isn't a string!");
+    }
+    return string_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueList() const -> list_t const & {
+    if (type_ != Type::List) [[unlikely]] {
+      throw PropertyValueException("The value isn't a list!");
+    }
+    return list_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueMap() const -> map_t const & {
+    if (type_ != Type::Map) [[unlikely]] {
+      throw PropertyValueException("The value isn't a map!");
+    }
+    return map_v.val_;
+  }
+
+  /// The getters below read the value without checking what it holds.
+  ///
+  /// @pre `type()` is the type named by the getter. Reading any other one is
+  /// undefined, so a caller has to have settled the type already, which is what
+  /// a switch over `type()` does.
+  ///
+  /// The ordering and the hash are declared not to raise, and every getter above
+  /// raises when asked for the wrong type. A raise from either would terminate
+  /// rather than propagate, so neither can reach one.
+  auto ValueBoolUnchecked() const noexcept -> bool { return bool_v.val_; }
+
+  auto ValueIntUnchecked() const noexcept -> int64_t { return int_v.val_; }
+
+  auto ValueDoubleUnchecked() const noexcept -> double { return double_v.val_; }
+
+  auto ValueTemporalDataUnchecked() const noexcept -> TemporalData { return temporal_data_v.val_; }
+
+  auto ValueZonedTemporalDataUnchecked() const noexcept -> ZonedTemporalData const & {
+    return zoned_temporal_data_v.val_;
+  }
+
+  auto ValueEnumUnchecked() const noexcept -> Enum { return enum_data_v.val_; }
+
+  auto ValuePoint2dUnchecked() const noexcept -> Point2d { return point2d_data_v.val_; }
+
+  auto ValuePoint3dUnchecked() const noexcept -> Point3d { return point3d_data_v.val_; }
+
+  auto ValueStringUnchecked() const noexcept -> string_t const & { return string_v.val_; }
+
+  auto ValueListUnchecked() const noexcept -> list_t const & { return list_v.val_; }
+
+  auto ValueMapUnchecked() const noexcept -> map_t const & { return map_v.val_; }
+
+  auto ValueIntListUnchecked() const noexcept -> int_list_t const & { return int_list_v.val_; }
+
+  auto ValueDoubleListUnchecked() const noexcept -> double_list_t const & { return double_list_v.val_; }
+
+  auto ValueNumericListUnchecked() const noexcept -> numeric_list_t const & { return numeric_list_v.val_; }
+
+  auto ValueVectorIndexListUnchecked() const noexcept -> utils::small_vector<float> const & {
+    return vector_index_id_v.val_.vector;
+  }
+
+  // reference value getters for non-primitive types
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueString() -> string_t & {
+    if (type_ != Type::String) [[unlikely]] {
+      throw PropertyValueException("The value isn't a string!");
+    }
+    return string_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueList() -> list_t & {
+    if (type_ != Type::List) [[unlikely]] {
+      throw PropertyValueException("The value isn't a list!");
+    }
+    return list_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueMap() -> map_t & {
+    if (type_ != Type::Map) [[unlikely]] {
+      throw PropertyValueException("The value isn't a map!");
+    }
+    return map_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueIntList() -> int_list_t & {
+    if (type_ != Type::IntList) [[unlikely]] {
+      throw PropertyValueException("The value isn't an int list!");
+    }
+    return int_list_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueDoubleList() -> double_list_t & {
+    if (type_ != Type::DoubleList) [[unlikely]] {
+      throw PropertyValueException("The value isn't a double list!");
+    }
+    return double_list_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueNumericList() -> numeric_list_t & {
+    if (type_ != Type::NumericList) [[unlikely]] {
+      throw PropertyValueException("The value isn't a numeric list!");
+    }
+    return numeric_list_v.val_;
+  }
+
+  auto ValueVectorIndexIds() -> vector_index_id_t & {
+    if (type_ != Type::VectorIndexId) [[unlikely]] {
+      throw PropertyValueException("The value isn't a vector index ID!");
+    }
+    return vector_index_id_v.val_.ids;
+  }
+
+  auto ValueVectorIndexList() -> utils::small_vector<float> & {
+    if (type_ != Type::VectorIndexId) [[unlikely]] {
+      throw PropertyValueException("The value isn't a vector index list!");
+    }
+    return vector_index_id_v.val_.vector;
+  }
+
+ private:
+  [[no_unique_address]] allocator_type alloc_;
+
+  // NOTE: this may look strange but it is for better data layout
+  //       https://eel.is/c++draft/class.union#general-note-1
+  union {
+    Type type_;
+
+    struct {
+      Type type_ = Type::Bool;
+      bool val_;
+    } bool_v;
+
+    struct {
+      Type type_ = Type::Int;
+      int64_t val_;
+    } int_v;
+
+    struct {
+      Type type_ = Type::Double;
+      double val_;
+    } double_v;
+
+    struct {
+      Type type_ = Type::String;
+      string_t val_;
+    } string_v;
+
+    struct {
+      Type type_ = Type::List;
+      list_t val_;
+    } list_v;
+
+    struct {
+      Type type_ = Type::Map;
+      map_t val_;
+    } map_v;
+
+    struct {
+      Type type_ = Type::TemporalData;
+      TemporalData val_;
+    } temporal_data_v;
+
+    struct {
+      Type type_ = Type::ZonedTemporalData;
+      ZonedTemporalData val_;
+    } zoned_temporal_data_v;  // FYI: current largest member at 40B
+
+    struct {
+      Type type_ = Type::Enum;
+      Enum val_;
+    } enum_data_v;
+
+    struct {
+      Type type_ = Type::Point2d;
+      Point2d val_;
+    } point2d_data_v;
+
+    struct {
+      Type type_ = Type::Point3d;
+      Point3d val_;
+    } point3d_data_v;
+
+    struct {
+      Type type_ = Type::VectorIndexId;
+      VectorIndexIdData val_;
+    } vector_index_id_v;
+
+    struct {
+      Type type_ = Type::IntList;
+      int_list_t val_;
+    } int_list_v;
+
+    struct {
+      Type type_ = Type::DoubleList;
+      double_list_t val_;
+    } double_list_v;
+
+    struct {
+      Type type_ = Type::NumericList;
+      numeric_list_t val_;
+    } numeric_list_v;
+  };
+};
+
+using PropertyValue = PropertyValueImpl<std::allocator<std::byte>, PropertyId, uint64_t>;
+using ExternalPropertyValue = PropertyValueImpl<std::allocator<std::byte>, std::string, std::string>;
+
+namespace pmr {
+using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t>;
+}  // namespace pmr
+
+/// Helper function to extract numeric value from any list type at given index
+///
+/// Integers are read at their full width. A boxed list stores each element at
+/// that width, so reading one narrower would turn two elements that differ only
+/// above the narrower width into the same value, and the lists holding them
+/// would compare equal.
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline std::optional<std::variant<int64_t, double>> GetNumericValueAt(
+    const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &list, size_t index) noexcept {
+  switch (list.type()) {
+    case PropertyValueType::List: {
+      auto const &list_val = list.ValueListUnchecked();
+      if (list_val[index].IsInt()) {
+        return list_val[index].ValueIntUnchecked();
+      }
+      if (list_val[index].IsDouble()) {
+        return list_val[index].ValueDoubleUnchecked();
+      }
+      return std::nullopt;
+    }
+    case PropertyValueType::IntList: {
+      auto const &list_val = list.ValueIntListUnchecked();
+      return list_val[index];
+    }
+    case PropertyValueType::DoubleList: {
+      auto const &list_val = list.ValueDoubleListUnchecked();
+      return list_val[index];
+    }
+    case PropertyValueType::NumericList: {
+      // This representation packs its integers narrower than a boxed list stores
+      // them, so widen it to compare the two.
+      //
+      // Read through a pointer rather than by value: the accessor that returns
+      // the value raises when asked for the alternative the element does not
+      // hold, and this comparison is reached from one declared not to raise.
+      auto const &packed = list.ValueNumericListUnchecked()[index];
+      if (auto const *as_int = std::get_if<int>(&packed)) {
+        return static_cast<int64_t>(*as_int);
+      }
+      if (auto const *as_double = std::get_if<double>(&packed)) {
+        return *as_double;
+      }
+      std::unreachable();
+    }
+    default:
+      // Reached only for a value that is a list, which the caller has settled.
+      std::unreachable();
+  }
+}
+
+/// Places two lists against each other, whichever of the four forms holds each.
+template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
+inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
+                                       const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
+  const size_t size1 = first.ListSizeUnchecked();
+  const size_t size2 = second.ListSizeUnchecked();
+  const size_t common = std::min(size1, size2);
+
+  // Where an element read against another holds nothing the other can be read
+  // against, the two are placed by where their types sit, as any other such pair
+  // is.
+  // The list is taken as whatever type holds it. Naming one side's allocator
+  // here would convert the other side to match, and that conversion copies the
+  // whole value and allocates, inside a comparison declared not to raise.
+  auto stretch_at = [](const std::optional<std::variant<int64_t, double>> &val, auto const &list, auto index) {
+    if (val) return Stretch::Number;
+    return StretchOf(list.ValueListUnchecked()[index].type());
+  };
+
+  // Element by element, and only then by length, which is how a list is ordered
+  // whichever representation holds it. Ordering by length first would place the
+  // same two lists differently depending on how each is stored.
+  for (size_t i = 0; i < common; ++i) {
+    const auto val1 = GetNumericValueAt(first, i);
+    const auto val2 = GetNumericValueAt(second, i);
+
+    if (!val1 || !val2) {
+      return stretch_at(val1, first, i) <=> stretch_at(val2, second, i);
+    }
+
+    // Read through the exact comparison, which orders two integers by every bit
+    // they hold rather than by what a double can carry. Only a NaN comes back
+    // unordered, and it is placed as a NaN beside a list is.
+    auto const cmp_result = CompareNumericValues(*val1, *val2);
+    if (cmp_result == std::partial_ordering::unordered) {
+      return CompareDoublesNaNLast(AsDouble(*val1), AsDouble(*val2));
+    }
+    if (cmp_result == std::partial_ordering::less) return std::weak_ordering::less;
+    if (cmp_result == std::partial_ordering::greater) return std::weak_ordering::greater;
+  }
+
+  // One list is the start of the other, and the shorter comes first.
+  return size1 <=> size2;
+}
+
+/// Places two values whose types hold nothing the other can be read against, by
+/// where each type sits in the stored order.
+template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
+inline std::weak_ordering CompareIncompatibleTypes(
+    const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
+    const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
+  return StretchOf(first.type()) <=> StretchOf(second.type());
+}
+
+/// Orders two values, which is the order an index holds its entries in.
+///
+/// A stored value is also compared without being decoded, by a reader with a
+/// case per type of its own, and equivalence is read off both. The two are
+/// asked the same question over every pair of shapes by a test, so a change
+/// made here need not be mirrored by hand, but one that parts from the other
+/// reading will be caught rather than found by a lookup answering wrongly.
+template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
+// Everything reached from here is declared not to raise. What is left is the standard algorithm
+// this walks a list with, which is not declared either way and is handed a comparison that does
+// not raise.
+// NOLINTNEXTLINE(bugprone-exception-escape)
+inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
+                        const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept
+    -> std::weak_ordering {
+  if (!AreComparableTypes(first.type(), second.type())) return CompareIncompatibleTypes(first, second);
+
+  // Every pair that could compare unordered is a number, and each reaches this ordering through
+  // `CompareDoublesNaNLast`, so what arrives here is already total.
+  auto to_weak_order = [](std::strong_ordering o) { return std::weak_ordering{o}; };
+
+  switch (first.type()) {
+    case PropertyValueType::Null:
+      return std::weak_ordering::equivalent;
+    case PropertyValueType::Bool:
+      return first.ValueBoolUnchecked() <=> second.ValueBoolUnchecked();
+    // A number against one of the other numeric type is placed by what each
+    // holds. Widening the integer would put two of them in one place while an
+    // equality tells them apart, which is how a sorted container loses an entry.
+    case PropertyValueType::Int:
+      if (second.type() == PropertyValueType::Int) {
+        return first.ValueIntUnchecked() <=> second.ValueIntUnchecked();
+      } else {
+        return PlaceIntegerAgainstDoubleNaNLast(first.ValueIntUnchecked(), second.ValueDoubleUnchecked());
+      }
+    case PropertyValueType::Double:
+      if (second.type() == PropertyValueType::Double) {
+        return CompareDoublesNaNLast(first.ValueDoubleUnchecked(), second.ValueDoubleUnchecked());
+      } else {
+        return ReversedOrder(
+            PlaceIntegerAgainstDoubleNaNLast(second.ValueIntUnchecked(), first.ValueDoubleUnchecked()));
+      }
+    case PropertyValueType::String:
+      // using string_view for allocator agnostic compare
+      return std::string_view{first.ValueStringUnchecked()} <=> second.ValueStringUnchecked();
+    case PropertyValueType::List: {
+      if (second.type() == PropertyValueType::List) {
+        auto const &l1 = first.ValueListUnchecked();
+        auto const &l2 = second.ValueListUnchecked();
+        auto const three_way_cmp = [](PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> const &v1,
+                                      PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> const &v2) {
+          return v1 <=> v2;
+        };
+        return std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end(), three_way_cmp);
+      }
+      return CompareLists(first, second);
+    }
+    case PropertyValueType::IntList: {
+      if (second.type() == PropertyValueType::IntList) {
+        auto const &l1 = first.ValueIntListUnchecked();
+        auto const &l2 = second.ValueIntListUnchecked();
+        return to_weak_order(std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end()));
+      }
+      return CompareLists(first, second);
+    }
+    case PropertyValueType::DoubleList: {
+      if (second.type() == PropertyValueType::DoubleList) {
+        auto const &l1 = first.ValueDoubleListUnchecked();
+        auto const &l2 = second.ValueDoubleListUnchecked();
+        return std::lexicographical_compare_three_way(
+            l1.begin(), l1.end(), l2.begin(), l2.end(), CompareDoublesNaNLast);
+      }
+      return CompareLists(first, second);
+    }
+    case PropertyValueType::NumericList: {
+      if (second.type() == PropertyValueType::NumericList) {
+        auto const &l1 = first.ValueNumericListUnchecked();
+        auto const &l2 = second.ValueNumericListUnchecked();
+        auto const numeric_three_way_cmp = [](auto const &v1, auto const &v2) {
+          auto const order = CompareNumericValues(v1, v2);
+          if (order == std::partial_ordering::unordered) return CompareDoublesNaNLast(AsDouble(v1), AsDouble(v2));
+          if (order == std::partial_ordering::less) return std::weak_ordering::less;
+          if (order == std::partial_ordering::greater) return std::weak_ordering::greater;
+          return std::weak_ordering::equivalent;
+        };
+        return std::lexicographical_compare_three_way(
+            l1.begin(), l1.end(), l2.begin(), l2.end(), numeric_three_way_cmp);
+      }
+      return CompareLists(first, second);
+    }
+    case PropertyValueType::Map: {
+      auto const &m1 = first.ValueMapUnchecked();
+      auto const &m2 = second.ValueMapUnchecked();
+      if (m1.size() != m2.size()) return m1.size() <=> m2.size();
+      auto it1 = m1.begin();
+      auto it2 = m2.begin();
+      for (; it1 != m1.end(); ++it1, ++it2) {
+        auto key_cmp_res = it1->first <=> it2->first;
+        if (key_cmp_res != std::weak_ordering::equivalent) return key_cmp_res;
+        auto val_cmp_res = it1->second <=> it2->second;
+        if (val_cmp_res != std::weak_ordering::equivalent) return val_cmp_res;
+      }
+      return std::weak_ordering::equivalent;
+    }
+    case PropertyValueType::TemporalData:
+      return first.ValueTemporalDataUnchecked() <=> second.ValueTemporalDataUnchecked();
+    case PropertyValueType::ZonedTemporalData:
+      return first.ValueZonedTemporalDataUnchecked() <=> second.ValueZonedTemporalDataUnchecked();
+    case PropertyValueType::Enum:
+      return first.ValueEnumUnchecked() <=> second.ValueEnumUnchecked();
+    // A coordinate is a double, so each is read through the comparison that
+    // answers for a NaN rather than leaving the pair unordered.
+    case PropertyValueType::Point2d: {
+      auto const &p1 = first.ValuePoint2dUnchecked();
+      auto const &p2 = second.ValuePoint2dUnchecked();
+      if (auto const crs = p1.crs() <=> p2.crs(); crs != std::strong_ordering::equal) return to_weak_order(crs);
+      if (auto const x = CompareDoublesNaNLast(p1.x(), p2.x()); x != std::weak_ordering::equivalent) return x;
+      return CompareDoublesNaNLast(p1.y(), p2.y());
+    }
+    case PropertyValueType::Point3d: {
+      auto const &p1 = first.ValuePoint3dUnchecked();
+      auto const &p2 = second.ValuePoint3dUnchecked();
+      if (auto const crs = p1.crs() <=> p2.crs(); crs != std::strong_ordering::equal) return to_weak_order(crs);
+      if (auto const x = CompareDoublesNaNLast(p1.x(), p2.x()); x != std::weak_ordering::equivalent) return x;
+      if (auto const y = CompareDoublesNaNLast(p1.y(), p2.y()); y != std::weak_ordering::equivalent) return y;
+      return CompareDoublesNaNLast(p1.z(), p2.z());
+    }
+    case PropertyValueType::VectorIndexId: {
+      const auto &vector1 = first.ValueVectorIndexListUnchecked();
+      const auto &vector2 = second.ValueVectorIndexListUnchecked();
+      // A coordinate is a float, which carries a NaN of its own, so each is read through the
+      // comparison that places one rather than leaving the pair unordered.
+      return std::lexicographical_compare_three_way(
+          vector1.begin(), vector1.end(), vector2.begin(), vector2.end(), [](float a, float b) {
+            return CompareDoublesNaNLast(a, b);
+          });
+    }
+  }
+}
+
+template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
+inline bool operator==(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
+                       const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
+  return is_eq(first <=> second);
+}
+
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::PropertyValueImpl(const PropertyValueImpl &other)
+    : PropertyValueImpl{other, other.alloc_} {}
+
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::PropertyValueImpl(const PropertyValueImpl &other,
+                                                                               allocator_type const &alloc)
+    : alloc_{alloc}, type_(other.type_) {
+  switch (other.type_) {
+    case Type::Null:
+      return;
+    case Type::Bool:
+      bool_v.val_ = other.bool_v.val_;
+      return;
+    case Type::Int:
+      int_v.val_ = other.int_v.val_;
+      return;
+    case Type::Double:
+      double_v.val_ = other.double_v.val_;
+      return;
+    case Type::String:
+      alloc_trait::construct(alloc_, &string_v.val_, other.string_v.val_);
+      return;
+    case Type::List:
+      alloc_trait::construct(alloc_, &list_v.val_, other.list_v.val_);
+      return;
+    case Type::Map:
+      alloc_trait::construct(alloc_, &map_v.val_, other.map_v.val_);
+      return;
+    case Type::TemporalData:
+      temporal_data_v.val_ = other.temporal_data_v.val_;
+      return;
+    case Type::ZonedTemporalData:
+      zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+      return;
+    case Type::Enum:
+      enum_data_v.val_ = other.enum_data_v.val_;
+      return;
+    case Type::Point2d:
+      point2d_data_v.val_ = other.point2d_data_v.val_;
+      return;
+    case Type::Point3d:
+      point3d_data_v.val_ = other.point3d_data_v.val_;
+      return;
+    case Type::IntList:
+      alloc_trait::construct(alloc_, &int_list_v.val_, other.int_list_v.val_);
+      return;
+    case Type::DoubleList:
+      alloc_trait::construct(alloc_, &double_list_v.val_, other.double_list_v.val_);
+      return;
+    case Type::NumericList:
+      alloc_trait::construct(alloc_, &numeric_list_v.val_, other.numeric_list_v.val_);
+      return;
+    case Type::VectorIndexId:
+      alloc_trait::construct(alloc_, &vector_index_id_v.val_.ids, other.vector_index_id_v.val_.ids);
+      alloc_trait::construct(alloc_, &vector_index_id_v.val_.vector, other.vector_index_id_v.val_.vector);
+      return;
+  }
+}
+
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::PropertyValueImpl(PropertyValueImpl &&other) noexcept
+    : PropertyValueImpl{std::move(other), other.alloc_} {}
+
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::PropertyValueImpl(PropertyValueImpl &&other,
+                                                                               allocator_type const &alloc) noexcept
+    : alloc_{alloc}, type_(other.type_) {
+  switch (type_) {
+    case Type::Null:
+      break;
+    case Type::Bool:
+      bool_v.val_ = other.bool_v.val_;
+      break;
+    case Type::Int:
+      int_v.val_ = other.int_v.val_;
+      break;
+    case Type::Double:
+      double_v.val_ = other.double_v.val_;
+      break;
+    case Type::String:
+      alloc_trait::construct(alloc_, &string_v.val_, std::move(other.string_v.val_));
+      break;
+    case Type::List:
+      alloc_trait::construct(alloc_, &list_v.val_, std::move(other.list_v.val_));
+      break;
+    case Type::Map:
+      alloc_trait::construct(alloc_, &map_v.val_, std::move(other.map_v.val_));
+      break;
+    case Type::TemporalData:
+      temporal_data_v.val_ = other.temporal_data_v.val_;
+      break;
+    case Type::ZonedTemporalData:
+      zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+      break;
+    case Type::Enum:
+      enum_data_v.val_ = other.enum_data_v.val_;
+      break;
+    case Type::Point2d:
+      point2d_data_v.val_ = other.point2d_data_v.val_;
+      break;
+    case Type::Point3d:
+      point3d_data_v.val_ = other.point3d_data_v.val_;
+      break;
+    case Type::IntList:
+      alloc_trait::construct(alloc_, &int_list_v.val_, std::move(other.int_list_v.val_));
+      break;
+    case Type::DoubleList:
+      alloc_trait::construct(alloc_, &double_list_v.val_, std::move(other.double_list_v.val_));
+      break;
+    case Type::NumericList:
+      alloc_trait::construct(alloc_, &numeric_list_v.val_, std::move(other.numeric_list_v.val_));
+      break;
+    case Type::VectorIndexId:
+      alloc_trait::construct(alloc_, &vector_index_id_v.val_.ids, std::move(other.vector_index_id_v.val_.ids));
+      alloc_trait::construct(alloc_, &vector_index_id_v.val_.vector, std::move(other.vector_index_id_v.val_.vector));
+      break;
+  }
+}
+
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline auto PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::operator=(PropertyValueImpl const &other)
+    -> PropertyValueImpl & {
+  auto do_copy = [&]() -> PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> & {
+    // if same type try assignment
+    if (type_ == other.type_) {
+      if (this == &other) return *this;
+      switch (other.type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          bool_v.val_ = other.bool_v.val_;
+          break;
+        case Type::Int:
+          int_v.val_ = other.int_v.val_;
+          break;
+        case Type::Double:
+          double_v.val_ = other.double_v.val_;
+          break;
+        case Type::String:
+          string_v.val_ = string_t{other.string_v.val_, alloc_};
+          break;
+        case Type::List:
+          list_v.val_ = list_t(other.list_v.val_, alloc_);
+          break;
+        case Type::Map:
+          map_v.val_ = map_t(other.map_v.val_, alloc_);
+          break;
+        case Type::TemporalData:
+          temporal_data_v.val_ = other.temporal_data_v.val_;
+          break;
+        case Type::ZonedTemporalData:
+          zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+          break;
+        case Type::Enum:
+          enum_data_v.val_ = other.enum_data_v.val_;
+          break;
+        case Type::Point2d:
+          point2d_data_v.val_ = other.point2d_data_v.val_;
+          break;
+        case Type::Point3d:
+          point3d_data_v.val_ = other.point3d_data_v.val_;
+          break;
+        case Type::IntList:
+          int_list_v.val_ = int_list_t(other.int_list_v.val_, alloc_);
+          break;
+        case Type::DoubleList:
+          double_list_v.val_ = double_list_t(other.double_list_v.val_, alloc_);
+          break;
+        case Type::NumericList:
+          numeric_list_v.val_ = numeric_list_t(other.numeric_list_v.val_, alloc_);
+          break;
+        case Type::VectorIndexId:
+          vector_index_id_v.val_.ids = other.vector_index_id_v.val_.ids;
+          vector_index_id_v.val_.vector = other.vector_index_id_v.val_.vector;
+          break;
+      }
+      return *this;
+    }
+    alloc_trait::destroy(alloc_, this);
+    try {
+      auto *new_this = std::launder(this);
+      alloc_trait::construct(alloc_, new_this, other);
+      return *new_this;
+    } catch (...) {
+      type_ = Type::Null;
+      throw;
+    }
+  };
+
+  // NOLINTBEGIN(misc-unconventional-assign-operator): do_copy returns *this (or laundered equivalent)
+  if constexpr (alloc_trait::is_always_equal::value) {
+    return do_copy();
+  } else {
+    if (other.alloc_ == alloc_) {
+      return do_copy();
+    } else {
+      if constexpr (alloc_trait::propagate_on_container_copy_assignment::value) {
+        auto oldalloc = alloc_;
+        try {
+          alloc_ = other.alloc_;
+          return do_copy();
+        } catch (...) {
+          alloc_ = oldalloc;
+          throw;
+        }
+      }
+      return do_copy();
+    }
+  }
+  // NOLINTEND(misc-unconventional-assign-operator)
+}
+
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline auto PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::operator=(PropertyValueImpl &&other) noexcept(
+    alloc_trait::is_always_equal::value || alloc_trait::propagate_on_container_move_assignment::value)
+    -> PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> & {
+  auto do_move = [&]() -> PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> & {
+    if (type_ == other.type_) {
+      // maybe the same object, check if no work is required
+      if (this == &other) return *this;
+
+      switch (type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          bool_v.val_ = other.bool_v.val_;
+          break;
+        case Type::Int:
+          int_v.val_ = other.int_v.val_;
+          break;
+        case Type::Double:
+          double_v.val_ = other.double_v.val_;
+          break;
+        case Type::String:
+          string_v.val_ = std::move(other.string_v.val_);
+          break;
+        case Type::List:
+          list_v.val_ = std::move(other.list_v.val_);
+          break;
+        case Type::Map:
+          map_v.val_ = std::move(other.map_v.val_);
+          break;
+        case Type::TemporalData:
+          temporal_data_v.val_ = other.temporal_data_v.val_;
+          break;
+        case Type::ZonedTemporalData:
+          zoned_temporal_data_v.val_ = other.zoned_temporal_data_v.val_;
+          break;
+        case Type::Enum:
+          enum_data_v.val_ = other.enum_data_v.val_;
+          break;
+        case Type::Point2d:
+          point2d_data_v.val_ = other.point2d_data_v.val_;
+          break;
+        case Type::Point3d:
+          point3d_data_v.val_ = other.point3d_data_v.val_;
+          break;
+        case Type::IntList:
+          int_list_v.val_ = std::move(other.int_list_v.val_);
+          break;
+        case Type::DoubleList:
+          double_list_v.val_ = std::move(other.double_list_v.val_);
+          break;
+        case Type::NumericList:
+          numeric_list_v.val_ = std::move(other.numeric_list_v.val_);
+          break;
+        case Type::VectorIndexId:
+          vector_index_id_v.val_.ids = std::move(other.vector_index_id_v.val_.ids);
+          vector_index_id_v.val_.vector = std::move(other.vector_index_id_v.val_.vector);
+          break;
+      }
+      return *this;
+    } else {
+      alloc_trait::destroy(alloc_, this);
+      try {
+        auto *new_this = std::launder(this);
+        alloc_trait::construct(alloc_, new_this, std::move(other));
+        return *new_this;
+      } catch (...) {
+        type_ = Type::Null;
+        throw;
+      }
+    }
+  };
+
+  // NOLINTBEGIN(misc-unconventional-assign-operator): do_move returns *this (or laundered equivalent)
+  if constexpr (alloc_trait::is_always_equal::value) {
+    return do_move();
+  } else {
+    if (other.alloc_ == alloc_) {
+      return do_move();
+    } else {
+      if constexpr (alloc_trait::propagate_on_container_move_assignment::value) {
+        std::swap(alloc_, other.alloc_);
+        return do_move();
+      } else {
+        // fall back to copy
+        return operator=(other);
+      }
+    }
+  }
+  // NOLINTEND(misc-unconventional-assign-operator)
+}
+
+// stream output
+/// @throw anything std::ostream::operator<< may throw.
+inline std::ostream &operator<<(std::ostream &os, const PropertyValueType type) {
+  switch (type) {
+    case PropertyValueType::Null:
+      return os << "null";
+    case PropertyValueType::Bool:
+      return os << "bool";
+    case PropertyValueType::Int:
+      return os << "int";
+    case PropertyValueType::Double:
+      return os << "double";
+    case PropertyValueType::String:
+      return os << "string";
+    case PropertyValueType::List:
+      return os << "list";
+    case PropertyValueType::Map:
+      return os << "map";
+    case PropertyValueType::TemporalData:
+      return os << "temporal data";
+    case PropertyValueType::ZonedTemporalData:
+      return os << "zoned temporal data";
+    case PropertyValueType::Enum:
+      return os << "enum";
+    case PropertyValueType::Point2d:
+    case PropertyValueType::Point3d:
+      return os << "point";
+    case PropertyValueType::IntList:
+      return os << "int list";
+    case PropertyValueType::DoubleList:
+      return os << "double list";
+    case PropertyValueType::NumericList:
+      return os << "numeric list";
+    case PropertyValueType::VectorIndexId:
+      return os << "vector index id";
+  }
+}
+
+/// @throw anything std::ostream::operator<< may throw.
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &value) {
+  // These can appear in log messages
+  switch (value.type()) {
+    case PropertyValueType::Null:
+      return os << "null";
+    case PropertyValueType::Bool:
+      return os << (value.ValueBool() ? "true" : "false");
+    case PropertyValueType::Int:
+      return os << value.ValueInt();
+    case PropertyValueType::Double:
+      return os << value.ValueDouble();
+    case PropertyValueType::String:
+      return os << "\"" << value.ValueString() << "\"";
+    case PropertyValueType::List:
+      os << "[";
+      utils::PrintIterable(os, value.ValueList());
+      return os << "]";
+    case PropertyValueType::Map:
+      os << "{";
+      utils::PrintIterable(os, value.ValueMap(), ", ", [](auto &stream, const auto &pair) {
+        stream << pair.first << ": " << pair.second;
+      });
+      return os << "}";
+    case PropertyValueType::TemporalData:
+      return os << fmt::format("type: {}, microseconds: {}",
+                               TemporalTypeToString(value.ValueTemporalData().type),
+                               value.ValueTemporalData().microseconds);
+    case PropertyValueType::ZonedTemporalData: {
+      auto const &temp_value = value.ValueZonedTemporalData();
+      return os << fmt::format("type: {}, microseconds: {}, timezone: {}",
+                               ZonedTemporalTypeToString(temp_value.type),
+                               temp_value.IntMicroseconds(),
+                               temp_value.TimezoneToString());
+    }
+    case PropertyValueType::Enum: {
+      auto const &[e_type, e_value] = value.ValueEnum();
+
+      return os << fmt::format("{{ type: {}, value: {} }}", e_type.value_of(), e_value.value_of());
+    }
+    case PropertyValueType::Point2d: {
+      const auto point = value.ValuePoint2d();
+      return os << fmt::format(
+                 "point({{ x:{}, y:{}, srid:{} }})", point.x(), point.y(), CrsToSrid(point.crs()).value_of());
+    }
+    case PropertyValueType::Point3d: {
+      const auto point = value.ValuePoint3d();
+      return os << fmt::format("point({{ x:{}, y:{}, z:{}, srid:{} }})",
+                               point.x(),
+                               point.y(),
+                               point.z(),
+                               CrsToSrid(point.crs()).value_of());
+    }
+    case PropertyValueType::IntList: {
+      os << "[";
+      utils::PrintIterable(os, value.ValueIntList());
+      return os << "]";
+    }
+    case PropertyValueType::DoubleList: {
+      os << "[";
+      utils::PrintIterable(os, value.ValueDoubleList());
+      return os << "]";
+    }
+    case PropertyValueType::NumericList: {
+      os << "[";
+      utils::PrintIterable(os, value.ValueNumericList(), ", ", [](auto &stream, const auto &item) {
+        if (std::holds_alternative<int>(item)) {
+          stream << std::get<int>(item);
+        } else {
+          stream << std::get<double>(item);
+        }
+      });
+      return os << "]";
+    }
+    case PropertyValueType::VectorIndexId: {
+      os << "[";
+      utils::PrintIterable(os, value.ValueVectorIndexList());
+      return os << "]";
+    }
+  }
+}
+
+inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdMapper *mapper) {
+  switch (value.type()) {
+    case PropertyValueType::Null:
+      return {};
+    case PropertyValueType::Bool:
+      return PropertyValue(value.ValueBool());
+    case PropertyValueType::Int:
+      return PropertyValue(value.ValueInt());
+    case PropertyValueType::Double:
+      return PropertyValue(value.ValueDouble());
+    case PropertyValueType::String:
+      return PropertyValue(value.ValueString());
+    case PropertyValueType::List: {
+      typename PropertyValue::list_t list;
+      for (const auto &elem : value.ValueList()) {
+        list.push_back(ToPropertyValue(elem, mapper));
+      }
+      return PropertyValue(std::move(list));
+    }
+    case PropertyValueType::Map: {
+      typename PropertyValue::map_t map;
+      for (const auto &[key, val] : value.ValueMap()) {
+        auto prop_id = PropertyId::FromUint(mapper->NameToId(key));
+        map.emplace(prop_id, ToPropertyValue(val, mapper));
+      }
+      return PropertyValue(std::move(map));
+    }
+    case PropertyValueType::TemporalData:
+      return PropertyValue(value.ValueTemporalData());
+    case PropertyValueType::ZonedTemporalData:
+      return PropertyValue(value.ValueZonedTemporalData());
+    case PropertyValueType::Enum:
+      return PropertyValue(value.ValueEnum());
+    case PropertyValueType::Point2d:
+      return PropertyValue(value.ValuePoint2d());
+    case PropertyValueType::Point3d:
+      return PropertyValue(value.ValuePoint3d());
+    case PropertyValueType::IntList:
+      return PropertyValue(value.ValueIntList());
+    case PropertyValueType::DoubleList:
+      return PropertyValue(value.ValueDoubleList());
+    case PropertyValueType::NumericList:
+      return PropertyValue(value.ValueNumericList());
+    case PropertyValueType::VectorIndexId: {
+      typename PropertyValue::VectorIndexIdData data;
+      const auto &external_vector_index_ids = value.ValueVectorIndexIds();
+      data.ids.reserve(external_vector_index_ids.size());
+      for (auto const &str : external_vector_index_ids) {
+        data.ids.push_back(mapper->NameToId(str));
+      }
+      data.vector = value.ValueVectorIndexList();
+      return PropertyValue(std::move(data));
+    }
+  }
+  throw PropertyValueException("Unknown type during conversion");
+}
+
+inline ExternalPropertyValue ToExternalPropertyValue(const PropertyValue &value, NameIdMapper *mapper) {
+  switch (value.type()) {
+    case PropertyValueType::Null:
+      return {};
+    case PropertyValueType::Bool:
+      return ExternalPropertyValue(value.ValueBool());
+    case PropertyValueType::Int:
+      return ExternalPropertyValue(value.ValueInt());
+    case PropertyValueType::Double:
+      return ExternalPropertyValue(value.ValueDouble());
+    case PropertyValueType::String:
+      return ExternalPropertyValue(value.ValueString());
+    case PropertyValueType::List: {
+      typename ExternalPropertyValue::list_t list;
+      for (const auto &elem : value.ValueList()) {
+        list.push_back(ToExternalPropertyValue(elem, mapper));
+      }
+      return ExternalPropertyValue(std::move(list));
+    }
+    case PropertyValueType::Map: {
+      typename ExternalPropertyValue::map_t map;
+      for (const auto &[key, val] : value.ValueMap()) {
+        auto name = mapper->IdToName(key.AsUint());
+        map.emplace(name, ToExternalPropertyValue(val, mapper));
+      }
+      return ExternalPropertyValue(std::move(map));
+    }
+    case PropertyValueType::TemporalData:
+      return ExternalPropertyValue(value.ValueTemporalData());
+    case PropertyValueType::ZonedTemporalData:
+      return ExternalPropertyValue(value.ValueZonedTemporalData());
+    case PropertyValueType::Enum:
+      return ExternalPropertyValue(value.ValueEnum());
+    case PropertyValueType::Point2d:
+      return ExternalPropertyValue(value.ValuePoint2d());
+    case PropertyValueType::Point3d:
+      return ExternalPropertyValue(value.ValuePoint3d());
+    case PropertyValueType::IntList:
+      return ExternalPropertyValue(value.ValueIntList());
+    case PropertyValueType::DoubleList:
+      return ExternalPropertyValue(value.ValueDoubleList());
+    case PropertyValueType::NumericList:
+      return ExternalPropertyValue(value.ValueNumericList());
+    case PropertyValueType::VectorIndexId: {
+      typename ExternalPropertyValue::VectorIndexIdData data;
+      const auto &internal_vector_index_ids = value.ValueVectorIndexIds();
+      data.ids.reserve(internal_vector_index_ids.size());
+      for (auto id : internal_vector_index_ids) {
+        data.ids.push_back(mapper->IdToName(id));
+      }
+      data.vector = value.ValueVectorIndexList();
+      return ExternalPropertyValue(std::move(data));
+    }
+  }
+  throw PropertyValueException("Unknown type during conversion");
+}
+
+struct ExtendedPropertyType {
+  PropertyValueType type{PropertyValueType::Null};
+  TemporalType temporal_type{};
+  EnumTypeId enum_type;
+
+  ExtendedPropertyType() = default;
+
+  explicit ExtendedPropertyType(PropertyValueType type) : type{type} {}
+
+  explicit ExtendedPropertyType(TemporalType temporal_type)
+      : type{PropertyValueType::TemporalData}, temporal_type{temporal_type} {}
+
+  explicit ExtendedPropertyType(EnumTypeId enum_type) : type{PropertyValueType::Enum}, enum_type{enum_type} {}
+
+  explicit ExtendedPropertyType(const PropertyValue &val) {
+    if (val.IsAnyList() || val.IsVectorIndexId()) {
+      // It's not important for user to know the list type, so we set it to List
+      type = PropertyValueType::List;
+    } else {
+      type = val.type();
+      if (type == PropertyValueType::TemporalData) {
+        temporal_type = val.ValueTemporalData().type;
+      }
+      if (type == PropertyValueType::Enum) {
+        enum_type = val.ValueEnum().type_id();
+      }
+    }
+  }
+
+  bool operator==(const ExtendedPropertyType &other) const {
+    return type == other.type && temporal_type == other.temporal_type && enum_type == other.enum_type;
+  }
+};
+
+static_assert(sizeof(PropertyValue) == 40);
+static_assert(sizeof(pmr::PropertyValue) == 56);
+
+/**
+ * Helper to read a nested value from within a PropertyValue map. If the path
+ * is valid, returns a positional pointer to the `PropertyValue` within the
+ * top-most value. Otherwise, return `nullptr`.
+ */
+inline auto ReadNestedPropertyValue(PropertyValue const &value, std::span<PropertyId const> path_to_property)
+    -> PropertyValue const * {
+  auto const *current = &value;
+  // Follow the path down into the nested maps
+  for (auto &&property_id : path_to_property) {
+    if (!current->IsMap()) [[unlikely]] {
+      return nullptr;
+    }
+
+    auto const &as_map = current->ValueMap();
+    auto const it = as_map.find(property_id);
+    if (it != as_map.cend()) {
+      current = &it->second;
+    } else {
+      return nullptr;
+    }
+  }
+
+  return current;
+}
+
+extern template class PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t>;
+extern template bool operator==(
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &,
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &);
+extern template std::weak_ordering CompareLists(
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &,
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &);
+
+/// The hash of a number, over the value rather than over the bits holding it.
+///
+/// Two NaNs are one value here, since the order places them alongside each other
+/// so that a sorted container can find an entry again. They do not have to be
+/// the same NaN to be that value, and a container keyed by the hash needs the
+/// two to agree or an entry goes in one bucket and is looked for in another.
+inline size_t HashOfDouble(double value) noexcept {
+  if (std::isnan(value)) [[unlikely]]
+    return std::hash<double>{}(std::numeric_limits<double>::quiet_NaN());
+  return std::hash<double>{}(value);
+}
+
+/// A hash for a list, read through whichever of the four forms holds it.
+///
+/// The order compares the four as one value, so a list packed into numbers and
+/// the same list boxed are one key and have to reach one bucket. Each element
+/// is hashed by the number it is rather than by the width it is held at, and an
+/// element that is no number is hashed as the value it is.
+template <typename Value, typename HashOfValue>
+size_t HashOfAList(Value const &value, HashOfValue const &hash_of_value) noexcept {
+  auto combined = size_t{6'543'457};
+  auto const fold = [&combined](size_t one) { combined = (combined * 31U) + one; };
+
+  switch (value.type()) {
+    case PropertyValueType::IntList:
+      for (auto const number : value.ValueIntList()) fold(HashOfDouble(static_cast<double>(number)));
+      return combined;
+    case PropertyValueType::DoubleList:
+      for (auto const number : value.ValueDoubleList()) fold(HashOfDouble(number));
+      return combined;
+    case PropertyValueType::NumericList:
+      for (auto const &number : value.ValueNumericList()) {
+        fold(HashOfDouble(std::holds_alternative<int>(number) ? static_cast<double>(std::get<int>(number))
+                                                              : std::get<double>(number)));
+      }
+      return combined;
+    default:
+      // A boxed list, the only form that holds anything but a number.
+      for (auto const &element : value.ValueList()) {
+        if (element.IsInt()) {
+          fold(HashOfDouble(static_cast<double>(element.ValueInt())));
+        } else if (element.IsDouble()) {
+          fold(HashOfDouble(element.ValueDouble()));
+        } else {
+          fold(hash_of_value(element));
+        }
+      }
+      return combined;
+  }
+}
+
+}  // namespace memgraph::storage
+
+export namespace std {
+template <>
+struct hash<memgraph::storage::ExtendedPropertyType> {
+  size_t operator()(const memgraph::storage::ExtendedPropertyType &type) const {
+    size_t seed = 0;
+    boost::hash_combine(seed, type.type);
+    boost::hash_combine(seed, type.temporal_type);
+    boost::hash_combine(seed, type.enum_type.value_of());
+    return seed;
+  }
+};
+
+// Specialising this for a type of our own is what the standard provides for, and is how a value
+// becomes a key of an unordered container.
+// NOLINTNEXTLINE(bugprone-std-namespace-modification)
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>> {
+  size_t operator()(
+      memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> const &value) const noexcept {
+    using enum memgraph::storage::PropertyValueType;
+
+    // A value has to reach the bucket the order would put it in, which is
+    // what each arm below answers to. The query layer keeps its own hash
+    // against its own order, and the two need not agree with each other.
+    switch (value.type()) {
+      case Null:
+        return 31;
+      case Bool:
+        return std::hash<bool>{}(value.ValueBool());
+      case Int:
+        return memgraph::storage::HashOfDouble(static_cast<double>(value.ValueInt()));
+      case Double:
+        return memgraph::storage::HashOfDouble(value.ValueDouble());
+      case String:
+        return std::hash<std::string_view>{}(value.ValueString());
+      // The four ways a list is held are one value to the order, so they are one
+      // key here.
+      case List:
+      case IntList:
+      case DoubleList:
+      case NumericList:
+        return memgraph::storage::HashOfAList(value, *this);
+      case Map: {
+        size_t hash = 6'543'457;
+        for (const auto &kv : value.ValueMap()) {
+          hash ^= std::hash<KeyType>{}(kv.first);
+          hash ^= this->operator()(
+              static_cast<const memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &>(kv.second));
+        }
+        return hash;
+      }
+      case TemporalData:
+        return std::hash<memgraph::storage::TemporalData>{}(value.ValueTemporalData());
+      case ZonedTemporalData:
+        return std::hash<memgraph::storage::ZonedTemporalData>{}(value.ValueZonedTemporalData());
+      case Enum:
+        return std::hash<memgraph::storage::Enum>{}(value.ValueEnum());
+      // A point's own equality reads its coordinates as IEEE does, so two of
+      // them holding a NaN are not equal and its own hash owes them nothing.
+      // The order this hash answers to places them alongside each other, so the
+      // coordinates are read through the rule that says so.
+      case Point2d: {
+        auto const &point = value.ValuePoint2d();
+        size_t seed = 0;
+        boost::hash_combine(seed, point.crs());
+        boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.x()));
+        boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.y()));
+        return seed;
+      }
+      case Point3d: {
+        auto const &point = value.ValuePoint3d();
+        size_t seed = 0;
+        boost::hash_combine(seed, point.crs());
+        boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.x()));
+        boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.y()));
+        boost::hash_combine(seed, memgraph::storage::HashOfDouble(point.z()));
+        return seed;
+      }
+      // A coordinate here is a float, which spells a NaN its own several ways,
+      // and the order places two of them alongside each other. It is read
+      // through the same rule the wider coordinates are.
+      case VectorIndexId: {
+        size_t seed = 0;
+        for (auto const coordinate : value.ValueVectorIndexList()) {
+          boost::hash_combine(seed, memgraph::storage::HashOfDouble(coordinate));
+        }
+        return seed;
+      }
+    }
+  }
+};
+}  // namespace std
+
+module :private;
+
+namespace memgraph::storage {
+template class PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t>;
+
+template bool operator==(PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &,
+                         PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &);
+
+template std::weak_ordering CompareLists(
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &,
+    PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t> const &);
+}  // namespace memgraph::storage

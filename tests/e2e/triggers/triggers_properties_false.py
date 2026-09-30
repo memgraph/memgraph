@@ -13,17 +13,16 @@ import sys
 
 import mgclient
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, execute_and_fetch_all, wait_for_results
 
 
 @pytest.fixture(scope="function")
 def multi_db(request, connect):
+    # connect fixture already cleans up (drops clean db, triggers, data)
     cursor = connect.cursor()
     if request.param:
         execute_and_fetch_all(cursor, "CREATE DATABASE clean")
         execute_and_fetch_all(cursor, "USE DATABASE clean")
-        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
-    pass
     yield connect
 
 
@@ -43,6 +42,15 @@ def test_create_on_create(ba_commit, multi_db):
         CREATE (n:CreatedEdge {{count: size(createdEdges)}})
     """
 
+    databases = execute_and_fetch_all(cursor, "SHOW DATABASES")
+    current_db = execute_and_fetch_all(cursor, "SHOW DATABASE")
+    if len(databases) == 1:
+        assert current_db == [("memgraph",)]  # single db mode
+    elif len(databases) == 2:
+        assert current_db == [("clean",)]  # multi db mode
+    else:
+        raise Exception("Unexpected number of databases")
+
     execute_and_fetch_all(cursor, QUERY_TRIGGER_CREATE)
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 1})")
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 2})")
@@ -55,19 +63,13 @@ def test_create_on_create(ba_commit, multi_db):
         CREATE (n)-[r:TYPE]->(m);
     """
     execute_and_fetch_all(cursor, QUERY_CREATE_EDGE)
-    # See if trigger was triggered
-    nodes = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN n")
-    assert len(nodes) == 2
-    created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
-    assert len(created_edges) == 1
-    # execute_and_fetch_all(cursor, "DROP TRIGGER CreateTriggerEdgesCount")
-    # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+
+    created_edges = wait_for_results(cursor, "MATCH (n:CreatedEdge) RETURN n")
 
     # check that there is no cross contamination between databases
-    nodes = execute_and_fetch_all(cursor, "SHOW DATABASES")
-    if len(nodes) == 2:  # multi db mode
+    if len(databases) == 2:  # multi db mode
         execute_and_fetch_all(cursor, "USE DATABASE memgraph")
-        created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+        created_edges = execute_and_fetch_all(cursor, "MATCH (n) RETURN n")
         assert len(created_edges) == 0
 
 
@@ -86,6 +88,16 @@ def test_create_on_delete(ba_commit, multi_db):
         EXECUTE
         CREATE (n:DeletedEdge {{count: size(deletedEdges)}})
     """
+
+    databases = execute_and_fetch_all(cursor, "SHOW DATABASES")
+    current_db = execute_and_fetch_all(cursor, "SHOW DATABASE")
+    if len(databases) == 1:
+        assert current_db == [("memgraph",)]  # single db mode
+    elif len(databases) == 2:
+        assert current_db == [("clean",)]  # multi db mode
+    else:
+        raise Exception("Unexpected number of databases")
+
     # Setup queries
     execute_and_fetch_all(cursor, QUERY_TRIGGER_CREATE)
     execute_and_fetch_all(cursor, "CREATE (n:Node {id: 1})")
@@ -117,17 +129,14 @@ def test_create_on_delete(ba_commit, multi_db):
     # See if trigger was triggered
     nodes = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN n")
     assert len(nodes) == 4
-    # Check how many edges got deleted
-    deleted_edges = execute_and_fetch_all(cursor, "MATCH (n:DeletedEdge) RETURN n")
+    # Check how many edges got deleted (with retry for AFTER COMMIT async triggers)
+    deleted_edges = wait_for_results(cursor, "MATCH (n:DeletedEdge) RETURN n")
     assert len(deleted_edges) == 1
-    # execute_and_fetch_all(cursor, "DROP TRIGGER DeleteTriggerEdgesCount")
-    # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")``
 
     # check that there is no cross contamination between databases
-    nodes = execute_and_fetch_all(cursor, "SHOW DATABASES")
-    if len(nodes) == 2:  # multi db mode
+    if len(databases) == 2:  # multi db mode
         execute_and_fetch_all(cursor, "USE DATABASE memgraph")
-        created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+        created_edges = execute_and_fetch_all(cursor, "MATCH (n) RETURN n")
         assert len(created_edges) == 0
 
 

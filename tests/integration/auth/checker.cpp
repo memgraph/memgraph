@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,7 +38,7 @@ int main(int argc, char **argv) {
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
 
   try {
-    auto ret = client.Execute("SHOW PRIVILEGES FOR user", {});
+    auto ret = client.Execute("SHOW PRIVILEGES FOR user ON MAIN", {});
     const auto &records = ret.records;
     uint64_t count_got = 0;
     for (const auto &record : records) {

@@ -1,0 +1,6 @@
+query: >
+    CALL periodic.iterate("UNWIND range(1, 101) AS x RETURN x",  "RETURN 1", {batch_size: 10}) YIELD * RETURN *;
+
+output:
+    - success: true
+      number_of_executed_batches: 11

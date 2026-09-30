@@ -1,0 +1,6 @@
+query: >
+    CALL degree_centrality.get() YIELD node, degree
+    RETURN node.id AS node, degree
+    ORDER BY node ASC
+
+output: []

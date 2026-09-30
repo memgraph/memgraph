@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.subtract(null, [1, 2]) AS result;
+
+output:
+  - result: null

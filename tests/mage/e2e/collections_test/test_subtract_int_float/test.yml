@@ -1,0 +1,6 @@
+query: >
+  WITH collections.subtract([1, 2, 3], [2.0]) AS r UNWIND r AS e RETURN e ORDER BY e;
+
+output:
+  - e: 1
+  - e: 3

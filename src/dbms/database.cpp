@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,32 +10,243 @@
 // licenses/APL.txt.
 
 #include "dbms/database.hpp"
+
+#include <memory>
+
+#include "spdlog/spdlog.h"
+
+#include "dbms/database_info.hpp"
+#include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
-#include "dbms/replication_handler.hpp"
-#include "flags/storage_mode.hpp"
+#include "flags/coord_flag_env_handler.hpp"
+#include "flags/general.hpp"
+#include "memory/db_arena.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "query/stream/streams.hpp"
+#include "query/trigger.hpp"
 #include "storage/v2/disk/storage.hpp"
-#include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/ttl.hpp"
 
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
 namespace memgraph::dbms {
 
-Database::Database(storage::Config config, replication::ReplicationState &repl_state)
-    : trigger_store_(config.durability.storage_directory / "triggers"),
-      streams_{config.durability.storage_directory / "streams"},
-      plan_cache_{FLAGS_query_plan_cache_max_size},
-      repl_state_(&repl_state) {
-  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
-      utils::DirExists(config.disk.main_storage_directory)) {
-    storage_ = std::make_unique<storage::DiskStorage>(std::move(config));
-  } else {
-    storage_ = dbms::CreateInMemoryStorage(std::move(config), repl_state);
+struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
+  explicit PlanInvalidatorForDatabase(query::PlanCacheLRU &planCache) : plan_cache(planCache) {}
+
+  auto invalidate_for_timestamp_wrapper(std::function<bool(uint64_t)> func) -> std::function<bool(uint64_t)> override {
+    return [&plan_cache = plan_cache, func = std::move(func)](uint64_t timestamp) {
+      return plan_cache.WithLock([&](query::PlanCache_t &cache) {
+        auto do_reset = func(timestamp);
+        if (do_reset) {
+          cache.reset();
+        }
+        return do_reset;
+      });
+    };
+  }
+
+  bool invalidate_now(std::function<bool()> func) override {
+    return plan_cache.WithLock([&](query::PlanCache_t &cache) {
+      auto do_reset = func();
+      if (do_reset) {
+        cache.reset();
+      }
+      return do_reset;
+    });
+  }
+
+ private:
+  // Storage and Plan cache exist in Database
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
+  query::PlanCacheLRU &plan_cache;
+};
+
+Database::~Database() {
+  // Every teardown path (drop, suspend, drop-recreate, process exit) destroys via this destructor, and
+  // the cached 2PC accessor is storage-level, not gatekeeper-counted -- this is the one choke point
+  // that reaches it. Safe: the body runs before storage_ is destroyed.
+  //
+  // Must not call any utils::Gatekeeper method here -- finish_suspend() holds GKInternals::mutex_
+  // across ~Database (gatekeeper.hpp:394), so re-entry would self-deadlock.
+  try {
+    // GatekeeperGuard clears arena TLS around Database destruction; re-establish it so Abort()'s
+    // delta walk allocates against this tenant's arena, not stale TLS.
+    const memory::DbArenaScope db_arena_scope{this};
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(uuid());
+  } catch (const std::exception &e) {
+    // spdlog can throw; swallow it so it can't escape this implicitly-noexcept destructor (mirrors ~Gatekeeper).
+    try {
+      spdlog::error(
+          "Database::~Database: failed to abort cached 2PC for tenant {}: {} -- prepared transaction stays pinned in "
+          "the commit log.",
+          std::string{uuid()},
+          e.what());
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    }
+  } catch (...) {
+    try {
+      spdlog::error(
+          "Database::~Database: failed to abort cached 2PC for tenant {} (unknown exception) -- prepared transaction "
+          "stays pinned in the commit log.",
+          std::string{uuid()});
+    } catch (...) {  // NOLINT(bugprone-empty-catch)
+    }
   }
 }
 
+std::unique_ptr<storage::Accessor> Database::Access(storage::StorageAccessType rw_type,
+                                                    std::optional<storage::IsolationLevel> override_isolation_level,
+                                                    std::optional<std::chrono::milliseconds> timeout) {
+  return storage_->Access(rw_type, override_isolation_level, timeout);
+}
+
+std::unique_ptr<storage::Accessor> Database::UniqueAccess(
+    std::optional<storage::IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
+  return storage_->UniqueAccess(override_isolation_level, timeout);
+}
+
+std::unique_ptr<storage::Accessor> Database::ReadOnlyAccess(
+    std::optional<storage::IsolationLevel> override_isolation_level, std::optional<std::chrono::milliseconds> timeout) {
+  return storage_->ReadOnlyAccess(override_isolation_level, timeout);
+}
+
+std::string Database::name() const { return storage_->name(); }
+
+utils::SafeString::ConstSafeWrapper Database::name_view() const { return storage_->name_view(); }
+
+const utils::UUID &Database::uuid() const { return storage_->uuid(); }
+
+const storage::Config &Database::config() const { return storage_->config_; }
+
+storage::StorageMode Database::GetStorageMode() const noexcept { return storage_->GetStorageMode(); }
+
+storage::ttl::TTL &Database::ttl() { return storage_->ttl_; }
+
+memory::ArenaPool &Database::Arena() noexcept { return *db_arena_; }
+
+memory::ArenaPool &Database::Arena() const noexcept { return *db_arena_; }
+
+namespace {
+
+// A coordinator reports no per-database metrics under OpenMetrics, and some databases ask not to be
+// measured at all; both hold an empty registration, which releases nothing.
+auto RegisterMetrics(storage::Config const &config) -> metrics::PrometheusMetrics::Registration {
+  if (!config.register_metrics) return {};
+  if (FLAGS_metrics_format == "OpenMetrics" && flags::CoordinationSetupInstance().IsCoordinator()) return {};
+  return metrics::Metrics().AddDatabase(config.salient.uuid, config.salient.name.str());
+}
+
+}  // namespace
+
+Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+    : metrics_(RegisterMetrics(config)),
+      db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
+      after_commit_trigger_pool_{1,
+                                 // After-commit triggers run on a dedicated DB worker.
+                                 // Keep a DB arena scope alive for the full worker lifetime.
+                                 [this]() -> utils::ThreadPool::TaskSignature {
+                                   auto db_arena_scope = std::make_unique<memory::DbArenaScope>(this);
+                                   return [db_arena_scope = std::move(db_arena_scope)]() mutable {
+                                     db_arena_scope.reset();
+                                   };
+                                 }},
+      streams_(
+          std::make_unique<query::stream::Streams>(config.durability.storage_directory / "streams", db_arena_.get())),
+      plan_cache_{FLAGS_query_plan_cache_max_size} {
+  // Route all constructor-body allocations (storage init, recovery, index structures) to this DB's arena.
+  const memory::DbArenaScope db_arena_scope{this};
+
+  // Postpone creation after the scope has been created
+  trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
+  std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
+
+  // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.
+  if (auto global_max = utils::total_memory_tracker.MaximumHardLimit(); global_max > 0) {
+    db_total_memory_tracker_.SetMaximumHardLimit(global_max);
+    db_total_memory_tracker_.SetHardLimit(0);
+  }
+
+  if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
+      utils::DirExists(config.disk.main_storage_directory)) {
+    config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
+    storage_ = std::make_unique<storage::DiskStorage>(std::move(config),
+                                                      std::move(invalidator),
+                                                      metrics_.handles(),
+                                                      database_protector_factory,
+                                                      db_arena_.get(),
+                                                      &db_embedding_memory_tracker_);
+  } else {
+    storage_ = dbms::CreateInMemoryStorage(std::move(config),
+                                           std::move(invalidator),
+                                           metrics_.handles(),
+                                           database_protector_factory,
+                                           db_arena_.get(),
+                                           &db_embedding_memory_tracker_);
+  }
+
+  // Recovery adopts the uuid of the snapshot or WAL it recovered from, which need not be the one the
+  // registration was made under.
+  metrics_.Rebind(storage_->uuid());
+}
+
+DatabaseInfo Database::GetInfo() const {
+  DatabaseInfo info;
+  info.storage_info = storage_->GetInfo();
+  info.triggers = trigger_store_->GetTriggerInfo().size();
+  info.streams = streams_->GetStreamInfo().size();
+  info.db_memory_tracked = DbMemoryUsage();
+  info.db_peak_memory_tracked = DbPeakMemoryUsage();
+  info.db_storage_memory_tracked = DbStorageMemoryUsage();
+  info.db_embedding_memory_tracked = DbEmbeddingMemoryUsage();
+  info.db_query_memory_tracked = DbQueryMemoryUsage();
+  return info;
+}
+
+void Database::AddTask(utils::ThreadPool::TaskSignature new_task) {
+  if (!after_commit_trigger_pool_.AddTask(std::move(new_task))) {
+    spdlog::warn(
+        "Database '{}': could not schedule an after commit trigger because the database's background tasks are "
+        "already shut down (database is being dropped or the process is shutting down); the trigger will not run.",
+        name());
+  }
+}
+
+void Database::StopAllBackgroundTasks() {
+  streams()->Shutdown();
+  // Signal any in-flight after-commit trigger to abort, so the pool join below cannot block on a
+  // long-running trigger that holds an accessor pinning this database.
+  after_commit_trigger_status_.store(query::TransactionStatus::TERMINATED, std::memory_order_release);
+  auto const discarded = thread_pool()->ShutDown();
+  if (discarded != 0) {
+    spdlog::warn(
+        "Database '{}': shutting down background tasks discarded {} queued after commit trigger execution(s); "
+        "these triggers will not run.",
+        name(),
+        discarded);
+  }
+  storage_->StopAllBackgroundTasks();
+}
+
 void Database::SwitchToOnDisk() {
-  storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_));
+  // Preserve the database protector factory from the previous storage
+  // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
+  auto preserved_factory = storage_->get_database_protector_factory();
+  const memory::DbArenaScope db_arena_scope{this};
+  storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_),
+                                                              std::make_unique<storage::PlanInvalidatorDefault>(),
+                                                              metrics_.handles(),
+                                                              preserved_factory,
+                                                              db_arena_.get(),
+                                                              &db_embedding_memory_tracker_);
 }
 
 }  // namespace memgraph::dbms
+
+// DbArenaScope constructor implementation (Database* variant) - defined here
+// to avoid circular include between db_arena.cpp and database.hpp
+namespace memgraph::memory {
+DbArenaScope::DbArenaScope(const memgraph::dbms::Database *db) : DbArenaScope(db != nullptr ? &db->Arena() : nullptr) {}
+}  // namespace memgraph::memory

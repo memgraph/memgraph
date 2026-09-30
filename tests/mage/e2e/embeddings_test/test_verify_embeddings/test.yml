@@ -1,0 +1,10 @@
+query: >
+    MATCH (n:Document)
+    RETURN n.title AS title,
+           size(n.embedding) AS embedding_size,
+           n.embedding IS NOT NULL AS has_embeddings;
+
+output:
+    - title: "Magnetospheric Field Line Resonances"
+      embedding_size: 384
+      has_embeddings: true

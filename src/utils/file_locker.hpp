@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,14 +11,16 @@
 
 #pragma once
 #include <atomic>
-#include <deque>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
+#include <filesystem>
 #include <functional>
 #include <set>
 #include <shared_mutex>
 #include <unordered_map>
 
 #include "utils/file.hpp"
-#include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -119,7 +121,7 @@ class FileRetainer {
       NonexistentPath = 0,
     };
 
-    using ret_type = utils::BasicResult<FileRetainer::FileLockerAccessor::Error, bool>;
+    using ret_type = std::expected<bool, FileRetainer::FileLockerAccessor::Error>;
 
     /**
      * Checks if a single path is in the current locker.
@@ -158,6 +160,8 @@ class FileRetainer {
    * lifted.
    */
   void DeleteFile(const std::filesystem::path &path);
+
+  void RenameFile(const std::filesystem::path &orig, const std::filesystem::path &dest);
 
   /**
    * Create and return a new locker.

@@ -1,0 +1,58 @@
+workloads:
+  - name: "Durability with property compression used"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/durability_with_property_compression_used.py"]
+  - name: "Recover snapshot"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/snapshot_recovery.py"]
+  - name: "Recovery failure broken"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/recovery_failure_broken.py"]
+  - name: "Recovery failure status reporting"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/recovery_failure_status.py"]
+  - name: "Recovery failure cure via RECOVER SNAPSHOT"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/recovery_failure_recover_snapshot.py"]
+  - name: "Drop broken database"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/drop_broken_database.py"]
+  - name: "Periodic snapshot"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/periodic_snapshot.py"]
+  - name: "Recover snapshot (light edge)"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/snapshot_recovery_light_edge.py"]
+  - name: "Periodic snapshot (light edge)"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/periodic_snapshot_light_edge.py"]
+  - name: "MT durability"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/multitenancy.py"]
+  - name: "Durability with descriptions"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/durability_with_descriptions.py"]
+  - name: "Durability with text index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/durability_with_text_index.py"]
+  - name: "Durability with vector index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/durability_with_vector_index.py"]
+  - name: "Durability with vector edge index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/durability_with_vector_edge_index.py"]
+  - name: "Durability with DESC index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/durability_with_desc_index.py"]
+  - name: "Durability with vertex property index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/durability_with_vertex_property_index.py"]
+  - name: "Indices not persisted in analytical mode"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/indices_not_persisted_analytical.py"]
+  - name: "Parameters durability"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/parameters_durability.py"]
+  - name: "Tenant profile durability"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/tenant_profile_durability.py"]

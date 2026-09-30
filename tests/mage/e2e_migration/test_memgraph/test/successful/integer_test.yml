@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.integer_col AS integer_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.integer_col) AS integer_col_type, row.integer_col AS integer_col
+
+output:
+  - integer_col_type: 'INTEGER'
+    integer_col: 2147483647

@@ -1,0 +1,9 @@
+query: >
+    CALL igraphalg.community_leiden("INVALID",NULL,0.6)
+    YIELD node, community_id
+    RETURN node.id as node_id, community_id
+    ORDER BY community_id ASC
+
+
+exception: >
+        Objective function can only be "CPM" or "modularity"

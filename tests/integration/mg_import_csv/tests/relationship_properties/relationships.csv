@@ -1,5 +1,0 @@
-:START_ID,:TYPE,:END_ID,value
-1,NEIGHBOUR,2,test
-3,NEIGHBOUR,2,hello
-5,NOT_NEIGHBOUR,7,world
-6,NOT_NEIGHBOUR,1,"to properties"

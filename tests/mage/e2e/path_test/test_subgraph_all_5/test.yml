@@ -1,0 +1,12 @@
+query: >
+  MATCH (dog:Dog)
+  CALL path.subgraph_all(dog, {labelFilter: ["/Mouse"]})
+  YIELD nodes, rels
+  RETURN nodes, rels
+
+output:
+  - nodes:
+      - labels:
+          - Mouse
+        properties: {}
+    rels: []

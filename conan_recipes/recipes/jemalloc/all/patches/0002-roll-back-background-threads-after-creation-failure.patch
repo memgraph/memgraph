@@ -1,0 +1,34 @@
+--- a/src/background_thread.c
++++ b/src/background_thread.c
+@@ -634,7 +634,30 @@
+ 		}
+ 	}
+ 
+-	return background_thread_create_locked(tsd, 0);
++	bool err = background_thread_create_locked(tsd, 0);
++	if (err) {
++		/*
++		 * Thread 0 would have started the marked threads. Without it
++		 * they never run, so roll them back and disable background
++		 * threads, leaving decay to application threads.
++		 */
++		for (i = 1; i < max_background_threads; i++) {
++			if (!marked[i]) {
++				continue;
++			}
++			background_thread_info_t *info =
++			    &background_thread_info[i];
++			malloc_mutex_lock(tsd_tsdn(tsd), &info->mtx);
++			if (info->state == background_thread_started) {
++				info->state = background_thread_stopped;
++				n_background_threads--;
++				background_thread_info_init(tsd_tsdn(tsd), info);
++			}
++			malloc_mutex_unlock(tsd_tsdn(tsd), &info->mtx);
++		}
++		background_thread_enabled_set(tsd_tsdn(tsd), false);
++	}
++	return err;
+ }
+ 
+ bool

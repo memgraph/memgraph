@@ -1,0 +1,130 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include "replication/replication_client.hpp"
+#include "replication_coordination_glue/mode.hpp"
+#include "replication_coordination_glue/role.hpp"
+#include "storage/v2/replication/enums.hpp"
+#include "utils/uuid.hpp"
+
+// BEGIN fwd declares
+namespace memgraph::replication {
+struct ReplicationState;
+struct ReplicationServerConfig;
+struct ReplicationClientConfig;
+}  // namespace memgraph::replication
+
+namespace memgraph::query {
+
+enum class RegisterReplicaError : uint8_t {
+  NOT_MAIN,
+  NAME_EXISTS,
+  ENDPOINT_EXISTS,
+  CONNECTION_FAILED,
+  COULD_NOT_BE_PERSISTED,
+  ERROR_ACCEPTING_MAIN,
+  NO_ACCESS,
+  // Some database is in IN_MEMORY_ANALYTICAL; analytical writes bypass the WAL, so a replica
+  // attached now would silently miss them.
+  ANALYTICAL_MODE
+};
+
+enum class UnregisterReplicaResult : uint8_t {
+  NOT_MAIN,
+  COULD_NOT_BE_PERSISTED,
+  CANNOT_UNREGISTER,
+  SUCCESS,
+  NO_ACCESS,
+  ANALYTICAL_MODE
+};
+
+enum class ShowReplicaError : uint8_t {
+  NOT_MAIN,
+};
+
+struct ReplicaSystemInfoState {
+  uint64_t ts_;
+  int64_t behind_;
+  replication::ReplicationClient::State state_;
+};
+
+struct ReplicaInfoState {
+  ReplicaInfoState(uint64_t const ts, int64_t const behind, storage::replication::ReplicaState state)
+      : ts_(ts), behind_(behind), state_(state) {}
+
+  uint64_t ts_;
+  int64_t behind_;
+  storage::replication::ReplicaState state_;
+};
+
+struct ReplicasInfo {
+  ReplicasInfo(std::string name, std::string socket_address, replication_coordination_glue::ReplicationMode sync_mode,
+               ReplicaSystemInfoState system_info, std::map<std::string, ReplicaInfoState> data_info)
+      : name_(std::move(name)),
+        socket_address_(std::move(socket_address)),
+        sync_mode_(sync_mode),
+        system_info_(system_info),
+        data_info_(std::move(data_info)) {}
+
+  std::string name_;
+  std::string socket_address_;
+  replication_coordination_glue::ReplicationMode sync_mode_;
+  ReplicaSystemInfoState system_info_;
+  std::map<std::string, ReplicaInfoState> data_info_;
+};
+
+struct ReplicasInfos {
+  explicit ReplicasInfos(std::vector<ReplicasInfo> entries) : entries_(std::move(entries)) {}
+
+  std::vector<ReplicasInfo> entries_;
+};
+
+/// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
+struct ReplicationQueryHandler {
+  virtual ~ReplicationQueryHandler() = default;
+
+  // as REPLICA, become MAIN
+  virtual bool SetReplicationRoleMain() = 0;
+
+  // as MAIN, become REPLICA
+  virtual bool SetReplicationRoleReplica(const replication::ReplicationServerConfig &config,
+                                         std::optional<utils::UUID> const &maybe_main_uuid) = 0;
+
+  virtual bool TrySetReplicationRoleReplica(const replication::ReplicationServerConfig &config) = 0;
+
+  // as MAIN, define and connect to REPLICAs
+  virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
+      -> std::expected<void, RegisterReplicaError> = 0;
+
+  virtual auto RegisterReplica(const memgraph::replication::ReplicationClientConfig &config)
+      -> std::expected<void, RegisterReplicaError> = 0;
+
+  // as MAIN, remove a REPLICA connection
+  virtual auto UnregisterReplica(std::string_view name) -> UnregisterReplicaResult = 0;
+
+  // Helper pass-through (TODO: remove)
+  virtual auto GetRole() const -> memgraph::replication_coordination_glue::ReplicationRole = 0;
+  virtual bool IsMain() const = 0;
+  virtual bool IsReplica() const = 0;
+
+  virtual auto ShowReplicas() const -> std::expected<ReplicasInfos, ShowReplicaError> = 0;
+
+ protected:
+  ReplicationQueryHandler() = default;
+  ReplicationQueryHandler(const ReplicationQueryHandler &) = default;
+  ReplicationQueryHandler(ReplicationQueryHandler &&) noexcept = default;
+  ReplicationQueryHandler &operator=(const ReplicationQueryHandler &) = default;
+  ReplicationQueryHandler &operator=(ReplicationQueryHandler &&) noexcept = default;
+};
+
+}  // namespace memgraph::query

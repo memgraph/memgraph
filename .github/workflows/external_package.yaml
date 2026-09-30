@@ -1,0 +1,133 @@
+name: "Package Memgraph (External)"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.pr_number }}
+  cancel-in-progress: true
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        type: string
+        required: true
+        description: PR number
+      base_master:
+        type: boolean
+        description: Base on master
+        default: false
+      os:
+        type: choice
+        description: Build container distro
+        default: ubuntu-24.04
+        options:
+          - ubuntu-24.04
+      arch:
+        type: choice
+        description: CPU architecture
+        default: amd
+        options:
+          - amd
+          - arm
+          - both
+      build_docker_image:
+        type: choice
+        description: Docker image(s) to produce alongside the deb.
+        default: none
+        options:
+          - none
+          - prod
+          - debug
+          - both
+      push_to_s3:
+        type: boolean
+        description: Push to S3
+        default: false
+      s3_dest_dir:
+        type: string
+        description: Target S3 path - use format 'memgraph/vX.Y.Z'
+        default: ''
+      run_smoke_tests:
+        type: boolean
+        description: Run smoke tests
+        default: false
+      package_smoke_os:
+        type: choice
+        description: Distro(s) to smoke test the built deb/rpm packages on (requires run_smoke_tests).
+        default: ubuntu-24.04
+        options:
+          - all
+          - all deb
+          - all rpm
+          - centos-9
+          - centos-10
+          - debian-12
+          - debian-13
+          - fedora-43
+          - fedora-44
+          - rocky-10
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-26.04
+
+jobs:
+  CallCreateStagingBranch:
+    uses: ./.github/workflows/create_staging_branch.yaml
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      base_master: ${{ inputs.base_master }}
+    secrets: inherit
+
+  TriggerPackageWorkflow:
+    needs: CallCreateStagingBranch
+    uses: ./.github/workflows/package_memgraph.yaml
+    with:
+      os: ${{ inputs.os }}
+      arch: ${{ inputs.arch }}
+      build_docker_image: ${{ inputs.build_docker_image }}
+      push_to_s3: ${{ inputs.push_to_s3 }}
+      s3_dest_dir: ${{ inputs.s3_dest_dir }}
+      run_smoke_tests: ${{ inputs.run_smoke_tests }}
+      package_smoke_os: ${{ inputs.package_smoke_os }}
+      ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
+    secrets: inherit
+
+  UpdatePRComment:
+    continue-on-error: true  # NOTE: older branches may not have the code to create this comment
+    needs: [CallCreateStagingBranch, TriggerPackageWorkflow]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Update PR comment with package results
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ needs.TriggerPackageWorkflow.result }}" == "success" ]; then
+            status="true"
+            echo "✅ Package workflow completed successfully"
+          else
+            status="false"
+            echo "❌ Package workflow failed"
+          fi
+
+          python3 ./tools/ci/external-contributions/pr_comment_update.py \
+            "${{ needs.CallCreateStagingBranch.outputs.comment_id }}" \
+            "${{ github.event.inputs.pr_number }}" \
+            "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}" \
+            "$status"
+
+  CleanupStagingBranch:
+    needs: [CallCreateStagingBranch, TriggerPackageWorkflow]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Cleanup staging branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./tools/ci/external-contributions/cleanup_staging_branch.sh \
+          "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}"

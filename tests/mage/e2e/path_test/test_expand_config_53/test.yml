@@ -1,0 +1,17 @@
+# With the sequence starting one node out, the label step is chosen by the depth minus one: the node one
+# hop out is tested against the first step, not the second. The start node has no step to be tested
+# against, so its own label is never consulted however `filterStartNode` is set -- S carries neither
+# label here, and the walk still passes it.
+query: >
+  MATCH (s:Start {name: "S"})
+  CALL path.expand_config(s, {minHops: 0, maxHops: 3, labelFilter: 'A,B',
+                              beginSequenceAtStart: false, filterStartNode: true})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["S"]
+  - names: ["S", "N1"]
+  - names: ["S", "N1", "N2"]
+  - names: ["S", "N1", "N2", "N3"]

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,14 +11,24 @@
 
 #pragma once
 
-#include <functional>
-#include <iostream>
+#include <sys/types.h>
+#include <chrono>
+#include <cstddef>
+#include <cstdint>
+#include <expected>
 #include <optional>
+#include <string_view>
 #include <utility>
 
 #include "io/network/endpoint.hpp"
 
 namespace memgraph::io::network {
+
+enum class ClientCommunicationError : uint8_t {
+  SOCKET_FAILED_TO_CONNECT,  // failed to establish socket connection
+  TIMEOUT_ERROR,
+  GENERIC_ERROR
+};
 
 /**
  * This class creates a network socket.
@@ -38,7 +48,7 @@ class Socket {
   /**
    * Closes the socket if it is open.
    */
-  void Close();
+  void Close() noexcept;
 
   /**
    * Shutdown the socket if it is open.
@@ -63,7 +73,8 @@ class Socket {
    *             true if the connect succeeded
    *             false if the connect failed
    */
-  bool Connect(const Endpoint &endpoint);
+  bool Connect(const Endpoint &endpoint, std::chrono::milliseconds connect_timeout_ms = std::chrono::milliseconds{5000},
+               bool keep_non_blocking = false);
 
   /**
    * Binds the socket to the specified endpoint.
@@ -97,9 +108,9 @@ class Socket {
   std::optional<Socket> Accept();
 
   /**
-   * Sets the socket to non-blocking.
+   * Sets the socket to non-blocking. Returns unexpected holding the error message on failure.
    */
-  void SetNonBlocking();
+  [[nodiscard]] auto SetNonBlocking() -> std::expected<void, std::string>;
 
   /**
    * Enables TCP keep-alive on the socket.
@@ -120,6 +131,15 @@ class Socket {
    * @param usec timeout microseconds value
    */
   void SetTimeout(int64_t sec, int64_t usec);
+
+  /**
+   * Sets TCP_USER_TIMEOUT on the socket. If transmitted data remains
+   * unacknowledged for @p timeout_ms milliseconds, the kernel tears down
+   * the connection and any blocked send()/recv() returns ETIMEDOUT.
+   *
+   * Default: 5000ms (5s).
+   */
+  void SetUserTimeout(int timeout_ms = 5000);
 
   /**
    * Checks if there are any errors on a socket. Returns 0 if there are none.
@@ -145,12 +165,18 @@ class Socket {
    * @param have_more set to true if you plan to send more data to allow the
    * kernel to buffer the data instead of immediately sending it out
    *
+   * @param timeout_ms Timeout in miliseconds for writing operation
+   *
    * @return write success status:
    *             true if write succeeded
    *             false if write failed
    */
-  bool Write(const uint8_t *data, size_t len, bool have_more = false);
-  bool Write(std::string_view s, bool have_more = false);
+
+  [[nodiscard]] auto Write(const uint8_t *data, size_t len, bool have_more = false,
+                           std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, ClientCommunicationError>;
+  [[nodiscard]] auto Write(std::string_view s, bool have_more = false, std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, ClientCommunicationError>;
 
   /**
    * Read data from the socket.
@@ -178,11 +204,13 @@ class Socket {
    * be read from the socket) and returns `false` if the wait failed (the socket
    * was closed or something else bad happened).
    *
+   * @param timeout_ms Timeout in miliseconds.
+   *
    * @return wait success status:
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyRead();
+  bool WaitForReadyRead(std::optional<int> timeout_ms = std::nullopt) const;
 
   /**
    * Wait until the socket becomes ready for a `Write` operation.
@@ -195,14 +223,18 @@ class Socket {
    * to) and returns `false` if the wait failed (the socket was closed or
    * something else bad happened).
    *
+   * @param timeout_ms Timeout in miliseconds. Max time allowed for waiting before socket becomes writeable.
+   *
    * @return wait success status:
    *             true if the wait succeeded
    *             false if the wait failed
    */
-  bool WaitForReadyWrite();
+  bool WaitForReadyWrite(std::optional<int> timeout_ms = std::nullopt) const;
 
  private:
   Socket(int fd, Endpoint endpoint) : socket_(fd), endpoint_(std::move(endpoint)) {}
+
+  static void Close(int sfd, std::string_view socket_addr);
 
   int socket_ = -1;
   Endpoint endpoint_;

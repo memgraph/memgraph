@@ -12,8 +12,10 @@
 # licenses/APL.txt.
 
 import argparse
+import hashlib
 import json
 import multiprocessing
+import os
 import pathlib
 import platform
 import random
@@ -30,24 +32,18 @@ from benchmark_context import BenchmarkContext
 from benchmark_results import BenchmarkResults
 from constants import *
 from workload_mode import BENCHMARK_MODE_MIXED, BENCHMARK_MODE_REALISTIC
-from workloads import *
-
-WARMUP_TO_HOT_QUERIES = [
-    ("CREATE ();", {}),
-    ("CREATE ()-[:TempEdge]->();", {}),
-    ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
-]
+from workloads.base import Workload
 
 SETUP_AUTH_QUERIES = [
     ("CREATE USER user IDENTIFIED BY 'test';", {}),
     ("GRANT ALL PRIVILEGES TO user;", {}),
-    ("GRANT CREATE_DELETE ON EDGE_TYPES * TO user;", {}),
-    ("GRANT CREATE_DELETE ON LABELS * TO user;", {}),
+    ("GRANT CREATE, READ, UPDATE, DELETE ON EDGES OF TYPE * TO user;", {}),
+    ("GRANT CREATE, READ, UPDATE, DELETE ON NODES CONTAINING LABELS * TO user;", {}),
 ]
 
 CLEANUP_AUTH_QUERIES = [
-    ("REVOKE LABELS * FROM user;", {}),
-    ("REVOKE EDGE_TYPES * FROM user;", {}),
+    ("REVOKE * ON NODES CONTAINING LABELS * FROM user;", {}),
+    ("REVOKE * ON EDGES OF TYPE * FROM user;", {}),
     ("DROP USER user;", {}),
 ]
 
@@ -61,8 +57,23 @@ SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE = [
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Main parser.", add_help=False)
     benchmark_parser = argparse.ArgumentParser(description="Benchmark arguments parser", add_help=False)
+
+    benchmark_parser.add_argument(
+        "--vendor-name",
+        type=str,
+        default=GraphVendors.MEMGRAPH,
+        choices=GraphVendors.get_all_vendors(),
+        help="Input vendor binary name (memgraph, neo4j, falkordb)",
+    )
+
+    benchmark_parser.add_argument(
+        "--installation-type",
+        type=str,
+        default=BenchmarkInstallationType.NATIVE,
+        choices=BenchmarkInstallationType.get_selectable_installation_types(),
+        help="How a single Memgraph is installed and run (native, docker, external)",
+    )
 
     benchmark_parser.add_argument(
         "benchmarks",
@@ -85,6 +96,14 @@ def parse_args():
         default=multiprocessing.cpu_count() // 2,
         help="number of workers used to import the dataset",
     )
+
+    benchmark_parser.add_argument(
+        "--client-bolt-address",
+        type=str,
+        default="127.0.0.1",
+        help="On which IP is instance available for a client to connect to",
+    )
+
     benchmark_parser.add_argument(
         "--num-workers-for-benchmark",
         type=int,
@@ -115,6 +134,12 @@ def parse_args():
         default=False,
         help="disable storing of cached query counts",
     )
+    benchmark_parser.add_argument(
+        "--cache-directory",
+        default=None,
+        help="Directory holding cached query counts and datasets. Point this at a location that "
+        "persists between runs to skip recalibration and dataset downloads. Defaults to .cache next to this script.",
+    )
 
     benchmark_parser.add_argument(
         "--export-results",
@@ -135,10 +160,66 @@ def parse_args():
     )
 
     benchmark_parser.add_argument(
-        "--no-authorization",
-        action="store_false",
+        "--export-results-ha",
+        default=None,
+        help="File path into which the results of the high availability leg should be exported. Required when ha is "
+        "combined with another installation type, and unused otherwise.",
+    )
+
+    # High availability is its own axis rather than an installation type: a cluster is a topology, not a
+    # way of installing Memgraph. --run-ha measures it alongside the single instance, --ha-only measures
+    # only the cluster.
+    high_availability = benchmark_parser.add_mutually_exclusive_group()
+    high_availability.add_argument(
+        "--run-ha",
+        action="store_true",
+        default=False,
+        help="Also measure the target workloads against a high availability cluster, in the same invocation, so both "
+        "legs share one query count calibration. Requires --export-results-ha.",
+    )
+    high_availability.add_argument(
+        "--ha-only",
+        action="store_true",
+        default=False,
+        help="Measure only against a high availability cluster. Results go to --export-results, as for any other "
+        "single target.",
+    )
+
+    benchmark_parser.add_argument(
+        "--ha-authorization",
+        action="store_true",
+        default=False,
+        help="Also run the fine-grained authorization pass on the high availability leg added by --run-ha, which "
+        "doubles that leg's measurements and so its cluster restarts. Off by default because the cost lands on the "
+        "slowest leg. Does not apply to --ha-only, where the cluster is the whole run and --authorization governs it.",
+    )
+
+    benchmark_parser.add_argument(
+        "--ha-target-workload",
+        action="append",
+        default=None,
+        help="One workload description for the high availability leg, in the same dataset/variant/group/query form as "
+        "the positional arguments; repeat the flag for several. Defaults to the same workloads as the single instance "
+        "leg, and worth narrowing, since every query measured against a cluster costs a restart of each instance in "
+        "it. Takes one value per occurrence on purpose: a multi-value option here would swallow the positional "
+        "workload arguments.",
+    )
+
+    # One attribute, both spellings. The value says what it does: True runs the fine-grained
+    # authorization pass in addition to the anonymous one, so each query is measured twice.
+    # --no-authorization is kept because it is what existing scripts pass to turn the pass off.
+    benchmark_parser.add_argument(
+        "--authorization",
+        dest="authorization",
+        action="store_true",
         default=True,
-        help="Run each query with authorization",
+        help="Measure each query a second time as an authorized user (default)",
+    )
+    benchmark_parser.add_argument(
+        "--no-authorization",
+        dest="authorization",
+        action="store_false",
+        help="Skip the fine-grained authorization pass",
     )
 
     benchmark_parser.add_argument(
@@ -150,9 +231,10 @@ def parse_args():
 
     benchmark_parser.add_argument(
         "--workload-realistic",
-        nargs="*",
+        nargs=5,
         type=int,
         default=None,
+        metavar=("num_of_queries", "write", "read", "update", "analytical"),
         help="""Define combination that defines the realistic workload.
         Realistic workload can be run as a single configuration for all groups of queries,
         Pass the positional arguments as values of what percentage of
@@ -163,9 +245,10 @@ def parse_args():
 
     benchmark_parser.add_argument(
         "--workload-mixed",
-        nargs="*",
+        nargs=6,
         type=int,
         default=None,
+        metavar=("num_of_queries", "write", "read", "update", "analytical", "query"),
         help="""Mixed workload can be run on each query under some defined load.
         By passing one more positional argument, you are defining what percentage of that query
         will be in mixed workload, and this is executed for each query. The rest of the queries will be
@@ -197,60 +280,173 @@ def parse_args():
         help="Vendor specific arguments that can be applied to each vendor, format: [key=value, key=value ...]",
     )
 
-    subparsers = parser.add_subparsers(help="Subparsers", dest="run_option")
-
-    parser_vendor_native = subparsers.add_parser(
-        "vendor-native",
-        help="Running database in binary native form",
-        parents=[benchmark_parser],
+    benchmark_parser.add_argument(
+        "--use-parallel-execution",
+        action="store_true",
+        default=False,
+        help="Prepend 'USING PARALLEL EXECUTION' to all Cypher queries (Memgraph only)",
     )
-    parser_vendor_native.add_argument(
-        "--vendor-name",
+
+    benchmark_parser.add_argument(
+        "--database-workers",
+        type=int,
+        default=None,
+        help="Number of database worker threads (bolt_num_workers for Memgraph). "
+        "If not specified, uses --num-workers-for-benchmark value. "
+        "Useful when --use-parallel-execution is enabled to separate database workers from client workers.",
+    )
+
+    benchmark_parser.add_argument(
+        "--databases",
         default="memgraph",
-        choices=["memgraph", "neo4j"],
-        help="Input vendor binary name (memgraph, neo4j)",
-    )
-    parser_vendor_native.add_argument(
-        "--vendor-binary",
-        help="Vendor binary used for benchmarking, by default it is memgraph",
-        default=helpers.get_binary_path("memgraph"),
+        help="Comma-separated list of databases",
     )
 
-    parser_vendor_native.add_argument(
+    benchmark_parser.add_argument(
+        "--vendor-binary",
+        type=str,
+        help="Path to vendor binary executable (e.g., path to your local memgraph build). "
+        "Required for native installation type. If not specified, attempts to auto-detect from build directory or PATH.",
+        default=None,
+    )
+
+    benchmark_parser.add_argument(
         "--client-binary",
+        type=str,
         default=helpers.get_binary_path("tests/mgbench/client"),
         help="Client binary used for benchmarking",
     )
 
-    parser_vendor_docker = subparsers.add_parser(
-        "vendor-docker", help="Running database in docker", parents=[benchmark_parser]
-    )
-    parser_vendor_docker.add_argument(
-        "--vendor-name",
-        default="memgraph",
-        choices=["memgraph-docker", "neo4j-docker"],
-        help="Input vendor name to run in docker (memgraph-docker, neo4j-docker)",
+    benchmark_parser.add_argument(
+        "--client-language",
+        type=str,
+        default=BenchmarkClientLanguage.CPP,
+        choices=BenchmarkClientLanguage.get_all_client_languages(),
+        help="Client language implementation (cpp or python)",
     )
 
-    return parser.parse_args()
+    return benchmark_parser.parse_args()
+
+
+def resolve_high_availability_args(args):
+    """
+    High availability is orthogonal to how a single Memgraph is installed, so it arrives as its own flag
+    and is reconciled here with the installation type every other reader expects. --ha-only turns the
+    whole run into a cluster run; --run-ha leaves the installation type alone and adds a second leg.
+    """
+    args.run_ha_leg = False
+    if not (args.run_ha or args.ha_only):
+        return
+
+    # A cluster is started from binaries on this machine, so it cannot be measured through a type that
+    # runs the database in a container or expects one to be running already.
+    if args.installation_type not in BenchmarkInstallationType.get_local_binary_installation_types():
+        raise ValueError(
+            f"A high availability cluster is started from local binaries, so it cannot be measured with "
+            f"--installation-type {args.installation_type}. Supported types are "
+            f"{BenchmarkInstallationType.get_selectable_installation_types_for_ha()}."
+        )
+
+    if args.ha_only:
+        args.installation_type = BenchmarkInstallationType.HA
+        return
+
+    args.run_ha_leg = True
+    if args.export_results_ha is None:
+        raise ValueError(
+            "--run-ha measures a single instance and a cluster in one invocation, which writes two result sets, so "
+            "--export-results-ha is required to say where the cluster results go."
+        )
 
 
 def sanitize_args(args):
-    assert args.benchmarks != None, helpers.list_available_workloads()
+    resolve_high_availability_args(args)
+    assert args.benchmarks is not None, helpers.list_available_workloads()
     assert args.num_workers_for_import > 0
     assert args.num_workers_for_benchmark > 0
-    assert args.export_results != None, "Pass where will results be saved"
+    assert args.export_results is not None, "Pass where will results be saved"
     assert args.single_threaded_runtime_sec >= 1, "Low runtime value, consider extending time for more accurate results"
     assert (
-        args.workload_realistic == None or args.workload_mixed == None
+        args.workload_realistic is None or args.workload_mixed is None
     ), "Cannot run both realistic and mixed workload, only one mode run at the time"
+    assert (
+        args.workload_realistic is None or args.workload_realistic[0] > 0
+    ), "--workload-realistic needs a query count above zero"
+    assert args.workload_mixed is None or args.workload_mixed[0] > 0, "--workload-mixed needs a query count above zero"
+
+    # Auto-detect vendor binary if not specified and the installation type starts a local binary
+    if (
+        args.installation_type in BenchmarkInstallationType.get_local_binary_installation_types()
+        and args.vendor_binary is None
+    ):
+        args.vendor_binary = helpers.get_binary_path(GraphVendors.MEMGRAPH)
+        log.log(f"Auto-detected vendor binary: {args.vendor_binary}")
+
+    # Validate vendor binary path if specified (after auto-detection)
+    if (
+        args.installation_type in BenchmarkInstallationType.get_local_binary_installation_types()
+        and args.vendor_binary is not None
+    ):
+        if not os.path.isfile(args.vendor_binary):
+            raise FileNotFoundError(
+                f"Vendor binary not found at specified path: {args.vendor_binary}\n"
+                f"Please provide a valid path to your local build using --vendor-binary <path>"
+            )
+        if not os.access(args.vendor_binary, os.X_OK):
+            log.warning(f"Vendor binary at {args.vendor_binary} is not executable")
+        else:
+            log.log(f"Using vendor binary: {args.vendor_binary}")
+
+    # Validate database_workers if specified
+    if args.database_workers is not None:
+        if args.database_workers <= 0:
+            raise ValueError("--database-workers must be greater than 0")
+        if args.use_parallel_execution:
+            log.log(
+                f"Parallel execution enabled: Using {args.database_workers} database workers and {args.num_workers_for_benchmark} client workers"
+            )
+        else:
+            log.log(
+                f"Using {args.database_workers} database workers (separate from {args.num_workers_for_benchmark} client workers)"
+            )
 
 
-def get_queries(gen, count):
+def modify_query_for_parallel_execution(query_tuple, benchmark_context):
+    """
+    Prepend 'USING PARALLEL EXECUTION' to query if parallel execution is enabled and vendor is Memgraph.
+
+    Args:
+        query_tuple: Tuple of (query_string, params_dict)
+        benchmark_context: BenchmarkContext instance
+
+    Returns:
+        Modified query tuple with parallel execution prefix if applicable
+    """
+    if not benchmark_context.use_parallel_execution:
+        return query_tuple
+
+    if benchmark_context.vendor_name != GraphVendors.MEMGRAPH:
+        return query_tuple
+
+    query, params = query_tuple
+
+    # Check if query already has USING PARALLEL EXECUTION
+    if query.strip().upper().startswith("USING PARALLEL EXECUTION"):
+        return query_tuple
+
+    # Prepend USING PARALLEL EXECUTION
+    modified_query = "USING PARALLEL EXECUTION " + query
+    return (modified_query, params)
+
+
+def get_queries(gen, count, benchmark_context=None):
     random.seed(gen.__name__)
     ret = []
     for _ in range(count):
-        ret.append(gen())
+        query_tuple = gen()
+        if benchmark_context is not None:
+            query_tuple = modify_query_for_parallel_execution(query_tuple, benchmark_context)
+        ret.append(query_tuple)
     return ret
 
 
@@ -319,6 +515,7 @@ def realistic_workload(
     queries,
     benchmark_context: BenchmarkContext,
     results,
+    memory_usage_with_imported_data,
 ):
     log.log("Executing realistic workload...")
     config_distribution, queries_by_type, _, percentage_distribution, num_of_queries = prepare_for_workload(
@@ -333,18 +530,21 @@ def realistic_workload(
         # Get the appropriate functions with same probability
         funcname = random.choices(queries_by_type[t], k=1)[0]
         additional_query = getattr(dataset, funcname)
-        prepared_queries.append(additional_query())
+        query_tuple = additional_query()
+        prepared_queries.append(modify_query_for_parallel_execution(query_tuple, benchmark_context))
 
     rss_db = dataset.NAME + dataset.get_variant() + "_" + "realistic" + "_" + config_distribution
     vendor.start_db(rss_db)
-    warmup(benchmark_context.warm_up, client=client)
+    warmup(benchmark_context.warm_up, client=client, queries=prepared_queries)
 
     ret = client.execute(
         queries=prepared_queries,
         num_workers=benchmark_context.num_workers_for_benchmark,
+        log_args=True,
     )[0]
 
     usage_workload = vendor.stop_db(rss_db)
+    usage_workload[MEMORY] -= memory_usage_with_imported_data
 
     realistic_workload_res = {
         COUNT: ret[COUNT],
@@ -372,6 +572,7 @@ def mixed_workload(
     queries,
     benchmark_context: BenchmarkContext,
     results,
+    memory_usage_with_imported_data,
 ):
     log.log("Executing mixed workload...")
     (
@@ -402,22 +603,26 @@ def mixed_workload(
         base_query = getattr(dataset, funcname)
         for t in function_type:
             if t == QUERY:
-                prepared_queries.append(base_query())
+                query_tuple = base_query()
+                prepared_queries.append(modify_query_for_parallel_execution(query_tuple, benchmark_context))
             else:
                 funcname = random.choices(queries_by_type[t], k=1)[0]
                 additional_query = getattr(dataset, funcname)
-                prepared_queries.append(additional_query())
+                query_tuple = additional_query()
+                prepared_queries.append(modify_query_for_parallel_execution(query_tuple, benchmark_context))
 
         rss_db = dataset.NAME + dataset.get_variant() + "_" + "mixed" + "_" + query + "_" + config_distribution
         vendor.start_db(rss_db)
-        warmup(benchmark_context.warm_up, client=client)
+        warmup(benchmark_context.warm_up, client=client, queries=prepared_queries)
 
         ret = client.execute(
             queries=prepared_queries,
             num_workers=benchmark_context.num_workers_for_benchmark,
+            log_args=True,
         )[0]
 
         usage_workload = vendor.stop_db(rss_db)
+        usage_workload[MEMORY] -= memory_usage_with_imported_data
 
         ret[DATABASE] = usage_workload
 
@@ -431,16 +636,19 @@ def mixed_workload(
         results.set_value(*results_key, value=ret)
 
 
-def warmup(condition: str, client: runners.BaseRunner, queries: list = None):
+def warmup(condition: str, client, queries: list):
     if condition == DATABASE_CONDITION_HOT:
         log.log("Execute warm-up to match condition: {} ".format(condition))
-        client.execute(
-            queries=WARMUP_TO_HOT_QUERIES,
-            num_workers=1,
-        )
+        warmup_to_hot_queries = client.get_warmup_to_hot_queries()
+        if warmup_to_hot_queries:
+            client.execute(
+                queries=warmup_to_hot_queries,
+                num_workers=1,
+            )
     elif condition == DATABASE_CONDITION_VULCANIC:
         log.log("Execute warm-up to match condition: {} ".format(condition))
-        client.execute(queries=queries)
+        if queries:
+            client.execute(queries=queries)
     else:
         log.log("No warm-up on condition: {} ".format(condition))
     log.log("Finished warm-up procedure to match database condition: {} ".format(condition))
@@ -460,36 +668,46 @@ def get_query_cache_count(
         f"Determining query count for benchmark based on --single-threaded-runtime argument = {benchmark_context.single_threaded_runtime_sec}s"
     )
     config_key = [workload.NAME, workload.get_variant(), group, query]
+    # Generators seed on their own name, so the first query they produce is stable across runs
+    # and changes only when the query itself is edited. Parameters are meant to vary, so only
+    # the query text takes part in the hash. Every get_queries call reseeds, so restoring the
+    # RNG state is not needed today - it keeps this from becoming a trap for whoever adds a
+    # randomness consumer after this point.
+    rng_state = random.getstate()
+    query_hash = hashlib.sha256(get_queries(func, 1, benchmark_context)[0][0].encode()).hexdigest()[:16]
+    random.setstate(rng_state)
     cached_count = config.get_value(*config_key)
+    if cached_count is not None and cached_count.get(QUERY_HASH) != query_hash:
+        log.log("Cached query count for {} is stale (query changed), recalibrating.".format(query))
+        cached_count = None
     if cached_count is None:
         vendor.start_db(CACHE)
         client.execute(queries=queries, num_workers=1)
         count = 1
         while True:
-            ret = client.execute(queries=get_queries(func, count), num_workers=1)
+            augmented_queries = get_queries(func, count, benchmark_context)
+            ret = client.execute(queries=augmented_queries, num_workers=1)
             duration = ret[0][DURATION]
-            should_execute = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
+            expected_throughput_for_count = int(benchmark_context.single_threaded_runtime_sec / (duration / count))
             log.log(
                 "Executed_queries={}, total_duration={}, query_duration={}, estimated_count={}".format(
-                    count, duration, duration / count, should_execute
+                    count, duration, duration / count, expected_throughput_for_count
                 )
             )
-            if should_execute / (count * 10) < 10:
-                count = should_execute
+            if expected_throughput_for_count / (count * 10) < 10:
+                count = expected_throughput_for_count
                 break
             else:
                 count = count * 10
 
         vendor.stop_db(CACHE)
 
-        if count < benchmark_context.query_count_lower_bound:
-            count = benchmark_context.query_count_lower_bound
-
         config.set_value(
             *config_key,
             value={
                 COUNT: count,
                 DURATION: benchmark_context.single_threaded_runtime_sec,
+                QUERY_HASH: query_hash,
             },
         )
     else:
@@ -499,6 +717,9 @@ def get_query_cache_count(
             ),
         )
         count = int(cached_count[COUNT] * benchmark_context.single_threaded_runtime_sec / cached_count[DURATION])
+
+    if count < benchmark_context.query_count_lower_bound:
+        count = benchmark_context.query_count_lower_bound
     return count
 
 
@@ -518,10 +739,19 @@ def setup_cache_config(benchmark_context, cache):
         return helpers.RecursiveDict()
 
 
-def save_import_results(workload, results, import_results, rss_usage):
+def save_import_results(workload, results, import_results, rss_usage, snapshot_seconds=None):
     log.info("Summarized importing benchmark results:")
     import_key = [workload.NAME, workload.get_variant(), IMPORT]
-    if import_results != None and rss_usage != None:
+    if snapshot_seconds is not None:
+        # Stands in for the throughput summary below, which has nothing to report on this path: the
+        # dataset arrived as one snapshot load rather than as a query per vertex and edge.
+        size = workload.get_size()
+        log.success(
+            "Loaded a snapshot of {} vertices and {} edges in {:.1f} seconds.".format(
+                size["vertices"], size["edges"], snapshot_seconds
+            )
+        )
+    if import_results is not None and rss_usage is not None:
         # Display import statistics.
         for row in import_results:
             log.success(
@@ -548,7 +778,9 @@ def save_to_results(results, ret, workload, group, query, authorization_mode):
     results.set_value(*results_key, value=ret)
 
 
-def run_isolated_workload_with_authorization(vendor_runner, client, queries, group, workload, results):
+def run_isolated_workload_with_authorization(
+    vendor_runner, client, queries, group, workload, results, memory_usage_with_imported_data, benchmark_context
+):
     log.init("Running isolated workload with authorization")
 
     log.info("Running preprocess AUTH queries")
@@ -561,18 +793,27 @@ def run_isolated_workload_with_authorization(vendor_runner, client, queries, gro
         log.init("Running query:" + "{}/{}/{}/{}".format(group, query, funcname, WITH_FINE_GRAINED_AUTHORIZATION))
         func = getattr(workload, funcname)
         count = get_query_cache_count(
-            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query, func
+            vendor_runner,
+            client,
+            get_queries(func, 1, benchmark_context),
+            benchmark_context,
+            workload,
+            group,
+            query,
+            func,
         )
 
         vendor_runner.start_db(VENDOR_RUNNER_AUTHORIZATION)
         start_time = time.time()
-        warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
+        warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count, benchmark_context))
 
         ret = client.execute(
-            queries=get_queries(func, count),
+            queries=get_queries(func, count, benchmark_context),
             num_workers=benchmark_context.num_workers_for_benchmark,
+            log_args=True,
         )[0]
         usage = vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
+        usage[MEMORY] -= memory_usage_with_imported_data
         time_elapsed = time.time() - start_time
         log.info(f"Benchmark execution of query {funcname} finished in {time_elapsed} seconds.")
 
@@ -588,7 +829,9 @@ def run_isolated_workload_with_authorization(vendor_runner, client, queries, gro
     vendor_runner.stop_db(VENDOR_RUNNER_AUTHORIZATION)
 
 
-def run_isolated_workload_without_authorization(vendor_runner, client, queries, group, workload, results):
+def run_isolated_workload_without_authorization(
+    vendor_runner, client, queries, group, workload, results, memory_usage_with_imported_data, benchmark_context
+):
     log.init("Running isolated workload without authorization")
     for query, funcname in queries[group]:
         log.init(
@@ -596,11 +839,18 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
         )
         func = getattr(workload, funcname)
         count = get_query_cache_count(
-            vendor_runner, client, get_queries(func, 1), benchmark_context, workload, group, query, func
+            vendor_runner,
+            client,
+            get_queries(func, 1, benchmark_context),
+            benchmark_context,
+            workload,
+            group,
+            query,
+            func,
         )
 
         # Benchmark run.
-        sample_query = get_queries(func, 1)[0][0]
+        sample_query = get_queries(func, 1, benchmark_context)[0][0]
         log.info("Sample query:{}".format(sample_query))
         log.log(
             "Executing benchmark with {} queries that should yield a single-threaded runtime of {} seconds.".format(
@@ -612,18 +862,21 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
         start_time = time.time()
         rss_db = workload.NAME + workload.get_variant() + "_" + "_" + benchmark_context.mode + "_" + query
         vendor_runner.start_db(rss_db)
-        warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count))
+        warmup(condition=benchmark_context.warm_up, client=client, queries=get_queries(func, count, benchmark_context))
         log.init("Executing benchmark queries...")
         ret = client.execute(
-            queries=get_queries(func, count),
+            queries=get_queries(func, count, benchmark_context),
             num_workers=benchmark_context.num_workers_for_benchmark,
             time_dependent_execution=benchmark_context.time_dependent_execution,
+            log_args=True,
         )[0]
 
         time_elapsed = time.time() - start_time
 
         log.info(f"Benchmark execution of query {funcname} finished in {time_elapsed} seconds.")
         usage = vendor_runner.stop_db(rss_db)
+        if usage is not None:
+            usage[MEMORY] -= memory_usage_with_imported_data
 
         ret[DATABASE] = usage
         log_output_summary(benchmark_context, ret, usage, funcname, sample_query)
@@ -631,31 +884,59 @@ def run_isolated_workload_without_authorization(vendor_runner, client, queries, 
         save_to_results(results, ret, workload, group, query, WITHOUT_FINE_GRAINED_AUTHORIZATION)
 
 
+def import_dataset_from_snapshot(vendor_runner, workload):
+    """
+    Loads the dataset from a durability snapshot instead of replaying its import queries, when both
+    the runner and the workload's variant offer one. Returns how long that took, or None when the
+    dataset has to be imported the usual way.
+
+    The duration is all there is to report. A snapshot load is one query, so there is no per-query
+    throughput to summarize, and the import phase of a run that takes this path is not comparable
+    with one that replays the dataset's queries.
+    """
+    if not vendor_runner.supports_snapshot_recovery() or workload.get_snapshot_url() is None:
+        return None
+    log.info("Loading the dataset from a snapshot rather than replaying its import queries.")
+    path = workload.prepare_snapshot(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
+    # Timed here rather than inside the runner, so the figure covers everything the import phase
+    # replaces: the load on main and the wait for the replicas to hold it.
+    started_at = time.time()
+    vendor_runner.recover_snapshot(path, workload.get_size())
+    return time.time() - started_at
+
+
 def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, workload, storage_mode):
-    vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
+    if benchmark_context.vendor_name != GraphVendors.NEO4J:
+        # Neo4j will get started just before import -> without this if statement it would try to start it twice
+        vendor_runner.start_db_init(VENDOR_RUNNER_IMPORT)
     log.info("Executing database index setup")
     start_time = time.time()
-
-    if generated_queries:
+    import_results = None
+    snapshot_seconds = import_dataset_from_snapshot(vendor_runner, workload)
+    if snapshot_seconds is not None:
+        log.info("Dataset loaded from a snapshot, indexes included.")
+    elif generated_queries:
         client.execute(queries=workload.indexes_generator(), num_workers=1)
         log.info("Finished setting up indexes.")
         log.info("Started importing dataset")
-        import_results = client.execute(queries=generated_queries, num_workers=benchmark_context.num_workers_for_import)
+        import_results = client.execute(
+            queries=generated_queries, num_workers=benchmark_context.num_workers_for_import, log_args=True
+        )
     else:
         log.info("Using workload information for importing dataset and creating indices")
         log.info("Preparing workload: " + workload.NAME + "/" + workload.get_variant())
         workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
-        imported = workload.custom_import()
+        imported = workload.custom_import(client)
         if not imported:
             client.execute(file_path=workload.get_index(), num_workers=1)
             log.info("Finished setting up indexes.")
             log.info("Started importing dataset")
             if storage_mode == ON_DISK_TRANSACTIONAL:
-                import_results = client.execute(file_path=workload.get_node_file(), num_workers=1)
-                import_results = client.execute(file_path=workload.get_edge_file(), num_workers=1)
+                import_results = client.execute(file_path=workload.get_node_file(), num_workers=1, log_args=True)
+                import_results = client.execute(file_path=workload.get_edge_file(), num_workers=1, log_args=True)
             else:
                 import_results = client.execute(
-                    file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import
+                    file_path=workload.get_file(), num_workers=benchmark_context.num_workers_for_import, log_args=True
                 )
         else:
             log.info("Custom import executed")
@@ -663,30 +944,104 @@ def setup_indices_and_import_dataset(client, vendor_runner, generated_queries, w
     log.info(f"Finished importing dataset in {time.time() - start_time}s")
     rss_usage = vendor_runner.stop_db_init(VENDOR_RUNNER_IMPORT)
 
-    return import_results, rss_usage
+    return import_results, rss_usage, snapshot_seconds
+
+
+def save_memory_usage_of_empty_db(vendor_runner, workload, results):
+    rss_db = workload.NAME + workload.get_variant() + "_" + EMPTY_DB
+    vendor_runner.start_db_init(rss_db)
+    usage = vendor_runner.stop_db(rss_db)
+    vendor_runner.clean_db()
+    if usage is None:
+        usage = {"memory": 0, "cpu": 0}
+    key = [workload.NAME, workload.get_variant(), EMPTY_DB]
+    results.set_value(*key, value={DATABASE: usage})
+    return usage[MEMORY]
+
+
+def save_memory_usage_of_imported_data(vendor_runner, workload, results, memory_usage_of_empty_db):
+    rss_db = workload.NAME + workload.get_variant() + "_" + IMPORTED_DATA
+    vendor_runner.start_db(rss_db)
+    usage = vendor_runner.stop_db(rss_db)
+    if usage is None:
+        usage = {"memory": 0, "cpu": 0}
+    # Save total memory usage with imported data to be able to calculate only execution memory usage later
+    total_usage_with_imported_data = usage[MEMORY]
+    usage[MEMORY] -= memory_usage_of_empty_db
+    key = [workload.NAME, workload.get_variant(), IMPORTED_DATA]
+    results.set_value(*key, value={DATABASE: usage})
+    return total_usage_with_imported_data
 
 
 def run_target_workload(benchmark_context, workload, bench_queries, vendor_runner, client, results, storage_mode):
+    memory_usage_of_empty_db = save_memory_usage_of_empty_db(vendor_runner, workload, results)
     generated_queries = workload.dataset_generator()
-    import_results, rss_usage = setup_indices_and_import_dataset(
+    # A workload either generates its dataset or imports one, and Workload.__init_subclass__ refuses
+    # a class that does neither or both. So an inherited generator returning nothing is the normal
+    # case for every file-imported workload, and only a workload that defines its own generator has
+    # something to complain about when that generator comes back empty.
+    generates_its_dataset = type(workload).dataset_generator is not Workload.dataset_generator
+    if not generated_queries and generates_its_dataset:
+        log.warning(
+            f"The dataset_generator of workload {workload.NAME} produced no queries, so there is nothing to import."
+        )
+    import_results, rss_usage, snapshot_seconds = setup_indices_and_import_dataset(
         client, vendor_runner, generated_queries, workload, storage_mode
     )
-    save_import_results(workload, results, import_results, rss_usage)
+    save_import_results(workload, results, import_results, rss_usage, snapshot_seconds)
+    memory_usage_with_imported_data = save_memory_usage_of_imported_data(
+        vendor_runner, workload, results, memory_usage_of_empty_db
+    )
 
     for group in sorted(bench_queries.keys()):
         log.init(f"\nRunning benchmark in {benchmark_context.mode} workload mode for {group} group")
         if benchmark_context.mode == BENCHMARK_MODE_MIXED:
-            mixed_workload(vendor_runner, client, workload, group, bench_queries, benchmark_context, results)
+            mixed_workload(
+                vendor_runner,
+                client,
+                workload,
+                group,
+                bench_queries,
+                benchmark_context,
+                results,
+                memory_usage_with_imported_data,
+            )
         elif benchmark_context.mode == BENCHMARK_MODE_REALISTIC:
-            realistic_workload(vendor_runner, client, workload, group, bench_queries, benchmark_context, results)
+            realistic_workload(
+                vendor_runner,
+                client,
+                workload,
+                group,
+                bench_queries,
+                benchmark_context,
+                results,
+                memory_usage_with_imported_data,
+            )
         else:
-            run_isolated_workload_without_authorization(vendor_runner, client, bench_queries, group, workload, results)
+            run_isolated_workload_without_authorization(
+                vendor_runner,
+                client,
+                bench_queries,
+                group,
+                workload,
+                results,
+                memory_usage_with_imported_data,
+                benchmark_context,
+            )
 
-        if benchmark_context.no_authorization:
-            run_isolated_workload_with_authorization(vendor_runner, client, bench_queries, group, workload, results)
+        if benchmark_context.authorization:
+            run_isolated_workload_with_authorization(
+                vendor_runner,
+                client,
+                bench_queries,
+                group,
+                workload,
+                results,
+                memory_usage_with_imported_data,
+                benchmark_context,
+            )
 
 
-# TODO: (andi) Reorder functions in top-down notion in order to improve readibility
 def run_target_workloads(benchmark_context, target_workloads, bench_results):
     for workload, bench_queries in target_workloads:
         log.info(f"Started running {str(workload.NAME)} workload")
@@ -706,10 +1061,64 @@ def run_target_workloads(benchmark_context, target_workloads, bench_results):
                     benchmark_context, workload, bench_queries, bench_results.in_memory_analytical_results
                 )
 
+    if benchmark_context.run_ha_leg:
+        run_ha_target_workloads(benchmark_context, bench_results.ha_results)
+
+
+def run_ha_target_workloads(benchmark_context, ha_results):
+    """
+    The HA leg is a separate pass rather than another leg inside the loop above, because it needs its
+    own target set. Every query measured against a cluster costs a restart of every instance in it, so
+    running the single-instance target set unchanged would multiply the wall-clock by the size of that
+    set. --ha-target-workload narrows it; without it the HA leg measures the same queries as the
+    single-instance leg.
+    """
+    ha_benchmark_context = deepcopy(benchmark_context)
+    ha_benchmark_context.installation_type = BenchmarkInstallationType.HA
+    # Scoped to this leg only: the context is already a copy, so the single instance leg keeps whatever
+    # --authorization said while the cluster leg measures each query once unless asked otherwise.
+    ha_benchmark_context.authorization = benchmark_context.ha_authorization
+    if benchmark_context.ha_target_workload:
+        ha_benchmark_context.benchmark_target_workload = benchmark_context.ha_target_workload
+
+    ha_target_workloads = helpers.filter_workloads(
+        available_workloads=helpers.get_available_workloads(benchmark_context.customer_workloads),
+        benchmark_context=ha_benchmark_context,
+    )
+    validate_target_workloads(ha_benchmark_context, ha_target_workloads)
+
+    for workload, bench_queries in ha_target_workloads:
+        log.info(f"Started running {str(workload.NAME)} workload against a cluster")
+        ha_benchmark_context.set_active_workload(workload.NAME)
+        ha_benchmark_context.set_active_variant(workload.get_variant())
+        run_ha_benchmark(ha_benchmark_context, workload, bench_queries, ha_results)
+
+
+def get_runner_client(runner, benchmark_context):
+    # Only the HA runner can move the database to another port mid-run, when a cluster restart
+    # leaves a different instance as main. Every other runner derives its port from the same
+    # vendor_args value the client already reads, so it is left resolving the port itself.
+    dynamic_runner = runner if benchmark_context.installation_type == BenchmarkInstallationType.HA else None
+    if benchmark_context.client_language == BenchmarkClientLanguage.CPP:
+        if (
+            benchmark_context.vendor_name is None
+            or benchmark_context.installation_type != BenchmarkInstallationType.DOCKER
+        ):
+            return runners.BoltClient(benchmark_context=benchmark_context, runner=dynamic_runner)
+        return runners.BoltClientDocker(benchmark_context=benchmark_context)
+    elif benchmark_context.client_language == BenchmarkClientLanguage.PYTHON:
+        return runners.PythonClient(
+            benchmark_context=benchmark_context, database_port=runner.get_database_port(), runner=dynamic_runner
+        )
+    else:
+        raise Exception("Unknown runner client type!")
+
 
 def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queries, disk_results):
     log.info(f"Running benchmarks for {ON_DISK_TRANSACTIONAL} storage mode.")
-    disk_vendor_runner, disk_client = client_runner_factory(benchmark_context)
+    disk_vendor_runner = client_runner_factory(benchmark_context)
+    disk_client = get_runner_client(disk_vendor_runner, benchmark_context)
+
     disk_vendor_runner.start_db(DISK_PREPARATION_RSS)
     disk_client.execute(queries=SETUP_DISK_STORAGE)
     disk_vendor_runner.stop_db(DISK_PREPARATION_RSS)
@@ -721,7 +1130,9 @@ def run_on_disk_transactional_benchmark(benchmark_context, workload, bench_queri
 
 def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_queries, in_memory_analytical_results):
     log.info(f"Running benchmarks for {IN_MEMORY_ANALYTICAL} storage mode.")
-    in_memory_analytical_vendor_runner, in_memory_analytical_client = client_runner_factory(benchmark_context)
+    in_memory_analytical_vendor_runner = client_runner_factory(benchmark_context)
+    in_memory_analytical_client = get_runner_client(in_memory_analytical_vendor_runner, benchmark_context)
+
     in_memory_analytical_vendor_runner.start_db(IN_MEMORY_ANALYTICAL_RSS)
     in_memory_analytical_client.execute(queries=SETUP_IN_MEMORY_ANALYTICAL_STORAGE_MODE)
     in_memory_analytical_vendor_runner.stop_db(IN_MEMORY_ANALYTICAL_RSS)
@@ -739,7 +1150,9 @@ def run_in_memory_analytical_benchmark(benchmark_context, workload, bench_querie
 
 def run_in_memory_transactional_benchmark(benchmark_context, workload, bench_queries, in_memory_txn_results):
     log.info(f"Running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
-    in_memory_txn_vendor_runner, in_memory_txn_client = client_runner_factory(benchmark_context)
+    in_memory_txn_vendor_runner = client_runner_factory(benchmark_context)
+    in_memory_txn_client = get_runner_client(in_memory_txn_vendor_runner, benchmark_context)
+
     run_target_workload(
         benchmark_context,
         workload,
@@ -752,12 +1165,36 @@ def run_in_memory_transactional_benchmark(benchmark_context, workload, bench_que
     log.info(f"Finished running benchmarks for {IN_MEMORY_TRANSACTIONAL} storage mode.")
 
 
+def run_ha_benchmark(benchmark_context, workload, bench_queries, ha_results):
+    """
+    Runs the target workloads a second time against a coordinator-managed HA cluster, in the same
+    invocation as the single-instance leg. Sharing the invocation is the point: the query count cache
+    is a module-level dict here, so both legs execute the same number of queries by construction
+    rather than by depending on which one calibrated first.
+    """
+    log.info(f"Running benchmarks against a {BenchmarkInstallationType.HA} cluster.")
+    # The context arrives with installation_type already set to HA, which is what selects the cluster
+    # runner and, through get_runner_client, what lets the client follow whichever instance is main.
+    ha_vendor_runner = client_runner_factory(benchmark_context)
+    ha_client = get_runner_client(ha_vendor_runner, benchmark_context)
+
+    run_target_workload(
+        benchmark_context,
+        workload,
+        bench_queries,
+        ha_vendor_runner,
+        ha_client,
+        ha_results,
+        IN_MEMORY_TRANSACTIONAL,
+    )
+    log.info(f"Finished running benchmarks against a {BenchmarkInstallationType.HA} cluster.")
+
+
 def client_runner_factory(benchmark_context):
     vendor_runner = runners.BaseRunner.create(benchmark_context=benchmark_context)
     vendor_runner.clean_db()
     log.log("Database cleaned from any previous data")
-    client = vendor_runner.fetch_client()
-    return vendor_runner, client
+    return vendor_runner
 
 
 def validate_target_workloads(benchmark_context, target_workloads):
@@ -779,14 +1216,16 @@ def log_benchmark_summary(results: Dict, storage_mode):
             continue
         for groups in variants.values():
             for group, queries in groups.items():
-                if group == IMPORT:
+                if group == IMPORT or group == EMPTY_DB or group == IMPORTED_DATA:
                     continue
                 for query, auth in queries.items():
                     for value in auth.values():
                         log.log("-" * 120)
                         log.summary(
                             "{:<20} {:>26.2f} QPS {:>27.2f} MB".format(
-                                query, value[THROUGHPUT], value[DATABASE][MEMORY] / (1024.0 * 1024.0)
+                                query,
+                                value[THROUGHPUT],
+                                0 if value[DATABASE] is None else value[DATABASE][MEMORY] / (1024.0 * 1024.0),
                             )
                         )
     log.log("-" * 90)
@@ -801,8 +1240,9 @@ def log_benchmark_arguments(benchmark_context):
 def log_metrics_summary(ret, usage):
     log.log("Executed  {} queries in {} seconds.".format(ret[COUNT], ret[DURATION]))
     log.log("Queries have been retried {} times".format(ret[RETRIES]))
-    log.log("Database used {:.3f} seconds of CPU time.".format(usage[CPU]))
-    log.info("Database peaked at {:.3f} MiB of memory.".format(usage[MEMORY] / (1024.0 * 1024.0)))
+    if usage is not None:
+        log.log("Database used {:.3f} seconds of CPU time.".format(usage[CPU]))
+        log.info("Database peaked at {:.3f} MiB of memory.".format(usage[MEMORY] / (1024.0 * 1024.0)))
 
 
 def log_metadata_summary(ret):
@@ -841,9 +1281,23 @@ if __name__ == "__main__":
 
     benchmark_context = BenchmarkContext(
         benchmark_target_workload=args.benchmarks,
-        vendor_binary=args.vendor_binary if args.run_option == "vendor-native" else None,
-        vendor_name=args.vendor_name.replace("-", ""),
-        client_binary=args.client_binary if args.run_option == "vendor-native" else None,
+        vendor_binary=(
+            args.vendor_binary
+            if args.installation_type in BenchmarkInstallationType.get_local_binary_installation_types()
+            else None
+        ),
+        vendor_name=args.vendor_name,
+        installation_type=args.installation_type,
+        # Client binary present in every installation type that is not a container
+        client_binary=(
+            args.client_binary
+            if args.installation_type
+            in BenchmarkInstallationType.get_local_binary_installation_types() + [BenchmarkInstallationType.EXTERNAL]
+            else None
+        ),
+        client_language=args.client_language,
+        databases=args.databases,
+        client_bolt_address=args.client_bolt_address,
         num_workers_for_import=args.num_workers_for_import,
         num_workers_for_benchmark=args.num_workers_for_benchmark,
         single_threaded_runtime_sec=args.single_threaded_runtime_sec,
@@ -852,21 +1306,27 @@ if __name__ == "__main__":
         export_results=args.export_results,
         export_results_in_memory_analytical=args.export_results_in_memory_analytical,
         export_results_on_disk_txn=args.export_results_on_disk_txn,
+        export_results_ha=args.export_results_ha,
+        run_ha_leg=args.run_ha_leg,
+        ha_target_workload=args.ha_target_workload,
+        ha_authorization=args.ha_authorization,
         temporary_directory=temp_dir.absolute(),
         workload_mixed=args.workload_mixed,
         workload_realistic=args.workload_realistic,
         time_dependent_execution=args.time_depended_execution,
         warm_up=args.warm_up,
         performance_tracking=args.performance_tracking,
-        no_authorization=args.no_authorization,
+        authorization=args.authorization,
         customer_workloads=args.customer_workloads,
         vendor_args=vendor_specific_args,
+        use_parallel_execution=args.use_parallel_execution,
+        database_workers=args.database_workers,
     )
 
     log_benchmark_arguments(benchmark_context)
     check_benchmark_requirements(benchmark_context)
 
-    cache = helpers.Cache()
+    cache = helpers.Cache(args.cache_directory)
     log.log("Creating cache folder for dataset, configurations, indexes and results.")
     log.log("Cache folder in use: " + cache.get_default_cache_directory())
     config = setup_cache_config(benchmark_context, cache)
@@ -888,10 +1348,15 @@ if __name__ == "__main__":
     on_disk_transactional_run_config = deepcopy(in_memory_txn_run_config)
     on_disk_transactional_run_config[STORAGE_MODE] = ON_DISK_TRANSACTIONAL
 
+    # Same storage mode as the single-instance leg; what differs is the cluster behind it.
+    ha_run_config = deepcopy(in_memory_txn_run_config)
+    ha_run_config[INSTALLATION_TYPE] = BenchmarkInstallationType.HA
+
     bench_results = BenchmarkResults()
     bench_results.in_memory_txn_results.set_value(RUN_CONFIGURATION, value=in_memory_txn_run_config)
     bench_results.in_memory_analytical_results.set_value(RUN_CONFIGURATION, value=in_memory_analytical_run_config)
     bench_results.disk_results.set_value(RUN_CONFIGURATION, value=on_disk_transactional_run_config)
+    bench_results.ha_results.set_value(RUN_CONFIGURATION, value=ha_run_config)
 
     available_workloads = helpers.get_available_workloads(benchmark_context.customer_workloads)
 
@@ -910,14 +1375,19 @@ if __name__ == "__main__":
     log_benchmark_summary(bench_results.in_memory_txn_results.get_data(), IN_MEMORY_TRANSACTIONAL)
     if benchmark_context.export_results:
         with open(benchmark_context.export_results, "w") as f:
-            json.dump(bench_results.in_memory_txn_results.get_data(), f)
+            json.dump(bench_results.in_memory_txn_results.get_data(), f, indent=2)
 
     log_benchmark_summary(bench_results.in_memory_analytical_results.get_data(), IN_MEMORY_ANALYTICAL)
     if benchmark_context.export_results_in_memory_analytical:
         with open(benchmark_context.export_results_in_memory_analytical, "w") as f:
-            json.dump(bench_results.in_memory_analytical_results.get_data(), f)
+            json.dump(bench_results.in_memory_analytical_results.get_data(), f, indent=2)
 
     log_benchmark_summary(bench_results.disk_results.get_data(), ON_DISK_TRANSACTIONAL)
     if benchmark_context.export_results_on_disk_txn:
         with open(benchmark_context.export_results_on_disk_txn, "w") as f:
-            json.dump(bench_results.disk_results.get_data(), f)
+            json.dump(bench_results.disk_results.get_data(), f, indent=2)
+
+    if benchmark_context.run_ha_leg:
+        log_benchmark_summary(bench_results.ha_results.get_data(), f"{BenchmarkInstallationType.HA} cluster")
+        with open(benchmark_context.export_results_ha, "w") as f:
+            json.dump(bench_results.ha_results.get_data(), f, indent=2)

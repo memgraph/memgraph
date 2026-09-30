@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,68 +11,113 @@
 
 #pragma once
 
+#include <variant>
+
 #include "storage/v2/all_vertices_iterable.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
+#include "storage/v2/inmemory/vertex_property_index.hpp"
 
 namespace memgraph::storage {
 
 class VerticesIterable final {
-  enum class Type { ALL, BY_LABEL_IN_MEMORY, BY_LABEL_PROPERTY_IN_MEMORY };
+  using AscIterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<>>;
+  using DescIterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry<>>;
+  using Asc1Iterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<1>>;
+  using Desc1Iterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry<1>>;
+  using Asc2Iterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<2>>;
+  using Desc2Iterable = InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::DescEntry<2>>;
+  using VertexPropertyIterable = InMemoryVertexPropertyIndex::Iterable;
 
-  Type type_;
-  union {
-    AllVerticesIterable all_vertices_;
-    InMemoryLabelIndex::Iterable in_memory_vertices_by_label_;
-    InMemoryLabelPropertyIndex::Iterable in_memory_vertices_by_label_property_;
-  };
+  using Data = std::variant<AllVerticesIterable, InMemoryLabelIndex::Iterable, AscIterable, DescIterable, Asc1Iterable,
+                            Desc1Iterable, Asc2Iterable, Desc2Iterable, VertexPropertyIterable>;
+
+  Data data_;
 
  public:
-  explicit VerticesIterable(AllVerticesIterable);
-  explicit VerticesIterable(InMemoryLabelIndex::Iterable);
-  explicit VerticesIterable(InMemoryLabelPropertyIndex::Iterable);
+  explicit VerticesIterable(AllVerticesIterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(InMemoryLabelIndex::Iterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(AscIterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(DescIterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(Asc1Iterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(Desc1Iterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(Asc2Iterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(Desc2Iterable v) : data_(std::move(v)) {}
+
+  explicit VerticesIterable(VertexPropertyIterable v) : data_(std::move(v)) {}
 
   VerticesIterable(const VerticesIterable &) = delete;
   VerticesIterable &operator=(const VerticesIterable &) = delete;
 
-  VerticesIterable(VerticesIterable &&) noexcept;
-  VerticesIterable &operator=(VerticesIterable &&) noexcept;
+  VerticesIterable(VerticesIterable &&) noexcept = default;
+  VerticesIterable &operator=(VerticesIterable &&) noexcept = default;
 
-  ~VerticesIterable();
+  ~VerticesIterable() = default;
 
   class Iterator final {
-    Type type_;
-    union {
-      AllVerticesIterable::Iterator all_it_;
-      InMemoryLabelIndex::Iterable::Iterator in_memory_by_label_it_;
-      InMemoryLabelPropertyIndex::Iterable::Iterator in_memory_by_label_property_it_;
-    };
+    using Data =
+        std::variant<AllVerticesIterable::Iterator, InMemoryLabelIndex::Iterable::Iterator, AscIterable::Iterator,
+                     DescIterable::Iterator, Asc1Iterable::Iterator, Desc1Iterable::Iterator, Asc2Iterable::Iterator,
+                     Desc2Iterable::Iterator, VertexPropertyIterable::Iterator>;
 
-    void Destroy() noexcept;
+    Data data_;
 
    public:
-    explicit Iterator(AllVerticesIterable::Iterator);
-    explicit Iterator(InMemoryLabelIndex::Iterable::Iterator);
-    explicit Iterator(InMemoryLabelPropertyIndex::Iterable::Iterator);
+    using difference_type = std::ptrdiff_t;
+    using value_type = VertexAccessor;
 
-    Iterator(const Iterator &);
-    Iterator &operator=(const Iterator &);
+    explicit Iterator(AllVerticesIterable::Iterator it) : data_(std::move(it)) {}
 
-    Iterator(Iterator &&) noexcept;
-    Iterator &operator=(Iterator &&) noexcept;
+    explicit Iterator(InMemoryLabelIndex::Iterable::Iterator it) : data_(std::move(it)) {}
 
-    ~Iterator();
+    explicit Iterator(AscIterable::Iterator it) : data_(std::move(it)) {}
 
-    VertexAccessor const &operator*() const;
+    explicit Iterator(DescIterable::Iterator it) : data_(std::move(it)) {}
 
-    Iterator &operator++();
+    explicit Iterator(Asc1Iterable::Iterator it) : data_(std::move(it)) {}
 
-    bool operator==(const Iterator &other) const;
-    bool operator!=(const Iterator &other) const { return !(*this == other); }
+    explicit Iterator(Desc1Iterable::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(Asc2Iterable::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(Desc2Iterable::Iterator it) : data_(std::move(it)) {}
+
+    explicit Iterator(VertexPropertyIterable::Iterator it) : data_(std::move(it)) {}
+
+    Iterator(const Iterator &) = default;
+    Iterator &operator=(const Iterator &) = default;
+
+    Iterator(Iterator &&) noexcept = default;
+    Iterator &operator=(Iterator &&) noexcept = default;
+
+    ~Iterator() = default;
+
+    value_type const &operator*() const {
+      return std::visit([](auto const &it) -> value_type const & { return *it; }, data_);
+    }
+
+    Iterator &operator++() {
+      std::visit([](auto &it) { ++it; }, data_);
+      return *this;
+    }
+
+    bool operator==(const Iterator &other) const = default;
   };
 
-  Iterator begin();
-  Iterator end();
+  Iterator begin() {
+    return std::visit([](auto &v) -> Iterator { return Iterator(v.begin()); }, data_);
+  }
+
+  Iterator end() {
+    return std::visit([](auto &v) -> Iterator { return Iterator(v.end()); }, data_);
+  }
 };
 
 }  // namespace memgraph::storage

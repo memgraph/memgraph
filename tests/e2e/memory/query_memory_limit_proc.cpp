@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,6 +45,7 @@ int main(int argc, char **argv) {
     client->DiscardAll();
   }
 
+  // Should return false
   MG_ASSERT(
       client->Execute("CALL libquery_memory_limit_proc.regular() YIELD allocated RETURN "
                       "allocated QUERY MEMORY LIMIT 250MB"));
@@ -60,7 +61,61 @@ int main(int argc, char **argv) {
     error = true;
   }
 
-  MG_ASSERT(error, "Error should have happend");
+  MG_ASSERT(error, "Error should have happened");
+
+  // Should return false
+  MG_ASSERT(
+      client->Execute("CALL libquery_memory_limit_proc.malloc() YIELD allocated RETURN "
+                      "allocated QUERY MEMORY LIMIT 250MB"));
+  error = false;
+  try {
+    auto result_rows = client->FetchAll();
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = !row[0].ValueBool();
+    }
+
+  } catch (const std::exception &e) {
+    error = true;
+  }
+
+  MG_ASSERT(error, "Error should have happened");
+
+  // Should throw
+  MG_ASSERT(
+      client->Execute("CALL libquery_memory_limit_proc.new() YIELD allocated RETURN "
+                      "allocated QUERY MEMORY LIMIT 250MB"));
+  error = false;
+  try {
+    auto result_rows = client->FetchAll();
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = !row[0].ValueBool();
+    }
+
+  } catch (const std::exception &e) {
+    error = true;
+  }
+
+  MG_ASSERT(error, "Error should have happened");
+
+  // Should throw
+  MG_ASSERT(
+      client->Execute("CALL libquery_memory_limit_proc.local_heap() YIELD allocated RETURN "
+                      "allocated QUERY MEMORY LIMIT 250MB"));
+  error = false;
+  try {
+    auto result_rows = client->FetchAll();
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = !row[0].ValueBool();
+    }
+
+  } catch (const std::exception &e) {
+    error = true;
+  }
+
+  MG_ASSERT(error, "Error should have happened");
 
   return 0;
 }

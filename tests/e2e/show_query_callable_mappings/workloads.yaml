@@ -1,0 +1,14 @@
+show_query_callable_mappings_cluster: &show_query_callable_mappings_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--query-callable-mappings-path", "show_query_callable_mappings/test_mappings.json"]
+      log_file: "show_query_callable_mappings.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Show query callable mappings"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_query_callable_mappings/show_query_callable_mappings.py"]
+    <<: *show_query_callable_mappings_cluster

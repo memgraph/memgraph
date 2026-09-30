@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,11 @@
 
 #include <gtest/gtest.h>
 
-#include <functional>
 #include <sstream>
 #include <string_view>
 
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "utils/memory.hpp"
 
 #include "test_utils.hpp"
 
@@ -81,7 +81,8 @@ TEST(Module, ProcedureSignature) {
             mgp_error::MGP_ERROR_NO_ERROR);
   CheckSignature(proc, "proc(arg1 :: NUMBER) :: ()");
   EXPECT_EQ(mgp_proc_add_opt_arg(
-                proc, "opt1",
+                proc,
+                "opt1",
                 EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)),
                 test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory)).get()),
             mgp_error::MGP_ERROR_NO_ERROR);
@@ -107,7 +108,9 @@ TEST(Module, ProcedureSignature) {
   EXPECT_EQ(mgp_proc_add_deprecated_result(proc, "res1", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)),
             mgp_error::MGP_ERROR_LOGIC_ERROR);
   EXPECT_EQ(
-      mgp_proc_add_opt_arg(proc, "opt2", EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
+      mgp_proc_add_opt_arg(proc,
+                           "opt2",
+                           EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_string),
                            test_utils::CreateValueOwningPtr(
                                EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_string, "string=\"value\"", &memory))
                                .get()),
@@ -123,7 +126,8 @@ TEST(Module, ProcedureSignatureOnlyOptArg) {
   mgp_module module(memgraph::utils::NewDeleteResource());
   auto *proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_read_procedure, &module, "proc", &DummyCallback);
   EXPECT_EQ(mgp_proc_add_opt_arg(
-                proc, "opt1",
+                proc,
+                "opt1",
                 EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_nullable, EXPECT_MGP_NO_ERROR(mgp_type *, mgp_type_any)),
                 test_utils::CreateValueOwningPtr(EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_null, &memory)).get()),
             mgp_error::MGP_ERROR_NO_ERROR);
@@ -133,12 +137,12 @@ TEST(Module, ProcedureSignatureOnlyOptArg) {
 TEST(Module, ReadWriteProcedures) {
   mgp_module module(memgraph::utils::NewDeleteResource());
   auto *read_proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_read_procedure, &module, "read", &DummyCallback);
-  EXPECT_FALSE(read_proc->info.is_write);
+  EXPECT_EQ(read_proc->info.graph_access, memgraph::query::GraphAccess::Read);
   auto *write_proc = EXPECT_MGP_NO_ERROR(mgp_proc *, mgp_module_add_write_procedure, &module, "write", &DummyCallback);
-  EXPECT_TRUE(write_proc->info.is_write);
+  EXPECT_EQ(write_proc->info.graph_access, memgraph::query::GraphAccess::Write);
   mgp_proc read_proc_with_function{"dummy_name",
                                    std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)>{
                                        [](mgp_list *, mgp_graph *, mgp_result *, mgp_memory *) {}},
                                    memgraph::utils::NewDeleteResource()};
-  EXPECT_FALSE(read_proc_with_function.info.is_write);
+  EXPECT_EQ(read_proc_with_function.info.graph_access, memgraph::query::GraphAccess::Read);
 }

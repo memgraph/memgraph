@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,18 @@
 
 #pragma once
 
-#include "storage/v2/constraints/constraints.hpp"
+#include <algorithm>
+#include <span>
+
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
 namespace memgraph::storage {
+
+struct ActiveIndicesUpdater;
+struct LabelIndexActiveIndices;
+struct LabelIndexAbortProcessor;
+using LabelIndexAbortableInfo = std::map<LabelId, std::vector<Vertex *>>;
 
 class LabelIndex {
  public:
@@ -28,18 +35,53 @@ class LabelIndex {
 
   virtual ~LabelIndex() = default;
 
+  virtual void DropGraphClearIndices() = 0;
+
+  using AbortableInfo = LabelIndexAbortableInfo;
+  using ActiveIndices = LabelIndexActiveIndices;
+  using AbortProcessor = LabelIndexAbortProcessor;
+
+  virtual auto GetActiveIndices() const -> std::shared_ptr<ActiveIndices> = 0;
+};
+
+struct LabelIndexAbortProcessor {
+  explicit LabelIndexAbortProcessor() = default;
+
+  explicit LabelIndexAbortProcessor(std::span<LabelId const> indexed) : indexed_{indexed} {}
+
+  void CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
+    if (IsInteresting(label)) {
+      cleanup_collection_[label].emplace_back(vertex);  // TODO (ivan): check that this is sorted
+    }
+  }
+
+  bool IsInteresting(LabelId label) const { return std::ranges::binary_search(indexed_, label); }
+
+  /// Borrowed from the set of indexes the aborting transaction holds for its whole life; copying
+  /// it for every abort is the cost this avoids.
+  std::span<LabelId const> indexed_;
+  LabelIndexAbortableInfo cleanup_collection_;
+};
+
+struct LabelIndexActiveIndices {
+  virtual ~LabelIndexActiveIndices() = default;
+
   virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
   // Not used for in-memory
   virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
 
-  virtual bool DropIndex(LabelId label) = 0;
-
   virtual bool IndexExists(LabelId label) const = 0;
 
-  virtual std::vector<LabelId> ListIndices() const = 0;
+  virtual bool IndexReady(LabelId label) const = 0;
+
+  virtual std::vector<LabelId> ListIndices(uint64_t start_timestamp) const = 0;
 
   virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
+
+  virtual void AbortEntries(LabelIndexAbortableInfo const &, uint64_t start_timestamp) = 0;
+
+  virtual auto GetAbortProcessor() const -> LabelIndexAbortProcessor = 0;
 };
 
 }  // namespace memgraph::storage

@@ -1,0 +1,4 @@
+query: >
+  RETURN collections.pairs([]) AS pairs
+output:
+    - pairs: []

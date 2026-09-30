@@ -1,0 +1,16 @@
+# The label half of a `sequence` is load-bearing on the subgraph walk, not only on the expand one: the
+# second label step denies Blocked, so RB is dropped even though the relationship half reaches it. With
+# the label steps ignored, RB would come back too.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.subgraph_nodes(p, {maxHops: 4,
+                               sequence: 'Post, NEXT>, Reply|-Blocked, <FROM, Admin, POSTED>'})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name;
+
+output:
+  - name: "A1"
+  - name: "P1"
+  - name: "P2"
+  - name: "R1"
+  - name: "R2"

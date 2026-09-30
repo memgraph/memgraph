@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,61 +11,142 @@
 
 #pragma once
 
-#include <chrono>
-#include <functional>
+#include <atomic>
 #include <optional>
-#include <semaphore>
-#include <span>
-#include <thread>
+#include <set>
+#include <string>
 
-#include "io/network/endpoint.hpp"
-#include "kvstore/kvstore.hpp"
-#include "query/exceptions.hpp"
-#include "replication/config.hpp"
-#include "replication/replication_server.hpp"
-#include "storage/v2/all_vertices_iterable.hpp"
-#include "storage/v2/commit_log.hpp"
+#include <nlohmann/json_fwd.hpp>
+
+#include "common_function_signatures.hpp"
+#include "memory/db_arena_fwd.hpp"
+#include "mg_procedure.h"
+#include "storage/v2/access_type.hpp"
+#include "storage/v2/async_indexer.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/database_access.hpp"
-#include "storage/v2/durability/paths.hpp"
-#include "storage/v2/durability/wal.hpp"
+#include "storage/v2/database_protector.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/edges_chunked_iterable.hpp"
+#include "storage/v2/edges_iterable.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
-#include "storage/v2/mvcc.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/label_property_index_entry.hpp"
+#include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/isolation_level.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
-#include "storage/v2/storage_mode.hpp"
-#include "storage/v2/transaction.hpp"
+#include "storage/v2/ttl.hpp"
+#include "storage/v2/vertex_accessor.hpp"
+#include "storage/v2/vertices_chunked_iterable.hpp"
 #include "storage/v2/vertices_iterable.hpp"
-#include "utils/event_counter.hpp"
-#include "utils/event_histogram.hpp"
 #include "utils/resource_lock.hpp"
-#include "utils/scheduler.hpp"
 #include "utils/synchronized_metadata_store.hpp"
-#include "utils/timer.hpp"
-#include "utils/uuid.hpp"
 
 namespace memgraph::metrics {
-extern const Event SnapshotCreationLatency_us;
-
-extern const Event ActiveLabelIndices;
-extern const Event ActiveLabelPropertyIndices;
+struct DatabaseMetricHandles;
 }  // namespace memgraph::metrics
 
+namespace memgraph::utils {
+class MemoryTracker;
+}
+
 namespace memgraph::storage {
+
+/// StorageAccessType and ResourceLockGuard::Type name the same four ways to hold main_lock_, one
+/// in storage's vocabulary and one in the lock's. Convert only here, so the two enums stay
+/// independent (utils/ must not learn storage's vocabulary) without the mapping being restated at
+/// each acquisition site. NO_ACCESS has no counterpart: it means no hold, which a guard expresses
+/// by not owning one.
+constexpr utils::ResourceLockGuard::Type ToGuardType(StorageAccessType rw_type) {
+  switch (rw_type) {
+    case StorageAccessType::UNIQUE:
+      return utils::ResourceLockGuard::UNIQUE;
+    case StorageAccessType::WRITE:
+      return utils::ResourceLockGuard::WRITE;
+    case StorageAccessType::READ:
+      return utils::ResourceLockGuard::READ;
+    case StorageAccessType::READ_ONLY:
+      return utils::ResourceLockGuard::READ_ONLY;
+    case StorageAccessType::NO_ACCESS:
+      LOG_FATAL("NO_ACCESS names the absence of a hold; it has no lock mode");
+  }
+}
+
+constexpr StorageAccessType ToAccessType(utils::ResourceLockGuard::Type type) {
+  switch (type) {
+    case utils::ResourceLockGuard::UNIQUE:
+      return StorageAccessType::UNIQUE;
+    case utils::ResourceLockGuard::WRITE:
+      return StorageAccessType::WRITE;
+    case utils::ResourceLockGuard::READ:
+      return StorageAccessType::READ;
+    case utils::ResourceLockGuard::READ_ONLY:
+      return StorageAccessType::READ_ONLY;
+  }
+}
+
+class SharedAccessTimeout : public utils::BasicException {
+ public:
+  SharedAccessTimeout()
+      : utils::BasicException(
+            "Cannot get shared access to the storage. Try stopping other parallel queries. "
+            "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
+            "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "
+            "See: https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(SharedAccessTimeout)
+};
+
+class UniqueAccessTimeout : public utils::BasicException {
+ public:
+  UniqueAccessTimeout()
+      : utils::BasicException(
+            "Cannot get unique access to the storage. Try stopping other parallel queries. "
+            "Note: Periodic snapshots also hold storage access. "
+            "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
+            "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "
+            "See: https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(UniqueAccessTimeout)
+};
+
+class ReadOnlyAccessTimeout : public utils::BasicException {
+ public:
+  ReadOnlyAccessTimeout()
+      : utils::BasicException(
+            "Cannot get read-only access to the storage. Try stopping other parallel queries. "
+            "You can increase the timeout via SET DATABASE SETTINGS 'storage.access_timeout_sec' TO 'value'; "
+            "or via the --storage-access-timeout-sec flag. Run SHOW CONFIG to return the current value. "
+            "See: https://memgraph.com/docs/help-center/errors/transactions#storage-access-timeout") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(ReadOnlyAccessTimeout)
+};
+
 struct Transaction;
 class EdgeAccessor;
 
+// TODO: list status Populating/Ready
 struct IndicesInfo {
   std::vector<LabelId> label;
-  std::vector<std::pair<LabelId, PropertyId>> label_property;
+  std::vector<LabelPropertyIndexEntry> label_properties;
+  std::vector<EdgeTypeId> edge_type;
+  std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
+  std::vector<PropertyId> edge_property;
+  std::vector<PropertyId> vertex_property;
+  std::vector<TextIndexSpec> text_indices;
+  std::vector<TextEdgeIndexSpec> text_edge_indices;
+  std::vector<std::pair<LabelId, PropertyId>> point_label_property;
+  std::vector<VectorIndexSpec> vector_indices_spec;
+  std::vector<VectorEdgeIndexSpec> vector_edge_indices_spec;
 };
 
 struct ConstraintsInfo {
   std::vector<std::pair<LabelId, PropertyId>> existence;
   std::vector<std::pair<LabelId, std::set<PropertyId>>> unique;
+  std::vector<std::tuple<LabelId, PropertyId, TypeConstraintKind>> type;
 };
 
 struct StorageInfo {
@@ -73,35 +154,76 @@ struct StorageInfo {
   uint64_t edge_count;
   double average_degree;
   uint64_t memory_res;
+  uint64_t peak_memory_res;
+  uint64_t unreleased_delta_objects;
   uint64_t disk_usage;
   uint64_t label_indices;
   uint64_t label_property_indices;
+  uint64_t text_indices;
+  uint64_t vector_indices;
+  uint64_t vector_edge_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
+  uint64_t type_constraints;
   StorageMode storage_mode;
   IsolationLevel isolation_level;
   bool durability_snapshot_enabled;
   bool durability_wal_enabled;
+  bool property_store_compression_enabled;
+  utils::CompressionLevel property_store_compression_level;
+  uint64_t schema_vertex_count;
+  uint64_t schema_edge_count;
+
+  friend bool operator==(const StorageInfo &, const StorageInfo &) = default;
 };
 
-static inline nlohmann::json ToJson(const StorageInfo &info) {
-  nlohmann::json res;
-
-  res["edges"] = info.edge_count;
-  res["vertices"] = info.vertex_count;
-  res["memory"] = info.memory_res;
-  res["disk"] = info.disk_usage;
-  res["label_indices"] = info.label_indices;
-  res["label_prop_indices"] = info.label_property_indices;
-  res["existence_constraints"] = info.existence_constraints;
-  res["unique_constraints"] = info.unique_constraints;
-  res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
-  res["isolation_level"] = storage::IsolationLevelToString(info.isolation_level);
-  res["durability"] = {{"snapshot_enabled", info.durability_snapshot_enabled},
-                       {"WAL_enabled", info.durability_wal_enabled}};
-
-  return res;
+// Single ordered list of StorageInfo's (de)serializable fields. Every persistence/wire path —
+// the durability cold_stats JSON (Durability::StatsToJson/StatsFromJson) and the V3 SystemRecovery SLK
+// (system_rpc.cpp Save/Load) — drives serialization through this one visitor, so adding a field to
+// StorageInfo extends all of them at once instead of silently drifting (the field-drift hazard flagged
+// in earlier reviews). `visit(key, ref)` is invoked once per field in declaration order; the caller's
+// visitor handles scalars directly and enums via `if constexpr (std::is_enum_v<T>)`. Templated on Self so
+// the SAME field list serves a const StorageInfo (save) and a mutable one (load).
+template <typename Self, typename Visit>
+void StorageInfoForEachField(Self &s, Visit &&visit) {
+  visit("vertex_count", s.vertex_count);
+  visit("edge_count", s.edge_count);
+  visit("average_degree", s.average_degree);
+  visit("memory_res", s.memory_res);
+  visit("peak_memory_res", s.peak_memory_res);
+  visit("unreleased_delta_objects", s.unreleased_delta_objects);
+  visit("disk_usage", s.disk_usage);
+  visit("label_indices", s.label_indices);
+  visit("label_property_indices", s.label_property_indices);
+  visit("text_indices", s.text_indices);
+  visit("vector_indices", s.vector_indices);
+  visit("vector_edge_indices", s.vector_edge_indices);
+  visit("existence_constraints", s.existence_constraints);
+  visit("unique_constraints", s.unique_constraints);
+  visit("type_constraints", s.type_constraints);
+  visit("storage_mode", s.storage_mode);
+  visit("isolation_level", s.isolation_level);
+  visit("durability_snapshot_enabled", s.durability_snapshot_enabled);
+  visit("durability_wal_enabled", s.durability_wal_enabled);
+  visit("property_store_compression_enabled", s.property_store_compression_enabled);
+  visit("property_store_compression_level", s.property_store_compression_level);
+  visit("schema_vertex_count", s.schema_vertex_count);
+  visit("schema_edge_count", s.schema_edge_count);
 }
+
+// Hot/cold: the per-COLD-tenant recovery payload carried in SystemRecoveryReq V3 so a
+// reconnecting/lagging replica converges to MAIN's authoritative {HOT ∪ COLD} set. Replaces the
+// earlier two parallel (salient, stats) vectors; bundling them keeps the 1:1 pairing structural (no
+// length-mismatch guard). Composed of storage:: types only, so it can sit in both the dbms and
+// replication_handler signatures without a layer cycle. A resumed cold tenant trusts its own
+// on-disk WAL/snapshot epoch (BuildDetached); no epoch is carried here (cold-tenant epoch machinery
+// was intentionally removed — a cold tenant accumulates no divergent commits to reconcile).
+struct ColdTenantRecovery {
+  SalientConfig salient;
+  StorageInfo stats{};  // value-init: a default-constructed recovery carries zeroed stats
+};
+
+nlohmann::json ToJson(const StorageInfo &info);
 
 struct EdgeInfoForDeletion {
   std::unordered_set<Gid> partial_src_edge_ids{};
@@ -110,21 +232,49 @@ struct EdgeInfoForDeletion {
   std::unordered_set<Vertex *> partial_dest_vertices{};
 };
 
-struct CommitReplArgs {
-  // REPLICA on recipt of Deltas will have a desired commit timestamp
-  std::optional<uint64_t> desired_commit_timestamp = std::nullopt;
-
-  bool is_main = true;
-
-  bool IsMain() { return is_main; }
+struct TTLReplicationArgs {
+  bool is_main{true};
 };
+
+struct PlanInvalidator {
+  virtual auto invalidate_for_timestamp_wrapper(std::function<bool(uint64_t)> func)
+      -> std::function<bool(uint64_t)> = 0;
+  virtual bool invalidate_now(std::function<bool()> func) = 0;
+  virtual ~PlanInvalidator() = default;
+};
+
+struct PlanInvalidatorDefault : public PlanInvalidator {
+  auto invalidate_for_timestamp_wrapper(std::function<bool(uint64_t)> func) -> std::function<bool(uint64_t)> override {
+    return func;
+  }
+
+  bool invalidate_now(std::function<bool()> func) override { return func(); };
+};
+
+using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
+
+class Accessor;
+
+/// What a drop does when the index it names is not there.
+///
+/// A statement reports it, because the user asked to drop something that does not exist. A replica
+/// applies what its main durably decided instead, and the durable order can hold two drops of one
+/// index, so the second one arrives against an index the first already evicted. Recording that drop
+/// anyway keeps the transaction non-empty, and an empty one carries no commit timestamp, so the
+/// replica would stop acknowledging its main. It also leaves the replica's own log holding the same
+/// records its main's does, which is what its recovery and any cascading replica replay.
+enum class AbsentIndex : uint8_t { kFails, kIsRecorded };
 
 class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
+  friend class VectorIndex;
 
  public:
-  Storage(Config config, StorageMode storage_mode);
+  Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+          metrics::DatabaseMetricHandles metric_handles = {}, memory::ArenaPool *db_arena_pool = nullptr,
+          utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
+          std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
 
   Storage(const Storage &) = delete;
   Storage(Storage &&) = delete;
@@ -133,176 +283,25 @@ class Storage {
 
   virtual ~Storage() = default;
 
-  const std::string &name() const { return config_.salient.name; }
+  std::string name() const { return config_.salient.name.str(); }
 
-  const utils::UUID &uuid() const { return config_.salient.uuid; }
+  auto name_view() const { return config_.salient.name.str_view(); }
 
-  class Accessor {
-   public:
-    static constexpr struct SharedAccess {
-    } shared_access;
-    static constexpr struct UniqueAccess {
-    } unique_access;
+  auto uuid() const -> utils::UUID const & { return config_.salient.uuid; }
 
-    Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             memgraph::replication::ReplicationRole replication_role);
-    Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             memgraph::replication::ReplicationRole replication_role);
-    Accessor(const Accessor &) = delete;
-    Accessor &operator=(const Accessor &) = delete;
-    Accessor &operator=(Accessor &&other) = delete;
+  auto uuid() -> utils::UUID & { return config_.salient.uuid; }
 
-    Accessor(Accessor &&other) noexcept;
+  // A storage is broken when it failed durability recovery on startup and was
+  // brought up empty (see --storage-allow-recovery-failure). A broken storage
+  // rejects data queries until recovered via RECOVER SNAPSHOT.
+  bool IsBroken() const noexcept { return broken_.load(std::memory_order_acquire); }
 
-    virtual ~Accessor() = default;
+  void SetBroken(bool value) noexcept { broken_.store(value, std::memory_order_release); }
 
-    virtual VertexAccessor CreateVertex() = 0;
+  memory::ArenaPool *DbArenaPool() const noexcept { return db_arena_pool_; }
 
-    virtual std::optional<VertexAccessor> FindVertex(Gid gid, View view) = 0;
-
-    virtual VerticesIterable Vertices(View view) = 0;
-
-    virtual VerticesIterable Vertices(LabelId label, View view) = 0;
-
-    virtual VerticesIterable Vertices(LabelId label, PropertyId property, View view) = 0;
-
-    virtual VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view) = 0;
-
-    virtual VerticesIterable Vertices(LabelId label, PropertyId property,
-                                      const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                                      const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view) = 0;
-
-    virtual Result<std::optional<VertexAccessor>> DeleteVertex(VertexAccessor *vertex);
-
-    virtual Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> DetachDeleteVertex(
-        VertexAccessor *vertex);
-
-    virtual Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>> DetachDelete(
-        std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach);
-
-    virtual uint64_t ApproximateVertexCount() const = 0;
-
-    virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
-
-    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property) const = 0;
-
-    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property, const PropertyValue &value) const = 0;
-
-    virtual uint64_t ApproximateVertexCount(LabelId label, PropertyId property,
-                                            const std::optional<utils::Bound<PropertyValue>> &lower,
-                                            const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
-
-    virtual std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const = 0;
-
-    virtual std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
-        const storage::LabelId &label, const storage::PropertyId &property) const = 0;
-
-    virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
-
-    virtual void SetIndexStats(const storage::LabelId &label, const storage::PropertyId &property,
-                               const LabelPropertyIndexStats &stats) = 0;
-
-    virtual std::vector<std::pair<LabelId, PropertyId>> DeleteLabelPropertyIndexStats(
-        const storage::LabelId &label) = 0;
-
-    virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
-
-    virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
-
-    virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
-                                                 VertexAccessor *to_vertex) = 0;
-
-    virtual Result<EdgeAccessor> EdgeSetFrom(EdgeAccessor *edge, VertexAccessor *new_from) = 0;
-
-    virtual Result<EdgeAccessor> EdgeSetTo(EdgeAccessor *edge, VertexAccessor *new_to) = 0;
-
-    virtual Result<EdgeAccessor> EdgeChangeType(EdgeAccessor *edge, EdgeTypeId new_edge_type) = 0;
-
-    virtual Result<std::optional<EdgeAccessor>> DeleteEdge(EdgeAccessor *edge);
-
-    virtual bool LabelIndexExists(LabelId label) const = 0;
-
-    virtual bool LabelPropertyIndexExists(LabelId label, PropertyId property) const = 0;
-
-    virtual IndicesInfo ListAllIndices() const = 0;
-
-    virtual ConstraintsInfo ListAllConstraints() const = 0;
-
-    // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
-                                                                      DatabaseAccessProtector db_acc = {}) = 0;
-
-    virtual void Abort() = 0;
-
-    virtual void FinalizeTransaction() = 0;
-
-    std::optional<uint64_t> GetTransactionId() const;
-
-    void AdvanceCommand();
-
-    const std::string &LabelToName(LabelId label) const { return storage_->LabelToName(label); }
-
-    const std::string &PropertyToName(PropertyId property) const { return storage_->PropertyToName(property); }
-
-    const std::string &EdgeTypeToName(EdgeTypeId edge_type) const { return storage_->EdgeTypeToName(edge_type); }
-
-    LabelId NameToLabel(std::string_view name) { return storage_->NameToLabel(name); }
-
-    PropertyId NameToProperty(std::string_view name) { return storage_->NameToProperty(name); }
-
-    EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
-
-    StorageMode GetCreationStorageMode() const noexcept;
-
-    const std::string &id() const { return storage_->name(); }
-
-    std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
-
-    std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
-
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label) = 0;
-
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label, PropertyId property) = 0;
-
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
-
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label, PropertyId property) = 0;
-
-    virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
-        LabelId label, PropertyId property) = 0;
-
-    virtual utils::BasicResult<StorageExistenceConstraintDroppingError, void> DropExistenceConstraint(
-        LabelId label, PropertyId property) = 0;
-
-    virtual utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
-    CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) = 0;
-
-    virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
-                                                                   const std::set<PropertyId> &properties) = 0;
-
-   protected:
-    Storage *storage_;
-    std::shared_lock<utils::ResourceLock> storage_guard_;
-    std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
-    Transaction transaction_;
-    std::optional<uint64_t> commit_timestamp_;
-    bool is_transaction_active_;
-
-    // Detach delete private methods
-    Result<std::optional<std::unordered_set<Vertex *>>> PrepareDeletableNodes(
-        const std::vector<VertexAccessor *> &vertices);
-    EdgeInfoForDeletion PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
-                                              const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
-    Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(const std::unordered_set<Vertex *> &vertices,
-                                                                          std::unordered_set<Gid> &deleted_edge_ids);
-    Result<std::optional<std::vector<EdgeAccessor>>> DetachRemainingEdges(
-        EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids);
-    Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices);
-    void MarkEdgeAsDeleted(Edge *edge);
-
-   private:
-    StorageMode creation_storage_mode_;
-  };
+  using Accessor = memgraph::storage::Accessor;
+  friend class memgraph::storage::Accessor;
 
   const std::string &LabelToName(LabelId label) const { return name_id_mapper_->IdToName(label.AsUint()); }
 
@@ -318,54 +317,104 @@ class Storage {
     return PropertyId::FromUint(name_id_mapper_->NameToId(name));
   }
 
+  std::optional<PropertyId> NameToPropertyIfExists(std::string_view name) const {
+    const auto id = name_id_mapper_->NameToIdIfExists(name);
+    if (!id) {
+      return std::nullopt;
+    }
+    return PropertyId::FromUint(*id);
+  }
+
   EdgeTypeId NameToEdgeType(const std::string_view name) const {
     return EdgeTypeId::FromUint(name_id_mapper_->NameToId(name));
   }
 
   StorageMode GetStorageMode() const noexcept;
 
-  virtual void FreeMemory(std::unique_lock<utils::ResourceLock> main_guard) = 0;
-
-  void FreeMemory() { FreeMemory({}); }
-
-  virtual std::unique_ptr<Accessor> Access(memgraph::replication::ReplicationRole replication_role,
-                                           std::optional<IsolationLevel> override_isolation_level) = 0;
-
-  std::unique_ptr<Accessor> Access(memgraph::replication::ReplicationRole replication_role) {
-    return Access(replication_role, {});
+  // True iff this storage's durability mode keeps BOTH periodic snapshots AND a WAL
+  // chain — the precondition for hot/cold suspend (suspend tears down RAM and relies
+  // on {snapshot + WAL} on disk to recover). PERIODIC_SNAPSHOT-only or DISABLED is
+  // NOT suspendable.
+  [[nodiscard]] bool IsDurabilityCompleteForSuspend() const {
+    return config_.durability.snapshot_wal_mode == Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
   }
 
-  virtual std::unique_ptr<Accessor> UniqueAccess(memgraph::replication::ReplicationRole replication_role,
-                                                 std::optional<IsolationLevel> override_isolation_level) = 0;
-  std::unique_ptr<Accessor> UniqueAccess(memgraph::replication::ReplicationRole replication_role) {
-    return UniqueAccess(replication_role, {});
-  }
+  virtual void FreeMemory(utils::ResourceLockGuard main_guard, bool periodic) = 0;
+
+  void FreeMemory() { FreeMemory({}, false); }
+
+  virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
+                                           std::optional<IsolationLevel> override_isolation_level,
+                                           std::optional<std::chrono::milliseconds> timeout) = 0;
+
+  std::unique_ptr<Accessor> Access(StorageAccessType rw_type);
+
+  virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                 std::optional<std::chrono::milliseconds> timeout) = 0;
+
+  std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level);
+  std::unique_ptr<Accessor> UniqueAccess();
+
+  virtual std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                   std::optional<std::chrono::milliseconds> timeout) = 0;
+
+  std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level);
+  std::unique_ptr<Accessor> ReadOnlyAccess();
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
-  utils::BasicResult<SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
+  std::expected<void, SetIsolationLevelError> SetIsolationLevel(IsolationLevel isolation_level);
   IsolationLevel GetIsolationLevel() const noexcept;
 
-  virtual StorageInfo GetBaseInfo(bool force_directory) = 0;
-  StorageInfo GetBaseInfo() {
-#if MG_ENTERPRISE
-    const bool force_dir = false;
-#else
-    const bool force_dir = true;  //!< Use the configured directory (multi-tenancy reroutes to another dir)
-#endif
-    return GetBaseInfo(force_dir);
-  }
+  virtual StorageInfo GetBaseInfo() = 0;
 
-  virtual StorageInfo GetInfo(bool force_directory, memgraph::replication::ReplicationRole replication_role) = 0;
+  virtual StorageInfo GetInfo() = 0;
 
-  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode,
-                                        memgraph::replication::ReplicationRole replication_role) = 0;
+  size_t GetDescriptionCount() const { return description_store_.Size(); }
+
+  virtual std::unordered_map<LabelId, uint64_t> GetLabelCounts() const = 0;
+
+  virtual void UpdateLabelCount(LabelId label, int64_t change) = 0;
+
+  virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
   virtual void PrepareForNewEpoch() = 0;
 
-  auto ReplicasInfo() const { return repl_storage_state_.ReplicasInfo(this); }
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
+  }
+
+  // Snapshot-free read: the underlying `SynchronizedMetaDataStore::vectorize()`
+  // takes a shared rwlock and returns a consistent copy of the set. The set
+  // grows as new labels / edge-types are observed, and is cleared wholesale by
+  // `InMemoryStorage::Clear()` on DROP GRAPH (which takes the matching write
+  // lock). Callers therefore see either the pre-clear or post-clear contents
+  // atomically; no storage accessor is needed.
+  std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
+  std::vector<LabelId> ListAllPossiblyPresentVertexLabels() const;
+
+  /// Returns the current snapshot of active indices
+  auto GetActiveIndices() const -> ActiveIndicesPtr { return indices_.active_indices_.ReadCopy(); }
+
+  auto GetActiveConstraints() const -> ActiveConstraintsPtr { return constraints_.active_constraints_.ReadCopy(); }
+
+  // Vector index counts are now accessed through ActiveIndices snapshots (shared_ptr + COW),
+  // which provide both live counts and snapshot isolation.
+
+  /// Check if async indexer is idle (no pending work)
+  /// @return true if async indexer is idle, false if actively processing or has pending work
+  /// @note For storage types without async indexing, this always returns true
+  virtual bool IsAsyncIndexerIdle() const = 0;
+
+  /// Check if async indexer thread has stopped
+  /// @return true if async indexer thread has stopped (due to null protector or shutdown), false otherwise
+  /// @note For storage types without async indexing, this always returns true
+  virtual bool HasAsyncIndexerStopped() const = 0;
+
+  virtual void StopAllBackgroundTasks() {
+    stop_source.request_stop();
+
+    ttl_.Shutdown();
   }
 
   // TODO: make non-public
@@ -384,6 +433,9 @@ class Storage {
   // for disk storage.
   std::atomic<uint64_t> edge_count_{0};
 
+  // Set when durability recovery failed and the storage was brought up empty.
+  std::atomic<bool> broken_{false};
+
   std::unique_ptr<NameIdMapper> name_id_mapper_;
   Config config_;
 
@@ -392,11 +444,24 @@ class Storage {
   uint64_t timestamp_{kTimestampInitialId};
   uint64_t transaction_id_{kTransactionInitialId};
 
-  IsolationLevel isolation_level_;
-  StorageMode storage_mode_;
+  // Written under a UNIQUE hold on main_lock_. UNIQUE excludes all three shared modes, so any hold
+  // pins both values for its life, and releasing one un-pins them: a reader that reacquires must
+  // re-read. Within a transaction read what the accessor pinned instead, transaction_.storage_mode
+  // or transaction_.isolation_level.
+  //
+  // Atomic for the readers that hold nothing. Some only report (the getters below, GetInfo, SHOW
+  // REPLICAS) and are stale on return regardless. The rest cannot take a hold first because the
+  // hold is what the value decides, or because taking it would deadlock. For those the rule is: an
+  // unlocked read may choose, but only a read under a hold may commit to the choice.
+  std::atomic<IsolationLevel> isolation_level_;
+  std::atomic<StorageMode> storage_mode_;
+  memory::ArenaPool *db_arena_pool_{nullptr};
+
+  metrics::DatabaseMetricHandles metric_handles_{};
 
   Indices indices_;
   Constraints constraints_;
+  PlanInvalidatorPtr invalidator_;
 
   // Datastructures to provide fast retrieval of node-label and
   // edge-type related metadata.
@@ -410,8 +475,938 @@ class Storage {
   utils::SynchronizedMetaDataStore<LabelId> stored_node_labels_;
   utils::SynchronizedMetaDataStore<EdgeTypeId> stored_edge_types_;
 
-  std::atomic<uint64_t> vertex_id_{0};
-  std::atomic<uint64_t> edge_id_{0};
+  std::atomic<uint64_t> vertex_id_{0};  // contains Vertex Gid that has not been used yet
+  std::atomic<uint64_t> edge_id_{0};    // contains Edge Gid that has not been used yet
+
+  // Mutable methods only safe if we have UniqueAccess to this storage
+  EnumStore enum_store_;
+  DescriptionStore description_store_;
+
+  SchemaInfo schema_info_;
+
+  // A way to tell async operation to stop
+  std::stop_source stop_source;
+
+  ttl::TTL ttl_{this, metric_handles_.deleted_nodes, metric_handles_.deleted_edges};  // TTL handler
+
+  // Factory function to create database protectors for async operations
+  // Used by async indexer and TTL system to get protectors for committing transactions
+  std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory_;
+
+  /// Creates a database protector for async operations
+  /// @return DatabaseProtector instance for committing async transactions
+  /// @note May return nullptr once the tenant's gatekeeper has been moved out of the live set by an
+  ///       in-flight FORCE drop (i.e. after Delete_ hands it to the deferred teardown worker).
+  ///       Callers must treat a nullptr result as "tenant gone" and abort the async operation.
+  auto make_database_protector() const -> std::unique_ptr<DatabaseProtector> { return database_protector_factory_(); }
+
+  /// Gets the database protector factory for copying to new storage instances
+  /// @return Copy of the factory function for preservation during storage transitions
+  auto get_database_protector_factory() const -> std::function<std::unique_ptr<DatabaseProtector>()> {
+    return database_protector_factory_;
+  }
+};
+
+inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
+  switch (type) {
+    using enum StorageAccessType;
+    case NO_ACCESS:
+      return os << "NO_ACCESS";
+    case UNIQUE:
+      return os << "UNIQUE";
+    case WRITE:
+      return os << "WRITE";
+    case READ:
+      return os << "READ";
+    case READ_ONLY:
+      return os << "READ_ONLY";
+  }
+  return os;
+}
+
+/// Acquires `main_lock_` in the mode `rw_type` names. Blocks indefinitely without a timeout; with
+/// one, throws the timeout exception belonging to that mode.
+utils::ResourceLockGuard AcquireGuardOrThrow(Storage *storage, StorageAccessType rw_type,
+                                             std::optional<std::chrono::milliseconds> timeout);
+
+class Accessor {
+ public:
+  /// Takes ownership of a hold on `storage`'s main_lock_. The caller acquires it: blocking with a
+  /// timeout via AcquireGuardOrThrow, or non-blocking via a try_to_lock guard. Construction itself
+  /// never blocks and never fails, so a probe can decide whether to build an accessor at all.
+  ///
+  /// The access type comes from the guard, not alongside it. It is recorded as
+  /// original_access_type_, which the WAL carries to replicas to pick the mode they replay under,
+  /// so a guard and a type that disagreed would have a replica take a different hold than we did.
+  /// Nothing is lost by deriving it: no downgrade can have happened yet.
+  ///
+  /// The isolation level and storage mode are read from `storage` under the guard rather than
+  /// passed in: SetIsolationLevel and SetStorageMode write them under UNIQUE, so a caller reading
+  /// them before acquiring could build a transaction against a mode that has since changed.
+  Accessor(Storage *storage, std::optional<IsolationLevel> override_isolation_level, utils::ResourceLockGuard guard);
+
+  Accessor(const Accessor &) = delete;
+  Accessor &operator=(const Accessor &) = delete;
+  Accessor &operator=(Accessor &&other) = delete;
+
+  Accessor(Accessor &&other) noexcept;
+
+  virtual ~Accessor() = default;
+
+  StorageAccessType original_access_type() const { return original_access_type_; }
+
+  /// The mode currently held, which is not always the one requested: a READ_ONLY hold downgrades
+  /// to READ, and a released hold leaves NO_ACCESS. For what was asked for, see
+  /// original_access_type().
+  StorageAccessType type() const {
+    if (!guard_.owns_lock()) return NO_ACCESS;
+    return ToAccessType(guard_.type());
+  }
+
+  /// Moves out this accessor's hold on `main_lock_`, making the returned guard its sole owner
+  /// (this accessor then reports NO_ACCESS and releases nothing at destruction).
+  ///
+  /// A caller passing its hold onward (e.g. to FreeMemory) must move this same object. Adopting
+  /// `main_lock_` into a second guard instead gives the one hold two owners, so it is released
+  /// twice: once by the callee, again when this accessor is destroyed. What the callee requires of
+  /// the hold is the callee's to check.
+  auto ReleaseGuard() -> utils::ResourceLockGuard { return std::move(guard_); }
+
+  virtual VertexAccessor CreateVertex() = 0;
+
+  virtual std::optional<VertexAccessor> FindVertex(Gid gid, View view) = 0;
+
+  virtual VerticesIterable Vertices(View view) = 0;
+
+  virtual VerticesIterable Vertices(LabelId label, View view) = 0;
+
+  virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
+                                    std::span<storage::PropertyValueRange const> property_ranges, View view,
+                                    IndexOrder order = IndexOrder::ASC) = 0;
+
+  virtual VerticesIterable Vertices(LabelId label, std::span<storage::PropertyPath const> properties, View view) {
+    return Vertices(label, properties, std::vector(properties.size(), storage::PropertyValueRange::IsNotNull()), view);
+  };
+
+  virtual VerticesChunkedIterable ChunkedVertices(View view, size_t num_chunks) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(LabelId label, View view, size_t num_chunks) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(LabelId label, std::span<storage::PropertyPath const> properties,
+                                                  std::span<storage::PropertyValueRange const> property_ranges,
+                                                  View view, size_t num_chunks, IndexOrder order = IndexOrder::ASC) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(PropertyId property, View view, size_t num_chunks) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(PropertyId property, const PropertyValue &value, View view,
+                                                  size_t num_chunks) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(PropertyId property,
+                                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                                                  View view, size_t num_chunks) = 0;
+
+  virtual VerticesIterable Vertices(PropertyId property, View view) = 0;
+
+  virtual VerticesIterable Vertices(PropertyId property, PropertyValue const &value, View view) = 0;
+
+  virtual VerticesIterable Vertices(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower_bound,
+                                    std::optional<utils::Bound<PropertyValue>> const &upper_bound, View view) = 0;
+
+  /// As the bounds overload, and also applies the range's value predicate to every entry.
+  virtual VerticesIterable Vertices(PropertyId property, PropertyValueRange const &range, View view) = 0;
+
+  virtual VerticesChunkedIterable ChunkedVertices(PropertyId property, PropertyValueRange const &range, View view,
+                                                  size_t num_chunks) = 0;
+
+  virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
+
+  virtual std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) = 0;
+
+  virtual EdgesIterable Edges(EdgeTypeId edge_type, View view) = 0;
+
+  virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, View view) = 0;
+
+  virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, View view) = 0;
+
+  virtual EdgesIterable Edges(PropertyId property, View view) = 0;
+
+  virtual EdgesIterable Edges(PropertyId property, const PropertyValue &value, View view) = 0;
+
+  virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                              View view) = 0;
+
+  virtual EdgesIterable Edges(PropertyId property, PropertyValueRange const &range, View view) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, PropertyValueRange const &range,
+                                            View view, size_t num_chunks) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, PropertyValueRange const &range, View view,
+                                            size_t num_chunks) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, View view, size_t num_chunks) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(EdgeTypeId edge_type, PropertyId property, View view,
+                                            size_t num_chunks) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, View view, size_t num_chunks) = 0;
+
+  virtual EdgesChunkedIterable ChunkedEdges(PropertyId property, const PropertyValue &value, View view,
+                                            size_t num_chunks) = 0;
+
+  virtual auto DeleteVertex(VertexAccessor *vertex) -> Result<std::optional<VertexAccessor>>;
+
+  virtual auto DetachDeleteVertex(VertexAccessor *vertex)
+      -> Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>>;
+
+  virtual auto DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach)
+      -> Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>;
+
+  virtual uint64_t ApproximateVertexCount() const = 0;
+
+  virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                          std::span<PropertyValue const> values) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(LabelId label, std::span<PropertyPath const> properties,
+                                          std::span<PropertyValueRange const> bounds) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(PropertyId property) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(PropertyId property, PropertyValue const &value) const = 0;
+
+  virtual uint64_t ApproximateVertexCount(PropertyId property, std::optional<utils::Bound<PropertyValue>> const &lower,
+                                          std::optional<utils::Bound<PropertyValue>> const &upper) const = 0;
+
+  virtual uint64_t ApproximateEdgeCount() const = 0;
+
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const = 0;
+
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                        const PropertyValue &value) const = 0;
+
+  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                        const std::optional<utils::Bound<PropertyValue>> &lower,
+                                        const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+
+  virtual uint64_t ApproximateEdgeCount(PropertyId property) const = 0;
+
+  virtual uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const = 0;
+
+  virtual uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+                                        const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+
+  virtual std::optional<uint64_t> ApproximateVerticesPointCount(LabelId label, PropertyId property) const = 0;
+
+  virtual std::optional<uint64_t> ApproximateVerticesVectorCount(std::string_view index_name) const = 0;
+
+  virtual std::optional<uint64_t> ApproximateEdgesVectorCount(std::string_view index_name) const = 0;
+
+  virtual std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const = 0;
+
+  virtual std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const = 0;
+
+  virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
+
+  virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const
+      -> std::optional<storage::LabelPropertyIndexStats> = 0;
+
+  virtual void SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) = 0;
+
+  virtual void SetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> property,
+                             const LabelPropertyIndexStats &stats) = 0;
+
+  virtual auto DeleteLabelPropertyIndexStats(const storage::LabelId &label)
+      -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> = 0;
+
+  virtual bool DeleteLabelIndexStats(const storage::LabelId &label) = 0;
+
+  virtual Result<EdgeAccessor> CreateEdge(VertexAccessor *from, VertexAccessor *to, EdgeTypeId edge_type) = 0;
+
+  virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
+                                               VertexAccessor *to_vertex) = 0;
+
+  virtual auto DeleteEdge(EdgeAccessor *edge) -> Result<std::optional<EdgeAccessor>>;
+
+  virtual bool LabelIndexReady(LabelId label) const = 0;
+
+  virtual bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
+
+  virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
+
+  auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                          std::span<PropertyPath const> properties) const
+      -> std::vector<LabelPropertiesIndicesInfo> {
+    return transaction_.active_indices_->label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+  };
+
+  virtual bool EdgeTypeIndexReady(EdgeTypeId edge_type) const = 0;
+
+  virtual bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+  virtual bool EdgePropertyIndexReady(PropertyId property) const = 0;
+
+  virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
+
+  virtual bool VertexPropertyIndexReady(PropertyId property) const = 0;
+
+  virtual bool VertexPropertyIndexExists(PropertyId property) const = 0;
+
+  bool TextIndexExists(const std::string &index_name) const {
+    return transaction_.active_indices_->text_->IndexExists(index_name);
+  }
+
+  std::vector<TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
+                                                text_search_mode search_mode, const TextSearchConfig &config) const {
+    return transaction_.active_indices_->text_->Search(index_name, search_query, search_mode, config, transaction_);
+  }
+
+  std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                 const std::string &aggregation_query) const {
+    return transaction_.active_indices_->text_->Aggregate(index_name, search_query, aggregation_query);
+  }
+
+  std::string TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                     const std::string &aggregation_query) const {
+    return transaction_.active_indices_->text_edge_->Aggregate(index_name, search_query, aggregation_query);
+  }
+
+  std::vector<TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name, const std::string &search_query,
+                                                        text_search_mode search_mode,
+                                                        const TextSearchConfig &config) const {
+    return transaction_.active_indices_->text_edge_->Search(
+        index_name, search_query, search_mode, config, transaction_);
+  }
+
+  virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
+
+  virtual IndicesInfo ListAllIndices() const = 0;
+
+  virtual ConstraintsInfo ListAllConstraints() const = 0;
+
+  virtual void DropAllIndexes() = 0;
+
+  virtual void DropAllConstraints() = 0;
+
+  // NOLINTNEXTLINE(google-default-arguments)
+  virtual std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args) = 0;
+
+  // NOLINTNEXTLINE(google-default-arguments)
+  virtual std::expected<void, StorageManipulationError> PeriodicCommit(CommitArgs commit_args) = 0;
+
+  virtual void Abort() = 0;
+
+  virtual void FinalizeTransaction() = 0;
+
+  // Stable per-query id; preserved across PERIODIC COMMIT.
+  std::optional<uint64_t> GetStartTimestamp() const;
+
+  utils::QueryMemoryTracker &GetTransactionMemoryTracker();
+
+  void AdvanceCommand();
+
+  const std::string &LabelToName(LabelId label) const { return storage_->LabelToName(label); }
+
+  const std::string &PropertyToName(PropertyId property) const { return storage_->PropertyToName(property); }
+
+  const std::string &EdgeTypeToName(EdgeTypeId edge_type) const { return storage_->EdgeTypeToName(edge_type); }
+
+  LabelId NameToLabel(std::string_view name) { return storage_->NameToLabel(name); }
+
+  PropertyId NameToProperty(std::string_view name) { return storage_->NameToProperty(name); }
+
+  std::optional<PropertyId> NameToPropertyIfExists(std::string_view name) const {
+    return storage_->NameToPropertyIfExists(name);
+  }
+
+  EdgeTypeId NameToEdgeType(std::string_view name) { return storage_->NameToEdgeType(name); }
+
+  /// The storage mode this accessor's hold pins, in force for the life of that hold. Prefer it over
+  /// Storage::GetStorageMode(), which holds nothing and is stale on return.
+  StorageMode GetPinnedStorageMode() const noexcept;
+
+  std::string id() const { return storage_->name(); }
+
+  auto id_view() const { return storage_->name_view(); }
+
+  auto const &uuid() const { return storage_->uuid(); }
+
+  virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label,
+                                                                       CheckCancelFunction cancel_check) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(LabelId label, PropertiesPaths properties,
+                                                                       IndexOrder order,
+                                                                       CheckCancelFunction cancel_check) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type,
+                                                                       CheckCancelFunction cancel_check) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> CreateIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                       CheckCancelFunction cancel_check) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> CreateGlobalEdgeIndex(PropertyId property,
+                                                                                 CheckCancelFunction cancel_check) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> CreateGlobalVertexIndex(
+      PropertyId property, CheckCancelFunction cancel_check) = 0;
+
+  // Convenience overloads with default cancel check
+  auto CreateIndex(LabelId label) -> std::expected<void, StorageIndexDefinitionError> {
+    return CreateIndex(label, neverCancel);
+  }
+
+  auto CreateIndex(LabelId label, PropertiesPaths properties, IndexOrder order = IndexOrder::ASC)
+      -> std::expected<void, StorageIndexDefinitionError> {
+    return CreateIndex(label, std::move(properties), order, neverCancel);
+  }
+
+  auto CreateIndex(EdgeTypeId edge_type) -> std::expected<void, StorageIndexDefinitionError> {
+    return CreateIndex(edge_type, neverCancel);
+  }
+
+  auto CreateIndex(EdgeTypeId edge_type, PropertyId property) -> std::expected<void, StorageIndexDefinitionError> {
+    return CreateIndex(edge_type, property, neverCancel);
+  }
+
+  auto CreateGlobalEdgeIndex(PropertyId property) -> std::expected<void, StorageIndexDefinitionError> {
+    return CreateGlobalEdgeIndex(property, neverCancel);
+  }
+
+  auto CreateGlobalVertexIndex(PropertyId property) -> std::expected<void, StorageIndexDefinitionError> {
+    return CreateGlobalVertexIndex(property, neverCancel);
+  }
+
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(LabelId label,
+                                                                     std::vector<storage::PropertyPath> &&properties,
+                                                                     std::optional<IndexOrder> order = std::nullopt,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> DropIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                     AbsentIndex absent = AbsentIndex::kFails) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> DropGlobalEdgeIndex(
+      PropertyId property, AbsentIndex absent = AbsentIndex::kFails) = 0;
+
+  virtual std::expected<void, StorageIndexDefinitionError> DropGlobalVertexIndex(
+      PropertyId property, AbsentIndex absent = AbsentIndex::kFails) = 0;
+
+  virtual std::expected<void, storage::StorageIndexDefinitionError> CreatePointIndex(
+      storage::LabelId label, storage::PropertyId property, ProgressCallback const &on_progress) = 0;
+
+  virtual std::expected<void, storage::StorageIndexDefinitionError> DropPointIndex(storage::LabelId label,
+                                                                                   storage::PropertyId property) = 0;
+
+  std::expected<void, storage::StorageIndexDefinitionError> CreateTextIndex(const TextIndexSpec &text_index_info,
+                                                                            ProgressCallback const &on_progress = {});
+
+  std::expected<void, storage::StorageIndexDefinitionError> DropTextIndex(const std::string &index_name);
+
+  std::expected<void, storage::StorageIndexDefinitionError> CreateTextEdgeIndex(
+      const TextEdgeIndexSpec &text_edge_index_info, ProgressCallback const &on_progress = {});
+
+  virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorIndex(
+      VectorIndexSpec spec, ProgressCallback const &on_progress) = 0;
+
+  // Dropping a vector index rewrites every indexed vertex's property back from an index id to its vector, which
+  // is O(indexed vertices) on the calling thread; on_progress lets a caller under a peer timeout observe it.
+  virtual std::expected<void, storage::StorageIndexDefinitionError> DropVectorIndex(
+      std::string_view index_name, ProgressCallback const &on_progress) = 0;
+
+  virtual utils::small_vector<uint64_t> GetVectorIndexIdsForVertex(Vertex *vertex, PropertyId property) = 0;
+
+  virtual utils::small_vector<float> GetVectorFromVectorIndex(Vertex *vertex, std::string_view index_name) const = 0;
+
+  virtual std::expected<void, storage::StorageIndexDefinitionError> CreateVectorEdgeIndex(
+      VectorEdgeIndexSpec spec, ProgressCallback const &on_progress) = 0;
+
+  // Constraint creation walks every vertex, so it takes the same cancel check as index creation: it is called once
+  // per vertex and returning true abandons the validation, leaving the constraint unpublished.
+  virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateExistenceConstraint(
+      LabelId label, PropertyId property, CheckCancelFunction cancel_check) = 0;
+
+  virtual std::expected<void, StorageExistenceConstraintDroppingError> DropExistenceConstraint(LabelId label,
+                                                                                               PropertyId property) = 0;
+
+  virtual std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError>
+  CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties, CheckCancelFunction cancel_check) = 0;
+
+  virtual UniqueConstraints::DeletionStatus DropUniqueConstraint(LabelId label,
+                                                                 const std::set<PropertyId> &properties) = 0;
+
+  virtual std::expected<void, StorageExistenceConstraintDefinitionError> CreateTypeConstraint(
+      LabelId label, PropertyId property, TypeConstraintKind type, CheckCancelFunction cancel_check) = 0;
+
+  // Convenience overloads with default cancel check
+  auto CreateExistenceConstraint(LabelId label, PropertyId property)
+      -> std::expected<void, StorageExistenceConstraintDefinitionError> {
+    return CreateExistenceConstraint(label, property, neverCancel);
+  }
+
+  auto CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties)
+      -> std::expected<UniqueConstraints::CreationStatus, StorageUniqueConstraintDefinitionError> {
+    return CreateUniqueConstraint(label, properties, neverCancel);
+  }
+
+  auto CreateTypeConstraint(LabelId label, PropertyId property, TypeConstraintKind type)
+      -> std::expected<void, StorageExistenceConstraintDefinitionError> {
+    return CreateTypeConstraint(label, property, type, neverCancel);
+  }
+
+  auto CreatePointIndex(storage::LabelId label, storage::PropertyId property)
+      -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return CreatePointIndex(label, property, {});
+  }
+
+  auto CreateVectorIndex(VectorIndexSpec spec) -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return CreateVectorIndex(std::move(spec), {});
+  }
+
+  auto CreateVectorEdgeIndex(VectorEdgeIndexSpec spec) -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return CreateVectorEdgeIndex(std::move(spec), {});
+  }
+
+  auto DropVectorIndex(std::string_view index_name) -> std::expected<void, storage::StorageIndexDefinitionError> {
+    return DropVectorIndex(index_name, {});
+  }
+
+  virtual std::expected<void, StorageExistenceConstraintDroppingError> DropTypeConstraint(LabelId label,
+                                                                                          PropertyId property,
+                                                                                          TypeConstraintKind type) = 0;
+
+  virtual void DropGraph() = 0;
+
+  auto GetTransaction() -> Transaction * { return std::addressof(transaction_); }
+
+  auto GetEnumStoreUnique() -> EnumStore & {
+    DMG_ASSERT(type() == UNIQUE);
+    return storage_->enum_store_;
+  }
+
+  auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
+
+  auto CreateEnum(std::string_view name, std::span<std::string const> values)
+      -> std::expected<EnumTypeId, EnumStorageError> {
+    auto res = storage_->enum_store_.RegisterEnum(name, values);
+    if (res) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.value());
+    }
+    return res;
+  }
+
+  auto EnumAlterAdd(std::string_view name, std::string_view value)
+      -> std::expected<storage::Enum, storage::EnumStorageError> {
+    auto res = storage_->enum_store_.AddValue(name, value);
+    if (res) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.value());
+    }
+    return res;
+  }
+
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+      -> std::expected<storage::Enum, storage::EnumStorageError> {
+    auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
+    if (res) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.value(), std::string{old_value});
+    }
+    return res;
+  }
+
+  auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
+
+  void SetLabelDescription(std::span<std::string const> label_names, std::string_view desc) {
+    auto labels = ResolveLabels(label_names);
+    storage_->description_store_.SetLabel(labels, desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::LABEL,
+                                        std::move(labels),
+                                        EdgeTypeId{},
+                                        PropertyId{},
+                                        std::string{desc});
+  }
+
+  bool DeleteLabelDescription(std::span<std::string const> label_names) {
+    auto labels = ResolveLabels(label_names);
+    auto deleted = storage_->description_store_.DeleteLabel(labels);
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::LABEL,
+                                          std::move(labels),
+                                          EdgeTypeId{},
+                                          PropertyId{});
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetLabelDescription(std::span<std::string const> label_names) const {
+    return storage_->description_store_.GetLabel(ResolveLabels(label_names));
+  }
+
+  void SetEdgeTypeDescription(std::string_view name, std::string_view desc) {
+    auto edge_type = storage_->NameToEdgeType(name);
+    storage_->description_store_.SetEdgeType(edge_type, desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::EDGE_TYPE,
+                                        std::vector<LabelId>{},
+                                        edge_type,
+                                        PropertyId{},
+                                        std::string{desc});
+  }
+
+  bool DeleteEdgeTypeDescription(std::string_view name) {
+    auto edge_type = storage_->NameToEdgeType(name);
+    auto deleted = storage_->description_store_.DeleteEdgeType(edge_type);
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::EDGE_TYPE,
+                                          std::vector<LabelId>{},
+                                          edge_type,
+                                          PropertyId{});
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetEdgeTypeDescription(std::string_view name) const {
+    return storage_->description_store_.GetEdgeType(storage_->NameToEdgeType(name));
+  }
+
+  void SetLabelPropertyDescription(std::span<std::string const> label_qualifier, std::string_view prop_name,
+                                   std::string_view desc) {
+    auto labels = ResolveLabels(label_qualifier);
+    auto prop = storage_->NameToProperty(prop_name);
+    storage_->description_store_.SetLabelProperty(labels, prop, desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::LABEL_PROPERTY,
+                                        std::move(labels),
+                                        EdgeTypeId{},
+                                        prop,
+                                        std::string{desc});
+  }
+
+  bool DeleteLabelPropertyDescription(std::span<std::string const> label_qualifier, std::string_view prop_name) {
+    auto labels = ResolveLabels(label_qualifier);
+    auto prop = storage_->NameToProperty(prop_name);
+    bool deleted = storage_->description_store_.DeleteLabelProperty(labels, prop);
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::LABEL_PROPERTY,
+                                          std::move(labels),
+                                          EdgeTypeId{},
+                                          prop);
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetLabelPropertyDescription(std::span<std::string const> label_qualifier,
+                                                         std::string_view prop_name) const {
+    return storage_->description_store_.GetLabelProperty(ResolveLabels(label_qualifier),
+                                                         storage_->NameToProperty(prop_name));
+  }
+
+  void SetEdgeTypePropertyDescription(std::string_view edge_type_name, std::string_view prop_name,
+                                      std::string_view desc) {
+    auto edge_type = storage_->NameToEdgeType(edge_type_name);
+    auto prop = storage_->NameToProperty(prop_name);
+    storage_->description_store_.SetEdgeTypeProperty(edge_type, prop, desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::EDGE_TYPE_PROPERTY,
+                                        std::vector<LabelId>{},
+                                        edge_type,
+                                        prop,
+                                        std::string{desc});
+  }
+
+  bool DeleteEdgeTypePropertyDescription(std::string_view edge_type_name, std::string_view prop_name) {
+    auto edge_type = storage_->NameToEdgeType(edge_type_name);
+    auto prop = storage_->NameToProperty(prop_name);
+    bool deleted = storage_->description_store_.DeleteEdgeTypeProperty(edge_type, prop);
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::EDGE_TYPE_PROPERTY,
+                                          std::vector<LabelId>{},
+                                          edge_type,
+                                          prop);
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetEdgeTypePropertyDescription(std::string_view edge_type_name,
+                                                            std::string_view prop_name) const {
+    return storage_->description_store_.GetEdgeTypeProperty(storage_->NameToEdgeType(edge_type_name),
+                                                            storage_->NameToProperty(prop_name));
+  }
+
+  void SetPropertyDescription(std::string_view prop_name, std::string_view desc) {
+    auto prop = storage_->NameToProperty(prop_name);
+    storage_->description_store_.SetProperty(prop, desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::PROPERTY,
+                                        std::vector<LabelId>{},
+                                        EdgeTypeId{},
+                                        prop,
+                                        std::string{desc});
+  }
+
+  bool DeletePropertyDescription(std::string_view prop_name) {
+    auto prop = storage_->NameToProperty(prop_name);
+    bool deleted = storage_->description_store_.DeleteProperty(prop);
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::PROPERTY,
+                                          std::vector<LabelId>{},
+                                          EdgeTypeId{},
+                                          prop);
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetPropertyDescription(std::string_view prop_name) const {
+    return storage_->description_store_.GetProperty(storage_->NameToProperty(prop_name));
+  }
+
+  void SetPropertyValueDescription(std::string_view prop_name, ExternalPropertyValue const &value,
+                                   std::string_view desc) {
+    auto prop = storage_->NameToProperty(prop_name);
+    storage_->description_store_.SetPropertyValue(prop, value, desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::PROPERTY_VALUE,
+                                        std::vector<LabelId>{},
+                                        EdgeTypeId{},
+                                        prop,
+                                        std::string{desc},
+                                        std::vector<LabelId>{},
+                                        std::vector<LabelId>{},
+                                        value);
+  }
+
+  bool DeletePropertyValueDescription(std::string_view prop_name, ExternalPropertyValue const &value) {
+    auto prop = storage_->NameToProperty(prop_name);
+    bool deleted = storage_->description_store_.DeletePropertyValue(prop, value);
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::PROPERTY_VALUE,
+                                          std::vector<LabelId>{},
+                                          EdgeTypeId{},
+                                          prop,
+                                          std::vector<LabelId>{},
+                                          std::vector<LabelId>{},
+                                          value);
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetPropertyValueDescription(std::string_view prop_name,
+                                                         ExternalPropertyValue const &value) const {
+    return storage_->description_store_.GetPropertyValue(storage_->NameToProperty(prop_name), value);
+  }
+
+  void SetEdgeTypePatternDescription(std::span<std::string const> from_label_names, std::string_view edge_type_name,
+                                     std::span<std::string const> to_label_names, std::string_view desc) {
+    auto from_labels = ResolveLabels(from_label_names);
+    auto edge_type = storage_->NameToEdgeType(edge_type_name);
+    auto to_labels = ResolveLabels(to_label_names);
+    storage_->description_store_.SetEdgeTypePattern(from_labels, edge_type, to_labels, desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::EDGE_TYPE_PATTERN,
+                                        std::vector<LabelId>{},
+                                        edge_type,
+                                        PropertyId{},
+                                        std::string{desc},
+                                        std::move(from_labels),
+                                        std::move(to_labels));
+  }
+
+  bool DeleteEdgeTypePatternDescription(std::span<std::string const> from_label_names, std::string_view edge_type_name,
+                                        std::span<std::string const> to_label_names) {
+    auto from_labels = ResolveLabels(from_label_names);
+    auto edge_type = storage_->NameToEdgeType(edge_type_name);
+    auto to_labels = ResolveLabels(to_label_names);
+    auto deleted = storage_->description_store_.DeleteEdgeTypePattern(from_labels, edge_type, to_labels);
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::EDGE_TYPE_PATTERN,
+                                          std::vector<LabelId>{},
+                                          edge_type,
+                                          PropertyId{},
+                                          std::move(from_labels),
+                                          std::move(to_labels));
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetEdgeTypePatternDescription(std::span<std::string const> from_label_names,
+                                                           std::string_view edge_type_name,
+                                                           std::span<std::string const> to_label_names) const {
+    return storage_->description_store_.GetEdgeTypePattern(
+        ResolveLabels(from_label_names), storage_->NameToEdgeType(edge_type_name), ResolveLabels(to_label_names));
+  }
+
+  void SetEdgeTypePatternPropertyDescription(std::span<std::string const> from_label_names,
+                                             std::string_view edge_type_name,
+                                             std::span<std::string const> to_label_names, std::string_view prop_name,
+                                             std::string_view desc) {
+    auto from_labels = ResolveLabels(from_label_names);
+    auto edge_type = storage_->NameToEdgeType(edge_type_name);
+    auto to_labels = ResolveLabels(to_label_names);
+    auto prop = storage_->NameToProperty(prop_name);
+    storage_->description_store_.SetEdgeTypePatternProperty(from_labels, edge_type, to_labels, prop, desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY,
+                                        std::vector<LabelId>{},
+                                        edge_type,
+                                        prop,
+                                        std::string{desc},
+                                        std::move(from_labels),
+                                        std::move(to_labels));
+  }
+
+  bool DeleteEdgeTypePatternPropertyDescription(std::span<std::string const> from_label_names,
+                                                std::string_view edge_type_name,
+                                                std::span<std::string const> to_label_names,
+                                                std::string_view prop_name) {
+    auto from_labels = ResolveLabels(from_label_names);
+    auto edge_type = storage_->NameToEdgeType(edge_type_name);
+    auto to_labels = ResolveLabels(to_label_names);
+    auto prop = storage_->NameToProperty(prop_name);
+    auto deleted = storage_->description_store_.DeleteEdgeTypePatternProperty(from_labels, edge_type, to_labels, prop);
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY,
+                                          std::vector<LabelId>{},
+                                          edge_type,
+                                          prop,
+                                          std::move(from_labels),
+                                          std::move(to_labels));
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetEdgeTypePatternPropertyDescription(std::span<std::string const> from_label_names,
+                                                                   std::string_view edge_type_name,
+                                                                   std::span<std::string const> to_label_names,
+                                                                   std::string_view prop_name) const {
+    return storage_->description_store_.GetEdgeTypePatternProperty(ResolveLabels(from_label_names),
+                                                                   storage_->NameToEdgeType(edge_type_name),
+                                                                   ResolveLabels(to_label_names),
+                                                                   storage_->NameToProperty(prop_name));
+  }
+
+  void SetDatabaseDescription(std::string_view desc) {
+    storage_->description_store_.SetDatabase(desc);
+    transaction_.md_deltas.emplace_back(MetadataDelta::description_set,
+                                        DescriptionTargetKind::DATABASE,
+                                        std::vector<LabelId>{},
+                                        EdgeTypeId{},
+                                        PropertyId{},
+                                        std::string{desc});
+  }
+
+  bool DeleteDatabaseDescription() {
+    bool deleted = storage_->description_store_.DeleteDatabase();
+    if (deleted) {
+      transaction_.md_deltas.emplace_back(MetadataDelta::description_delete,
+                                          DescriptionTargetKind::DATABASE,
+                                          std::vector<LabelId>{},
+                                          EdgeTypeId{},
+                                          PropertyId{});
+    }
+    return deleted;
+  }
+
+  std::optional<std::string> GetDatabaseDescription() const { return storage_->description_store_.GetDatabase(); }
+
+  std::vector<DescriptionEntry> GetAllDescriptions() const { return storage_->description_store_.GetAll(); }
+
+ private:
+  std::vector<LabelId> ResolveLabels(std::span<std::string const> names) const {
+    return names | ranges::views::transform([this](std::string_view name) { return storage_->NameToLabel(name); }) |
+           ranges::to<std::vector>();
+  }
+
+ public:
+  auto GetEnumValue(std::string_view name, std::string_view value) const -> std::expected<Enum, EnumStorageError> {
+    return storage_->enum_store_.ToEnum(name, value);
+  }
+
+  auto GetEnumValue(std::string_view enum_str) -> std::expected<Enum, EnumStorageError> {
+    return storage_->enum_store_.ToEnum(enum_str);
+  }
+
+  virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                             PropertyValue const &point_value, PropertyValue const &boundary_value,
+                             PointDistanceCondition condition) -> PointIterable = 0;
+
+  virtual auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
+                             PropertyValue const &bottom_left, PropertyValue const &top_right,
+                             WithinBBoxCondition condition) -> PointIterable = 0;
+
+  virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
+
+  virtual std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
+
+  virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
+
+  virtual std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const = 0;
+
+  auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
+
+  bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
+    return transaction_.active_indices_->CheckIndicesAreReady(required_indices);
+  }
+
+  bool TransactionHasSerializationError() const { return transaction_.has_serialization_error; }
+
+  // TTL methods
+  ttl::TTL &ttl() { return storage_->ttl_; }
+
+#ifdef MG_ENTERPRISE
+  // TTL management methods
+  virtual void StartTtl(TTLReplicationArgs repl_args = {}) = 0;
+  virtual void DisableTtl(TTLReplicationArgs repl_args = {}) = 0;
+  virtual void StopTtl() = 0;
+  virtual void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs repl_args = {}) = 0;
+  virtual storage::ttl::TtlInfo GetTtlConfig() const = 0;
+#endif
+ protected:
+  Storage *storage_;
+  /// One guard for all four ways to hold main_lock_. The mode is mutable state, not a property of
+  /// this type: a READ_ONLY hold downgrades to READ, and ReleaseUniqueGuard() leaves nothing held.
+  utils::ResourceLockGuard guard_;
+  /// IMPORTANT: constructed after the guard, both for destruction order and so that the mode and
+  /// isolation level it captures are read under that guard.
+  Transaction transaction_;
+  std::optional<uint64_t> commit_timestamp_;
+  bool is_transaction_active_;
+  StorageAccessType original_access_type_;
+
+  // Detach delete private methods
+  Result<std::optional<std::unordered_set<Vertex *>>> PrepareDeletableNodes(
+      const std::vector<VertexAccessor *> &vertices);
+  EdgeInfoForDeletion PrepareDeletableEdges(const std::unordered_set<Vertex *> &vertices,
+                                            const std::vector<EdgeAccessor *> &edges, bool detach) noexcept;
+  Result<std::optional<std::vector<EdgeAccessor>>> ClearEdgesOnVertices(
+      const std::unordered_set<Vertex *> &vertices, std::unordered_set<Gid> &deleted_edge_ids,
+      std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
+  Result<std::optional<std::vector<EdgeAccessor>>> DetachRemainingEdges(
+      EdgeInfoForDeletion info, std::unordered_set<Gid> &partially_detached_edge_ids,
+      std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
+  Result<std::vector<VertexAccessor>> TryDeleteVertices(const std::unordered_set<Vertex *> &vertices,
+                                                        std::optional<SchemaInfo::ModifyingAccessor> &schema_acc);
+  void MarkEdgeAsDeleted(Edge *edge);
+
+ private:
 };
 
 }  // namespace memgraph::storage

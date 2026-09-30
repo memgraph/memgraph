@@ -1,4 +1,4 @@
-// Copyright 2021 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -8,6 +8,8 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
+#pragma once
 
 /// @file
 ///
@@ -110,6 +112,18 @@
 /// Define an integer command line flag with validation.
 ///
 /// @sa DEFINE_VALIDATED_bool
+/// @sa DEFINE_VALIDATED_int64
+/// @sa DEFINE_VALIDATED_uint64
+/// @sa DEFINE_VALIDATED_double
+/// @sa DEFINE_VALIDATED_string
+#define DEFINE_VALIDATED_uint32(flag_name, default_value, description, validation_body) \
+  DEFINE_VALIDATED_FLAG(uint32, flag_name, default_value, description, std::uint32_t, validation_body)
+#define DEFINE_VALIDATED_HIDDEN_uint32(flag_name, default_value, description, validation_body) \
+  DEFINE_VALIDATED_HIDDEN_FLAG(uint32, flag_name, default_value, description, std::uint32_t, validation_body)
+
+/// Define an integer command line flag with validation.
+///
+/// @sa DEFINE_VALIDATED_bool
 /// @sa DEFINE_VALIDATED_int32
 /// @sa DEFINE_VALIDATED_uint64
 /// @sa DEFINE_VALIDATED_double
@@ -164,10 +178,9 @@
 /// @sa DEFINE_VALIDATED_int64
 /// @sa DEFINE_VALIDATED_uint64
 /// @sa DEFINE_VALIDATED_double
-#define FLAG_IN_RANGE(lower_bound, upper_bound)                                                                \
-  {                                                                                                            \
-    if (value >= lower_bound && value <= upper_bound) return true;                                             \
-    std::cout << "Expected --" << flagname << " to be in range [" << lower_bound << ", " << upper_bound << "]" \
-              << std::endl;                                                                                    \
-    return false;                                                                                              \
+#define FLAG_IN_RANGE(lower_bound, upper_bound)                                                                   \
+  {                                                                                                               \
+    if (value >= lower_bound && value <= upper_bound) return true;                                                \
+    std::cerr << "Expected --" << flagname << " to be in range [" << lower_bound << ", " << upper_bound << "]\n"; \
+    return false;                                                                                                 \
   }

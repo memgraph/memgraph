@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,7 @@
 #pragma once
 
 #include <atomic>
-#include <iostream>
+#include <iosfwd>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -22,9 +22,11 @@
 
 #include "communication/init.hpp"
 #include "communication/listener.hpp"
+#include "io/network/fmt.hpp"
 #include "io/network/socket.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
+#include "utils/system_info.hpp"
 #include "utils/thread.hpp"
 
 namespace memgraph::communication {
@@ -35,7 +37,8 @@ namespace memgraph::communication {
  * Listens for incoming connections on the server port and assigns them to the
  * connection listener. The listener processes the events with a thread pool
  * that has `num_workers` threads. It is started automatically on constructor,
- * and stopped at destructor.
+ * and stopped at destructor. Constructing communication server could throw because of Epoll object, make sure to catch
+ * the possible exception when constructing RPC server
  *
  * Current Server architecture:
  * incoming connection -> server -> listener -> session
@@ -60,7 +63,7 @@ class Server final {
    */
   Server(io::network::Endpoint endpoint, TSessionContext *session_context, ServerContext *context,
          int inactivity_timeout_sec, const std::string &service_name,
-         size_t workers_count = std::thread::hardware_concurrency())
+         size_t workers_count = memgraph::utils::GetSafeHardwareConcurrency())
       : alive_(false),
         endpoint_(std::move(endpoint)),
         listener_(session_context, context, inactivity_timeout_sec, service_name, workers_count),
@@ -89,14 +92,15 @@ class Server final {
     alive_.store(true);
 
     if (!socket_.Bind(endpoint_)) {
-      spdlog::error(
-          utils::MessageWithLink("Cannot bind to socket on endpoint {}.", endpoint_, "https://memgr.ph/socket"));
+      spdlog::error(utils::MessageWithLink(
+          "Cannot bind to socket on endpoint {}.", endpoint_.SocketAddress(), "https://memgr.ph/socket"));
       alive_.store(false);
       return false;
     }
     socket_.SetTimeout(1, 0);
     if (!socket_.Listen(1024)) {
-      spdlog::error(utils::MessageWithLink("Cannot listen on socket {}", endpoint_, "https://memgr.ph/socket"));
+      spdlog::error(
+          utils::MessageWithLink("Cannot listen on socket {}", endpoint_.SocketAddress(), "https://memgr.ph/socket"));
       alive_.store(false);
       return false;
     }
@@ -107,7 +111,7 @@ class Server final {
       utils::ThreadSetName(fmt::format("{} server", service_name_));
 
       spdlog::info("{} server is fully armed and operational", service_name_);
-      spdlog::info("{} listening on {}", service_name_, socket_.endpoint());
+      spdlog::info("{} listening on {}", service_name_, socket_.endpoint().SocketAddress());
 
       while (alive_) {
         AcceptConnection();
@@ -120,14 +124,20 @@ class Server final {
   }
 
   /// Signals the server to start shutting down
-  void Shutdown() {
+  bool Shutdown() {
     // This should be as simple as possible, so that it can be called inside a
     // signal handler.
-    alive_.store(false);
-    // Shutdown the socket to return from any waiting `Accept` calls.
-    socket_.Shutdown();
-    // Shutdown the listener.
-    listener_.Shutdown();
+    bool expected{true};
+    // If I am the thread which earned the right to do the shutdown
+    auto const res =
+        alive_.compare_exchange_strong(expected, false, std::memory_order_acq_rel, std::memory_order_acquire);
+    if (res) {
+      // Shutdown the socket to return from any waiting `Accept` calls.
+      socket_.Shutdown();
+      // Shutdown the listener.
+      listener_.Shutdown();
+    }
+    return res;
   }
 
   /// Waits for the server to be signaled to shutdown
@@ -147,7 +157,8 @@ class Server final {
       // Connection is not available anymore or configuration failed.
       return;
     }
-    spdlog::info("Accepted a {} connection from {}", service_name_, s->endpoint());
+    auto const endpoint = s->endpoint();
+    spdlog::info("Accepted a {} connection from {}.", service_name_, endpoint.SocketAddress());
     listener_.AddConnection(std::move(*s));
   }
 

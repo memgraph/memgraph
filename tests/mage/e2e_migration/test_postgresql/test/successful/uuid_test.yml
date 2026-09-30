@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT uuid_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.uuid_col) AS uuid_col_type, row.uuid_col AS uuid_col
+
+output:
+  - uuid_col_type: 'STRING'
+    uuid_col: '550e8400-e29b-41d4-a716-446655440000'

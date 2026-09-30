@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,32 +13,21 @@
 
 #include <string>
 
-#include "auth/auth.hpp"
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
-
 namespace memgraph::communication::websocket {
 
+// What a websocket session needs of whoever holds the users, stated so that the session does not
+// have to name the permission vocabulary it is asking about.
 class AuthenticationInterface {
  public:
   virtual bool Authenticate(const std::string &username, const std::string &password) const = 0;
 
-  virtual bool HasUserPermission(const std::string &username, auth::Permission permission) const = 0;
+  // Whether the authenticated party may use the websocket at all, which is the only question a
+  // session asks.
+  virtual bool HasWebsocketPermission() const = 0;
 
-  virtual bool HasAnyUsers() const = 0;
+  virtual bool AccessControlled() const = 0;
+
+  virtual ~AuthenticationInterface() = default;
 };
 
-class SafeAuth : public AuthenticationInterface {
- public:
-  explicit SafeAuth(utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth) : auth_{auth} {}
-
-  bool Authenticate(const std::string &username, const std::string &password) const override;
-
-  bool HasUserPermission(const std::string &username, auth::Permission permission) const override;
-
-  bool HasAnyUsers() const override;
-
- private:
-  utils::Synchronized<auth::Auth, utils::WritePrioritizedRWLock> *auth_;
-};
 }  // namespace memgraph::communication::websocket

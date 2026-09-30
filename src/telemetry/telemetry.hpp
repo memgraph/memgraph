@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,27 +11,31 @@
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <string>
 
-#include <json/json.hpp>
-
+#include <nlohmann/json_fwd.hpp>
+#include "auth/auth.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "kvstore/kvstore.hpp"
+#include "parameters/parameters.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/timer.hpp"
 
 namespace memgraph::telemetry {
 
+using FuncSig = std::function<std::optional<nlohmann::json>()>;
+
 /**
- * This class implements the telemetry collector service. It periodically scapes
+ * This class implements the telemetry collector service. It periodically scrapes
  * all registered collectors and stores their data. With periodically scraping
  * the collectors the service collects machine information in the constructor
  * and stores it. Also, it calls all collectors once more in the destructor so
  * that final stats can be collected. All data is stored persistently. If there
  * is no internet connection the data will be sent when the internet connection
  * is reestablished. If there is an issue with the internet connection that
- * won't effect normal operation of the service (it won't crash).
+ * won't affect normal operation of the service (it won't crash).
  */
 class Telemetry final {
  public:
@@ -40,15 +44,15 @@ class Telemetry final {
             std::chrono::duration<int64_t> refresh_interval = std::chrono::minutes(10), uint64_t send_every_n = 10);
 
   // Generic/user-defined collector
-  void AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func);
+  void AddCollector(std::string name, FuncSig func);
 
   // Specialized collectors
-  void AddStorageCollector(
-      dbms::DbmsHandler &dbms_handler,
-      memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> &auth);
+  void AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth,
+                           memgraph::parameters::Parameters const &parameters);
 
 #ifdef MG_ENTERPRISE
   void AddDatabaseCollector(dbms::DbmsHandler &dbms_handler);
+  void AddCoordinatorCollector(std::weak_ptr<coordination::CoordinatorState> coordinator_state);
 #else
   void AddDatabaseCollector() {
     AddCollector("database", []() -> nlohmann::json { return nlohmann::json::array(); });
@@ -58,21 +62,30 @@ class Telemetry final {
   void AddEventsCollector();
   void AddQueryModuleCollector();
   void AddExceptionCollector();
-  void AddReplicationCollector();
+  void AddReplicationCollector(utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> const &repl_state);
 
-  ~Telemetry();
+  ~Telemetry() noexcept;
 
   Telemetry(const Telemetry &) = delete;
   Telemetry(Telemetry &&) = delete;
   Telemetry &operator=(const Telemetry &) = delete;
   Telemetry &operator=(Telemetry &&) = delete;
 
+  void Start();
+
+  /**
+   * Signal the telemetry service to stop immediately.
+   * Call this during shutdown to prevent blocking on in-flight HTTP requests.
+   */
+  void Stop();
+
  private:
   void StoreData(const nlohmann::json &event, const nlohmann::json &data);
-  void SendData();
+  void SendData(int timeout_seconds = 2 * 60);
+  /// Iterates over all collectors and calls associated functions synchronously.
   void CollectData(const std::string &event = "");
 
-  const nlohmann::json GetUptime();
+  nlohmann::json GetUptime() const;
 
   const std::string url_;
   const std::string uuid_;
@@ -85,9 +98,11 @@ class Telemetry final {
   const uint64_t send_every_n_;
 
   std::mutex lock_;
-  std::vector<std::pair<std::string, std::function<const nlohmann::json(void)>>> collectors_;
+  std::vector<std::pair<std::string, FuncSig>> collectors_;
 
   kvstore::KVStore storage_;
+
+  std::atomic<bool> abort_{false};
 };
 
 }  // namespace memgraph::telemetry

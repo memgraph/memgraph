@@ -1,0 +1,5 @@
+query: >
+    CALL periodic.delete({}) YIELD * RETURN *;
+
+exception: >
+    Periodic.delete() did not specify config parameter batch_size!

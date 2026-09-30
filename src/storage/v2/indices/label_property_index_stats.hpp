@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,30 +11,20 @@
 
 #pragma once
 
-#include <fmt/core.h>
-#include "utils/simple_json.hpp"
+#include <cstdint>
+#include <string>
 
 namespace memgraph::storage {
 
 struct LabelPropertyIndexStats {
   uint64_t count, distinct_values_count;
   double statistic, avg_group_size, avg_degree;
+
+  auto operator<=>(const LabelPropertyIndexStats &) const = default;
 };
 
-static inline std::string ToJson(const LabelPropertyIndexStats &in) {
-  return fmt::format(
-      R"({{"count":{}, "distinct_values_count":{}, "statistic":{}, "avg_group_size":{} "avg_degree":{}}})", in.count,
-      in.distinct_values_count, in.statistic, in.avg_group_size, in.avg_degree);
-}
+std::string ToJson(const LabelPropertyIndexStats &in);
 
-static inline bool FromJson(const std::string &json, LabelPropertyIndexStats &out) {
-  bool res = true;
-  res &= utils::GetJsonValue(json, "count", out.count);
-  res &= utils::GetJsonValue(json, "distinct_values_count", out.distinct_values_count);
-  res &= utils::GetJsonValue(json, "statistic", out.statistic);
-  res &= utils::GetJsonValue(json, "avg_group_size", out.avg_group_size);
-  res &= utils::GetJsonValue(json, "avg_degree", out.avg_degree);
-  return res;
-}
+bool FromJson(const std::string &json, LabelPropertyIndexStats &out);
 
 }  // namespace memgraph::storage

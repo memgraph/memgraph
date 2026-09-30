@@ -1,0 +1,16 @@
+query: >
+    CALL betweenness_centrality.get(TRUE,TRUE)
+    YIELD node, betweenness_centrality
+    RETURN betweenness_centrality, node.id AS node_id;
+
+output:
+- betweenness_centrality: 0
+  node_id: 0
+- betweenness_centrality: 0.08333333333333333
+  node_id: 1
+- betweenness_centrality: 0.16666666666666666
+  node_id: 2
+- betweenness_centrality: 0.16666666666666666
+  node_id: 3
+- betweenness_centrality: 0.3333333333333333
+  node_id: 4

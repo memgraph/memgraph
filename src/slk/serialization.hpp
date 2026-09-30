@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,11 @@
 
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <functional>
-#include <iostream>
 #include <map>
 #include <memory>
 #include <optional>
@@ -24,15 +24,20 @@
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "slk/streams.hpp"
-#include "utils/cast.hpp"
 #include "utils/concepts.hpp"
 #include "utils/endian.hpp"
+#include "utils/enum.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/small_vector.hpp"
 #include "utils/typeinfo.hpp"
+
+#include <boost/container/flat_map.hpp>
 
 // The namespace name stands for SaveLoadKit. It should be not mistaken for the
 // Mercedes car model line.
@@ -66,6 +71,11 @@ void Save(const std::vector<T> &obj, Builder *builder);
 template <typename T>
 void Load(std::vector<T> *obj, Reader *reader);
 
+template <typename T>
+void Save(const std::unordered_set<T> &obj, Builder *builder);
+template <typename T>
+void Load(std::unordered_set<T> *obj, Reader *reader);
+
 template <typename T, size_t N>
 void Save(const std::array<T, N> &obj, Builder *builder);
 template <typename T, size_t N>
@@ -76,10 +86,15 @@ void Save(const std::set<T, Cmp> &obj, Builder *builder);
 template <typename T, typename Cmp>
 void Load(std::set<T, Cmp> *obj, Reader *reader);
 
-template <typename K, typename V>
-void Save(const std::map<K, V> &obj, Builder *builder);
-template <typename K, typename V>
-void Load(std::map<K, V> *obj, Reader *reader);
+template <typename K, typename V, typename C, typename A>
+void Save(const std::map<K, V, C, A> &obj, Builder *builder);
+template <typename K, typename V, typename C, typename A>
+void Load(std::map<K, V, C, A> *obj, Reader *reader);
+
+template <typename K, typename V, typename C, typename A>
+void Save(const boost::container::flat_map<K, V, C, A> &obj, Builder *builder);
+template <typename K, typename V, typename C, typename A>
+void Load(boost::container::flat_map<K, V, C, A> *obj, Reader *reader);
 
 template <typename K, typename V>
 void Save(const std::unordered_map<K, V> &obj, Builder *builder);
@@ -150,20 +165,20 @@ MAKE_PRIMITIVE_LOAD(uint64_t)
 
 #undef MAKE_PRIMITIVE_LOAD
 
-inline void Save(float obj, Builder *builder) { slk::Save(utils::MemcpyCast<uint32_t>(obj), builder); }
+inline void Save(float obj, Builder *builder) { slk::Save(std::bit_cast<uint32_t>(obj), builder); }
 
-inline void Save(double obj, Builder *builder) { slk::Save(utils::MemcpyCast<uint64_t>(obj), builder); }
+inline void Save(double obj, Builder *builder) { slk::Save(std::bit_cast<uint64_t>(obj), builder); }
 
 inline void Load(float *obj, Reader *reader) {
   uint32_t obj_encoded;
   slk::Load(&obj_encoded, reader);
-  *obj = utils::MemcpyCast<float>(obj_encoded);
+  *obj = std::bit_cast<float>(obj_encoded);
 }
 
 inline void Load(double *obj, Reader *reader) {
   uint64_t obj_encoded;
   slk::Load(&obj_encoded, reader);
-  *obj = utils::MemcpyCast<double>(obj_encoded);
+  *obj = std::bit_cast<double>(obj_encoded);
 }
 
 // Implementation of serialization of complex types.
@@ -212,6 +227,46 @@ inline void Load(std::vector<T> *obj, Reader *reader) {
   }
 }
 
+template <typename T>
+inline void Save(const utils::small_vector<T> &obj, Builder *builder) {
+  uint64_t size = obj.size();
+  Save(size, builder);
+  for (const auto &item : obj) {
+    Save(item, builder);
+  }
+}
+
+template <typename T>
+inline void Load(utils::small_vector<T> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
+  obj->resize(size);
+  for (uint64_t i = 0; i < size; ++i) {
+    Load(&(*obj)[i], reader);
+  }
+}
+
+template <typename T>
+inline void Save(const std::unordered_set<T> &obj, Builder *builder) {
+  uint64_t size = obj.size();
+  Save(size, builder);
+  for (const auto &item : obj) {
+    Save(item, builder);
+  }
+}
+
+template <typename T>
+inline void Load(std::unordered_set<T> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
+  obj->reserve(size);
+  for (uint64_t i = 0; i < size; ++i) {
+    T item;
+    Load(&item, reader);
+    obj->insert(std::move(item));
+  }
+}
+
 template <typename T, size_t N>
 inline void Save(const std::array<T, N> &obj, Builder *builder) {
   uint64_t size = obj.size();
@@ -250,7 +305,23 @@ inline void Load(std::set<T, Cmp> *obj, Reader *reader) {
   }
 }
 
-#define MAKE_MAP_SAVE(map_type)                                   \
+#define MAKE_MAP_SAVE(map_type)                                         \
+  template <typename K, typename V, typename C, typename A>             \
+  inline void Save(const map_type<K, V, C, A> &obj, Builder *builder) { \
+    uint64_t size = obj.size();                                         \
+    Save(size, builder);                                                \
+    for (const auto &item : obj) {                                      \
+      Save(item.first, builder);                                        \
+      Save(item.second, builder);                                       \
+    }                                                                   \
+  }
+
+MAKE_MAP_SAVE(std::map)
+MAKE_MAP_SAVE(boost::container::flat_map)
+
+#undef MAKE_MAP_SAVE
+
+#define MAKE_UMAP_SAVE(map_type)                                  \
   template <typename K, typename V>                               \
   inline void Save(const map_type<K, V> &obj, Builder *builder) { \
     uint64_t size = obj.size();                                   \
@@ -261,12 +332,43 @@ inline void Load(std::set<T, Cmp> *obj, Reader *reader) {
     }                                                             \
   }
 
-MAKE_MAP_SAVE(std::map)
-MAKE_MAP_SAVE(std::unordered_map)
+MAKE_UMAP_SAVE(std::unordered_map)
 
-#undef MAKE_MAP_SAVE
+#undef MAKE_UMAP_SAVE
 
-#define MAKE_MAP_LOAD(map_type)                           \
+#define MAKE_MAP_LOAD(map_type)                                 \
+  template <typename K, typename V, typename C, typename A>     \
+  inline void Load(map_type<K, V, C, A> *obj, Reader *reader) { \
+    uint64_t size = 0;                                          \
+    Load(&size, reader);                                        \
+    for (uint64_t i = 0; i < size; ++i) {                       \
+      K key;                                                    \
+      V value;                                                  \
+      Load(&key, reader);                                       \
+      Load(&value, reader);                                     \
+      obj->emplace(std::move(key), std::move(value));           \
+    }                                                           \
+  }
+
+MAKE_MAP_LOAD(std::map)
+
+#undef MAKE_MAP_LOAD
+
+template <typename K, typename V, typename C, typename A>
+inline void Load(boost::container::flat_map<K, V, C, A> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
+  obj->reserve(size);  // optimisation for flat_map
+  for (uint64_t i = 0; i < size; ++i) {
+    K key;
+    V value;
+    Load(&key, reader);
+    Load(&value, reader);
+    obj->emplace(std::move(key), std::move(value));
+  }
+}
+
+#define MAKE_UMAP_LOAD(map_type)                          \
   template <typename K, typename V>                       \
   inline void Load(map_type<K, V> *obj, Reader *reader) { \
     uint64_t size = 0;                                    \
@@ -280,10 +382,9 @@ MAKE_MAP_SAVE(std::unordered_map)
     }                                                     \
   }
 
-MAKE_MAP_LOAD(std::map)
-MAKE_MAP_LOAD(std::unordered_map)
+MAKE_UMAP_LOAD(std::unordered_map)
 
-#undef MAKE_MAP_LOAD
+#undef MAKE_UMAP_LOAD
 
 template <typename T>
 inline void Save(const std::unique_ptr<T> &obj, Builder *builder) {
@@ -340,9 +441,7 @@ inline void Save(const std::optional<T> &obj, Builder *builder) {
   }
 }
 
-inline void Save(const utils::TypeId &obj, Builder *builder) {
-  Save(static_cast<std::underlying_type_t<utils::TypeId>>(obj), builder);
-}
+inline void Save(const utils::TypeId &obj, Builder *builder) { Save(std::to_underlying(obj), builder); }
 
 template <typename T>
 inline void Load(std::optional<T> *obj, Reader *reader) {
@@ -512,12 +611,12 @@ inline void Load(utils::TypeId *obj, Reader *reader) {
   using enum_type = std::underlying_type_t<utils::TypeId>;
   enum_type obj_encoded;
   slk::Load(&obj_encoded, reader);
-  *obj = utils::TypeId(utils::MemcpyCast<enum_type>(obj_encoded));
+  *obj = utils::TypeId(std::bit_cast<enum_type>(obj_encoded));
 }
 
 template <utils::Enum T>
 void Save(const T &enum_value, slk::Builder *builder) {
-  slk::Save(utils::UnderlyingCast(enum_value), builder);
+  slk::Save(std::to_underlying(enum_value), builder);
 }
 
 template <utils::Enum T>
@@ -526,6 +625,45 @@ void Load(T *enum_value, slk::Reader *reader) {
   UnderlyingType value;
   slk::Load(&value, reader);
   *enum_value = static_cast<T>(value);
+}
+
+// More-constrained overload: selected for enums that declare an ::N sentinel.
+// Validates the wire value via NumToEnum (which rejects values >= T::N) and
+// throws SlkReaderException on out-of-range input rather than silently producing
+// an invalid enum value.
+template <utils::Enum T>
+  requires requires { T::N; }
+void Load(T *enum_value, slk::Reader *reader) {
+  std::underlying_type_t<T> value;
+  slk::Load(&value, reader);
+  if (!utils::NumToEnum(value, *enum_value)) {
+    throw SlkReaderException("Unexpected enum value!");
+  }
+}
+
+template <typename... Args>
+inline void Save(std::variant<Args...> const &data, Builder *builder) {
+  slk::Save(data.index(), builder);
+  std::visit([builder](auto const &obj_type) { slk::Save(obj_type, builder); }, data);
+}
+
+template <typename... Args>
+inline void Load(std::variant<Args...> *data, Reader *reader) {
+  std::size_t index;
+  slk::Load(&index, reader);
+
+  // Helper to load the type at the given index
+  [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+    (void)((Is == index ? (
+                              [&] {
+                                std::variant_alternative_t<Is, std::variant<Args...>> value;
+                                slk::Load(&value, reader);
+                                *data = std::move(value);
+                              }(),
+                              true)
+                        : false) ||
+           ...);
+  }(std::index_sequence_for<Args...>{});
 }
 
 }  // namespace memgraph::slk

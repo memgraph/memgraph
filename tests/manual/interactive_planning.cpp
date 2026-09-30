@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,6 +27,8 @@
 #include "query/plan/planner.hpp"
 #include "query/plan/pretty_print.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/fmt.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/string.hpp"
 
@@ -141,8 +143,20 @@ class InteractiveDbAccessor {
       : dba_(dba), vertices_count_(vertices_count), timer_(timer) {}
 
   auto NameToLabel(const std::string &name) { return dba_->NameToLabel(name); }
+
   auto NameToProperty(const std::string &name) { return dba_->NameToProperty(name); }
+
   auto NameToEdgeType(const std::string &name) { return dba_->NameToEdgeType(name); }
+
+  auto LabelToName(memgraph::storage::LabelId id) { return dba_->LabelToName(id); }
+
+  auto PropertyToName(memgraph::storage::PropertyId id) { return dba_->PropertyToName(id); }
+
+  auto EdgeTypeToName(memgraph::storage::EdgeTypeId id) { return dba_->EdgeTypeToName(id); }
+
+  auto GetStorageAccessor() { return dba_->GetStorageAccessor(); }
+
+  auto GetEnumValue(std::string_view name, std::string_view value) { return dba_->GetEnumValue(name, value); }
 
   int64_t VerticesCount() { return vertices_count_; }
 
@@ -158,10 +172,26 @@ class InteractiveDbAccessor {
     auto label = dba_->LabelToName(label_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(label, property);
-    if (label_property_vertex_count_.find(key) == label_property_vertex_count_.end()) {
-      label_property_vertex_count_[key] = ReadVertexCount("label '" + label + "' and property '" + property + "'");
+    if (label_properties_vertex_count_.find(key) == label_properties_vertex_count_.end()) {
+      label_properties_vertex_count_[key] = ReadVertexCount("label '" + label + "' and property '" + property + "'");
     }
-    return label_property_vertex_count_.at(key);
+    return label_properties_vertex_count_.at(key);
+  }
+
+  int64_t VerticesCount(memgraph::storage::LabelId label_id,
+                        std::span<memgraph::storage::PropertyPath const> property_paths) {
+    auto label = dba_->LabelToName(label_id);
+    auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
+    auto path_to_name = [&](const memgraph::storage::PropertyPath &path) {
+      return memgraph::utils::Join(path | ranges::views::transform(to_name), ".");
+    };
+    auto property_names = memgraph::utils::Join(property_paths | ranges::views::transform(path_to_name), ", ");
+    auto key = std::make_pair(label, property_names);
+    if (label_properties_vertex_count_.find(key) == label_properties_vertex_count_.end()) {
+      label_properties_vertex_count_[key] =
+          ReadVertexCount("label '" + label + "' and properties '" + property_names + "'");
+    }
+    return label_properties_vertex_count_.at(key);
   }
 
   int64_t VerticesCount(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id,
@@ -199,7 +229,128 @@ class InteractiveDbAccessor {
     return ReadVertexCount("label '" + label + "' and property '" + property + "' in range " + range_string.str());
   }
 
-  bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
+  int64_t VerticesCount(memgraph::storage::LabelId label_id,
+                        std::span<memgraph::storage::PropertyPath const> property_paths,
+                        std::span<memgraph::storage::PropertyValueRange const> prop_val_ranges) {
+    auto label = dba_->LabelToName(label_id);
+    auto to_name = [&](memgraph::storage::PropertyId prop_id) { return dba_->PropertyToName(prop_id); };
+    auto path_to_name = [&](const memgraph::storage::PropertyPath &path) {
+      return memgraph::utils::Join(path | ranges::views::transform(to_name), ".");
+    };
+    auto property_names = memgraph::utils::Join(property_paths | ranges::views::transform(path_to_name), ", ");
+
+    auto to_range_str = [&](memgraph::storage::PropertyValueRange rng) -> std::string {
+      switch (rng.type_) {
+        case memgraph::storage::PropertyRangeType::BOUNDED: {
+          std::stringstream range_string;
+          if (rng.lower_) {
+            range_string << (rng.lower_->IsInclusive() ? "[" : "(") << rng.lower_->value()
+                         << (rng.upper_ ? "," : ", inf)");
+          } else {
+            range_string << "(-inf, ";
+          }
+          if (rng.upper_) {
+            range_string << rng.upper_->value() << (rng.upper_->IsInclusive() ? "]" : ")");
+          }
+          return range_string.str();
+        }
+        case memgraph::storage::PropertyRangeType::IS_NOT_NULL:
+          return "NOT_NULL";
+        case memgraph::storage::PropertyRangeType::INVALID:
+          return "INVALID";
+      }
+    };
+    auto ranges_str = memgraph::utils::Join(prop_val_ranges | ranges::views::transform(to_range_str), ", ");
+
+    return ReadVertexCount("label '" + label + "' and property '" + property_names + "' in range(s) " + ranges_str);
+  }
+
+  bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+    return false;
+  }
+
+  std::optional<uint64_t> VerticesPointCount(memgraph::storage::LabelId label,
+                                             memgraph::storage::PropertyId property) const {
+    return std::nullopt;
+  }
+
+  int64_t EdgesCount() { return dba_->EdgesCount(); }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    if (edge_type_edge_count_.find(edge_type) == edge_type_edge_count_.end()) {
+      edge_type_edge_count_[edge_type] = ReadVertexCount("edge type '" + edge_type + "'");
+    }
+    return edge_type_edge_count_.at(edge_type);
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id, memgraph::storage::PropertyId property_id) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    auto property = dba_->PropertyToName(property_id);
+    auto key = std::make_pair(edge_type, property);
+    if (edge_type_property_edge_count_.find(key) == edge_type_property_edge_count_.end()) {
+      edge_type_property_edge_count_[key] =
+          ReadVertexCount("edge type '" + edge_type + "' and property '" + property + "'");
+    }
+    return edge_type_property_edge_count_.at(key);
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id, memgraph::storage::PropertyId property_id,
+                     const memgraph::storage::PropertyValue &value) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    auto property = dba_->PropertyToName(property_id);
+    auto key = std::make_pair(edge_type, property);
+    if (label_property_index_.find(key) == label_property_index_.end()) {
+      return 0;
+    }
+    auto &value_edge_count = property_value_edge_count_[key];
+    if (value_edge_count.find(value) == value_edge_count.end()) {
+      std::stringstream ss;
+      ss << value;
+      int64_t count =
+          ReadVertexCount("edge type '" + edge_type + "' and property '" + property + "' value '" + ss.str() + "'");
+      value_edge_count[value] = count;
+    }
+    return value_edge_count.at(value);
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type_id, memgraph::storage::PropertyId property_id,
+                     const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> lower,
+                     const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> upper) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    auto property = dba_->PropertyToName(property_id);
+    std::stringstream range_string;
+    if (lower) {
+      range_string << (lower->IsInclusive() ? "[" : "(") << lower->value() << (upper ? "," : ", inf)");
+    } else {
+      range_string << "(-inf, ";
+    }
+    if (upper) {
+      range_string << upper->value() << (upper->IsInclusive() ? "]" : ")");
+    }
+    return ReadVertexCount("edge type '" + edge_type + "' and property '" + property + "' in range " +
+                           range_string.str());
+  }
+
+  int64_t EdgesCount(memgraph::storage::PropertyId property_id) { return 0; }
+
+  int64_t EdgesCount(memgraph::storage::PropertyId property_id, const memgraph::storage::PropertyValue &value) {
+    return 0;
+  }
+
+  int64_t EdgesCount(memgraph::storage::PropertyId property_id,
+                     const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> lower,
+                     const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> upper) {
+    return 0;
+  }
+
+  bool LabelIndexReady(memgraph::storage::LabelId label) { return true; }
+
+  auto RelevantLabelPropertiesIndicesInfo(std::span<memgraph::storage::LabelId const> labels,
+                                          std::span<memgraph::storage::PropertyPath const> property_paths) const
+      -> std::vector<memgraph::storage::LabelPropertiesIndicesInfo> {
+    return dba_->RelevantLabelPropertiesIndicesInfo(labels, property_paths);
+  }
 
   bool LabelPropertyIndexExists(memgraph::storage::LabelId label_id, memgraph::storage::PropertyId property_id) {
     auto label = dba_->LabelToName(label_id);
@@ -213,13 +364,50 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
+  bool EdgeTypeIndexReady(memgraph::storage::EdgeTypeId edge_type_id) { return true; }
+
+  bool EdgeTypePropertyIndexReady(memgraph::storage::EdgeTypeId edge_type_id,
+                                  memgraph::storage::PropertyId property_id) {
+    auto edge_type = dba_->EdgeTypeToName(edge_type_id);
+    auto property = dba_->PropertyToName(property_id);
+    auto key = std::make_pair(edge_type, property);
+    if (edge_type_property_index_.find(key) == edge_type_property_index_.end()) {
+      bool resp = timer_.WithPause(
+          [&edge_type, &property]() { return AskYesNo("Index for ':" + edge_type + "(" + property + ")' exists:"); });
+      edge_type_property_index_[key] = resp;
+    }
+    return edge_type_property_index_.at(key);
+  }
+
+  bool EdgePropertyIndexReady(memgraph::storage::PropertyId property_id) { return false; }
+
+  bool VertexPropertyIndexReady(memgraph::storage::PropertyId /*property_id*/) { return false; }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property_id*/) { return 0; }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property_id*/,
+                        const memgraph::storage::PropertyValue & /*value*/) {
+    return 0;
+  }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property_id*/,
+                        const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> /*lower*/,
+                        const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> /*upper*/) {
+    return 0;
+  }
+
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return dba_->GetIndexStats(label);
   }
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
-    return dba_->GetIndexStats(label, property);
+    return dba_->GetIndexStats(label, std::array{memgraph::storage::PropertyPath{property}});
+  }
+
+  std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
+      const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {
+    return dba_->GetIndexStats(label, properties);
   }
 
   // Save the cached vertex counts to a stream.
@@ -237,9 +425,20 @@ class InteractiveDbAccessor {
       }
     };
     save_label_prop_map("label-property-index-exists", label_property_index_);
-    save_label_prop_map("label-property-index-count", label_property_vertex_count_);
+    save_label_prop_map("edge-type-property-index-exists", edge_type_property_index_);
+    save_label_prop_map("label-property-index-count", label_properties_vertex_count_);
+    save_label_prop_map("edge-type-property-index-count", edge_type_property_edge_count_);
     out << "label-property-value-index-count " << property_value_vertex_count_.size() << std::endl;
     for (const auto &prop_value_count : property_value_vertex_count_) {
+      out << "  " << prop_value_count.first.first << " " << prop_value_count.first.second << " "
+          << prop_value_count.second.size() << std::endl;
+      for (const auto &value_count : prop_value_count.second) {
+        const auto &value = value_count.first;
+        out << "    " << value.type() << " " << value << " " << value_count.second << std::endl;
+      }
+    }
+    out << "edge-type-property-value-index-count " << property_value_edge_count_.size() << std::endl;
+    for (const auto &prop_value_count : property_value_edge_count_) {
       out << "  " << prop_value_count.first.first << " " << prop_value_count.first.second << " "
           << prop_value_count.second.size() << std::endl;
       for (const auto &value_count : prop_value_count.second) {
@@ -288,7 +487,9 @@ class InteractiveDbAccessor {
       }
     };
     load_label_prop_map("label-property-index-exists", label_property_index_);
-    load_label_prop_map("label-property-index-count", label_property_vertex_count_);
+    load_label_prop_map("edge-type-property-index-exists", edge_type_property_index_);
+    load_label_prop_map("label-property-index-count", label_properties_vertex_count_);
+    load_label_prop_map("edge-type-property-index-count", edge_type_property_edge_count_);
     int label_property_value_index_size = load_named_size("label-property-value-index-count");
     for (int i = 0; i < label_property_value_index_size; ++i) {
       std::string label;
@@ -310,6 +511,27 @@ class InteractiveDbAccessor {
         property_value_vertex_count_[std::make_pair(label, property)][value] = count;
       }
     }
+    int edge_type_property_value_index_size = load_named_size("edge-type-property-value-index-count");
+    for (int i = 0; i < edge_type_property_value_index_size; ++i) {
+      std::string edge_type;
+      std::string property;
+      int64_t value_count;
+      in >> edge_type >> property >> value_count;
+      if (in.fail()) {
+        throw memgraph::utils::BasicException("Unable to load label property value");
+      }
+      SPDLOG_INFO("Load {} {} {}", edge_type, property, value_count);
+      for (int v = 0; v < value_count; ++v) {
+        auto value = LoadPropertyValue(in);
+        int64_t count;
+        in >> count;
+        if (in.fail()) {
+          throw memgraph::utils::BasicException("Unable to load label property value");
+        }
+        SPDLOG_INFO("Load {} {} {}", value.type(), value, count);
+        property_value_edge_count_[std::make_pair(edge_type, property)][value] = count;
+      }
+    }
   }
 
  private:
@@ -319,10 +541,16 @@ class InteractiveDbAccessor {
   int64_t vertices_count_;
   Timer &timer_;
   std::map<std::string, int64_t> label_vertex_count_;
-  std::map<std::pair<std::string, std::string>, int64_t> label_property_vertex_count_;
+  std::map<std::string, int64_t> edge_type_edge_count_;
+  std::map<std::pair<std::string, std::string>, int64_t> label_properties_vertex_count_;
+  std::map<std::pair<std::string, std::string>, int64_t> edge_type_property_edge_count_;
   std::map<std::pair<std::string, std::string>, bool> label_property_index_;
+  std::map<std::pair<std::string, std::string>, bool> edge_type_property_index_;
   std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
       property_value_vertex_count_;
+  std::map<std::pair<std::string, std::string>, std::map<memgraph::storage::PropertyValue, int64_t>>
+      property_value_edge_count_;
+
   // TODO: Cache faked index counts by range.
 
   int64_t ReadVertexCount(const std::string &message) const {
@@ -362,7 +590,7 @@ DEFCOMMAND(Top) {
   for (int64_t i = 0; i < n_plans; ++i) {
     std::cout << "---- Plan #" << i << " ---- " << std::endl;
     std::cout << "cost: " << plans[i].cost << std::endl;
-    memgraph::query::plan::PrettyPrint(dba, plans[i].final_plan.get());
+    memgraph::query::plan::PrettyPrint(dba, plans[i].final_plan.get(), &std::cout);
     std::cout << std::endl;
   }
 }
@@ -375,7 +603,7 @@ DEFCOMMAND(Show) {
   const auto &plan = plans[plan_ix].final_plan;
   auto cost = plans[plan_ix].cost;
   std::cout << "Plan cost: " << cost << std::endl;
-  memgraph::query::plan::PrettyPrint(dba, plan.get());
+  memgraph::query::plan::PrettyPrint(dba, plan.get(), &std::cout);
 }
 
 DEFCOMMAND(ShowUnoptimized) {
@@ -384,7 +612,7 @@ DEFCOMMAND(ShowUnoptimized) {
   ss >> plan_ix;
   if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
   const auto &plan = plans[plan_ix].unoptimized_plan;
-  memgraph::query::plan::PrettyPrint(dba, plan.get());
+  memgraph::query::plan::PrettyPrint(dba, plan.get(), &std::cout);
 }
 
 DEFCOMMAND(Help);
@@ -448,7 +676,7 @@ memgraph::query::Query *MakeAst(const std::string &query, memgraph::query::AstSt
 // cost.
 auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstStorage &ast,
                       memgraph::query::SymbolTable &symbol_table, InteractiveDbAccessor *dba) {
-  auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, ast, query);
+  auto query_parts = memgraph::query::plan::CollectQueryParts(symbol_table, ast, query, false);
   std::vector<InteractivePlan> interactive_plans;
   auto ctx = memgraph::query::plan::MakePlanningContext(&ast, &symbol_table, query, dba);
   if (query_parts.query_parts.size() <= 0) {
@@ -467,8 +695,8 @@ auto MakeLogicalPlans(memgraph::query::CypherQuery *query, memgraph::query::AstS
     interactive_plans.push_back(
         InteractivePlan{std::move(unoptimized_plan), std::move(ast_copy), std::move(rewritten_plan), cost});
   }
-  std::stable_sort(interactive_plans.begin(), interactive_plans.end(),
-                   [](const auto &a, const auto &b) { return a.cost < b.cost; });
+  std::stable_sort(
+      interactive_plans.begin(), interactive_plans.end(), [](const auto &a, const auto &b) { return a.cost < b.cost; });
   return interactive_plans;
 }
 

@@ -1,0 +1,5 @@
+query: >
+  RETURN map.set_key({a: 1}, null, 2) AS map;
+
+output:
+  - map: {a: 1}

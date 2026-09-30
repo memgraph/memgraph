@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,13 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
-#include <cstdlib>
+#include <cstdint>
 #include <memory>
-
-#include "json/json.hpp"
+#include <nlohmann/json_fwd.hpp>
+#include <string>
+#include <string_view>
 
 namespace memgraph::metrics {
 using Count = uint64_t;
@@ -27,29 +29,17 @@ class EventMap {
 
   explicit EventMap(Counter *allocated_counters) noexcept : counters_(allocated_counters) {}
 
-  auto &operator[](std::string_view event);
-
-  const auto &operator[](std::string_view event) const;
-
   bool Increment(std::string_view event, Count amount = 1);
 
   bool Decrement(std::string_view event, Count amount = 1);
 
-  nlohmann::json ToJson() {
-    auto res = nlohmann::json::array();
-    for (size_t i = 0; i < kMaxCounters - num_free_counters_; ++i) {
-      const auto &event_name = name_to_id_[i];
-      res.push_back({{"name", event_name}, {"count", counters_[i].load()}});
-    }
-    return res;
-  }
+  nlohmann::json ToJson() const;
 
   uint64_t num_free_counters_{kMaxCounters};
   std::array<std::string, kMaxCounters> name_to_id_;
 
  private:
   Counter *counters_;
-  const auto &operator[](int event) const;
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

@@ -1,0 +1,7 @@
+query: >
+  MATCH path = (:Node {id: 1})-[:CONNECTED*4]->(:Node {id: 5}) RETURN
+  [x IN nodes(path.combine(null, path)) | x.id] AS first_null,
+  [x IN nodes(path.combine(path, null)) | x.id] AS second_null;
+output:
+  - first_null: [1, 2, 3, 4, 5]
+    second_null: [1, 2, 3, 4, 5]

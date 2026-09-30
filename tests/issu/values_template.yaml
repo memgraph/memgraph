@@ -1,0 +1,476 @@
+image:
+  repository: docker.io/memgraph/memgraph
+  # It is a bad practice to set the image tag name to 'latest' as it can trigger automatic upgrade of the charts
+  # With some of the pullPolicy values. Please consider fixing the tag to a specific Memgraph version
+  tag: "{{VERSION_TAG}}"
+  pullPolicy: IfNotPresent
+
+storage:
+  data:
+    libPVCSize: "1Gi"
+    libStorageAccessMode: "ReadWriteOnce"
+    # By default the name of the storage class isn't set which means that the default storage class will be used.
+    # If you set any name, such storage class must exist.
+    libStorageClassName: csi-hostpath-delayed
+    createLogStorageClaim: true
+    logPVCSize: "1Gi"
+    logStorageAccessMode: "ReadWriteOnce"
+    logStorageClassName: csi-hostpath-delayed
+    ## Create a Persistant Volume Claim for core dumps.
+    createCoreDumpsClaim: false
+    coreDumpsStorageClassName:
+    coreDumpsStorageSize: 10Gi
+    coreDumpsMountPath: /var/core/memgraph
+    coreDumpsImage:
+      repository: docker.io/library/busybox
+      tag: 1.37.0
+      pullPolicy: IfNotPresent
+    # Supports Helm templating (e.g. {{ .Release.Name }})
+    extraVolumes: []
+    # extraVolumes:
+    #   - name: bolt-certs
+    #     secret:
+    #       secretName: bolt-ssl-certificates-tls
+    #       items:
+    #         - key: tls.crt
+    #           path: tls.crt
+    #         - key: tls.key
+    #           path: tls.key
+    extraVolumeMounts: []
+    # Example:
+    # extraVolumeMounts:
+    #   - name: bolt-certs
+    #     mountPath: /etc/memgraph/ssl
+    #     readOnly: true
+
+  coordinators:
+    libPVCSize: "1Gi"
+    libStorageAccessMode: "ReadWriteOnce"
+    # By default the name of the storage class isn't set which means that the default storage class will be used.
+    # If you set any name, such storage class must exist.
+    libStorageClassName: csi-hostpath-delayed
+    createLogStorageClaim: true
+    logPVCSize: "1Gi"
+    logStorageAccessMode: "ReadWriteOnce"
+    logStorageClassName: csi-hostpath-delayed
+    ## Create a Persistant Volume Claim for core dumps.
+    createCoreDumpsClaim: false
+    coreDumpsStorageClassName:
+    coreDumpsStorageSize: 10Gi
+    coreDumpsMountPath: /var/core/memgraph
+    coreDumpsImage:
+      repository: docker.io/library/busybox
+      tag: 1.37.0
+      pullPolicy: IfNotPresent
+    # Supports Helm templating (e.g. {{ .Release.Name }})
+    extraVolumes: []
+    # Example:
+    # extraVolumes:
+    #   - name: bolt-certs
+    #     secret:
+    #       secretName: bolt-ssl-certificates-tls
+    #       items:
+    #         - key: tls.crt
+    #           path: tls.crt
+    #         - key: tls.key
+    #           path: tls.key
+    extraVolumeMounts: []
+    # Example:
+    # extraVolumeMounts:
+    #   - name: bolt-certs
+    #     mountPath: /etc/memgraph/ssl
+    #     readOnly: true
+
+ports:
+  boltPort: 7687 # If you change this value, change it also in probes definition
+  managementPort: 10000
+  replicationPort: 20000
+  coordinatorPort: 12000 # If you change this value, change it also in probes definition
+  metricsPort: 9091
+
+externalAccessConfig:
+  dataInstance:
+    # Empty = no external access service will be created
+    serviceType: ""
+    annotations: {} # Set of annotations applied to all data instances' services
+    # Example:
+    # annotations:
+      # external-dns.alpha.kubernetes.io/hostname: "coordinators.memgraph.example.com"
+  coordinator:
+    # Empty = no external access service will be created
+    serviceType: ""
+    annotations: {} # Set of annotations applied to all coordinators' services
+  gateway:
+    enabled: false
+    gatewayClassName: "" # Required when creating a new Gateway. Name of a pre-existing GatewayClass (e.g., "eg" for Envoy Gateway)
+    existingGatewayName: "" # If set, skip Gateway creation and attach routes to this existing Gateway
+    existingGatewayNamespace: "" # Namespace of the existing Gateway. Defaults to release namespace if empty
+    annotations: {}
+    labels: {}
+    dataPortBase: 9000 # Data instance ports: dataPortBase + array index (9000, 9001, ...)
+    coordinatorPortBase: 9010 # Coordinator ports: coordinatorPortBase + coordinator id (9011, 9012, ...)
+
+headlessService:
+  enabled: false # If set to true, each data and coordinator instance will use headless service
+
+# Affinity controls the scheduling of the memgraph-high-availability pods.
+# By default data pods will avoid being scheduled on the same node as other data pods,
+# and coordinator pods will avoid being scheduled on the same node as other coordinator pods.
+# Deployment won't fail if there is no sufficient nodes.
+affinity:
+  # The unique affinity, will schedule the pods on different nodes in the cluster.
+  # This means coordinators and data nodes will not be scheduled on the same node. If there are more pods than nodes, deployment will fail.
+  unique: false
+  # The parity affinity, will enable scheduling of the pods on the same node, but with the rule that one node can host pair made of coordinator and data node.
+  # This means each node can have max two pods, one coordinator and one data node. If not sufficient nodes, deployment will fail.
+  parity: false
+  # The nodeSelection affinity, will enable scheduling of the pods on the nodes with specific labels. So the coordinators will be scheduled on the nodes with label coordinator-node and data nodes will be scheduled on the nodes with label data-node. If not sufficient nodes, deployment will fail.
+  nodeSelection: false
+  roleLabelKey: "role"
+  dataNodeLabelValue: "data-node"
+  coordinatorNodeLabelValue: "coordinator-node"
+
+# If you are experiencing issues with the sysctlInitContainer, you can disable it here.
+# This is made to increase the max_map_count, necessary for high memory loads in Memgraph
+# If you are experiencing crashing pod with the: Max virtual memory areas vm.max_map_count is too low
+# you can increase the maxMapCount value.
+# You can see what's the proper value for this parameter by reading
+# https://memgraph.com/docs/database-management/system-configuration#recommended-values-for-the-vmmax_map_count-parameter
+sysctlInitContainer:
+  enabled: true
+  maxMapCount: 524288
+  image:
+    repository: docker.io/library/busybox
+    tag: 1.37.0
+    pullPolicy: IfNotPresent
+
+# This is fine because under both
+# Memgraph and Mage images we actually hard-code the user and group id.
+memgraphUserId: 101
+memgraphGroupId: 103
+
+secrets:
+  name: memgraph-secrets
+  licenseKey: MEMGRAPH_ENTERPRISE_LICENSE
+  organizationKey: MEMGRAPH_ORGANIZATION_NAME
+
+labels:
+  coordinators:
+    podLabels: {}
+    statefulSetLabels: {}
+    serviceLabels: {}
+  data:
+    podLabels: {}
+    statefulSetLabels: {}
+    serviceLabels: {}
+
+container:
+  data:
+    terminationGracePeriodSeconds: 30 # Make sure to increase this value if --storage-snapshot-on-exit=true so that snapshot can be successfully created on exit. The concrete value depends
+    # on the amount of data in your database
+    readinessProbe:
+      tcpSocket:
+        port: 7687 # If you change bolt port, change this also
+      failureThreshold: 20
+      timeoutSeconds: 10
+      periodSeconds: 5
+    livenessProbe:
+      tcpSocket:
+        port: 7687 # If you change bolt port, change this also
+      failureThreshold: 20
+      timeoutSeconds: 10
+      periodSeconds: 5
+    # When restoring Memgraph from a backup, it is important to give enough time app to start. Here, we set it to 2h by default.
+    startupProbe:
+      tcpSocket:
+        port: 7687 # If you change bolt port, change this also
+      failureThreshold: 1440
+      timeoutSeconds: 10
+      periodSeconds: 5
+  coordinators:
+    terminationGracePeriodSeconds: 30 # Make sure to increase this value if --storage-snapshot-on-exit=true so that snapshot can be successfully created on exit. The concrete value depends
+    # on the amount of data in your databas
+    readinessProbe:
+      tcpSocket:
+        port: 12000 # If you change coordinator port, change this also
+      failureThreshold: 20
+      timeoutSeconds: 10
+      periodSeconds: 5
+    livenessProbe:
+      tcpSocket:
+        port: 12000 # If you change coordinator port, change this also
+      failureThreshold: 20
+      timeoutSeconds: 10
+      periodSeconds: 5
+    startupProbe:
+      tcpSocket:
+        port: 12000
+      failureThreshold: 20
+      timeoutSeconds: 10
+      periodSeconds: 5
+
+resources:
+  data: {}
+  coordinators: {}
+
+
+updateStrategy:
+  type: OnDelete # Set to OnDelete to support ISSU
+
+prometheus:
+  enabled: false
+  namespace: "" # Namespace where K8s resources from mg-exporter.yaml will be installed and where your kube-prometheus-stack chart is installed, if empty, uses release namespace.
+  memgraphExporter:
+    port: 9115
+    pullFrequencySeconds: 5
+    repository: docker.io/memgraph/prometheus-exporter
+    tag: 0.2.3
+    extraVolumes: []
+    extraVolumeMounts: []
+    # extraVolumes:
+    #   - name: config-volume-setting
+    #     configMap:
+    #       name: exporter-custom-configs
+    # extraVolumeMounts:
+    #   - name: config-volume-setting
+    #     mountPath: /etc/memgraph-exporter
+    #     readOnly: true
+  serviceMonitor:
+    enabled: true
+    kubePrometheusStackReleaseName: kube-prometheus-stack
+    interval: 15s
+
+## Optional: vmagent for remote monitoring cluster – scrapes the Prometheus exporter
+## (and optionally kube-state-metrics / node-exporter / kubelet when vmagentRemote.kubernetes.enabled=true)
+## and remote-writes to VictoriaMetrics (or any Prometheus remote-write endpoint).
+## Requires prometheus.enabled so that mg-exporter is deployed.
+## If vmagentRemote.enabled=true and you only need remote_write, set prometheus.serviceMonitor.enabled=false
+## to avoid duplicate scraping of mg-exporter by both vmagent and kube-prometheus.
+vmagentRemote:
+  enabled: false
+  namespace: ""  # Defaults to prometheus.namespace when empty
+  image:
+    repository: victoriametrics/vmagent
+    tag: v1.139.0
+    pullPolicy: IfNotPresent
+  remoteWrite:
+    url: ""  # e.g. http://vmsingle.monitoring.svc.cluster.local:8428/api/v1/write
+    basicAuth:
+      secretName: ""
+      usernameKey: username
+      passwordKey: password
+  scrapeInterval: 15s
+  externalLabels: {}
+  kubernetes:
+    enabled: false  # Enable scraping of Kubernetes infrastructure metrics used by kube-prometheus dashboards.
+    kubeStateMetrics:
+      enabled: true
+      jobName: kube-state-metrics
+      targets:
+        - kube-prometheus-stack-kube-state-metrics.monitoring.svc.cluster.local:8080
+    nodeExporter:
+      enabled: true
+      jobName: node-exporter
+      # When enabled, scrape node-exporter pods via Kubernetes discovery so
+      # namespace/pod/node labels are present for kube-prometheus recording rules.
+      useKubernetesDiscovery: false
+      podMetricsPort: "9100"
+      appNameLabel: prometheus-node-exporter
+      appInstanceLabel: kube-prometheus-stack-prometheus-node-exporter
+      targets:
+        - kube-prometheus-stack-prometheus-node-exporter.monitoring.svc.cluster.local:9100
+    kubelet:
+      enabled: true
+      # Keep the default job label expected by kube-prometheus dashboards and recording rules.
+      jobName: kubelet
+      # Scrape kubelet cAdvisor metrics via Kubernetes API server node proxy.
+      metricsPath: /metrics/cadvisor
+      # Also scrape kubelet /metrics
+      additionalMetricsEnabled: true
+      additionalJobName: kubelet-metrics
+      additionalMetricsPath: /metrics
+      apiServerAddress: kubernetes.default.svc:443
+      # Set to true only if your cluster uses an untrusted kube-apiserver serving cert chain.
+      insecureSkipVerify: false
+  resources: {}
+  httpPort: 8429  # vmagent local HTTP listen port (metrics/debug); remote write target is remoteWrite.url
+
+## Optional: Vector sidecar for remote monitoring cluster – exports Memgraph logs via websocket to VictoriaLogs (Loki-compatible API) or any Loki endpoint.
+## Add to data and/or coordinator pods. Ensure Memgraph instance args include monitoring flags:
+## --monitoring-port=<vectorRemote.websocketPort> and --monitoring-address=0.0.0.0.
+vectorRemote:
+  enabled: false
+  # Add Vector sidecar to data instance pods
+  data: true
+  # Add Vector sidecar to coordinator pods
+  coordinators: true
+  websocketPort: 7444  # Memgraph monitoring websocket port used by both chart args and Vector sidecars
+  image:
+    repository: timberio/vector
+    tag: 0.49.0-debian
+    pullPolicy: IfNotPresent
+  logsEndpoint: ""
+  auth:
+    secretName: ""
+    usernameKey: username
+    passwordKey: password
+  extraLabels: {}  # e.g. cluster_id, service_name, cluster_env; role is set per pod type (data/coordinator)
+  resources: {}
+
+extraEnv:
+  data: []
+  # Example
+  # data:
+  #   - name: DATA_LABEL_ONE
+  #     value: "123"
+  #   - name: DATA_LABEL_TWO
+  #     value: "labellinho"
+  coordinators: []
+  # Example
+  # coordinators:
+  #   - name: COORD_ONE
+  #     value: "coord"
+  #   - name: COORD_TWO
+  #     value: "two_rr"
+
+## @param initContainers Add additional init containers for data instances and coordinators
+## ref: https://kubernetes.io/docs/concepts/workloads/pods/init-containers/
+## e.g:
+## initContainers:
+##  - name: your-image-name
+##    image: your-image
+##    imagePullPolicy: Always
+##    command: ['sh', '-c', 'echo "hello world"']
+##
+initContainers:
+  data: []
+  coordinators: []
+
+commonArgs:
+  data: # Common args for data instances
+    logging:
+      log_level: "TRACE" # Must not be empty.
+      also_log_to_stderr: true # Can only be bool
+      log_file: "/var/log/memgraph/memgraph.log" # If empty, log file won't be created
+  coordinators: # Common args for coordinator instances
+    logging:
+      log_level: "TRACE" # Must not be empty.
+      also_log_to_stderr: true # Can only be bool
+      log_file: "/var/log/memgraph/memgraph.log" # If empty, log file won't be created
+
+# If setting the --memory-limit flag under data instances, check that the amount of resources that a pod has been given is more than the actual memory limit you give to Memgraph
+# Setting the Memgraph's memory limit to more than the available resources can trigger pod eviction and restarts before Memgraph can make a query exception and continue running
+# the pod.
+data:
+  - id: "0"
+    restoreDataFromSnapshot: false
+    volumeSnapshotName: data-0-snap # Used only if restoreDataFromSnapshot is set to true
+    tls:
+      bolt:
+        enabled: false
+    internalAccessAnnotations: {} # Per-instance annotations for internal ClusterIP service
+    externalAccessAnnotations: {} # Per-instance annotations for external access service (merged with externalAccessConfig.dataInstance.annotations, per-instance takes precedence)
+    # Example
+    # externalAccessAnnotations:
+      # external-dns.alpha.kubernetes.io/hostname: "data-0.memgraph.example.com"
+    # If vectorRemote.enabled=true, add the following args for each data instance:
+    #   - "--monitoring-port=<vectorRemote.websocketPort>"
+    #   - "--monitoring-address=0.0.0.0"
+    args: # Args specific to this instance
+      - "--storage-snapshot-on-exit=false"
+      - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
+  - id: "1"
+    restoreDataFromSnapshot: false
+    volumeSnapshotName: data-1-snap
+    tls:
+      bolt:
+        enabled: false
+    internalAccessAnnotations: {}
+    externalAccessAnnotations: {}
+    args:
+      - "--storage-snapshot-on-exit=false"
+      - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
+
+coordinators:
+  - id: "1"
+    restoreDataFromSnapshot: false
+    volumeSnapshotName: coord-1-snap
+    tls:
+      bolt:
+        enabled: false
+    internalAccessAnnotations: {}
+    externalAccessAnnotations: {}
+    args:
+      - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
+
+  - id: "2"
+    restoreDataFromSnapshot: false
+    volumeSnapshotName: coord-2-snap
+    tls:
+      bolt:
+        enabled: false
+    internalAccessAnnotations: {}
+    externalAccessAnnotations: {}
+    args:
+      - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
+
+  - id: "3"
+    restoreDataFromSnapshot: false
+    volumeSnapshotName: coord-3-snap
+    tls:
+      bolt:
+        enabled: false
+    internalAccessAnnotations: {}
+    externalAccessAnnotations: {}
+    args:
+      - "--telemetry-enabled=false"
+      - "--monitoring-port=7444"
+      - "--monitoring-address=0.0.0.0"
+
+userContainers:
+  data: []
+  coordinators: []
+  # Example:
+  # coordinators:
+  #  - name: my-debugger
+  #    image: docker.io/library/busybox:1.37.0
+  #    command: ["sh", "-c", "echo hi; sleep 10000"]
+
+coreDumpUploader:
+  enabled: false
+  image:
+    repository: amazon/aws-cli
+    tag: 2.33.28
+    pullPolicy: IfNotPresent
+  s3BucketName: "memgraph-ha-cluster"
+  s3Prefix: "core-dumps"
+  awsRegion: "eu-west-1"
+  pollIntervalSeconds: 30
+  # Name of the K8s Secret containing AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+  secretName: "aws-s3-credentials"
+  accessKeySecretKey: "AWS_ACCESS_KEY_ID"
+  secretAccessKeySecretKey: "AWS_SECRET_ACCESS_KEY"
+
+tolerations:
+  data: []
+  # Example:
+  # data:
+  #   - key: "key2"
+  #     operator: "Equal"
+  #     value: "value2"
+  #     effect: "NoSchedule"
+  coordinators: []
+  # Example:
+  # coordinators:
+  #   - key: "key1"
+  #     operator: "Equal"
+  #     value: "value1"
+  #     effect: "NoSchedule"

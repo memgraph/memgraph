@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,16 +10,33 @@
 // licenses/APL.txt.
 
 #include "glue/auth_handler.hpp"
+#include <algorithm>
+#include <range/v3/all.hpp>
 
+#include <optional>
+#include <ranges>
 #include <sstream>
+#include <utility>
 
 #include <fmt/format.h>
 
+#include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "dbms/constants.hpp"
+#include "frontend/ast/ast_visitor.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "query/constants.hpp"
+#include "query/exceptions.hpp"
+#include "utils/logging.hpp"
+#include "utils/resource_monitoring.hpp"
+#include "utils/string.hpp"
+#include "utils/variant_helpers.hpp"
+
+#ifdef MG_ENTERPRISE
+namespace r = std::ranges;
+#endif
 
 namespace {
 
@@ -32,7 +49,9 @@ struct PermissionForPrivilegeResult {
 struct FineGrainedPermissionForPrivilegeResult {
   std::string permission;
 #ifdef MG_ENTERPRISE
-  memgraph::auth::FineGrainedPermission permission_level;
+  uint64_t permission_bitmask;
+  memgraph::auth::PermissionLevel grant_or_deny;
+  bool is_label;
 #endif
   std::string description;
 };
@@ -75,30 +94,32 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructPrivilegesResult(
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
-    const std::optional<memgraph::auth::User> &user) {
+    const std::optional<memgraph::auth::User> &user, std::optional<std::string_view> db_name) {
   std::vector<PermissionForPrivilegeResult> privilege_results;
 
-  const auto &permissions = user->GetPermissions();
-  const auto &user_level_permissions = user->permissions();
+  const auto &permissions = user->GetPermissions(db_name);
+  memgraph::auth::Permissions user_level_permissions =
+#ifdef MG_ENTERPRISE
+      (!db_name || user->has_access(db_name.value())) ? user->permissions() : memgraph::auth::Permissions{};
+#else
+      user->permissions();
+#endif
+  const auto &roles_permissions = user->roles().GetPermissions(db_name);
 
   for (const auto &privilege : memgraph::query::kPrivilegesAll) {
     auto user_permission_result = GetPermissionForPrivilegeForUserOrRole(permissions, privilege, "USER");
     auto user_only_permissions_result =
         GetPermissionForPrivilegeForUserOrRole(user_level_permissions, privilege, "USER");
+    auto role_permission_result = GetPermissionForPrivilegeForUserOrRole(roles_permissions, privilege, "ROLE");
 
     if (user_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
       std::vector<std::string> full_description;
       if (user_only_permissions_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
         full_description.emplace_back(user_only_permissions_result.description);
       }
-
-      if (const auto *role = user->role(); role != nullptr) {
-        auto role_permission_result = GetPermissionForPrivilegeForUserOrRole(role->permissions(), privilege, "ROLE");
-        if (role_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
-          full_description.emplace_back(role_permission_result.description);
-        }
+      if (role_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
+        full_description.emplace_back(role_permission_result.description);
       }
-
       privilege_results.push_back(PermissionForPrivilegeResult{user_permission_result.permission,
                                                                user_permission_result.permission_level,
                                                                memgraph::utils::Join(full_description, ", ")});
@@ -109,9 +130,13 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
-    const std::optional<memgraph::auth::Role> &role) {
+    const std::optional<memgraph::auth::Role> &role, std::optional<std::string_view> db_name = std::nullopt) {
   std::vector<PermissionForPrivilegeResult> privilege_results;
+#ifdef MG_ENTERPRISE
+  const auto &permissions = role->GetPermissions(db_name);
+#else
   const auto &permissions = role->permissions();
+#endif
   for (const auto &privilege : memgraph::query::kPrivilegesAll) {
     auto role_permission_result = GetPermissionForPrivilegeForUserOrRole(permissions, privilege, "ROLE");
     if (role_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
@@ -124,15 +149,32 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
 
 #ifdef MG_ENTERPRISE
 std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
-    const std::optional<memgraph::auth::User> &user) {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() || !user) {
+    const std::optional<memgraph::auth::User> &user, const std::optional<memgraph::auth::Roles> &roles) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() || (!user && !roles)) {
     return {};
   }
 
-  const auto &db = user->db_access();
-  const auto &allows = db.GetAllowAll();
-  const auto &grants = db.GetGrants();
-  const auto &denies = db.GetDenies();
+  bool allows = false;
+  std::set<std::string> grants;
+  std::set<std::string> denies;
+
+  const memgraph::auth::Roles *roles_obj = roles ? &*roles : nullptr;
+
+  if (user) {
+    const auto &db = user->db_access();
+    allows |= db.GetAllowAll();
+    grants.insert(db.GetGrants().begin(), db.GetGrants().end());
+    denies.insert(db.GetDenies().begin(), db.GetDenies().end());
+    roles_obj = &user->roles();
+  }
+  if (roles_obj) {
+    for (const auto &role : *roles_obj) {
+      const auto &role_db = role.db_access();
+      allows |= role_db.GetAllowAll();
+      grants.insert(role_db.GetGrants().begin(), role_db.GetGrants().end());
+      denies.insert(role_db.GetDenies().begin(), role_db.GetDenies().end());
+    }
+  }
 
   std::vector<memgraph::query::TypedValue> res;  // First element is a list of granted databases, second of revoked ones
   if (allows) {
@@ -146,6 +188,16 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
   return {res};
 }
 
+std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
+    const std::optional<memgraph::auth::User> &user) {
+  return ShowDatabasePrivileges(user, std::nullopt);
+}
+
+std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
+    const std::optional<memgraph::auth::Roles> &roles) {
+  return ShowDatabasePrivileges(std::nullopt, roles);
+}
+
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::FineGrainedAccessPermissions &permissions, const std::string &permission_type,
     const std::string &user_or_role) {
@@ -153,36 +205,72 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return fine_grained_permissions;
   }
-  const auto global_permission = permissions.GetGlobalPermission();
-  if (global_permission.has_value()) {
-    const auto &permission_level = memgraph::auth::PermissionToFineGrainedPermission(global_permission.value());
 
-    std::stringstream permission_representation;
-    permission_representation << "ALL " << permission_type << "S";
-    const auto &permission_level_representation =
-        permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
+  auto add_permission = [&](const std::string &entity_name,
+                            uint64_t permission_bitmask,
+                            memgraph::auth::PermissionLevel grant_or_deny,
+                            bool is_global) {
+    std::string permission_description;
+    auto const *const level_str = grant_or_deny == memgraph::auth::PermissionLevel::DENY ? "DENIED" : "GRANTED";
 
-    const auto permission_description =
-        fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
+    if (is_global) {
+      permission_description =
+          fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, level_str, user_or_role);
+    } else {
+      permission_description = fmt::format("{0} PERMISSION {1} TO {2}", permission_type, level_str, user_or_role);
+    }
 
-    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
-        permission_representation.str(), permission_level, permission_description});
+    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{.permission = entity_name,
+                                                                               .permission_bitmask = permission_bitmask,
+                                                                               .grant_or_deny = grant_or_deny,
+                                                                               .is_label = (permission_type == "LABEL"),
+                                                                               .description = permission_description});
+  };
+
+  // Handle global grants
+  auto const global_grants = permissions.GetGlobalGrants();
+  if (global_grants) {
+    add_permission(
+        fmt::format("ALL {}S", permission_type), global_grants.value(), memgraph::auth::PermissionLevel::GRANT, true);
   }
 
-  for (const auto &[label, permission] : permissions.GetPermissions()) {
-    auto permission_level = memgraph::auth::PermissionToFineGrainedPermission(permission);
+  // Handle global denies
+  auto const global_denies = permissions.GetGlobalDenies();
+  if (global_denies) {
+    add_permission(
+        fmt::format("ALL {}S", permission_type), global_denies.value(), memgraph::auth::PermissionLevel::DENY, true);
+  }
 
-    std::stringstream permission_representation;
-    permission_representation << permission_type << " :" << label;
+  auto build_entity_name = [&](const memgraph::auth::FineGrainedAccessRule &rule) {
+    if (rule.symbols.size() == 1 && rule.symbols.contains("*")) {
+      return fmt::format("ALL {}S", permission_type);
+    }
 
-    const auto &permission_level_representation =
-        permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
+    std::vector<std::string> sorted_symbols = rule.symbols | ranges::to_vector;
+    ranges::sort(sorted_symbols);
 
-    const auto permission_description =
-        fmt::format("{0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
+    auto const *entity_type = (permission_type == "LABEL") ? "NODES CONTAINING LABELS" : "EDGES OF TYPE";
+    std::string entity_name = entity_type;
 
-    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
-        permission_representation.str(), permission_level, permission_description});
+    auto formatted = sorted_symbols | ranges::views::transform([](auto const &s) { return fmt::format(":{}", s); });
+    entity_name += " " + memgraph::utils::Join(formatted, ", ");
+
+    if (permission_type == "LABEL") {
+      auto const *matching_str = (rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY) ? "EXACTLY" : "ANY";
+      entity_name += fmt::format(" MATCHING {}", matching_str);
+    }
+    return entity_name;
+  };
+
+  for (const auto &rule : permissions.GetRules()) {
+    auto entity_name = build_entity_name(rule);
+
+    if (rule.grants != memgraph::auth::FineGrainedPermission::NONE) {
+      add_permission(entity_name, static_cast<uint64_t>(rule.grants), memgraph::auth::PermissionLevel::GRANT, false);
+    }
+    if (rule.denies != memgraph::auth::FineGrainedPermission::NONE) {
+      add_permission(entity_name, static_cast<uint64_t>(rule.denies), memgraph::auth::PermissionLevel::DENY, false);
+    }
   }
 
   return fine_grained_permissions;
@@ -196,230 +284,471 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivil
   }
   grants.reserve(privileges.size());
   for (const auto &permission : privileges) {
-    grants.push_back(
-        {memgraph::query::TypedValue(permission.permission),
-         memgraph::query::TypedValue(memgraph::auth::FineGrainedPermissionToString(permission.permission_level)),
-         memgraph::query::TypedValue(permission.description)});
+    auto const permission_types =
+        memgraph::auth::FineGrainedPermissionToString(permission.permission_bitmask, permission.is_label);
+    auto const combined_privilege = fmt::format("{} ON {}", permission_types, permission.permission);
+
+    auto const *effective = (permission.grant_or_deny == memgraph::auth::PermissionLevel::DENY) ? "DENY" : "GRANT";
+
+    grants.push_back({memgraph::query::TypedValue(combined_privilege),
+                      memgraph::query::TypedValue(effective),
+                      memgraph::query::TypedValue(permission.description)});
   }
 
   return grants;
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivileges(
-    const std::optional<memgraph::auth::User> &user) {
+    const std::optional<memgraph::auth::User> &user, std::optional<std::string_view> db_name = std::nullopt) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
-  const auto &label_permissions = user->GetFineGrainedAccessLabelPermissions();
-  const auto &edge_type_permissions = user->GetFineGrainedAccessEdgeTypePermissions();
 
-  auto all_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "USER");
-  auto edge_type_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "USER");
+  auto all_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
+      user->GetUserFineGrainedAccessLabelPermissions(db_name), "LABEL", "USER");
+  auto all_role_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
+      user->GetRoleFineGrainedAccessLabelPermissions(db_name), "LABEL", "ROLE");
+  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
+                                      std::make_move_iterator(all_role_fine_grained_permissions.begin()),
+                                      std::make_move_iterator(all_role_fine_grained_permissions.end()));
 
-  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(), edge_type_fine_grained_permissions.begin(),
-                                      edge_type_fine_grained_permissions.end());
+  auto edge_type_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
+      user->GetUserFineGrainedAccessEdgeTypePermissions(db_name), "EDGE_TYPE", "USER");
+  auto role_edge_type_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
+      user->GetRoleFineGrainedAccessEdgeTypePermissions(db_name), "EDGE_TYPE", "ROLE");
+  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
+                                      std::make_move_iterator(edge_type_fine_grained_permissions.begin()),
+                                      std::make_move_iterator(edge_type_fine_grained_permissions.end()));
+  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
+                                      std::make_move_iterator(role_edge_type_fine_grained_permissions.begin()),
+                                      std::make_move_iterator(role_edge_type_fine_grained_permissions.end()));
 
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivileges(
-    const std::optional<memgraph::auth::Role> &role) {
+    const std::optional<memgraph::auth::Role> &role, std::optional<std::string_view> db_name = std::nullopt) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
-  const auto &label_permissions = role->GetFineGrainedAccessLabelPermissions();
-  const auto &edge_type_permissions = role->GetFineGrainedAccessEdgeTypePermissions();
+  const auto &label_permissions = role->GetFineGrainedAccessLabelPermissions(db_name);
+  const auto &edge_type_permissions = role->GetFineGrainedAccessEdgeTypePermissions(db_name);
 
   auto all_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "USER");
+      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "ROLE");
   auto edge_type_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "USER");
+      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "ROLE");
 
-  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(), edge_type_fine_grained_permissions.begin(),
+  all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
+                                      edge_type_fine_grained_permissions.begin(),
                                       edge_type_fine_grained_permissions.end());
 
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
-#endif
 
+void EmitPropertyMap(std::unordered_map<std::string, memgraph::auth::PropertyPermission> const &prop_map,
+                     std::string_view scope, bool is_global, std::string_view user_or_role_str,
+                     std::vector<std::vector<memgraph::query::TypedValue>> &result) {
+  using PPT = memgraph::auth::PropertyPermissionType;
+
+  std::vector<std::string> read_granted;
+  std::vector<std::string> read_denied;
+  std::vector<std::string> write_granted;
+  std::vector<std::string> write_denied;
+  for (auto const &[prop, perm] : prop_map) {
+    if ((perm.grants & PPT::READ) != PPT::NONE)
+      read_granted.push_back(prop);
+    else if ((perm.denies & PPT::READ) != PPT::NONE)
+      read_denied.push_back(prop);
+    if ((perm.grants & PPT::WRITE) != PPT::NONE)
+      write_granted.push_back(prop);
+    else if ((perm.denies & PPT::WRITE) != PPT::NONE)
+      write_denied.push_back(prop);
+  }
+  r::sort(read_granted);
+  r::sort(read_denied);
+  r::sort(write_granted);
+  r::sort(write_denied);
+
+  auto emit_row = [&](std::string_view type_label,
+                      std::vector<std::string> const &props,
+                      std::string_view level,
+                      std::string_view verb) {
+    auto prop_list = memgraph::utils::Join(props, ", ");
+    auto privilege = fmt::format("{} {{{}}} ON {}", type_label, prop_list, scope);
+    auto description =
+        fmt::format("{}PROPERTY PERMISSION {} TO {}", is_global ? "GLOBAL " : "", verb, user_or_role_str);
+    result.push_back({memgraph::query::TypedValue(privilege),
+                      memgraph::query::TypedValue(std::string(level)),
+                      memgraph::query::TypedValue(description)});
+  };
+
+  auto emit_level = [&](std::vector<std::string> const &read_props,
+                        std::vector<std::string> const &write_props,
+                        std::string_view level,
+                        std::string_view verb) {
+    if (read_props.empty() && write_props.empty()) return;
+    if (!read_props.empty() && read_props == write_props) {
+      emit_row("READ, SET PROPERTY", read_props, level, verb);
+    } else {
+      if (!read_props.empty()) emit_row("READ", read_props, level, verb);
+      if (!write_props.empty()) emit_row("SET PROPERTY", write_props, level, verb);
+    }
+  };
+
+  emit_level(read_granted, write_granted, "GRANT", "GRANTED");
+  emit_level(read_denied, write_denied, "DENY", "DENIED");
+}
+
+void DeduplicatePermissionRows(std::vector<std::vector<memgraph::query::TypedValue>> &rows) {
+  std::map<std::pair<std::string, std::string>, size_t> seen;
+  std::vector<std::vector<memgraph::query::TypedValue>> result;
+  for (auto &row : rows) {
+    auto key = std::make_pair(std::string(row[0].ValueString()), std::string(row[1].ValueString()));
+    if (auto it = seen.find(key); it != seen.end()) {
+      auto &existing_desc = result[it->second][2];
+      auto combined = std::string(existing_desc.ValueString()) + ", " + std::string(row[2].ValueString());
+      existing_desc = memgraph::query::TypedValue(combined);
+    } else {
+      seen.emplace(std::move(key), result.size());
+      result.push_back(std::move(row));
+    }
+  }
+  rows = std::move(result);
+}
+
+void EmitPropertyPermissions(memgraph::auth::PropertyAccessPermissions const &perms,
+                             memgraph::auth::PropertyEntityKind kind, std::string_view user_or_role_str,
+                             std::vector<std::vector<memgraph::query::TypedValue>> &result) {
+  auto const is_node = kind == memgraph::auth::PropertyEntityKind::NODE;
+  auto const *entity_kind = is_node ? "NODES CONTAINING LABELS" : "EDGES OF TYPE";
+  auto const *global_entity_kind = is_node ? "ALL LABELS" : "ALL EDGE_TYPES";
+
+  if (!perms.GetGlobalRules().empty()) {
+    EmitPropertyMap(perms.GetGlobalRules(), global_entity_kind, true, user_or_role_str, result);
+  }
+  for (auto const &rule : perms.GetRules()) {
+    std::vector<std::string> sorted_entities(rule.entities.begin(), rule.entities.end());
+    r::sort(sorted_entities);
+    auto formatted = sorted_entities | std::views::transform([](auto const &e) { return fmt::format(":{}", e); });
+    auto entity_str = memgraph::utils::Join(formatted, ", ");
+    if (is_node) {
+      entity_str += rule.matching_mode == memgraph::auth::MatchingMode::EXACTLY ? " MATCHING EXACTLY" : " MATCHING ANY";
+    }
+    EmitPropertyMap(rule.properties, fmt::format("{} {}", entity_kind, entity_str), false, user_or_role_str, result);
+  }
+}
+
+std::vector<std::vector<memgraph::query::TypedValue>> ShowPropertyPermissions(
+    memgraph::auth::PropertyAccessHandler const &handler, std::string_view user_or_role_str) {
+  std::vector<std::vector<memgraph::query::TypedValue>> result;
+  EmitPropertyPermissions(
+      handler.label_properties(), memgraph::auth::PropertyEntityKind::NODE, user_or_role_str, result);
+  EmitPropertyPermissions(
+      handler.edge_type_properties(), memgraph::auth::PropertyEntityKind::EDGE, user_or_role_str, result);
+  return result;
+}
+
+// Converting values from query to user profile framework
+memgraph::auth::UserProfiles::Limits name_to_limit(const auto &name) {
+  auto it = std::find(memgraph::auth::UserProfiles::kLimits.begin(), memgraph::auth::UserProfiles::kLimits.end(), name);
+  if (it == memgraph::auth::UserProfiles::kLimits.end()) {
+    throw memgraph::query::QueryRuntimeException(
+        "Unknown limit '{}'. Currently implemented limits: {}", name, memgraph::auth::UserProfiles::AllLimits());
+  }
+  return static_cast<memgraph::auth::UserProfiles::Limits>(
+      std::distance(memgraph::auth::UserProfiles::kLimits.begin(), it));
+}
+
+void is_limit_supported(memgraph::query::UserProfileQuery::LimitValueResult::Type value_type,
+                        memgraph::auth::UserProfiles::Limits limit_type) {
+  // Unlimited is always supported
+  if (value_type == memgraph::query::UserProfileQuery::LimitValueResult::Type::UNLIMITED) return;
+  // Different limits support different values
+  switch (limit_type) {
+    case memgraph::auth::UserProfiles::Limits::kSessions:
+      if (value_type != memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY) {
+        throw memgraph::query::QueryRuntimeException("Limit 'sessions' only supports integer values.");
+      }
+      break;
+    case memgraph::auth::UserProfiles::Limits::kTransactionsMemory:
+      if (value_type != memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT) {
+        throw memgraph::query::QueryRuntimeException(
+            "Limit 'sessions' only supports memory limit values. Example: 100MB");
+      }
+      break;
+  }
+}
+
+auto convert_limit_value(const memgraph::auth::UserProfiles::Profile &profile) {
+  memgraph::query::UserProfileQuery::limits_t query_profile;
+  for (const auto &[limit_type, limit_value] : profile.limits) {
+    memgraph::query::UserProfileQuery::LimitValueResult limit_value_result;
+    if (std::holds_alternative<memgraph::auth::UserProfiles::unlimitted_t>(limit_value)) {
+      limit_value_result.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::UNLIMITED;
+    } else if (limit_type == memgraph::auth::UserProfiles::Limits::kSessions) {
+      limit_value_result.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
+      limit_value_result.quantity.value = std::get<uint64_t>(limit_value);
+    } else if (limit_type == memgraph::auth::UserProfiles::Limits::kTransactionsMemory) {
+      limit_value_result.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
+      if (std::get<uint64_t>(limit_value) >= 1024UL * 1024UL) {  // Convert to MB
+        limit_value_result.mem_limit.value = std::get<uint64_t>(limit_value) / 1024 / 1024;
+        limit_value_result.mem_limit.scale = 1024UL * 1024UL;
+      } else {  // Convert to KB
+        limit_value_result.mem_limit.value = std::get<uint64_t>(limit_value) / 1024;
+        limit_value_result.mem_limit.scale = 1024;
+      }
+    }
+    query_profile.emplace_back(memgraph::auth::UserProfiles::kLimits[static_cast<int>(limit_type)], limit_value_result);
+  }
+  return query_profile;
+}
+#endif
 }  // namespace
 
 namespace memgraph::glue {
 
-AuthQueryHandler::AuthQueryHandler(
-    memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-    std::string name_regex_string)
-    : auth_(auth), name_regex_string_(std::move(name_regex_string)), name_regex_(name_regex_string_) {}
+AuthQueryHandler::AuthQueryHandler(memgraph::auth::SynchedAuth *auth) : auth_(auth) {}
 
-bool AuthQueryHandler::CreateUser(const std::string &username, const std::optional<std::string> &password) {
-  if (name_regex_string_ != kDefaultUserRoleRegex) {
-    if (const auto license_check_result =
-            memgraph::license::global_license_checker.IsEnterpriseValid(memgraph::utils::global_settings);
-        license_check_result.HasError()) {
-      throw memgraph::auth::AuthException(
-          "Custom user/role regex is a Memgraph Enterprise feature. Please set the config "
-          "(\"--auth-user-or-role-name-regex\") to its default value (\"{}\") or remove the flag.\n{}",
-          kDefaultUserRoleRegex,
-          memgraph::license::LicenseCheckErrorToString(license_check_result.GetError(), "user/role regex"));
-    }
-  }
-  if (!std::regex_match(username, name_regex_)) {
-    throw query::QueryRuntimeException("Invalid user name.");
-  }
+query::CreateUserResult AuthQueryHandler::CreateUser(const std::string &username,
+                                                     const std::optional<std::string> &password,
+                                                     system::Transaction *system_tx) {
   try {
-    const auto [first_user, user_added] = std::invoke([&, this] {
-      auto locked_auth = auth_->Lock();
-      const auto first_user = !locked_auth->HasUsers();
-      const auto user_added = locked_auth->AddUser(username, password).has_value();
-      return std::make_pair(first_user, user_added);
-    });
+    auto locked_auth = auth_->Lock();
+    const auto first_user = !locked_auth->HasUsers();
 
-    if (first_user) {
-      spdlog::info("{} is first created user. Granting all privileges.", username);
-      GrantPrivilege(
-          username, memgraph::query::kPrivilegesAll
+    auto new_user = locked_auth->AddUser(username, password, system_tx);
+    if (first_user && new_user) {
 #ifdef MG_ENTERPRISE
-          ,
-          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::query::kAsterisk}}}},
-          {
-            {
-              {
-                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { memgraph::query::kAsterisk }
-              }
-            }
-          }
-#endif
-      );
-#ifdef MG_ENTERPRISE
-      GrantDatabaseToUser(auth::kAllDatabases, username);
-      SetMainDatabase(dbms::kDefaultDB, username);
+      bool const builtin_roles_created = locked_auth->CreateBuiltinRoles(system_tx);
+      locked_auth->InitialiseFirstUser(*new_user, system_tx);
+      return {
+          .created = new_user.has_value(), .first_user = first_user, .builtin_roles_created = builtin_roles_created};
+#else
+      locked_auth->InitialiseFirstUser(*new_user, system_tx);
 #endif
     }
-
-    return user_added;
+    return {.created = new_user.has_value(), .first_user = first_user};
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-bool AuthQueryHandler::DropUser(const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
+bool AuthQueryHandler::DropUser(const std::string &username, system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) return false;
-    return locked_auth->RemoveUser(username);
+    const auto res = locked_auth->RemoveUser(username, system_tx);
+    return res;
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-void AuthQueryHandler::SetPassword(const std::string &username, const std::optional<std::string> &password) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
+void AuthQueryHandler::SetPassword(const std::string &username, const std::optional<std::string> &password,
+                                   system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    user->UpdatePassword(password);
-    locked_auth->SaveUser(*user);
+    locked_auth->UpdatePassword(*user, password);
+    locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-bool AuthQueryHandler::CreateRole(const std::string &rolename) {
-  if (!std::regex_match(rolename, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid role name.");
-  }
+void AuthQueryHandler::ChangePassword(const std::string &username, const std::optional<std::string> &oldPassword,
+                                      const std::optional<std::string> &newPassword, system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    return locked_auth->AddRole(rolename).has_value();
+    auto user = locked_auth->GetUser(username);
+    if (!user) {
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    }
+    if (user->CheckPasswordExplicit(*oldPassword)) {
+      locked_auth->UpdatePassword(*user, newPassword);
+      locked_auth->SaveUser(*user, system_tx);
+    } else {
+      throw memgraph::query::QueryRuntimeException("Old password is not correct.");
+    }
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+bool AuthQueryHandler::CreateRole(const std::string &rolename, system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    return locked_auth->AddRole(rolename, system_tx).has_value();
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
 #ifdef MG_ENTERPRISE
-bool AuthQueryHandler::RevokeDatabaseFromUser(const std::string &db, const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
+void AuthQueryHandler::GrantDatabase(const std::string &db_name, const std::string &user_or_role,
+                                     auth::UserOrRoleType type, system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(username);
-    if (!user) return false;
-    return locked_auth->RevokeDatabaseFromUser(db, username);
+    const auto res = locked_auth->GrantDatabase(db_name, user_or_role, type, system_tx);
+    switch (res) {
+      using enum auth::Auth::Result;
+      case SUCCESS:
+        return;
+      case NO_USER_ROLE:
+        throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
+    }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-bool AuthQueryHandler::GrantDatabaseToUser(const std::string &db, const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
+void AuthQueryHandler::DenyDatabase(const std::string &db_name, const std::string &user_or_role,
+                                    auth::UserOrRoleType type, system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(username);
-    if (!user) return false;
-    return locked_auth->GrantDatabaseToUser(db, username);
+    const auto res = locked_auth->DenyDatabase(db_name, user_or_role, type, system_tx);
+    switch (res) {
+      using enum auth::Auth::Result;
+      case SUCCESS:
+        return;
+      case NO_USER_ROLE:
+        throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
+    }
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::RevokeDatabase(const std::string &db_name, const std::string &user_or_role,
+                                      auth::UserOrRoleType type, system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    const auto res = locked_auth->RevokeDatabase(db_name, user_or_role, type, system_tx);
+    switch (res) {
+      using enum auth::Auth::Result;
+      case SUCCESS:
+        return;
+      case NO_USER_ROLE:
+        throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
+    }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatabasePrivileges(
-    const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
-  }
+    const std::string &user, const std::vector<std::string> &roles, auth::UserOrRoleType type) {
   try {
     auto locked_auth = auth_->ReadLock();
-    auto user = locked_auth->GetUser(username);
-    if (!user) {
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    auto local_user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user) : std::nullopt;
+    auto has_role = [&](const std::vector<std::string> &role_names) {
+      return r::any_of(role_names, [&](const auto &role_name) { return locked_auth->GetRole(role_name).has_value(); });
+    };
+
+    if (type == auth::UserOrRoleType::UNSPECIFIED && local_user && has_role(roles)) {
+      throw memgraph::query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                                   user);
     }
-    return ShowDatabasePrivileges(user);
+
+    if (local_user) {
+      return ShowDatabasePrivileges(local_user);
+    }
+
+    // User doesn't exist, check if any of the roles exist (this can happen when auth module is used).
+    std::optional<memgraph::auth::Roles> roles_obj;
+    if (type != auth::UserOrRoleType::USER) {
+      for (const auto &role : roles) {
+        if (auto role_obj = locked_auth->GetRole(role)) {
+          if (!roles_obj) roles_obj.emplace();
+          roles_obj->AddRole(*role_obj);
+        }
+      }
+    }
+    if (roles_obj) {
+      return ShowDatabasePrivileges(roles_obj);
+    }
+
+    if (type == auth::UserOrRoleType::USER) {
+      throw memgraph::query::QueryRuntimeException("Missing user '{}'.", user);
+    }
+    if (type == auth::UserOrRoleType::ROLE) {
+      throw memgraph::query::QueryRuntimeException("Missing one of roles: {}.",
+                                                   memgraph::utils::JoinVector(roles, ", "));
+    }
+
+    throw memgraph::query::QueryRuntimeException(
+        "Missing user '{}' or one of role: {}.", user, memgraph::utils::JoinVector(roles, ", "));
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-bool AuthQueryHandler::SetMainDatabase(std::string_view db, const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
+void AuthQueryHandler::SetMainDatabase(std::string_view db_name, const std::string &user_or_role,
+                                       auth::UserOrRoleType type, system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(username);
-    if (!user) return false;
-    return locked_auth->SetMainDatabase(db, username);
+    const auto res = locked_auth->SetMainDatabase(db_name, user_or_role, type, system_tx);
+    switch (res) {
+      using enum auth::Auth::Result;
+      case SUCCESS:
+        return;
+      case NO_USER_ROLE:
+        throw query::QueryRuntimeException("No user nor role '{}' found.", user_or_role);
+    }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-void AuthQueryHandler::DeleteDatabase(std::string_view db) {
+void AuthQueryHandler::DeleteDatabase(std::string_view db_name, system::Transaction *system_tx) {
   try {
-    auth_->Lock()->DeleteDatabase(std::string(db));
+    auth_->Lock()->DeleteDatabase(std::string(db_name), system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+std::optional<std::string> AuthQueryHandler::GetMainDatabase(const std::string &user_or_role,
+                                                             auth::UserOrRoleType type) {
+  try {
+    auto locked_auth = auth_->ReadLock();
+    auto user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user_or_role) : std::nullopt;
+    auto role = (type != auth::UserOrRoleType::USER) ? locked_auth->GetRole(user_or_role) : std::nullopt;
+
+    if (type == auth::UserOrRoleType::UNSPECIFIED && user && role) {
+      throw memgraph::query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                                   user_or_role);
+    }
+
+    if (user) {
+      try {
+        return user->GetMain();
+      } catch (const memgraph::auth::AuthException &) {
+        return std::nullopt;  // User has no main database set
+      }
+    }
+
+    if (role) {
+      try {
+        return role->GetMain();
+      } catch (const memgraph::auth::AuthException &) {
+        return std::nullopt;  // Role has no main database set
+      }
+    }
+
+    return std::nullopt;  // User/role doesn't exist
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 #endif
 
-bool AuthQueryHandler::DropRole(const std::string &rolename) {
-  if (!std::regex_match(rolename, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid role name.");
-  }
+bool AuthQueryHandler::DropRole(const std::string &rolename, system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto role = locked_auth->GetRole(rolename);
@@ -428,7 +757,16 @@ bool AuthQueryHandler::DropRole(const std::string &rolename) {
       return false;
     };
 
-    return locked_auth->RemoveRole(rolename);
+    return locked_auth->RemoveRole(rolename, false, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+bool AuthQueryHandler::HasRole(const std::string &rolename) {
+  try {
+    auto locked_auth = auth_->ReadLock();
+    return locked_auth->GetRole(rolename).has_value();
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -449,14 +787,14 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernames() {
   }
 }
 
-std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetRolenames() {
+std::vector<query::RolenameResult> AuthQueryHandler::GetRolenames() {
   try {
     auto locked_auth = auth_->ReadLock();
-    std::vector<memgraph::query::TypedValue> rolenames;
+    std::vector<query::RolenameResult> rolenames;
     const auto &roles = locked_auth->AllRoles();
     rolenames.reserve(roles.size());
     for (const auto &role : roles) {
-      rolenames.emplace_back(role.rolename());
+      rolenames.emplace_back(role.rolename(), role.IsBuiltIn());
     }
     return rolenames;
   } catch (const memgraph::auth::AuthException &e) {
@@ -464,30 +802,35 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetRolenames() {
   }
 }
 
-std::optional<std::string> AuthQueryHandler::GetRolenameForUser(const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
+std::vector<query::RolenameResult> AuthQueryHandler::GetRolenamesForUser(
+    const std::string &username, [[maybe_unused]] std::optional<std::string> db_name) {
   try {
     auto locked_auth = auth_->ReadLock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      throw query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
 
-    if (const auto *role = user->role(); role != nullptr) {
-      return role->rolename();
+    std::vector<query::RolenameResult> rolenames;
+    auto roles = user->roles().GetRoles();
+#ifdef MG_ENTERPRISE
+    if (db_name) {
+      roles = user->GetMultiTenantRoles(db_name.value());
     }
-    return std::nullopt;
+#endif
+    if (!roles.empty()) {
+      rolenames.reserve(roles.size());
+      for (const auto &role : roles) {
+        rolenames.emplace_back(role.rolename(), role.IsBuiltIn());
+      }
+    }
+    return rolenames;
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
 std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernamesForRole(const std::string &rolename) {
-  if (!std::regex_match(rolename, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid role name.");
-  }
   try {
     auto locked_auth = auth_->ReadLock();
     auto role = locked_auth->GetRole(rolename);
@@ -506,82 +849,215 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernamesForRole(c
   }
 }
 
-void AuthQueryHandler::SetRole(const std::string &username, const std::string &rolename) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
-  if (!std::regex_match(rolename, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid role name.");
-  }
+void AuthQueryHandler::SetRoles(const std::string &username, const std::vector<std::string> &roles,
+                                const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    auto role = locked_auth->GetRole(rolename);
-    if (!role) {
-      throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist .", rolename);
+
+#ifdef MG_ENTERPRISE
+    // Multi-tenant support
+    if (!role_databases.empty()) {
+      for (const auto &db_name : role_databases) {
+        user->ClearMultiTenantRoles(db_name);
+        for (const auto &role : roles) {
+          auto role_obj = locked_auth->GetRole(role);
+          if (!role_obj) {
+            throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", role);
+          }
+          user->AddMultiTenantRole(*role_obj, db_name);
+        }
+      }
+      locked_auth->SaveUser(*user, system_tx);
+      return;
     }
-    if (const auto *current_role = user->role(); current_role != nullptr) {
-      throw memgraph::query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username,
-                                                   current_role->rolename());
+#endif
+
+    // Clear existing roles first
+    user->ClearAllRoles();
+
+    // Add each role
+    for (const auto &rolename : roles) {
+      auto role = locked_auth->GetRole(rolename);
+      if (!role) {
+        throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
+      }
+      user->AddRole(*role);
     }
-    user->SetRole(*role);
-    locked_auth->SaveUser(*user);
+
+    locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-void AuthQueryHandler::ClearRole(const std::string &username) {
-  if (!std::regex_match(username, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user name.");
-  }
+void AuthQueryHandler::ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
+                                  system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
-      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist .", username);
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    user->ClearRole();
-    locked_auth->SaveUser(*user);
+
+#ifdef MG_ENTERPRISE
+    if (!role_databases.empty()) {
+      for (const auto &db_name : role_databases) {
+        user->ClearMultiTenantRoles(db_name);
+      }
+      locked_auth->SaveUser(*user, system_tx);
+      return;
+    }
+#endif
+
+    user->ClearAllRoles();
+    locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivileges(const std::string &user_or_role) {
-  if (!std::regex_match(user_or_role, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
+void AuthQueryHandler::AddRoles(const std::string &username, const std::vector<std::string> &roles,
+                                [[maybe_unused]] const std::unordered_set<std::string> &role_databases,
+                                system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) {
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    }
+
+#ifdef MG_ENTERPRISE
+    if (!role_databases.empty()) {
+      for (const auto &db_name : role_databases) {
+        for (const auto &rolename : roles) {
+          auto role = locked_auth->GetRole(rolename);
+          if (!role) {
+            throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
+          }
+          user->AddMultiTenantRole(*role, db_name);
+        }
+      }
+      locked_auth->SaveUser(*user, system_tx);
+      return;
+    }
+#endif
+
+    for (const auto &rolename : roles) {
+      auto role = locked_auth->GetRole(rolename);
+      if (!role) {
+        throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
+      }
+      user->AddRole(*role);
+    }
+    locked_auth->SaveUser(*user, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
   }
+}
+
+void AuthQueryHandler::RevokeRoles(const std::string &username, const std::vector<std::string> &roles,
+                                   [[maybe_unused]] const std::unordered_set<std::string> &role_databases,
+                                   system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) {
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    }
+
+#ifdef MG_ENTERPRISE
+    if (!role_databases.empty()) {
+      for (const auto &db_name : role_databases) {
+        for (const auto &rolename : roles) {
+          user->RemoveMultiTenantRole(rolename, db_name);
+        }
+      }
+      locked_auth->SaveUser(*user, system_tx);
+      return;
+    }
+#endif
+
+    for (const auto &rolename : roles) {
+      user->RemoveRole(rolename);
+    }
+    locked_auth->SaveUser(*user, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::RemoveRole(const std::string &username, const std::string &rolename,
+                                  system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto user = locked_auth->GetUser(username);
+    if (!user) {
+      throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+    }
+
+    // Check if user has this role
+    bool has_role = false;
+    for (const auto &role : user->roles()) {
+      if (role.rolename() == rolename) {
+        has_role = true;
+        break;
+      }
+    }
+
+    if (!has_role) {
+      throw memgraph::query::QueryRuntimeException("User '{}' is not a member of role '{}'.", username, rolename);
+    }
+
+    user->RemoveRole(rolename);
+    locked_auth->SaveUser(*user, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivileges(
+    const std::string &user_or_role, std::optional<std::string> db_name, auth::UserOrRoleType type) {
   try {
     auto locked_auth = auth_->ReadLock();
+    auto user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user_or_role) : std::nullopt;
+    auto role = (type != auth::UserOrRoleType::USER) ? locked_auth->GetRole(user_or_role) : std::nullopt;
+    if (user && role)
+      throw memgraph::query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                                   user_or_role);
     std::vector<std::vector<memgraph::query::TypedValue>> grants;
 #ifdef MG_ENTERPRISE
     std::vector<std::vector<memgraph::query::TypedValue>> fine_grained_grants;
 #endif
-    auto user = locked_auth->GetUser(user_or_role);
-    auto role = locked_auth->GetRole(user_or_role);
-    if (!user && !role) {
-      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
-    }
-
     if (user) {
-      grants = ShowUserPrivileges(user);
+      grants = ShowUserPrivileges(user, db_name);
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        fine_grained_grants = ShowFineGrainedUserPrivileges(user);
+        fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);
+        DeduplicatePermissionRows(fine_grained_grants);
+        auto property_rows = ShowPropertyPermissions(user->property_access_handler(), "USER");
+        for (auto const &role : user->roles()) {
+          property_rows.append_range(ShowPropertyPermissions(role.property_access_handler(), "ROLE"));
+        }
+        DeduplicatePermissionRows(property_rows);
+        fine_grained_grants.append_range(std::move(property_rows));
+      }
+#endif
+    } else if (role) {
+      grants = ShowRolePrivileges(role, db_name);
+#ifdef MG_ENTERPRISE
+      if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+        fine_grained_grants = ShowFineGrainedRolePrivileges(role, db_name);
+        fine_grained_grants.append_range(ShowPropertyPermissions(role->property_access_handler(), "ROLE"));
       }
 #endif
     } else {
-      grants = ShowRolePrivileges(role);
-#ifdef MG_ENTERPRISE
-      if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        fine_grained_grants = ShowFineGrainedRolePrivileges(role);
-      }
-#endif
+      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
     }
+
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       grants.insert(grants.end(), fine_grained_grants.begin(), fine_grained_grants.end());
@@ -599,14 +1075,19 @@ void AuthQueryHandler::GrantPrivilege(
     ,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &label_privileges,
+    const std::vector<memgraph::query::AuthQuery::LabelMatchingMode> &label_matching_modes,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &edge_type_privileges
 #endif
-) {
+    ,
+    auth::UserOrRoleType type, system::Transaction *system_tx) {
   EditPermissions(
-      user_or_role, privileges,
+      user_or_role,
+      privileges,
 #ifdef MG_ENTERPRISE
-      label_privileges, edge_type_privileges,
+      label_privileges,
+      label_matching_modes,
+      edge_type_privileges,
 #endif
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
@@ -616,24 +1097,49 @@ void AuthQueryHandler::GrantPrivilege(
       }
 #ifdef MG_ENTERPRISE
       ,
-      [](auto &fine_grained_permissions, const auto &privilege_collection) {
+      [](auto &fine_grained_permissions,
+         auto const &privilege_collection,
+         auto const &matching_mode,
+         FineGrainedPermissionType perm_type) {
         for (const auto &[privilege, entities] : privilege_collection) {
-          const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
-          for (const auto &entity : entities) {
-            fine_grained_permissions.Grant(entity, permission);
+          auto const &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege, perm_type);
+
+          if (entities.size() == 1 && entities[0] == "*") {
+            fine_grained_permissions.GrantGlobal(permission);
+          } else {
+            std::unordered_set<std::string> const entity_set(entities.begin(), entities.end());
+            auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
+                            ? memgraph::auth::MatchingMode::EXACTLY
+                            : memgraph::auth::MatchingMode::ANY;
+            fine_grained_permissions.Grant(entity_set, permission, mode);
           }
         }
       }
 #endif
-  );
+      ,
+      type,
+      system_tx);
 }  // namespace memgraph::glue
 
-void AuthQueryHandler::DenyPrivilege(const std::string &user_or_role,
-                                     const std::vector<memgraph::query::AuthQuery::Privilege> &privileges) {
-  EditPermissions(
-      user_or_role, privileges,
+void AuthQueryHandler::DenyPrivilege(
+    const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges
 #ifdef MG_ENTERPRISE
-      {}, {},
+    ,
+    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+        &label_privileges,
+    const std::vector<memgraph::query::AuthQuery::LabelMatchingMode> &label_matching_modes,
+    const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
+        &edge_type_privileges
+#endif
+    ,
+    auth::UserOrRoleType type, system::Transaction *system_tx) {
+  EditPermissions(
+      user_or_role,
+      privileges,
+#ifdef MG_ENTERPRISE
+      label_privileges,
+      label_matching_modes,
+      edge_type_privileges,
 #endif
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
@@ -643,9 +1149,28 @@ void AuthQueryHandler::DenyPrivilege(const std::string &user_or_role,
       }
 #ifdef MG_ENTERPRISE
       ,
-      [](auto &fine_grained_permissions, const auto &privilege_collection) {}
+      [](auto &fine_grained_permissions,
+         auto const &privilege_collection,
+         auto const &matching_mode,
+         FineGrainedPermissionType perm_type) {
+        for (const auto &[privilege, entities] : privilege_collection) {
+          auto const &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege, perm_type);
+
+          if (entities.size() == 1 && entities[0] == "*") {
+            fine_grained_permissions.DenyGlobal(permission);
+          } else {
+            std::unordered_set<std::string> const entity_set(entities.begin(), entities.end());
+            auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
+                            ? memgraph::auth::MatchingMode::EXACTLY
+                            : memgraph::auth::MatchingMode::ANY;
+            fine_grained_permissions.Deny(entity_set, permission, mode);
+          }
+        }
+      }
 #endif
-  );
+      ,
+      type,
+      system_tx);
 }
 
 void AuthQueryHandler::RevokePrivilege(
@@ -654,14 +1179,19 @@ void AuthQueryHandler::RevokePrivilege(
     ,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &label_privileges,
+    const std::vector<memgraph::query::AuthQuery::LabelMatchingMode> &label_matching_modes,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &edge_type_privileges
 #endif
-) {
+    ,
+    auth::UserOrRoleType type, system::Transaction *system_tx) {
   EditPermissions(
-      user_or_role, privileges,
+      user_or_role,
+      privileges,
 #ifdef MG_ENTERPRISE
-      label_privileges, edge_type_privileges,
+      label_privileges,
+      label_matching_modes,
+      edge_type_privileges,
 #endif
       [](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
@@ -671,15 +1201,28 @@ void AuthQueryHandler::RevokePrivilege(
       }
 #ifdef MG_ENTERPRISE
       ,
-      [](auto &fine_grained_permissions, const auto &privilege_collection) {
-        for ([[maybe_unused]] const auto &[privilege, entities] : privilege_collection) {
-          for (const auto &entity : entities) {
-            fine_grained_permissions.Revoke(entity);
+      [](auto &fine_grained_permissions,
+         auto const &privilege_collection,
+         auto const &matching_mode,
+         FineGrainedPermissionType perm_type) {
+        for (const auto &[privilege, entities] : privilege_collection) {
+          auto const &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege, perm_type);
+
+          if (entities.size() == 1 && entities[0] == "*") {
+            fine_grained_permissions.RevokeAll(permission);
+          } else {
+            std::unordered_set<std::string> const entity_set(entities.cbegin(), entities.cend());
+            auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
+                            ? memgraph::auth::MatchingMode::EXACTLY
+                            : memgraph::auth::MatchingMode::ANY;
+            fine_grained_permissions.Revoke(entity_set, permission, mode);
           }
         }
       }
 #endif
-  );
+      ,
+      type,
+      system_tx);
 }  // namespace memgraph::glue
 
 template <class TEditPermissionsFun
@@ -694,6 +1237,7 @@ void AuthQueryHandler::EditPermissions(
     ,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &label_privileges,
+    const std::vector<memgraph::query::AuthQuery::LabelMatchingMode> &label_matching_modes,
     const std::vector<std::unordered_map<memgraph::query::AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>
         &edge_type_privileges
 #endif
@@ -703,59 +1247,421 @@ void AuthQueryHandler::EditPermissions(
     ,
     const TEditFineGrainedPermissionsFun &edit_fine_grained_permissions_fun
 #endif
-) {
-  if (!std::regex_match(user_or_role, name_regex_)) {
-    throw memgraph::query::QueryRuntimeException("Invalid user or role name.");
-  }
+    ,
+    auth::UserOrRoleType type, system::Transaction *system_tx) {
   try {
     std::vector<memgraph::auth::Permission> permissions;
     permissions.reserve(privileges.size());
     for (const auto &privilege : privileges) {
+      if (privilege == memgraph::query::AuthQuery::Privilege::COORDINATOR_READ ||
+          privilege == memgraph::query::AuthQuery::Privilege::COORDINATOR_WRITE) {
+        throw memgraph::query::QueryRuntimeException(
+            "COORDINATOR_READ and COORDINATOR_WRITE are coordinator-only privileges and cannot be granted, denied, or "
+            "revoked on a data instance.");
+      }
       permissions.push_back(memgraph::glue::PrivilegeToPermission(privilege));
     }
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(user_or_role);
-    auto role = locked_auth->GetRole(user_or_role);
-    if (!user && !role) {
-      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
-    }
+
+    auto user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user_or_role) : std::nullopt;
+    auto role = (type != auth::UserOrRoleType::USER) ? locked_auth->GetRole(user_or_role) : std::nullopt;
+    if (user && role)
+      throw memgraph::query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                                   user_or_role);
+
     if (user) {
       for (const auto &permission : permissions) {
         edit_permissions_fun(user->permissions(), permission);
       }
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        for (const auto &label_privilege_collection : label_privileges) {
+        DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
+                   "AuthQuery invariant: label_privileges and label_matching_modes have equal size");
+        for (auto const &[label_privilege_collection, matching_mode] :
+             std::views::zip(label_privileges, label_matching_modes)) {
           edit_fine_grained_permissions_fun(user->fine_grained_access_handler().label_permissions(),
-                                            label_privilege_collection);
+                                            label_privilege_collection,
+                                            matching_mode,
+                                            FineGrainedPermissionType::LABEL);
         }
         for (const auto &edge_type_privilege_collection : edge_type_privileges) {
+          // Edge types rules always use ANY mode as edges have only one type
           edit_fine_grained_permissions_fun(user->fine_grained_access_handler().edge_type_permissions(),
-                                            edge_type_privilege_collection);
+                                            edge_type_privilege_collection,
+                                            memgraph::query::AuthQuery::LabelMatchingMode::ANY,
+                                            FineGrainedPermissionType::EDGE_TYPE);
         }
       }
 #endif
-      locked_auth->SaveUser(*user);
-    } else {
+      locked_auth->SaveUser(*user, system_tx);
+    } else if (role) {
+      role->SetBuiltIn(false);
       for (const auto &permission : permissions) {
         edit_permissions_fun(role->permissions(), permission);
       }
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        for (const auto &label_privilege : label_privileges) {
-          edit_fine_grained_permissions_fun(role->fine_grained_access_handler().label_permissions(), label_privilege);
+        DMG_ASSERT(label_privileges.size() == label_matching_modes.size(),
+                   "AuthQuery invariant: label_privileges and label_matching_modes have equal size");
+        for (auto const &[label_privilege, matching_mode] : std::views::zip(label_privileges, label_matching_modes)) {
+          edit_fine_grained_permissions_fun(role->fine_grained_access_handler().label_permissions(),
+                                            label_privilege,
+                                            matching_mode,
+                                            FineGrainedPermissionType::LABEL);
         }
         for (const auto &edge_type_privilege : edge_type_privileges) {
+          // Edge types rules always use ANY mode as edges have only one type
           edit_fine_grained_permissions_fun(role->fine_grained_access_handler().edge_type_permissions(),
-                                            edge_type_privilege);
+                                            edge_type_privilege,
+                                            memgraph::query::AuthQuery::LabelMatchingMode::ANY,
+                                            FineGrainedPermissionType::EDGE_TYPE);
         }
       }
 #endif
-      locked_auth->SaveRole(*role);
+      locked_auth->SaveRole(*role, system_tx);
+    } else {
+      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
+
+#ifdef MG_ENTERPRISE
+void AuthQueryHandler::GrantImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
+                                            auth::UserOrRoleType type, system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+
+    const bool all = targets.size() == 1 && targets[0] == "*";
+    std::vector<auth::User> target_users;  // TODO User or UserId?
+    if (!all) {
+      for (const auto &target : targets) {
+        auto user = locked_auth->GetUser(target);
+        if (!user) {
+          throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", target);
+        }
+        target_users.emplace_back(std::move(*user));
+      }
+    }
+
+    auto user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user_or_role) : std::nullopt;
+    auto role = (type != auth::UserOrRoleType::USER) ? locked_auth->GetRole(user_or_role) : std::nullopt;
+    if (user && role)
+      throw memgraph::query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                                   user_or_role);
+
+    if (user) {
+      user->permissions().Grant(auth::Permission::IMPERSONATE_USER);
+      if (all) {
+        user->GrantUserImp();
+      } else {
+        user->GrantUserImp(target_users);
+      }
+      locked_auth->SaveUser(*user, system_tx);
+    } else if (role) {
+      role->permissions().Grant(auth::Permission::IMPERSONATE_USER);
+      if (all) {
+        role->GrantUserImp();
+      } else {
+        role->GrantUserImp(target_users);
+      }
+      locked_auth->SaveRole(*role, system_tx);
+    } else {
+      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+    }
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
+                                           auth::UserOrRoleType type, system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+
+    const bool all = targets.size() == 1 && targets[0] == "*";
+    if (all) {
+      throw memgraph::query::QueryRuntimeException(
+          "Cannot deny all users. Instead try to revoke the IMPERSONATE_USER privilege.");
+    }
+    std::vector<auth::User> target_users;  // TODO User or UserId?
+    for (const auto &target : targets) {
+      auto user = locked_auth->GetUser(target);
+      if (!user) {
+        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", target);
+      }
+      target_users.emplace_back(std::move(*user));
+    }
+
+    auto user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user_or_role) : std::nullopt;
+    auto role = (type != auth::UserOrRoleType::USER) ? locked_auth->GetRole(user_or_role) : std::nullopt;
+    if (user && role)
+      throw memgraph::query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                                   user_or_role);
+
+    if (user) {
+      user->DenyUserImp(target_users);
+      locked_auth->SaveUser(*user, system_tx);
+    } else if (role) {
+      role->DenyUserImp(target_users);
+      locked_auth->SaveRole(*role, system_tx);
+    } else {
+      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+    }
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+namespace {
+auto &SelectPropertyPermissions(auth::PropertyAccessHandler &handler, auth::PropertyEntityKind entity_kind) {
+  return entity_kind == auth::PropertyEntityKind::NODE ? handler.label_properties() : handler.edge_type_properties();
+}
+}  // namespace
+
+template <typename EditFn>
+void AuthQueryHandler::EditPropertyPermission(const std::string &user_or_role,
+                                              const std::vector<std::string> &properties,
+                                              const std::vector<std::string> &entity_names,
+                                              auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                              auth::UserOrRoleType type, system::Transaction *system_tx,
+                                              EditFn const &edit_fn) {
+  try {
+    auto locked_auth = auth_->Lock();
+
+    auto user = (type != auth::UserOrRoleType::ROLE) ? locked_auth->GetUser(user_or_role) : std::nullopt;
+    auto role = (type != auth::UserOrRoleType::USER) ? locked_auth->GetRole(user_or_role) : std::nullopt;
+    if (user && role)
+      throw query::QueryRuntimeException("Ambiguous: '{}' is both a user and a role. Specify USER or ROLE.",
+                                         user_or_role);
+
+    if (user) {
+      auto &perms = SelectPropertyPermissions(user->property_access_handler(), entity_kind);
+      for (auto const &prop : properties) {
+        edit_fn(perms, entity_names, matching_mode, prop);
+      }
+      locked_auth->SaveUser(*user, system_tx);
+    } else if (role) {
+      auto &perms = SelectPropertyPermissions(role->property_access_handler(), entity_kind);
+      for (auto const &prop : properties) {
+        edit_fn(perms, entity_names, matching_mode, prop);
+      }
+      locked_auth->SaveRole(*role, system_tx);
+    } else {
+      throw query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
+    }
+  } catch (const auth::AuthException &e) {
+    throw query::QueryRuntimeException(e.what());
+  }
+}
+
+namespace {
+using GlobalFn = void (auth::PropertyAccessPermissions::*)(std::string const &, auth::PropertyPermissionType);
+using PerEntityFn = void (auth::PropertyAccessPermissions::*)(std::unordered_set<std::string> const &,
+                                                              std::string const &, auth::PropertyPermissionType,
+                                                              auth::MatchingMode);
+
+auto MakePropertyEditFn(GlobalFn global_fn, PerEntityFn per_entity_fn, auth::PropertyPermissionType perm_type) {
+  return [=](auth::PropertyAccessPermissions &perms, auto const &entities, auto mm, auto const &prop) {
+    bool const is_global = entities.size() == 1 && entities[0] == "*";
+    if (is_global) {
+      (perms.*global_fn)(prop, perm_type);
+    } else {
+      (perms.*per_entity_fn)({entities.begin(), entities.end()}, prop, perm_type, mm);
+    }
+  };
+}
+}  // namespace
+
+void AuthQueryHandler::GrantPropertyPermission(const std::string &user_or_role,
+                                               const std::vector<std::string> &properties,
+                                               const std::vector<std::string> &entity_names,
+                                               auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                               auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                               system::Transaction *system_tx) {
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_names,
+      entity_kind,
+      matching_mode,
+      type,
+      system_tx,
+      MakePropertyEditFn(
+          &auth::PropertyAccessPermissions::GrantGlobal, &auth::PropertyAccessPermissions::Grant, perm_type));
+}
+
+void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
+                                              const std::vector<std::string> &properties,
+                                              const std::vector<std::string> &entity_names,
+                                              auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                              auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                              system::Transaction *system_tx) {
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_names,
+      entity_kind,
+      matching_mode,
+      type,
+      system_tx,
+      MakePropertyEditFn(
+          &auth::PropertyAccessPermissions::DenyGlobal, &auth::PropertyAccessPermissions::Deny, perm_type));
+}
+
+void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
+                                                const std::vector<std::string> &properties,
+                                                const std::vector<std::string> &entity_names,
+                                                auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
+                                                auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
+                                                system::Transaction *system_tx) {
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_names,
+      entity_kind,
+      matching_mode,
+      type,
+      system_tx,
+      MakePropertyEditFn(
+          &auth::PropertyAccessPermissions::RevokeGlobal, &auth::PropertyAccessPermissions::Revoke, perm_type));
+}
+
+void AuthQueryHandler::CreateProfile(const std::string &profile_name,
+                                     const query::UserProfileQuery::limits_t &defined_limits,
+                                     const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) {
+  auth::UserProfiles::limits_t limits;
+  for (const auto &[limit_name, limit_value] : defined_limits) {
+    const auto limit_type = name_to_limit(limit_name);
+    is_limit_supported(limit_value.type, limit_type);  // throw on failure
+    switch (limit_value.type) {
+      case query::UserProfileQuery::LimitValueResult::Type::UNLIMITED:
+        limits.emplace(limit_type, auth::UserProfiles::unlimitted_t{});
+        break;
+      case query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT: {
+        limits.emplace(limit_type, limit_value.mem_limit.value * limit_value.mem_limit.scale);
+      } break;
+      case query::UserProfileQuery::LimitValueResult::Type::QUANTITY: {
+        limits.emplace(limit_type, limit_value.quantity.value);
+      } break;
+    }
+  }
+  auto locked_auth = auth_->Lock();
+  if (!locked_auth->CreateProfile(profile_name, std::move(limits), usernames, system_tx)) {
+    throw memgraph::query::QueryRuntimeException("Profile '{}' already exists.", profile_name);
+  }
+}
+
+void AuthQueryHandler::UpdateProfile(const std::string &profile_name,
+                                     const query::UserProfileQuery::limits_t &updated_limits,
+                                     system::Transaction *system_tx) {
+  auth::UserProfiles::limits_t limits;
+  for (const auto &[limit_name, limit_value] : updated_limits) {
+    const auto limit_type = name_to_limit(limit_name);
+    is_limit_supported(limit_value.type, limit_type);  // throw on failure
+    switch (limit_value.type) {
+      case query::UserProfileQuery::LimitValueResult::Type::UNLIMITED:
+        limits.emplace(limit_type, auth::UserProfiles::unlimitted_t{});
+        break;
+      case query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT: {
+        limits.emplace(limit_type, limit_value.mem_limit.value * limit_value.mem_limit.scale);
+      } break;
+      case query::UserProfileQuery::LimitValueResult::Type::QUANTITY: {
+        limits.emplace(limit_type, limit_value.quantity.value);
+      } break;
+    }
+  }
+  auto locked_auth = auth_->Lock();
+  const auto &profile = locked_auth->UpdateProfile(profile_name, limits, system_tx);
+  if (!profile) {
+    throw memgraph::query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
+  }
+}
+
+void AuthQueryHandler::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
+  auto locked_auth = auth_->Lock();
+  if (!locked_auth->DropProfile(profile_name, system_tx)) {
+    throw memgraph::query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
+  }
+}
+
+query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view profile_name) {
+  auto locked_auth = auth_->Lock();
+  auto profile = locked_auth->GetProfile(profile_name);
+  if (!profile) {
+    throw query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
+  }
+  // Fill missing/unlimited limits
+  for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
+    const auto limit = static_cast<auth::UserProfiles::Limits>(e_id);
+    if (!profile->limits.contains(limit)) {
+      profile->limits.emplace(limit, auth::UserProfiles::unlimitted_t{});
+    }
+  }
+  return convert_limit_value(*profile);
+}
+
+std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQueryHandler::AllProfiles() {
+  std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> res;
+  auto locked_auth = auth_->Lock();
+  for (const auto &profile : locked_auth->AllProfiles()) {
+    // Fill missing/unlimited limits
+    for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
+      const auto limit = static_cast<auth::UserProfiles::Limits>(e_id);
+      if (!profile.limits.contains(limit)) {
+        profile.limits.emplace(limit, auth::UserProfiles::unlimitted_t{});
+      }
+    }
+    auto limits = convert_limit_value(profile);
+    res.emplace_back(profile.name, limits);
+  }
+  return res;
+}
+
+void AuthQueryHandler::SetProfile(const std::string &profile_name, const std::string &user_or_role,
+                                  system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    const auto profile = locked_auth->SetProfile(profile_name, user_or_role, system_tx);
+    DMG_ASSERT(profile, "Missing profile");
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    locked_auth->RevokeProfile(user_or_role, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string &user_or_role) {
+  auto locked_auth = auth_->Lock();
+  return locked_auth->GetProfileForUsername(user_or_role);
+}
+
+std::vector<std::string> AuthQueryHandler::GetUsernamesForProfile(const std::string &profile_name) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto usernames_set = locked_auth->GetUsernamesForProfile(profile_name);
+    return {usernames_set.begin(), usernames_set.end()};
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+// Role-based profile management is no longer supported in the new architecture
+std::optional<std::string> AuthQueryHandler::GetProfileForRole(const std::string & /*user_or_role*/) {
+  throw memgraph::query::QueryRuntimeException("Role-based profile management is no longer supported.");
+}
+
+std::vector<std::string> AuthQueryHandler::GetRolenamesForProfile(const std::string & /*profile_name*/) {
+  throw memgraph::query::QueryRuntimeException("Role-based profile management is no longer supported.");
+}
+#endif
 
 }  // namespace memgraph::glue

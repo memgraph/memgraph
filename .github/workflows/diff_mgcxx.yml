@@ -1,0 +1,47 @@
+name: "Diff MGCXX"
+
+on:
+  workflow_call:
+    inputs:
+      run_test:
+        type: boolean
+        description: "Should the mgcxx tests be run? Default is true."
+        default: true
+      ref:
+        description: 'Branch or commit ref to run the workflow on'
+        required: false
+        default: ''
+        type: string
+      run_id:
+        type: string
+        description: "The ID of the run that triggered this workflow."
+        default: ''
+
+env:
+  CARGO_TERM_COLOR: always
+  RUN_ID: ${{ inputs.run_id != '' && format('-{0}', inputs.run_id) || '' }}
+
+jobs:
+  MGCXXTest:
+    runs-on: ubuntu-latest
+    if: ${{ inputs.run_test == true }}
+    name: "Test MGCXX"
+    steps:
+    - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      with:
+        ref: ${{ inputs.ref || github.ref }}
+        fetch-depth: 0
+
+    - name: Build and unit test
+      run: |
+        cd mgcxx
+        mkdir build && cd build
+        cmake ..
+        make -j$(nproc)
+        ctest --output-on-failure -j$(nproc)
+
+    - name: Cancel run on merge_group failure
+      if: ${{ failure() && github.event_name == 'merge_group' }}
+      uses: ./.github/actions/cancel-on-failure-in-merge-queue
+      with:
+        job-name: "MGCXX / Test MGCXX"

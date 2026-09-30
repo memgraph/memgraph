@@ -1,0 +1,441 @@
+
+name: Daily build and test
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  schedule:
+    - cron: "0 22 * * *" #UTC
+  workflow_dispatch:
+    inputs:
+      build_date:
+        type: string
+        description: "Specify build date (YYYYMMDD)"
+        required: false
+      skip_tests:
+        type: boolean
+        description: "Skip tests"
+        default: false
+      skip_package:
+        type: boolean
+        description: "Skip packaging (deb/rpm and docker images). Docker production within the job is determined per-matrix-entry via build_docker_image."
+        default: false
+      skip_issu_tests:
+        type: boolean
+        description: "Skip ISSU tests"
+        default: false
+      skip_mage:
+        type: boolean
+        description: "Skip MAGE build"
+        default: false
+      skip_smoke_tests:
+        type: boolean
+        description: "Skip smoke tests"
+        default: false
+      skip_stress_tests:
+        type: boolean
+        description: "Skip stress tests"
+        default: false
+      mock:
+        type: boolean
+        description: "Mock build"
+        default: true
+      run_cve_scan:
+        type: boolean
+        description: "Run CVE scan"
+        default: true
+jobs:
+  # this job is used to get the current date at the time when the job is first triggered
+  # so that the daily build is sent to the right folder!
+  # (we may cross over midnight during build/test)
+  CurrentDateJob:
+    runs-on: [ubuntu-latest]
+    outputs:
+      current_date: ${{ steps.set_date.outputs.current_date }}
+      is_sunday: ${{ steps.sunday.outputs.IS_SUNDAY }}
+    steps:
+      - name: Get current date
+        id: set_date
+        run: |
+          if [[ ${{ github.event_name }} == 'workflow_dispatch' && -n "${{ github.event.inputs.build_date }}" ]]; then
+            current_date="${{ github.event.inputs.build_date }}"
+          else
+            current_date=$(date -u +'%Y%m%d')
+          fi
+          echo "Current date is: $current_date"
+          echo "current_date=$current_date" >> $GITHUB_OUTPUT
+
+      - name: Is today Sunday? 🤔
+        id: sunday
+        run: |
+          day="$(date -u +%A)"
+          if [[ "$day" == "Sunday" ]]; then
+            echo "IS_SUNDAY=true" >> $GITHUB_OUTPUT
+          else
+            echo "IS_SUNDAY=false" >> $GITHUB_OUTPUT
+          fi
+
+
+  TestBuild:
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests) }}
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: 'ubuntu-24.04'
+      arch: amd
+      build_type: 'RelWithDebInfo'
+      run_release_tests: 'true'
+      run_stress_large: 'true'
+    secrets: inherit
+
+  DailyPackageArtifact:
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_package) }}
+    needs: [CurrentDateJob]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd, arm]
+        additional_build_args: ['', '--disable-jemalloc']
+        fips: [false]
+        include:
+          - arch: amd
+            additional_build_args: ''
+            fips: true
+          - arch: arm
+            additional_build_args: ''
+            fips: true
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "ubuntu-24.04"
+      arch: ${{ matrix.arch }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ matrix.fips && 'prod' || (matrix.additional_build_args == '' && 'both' || 'debug') }}
+      fips: ${{ matrix.fips }}
+      daily_build: true
+      push_to_github: 'false'
+      push_to_s3: 'true'
+      print_output_url: true
+      s3_dest_dir: "daily-build/memgraph${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
+      additional_build_args: ${{ matrix.additional_build_args }}
+      generate_sbom: ${{ (matrix.arch == 'amd' && matrix.additional_build_args == '' && !matrix.fips) && true || false }}
+      run_smoke_tests: true
+      package_smoke_os: "all"
+    secrets: inherit
+
+  AggregateBuildTests:
+    if: ${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.skip_tests && !inputs.mock)) && !cancelled() }}
+    needs: [CurrentDateJob,TestBuild,DailyPackageArtifact]
+    runs-on: [self-hosted]
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Aggregate Test Results and Builds
+        env:
+          TEST_RESULT: ${{ needs.TestBuild.outputs.test_status }}
+          CURRENT_BUILD_DATE: ${{ needs.CurrentDateJob.outputs.current_date }}
+        run: |
+          echo "TEST_RESULT: $TEST_RESULT"
+          echo "Package Date: $CURRENT_BUILD_DATE"
+          echo "BUILD_TEST_RESULTS=$(python3 tools/ci/aggregate_build_tests.py 'memgraph')" >> $GITHUB_ENV
+
+      - name: Trigger Daily Builds Page Update
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
+        run: |
+          payload="${BUILD_TEST_RESULTS}"
+          echo "Payload: $payload"
+          # Send the dispatch request
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/memgraph/daily-builds/dispatches \
+            -d "$payload"
+
+  MemgraphVersionSetup:
+    name: Resolve memgraph version for MAGE deb URLs
+    if: ${{ (github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
+    runs-on: ubuntu-latest
+    outputs:
+      memgraph_version: ${{ steps.version.outputs.memgraph_version }}
+      memgraph_version_url: ${{ steps.version.outputs.memgraph_version_url }}
+      memgraph_version_rpm: ${{ steps.version.outputs.memgraph_version_rpm }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+      - name: Resolve memgraph version
+        id: version
+        run: |
+          # The version string includes "+" and "~" — both are legal in S3 keys and
+          # stored verbatim, but "+" must be percent-encoded in URL paths or HTTP
+          # clients treat it as a space. memgraph_version_url is the URL-safe form
+          # for download links; memgraph_version stays raw for any filename matching.
+          version="$(tools/ci/get_master_package_version.sh)"
+          version_url="$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$version")"
+          version_rpm="$(tools/ci/get_master_package_version.sh rpm)"
+          echo "Resolved memgraph version: $version"
+          echo "URL-safe version: $version_url"
+          echo "RPM version: $version_rpm"
+          echo "memgraph_version=$version" >> $GITHUB_OUTPUT
+          echo "memgraph_version_url=$version_url" >> $GITHUB_OUTPUT
+          echo "memgraph_version_rpm=$version_rpm" >> $GITHUB_OUTPUT
+
+  BuildAndTestMAGE:
+    if: ${{ (github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_mage) }}
+    name: Build and Test MAGE
+    needs: [CurrentDateJob, DailyPackageArtifact, MemgraphVersionSetup]
+    uses: ./.github/workflows/reusable_package_mage.yaml
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - build_arch: "amd"
+            build_docker_image: "both"
+            malloc: false
+            cuda: false
+            cugraph: false
+          - build_arch: "arm"
+            build_docker_image: "both"
+            malloc: false
+            cuda: false
+            cugraph: false
+          - build_arch: "amd"
+            build_docker_image: "both"
+            malloc: true
+            cuda: false
+            cugraph: false
+          - build_arch: "arm"
+            build_docker_image: "debug"
+            malloc: true
+            cuda: false
+            cugraph: false
+          - build_arch: "amd"
+            build_docker_image: "debug"
+            cuda: true
+            malloc: false
+            cugraph: false
+          - build_arch: "amd"
+            build_docker_image: "debug"
+            cuda: false
+            malloc: false
+            cugraph: true
+    with:
+      arch: ${{ matrix.build_arch }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ matrix.build_docker_image }}
+      daily_build: true
+      os: ubuntu-24.04
+      memgraph_download_link: >-
+        ${{ format(
+          'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}-deb{3}/memgraph_{4}-1_{5}.deb',
+          inputs.mock && '_mock' || '',
+          needs.CurrentDateJob.outputs.current_date,
+          matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+          matrix.malloc && '-malloc' || '',
+          needs.MemgraphVersionSetup.outputs.memgraph_version_url,
+          matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+        )}}
+      memgraph_rpm_download_link: >-
+        ${{
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}-rpm{3}/memgraph-{4}-1.{5}.rpm',
+            inputs.mock && '_mock' || '',
+            needs.CurrentDateJob.outputs.current_date,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            needs.MemgraphVersionSetup.outputs.memgraph_version_rpm,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64'
+          )
+        }}
+      memgraph_debuginfo_download_link: >-
+        ${{
+          (matrix.build_docker_image == 'debug' || matrix.build_docker_image == 'both') &&
+          format(
+            'https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph{0}/{1}/{2}-deb{3}/memgraph-debuginfo_{4}-1_{5}.deb',
+            inputs.mock && '_mock' || '',
+            needs.CurrentDateJob.outputs.current_date,
+            matrix.build_arch == 'arm' && 'aarch64' || 'x86_64',
+            matrix.malloc && '-malloc' || '',
+            needs.MemgraphVersionSetup.outputs.memgraph_version_url,
+            matrix.build_arch == 'arm' && 'arm64' || 'amd64'
+          ) || ''
+        }}
+      s3_dest_dir: "daily-build/mage${{ inputs.mock && '_mock' || '' }}/${{ needs.CurrentDateJob.outputs.current_date }}"
+      cuda: ${{ matrix.cuda }}
+      cugraph: ${{ matrix.cugraph }}
+      push_to_s3: true
+      print_output_url: true
+      malloc: ${{ matrix.malloc }}
+      run_smoke_tests: ${{ !matrix.cugraph && !inputs.skip_smoke_tests }}
+      run_tests: true
+      package_mage: "default"
+      upload_debug_symbols: true
+      generate_sbom: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+      build_offline_installer: ${{ matrix.build_arch == 'amd' && !matrix.malloc && !matrix.cuda && !matrix.cugraph }}
+    secrets: inherit
+
+  AggregateMAGEBuildTests:
+    if: ${{ !cancelled() }}
+    needs: [CurrentDateJob,BuildAndTestMAGE]
+    runs-on: [self-hosted]
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Aggregate Test Results and Builds
+        env:
+          TEST_RESULT: ${{ needs.BuildAndTestMAGE.result == 'success' && 'pass' || 'fail' }}
+          CURRENT_BUILD_DATE: ${{ needs.CurrentDateJob.outputs.current_date }}
+        run: |
+          echo "TEST_RESULT: $TEST_RESULT"
+          echo "Package Date: $CURRENT_BUILD_DATE"
+          echo "BUILD_TEST_RESULTS=$(python3 tools/ci/aggregate_build_tests.py 'mage')" >> $GITHUB_ENV
+
+      - name: Trigger Daily Builds Page Update
+        if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && !inputs.mock) }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
+        run: |
+          payload="${BUILD_TEST_RESULTS}"
+          echo "Payload: $payload"
+          # Send the dispatch request
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/memgraph/daily-builds/dispatches \
+            -d "$payload"
+
+  SetupDailyBuildImageOutputs:
+    name: Setup Daily Build Image Outputs
+    needs: [CurrentDateJob, DailyPackageArtifact, BuildAndTestMAGE]
+    if: ${{ (github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests || !inputs.skip_stress_tests) }}
+    runs-on: ubuntu-24.04
+    outputs:
+      amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
+      arm_image_url: ${{ steps.set_image_urls.outputs.arm_image_url }}
+      amd_mage_image_url: ${{ steps.set_image_urls.outputs.amd_mage_image_url }}
+      arm_mage_image_url: ${{ steps.set_image_urls.outputs.arm_mage_image_url }}
+      last_image_version: ${{ steps.set_last_image_version.outputs.last_image_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: AWS Login
+        uses: aws-actions/configure-aws-credentials@8df5847569e6427dd6c4fb1cf565c83acfa8afa7  # v6.0.0
+        with:
+          aws-access-key-id: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          aws-region: eu-west-1
+
+      - name: Set Image URLs
+        id: set_image_urls
+        env:
+          MOCK: ${{ inputs.mock && 'true' || 'false' }}
+        run: |
+          echo "Setting next image URLs"
+          export CURRENT_BUILD_DATE=${{ needs.CurrentDateJob.outputs.current_date }}
+          read amd_image_url arm_image_url < <(python3 tools/ci/get_daily_build_images.py)
+          echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
+          echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
+          echo "AMD Image URL: $amd_image_url"
+          echo "ARM Image URL: $arm_image_url"
+          read amd_mage_image_url arm_mage_image_url < <(python3 tools/ci/get_daily_build_images.py --type=mage)
+          echo "amd_mage_image_url=$amd_mage_image_url" >> $GITHUB_OUTPUT
+          echo "arm_mage_image_url=$arm_mage_image_url" >> $GITHUB_OUTPUT
+          echo "AMD MAGE Image URL: $amd_mage_image_url"
+          echo "ARM MAGE Image URL: $arm_mage_image_url"
+
+      - name: Set last image version
+        id: set_last_image_version
+        run: |
+          echo "Setting last image version"
+          last_image_version=$(./tools/ci/get_latest_tag.sh)
+          echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
+
+  RunISSUTest:
+    name: Run ISSU Tests
+    needs: [SetupDailyBuildImageOutputs]
+    if: ${{ (github.event_name == 'schedule' && !cancelled() || (github.event_name == 'workflow_dispatch' && !inputs.skip_issu_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd
+            next_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_image_url }}
+          - arch: arm
+            next_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.arm_image_url }}
+    with:
+      last_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.last_image_version }}
+      next_image: ${{ matrix.next_image }}
+      arch: ${{ matrix.arch }}
+    secrets: inherit
+
+  TriggerCVEScan:
+    name: Trigger CVE Scan
+    needs: [CurrentDateJob, DailyPackageArtifact, BuildAndTestMAGE]
+    if: ${{ (needs.CurrentDateJob.outputs.is_sunday == 'true' && github.event_name == 'schedule') || (github.event_name == 'workflow_dispatch' && inputs.run_cve_scan) }}
+    uses: ./.github/workflows/cve_scan.yml
+    with:
+      date: "${{ needs.CurrentDateJob.outputs.current_date }}"
+    secrets: inherit
+
+  StressTestsNativeStandalone:
+    name: "Stress Tests Native Standalone"
+    needs: [DailyPackageArtifact]
+    if: ${{ (github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: standalone/native
+    secrets: inherit
+
+  StressTestsNativeHA:
+    name: "Stress Tests Native HA"
+    needs: [DailyPackageArtifact]
+    if: ${{ (github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests) }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/native
+    secrets: inherit
+
+  StressTestsDockerHA:
+    name: "Stress Tests Docker HA"
+    needs: [SetupDailyBuildImageOutputs]
+    if: ${{ ((github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/docker
+      memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_mage_image_url }}
+    secrets: inherit
+
+  StressTestsEKSHA:
+    name: "Stress Tests EKS HA"
+    needs: [SetupDailyBuildImageOutputs]
+    if: ${{ ((github.event_name == 'schedule' && !cancelled()) || (github.event_name == 'workflow_dispatch' && !inputs.skip_stress_tests)) && needs.SetupDailyBuildImageOutputs.result == 'success' }}
+    uses: ./.github/workflows/reusable_stress_tests.yaml
+    with:
+      deployment: ha/eks
+      memgraph_image: ${{ needs.SetupDailyBuildImageOutputs.outputs.amd_mage_image_url }}
+      workload: ../workloads/publications/workload.yaml
+    secrets: inherit

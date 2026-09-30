@@ -107,6 +107,30 @@ def item_sort_key(obj):
     return obj["timestamp"]
 
 
+def drop_resends(storage):
+    """Collapse each event to the first copy of it that arrived.
+
+    A client keeps an event until the server acknowledges it, so an acknowledgement that
+    is lost or arrives too late leaves the event to be sent again. Delivery is therefore
+    at least once, and the checks below, which read an event's position as its number,
+    need one copy of each.
+
+    A repeat is built from the payload recorded when the event happened, so it must equal
+    the copy already held. One that differs is a defect rather than a repeat, and fails
+    here instead of being collapsed away.
+    """
+    first_by_event = {}
+    unique = []
+    for item in storage:
+        key = (item["run_id"], repr(item["event"]))
+        if key in first_by_event:
+            assert item == first_by_event[key], f"event {item['event']} arrived twice with different content"
+            continue
+        first_by_event[key] = item
+        unique.append(item)
+    return unique
+
+
 def verify_storage(storage, args):
     rid = storage[0]["run_id"]
     version = storage[0]["version"]
@@ -177,6 +201,8 @@ def verify_storage(storage, args):
             assert "storage_mode" in item["data"]["database"][0]
             assert "unique_constraints" in item["data"]["database"][0]
             assert "vertices" in item["data"]["database"][0]
+            assert "schema_vertex_count" in item["data"]["database"][0]
+            assert "schema_edge_count" in item["data"]["database"][0]
             assert "event_counters" in item["data"]
             assert "exception" in item["data"]
             assert "query" in item["data"]
@@ -217,6 +243,18 @@ if __name__ == "__main__":
 
     # Order the received data.
     storage.sort(key=item_sort_key)
+
+    storage = drop_resends(storage)
+
+    # A client that sent nothing has nothing here to split, and reading the
+    # first of none names the reader rather than the reason. The client spends
+    # its first seconds starting a coordinator and electing a leader, so on a
+    # machine slow enough at that it is still starting when the run is over.
+    assert storage, (
+        f"No telemetry arrived. The client ran for {args.duration}s at an interval of "
+        f"{args.interval}s and nothing reached this server: the client was still starting when the run "
+        "ended, or it failed before sending, or what it sent never arrived."
+    )
 
     # Split the data into individual startups.
     startups = [[storage[0]]]

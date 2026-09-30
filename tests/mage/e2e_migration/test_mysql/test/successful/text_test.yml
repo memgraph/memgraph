@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.mysql('SELECT text_col FROM dummy_table', {
+      host: 'mysql_test',
+      port: 3306,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.text_col) AS text_col_type, row.text_col AS text_col
+
+output:
+  - text_col_type: 'STRING'
+    text_col: 'This is a longer text field that can contain more data'

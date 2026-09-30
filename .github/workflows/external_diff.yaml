@@ -1,0 +1,143 @@
+name: "Diff (External)"
+concurrency:
+  group: ${{ github.workflow }}-${{ inputs.pr_number }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        type: string
+        required: true
+        description: 'Pull Request number to create staging branch from'
+      base_master:
+        type: boolean
+        default: false
+        description: Create staging branch using master as base.
+      community_core:
+        type: boolean
+        default: true
+        description: "Community: Core"
+      coverage_core:
+        type: boolean
+        default: true
+        description: "Coverage: Core"
+      coverage_clang_tidy:
+        type: boolean
+        default: true
+        description: "Coverage: Clang-Tidy"
+      debug_core:
+        type: boolean
+        default: true
+        description: "Debug: Core"
+      debug_integration:
+        type: boolean
+        default: true
+        description: "Debug: Integration"
+      jepsen_core:
+        type: boolean
+        default: true
+        description: "Jepsen: Core"
+      release_core:
+        type: boolean
+        default: true
+        description: "Release: Core"
+      release_benchmark:
+        type: boolean
+        default: true
+        description: "Release: Benchmark"
+      release_e2e:
+        type: boolean
+        default: true
+        description: "Release: E2E"
+      release_stress:
+        type: boolean
+        default: true
+        description: "Release: Stress"
+      mage_amd:
+        type: boolean
+        default: true
+        description: "MAGE: AMD"
+      mage_arm:
+        type: boolean
+        default: true
+        description: "MAGE: ARM"
+      mage_cuda:
+        type: boolean
+        default: true
+        description: "MAGE: CUDA"
+      mgcxx_unit:
+        type: boolean
+        default: true
+        description: "MGCXX: Unit"
+
+jobs:
+  CallCreateStagingBranch:
+    uses: ./.github/workflows/create_staging_branch.yaml
+    with:
+      pr_number: ${{ inputs.pr_number }}
+      base_master: ${{ inputs.base_master }}
+    secrets: inherit
+
+  TriggerDiffWorkflow:
+    needs: CallCreateStagingBranch
+    uses: ./.github/workflows/diff.yaml
+    with:
+      community_core: ${{ inputs.community_core }}
+      coverage_core: ${{ inputs.coverage_core }}
+      coverage_clang_tidy: ${{ inputs.coverage_clang_tidy }}
+      debug_core: ${{ inputs.debug_core }}
+      debug_integration: ${{ inputs.debug_integration }}
+      jepsen_core: ${{ inputs.jepsen_core }}
+      release_core: ${{ inputs.release_core }}
+      release_benchmark: ${{ inputs.release_benchmark }}
+      release_e2e: ${{ inputs.release_e2e }}
+      release_stress: ${{ inputs.release_stress }}
+      mage_amd: ${{ inputs.mage_amd }}
+      mage_arm: ${{ inputs.mage_arm }}
+      mage_cuda: ${{ inputs.mage_cuda }}
+      mgcxx_unit: ${{ inputs.mgcxx_unit }}
+      ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
+    secrets: inherit
+
+  UpdatePRComment:
+    continue-on-error: true  # NOTE: older branches may not have the code to create this comment
+    needs: [CallCreateStagingBranch, TriggerDiffWorkflow]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Update PR comment with diff results
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ needs.TriggerDiffWorkflow.result }}" == "success" ]; then
+            status="true"
+            echo "✅ Diff workflow completed successfully"
+          else
+            status="false"
+            echo "❌ Diff workflow failed"
+          fi
+
+          python3 ./tools/ci/external-contributions/pr_comment_update.py \
+            "${{ needs.CallCreateStagingBranch.outputs.comment_id }}" \
+            "${{ github.event.inputs.pr_number }}" \
+            "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}" \
+            "$status"
+
+  CleanupStagingBranch:
+    needs: [CallCreateStagingBranch, TriggerDiffWorkflow]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      - name: Cleanup staging branch
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ./tools/ci/external-contributions/cleanup_staging_branch.sh \
+          "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}"

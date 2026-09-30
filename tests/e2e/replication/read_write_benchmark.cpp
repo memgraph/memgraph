@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,11 @@
 
 #include <chrono>
 #include <fstream>
-#include <random>
 #include <thread>
 
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 #include "common.hpp"
 #include "utils/logging.hpp"
@@ -52,12 +51,12 @@ int main(int argc, char **argv) {
       client->Execute("SHOW INDEX INFO;");
       if (auto data = client->FetchAll()) {
         auto label_name = (*data)[0][1].ValueString();
-        auto property_name = (*data)[0][2].ValueString();
+        auto property_name = (*data)[0][2].ValueList()[0].ValueString();
         if (label_name != "Node" || property_name != "id") {
-          LOG_FATAL("{} does NOT have valid indexes created.", database_endpoint);
+          LOG_FATAL("{} does NOT have valid indexes created.", database_endpoint.SocketAddress());
         }
       } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All indexes are in-place.");
@@ -77,6 +76,53 @@ int main(int argc, char **argv) {
       client->DiscardAll();
     }
     output["edge_write_time"] = node_write_timer.Elapsed().count();
+  }
+
+  {
+    // Wait for the writes to be replicated.
+    auto constexpr TIMEOUT = std::chrono::seconds(10);
+    auto constexpr SLEEP_TIME = std::chrono::milliseconds(500);
+    auto start = std::chrono::steady_clock::now();
+
+    for (const auto &database_endpoint : database_endpoints) {
+      bool replicated = false;
+      auto now = std::chrono::steady_clock::now();
+      while (now - start < TIMEOUT) {
+        auto client = mg::e2e::replication::Connect(database_endpoint);
+        client->Execute("SHOW STORAGE INFO ON CURRENT DATABASE;");
+        auto maybe_rows = client->FetchAll();
+        if (!maybe_rows) {
+          LOG_FATAL("Failed to fetch storage info from {}", database_endpoint.SocketAddress());
+        }
+
+        auto find_value = [&](std::string_view key) -> std::optional<int64_t> {
+          auto it = std::ranges::find_if(*maybe_rows, [&](const auto &row) { return row[0].ValueString() == key; });
+          if (it != maybe_rows->end()) {
+            return (*it)[1].ValueInt();
+          }
+          return std::nullopt;
+        };
+
+        auto maybe_vertex_count = find_value("vertex_count");
+        auto maybe_edge_count = find_value("edge_count");
+
+        if (!maybe_vertex_count || !maybe_edge_count) {
+          LOG_FATAL("Failed to fetch vertex or edge count from {}", database_endpoint.SocketAddress());
+        }
+
+        if (*maybe_vertex_count == FLAGS_nodes && *maybe_edge_count == FLAGS_edges) {
+          replicated = true;
+          break;
+        }
+
+        std::this_thread::sleep_for(SLEEP_TIME);
+        now = std::chrono::steady_clock::now();
+      }
+      if (!replicated) {
+        LOG_FATAL("Failed to replicate writes to {}", database_endpoint.SocketAddress());
+      }
+    }
+    spdlog::info("All nodes and edges were replicated.");
   }
 
   {  // Benchmark read queries.
@@ -139,10 +185,10 @@ int main(int argc, char **argv) {
       client->Execute("SHOW INDEX INFO;");
       if (const auto data = client->FetchAll()) {
         if (!(*data).empty()) {
-          LOG_FATAL("{} still have some indexes.", database_endpoint);
+          LOG_FATAL("{} still have some indexes.", database_endpoint.SocketAddress());
         }
       } else {
-        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint);
+        LOG_FATAL("Unable to get INDEX INFO from {}", database_endpoint.SocketAddress());
       }
     }
     spdlog::info("All indexes were deleted.");

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,20 +34,20 @@ DEFINE_double(reads_duration_limit, 10.0, "How long should the client perform re
 namespace mg::e2e::replication {
 
 auto ParseDatabaseEndpoints(const std::string &database_endpoints_str) {
-  const auto db_endpoints_strs = memgraph::utils::Split(database_endpoints_str, ",");
+  const auto db_endpoints_strs = memgraph::utils::SplitView(database_endpoints_str, ",");
   std::vector<memgraph::io::network::Endpoint> database_endpoints;
   for (const auto &db_endpoint_str : db_endpoints_strs) {
-    const auto maybe_host_port = memgraph::io::network::Endpoint::ParseSocketOrIpAddress(db_endpoint_str, 7687);
-    MG_ASSERT(maybe_host_port);
-    database_endpoints.emplace_back(maybe_host_port->first, maybe_host_port->second);
+    auto maybe_endpoint = memgraph::io::network::Endpoint::ParseAndCreateSocketOrAddress(db_endpoint_str, 7687);
+    MG_ASSERT(maybe_endpoint);
+    database_endpoints.emplace_back(std::move(*maybe_endpoint));
   }
   return database_endpoints;
 }
 
 auto Connect(const memgraph::io::network::Endpoint &database_endpoint) {
   mg::Client::Params params;
-  params.host = database_endpoint.address;
-  params.port = database_endpoint.port;
+  params.host = database_endpoint.GetResolvedIPAddress();
+  params.port = database_endpoint.GetPort();
   params.use_ssl = FLAGS_use_ssl;
   auto client = mg::Client::Connect(params);
   if (!client) {
@@ -70,5 +70,26 @@ class IntGenerator {
   std::mt19937 rng_;
   std::uniform_int_distribution<int> dist_;
 };
+
+/// Polls until a predicate returns true, or timeout is reached.
+/// @param predicate Function that returns true when condition is met
+/// @param timeout Maximum duration to wait
+/// @param poll_interval Time between polling attempts
+/// @return true if predicate succeeded, false if timeout
+template <typename Predicate>
+bool WaitForCondition(Predicate predicate, std::chrono::milliseconds timeout = std::chrono::milliseconds(5000),
+                      std::chrono::milliseconds poll_interval = std::chrono::milliseconds(100)) {
+  const auto start = std::chrono::steady_clock::now();
+  while (true) {
+    if (predicate()) {
+      return true;
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    if (elapsed >= timeout) {
+      return false;
+    }
+    std::this_thread::sleep_for(poll_interval);
+  }
+}
 
 }  // namespace mg::e2e::replication

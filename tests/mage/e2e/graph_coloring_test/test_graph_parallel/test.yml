@@ -1,0 +1,13 @@
+query: >
+    CALL graph_coloring.color_graph(
+        {no_of_colors: 2,
+        population_size: 10,
+        no_of_processes: 2,
+        no_of_chunks: 2,
+        population_factory: "ChainChunkFactory"})
+        YIELD node, color
+    RETURN COUNT(node.id) AS id_count, COUNT(color) AS color_count;
+
+output:
+    - id_count: 5
+      color_count: 5

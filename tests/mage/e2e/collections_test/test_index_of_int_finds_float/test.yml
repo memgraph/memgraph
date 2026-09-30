@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.index_of([1, 2, 3], 2.0) AS result;
+
+output:
+  - result: 1

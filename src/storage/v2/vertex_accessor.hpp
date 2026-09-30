@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,15 @@
 
 #include <optional>
 
+#include "storage/v2/result.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/vertex.hpp"
 
 #include "storage/v2/config.hpp"
-#include "storage/v2/result.hpp"
-#include "storage/v2/transaction.hpp"
+#include "storage/v2/edge_direction.hpp"
+#include "storage/v2/hops_limit.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
 
@@ -27,11 +30,19 @@ class Storage;
 struct Constraints;
 struct Indices;
 struct EdgesVertexAccessorResult;
-using edge_store = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+struct Transaction;
+using edge_store = Edges;
 
 class VertexAccessor final {
  private:
   friend class Storage;
+
+  int64_t HandleExpansionsWithoutEdgeTypes(edge_store &result_edges, HopsLimit *hops_limit,
+                                           EdgeDirection direction) const;
+
+  int64_t HandleExpansionsWithEdgeTypes(edge_store &result_edges, const std::vector<EdgeTypeId> &edge_types,
+                                        const VertexAccessor *destination, HopsLimit *hops_limit,
+                                        EdgeDirection direction) const;
 
  public:
   VertexAccessor(Vertex *vertex, Storage *storage, Transaction *transaction, bool for_deleted = false)
@@ -59,16 +70,16 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
-  Result<std::vector<LabelId>> Labels(View view) const;
+  Result<VertexKey> Labels(View view) const;
 
   /// Set a property value and return the old value.
   /// @throw std::bad_alloc
-  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &value);
+  Result<PropertyValue> SetProperty(PropertyId property, const PropertyValue &new_value) const;
 
   /// Set property values only if property store is empty. Returns `true` if successully set all values,
   /// `false` otherwise.
   /// @throw std::bad_alloc
-  Result<bool> InitProperties(const std::map<storage::PropertyId, storage::PropertyValue> &properties);
+  Result<bool> InitProperties(std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
 
   Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> UpdateProperties(
       std::map<storage::PropertyId, storage::PropertyValue> &properties) const;
@@ -80,8 +91,18 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
 
+  /// Returns the size of the encoded vertex property in bytes.
+  Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
+
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
+
+  /// @throw std::bad_alloc
+  Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
+                                                                      View view) const;
+
+  /// Properties of this vertex that are backed by a vector index, given its (view-consistent) labels.
+  std::vector<PropertyId> VectorIndexedProperties(std::span<LabelId const> labels) const;
 
   auto BuildResultOutEdges(edge_store const &out_edges) const;
 
@@ -94,13 +115,15 @@ class VertexAccessor final {
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<EdgesVertexAccessorResult> InEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
-                                            const VertexAccessor *destination = nullptr) const;
+                                            const VertexAccessor *destination = nullptr,
+                                            HopsLimit *hops_limit = nullptr) const;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().
   Result<EdgesVertexAccessorResult> OutEdges(View view, const std::vector<EdgeTypeId> &edge_types = {},
-                                             const VertexAccessor *destination = nullptr) const;
+                                             const VertexAccessor *destination = nullptr,
+                                             HopsLimit *hops_limit = nullptr) const;
 
   Result<size_t> InDegree(View view) const;
 
@@ -111,6 +134,7 @@ class VertexAccessor final {
   bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;
   }
+
   bool operator!=(const VertexAccessor &other) const noexcept { return !(*this == other); }
 
   Vertex *vertex_;

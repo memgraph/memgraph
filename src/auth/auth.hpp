@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -10,17 +10,53 @@
 
 #include <mutex>
 #include <optional>
+#include <regex>
 #include <vector>
 
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
+#include "auth/profiles/user_profiles.hpp"
+#include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
+#include "license/license.hpp"
+#include "utils/join_vector.hpp"
+#include "utils/message.hpp"
 #include "utils/settings.hpp"
+#include "utils/synchronized.hpp"
+
+namespace memgraph::system {
+struct Transaction;
+}  // namespace memgraph::system
 
 namespace memgraph::auth {
 
+class Auth;
+using SynchedAuth = memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock>;
+
 static const constexpr char *const kAllDatabases = "*";
+
+struct RoleWUsername : Roles {
+  RoleWUsername(std::string_view username, const Roles &roles) : Roles(roles), username_{username} {}
+
+  std::string username() { return username_; }
+
+  const std::string &username() const { return username_; }
+
+ private:
+  std::string username_;
+};
+
+using UserOrRole = std::variant<User, RoleWUsername>;
+
+// What an SSO auth module reported for a coordinator login. Coordinators have no kvstore user records to attach an
+// identity to, so the module's response is the only place the principal exists; it is carried separately from the roles
+// so the session can record who authenticated, not just which roles they hold. Empty when the module reported no
+// username -- unlike the data-instance path this doesn't reject the login, it only leaves the session unattributed.
+struct SSOIdentity {
+  std::string username;
+  std::vector<std::string> roles;
+};
 
 /**
  * This class serves as the main Authentication/Authorization storage.
@@ -31,10 +67,88 @@ static const constexpr char *const kAllDatabases = "*";
  */
 class Auth final {
  public:
-  explicit Auth(const std::string &storage_directory);
+  struct Config {
+    Config() {}
+
+    Config(std::string name_regex, std::string password_regex, bool password_permit_null)
+        : name_regex_str{std::move(name_regex)},
+          password_regex_str{std::move(password_regex)},
+          password_permit_null{password_permit_null},
+          custom_name_regex{name_regex_str != glue::kDefaultUserRoleRegex},
+          name_regex{name_regex_str},
+          custom_password_regex{password_regex_str != glue::kDefaultPasswordRegex},
+          password_regex{password_regex_str} {}
+
+    std::string name_regex_str{glue::kDefaultUserRoleRegex};
+    std::string password_regex_str{glue::kDefaultPasswordRegex};
+    bool password_permit_null{true};
+
+   private:
+    friend class Auth;
+    bool custom_name_regex{false};
+    std::regex name_regex{name_regex_str};
+    bool custom_password_regex{false};
+    std::regex password_regex{password_regex_str};
+  };
+
+  struct Epoch {
+    Epoch() : epoch_{0} {}
+
+    Epoch(unsigned e) : epoch_{e} {}
+
+    Epoch operator++() { return ++epoch_; }
+
+    bool operator==(const Epoch &rhs) const = default;
+
+   private:
+    unsigned epoch_;
+  };
+
+  static const Epoch kStartEpoch;
+
+  enum class Result {
+    SUCCESS,
+    NO_USER_ROLE,
+  };
+
+  explicit Auth(std::string storage_directory, Config config
+#ifdef MG_ENTERPRISE
+                ,
+                utils::ResourceMonitoring *user_resources = nullptr
+#endif
+  );
 
   /**
-   * Authenticates a user using his username and password.
+   * @brief Set the Config object
+   *
+   * @param config
+   */
+  void SetConfig(Config config) {
+    // NOTE: The Auth class itself is not thread-safe, higher-level code needs to synchronize it when using it.
+    config_ = std::move(config);
+  }
+
+  /**
+   * @brief
+   *
+   * @return Config
+   */
+  Config GetConfig() const { return config_; }
+
+  /**
+   * Calls the external auth module and validates its response.
+   *
+   * @param scheme
+   * @param module_params
+   * @param provided_username
+   *
+   * @return username + role if the module authenticated successfully and provided a valid response, nullopt otherwise
+   */
+  std::optional<UserOrRole> CallExternalModule(const std::string &scheme, nlohmann::json module_params,
+                                               std::optional<std::string> provided_username = std::nullopt);
+
+  /**
+   * Authenticates a user identified by username and password.
    *
    * @param username
    * @param password
@@ -42,7 +156,31 @@ class Auth final {
    * @return a user when the username and password match, nullopt otherwise
    * @throw AuthException if unable to authenticate for whatever reason.
    */
-  std::optional<User> Authenticate(const std::string &username, const std::string &password);
+  std::optional<UserOrRole> Authenticate(const std::string &username, const std::string &password);
+
+  /**
+   * Authenticates a user using the identity provider response/token. Requires an external auth module.
+   *
+   * @param response
+   *
+   * @return username + role if the identity provider response is valid, nullopt otherwise
+   */
+  std::optional<UserOrRole> SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
+
+  /**
+   * Runs the SSO auth module for a coordinator connection and returns the identity it reports on success.
+   *
+   * Unlike SSOAuthenticate, this performs NO validation against the auth kvstore (no GetRole lookup, no local-user
+   * collision check): coordinators keep no user/role records in the kvstore. The caller validates the returned role
+   * names against the Raft-replicated coordinator role set. Enterprise-license gated via HasAuthModulePrerequisites.
+   *
+   * @param scheme
+   * @param identity_provider_response
+   *
+   * @return the reported username + role names on a successful authentication, nullopt on any
+   *         module/authentication/parse failure
+   */
+  std::optional<SSOIdentity> SSOGetIdentity(const std::string &scheme, const std::string &identity_provider_response);
 
   /**
    * Gets a user from the storage.
@@ -54,6 +192,8 @@ class Auth final {
    */
   std::optional<User> GetUser(const std::string &username) const;
 
+  void LinkUser(User &user) const;
+
   /**
    * Saves a user object to the storage.
    *
@@ -61,7 +201,7 @@ class Auth final {
    *
    * @throw AuthException if unable to save the user.
    */
-  void SaveUser(const User &user);
+  void SaveUser(const User &user, system::Transaction *system_tx = nullptr);
 
   /**
    * Creates a user if the user doesn't exist.
@@ -72,7 +212,13 @@ class Auth final {
    * @return a user when the user is created, nullopt if the user exists
    * @throw AuthException if unable to save the user.
    */
-  std::optional<User> AddUser(const std::string &username, const std::optional<std::string> &password = std::nullopt);
+  std::optional<User> AddUser(const std::string &username, const std::optional<std::string> &password = std::nullopt,
+                              system::Transaction *system_tx = nullptr);
+
+  /**
+   * Initializes the first user, which will be the super admin.
+   */
+  void InitialiseFirstUser(User &user, system::Transaction *system_tx = nullptr);
 
   /**
    * Removes a user from the storage.
@@ -83,7 +229,15 @@ class Auth final {
    *         doesn't exist
    * @throw AuthException if unable to remove the user.
    */
-  bool RemoveUser(const std::string &username);
+  bool RemoveUser(const std::string &username, system::Transaction *system_tx = nullptr);
+
+  /**
+   * @brief
+   *
+   * @param user
+   * @param password
+   */
+  void UpdatePassword(auth::User &user, const std::optional<std::string> &password);
 
   /**
    * Gets all users from the storage.
@@ -94,11 +248,39 @@ class Auth final {
   std::vector<User> AllUsers() const;
 
   /**
+   * @brief
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> AllUsernames() const;
+
+  /**
    * Returns whether there are users in the storage.
    *
    * @return `true` if the storage contains any users, `false` otherwise
    */
   bool HasUsers() const;
+
+  /**
+   * Returns whether the access is controlled by authentication/authorization.
+   *
+   * @return `true` if auth needs to run
+   */
+  bool AccessControlled() const;
+
+  /**
+   * Returns whether the access is controlled by authentication/authorization carried out by an external module.
+   *
+   * @return `true` if auth needs to run
+   */
+  bool UsingAuthModule() const { return !modules_.empty(); }
+
+  /**
+   * Returns whether the access is controlled by basic authentication.
+   *
+   * @return `true` if basic authentication is used
+   */
+  bool UsingBasicAuth() const { return modules_.contains("basic"); }
 
   /**
    * Gets a role from the storage.
@@ -110,6 +292,50 @@ class Auth final {
    */
   std::optional<Role> GetRole(const std::string &rolename) const;
 
+  void LinkRole(Role &role) const;
+
+  std::optional<UserOrRole> GetUserOrRole(const std::optional<std::string> &username,
+                                          const std::vector<std::string> &rolenames) const {
+    auto expect = [](bool condition, std::string &&msg) {
+      if (!condition) throw AuthException(std::move(msg));
+    };
+
+    auto get_roles = [&](const std::vector<std::string> &rolenames) {
+      std::unordered_set<Role> roles;
+      for (const auto &rolename : rolenames) {
+        const auto role = GetRole(rolename);
+        expect(role != std::nullopt, "No role named " + rolename);
+        roles.insert(*role);
+      }
+      return roles;
+    };
+
+    // Special case if we are using an LDAP module; we must find the specified role
+    if (UsingBasicAuth()) {
+      expect(username && !rolenames.empty(), "When using a module, a role needs to be connected to a username.");
+      auto roles = get_roles(rolenames);
+      expect(roles.size() == rolenames.size(), "Couldn't find all roles");
+      return UserOrRole(auth::RoleWUsername{*username, Roles(std::move(roles))});
+    }
+
+    // First check if we need to find a role
+    if (username && !rolenames.empty()) {
+      auto roles = get_roles(rolenames);
+      expect(roles.size() == rolenames.size(), "Couldn't find all roles");
+      return UserOrRole(auth::RoleWUsername{*username, Roles(std::move(roles))});
+    }
+
+    // We are only looking for a user
+    if (username) {
+      const auto user = GetUser(*username);
+      expect(user != std::nullopt, "No user named " + *username);
+      return *user;
+    }
+
+    // No user or role
+    return std::nullopt;
+  }
+
   /**
    * Saves a role object to the storage.
    *
@@ -117,7 +343,7 @@ class Auth final {
    *
    * @throw AuthException if unable to save the role.
    */
-  void SaveRole(const Role &role);
+  void SaveRole(const Role &role, system::Transaction *system_tx = nullptr);
 
   /**
    * Creates a role if the role doesn't exist.
@@ -127,7 +353,15 @@ class Auth final {
    * @return a role when the role is created, nullopt if the role exists
    * @throw AuthException if unable to save the role.
    */
-  std::optional<Role> AddRole(const std::string &rolename);
+  std::optional<Role> AddRole(const std::string &rolename, system::Transaction *system_tx = nullptr);
+
+#ifdef MG_ENTERPRISE
+  /**
+   * Creates the built-in roles.
+   * @return true if the roles were created, false if they already existed or license is invalid.
+   */
+  bool CreateBuiltinRoles(system::Transaction *system_tx = nullptr);
+#endif
 
   /**
    * Removes a role from the storage.
@@ -138,7 +372,7 @@ class Auth final {
    *         doesn't exist
    * @throw AuthException if unable to remove the role.
    */
-  bool RemoveRole(const std::string &rolename);
+  bool RemoveRole(const std::string &rolename, bool force = false, system::Transaction *system_tx = nullptr);
 
   /**
    * Gets all roles from the storage.
@@ -147,6 +381,13 @@ class Auth final {
    * @throw AuthException if unable to load role data.
    */
   std::vector<Role> AllRoles() const;
+
+  /**
+   * @brief
+   *
+   * @return std::vector<std::string>
+   */
+  std::vector<std::string> AllRolenames() const;
 
   /**
    * Gets all users for a role from the storage.
@@ -158,17 +399,9 @@ class Auth final {
    */
   std::vector<User> AllUsersForRole(const std::string &rolename) const;
 
-#ifdef MG_ENTERPRISE
-  /**
-   * @brief Revoke access to individual database for a user.
-   *
-   * @param db name of the database to revoke
-   * @param name user's username
-   * @return true on success
-   * @throw AuthException if unable to find or update the user
-   */
-  bool RevokeDatabaseFromUser(const std::string &db, const std::string &name);
+  std::vector<std::string> AllUsernamesForRole(const std::string &rolename) const;
 
+#ifdef MG_ENTERPRISE
   /**
    * @brief Grant access to individual database for a user.
    *
@@ -177,7 +410,36 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool GrantDatabaseToUser(const std::string &db, const std::string &name);
+  Result GrantDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                       system::Transaction *system_tx = nullptr);
+  void GrantDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
+  void GrantDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
+
+  /**
+   * @brief Revoke access to individual database for a user.
+   *
+   * @param db name of the database to revoke
+   * @param name user's username
+   * @return true on success
+   * @throw AuthException if unable to find or update the user
+   */
+  Result DenyDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                      system::Transaction *system_tx = nullptr);
+  void DenyDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
+  void DenyDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
+
+  /**
+   * @brief Revoke access to individual database for a user.
+   *
+   * @param db name of the database to revoke
+   * @param name user's username
+   * @return true on success
+   * @throw AuthException if unable to find or update the user
+   */
+  Result RevokeDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
+                        system::Transaction *system_tx = nullptr);
+  void RevokeDatabase(const std::string &db, User &user, system::Transaction *system_tx = nullptr);
+  void RevokeDatabase(const std::string &db, Role &role, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Delete a database from all users.
@@ -185,7 +447,7 @@ class Auth final {
    * @param db name of the database to delete
    * @throw AuthException if unable to read data
    */
-  void DeleteDatabase(const std::string &db);
+  void DeleteDatabase(const std::string &db, system::Transaction *system_tx = nullptr);
 
   /**
    * @brief Set main database for an individual user.
@@ -195,14 +457,101 @@ class Auth final {
    * @return true on success
    * @throw AuthException if unable to find or update the user
    */
-  bool SetMainDatabase(std::string_view db, const std::string &name);
+  Result SetMainDatabase(std::string_view db, const std::string &name, UserOrRoleType type,
+                         system::Transaction *system_tx = nullptr);
+  void SetMainDatabase(std::string_view db, User &user, system::Transaction *system_tx = nullptr);
+  void SetMainDatabase(std::string_view db, Role &role, system::Transaction *system_tx = nullptr);
 #endif
 
+  bool UpToDate(Epoch &e) const {
+    bool res = e == epoch_;
+    e = epoch_;
+    return res;
+  }
+
+// user profiles
+#ifdef MG_ENTERPRISE
+  bool CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
+                     const std::unordered_set<std::string> &usernames = {}, system::Transaction *system_tx = nullptr);
+
+  std::optional<UserProfiles::Profile> UpdateProfile(const std::string &profile_name,
+                                                     const UserProfiles::limits_t &updated_limits,
+                                                     system::Transaction *system_tx = nullptr);
+
+  bool CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
+                             const std::unordered_set<std::string> &usernames = {},
+                             system::Transaction *system_tx = nullptr);
+
+  bool DropProfile(const std::string &profile_name, system::Transaction *system_tx = nullptr);
+
+  std::optional<UserProfiles::Profile> GetProfile(std::string_view name) const;
+  std::vector<UserProfiles::Profile> AllProfiles() const;
+
+  std::optional<UserProfiles::Profile> SetProfile(const std::string &profile_name, const std::string &name,
+                                                  system::Transaction *system_tx = nullptr);
+
+  void RevokeProfile(const std::string &name, system::Transaction *system_tx = nullptr);
+
+  std::vector<User> GetUsersForProfile(const std::string &profile_name) const;
+  std::unordered_set<std::string> GetUsernamesForProfile(const std::string &profile_name) const;
+  std::optional<std::string> GetProfileForUsername(const std::string &username) const;
+#endif
+
+  bool HasUser(std::string_view name) const;
+  bool HasRole(std::string_view name) const;
+
  private:
+  /**
+   * @brief
+   *
+   * @param user_or_role
+   * @return true
+   * @return false
+   */
+  bool NameRegexMatch(const std::string &user_or_role) const;
+
+  void UpdateEpoch() { ++epoch_; }
+
+  /**
+   * Returns whether the prerequisites for authentication aided by external module are met:
+   * a) valid enterprise license
+   * b) module defined for the given auth scheme
+   *
+   * @return `true` if auth needs to run
+   */
+  bool HasAuthModulePrerequisites(const std::string &scheme) const {
+    const auto license_check_result = license::global_license_checker.IsEnterpriseValid();
+    if (!license_check_result) {
+      spdlog::warn(license::LicenseCheckErrorToString(license_check_result.error(), "authentication modules"));
+      return false;
+    }
+
+    if (modules_.empty()) {
+      spdlog::warn(
+          utils::MessageWithLink("Couldn't authenticate via SSO without an external module.", "https://memgr.ph/sso"));
+      return false;
+    }
+
+    if (!modules_.contains(scheme)) {
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate user: no module is specified for the {} auth scheme.",
+                                          scheme,
+                                          "https://memgr.ph/sso"));
+      return false;
+    }
+
+    return true;
+  }
+
   // Even though the `kvstore::KVStore` class is guaranteed to be thread-safe,
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
   kvstore::KVStore storage_;
-  auth::Module module_;
+#ifdef MG_ENTERPRISE
+  UserProfiles user_profiles_{storage_};
+  utils::ResourceMonitoring *user_resources_;
+#endif
+  std::unordered_map<std::string, auth::Module> modules_;
+  Config config_;
+  Epoch epoch_{kStartEpoch};
 };
 }  // namespace memgraph::auth

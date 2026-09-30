@@ -1,0 +1,6 @@
+query: >
+     CALL temporal.format(localDateTime({year:2021, month:10, day:5, hour:14, minute:15, second:45, millisecond: 12})) YIELD formatted
+     RETURN formatted
+
+output:
+     - formatted: "2021-10-05T14:15:45.012000"

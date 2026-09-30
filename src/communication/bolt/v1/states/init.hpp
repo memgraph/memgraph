@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,69 +11,256 @@
 
 #pragma once
 
-#include <fmt/core.h>
 #include <fmt/format.h>
 #include <optional>
+#include <set>
+#include <utility>
 
 #include "communication/bolt/v1/codes.hpp"
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
-#include "communication/metrics.hpp"
+#include "flags/auth.hpp"
+#include "flags/coord_flag_env_handler.hpp"
+#include "license/license.hpp"
 #include "spdlog/spdlog.h"
-#include "utils/likely.hpp"
 #include "utils/logging.hpp"
+#include "utils/string.hpp"
 
 namespace memgraph::communication::bolt {
 
 namespace details {
+
+template <typename TSession>
+void HandleAuthFailure(TSession &session, std::string const &message = "Authentication failure") {
+  // Deliver any responses deferred earlier in this burst (e.g. a HELLO ack before a failed LOGON)
+  // before the FAILURE, uniformly with the other failure-close paths.
+  static_cast<void>(session.encoder_buffer_.FlushFinalized());
+  if (!session.encoder_.MessageFailure(
+          {{"code", "Memgraph.ClientError.Security.Unauthenticated"}, {"message", message}})) {
+    spdlog::trace("Couldn't send failure message to the client!");
+  }
+  // Throw an exception to indicate to the network stack that the session
+  // should be closed and cleaned up.
+  throw SessionClosedException("The client is not authenticated!");
+}
+
+template <typename TSession>
+void HandleResourceFailure(TSession &session) {
+  // Deliver any responses deferred earlier in this burst before the FAILURE, uniformly with the
+  // other failure-close paths.
+  static_cast<void>(session.encoder_buffer_.FlushFinalized());
+  if (!session.encoder_.MessageFailure({{"code", "Memgraph.ClientError.Statement.SessionLimitReached"},
+                                        {"message", "User reached the limit of concurent sessions"}})) {
+    spdlog::trace("Couldn't send failure message to the client!");
+  }
+  // Throw an exception to indicate to the network stack that the session
+  // should be closed and cleaned up.
+  throw SessionClosedException("The user cannot connect due to the imposed session limit!");
+}
+
+template <typename TSession>
+std::optional<State> BasicAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
+  auto principal_it = data.find("principal");
+  if (principal_it == data.end() || !principal_it->second.IsString()) {  // Special case principal = ""
+    spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
+    data["principal"] = "";
+  }
+  auto credentials_it = data.find("credentials");
+  if (credentials_it == data.end() || !credentials_it->second.IsString()) {  // Special case credentials = ""
+    spdlog::warn("The client didn't supply the credentials field! Trying with \"\"...");
+    data["credentials"] = "";
+  }
+  auto username = data["principal"].ValueString();
+  auto password = data["credentials"].ValueString();
+
+  const auto auth_res = session.Authenticate(username, password);
+  if (!auth_res) {
+    switch (auth_res.error()) {
+      case AuthFailure::kGeneric:
+        HandleAuthFailure(session);
+        break;
+      case AuthFailure::kResourceBound:
+        HandleResourceFailure(session);
+        break;
+    }
+  }
+
+  return std::nullopt;
+}
+
+// Extracts the SSO scheme and identity provider response from the handshake data.
+// Returns std::nullopt (and logs a warning) if either field is missing or not a string.
+inline std::optional<std::pair<std::string, std::string>> ExtractSSOCredentials(
+    memgraph::communication::bolt::map_t &data) {
+  auto cred_it = data.find("credentials");
+  if (cred_it == data.end() || !cred_it->second.IsString()) {
+    spdlog::warn("The client didn't supply the SSO token!");
+    return std::nullopt;
+  }
+  auto scheme_it = data.find("scheme");
+  if (scheme_it == data.end() || !scheme_it->second.IsString()) {
+    spdlog::warn("The client didn't supply a valid SSO scheme!");
+    return std::nullopt;
+  }
+  return std::make_pair(scheme_it->second.ValueString(), cred_it->second.ValueString());
+}
+
+template <typename TSession>
+std::optional<State> SSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
+  auto credentials = ExtractSSOCredentials(data);
+  if (!credentials) {
+    return State::Close;
+  }
+  const auto &[scheme, identity_provider_response] = *credentials;
+  const auto auth_res = session.SSOAuthenticate(scheme, identity_provider_response);
+  if (!auth_res) {
+    switch (auth_res.error()) {
+      case AuthFailure::kGeneric:
+        HandleAuthFailure(session);
+        break;
+      case AuthFailure::kResourceBound:
+        HandleResourceFailure(session);
+        break;
+    }
+  }
+  return std::nullopt;
+}
+
+#ifdef MG_ENTERPRISE
+template <typename TSession>
+std::optional<State> CoordinatorSSOAuthentication(TSession &session, memgraph::communication::bolt::map_t &data) {
+  auto credentials = ExtractSSOCredentials(data);
+  if (!credentials) {
+    return State::Close;
+  }
+  const auto &[scheme, identity_provider_response] = *credentials;
+  const auto auth_res = session.CoordinatorSSOAuthenticate(scheme, identity_provider_response);
+  if (!auth_res) {
+    // The session decides which rejection cause applied and phrases it; an operator rolling SSO out needs to tell a bad
+    // token apart from a role that carries no privilege. HandleAuthFailure sends it and throws to close the connection.
+    HandleAuthFailure(session, std::string{auth_res.error()});
+  }
+  return std::nullopt;
+}
+#endif
+
 template <typename TSession>
 std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   // Get authentication data.
   // From neo4j driver v4.4, fields that have a default value are not sent.
   // In order to have back-compatibility, the missing fields will be added.
-
   auto &data = metadata.ValueMap();
-  if (data.empty()) {  // Special case auth=None
+  auto scheme_it = data.find("scheme");
+  if (scheme_it == data.end() || !scheme_it->second.IsString()) {  // Special case auth=None
     spdlog::warn("The client didn't supply the authentication scheme! Trying with \"none\"...");
     data["scheme"] = "none";
   }
 
-  std::string username;
-  std::string password;
-  if (data["scheme"].ValueString() == "basic") {
-    if (!data.contains("principal")) {  // Special case principal = ""
-      spdlog::warn("The client didn't supply the principal field! Trying with \"\"...");
-      data["principal"] = "";
+  auto scheme_in_module_mappings = [](std::string_view auth_scheme) {
+    // "basic" (username + password) and "none" (no credentials) are built-in schemes, never SSO, even if an entry in
+    // the mappings flag happens to use one of those names.
+    if (auth_scheme == "basic" || auth_scheme == "none") {
+      return false;
     }
-    if (!data.contains("credentials")) {  // Special case credentials = ""
-      spdlog::warn("The client didn't supply the credentials field! Trying with \"\"...");
-      data["credentials"] = "";
+    for (const auto &mapping : utils::Split(FLAGS_auth_module_mappings, ";")) {
+      const auto module_and_scheme = utils::Split(mapping, ":");
+      // An empty element (e.g. from a trailing ';' in the flag) splits into an empty vector.
+      if (module_and_scheme.empty()) {
+        continue;
+      }
+      if (auth_scheme == utils::Trim(module_and_scheme[0])) {
+        return true;
+      }
     }
-    username = data["principal"].ValueString();
-    password = data["credentials"].ValueString();
-  } else if (data["scheme"].ValueString() != "none") {
-    spdlog::warn("Unsupported authentication scheme: {}", data["scheme"].ValueString());
-    return State::Close;
+    return false;
+  };
+
+  const auto &schema = data["scheme"].ValueString();
+
+#ifdef MG_ENTERPRISE
+  if (auto const &coordination_setup = flags::CoordinationSetupInstance(); coordination_setup.IsCoordinator()) {
+    // Coordinator auth. A scheme listed in --auth-module-mappings runs the coordinator SSO path (enterprise-gated).
+    // Every other scheme -- basic, none, or one the mappings don't list -- takes the passthrough path: when no SSO
+    // module is configured it is accepted with credentials ignored and the session keeps full COORDINATOR_WRITE (no
+    // license required), so a coordinator without SSO admits any client the way it always has. Once SSO is configured
+    // (--auth-module-mappings non-empty), passthrough is denied so the credential-less path can't bypass the SSO
+    // privilege model -- but only while SSO can actually grant a privileged session. It can't when the enterprise
+    // license is invalid (SSO then rejects every login) or when the committed role set has no COORDINATOR_WRITE role
+    // (SSO validates the module's roles against that set, and only a WRITE role can create the first administrator).
+    // In either case passthrough stays open as the break-glass path so an admin is never permanently locked out --
+    // covering a fresh boot with mappings and no roles, and dropping the last writable role on a live cluster. A
+    // transient leader outage leaves the role set unknown; that case is fail-closed (passthrough denied), matching the
+    // SSO path, since it is temporary and SSO is unavailable then too.
+    if (scheme_in_module_mappings(schema)) {
+      return CoordinatorSSOAuthentication(session, data);
+    }
+    const bool sso_configured = !FLAGS_auth_module_mappings.empty();
+    if (sso_configured) {
+      // The full (non-cached) check, matching the gate the SSO path uses: the cached flag is only refreshed every
+      // few minutes, so a license that expired by date would keep passthrough denied while SSO already rejects every
+      // login, locking every Bolt scheme out of the coordinator until the next refresh.
+      // The role lookup is a leader read, so it runs only when the license check already denies; nullopt (leader
+      // unreachable / no coordinator state) keeps passthrough denied (fail-closed).
+      const bool deny_passthrough = license::global_license_checker.IsEnterpriseValid().has_value() &&
+                                    session.CoordinatorHasWritableRole().value_or(true);
+      if (deny_passthrough) {
+        // The message tells basic/none apart from a scheme the mappings don't list, since the remedy differs: the
+        // former needs an SSO login, the latter is usually a misspelled or unconfigured scheme.
+        if (schema == "basic" || schema == "none") {
+          spdlog::warn(
+              "Basic/none authentication is disabled on this coordinator because SSO is configured with a valid "
+              "license and a COORDINATOR_WRITE role exists; connect with an SSO scheme listed in the "
+              "auth-module-mappings flag.");
+          HandleAuthFailure(session,
+                            "Basic authentication is disabled on this coordinator because SSO is configured; connect "
+                            "with an SSO scheme listed in the auth-module-mappings flag.");
+        } else {
+          auto const message = fmt::format(
+              "The \"{}\" authentication scheme isn't supported on this coordinator; connect with an SSO "
+              "scheme listed in the auth-module-mappings flag.",
+              schema);
+          spdlog::warn(message);
+          HandleAuthFailure(session, message);
+        }
+        return State::Close;
+      }
+      spdlog::warn(
+          "Allowing auth passthrough on this coordinator as a break-glass path: SSO can't currently grant a "
+          "privileged session (invalid enterprise license, or no COORDINATOR_WRITE role in the committed role "
+          "set).");
+    } else if (schema != "basic" && schema != "none") {
+      spdlog::warn(
+          "Client connected to this coordinator with the \"{}\" authentication scheme, but no SSO module is configured "
+          "(the auth-module-mappings flag is empty): the credentials were ignored and the session was admitted as a "
+          "passthrough.",
+          schema);
+    }
+    session.CoordinatorPassthroughAuthenticate();
+    return std::nullopt;
+  }
+#endif
+
+  if (schema == "basic" || schema == "none") {
+    return BasicAuthentication(session, data);
+  }
+  if (scheme_in_module_mappings(schema)) {
+    return SSOAuthentication(session, data);
   }
 
-  // Authenticate the user.
-  if (!session.Authenticate(username, password)) {
-    if (!session.encoder_.MessageFailure(
-            {{"code", "Memgraph.ClientError.Security.Unauthenticated"}, {"message", "Authentication failure"}})) {
-      spdlog::trace("Couldn't send failure message to the client!");
-    }
-    // Throw an exception to indicate to the network stack that the session
-    // should be closed and cleaned up.
-    throw SessionClosedException("The client is not authenticated!");
-  }
-  return std::nullopt;
+  spdlog::warn(
+      "The \"{}\" authentication scheme doesn’t have an associated single sign-on module in the auth-module-mappings "
+      "flag or isn’t otherwise supported",
+      schema);
+  HandleAuthFailure(session);
+
+  return State::Close;
 }
 
 template <typename TSession>
 std::optional<Value> GetMetadataV1(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct2) [[unlikely]] {
-    spdlog::trace("Expected TinyStruct2 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct2 marker, but received 0x{:02X}!", std::to_underlying(marker));
     spdlog::trace(
         "The client sent malformed data, but we are continuing "
         "because the official Neo4j Java driver sends malformed "
@@ -102,7 +289,7 @@ std::optional<Value> GetMetadataV1(TSession &session, const Marker marker) {
 template <typename TSession>
 std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct1) [[unlikely]] {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
     spdlog::trace(
         "The client sent malformed data, but we are continuing "
         "because the official Neo4j Java driver sends malformed "
@@ -118,12 +305,13 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
   }
 
   auto &data = metadata.ValueMap();
-  if (!data.contains("user_agent")) {
+  auto user_agent_it = data.find("user_agent");
+  if (user_agent_it == data.end() || !user_agent_it->second.IsString()) {
     spdlog::warn("The client didn't supply the user agent!");
     return std::nullopt;
   }
 
-  spdlog::info("Client connected '{}'", data.at("user_agent").ValueString());
+  spdlog::info("Client connected '{}'", user_agent_it->second.ValueString());
 
   return metadata;
 }
@@ -131,7 +319,7 @@ std::optional<Value> GetMetadataV4(TSession &session, const Marker marker) {
 template <typename TSession>
 std::optional<Value> GetInitDataV5(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct1) [[unlikely]] {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
     return std::nullopt;
   }
 
@@ -142,12 +330,13 @@ std::optional<Value> GetInitDataV5(TSession &session, const Marker marker) {
   }
 
   const auto &data = metadata.ValueMap();
-  if (!data.contains("user_agent")) {
+  auto user_agent_it = data.find("user_agent");
+  if (user_agent_it == data.end() || !user_agent_it->second.IsString()) {
     spdlog::warn("The client didn't supply the user agent!");
     return std::nullopt;
   }
 
-  spdlog::info("Client connected '{}'", data.at("user_agent").ValueString());
+  spdlog::info("Client connected '{}'", user_agent_it->second.ValueString());
 
   return metadata;
 }
@@ -155,7 +344,7 @@ std::optional<Value> GetInitDataV5(TSession &session, const Marker marker) {
 template <typename TSession>
 std::optional<Value> GetAuthDataV5(TSession &session, const Marker marker) {
   if (marker != Marker::TinyStruct1) [[unlikely]] {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
     return std::nullopt;
   }
 
@@ -174,7 +363,7 @@ State SendSuccessMessage(TSession &session) {
   // The only usage in the mentioned version is for logging purposes.
   // Because it's not critical for the regular usage of the driver
   // we send a hardcoded value for now.
-  std::map<std::string, Value> metadata{{"connection_id", "bolt-1"}};
+  map_t metadata{{"connection_id", "bolt-1"}};
   if (auto server_name = session.GetServerNameForInit(); server_name) {
     metadata.insert({"server", std::move(*server_name)});
   }
@@ -190,7 +379,7 @@ State SendSuccessMessage(TSession &session) {
 template <typename TSession>
 State StateInitRunV1(TSession &session, const Marker marker, const Signature signature) {
   if (signature != Signature::Init) [[unlikely]] {
-    spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
+    spdlog::trace("Expected Init signature, but received 0x{:02X}!", std::to_underlying(signature));
     return State::Close;
   }
 
@@ -219,7 +408,7 @@ State StateInitRunV4(TSession &session, Marker marker, Signature signature) {
   }
 
   if (signature != Signature::Init) [[unlikely]] {
-    spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
+    spdlog::trace("Expected Init signature, but received 0x{:02X}!", std::to_underlying(signature));
     return State::Close;
   }
 
@@ -265,7 +454,7 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
 
   if (signature == Signature::LogOn) {
     if (marker != Marker::TinyStruct1) [[unlikely]] {
-      spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+      spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
       spdlog::trace(
           "The client sent malformed data, but we are continuing "
           "because the official Neo4j Java driver sends malformed "
@@ -293,7 +482,7 @@ State StateInitRunV5(TSession &session, Marker marker, Signature signature) {
     return State::Idle;
   }
 
-  spdlog::trace("Expected Init signature, but received 0x{:02X}!", utils::UnderlyingCast(signature));
+  spdlog::trace("Expected Init signature, but received 0x{:02X}!", std::to_underlying(signature));
   return State::Close;
 }
 }  // namespace details

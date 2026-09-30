@@ -1,0 +1,15 @@
+# from https://github.com/google/earthenterprise/blob/master/earth_enterprise/rpmlintrc
+
+# We are not packaging log dir
+addFilter("E: logrotate-log-dir-not-packaged")
+
+# ignore the FSF-address mismatch in libstdc++'s COPYING
+addFilter("E: incorrect-fsf-address")
+
+addFilter("E: no-signature")
+addFilter("E: no-packager-tag")
+addFilter("E: no-group-tag")
+# libatomic is required explicitly because CPACK_RPM_PACKAGE_AUTOREQ is off
+# (see release/CMakeLists.txt), so soname deps are not auto-generated. The dep
+# is intentional and resolves fine; only rpmlint objects to the lib package name.
+addFilter("E: explicit-lib-dependency libatomic")

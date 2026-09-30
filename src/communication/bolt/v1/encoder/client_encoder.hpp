@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "communication/bolt/v1/codes.hpp"
@@ -56,13 +57,13 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageInit(const std::map<std::string, Value> &extra) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
-    WriteRAW(utils::UnderlyingCast(Signature::Init));
+  bool MessageInit(const map_t &extra) {
+    WriteRAW(std::to_underlying(Marker::TinyStruct1));
+    WriteRAW(std::to_underlying(Signature::Init));
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
@@ -82,16 +83,15 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageRun(const std::string &statement, const std::map<std::string, Value> &parameters,
-                  const std::map<std::string, Value> &extra, bool have_more = true) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
-    WriteRAW(utils::UnderlyingCast(Signature::Run));
+  bool MessageRun(std::string_view statement, const map_t &parameters, const map_t &extra, bool have_more = true) {
+    WriteRAW(std::to_underlying(Marker::TinyStruct3));
+    WriteRAW(std::to_underlying(Signature::Run));
     WriteString(statement);
     WriteMap(parameters);
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done. Here we
     // forward the `have_more` flag to indicate if there is more data that will
     // be sent.
@@ -109,13 +109,13 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageDiscard(const std::map<std::string, Value> &extra) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
-    WriteRAW(utils::UnderlyingCast(Signature::Discard));
+  bool MessageDiscard(const map_t &extra) {
+    WriteRAW(std::to_underlying(Marker::TinyStruct1));
+    WriteRAW(std::to_underlying(Signature::Discard));
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
@@ -131,13 +131,13 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessagePull(const std::map<std::string, Value> &extra) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct1));
-    WriteRAW(utils::UnderlyingCast(Signature::Pull));
+  bool MessagePull(const map_t &extra) {
+    WriteRAW(std::to_underlying(Marker::TinyStruct1));
+    WriteRAW(std::to_underlying(Signature::Pull));
     WriteMap(extra);
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
@@ -153,11 +153,11 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    *          when flushing, false otherwise
    */
   bool MessageReset() {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct));
-    WriteRAW(utils::UnderlyingCast(Signature::Reset));
+    WriteRAW(std::to_underlying(Marker::TinyStruct));
+    WriteRAW(std::to_underlying(Signature::Reset));
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }
@@ -175,20 +175,19 @@ class ClientEncoder : private BaseEncoder<Buffer> {
    * @returns true if the data was successfully sent to the client
    *          when flushing, false otherwise
    */
-  bool MessageRoute(const std::map<std::string, Value> &routing, const std::vector<Value> &bookmarks,
-                    const std::optional<std::string> &db) {
-    WriteRAW(utils::UnderlyingCast(Marker::TinyStruct3));
-    WriteRAW(utils::UnderlyingCast(Signature::Route));
+  bool MessageRoute(const map_t &routing, const std::vector<Value> &bookmarks, const std::optional<std::string> &db) {
+    WriteRAW(std::to_underlying(Marker::TinyStruct3));
+    WriteRAW(std::to_underlying(Signature::Route));
     WriteMap(routing);
     WriteList(bookmarks);
-    if (db.has_value()) {
+    if (db) {
       WriteString(*db);
     } else {
       WriteNull();
     }
     // Try to flush all remaining data in the buffer, but tell it that we will
     // send more data (the end of message chunk).
-    if (!buffer_.Flush(true)) return false;
+    if (buffer_.HasData() && !buffer_.Flush(true)) return false;
     // Flush an empty chunk to indicate that the message is done.
     return buffer_.Flush();
   }

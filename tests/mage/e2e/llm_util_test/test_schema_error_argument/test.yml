@@ -1,0 +1,4 @@
+query: >
+  CALL llm_util.schema('wrong_arg') YIELD * RETURN *;
+exception:
+    - Can't generate a graph schema since the provided output_type is not correct. Please choose raw or prompt_ready.

@@ -64,7 +64,7 @@ Feature: Functions
         Given an empty graph
         And having executed
             """
-            CREATE (:Node {prop: ToBoolean("t")});
+            CREATE (:Node {prop: TOBOOLEAN("t")});
             """
         When executing query:
             """
@@ -74,11 +74,11 @@ Feature: Functions
             | n.prop |
             | true   |
 
-    Scenario: ToBoolean test 03:
+    Scenario: ToBoolean test 04:
         Given an empty graph
         And having executed
             """
-            CREATE (:Node {prop: ToBoolean("f")});
+            CREATE (:Node {prop: TOBOOLEAN("f")});
             """
         When executing query:
             """
@@ -151,6 +151,75 @@ Feature: Functions
             | 1.2   |
             | 1.9   |
 
+    Scenario: ToBooleanOrNull returns null for unconvertible values instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toBooleanOrNull('true') AS a, toBooleanOrNull('nope') AS b, toBooleanOrNull(null) AS c, toBooleanOrNull([1, 2]) AS d, toBooleanOrNull(1) AS e
+            """
+        Then the result should be:
+            | a    | b    | c    | d    | e    |
+            | true | null | null | null | true |
+
+    Scenario: ToIntegerOrNull returns null for unconvertible values instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toIntegerOrNull('42') AS a, toIntegerOrNull('nope') AS b, toIntegerOrNull(null) AS c, toIntegerOrNull([1, 2]) AS d
+            """
+        Then the result should be:
+            | a  | b    | c    | d    |
+            | 42 | null | null | null |
+
+    Scenario: ToFloatOrNull returns null for unconvertible values instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toFloatOrNull('1.5') AS a, toFloatOrNull('nope') AS b, toFloatOrNull(null) AS c, toFloatOrNull([1, 2]) AS d
+            """
+        Then the result should be:
+            | a   | b    | c    | d    |
+            | 1.5 | null | null | null |
+
+    Scenario: ToStringList converts each element and nulls unconvertible ones:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toStringList([1, true, 'x', [2]]) AS n
+            """
+        Then the result should be:
+            | n                        |
+            | ['1', 'true', 'x', null] |
+
+    Scenario: ToIntegerList nulls non-convertible elements instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toIntegerList([1, [2], '3', 'x']) AS n
+            """
+        Then the result should be:
+            | n                  |
+            | [1, null, 3, null] |
+
+    Scenario: ToBooleanList nulls non-convertible elements instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toBooleanList([true, [2], 'true', 3.5]) AS n
+            """
+        Then the result should be:
+            | n                          |
+            | [true, null, true, null]   |
+
+    Scenario: ToFloatList nulls non-convertible elements instead of erroring:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN toFloatList([1.5, [2], '3', 'x']) AS n
+            """
+        Then the result should be:
+            | n                    |
+            | [1.5, null, 3.0, null] |
 
     Scenario: Abs test 01:
         Given an empty graph
@@ -515,6 +584,15 @@ Feature: Functions
             | n    | a | b |
             | null | 3 | 2 |
 
+    Scenario: Lgngth test:
+        When executing query:
+            """
+            RETURN LENGTH(null) AS n, LENGTH([[1, 2], 3, 4]) AS a, LENGTH([1, [2, 3, 4]]) AS b
+            """
+        Then the result should be:
+            | n    | a | b |
+            | null | 3 | 2 |
+
     Scenario: Degree test:
         When executing query:
             """
@@ -713,7 +791,9 @@ Feature: Functions
             """
             RETURN all(x IN [1, 2, '3'] WHERE x < 3) AS a
             """
-        Then an error should be raised
+        Then the result should be:
+            | a    |
+            | null |
 
     Scenario: All test 04:
         When executing query:
@@ -730,8 +810,8 @@ Feature: Functions
             RETURN all(x IN [Null, Null, 0] WHERE x = 0) AS a
             """
         Then the result should be:
-            | a     |
-            | false |
+            | a    |
+            | null |
 
     Scenario: All test 06:
         When executing query:
@@ -783,7 +863,9 @@ Feature: Functions
             """
             RETURN single(x IN [1, 2, '3'] WHERE x > 2) AS a
             """
-        Then an error should be raised
+        Then the result should be:
+            | a    |
+            | null |
 
     Scenario: Single test 04:
         When executing query:
@@ -801,7 +883,7 @@ Feature: Functions
             """
         Then the result should be:
             | a    |
-            | true |
+            | null |
 
     Scenario: Single test 06:
         When executing query:
@@ -818,8 +900,8 @@ Feature: Functions
             RETURN single(x IN [Null, Null, 0] WHERE x > 0) AS a
             """
         Then the result should be:
-            | a     |
-            | false |
+            | a    |
+            | null |
 
     Scenario: Single test 08:
         When executing query:
@@ -828,7 +910,7 @@ Feature: Functions
             """
         Then the result should be:
             | a     |
-            | true  |
+            | null  |
 
     Scenario: Single test 09:
         When executing query:
@@ -900,8 +982,8 @@ Feature: Functions
             RETURN any(x IN [Null, Null, 0] WHERE x > 0) AS a
             """
         Then the result should be:
-            | a     |
-            | false |
+            | a    |
+            | null |
 
    Scenario: Any test 07:
         When executing query:
@@ -964,7 +1046,7 @@ Feature: Functions
             """
         Then the result should be:
             | a    |
-            | true |
+            | null |
 
     Scenario: None test 06:
         When executing query:
@@ -1069,6 +1151,36 @@ Feature: Functions
             RETURN reduce(a = true, x IN [true, true, '3'] | a AND x) AS a
             """
         Then an error should be raised
+
+    Scenario: Extract in WHERE test 01:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Actor {domain: 'test.com', infringes: [{brand: 'Customer A'}, {brand: 'Customer B'}]})
+            """
+        When executing query:
+            """
+            MATCH (i:Actor {domain: 'test.com'})
+            WHERE 'Customer A' IN extract(v IN i.infringes | v.brand)
+            RETURN i.domain AS d
+            """
+        Then the result should be:
+            | d          |
+            | 'test.com' |
+
+    Scenario: Extract in WHERE test 02:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Actor {domain: 'test.com', infringes: [{brand: 'Customer A'}]})
+            """
+        When executing query:
+            """
+            MATCH (i:Actor {domain: 'test.com'})
+            WHERE 'Customer Z' IN extract(v IN i.infringes | v.brand)
+            RETURN i.domain AS d
+            """
+        Then the result should be empty
 
     Scenario: Assert test fail, no message:
         Given an empty graph
@@ -1198,3 +1310,102 @@ Feature: Functions
         MATCH () WHERE reduce(a=exists(()),b in []|a) RETURN 1;
         """
       Then an error should be raised
+
+    Scenario: NullIf takes away a value equal to the second argument:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(4, 4) AS taken, nullIf('abc', 'def') AS kept;
+            """
+        Then the result should be:
+            | taken | kept  |
+            | null  | 'abc' |
+
+    Scenario: NullIf is case insensitive:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullif(1, 1) AS lower, NULLIF(1, 1) AS upper;
+            """
+        Then the result should be:
+            | lower | upper |
+            | null  | null  |
+
+    Scenario: NullIf compares an integer and a float by value:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(1, 1.0) AS taken, nullIf(1, 2.0) AS kept;
+            """
+        Then the result should be:
+            | taken | kept |
+            | null  | 1    |
+
+    Scenario: NullIf keeps the first argument when the second is null:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(1, null) AS kept, nullIf(null, 1) AS empty;
+            """
+        Then the result should be:
+            | kept | empty |
+            | 1    | null  |
+
+    Scenario: NullIf leaves a container holding a null standing:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf([1, null], [1, null]) AS list, nullIf({a: null}, {a: null}) AS map,
+                   nullIf([1, 2], [1, 2]) AS taken;
+            """
+        Then the result should be:
+            | list      | map       | taken |
+            | [1, null] | {a: null} | null  |
+
+    Scenario: NullIf keeps a container the equals operator decides unequal:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf([1, null], [2, null]) AS unequal, nullIf([1], [1, 2]) AS shorter,
+                   nullIf({a: 1}, {a: 1}) AS taken, nullIf(2, [2]) AS scalar;
+            """
+        Then the result should be:
+            | unequal   | shorter | taken | scalar |
+            | [1, null] | [1]     | null  | 2      |
+
+    Scenario: NullIf reads equality rather than equivalence:
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [[null], [null]] AS x
+            WITH count(DISTINCT x) AS equivalent, collect(x)[0] AS v
+            RETURN equivalent, v = v AS equal, nullIf(v, v) AS kept;
+            """
+        Then the result should be:
+            | equivalent | equal | kept   |
+            | 1          | null  | [null] |
+
+    Scenario: NullIf composes with coalesce to replace one value with another:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: 'a', eyes: 'brown'})
+            CREATE ({name: 'b', eyes: 'blue'})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.name AS name, coalesce(nullIf(n.eyes, 'brown'), 'hazel') AS eyes
+            ORDER BY name;
+            """
+        Then the result should be:
+            | name | eyes    |
+            | 'a'  | 'hazel' |
+            | 'b'  | 'blue'  |
+
+    Scenario: NullIf requires exactly two arguments:
+        Given an empty graph
+        When executing query:
+            """
+            RETURN nullIf(1);
+            """
+        Then an error should be raised

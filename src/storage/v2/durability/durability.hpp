@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,10 +16,7 @@
 #include <filesystem>
 #include <optional>
 #include <string>
-#include <variant>
 
-#include "replication/epoch.hpp"
-#include "replication/state.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
@@ -29,24 +26,29 @@
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
+
+namespace memgraph::storage {
+class EdgeMetadataIndex;
+}
 
 namespace memgraph::storage::durability {
 
 /// Verifies that the owner of the storage directory is the same user that
-/// started the current process. If the verification fails, the process is
-/// killed (`CHECK` failure).
+/// started the current process. On mismatch, fails startup with an actionable
+/// message and `utils::ExitCode::StorageDirectoryOwnerMismatch`.
 void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path &storage_directory);
 
 // Used to capture the snapshot's data related to durability
 struct SnapshotDurabilityInfo {
-  explicit SnapshotDurabilityInfo(std::filesystem::path path, std::string uuid, const uint64_t start_timestamp)
-      : path(std::move(path)), uuid(std::move(uuid)), start_timestamp(start_timestamp) {}
+  explicit SnapshotDurabilityInfo(std::filesystem::path path, std::string uuid, uint64_t const durable_timestamp)
+      : path(std::move(path)), uuid(std::move(uuid)), durable_timestamp(durable_timestamp) {}
 
   std::filesystem::path path;
   std::string uuid;
-  uint64_t start_timestamp;
+  uint64_t durable_timestamp;
 
   auto operator<=>(const SnapshotDurabilityInfo &) const = default;
 };
@@ -57,8 +59,8 @@ struct SnapshotDurabilityInfo {
 /// file with the specified UUID. Otherwise, fetch only Snapshot files in the
 /// snapshot_directory.
 /// @return List of snapshot files defined with its path and UUID.
-std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
-                                                     std::string_view uuid = "");
+std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
+                                                                    std::string_view uuid = "");
 
 /// Used to capture a WAL's data related to durability
 struct WalDurabilityInfo {
@@ -95,47 +97,38 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
                                                           std::string_view uuid = "",
                                                           std::optional<size_t> current_seq_num = {});
 
-// Helper function used to recover all discovered indices. The
-// indices must be recovered after the data recovery is done
-// to ensure that the indices consistent at the end of the
-// recovery process.
-/// @throw RecoveryFailure
-void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
-                            utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                            const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
+bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry);
 
-// Helper function used to recover all discovered constraints. The
-// constraints must be recovered after the data recovery is done
-// to ensure that the constraints are consistent at the end of the
-// recovery process.
+// Rebuild every piece of derived state from the recovered adjacency
+// (vertices + edges). This is the single seam called by every recovery
+// route - snapshot load, WAL replay, replica snapshot RPC - so anything
+// that is a pure function of the final adjacency (indices, constraints,
+// edge-metadata index, ...) belongs here, never inlined into a single
+// version loader.
 /// @throw RecoveryFailure
-void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &constraints_metadata,
-                        Constraints *constraints, utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper,
-                        const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt);
+void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
+                         NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
+                         RecoveryInfo const &recovery_info, memory::ArenaPool *db_arena_pool,
+                         RecoveredIndicesAndConstraints &indices_constraints, EdgeMetadataIndex *edges_metadata,
+                         bool properties_on_edges, ProgressCallback const &on_progress = {});
 
 std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfo(const RecoveryInfo &recovery_info,
-                                                                  const Config &config);
+                                                                  const Config &config,
+                                                                  memory::ArenaPool *db_arena_pool);
 
-std::optional<ParallelizedSchemaCreationInfo> GetParallelExecInfoIndices(const RecoveryInfo &recovery_info,
-                                                                         const Config &config);
-
-void RecoverExistenceConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
-                                 utils::SkipList<Vertex> *, NameIdMapper *,
-                                 const std::optional<ParallelizedSchemaCreationInfo> &);
-
-void RecoverUniqueConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadata &, Constraints *,
-                              utils::SkipList<Vertex> *, NameIdMapper *,
-                              const std::optional<ParallelizedSchemaCreationInfo> &);
 struct Recovery {
  public:
   /// Recovers data either from a snapshot and/or WAL files.
   /// @throw RecoveryFailure
   /// @throw std::bad_alloc
-  std::optional<RecoveryInfo> RecoverData(std::string *uuid, ReplicationStorageState &repl_storage_state,
-                                          utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
-                                          std::atomic<uint64_t> *edge_count, NameIdMapper *name_id_mapper,
-                                          Indices *indices, Constraints *constraints, const Config &config,
-                                          uint64_t *wal_seq_num);
+  std::optional<RecoveryInfo> RecoverData(
+      utils::UUID &uuid, ReplicationStorageState &repl_storage_state, utils::SkipListDb<Vertex> *vertices,
+      utils::SkipListDb<Edge> *edges, EdgeMetadataIndex *edges_metadata, std::atomic<uint64_t> *edge_count,
+      NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
+      memory::ArenaPool *db_arena_pool, uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+      std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
+      std::string const &db_name, memgraph::storage::ttl::TTL *ttl,
+      memgraph::storage::DescriptionStore *description_store);
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

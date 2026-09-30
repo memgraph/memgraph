@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,8 +12,9 @@
 #include <array>
 #include <cstring>
 #include <functional>
-#include <iostream>
+#include <iosfwd>
 #include <random>
+#include <span>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -57,13 +58,21 @@ class TestOutputStream {
  public:
   bool Write(const uint8_t *data, size_t len, bool have_more = false) {
     if (!write_success_) return false;
-    for (size_t i = 0; i < len; ++i) output.push_back(data[i]);
+    output.insert(output.end(), data, data + len);
+    ++write_count;
+    last_have_more = have_more;
     return true;
+  }
+
+  bool Write(std::span<const uint8_t> data, bool have_more = false) {
+    return Write(data.data(), data.size(), have_more);
   }
 
   void SetWriteSuccess(bool success) { write_success_ = success; }
 
   std::vector<uint8_t> output;
+  size_t write_count = 0;       // number of successful Write() calls (batched sends)
+  bool last_have_more = false;  // have_more of the most recent successful Write (drain must be false)
 
  protected:
   bool write_success_{true};
@@ -77,7 +86,10 @@ class TestBuffer {
   explicit TestBuffer(TestOutputStream &output_stream) : output_stream_(output_stream) {}
 
   void Write(const uint8_t *data, size_t n) { output_stream_.Write(data, n); }
+
   bool Flush(bool have_more = false) { return true; }
+
+  bool HasData() const { return false; }
 
  private:
   TestOutputStream &output_stream_;
@@ -86,7 +98,7 @@ class TestBuffer {
 /**
  * TODO (mferencevic): document
  */
-void PrintOutput(std::vector<uint8_t> &output) {
+void PrintOutput(std::span<uint8_t const> output) {
   fprintf(stderr, "output: ");
   for (size_t i = 0; i < output.size(); ++i) {
     fprintf(stderr, "%02X ", output[i]);
@@ -97,7 +109,7 @@ void PrintOutput(std::vector<uint8_t> &output) {
 /**
  * TODO (mferencevic): document
  */
-void CheckOutput(std::vector<uint8_t> &output, const uint8_t *data, uint64_t len, bool clear = true) {
+void CheckOutput(std::span<uint8_t const> &output, const uint8_t *data, uint64_t len, bool clear = true) {
   if (clear) {
     ASSERT_EQ(len, output.size());
   } else {
@@ -107,9 +119,9 @@ void CheckOutput(std::vector<uint8_t> &output, const uint8_t *data, uint64_t len
     EXPECT_EQ(output[i], data[i]) << i;
   }
   if (clear) {
-    output.clear();
+    output = std::span<uint8_t const>{};
   } else {
-    output.erase(output.begin(), output.begin() + len);
+    output = output.subspan(len);
   }
 }
 

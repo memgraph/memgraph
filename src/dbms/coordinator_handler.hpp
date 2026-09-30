@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,54 +13,77 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "utils/result.hpp"
-
-#include <cstdint>
 #include <optional>
+#include <string_view>
+
+#include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_ops_status.hpp"
+#include "coordination/coordinator_state.hpp"
+#include "coordination/instance_status.hpp"
+
 #include <vector>
 
-namespace memgraph::coordination {
-struct CoordinatorEntityInfo;
-struct CoordinatorEntityHealthInfo;
-struct CoordinatorClientConfig;
-}  // namespace memgraph::coordination
-
 namespace memgraph::dbms {
-
-enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
-  NAME_EXISTS,
-  END_POINT_EXISTS,
-  COULD_NOT_BE_PERSISTED,
-  NOT_COORDINATOR,
-  SUCCESS
-};
-
-enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE, CLUSTER_UNINITIALIZED };
 
 class DbmsHandler;
 
 class CoordinatorHandler {
  public:
-  explicit CoordinatorHandler(DbmsHandler &dbms_handler);
+  explicit CoordinatorHandler(coordination::CoordinatorState &coordinator_state);
 
-  auto RegisterReplicaOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
-      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
+  auto RegisterReplicationInstance(coordination::DataInstanceConfig const &config)
+      -> coordination::RegisterInstanceCoordinatorStatus;
 
-  auto RegisterMainOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
-      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus>;
+  auto UnregisterReplicationInstance(std::string_view instance_name)
+      -> coordination::UnregisterInstanceCoordinatorStatus;
 
-  auto ShowReplicasOnCoordinator() const -> std::vector<memgraph::coordination::CoordinatorEntityInfo>;
+  auto SetReplicationInstanceToMain(std::string_view instance_name) -> coordination::SetInstanceToMainCoordinatorStatus;
 
-  auto ShowMainOnCoordinator() const -> std::optional<memgraph::coordination::CoordinatorEntityInfo>;
+  auto DemoteInstanceToReplica(std::string_view instance_name) -> coordination::DemoteInstanceCoordinatorStatus;
 
-  auto PingReplicasOnCoordinator() const -> std::unordered_map<std::string_view, bool>;
+  auto ForceResetClusterState() -> coordination::ReconcileClusterStateStatus;
 
-  auto PingMainOnCoordinator() const -> std::optional<memgraph::coordination::CoordinatorEntityHealthInfo>;
+  auto ShowInstance() const -> coordination::InstanceStatus;
+  // nullopt if the leader couldn't be reached.
+  auto ShowInstances() const -> std::optional<std::vector<coordination::InstanceStatus>>;
 
-  auto DoFailover() const -> DoFailoverStatus;
+  auto YieldLeadership() const -> coordination::YieldLeadershipStatus;
+
+  auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
+      -> coordination::SetCoordinatorSettingStatus;
+
+  auto CreateRole(std::string_view role_name) const -> coordination::CreateRoleStatus;
+
+  auto DropRole(std::string_view role_name) const -> coordination::DropRoleStatus;
+
+  auto GetRoles() const -> std::optional<std::vector<coordination::CoordinatorRole>>;
+
+  auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> coordination::GrantPrivilegeStatus;
+
+  auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> coordination::RevokePrivilegeStatus;
+
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
+
+  // nullopt if the leader couldn't be reached.
+  auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
+
+  auto AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
+      -> coordination::AddCoordinatorInstanceStatus;
+
+  auto RemoveCoordinatorInstance(int32_t coordinator_id) -> coordination::RemoveCoordinatorInstanceStatus;
+
+  auto UpdateConfig(coordination::UpdateInstanceConfig const &config) -> coordination::UpdateConfigStatus;
+
+  auto GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData>;
+
+  // nullopt if the leader couldn't be reached.
+  auto ShowReplicationLag() const -> std::optional<coordination::ReplicationLagResult>;
+
+  auto GetRoutingTable(std::string_view db_name) const -> coordination::RoutingTable;
 
  private:
-  DbmsHandler &dbms_handler_;
+  // NOLINTNEXTLINE
+  coordination::CoordinatorState &coordinator_state_;
 };
 
 }  // namespace memgraph::dbms

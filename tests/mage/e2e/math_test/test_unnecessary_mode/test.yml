@@ -1,0 +1,4 @@
+query: >
+  RETURN math.round(1.0, 2, "UNNECESSARY") AS result;
+output:
+  - result: 1.0

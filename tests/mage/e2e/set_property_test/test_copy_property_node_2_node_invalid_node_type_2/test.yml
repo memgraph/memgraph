@@ -1,0 +1,7 @@
+query: >
+    MATCH (n {id: 1}), (m {id: 2})
+    CALL set_property.copyPropertyNode2Node(1, ['prop'], m, ['prop']) YIELD result
+    RETURN result;
+
+exception: >
+    CopyPropertyNode2Node argument source entity is not a node!

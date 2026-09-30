@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.postgresql('SELECT numeric_col FROM dummy_table', {
+      host: 'postgresql_test',
+      port: 5432,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.numeric_col) AS numeric_col_type, toString(row.numeric_col) AS numeric_col
+
+output:
+  - numeric_col_type: 'FLOAT'
+    numeric_col: '678.899999999999977'

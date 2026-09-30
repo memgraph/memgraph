@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,29 +12,55 @@
 #include "license/license_sender.hpp"
 
 #include <spdlog/spdlog.h>
+#include <algorithm>
+#include <compare>
 #include <cstdint>
+#include <functional>
+#include <nlohmann/json.hpp>
+#include <utility>
 
+#include "license/license.hpp"
 #include "requests/requests.hpp"
-#include "utils/memory_tracker.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/stat.hpp"
 #include "utils/synchronized.hpp"
 #include "utils/system_info.hpp"
 #include "utils/timestamp.hpp"
 
+namespace {
+constexpr auto kFirstShotAfter = std::chrono::seconds{60};
+}  // namespace
+
 namespace memgraph::license {
 
 LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::string machine_id, int64_t memory_limit,
                                      utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info,
-                                     std::chrono::seconds request_frequency)
+                                     std::chrono::seconds request_interval)
     : url_{std::move(url)},
       uuid_{std::move(uuid)},
       machine_id_{std::move(machine_id)},
       memory_limit_{memory_limit},
       license_info_{license_info} {
-  scheduler_.Run("LicenseCheck", request_frequency, [&] { SendData(); });
+  scheduler_.SetInterval(
+      std::min(kFirstShotAfter, request_interval));  // use user-defined interval if shorter than first shot
+  scheduler_.Run(
+      "Telemetry",
+      [this, final_interval = request_interval, update_interval = kFirstShotAfter < request_interval]() mutable {
+        SendData();
+        // First run after 60s; all subsequent runs at the user-defined interval
+        if (update_interval) {
+          update_interval = false;
+          scheduler_.SetInterval(final_interval);
+        }
+      });
 }
 
-LicenseInfoSender::~LicenseInfoSender() { scheduler_.Stop(); }
+LicenseInfoSender::~LicenseInfoSender() { Stop(); }
+
+void LicenseInfoSender::Stop() {
+  abort_.store(true, std::memory_order_relaxed);
+  scheduler_.Stop();
+}
 
 void LicenseInfoSender::SendData() {
   nlohmann::json data = nlohmann::json::object();
@@ -62,8 +88,10 @@ void LicenseInfoSender::SendData() {
   if (data.empty()) {
     return;
   }
-  if (!requests::RequestPostJson(url_, data,
-                                 /* timeout_in_seconds = */ 2 * 60)) {
+  if (!requests::RequestPostJson(url_,
+                                 data,
+                                 /* timeout_in_seconds = */ 2 * 60,
+                                 &abort_)) {
     spdlog::trace("Cannot send license information, enable {} availability!", url_);
   }
 }

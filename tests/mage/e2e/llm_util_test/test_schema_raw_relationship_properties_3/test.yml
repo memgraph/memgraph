@@ -1,0 +1,5 @@
+query: >
+    CALL llm_util.schema('raw') YIELD schema UNWIND schema.rel_props["IS_FRIENDS_WITH"] AS property RETURN property["property"] AS property, property["type"] AS type;
+output:
+  - property: "since"
+    type: "str"

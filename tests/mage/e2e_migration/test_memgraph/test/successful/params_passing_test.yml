@@ -1,0 +1,12 @@
+query: |
+  CALL cross_database.bolt(
+      'MATCH (n:DummyNode) WHERE n.integer_col = $val RETURN n.integer_col AS x',
+      {host: 'localhost', port: 7687},
+      '',
+      {val: 2147483647}
+  )
+  YIELD row
+  RETURN row.x AS x
+
+output:
+  - x: 2147483647

@@ -1,5 +1,7 @@
 CREATE
   (keanu:Person {name: 'Keanu Reeves'}),
+  (trinity:Person {name: 'Carrie-Anne Moss'}),
+  (morpheus:Person {name: 'Laurence Fishburne'}),
   (johnnyMnemonic:Movie {title: 'Johnny Mnemonic', released: 1995}),
   (theMatrixRevolutions:Movie {title: 'The Matrix Revolutions', released: 2003}),
   (theMatrixReloaded:Movie {title: 'The Matrix Reloaded', released: 2003}),
@@ -13,4 +15,7 @@ CREATE
   (keanu)-[:ACTED_IN]->(theReplacements),
   (keanu)-[:ACTED_IN]->(theMatrix),
   (keanu)-[:ACTED_IN]->(theDevilsAdvocate),
-  (keanu)-[:ACTED_IN]->(theMatrixResurrections);
+  (keanu)-[:ACTED_IN]->(theMatrixResurrections),
+  (trinity)-[:ACTED_IN]->(theMatrix),
+  (trinity)-[:ACTED_IN]->(theMatrixReloaded),
+  (morpheus)-[:ACTED_IN]->(theMatrix);

@@ -22,9 +22,9 @@ def test_indexed_join_with_indices(memgraph):
 
     expected_explain = [
         f" * Produce {{a, b, r}}",
-        f" * Filter (a :Node), {{a.id}}",
-        f" * Expand (b)-[r:EDGE]-(a)",
-        f" * ScanAllByLabelPropertyValue (b :Node {{id}})",
+        f" * Filter (b :Node), {{b.id}}",
+        f" * Expand (a)-[r:EDGE]-(b)",
+        f" * ScanAllByLabelProperties (a :Node {{id}})",
         f" * Once",
     ]
 
@@ -32,6 +32,107 @@ def test_indexed_join_with_indices(memgraph):
         memgraph.execute_and_fetch(
             "EXPLAIN MATCH (a:Node {id: 1}) MATCH (b:Node {id: 2}) MATCH (a)-[r:EDGE]-(b) return a,b,r;"
         )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert expected_explain == actual_explain
+
+
+def test_indexed_join_with_indices_and_filter(memgraph):
+    memgraph.execute("CREATE INDEX ON :Node;")
+    memgraph.execute("CREATE INDEX ON :Node(id);")
+
+    expected_explain = [
+        f" * Produce {{n1, n2}}",
+        f" * Filter Generic {{n1, n2}}",
+        f" * IndexedJoin",
+        f" |\\ ",
+        f" | * ScanAllByLabelProperties (n2 :Node {{id}})",
+        f" | * Once",
+        f" * ScanAllByLabel (n1 :Node)",
+        f" * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n1:Node), (n2:Node) where n1.id = n2.id and n1 <> n2 return *;")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+
+    assert expected_explain == actual_explain
+
+
+def test_indexed_join_with_indices_split(memgraph):
+    memgraph.execute("CREATE INDEX ON :Label0;")
+    memgraph.execute("CREATE INDEX ON :Label1;")
+    memgraph.execute("CREATE INDEX ON :Label1(prop0);")
+    memgraph.execute("CREATE INDEX ON :Label1(prop1);")
+
+    expected_explain = [
+        " * Produce {a0, n0, n1, n2, n3, n4, n5, r0, r1, r2}",
+        " * Filter (n5 :Label0:Label1)",
+        " * Expand (n4)<-[r2]-(n5)",
+        " * ScanAll (n4)",
+        " * Unwind",
+        " * EdgeUniquenessFilter {r1 : r0}",
+        " * IndexedJoin",
+        " |\\ ",
+        " | * Filter (n3 :Label0)",
+        " | * Expand (n2)<-[r1]-(n3)",
+        " | * ScanAllByLabelProperties (n2 :Label1 {prop0})",
+        " | * Once",
+        " * Expand (n0)<-[r0]-(n1)",
+        " * ScanAllByLabel (n0 :Label1)",
+        " * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch(
+            "EXPLAIN MATCH (n0 :Label1)<-[r0]-(n1), (n2 :Label1)<-[r1]-(n3 :Label0) UNWIND [1] AS a0 MATCH (n4)<-[r2]-(n5 :Label0 :Label1) WHERE (((n2.prop0) > (n0.prop1)))  RETURN *"
+        )
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    assert expected_explain == actual_explain
+
+
+def test_cartesian_with_nested_property_join(memgraph):
+    expected_explain = [
+        " * Produce {n, m}",
+        " * HashJoin {n : m}",
+        " |\\ ",
+        " | * Filter (m :label1)",
+        " | * ScanAll (m)",
+        " | * Once",
+        " * Filter (n :label)",
+        " * ScanAll (n)",
+        " * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:label), (m:label1) WHERE m.prop1.id = n.prop1.id RETURN n, m;")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    assert expected_explain == actual_explain
+
+
+def test_indexed_join_for_cross_pattern_range_after_with(memgraph):
+    # A range bound built from the other pattern's property only holds if that pattern is
+    # already bound, so the branches must be joined rather than left independent.
+    memgraph.execute("CREATE INDEX ON :Node;")
+    memgraph.execute("CREATE INDEX ON :Node(id);")
+
+    expected_explain = [
+        " * Produce {n1, n2}",
+        " * Produce {n1, n2}",
+        " * IndexedJoin",
+        " |\\ ",
+        " | * ScanAllByLabelProperties (n2 :Node {id})",
+        " | * Once",
+        " * ScanAllByLabel (n1 :Node)",
+        " * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n1:Node), (n2:Node) WITH * WHERE n1.id < n2.id RETURN *;")
     )
     actual_explain = [x[QUERY_PLAN] for x in results]
 

@@ -1,0 +1,7 @@
+query: >
+    CALL igraphalg.topological_sort()
+    YIELD nodes
+    RETURN extract(node in nodes | node.id) as node_ids
+
+output:
+    - node_ids: [1,2,3,4,5,6,0,7]

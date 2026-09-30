@@ -13,12 +13,13 @@ func handle_if_error(err error) {
   }
 
 func main() {
-    dbUri := "bolt://localhost:7687"
-    driver, err := neo4j.NewDriver(dbUri, neo4j.BasicAuth("", "", ""))
-    if err != nil {
-        log.Fatal("An error occurred opening conn: %s", err)
-    }
-    defer driver.Close()
+  fmt.Println("Started running docs_quick_start.go test")
+  dbUri := "bolt://localhost:7687"
+  driver, err := neo4j.NewDriver(dbUri, neo4j.BasicAuth("", "", ""))
+  if err != nil {
+    log.Fatal("An error occurred opening conn: %s", err)
+  }
+  defer driver.Close()
 
 	session := driver.NewSession(neo4j.SessionConfig{})
 	defer session.Close()
@@ -33,7 +34,7 @@ func main() {
 
 	_,err = session.WriteTransaction(testAll)
 	handle_if_error(err)
-	fmt.Println("All ok!")
+	fmt.Println("doc_quick_start.go test finished successfully.")
 }
 
 func clearDatabase(tx neo4j.Transaction) (interface{}, error) {
@@ -75,15 +76,14 @@ func testAll(tx neo4j.Transaction) (interface{}, error) {
 	handle_if_error(err)
 	age, err := neo4j.GetProperty[int64](node_value, "age")
 	handle_if_error(err)
-  
+
 	if label != "Person" && name != "Alice" && age != 22 {
 	  return nil, fmt.Errorf("Data doesn't match.")
 	}
-  
+
 	fmt.Println("Label", label)
 	fmt.Println("name", name)
 	fmt.Println("age", age)
 
     return result.Consume()
 }
-

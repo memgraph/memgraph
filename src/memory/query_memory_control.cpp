@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,218 +9,205 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <atomic>
-#include <cassert>
 #include <cstdint>
-#include <iostream>
-#include <optional>
-#include <shared_mutex>
-#include <thread>
-#include <tuple>
 #include <utility>
 
 #include "query_memory_control.hpp"
-#include "utils/exceptions.hpp"
-#include "utils/logging.hpp"
-#include "utils/memory.hpp"
-#include "utils/memory_tracker.hpp"
-#include "utils/rw_spin_lock.hpp"
 
 #if USE_JEMALLOC
-#include "jemalloc/jemalloc.h"
+#include <jemalloc/jemalloc.h>
 #endif
+
+#include "utils/db_aware_allocator.hpp"
+
+#include "utils/logging.hpp"
+#include "utils/query_memory_tracker.hpp"
+#include "utils/resource_monitoring.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::memory {
 
-#if USE_JEMALLOC
+namespace {
+constexpr bool kUseJemalloc = USE_JEMALLOC;
 
-void QueriesMemoryControl::UpdateThreadToTransactionId(const std::thread::id &thread_id, uint64_t transaction_id) {
-  auto accessor = thread_id_to_transaction_id.access();
-  auto elem = accessor.find(thread_id);
-  if (elem == accessor.end()) {
-    accessor.insert({thread_id, {transaction_id, 1}});
+inline auto &QueryTrackerStorage() {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  constinit static thread_local utils::QueryMemoryTracker *query_memory_tracker_ [[gnu::tls_model("initial-exec")]] =
+      nullptr;
+  return query_memory_tracker_;
+}
+
+inline auto &UserTrackerStorage() {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  constinit static thread_local utils::UserResources *user_resource_ [[gnu::tls_model("initial-exec")]] = nullptr;
+  return user_resource_;
+}
+
+inline auto GetQueryTracker() -> utils::QueryMemoryTracker * {
+  if constexpr (kUseJemalloc) {
+    return QueryTrackerStorage();
+  }
+  return nullptr;
+}
+
+inline void SetQueryTracker(utils::QueryMemoryTracker *tracker) {
+  if constexpr (kUseJemalloc) {
+    QueryTrackerStorage() = tracker;
   } else {
-    elem->transaction_id.cnt++;
+    (void)tracker;
   }
 }
 
-void QueriesMemoryControl::EraseThreadToTransactionId(const std::thread::id &thread_id, uint64_t transaction_id) {
-  auto accessor = thread_id_to_transaction_id.access();
-  auto elem = accessor.find(thread_id);
-  MG_ASSERT(elem != accessor.end() && elem->transaction_id == transaction_id);
-  elem->transaction_id.cnt--;
-  if (elem->transaction_id.cnt == 0) {
-    accessor.remove(thread_id);
+inline auto GetUserTracker() -> utils::UserResources * {
+  if constexpr (kUseJemalloc) {
+    return UserTrackerStorage();
+  }
+  return nullptr;
+}
+
+inline void SetUserTracker(utils::UserResources *resource) {
+  if constexpr (kUseJemalloc) {
+    UserTrackerStorage() = resource;
+  } else {
+    (void)resource;
   }
 }
 
-void QueriesMemoryControl::TrackAllocOnCurrentThread(size_t size) {
-  auto thread_id_to_transaction_id_accessor = thread_id_to_transaction_id.access();
-
-  // we might be just constructing mapping between thread id and transaction id
-  // so we miss this allocation
-  auto thread_id_to_transaction_id_elem = thread_id_to_transaction_id_accessor.find(std::this_thread::get_id());
-  if (thread_id_to_transaction_id_elem == thread_id_to_transaction_id_accessor.end()) {
-    return;
-  }
-
-  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto transaction_id_to_tracker =
-      transaction_id_to_tracker_accessor.find(thread_id_to_transaction_id_elem->transaction_id);
-
-  // It can happen that some allocation happens between mapping thread to
-  // transaction id, so we miss this allocation
-  if (transaction_id_to_tracker == transaction_id_to_tracker_accessor.end()) [[unlikely]] {
-    return;
-  }
-  auto &query_tracker = transaction_id_to_tracker->tracker;
-  query_tracker.TrackAlloc(size);
-}
-
-void QueriesMemoryControl::TrackFreeOnCurrentThread(size_t size) {
-  auto thread_id_to_transaction_id_accessor = thread_id_to_transaction_id.access();
-
-  // we might be just constructing mapping between thread id and transaction id
-  // so we miss this allocation
-  auto thread_id_to_transaction_id_elem = thread_id_to_transaction_id_accessor.find(std::this_thread::get_id());
-  if (thread_id_to_transaction_id_elem == thread_id_to_transaction_id_accessor.end()) {
-    return;
-  }
-
-  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto transaction_id_to_tracker =
-      transaction_id_to_tracker_accessor.find(thread_id_to_transaction_id_elem->transaction_id);
-
-  // It can happen that some allocation happens between mapping thread to
-  // transaction id, so we miss this allocation
-  if (transaction_id_to_tracker == transaction_id_to_tracker_accessor.end()) [[unlikely]] {
-    return;
-  }
-  auto &query_tracker = transaction_id_to_tracker->tracker;
-  query_tracker.TrackFree(size);
-}
-
-void QueriesMemoryControl::CreateTransactionIdTracker(uint64_t transaction_id, size_t inital_limit) {
-  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-
-  auto [elem, result] = transaction_id_to_tracker_accessor.insert({transaction_id, utils::QueryMemoryTracker{}});
-
-  elem->tracker.SetQueryLimit(inital_limit);
-}
-
-bool QueriesMemoryControl::EraseTransactionIdTracker(uint64_t transaction_id) {
-  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto removed = transaction_id_to_tracker.access().remove(transaction_id);
-  return removed;
-}
-
-bool QueriesMemoryControl::CheckTransactionIdTrackerExists(uint64_t transaction_id) {
-  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  return transaction_id_to_tracker_accessor.contains(transaction_id);
-}
-
-void QueriesMemoryControl::TryCreateTransactionProcTracker(uint64_t transaction_id, int64_t procedure_id,
-                                                           size_t limit) {
-  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto query_tracker = transaction_id_to_tracker_accessor.find(transaction_id);
-
-  if (query_tracker == transaction_id_to_tracker_accessor.end()) {
-    return;
-  }
-
-  query_tracker->tracker.TryCreateProcTracker(procedure_id, limit);
-}
-
-void QueriesMemoryControl::SetActiveProcIdTracker(uint64_t transaction_id, int64_t procedure_id) {
-  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto query_tracker = transaction_id_to_tracker_accessor.find(transaction_id);
-
-  if (query_tracker == transaction_id_to_tracker_accessor.end()) {
-    return;
-  }
-
-  query_tracker->tracker.SetActiveProc(procedure_id);
-}
-
-void QueriesMemoryControl::PauseProcedureTracking(uint64_t transaction_id) {
-  auto transaction_id_to_tracker_accessor = transaction_id_to_tracker.access();
-  auto query_tracker = transaction_id_to_tracker_accessor.find(transaction_id);
-
-  if (query_tracker == transaction_id_to_tracker_accessor.end()) {
-    return;
-  }
-
-  query_tracker->tracker.StopProcTracking();
-}
-
-inline int &Get_Thread_Tracker() {
-  // store variable in bss segment for each thread
-  // https://cs-fundamentals.com/c-programming/memory-layout-of-c-program-code-data-segments#size-of-code-data-bss-segments
-  static thread_local int is_thread_tracked{0};
-  return is_thread_tracked;
-}
-
-bool QueriesMemoryControl::IsThreadTracked() { return Get_Thread_Tracker() == 1; }
-
-#endif
-
-void StartTrackingCurrentThreadTransaction(uint64_t transaction_id) {
-#if USE_JEMALLOC
-  Get_Thread_Tracker() = 0;
-  GetQueriesMemoryControl().UpdateThreadToTransactionId(std::this_thread::get_id(), transaction_id);
-  Get_Thread_Tracker() = 1;
-#endif
-}
-
-void StopTrackingCurrentThreadTransaction(uint64_t transaction_id) {
-#if USE_JEMALLOC
-  Get_Thread_Tracker() = 0;
-  GetQueriesMemoryControl().EraseThreadToTransactionId(std::this_thread::get_id(), transaction_id);
-#endif
-}
-
-void TryStartTrackingOnTransaction(uint64_t transaction_id, size_t limit) {
-#if USE_JEMALLOC
-  if (GetQueriesMemoryControl().CheckTransactionIdTrackerExists(transaction_id)) {
-    return;
-  }
-  GetQueriesMemoryControl().CreateTransactionIdTracker(transaction_id, limit);
-
-#endif
-}
-
-void TryStopTrackingOnTransaction(uint64_t transaction_id) {
-#if USE_JEMALLOC
-  if (!GetQueriesMemoryControl().CheckTransactionIdTrackerExists(transaction_id)) {
-    return;
-  }
-  GetQueriesMemoryControl().EraseTransactionIdTracker(transaction_id);
-#endif
-}
+}  // namespace
 
 #if USE_JEMALLOC
-bool IsTransactionTracked(uint64_t transaction_id) {
-  return GetQueriesMemoryControl().CheckTransactionIdTrackerExists(transaction_id);
-}
-#else
-bool IsTransactionTracked(uint64_t /*transaction_id*/) { return false; }
-#endif
 
-void CreateOrContinueProcedureTracking(uint64_t transaction_id, int64_t procedure_id, size_t limit) {
-#if USE_JEMALLOC
-  if (!GetQueriesMemoryControl().CheckTransactionIdTrackerExists(transaction_id)) {
-    LOG_FATAL("Memory tracker for transaction was not set");
+bool TrackAllocOnCurrentThread(size_t size) {
+  const ThreadTrackingBlocker blocker{};  // makes sure we cannot recursively track allocations
+  // if allocations could happen here we would try to track that, which calls alloc
+
+  // Read the tracker from the blocker because it temporarily resets tracking.
+  auto *const tracker = blocker.GetPrevMemoryTracker();
+  if (!tracker) return true;
+
+  if (!tracker->TrackAlloc(size)) {
+    return false;
+  }
+  auto *const user_resource = blocker.GetPrevUserTracker();
+  if (user_resource && !user_resource->IncrementTransactionsMemory(size)) {
+    tracker->TrackFree(size);
+    return false;
   }
 
-  GetQueriesMemoryControl().TryCreateTransactionProcTracker(transaction_id, procedure_id, limit);
-  GetQueriesMemoryControl().SetActiveProcIdTracker(transaction_id, procedure_id);
-#endif
+  return true;
 }
 
-void PauseProcedureTracking(uint64_t transaction_id) {
-#if USE_JEMALLOC
-  GetQueriesMemoryControl().PauseProcedureTracking(transaction_id);
-#endif
+void TrackFreeOnCurrentThread(size_t size) {
+  const ThreadTrackingBlocker blocker{};  // makes sure we cannot recursively track allocations
+  // if allocations could happen here we would try to track that, which calls alloc
+
+  // Read the tracker from the blocker because it temporarily resets tracking.
+  auto *const tracker = blocker.GetPrevMemoryTracker();
+  if (!tracker) return;
+
+  tracker->TrackFree(size);
+  auto *const user_resource = blocker.GetPrevUserTracker();
+  if (user_resource) user_resource->DecrementTransactionsMemory(size);
 }
 
+#else  // !USE_JEMALLOC
+
+bool TrackAllocOnCurrentThread(size_t /*size*/) { return true; }
+
+void TrackFreeOnCurrentThread(size_t /*size*/) {}
+
+#endif  // USE_JEMALLOC
+
+void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker) { SetQueryTracker(tracker); }
+
+void StopTrackingCurrentThread() { SetQueryTracker(nullptr); }
+
+void StartTrackingUserResource(utils::UserResources *resource) { SetUserTracker(resource); }
+
+void StopTrackingUserResource() { SetUserTracker(nullptr); }
+
+bool IsQueryTracked() {
+  if constexpr (kUseJemalloc) {
+    // GC is running, no way to control what gets deleted, just ignore this allocation.
+    return GetQueryTracker() != nullptr && !utils::detail::IsSkipListGcRunning();
+  }
+  return false;
+}
+
+void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit) {
+  if constexpr (kUseJemalloc) {
+    // No need for user tracking at this level, if it was needed, it would have already been setup by this point
+    DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
+    GetQueryTracker()->CreateOrSetProcTracker(procedure_id, limit);
+  } else {
+    (void)procedure_id;
+    (void)limit;
+  }
+}
+
+void PauseProcedureTracking() {
+  if constexpr (kUseJemalloc) {
+    DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
+    utils::QueryMemoryTracker::StopProcTracking();
+  }
+}
+
+ThreadTrackingBlocker::ThreadTrackingBlocker() : prev_state_{GetQueryTracker()}, prev_user_state_(GetUserTracker()) {
+  // Disable thread tracking
+  SetQueryTracker(nullptr);
+  SetUserTracker(nullptr);
+}
+
+ThreadTrackingBlocker::~ThreadTrackingBlocker() {
+  // Reset thread tracking to previous state
+  SetQueryTracker(prev_state_);
+  SetUserTracker(prev_user_state_);
+}
+
+CrossThreadMemoryTracking::CrossThreadMemoryTracking(ArenaPool *arena_pool)
+    : query_tracker(GetQueryTracker()), user_tracker(GetUserTracker()), db_arena_pool(arena_pool) {}
+
+void CrossThreadMemoryTracking::StartTracking() {
+  DMG_ASSERT(!started_, "CrossThreadMemoryTracking::StartTracking called twice");
+  started_ = true;
+  prev_query_tracker_ = GetQueryTracker();
+  prev_user_tracker_ = GetUserTracker();
+  SetQueryTracker(query_tracker);
+  SetUserTracker(user_tracker);
+  if (db_arena_pool) db_arena_scope_.emplace(db_arena_pool);
+}
+
+void CrossThreadMemoryTracking::StopTracking() {
+  if (!started_) return;
+  SetQueryTracker(prev_query_tracker_);
+  SetUserTracker(prev_user_tracker_);
+  prev_query_tracker_ = nullptr;
+  prev_user_tracker_ = nullptr;
+  db_arena_scope_.reset();
+  started_ = false;
+}
+
+CrossThreadMemoryTracking::CrossThreadMemoryTracking(CrossThreadMemoryTracking &&other) noexcept
+    : query_tracker(std::exchange(other.query_tracker, nullptr)),
+      user_tracker(std::exchange(other.user_tracker, nullptr)),
+      db_arena_pool(std::exchange(other.db_arena_pool, nullptr)),
+      prev_query_tracker_(std::exchange(other.prev_query_tracker_, nullptr)),
+      prev_user_tracker_(std::exchange(other.prev_user_tracker_, nullptr)),
+      started_(false) {
+  DMG_ASSERT(!other.started_ && !other.db_arena_scope_.has_value(), "Cannot move active CrossThreadMemoryTracking");
+}
+
+CrossThreadMemoryTracking &CrossThreadMemoryTracking::operator=(CrossThreadMemoryTracking &&other) noexcept {
+  if (this != &other) {
+    DMG_ASSERT(!started_, "Cannot overwrite active CrossThreadMemoryTracking");
+    DMG_ASSERT(!other.started_ && !other.db_arena_scope_.has_value(), "Cannot move active CrossThreadMemoryTracking");
+    query_tracker = std::exchange(other.query_tracker, nullptr);
+    user_tracker = std::exchange(other.user_tracker, nullptr);
+    db_arena_pool = std::exchange(other.db_arena_pool, nullptr);
+    prev_query_tracker_ = std::exchange(other.prev_query_tracker_, nullptr);
+    prev_user_tracker_ = std::exchange(other.prev_user_tracker_, nullptr);
+    started_ = false;
+  }
+  return *this;
+}
 }  // namespace memgraph::memory

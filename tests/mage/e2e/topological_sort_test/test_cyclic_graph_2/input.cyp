@@ -1,0 +1,3 @@
+CREATE (:D)-[:CONNECTED_TO]->(:E)-[:CONNECTED_TO]->(:F);
+CREATE (a:A)-[:CONNECTED_TO]->(b:B)-[:CONNECTED_TO]->(c:C);
+MATCH (c:C), (a:A) MERGE (c)-[:CONNECTED_TO]->(a);

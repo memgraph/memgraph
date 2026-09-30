@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,9 +9,29 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
+#include <cstdint>
+#include <string>
+
 #include "storage/v2/temporal.hpp"
+
+#include "utils/temporal.hpp"
 
 namespace memgraph::storage {
 TemporalData::TemporalData(TemporalType type, int64_t microseconds) : type{type}, microseconds{microseconds} {}
+
+ZonedTemporalData::ZonedTemporalData(ZonedTemporalType type,
+                                     std::chrono::sys_time<std::chrono::microseconds> microseconds,
+                                     utils::Timezone timezone)
+    : type{type}, microseconds{microseconds}, timezone{timezone} {}
+
+std::strong_ordering ZonedTemporalData::operator<=>(const ZonedTemporalData &other) const {
+  if (auto const kind = type <=> other.type; kind != std::strong_ordering::equal) return kind;
+  return utils::ZonedDateTime(microseconds, timezone) <=> utils::ZonedDateTime(other.microseconds, other.timezone);
+}
+
+int64_t ZonedTemporalData::IntMicroseconds() const { return microseconds.time_since_epoch().count(); }
+
+std::string ZonedTemporalData::TimezoneToString() const { return timezone.ToString(); }
 
 }  // namespace memgraph::storage

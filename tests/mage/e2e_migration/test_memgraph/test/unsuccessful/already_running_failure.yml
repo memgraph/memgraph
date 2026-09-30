@@ -1,0 +1,14 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.integer_col AS x', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.integer_col AS x', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row AS row2
+  RETURN row, row2
+
+exception: true

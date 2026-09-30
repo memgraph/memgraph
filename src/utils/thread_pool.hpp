@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,38 +10,34 @@
 // licenses/APL.txt.
 
 #pragma once
+
 #include <atomic>
 #include <condition_variable>
+#include <cstddef>
 #include <functional>
 #include <mutex>
 #include <queue>
+#include <stop_token>
 #include <thread>
-
-#include "utils/spin_lock.hpp"
-#include "utils/synchronized.hpp"
-#include "utils/thread.hpp"
+#include <vector>
 
 namespace memgraph::utils {
 
-template <typename Func>
-struct CopyMovableFunctionWrapper {
-  CopyMovableFunctionWrapper(Func &&func) : func_{std::make_shared<Func>(std::move(func))} {}
-
-  void operator()() { (*func_)(); }
-
- private:
-  std::shared_ptr<Func> func_;
-};
-
 class ThreadPool {
-  using TaskSignature = std::function<void()>;
-
  public:
-  explicit ThreadPool(size_t pool_size);
+  using TaskSignature = std::move_only_function<void()>;
+  using ThreadInitFn = std::move_only_function<TaskSignature()>;
 
-  void AddTask(std::function<void()> new_task);
+  // Optional initializer runs once inside each worker thread before tasks start
+  // and may return a cleanup callback that runs when the worker exits.
+  explicit ThreadPool(size_t pool_size, ThreadInitFn thread_init = {});
 
-  void Shutdown();
+  // Returns false if the pool has already been shut down, in which case the task is dropped and never runs.
+  bool AddTask(TaskSignature new_task);
+
+  // Discards queued tasks rather than draining them (a task already popped by a worker still runs to
+  // completion), returning how many were discarded; draining is avoided since a queued task can block on external I/O.
+  size_t ShutDown();
 
   ~ThreadPool();
 
@@ -53,18 +49,18 @@ class ThreadPool {
   size_t UnfinishedTasksNum() const;
 
  private:
-  std::unique_ptr<TaskSignature> PopTask();
-
   void ThreadLoop();
 
-  std::vector<std::thread> thread_pool_;
-
-  std::atomic<size_t> unfinished_tasks_num_{0};
-  std::atomic<bool> terminate_pool_{false};
-  std::atomic<bool> stopped_{false};
-  utils::Synchronized<std::queue<std::unique_ptr<TaskSignature>>, utils::SpinLock> task_queue_;
   std::mutex pool_lock_;
-  std::condition_variable queue_cv_;
+  std::condition_variable_any queue_cv_;
+
+  std::queue<TaskSignature> task_queue_;
+  std::stop_source pool_stop_source_;  //<! Common stop source for all the jthreads in `thread_pool_`
+  ThreadInitFn thread_init_;
+
+  std::vector<std::jthread> thread_pool_;
+
+  std::atomic<size_t> unfinished_tasks_num_{0};  //<! ATM only exists for testing purposes
 };
 
 }  // namespace memgraph::utils

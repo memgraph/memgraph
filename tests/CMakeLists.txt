@@ -1,4 +1,3 @@
-# benchmark test binaries
 add_subdirectory(benchmark)
 
 # macro_benchmark test binaries

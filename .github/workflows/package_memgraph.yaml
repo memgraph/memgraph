@@ -1,295 +1,214 @@
 name: Package memgraph
 
-# TODO(gitbuda): Cleanup docker container if GHA job was canceled.
+# Concurrency control: limit to one run per PR, but allow multiple manual runs
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.event.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 
 on:
+  pull_request:
   workflow_dispatch:
     inputs:
-      memgraph_version:
-        description: "Memgraph version to upload as. Leave this field empty if you don't want to upload binaries to S3. Format: 'X.Y.Z'"
-        required: false
-      build_type:
+      os:
         type: choice
-        description: "Memgraph Build type. Default value is Release"
-        default: 'Release'
+        description: Build container distro.
+        default: ubuntu-24.04
         options:
-          - Release
-          - RelWithDebInfo
-      target_os:
+          - ubuntu-24.04
+      arch:
         type: choice
-        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS. Default is Ubuntu 22.04"
-        default: 'ubuntu-22_04'
+        description: CPU architecture
+        default: amd
+        options:
+          - amd
+          - arm
+          - both
+      build_docker_image:
+        type: choice
+        description: Docker image(s) to produce alongside the deb. 'none' (default), 'prod', 'debug' (relwithdebinfo, installs memgraph-debuginfo on top), or 'both'.
+        default: none
+        options:
+          - none
+          - prod
+          - debug
+          - both
+      fips:
+        type: boolean
+        description: "Build the FIPS 140-3 variant (Python-less package + prod-fips image). Requires build_docker_image 'none' or 'prod'."
+        default: false
+      push_to_s3:
+        type: boolean
+        description: Push to S3
+        default: false
+      push_to_github:
+        type: boolean
+        description: Push to GitHub?
+        default: false
+      s3_dest_dir:
+        type: string
+        description: Target S3 path - use format 'memgraph/vX.Y.Z'
+        default: memgraph-unofficial
+      malloc:
+        type: boolean
+        description: Package malloc build?
+        default: false
+      generate_sbom:
+        type: boolean
+        description: Generate SBOM
+        default: false
+      run_smoke_tests:
+        type: boolean
+        description: Run smoke tests
+        default: false
+      package_smoke_os:
+        type: choice
+        description: Distro(s) to smoke test the built deb/rpm packages on (requires run_smoke_tests).
+        default: ubuntu-24.04
         options:
           - all
-          - amzn-2
-          - centos-7
+          - all deb
+          - all rpm
           - centos-9
-          - debian-10
-          - debian-11
-          - debian-11-arm
-          - debian-11-platform
-          - docker
-          - fedora-36
-          - ubuntu-18_04
-          - ubuntu-20_04
-          - ubuntu-22_04
-          - ubuntu-22_04-arm
+          - centos-10
+          - debian-12
+          - debian-13
+          - fedora-43
+          - fedora-44
+          - rocky-10
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-26.04
+
+  workflow_call:
+    inputs:
+      os:
+        type: string
+        description: Build container distro.
+        default: 'ubuntu-24.04'
+      arch:
+        type: string
+        description: CPU architecture
+        default: amd
+      build_docker_image:
+        type: string
+        description: "Docker image(s) to produce alongside the deb: 'none' (default), 'prod', 'debug', or 'both'"
+        default: none
+      fips:
+        type: boolean
+        description: "Build the FIPS 140-3 variant (Python-less package + prod-fips image). Requires build_docker_image 'none' or 'prod'."
+        default: false
+      push_to_s3:
+        type: boolean
+        description: Push to S3
+        default: false
+      push_to_github:
+        type: boolean
+        description: Push to GitHub
+        default: false
+      s3_dest_dir:
+        type: string
+        description: Target S3 path - use format 'memgraph/vX.Y.Z'
+        default: memgraph-unofficial
+      ref:
+        type: string
+        description: Branch or commit ref to run the workflow on
+        required: false
+        default: ''
+      malloc:
+        type: boolean
+        description: Package malloc build?
+        default: false
+      generate_sbom:
+        type: boolean
+        description: Generate SBOM
+        default: false
+      run_smoke_tests:
+        type: boolean
+        description: Run smoke tests
+        default: false
+      package_smoke_os:
+        type: string
+        description: "Distro(s) to smoke test the built deb/rpm packages on: 'all', 'all deb', 'all rpm', or a space-separated list of distros. Empty means the build container's OS."
+        default: ''
 
 jobs:
-  amzn-2:
-    if: ${{ github.event.inputs.target_os == 'amzn-2' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package amzn-2 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: amzn-2
-          path: build/output/amzn-2/memgraph*.rpm
-
-  centos-7:
-    if: ${{ github.event.inputs.target_os == 'centos-7' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package centos-7 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: centos-7
-          path: build/output/centos-7/memgraph*.rpm
-
-  centos-9:
-    if: ${{ github.event.inputs.target_os == 'centos-9' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package centos-9 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: centos-9
-          path: build/output/centos-9/memgraph*.rpm
-
-  debian-10:
-    if: ${{ github.event.inputs.target_os == 'debian-10' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-10 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: debian-10
-          path: build/output/debian-10/memgraph*.deb
-
-  debian-11:
-    if: ${{ github.event.inputs.target_os == 'debian-11' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-11 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: debian-11
-          path: build/output/debian-11/memgraph*.deb
-
-  debian-11-arm:
-    if: ${{ github.event.inputs.target_os == 'debian-11-arm' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 120
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-11-arm ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: debian-11-aarch64
-          path: build/output/debian-11-arm/memgraph*.deb
-
-  debian-11-platform:
-    if: ${{ github.event.inputs.target_os == 'debian-11-platform' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-platform
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: debian-11-platform
-          path: build/output/debian-11/memgraph*.deb
-
-  docker:
-    if: ${{ github.event.inputs.target_os == 'docker' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          cd release/package
-          ./run.sh package debian-11 ${{ github.event.inputs.build_type }} --for-docker
-          ./run.sh docker
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: docker
-          path: build/output/docker/memgraph*.tar.gz
-
-  fedora-36:
-    if: ${{ github.event.inputs.target_os == 'fedora-36' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package fedora-36 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: fedora-36
-          path: build/output/fedora-36/memgraph*.rpm
-
-  ubuntu-18_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-18_04' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-18.04 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: ubuntu-18.04
-          path: build/output/ubuntu-18.04/memgraph*.deb
-
-  ubuntu-20_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-20_04' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-20.04 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: ubuntu-20.04
-          path: build/output/ubuntu-20.04/memgraph*.deb
-
-  ubuntu-22_04:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-22_04' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, X64]
-    timeout-minutes: 60
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-22.04 ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: ubuntu-22.04
-          path: build/output/ubuntu-22.04/memgraph*.deb
-
-  ubuntu-22_04-arm:
-    if: ${{ github.event.inputs.target_os == 'ubuntu-22_04-arm' || github.event.inputs.target_os == 'all' }}
-    runs-on: [self-hosted, DockerMgBuild, ARM64, strange]
-    timeout-minutes: 120
-    steps:
-      - name: "Set up repository"
-        uses: actions/checkout@v3
-        with:
-          fetch-depth: 0 # Required because of release/get_version.py
-      - name: "Build package"
-        run: |
-          ./release/package/run.sh package ubuntu-22.04-arm ${{ github.event.inputs.build_type }}
-      - name: "Upload package"
-        uses: actions/upload-artifact@v3
-        with:
-          name: ubuntu-22.04-aarch64
-          path: build/output/ubuntu-22.04-arm/memgraph*.deb
-
-  upload-to-s3:
-    # only run upload if we specified version. Allows for runs without upload
-    if: "${{ github.event.inputs.memgraph_version != '' }}"
-    needs: [amzn-2, centos-7, centos-9, debian-10, debian-11, debian-11-arm, debian-11-platform, docker, fedora-36, ubuntu-18_04, ubuntu-20_04, ubuntu-22_04, ubuntu-22_04-arm]
+  PackageSetup:
     runs-on: ubuntu-latest
+    outputs:
+      run_package: ${{ steps.setup.outputs.run_package }}
+      run_package_arm: ${{ steps.setup.outputs.run_package_arm }}
+      package_os: ${{ steps.setup.outputs.package_os }}
+      package_arch: ${{ steps.setup.outputs.package_arch }}
+      workflow_input_push_to_s3: ${{ steps.setup.outputs.workflow_input_push_to_s3 }}
+      workflow_input_push_to_github: ${{ steps.setup.outputs.workflow_input_push_to_github }}
+      workflow_input_s3_dest_dir: ${{ steps.setup.outputs.workflow_input_s3_dest_dir }}
+      workflow_input_malloc: ${{ steps.setup.outputs.workflow_input_malloc }}
+      workflow_input_generate_sbom: ${{ steps.setup.outputs.workflow_input_generate_sbom }}
+      workflow_input_run_smoke_tests: ${{ steps.setup.outputs.workflow_input_run_smoke_tests }}
+      workflow_input_package_smoke_os: ${{ steps.setup.outputs.workflow_input_package_smoke_os }}
+      workflow_input_package_smoke_os_arm: ${{ steps.setup.outputs.workflow_input_package_smoke_os_arm }}
+      workflow_input_build_docker_image: ${{ steps.setup.outputs.workflow_input_build_docker_image }}
+      workflow_input_build_docker_image_arm: ${{ steps.setup.outputs.workflow_input_build_docker_image_arm }}
+    env:
+      GH_CONTEXT: ${{ toJson(github) }}
+      GH_CONTEXT_FILE_NAME: github_context.json
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v3
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          # name: # if name input parameter is not provided, all artifacts are downloaded
-                  # and put in directories named after each one.
-          path: build/output/release
-      - name: Upload to S3
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        env:
-          AWS_S3_BUCKET: "download.memgraph.com"
-          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "eu-west-1"
-          SOURCE_DIR: "build/output/release"
-          DEST_DIR: "memgraph/v${{ github.event.inputs.memgraph_version }}/"
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+      - name: Dump GitHub context
+        run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
+      - name: Set up package execution
+        id: setup
+        run: ./tools/ci/package_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME"
+
+  # A single build produces both the deb and the rpm (the packages are
+  # distro-agnostic), so one job covers every distro; package_smoke_os
+  # decides where the packages get smoke tested.
+  Package:
+    needs: PackageSetup
+    if: ${{ needs.PackageSetup.outputs.run_package == 'true' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: ${{ needs.PackageSetup.outputs.package_os }}
+      arch: ${{ needs.PackageSetup.outputs.package_arch }}
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image }}
+      push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
+      additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
+      s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: ${{ needs.PackageSetup.outputs.workflow_input_run_smoke_tests == 'true' }}
+      package_smoke_os: ${{ needs.PackageSetup.outputs.workflow_input_package_smoke_os }}
+      fips: ${{ inputs.fips || false }}
+    secrets: inherit
+
+  # ARM counterpart, driven by the '-arm' PR labels (e.g.
+  # CI -package=ubuntu-24.04-arm, docker-arm) or by dispatching with
+  # arch=arm|both; it runs alongside Package when both arches are selected.
+  Package-arm:
+    needs: PackageSetup
+    if: ${{ needs.PackageSetup.outputs.run_package_arm == 'true' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: ${{ needs.PackageSetup.outputs.package_os }}
+      arch: "arm"
+      build_type: RelWithDebInfo
+      build_docker_image: ${{ needs.PackageSetup.outputs.workflow_input_build_docker_image_arm }}
+      push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      print_output_url: true
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
+      additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc == 'true' && '--disable-jemalloc' || '' }}
+      s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
+      generate_sbom: ${{ needs.PackageSetup.outputs.workflow_input_generate_sbom == 'true' }}
+      run_smoke_tests: ${{ needs.PackageSetup.outputs.workflow_input_run_smoke_tests == 'true' }}
+      package_smoke_os: ${{ needs.PackageSetup.outputs.workflow_input_package_smoke_os_arm }}
+      fips: ${{ inputs.fips || false }}
+    secrets: inherit

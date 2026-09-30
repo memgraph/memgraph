@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 
@@ -42,10 +43,16 @@ class DiskNameIdMapper final : public NameIdMapper {
     if (auto maybe_id = MaybeNameToId(name); maybe_id.has_value()) {
       return maybe_id.value();
     }
+
+    std::lock_guard<std::mutex> const lock{name_id_maps_mutex_};
+    if (auto maybe_id = MaybeNameToId(name); maybe_id.has_value()) {
+      return maybe_id.value();
+    }
+
     uint64_t res_id = 0;
     if (auto maybe_id_from_disk = name_to_id_storage_->Get(std::string(name)); maybe_id_from_disk.has_value()) {
       auto id_disk_value = maybe_id_from_disk.value();
-      res_id = utils::ParseStringToUint64(id_disk_value);
+      res_id = utils::ParseStringToUint<uint64_t>(id_disk_value);
       InsertNameIdEntryToCache(std::string(name), res_id);
       InsertIdNameEntryToCache(res_id, std::string(name));
     } else {
@@ -61,7 +68,13 @@ class DiskNameIdMapper final : public NameIdMapper {
 
   const std::string &IdToName(uint64_t id) override {
     auto maybe_name = NameIdMapper::MaybeIdToName(id);
-    if (maybe_name.has_value()) {
+    if (maybe_name) {
+      return maybe_name.value();
+    }
+
+    std::lock_guard<std::mutex> const lock{name_id_maps_mutex_};
+    maybe_name = NameIdMapper::MaybeIdToName(id);
+    if (maybe_name) {
       return maybe_name.value();
     }
 
@@ -95,12 +108,12 @@ class DiskNameIdMapper final : public NameIdMapper {
   void InitializeFromDisk() {
     for (auto itr = name_to_id_storage_->begin(); itr != name_to_id_storage_->end(); ++itr) {
       std::string name = itr->first;
-      uint64_t id = utils::ParseStringToUint64(itr->second);
+      uint64_t id = utils::ParseStringToUint<uint64_t>(itr->second);
       InsertNameIdEntryToCache(name, id);
       counter_.fetch_add(1, std::memory_order_release);
     }
     for (auto itr = id_to_name_storage_->begin(); itr != id_to_name_storage_->end(); ++itr) {
-      uint64_t id = utils::ParseStringToUint64(itr->first);
+      uint64_t id = utils::ParseStringToUint<uint64_t>(itr->first);
       std::string name = itr->second;
       InsertIdNameEntryToCache(id, name);
     }
@@ -108,6 +121,7 @@ class DiskNameIdMapper final : public NameIdMapper {
 
   std::unique_ptr<kvstore::KVStore> name_to_id_storage_;
   std::unique_ptr<kvstore::KVStore> id_to_name_storage_;
+  mutable std::mutex name_id_maps_mutex_;
 };
 
 }  // namespace memgraph::storage

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,9 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+#include <iterator>
 #include <memory>
 #include <sstream>
+#include <string>
+#include <unordered_set>
 #include <variant>
+#include <vector>
 
 #include "disk_test_utils.hpp"
 #include "gtest/gtest.h"
@@ -34,8 +39,7 @@ class TestSymbolGenerator : public ::testing::Test {
   const std::string testSuite = "query_semantic";
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{
-      db->Access(memgraph::replication::ReplicationRole::MAIN)};
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access(memgraph::storage::WRITE)};
   memgraph::query::DbAccessor dba{storage_dba.get()};
   AstStorage storage;
 
@@ -47,7 +51,7 @@ class TestSymbolGenerator : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(TestSymbolGenerator, StorageTypes);
+TYPED_TEST_SUITE(TestSymbolGenerator, StorageTypes);
 
 TYPED_TEST(TestSymbolGenerator, MatchNodeReturn) {
   // MATCH (node_atom_1) RETURN node_atom_1
@@ -270,7 +274,8 @@ TYPED_TEST(TestSymbolGenerator, MatchWithWhere) {
 TYPED_TEST(TestSymbolGenerator, MatchWithWhereUnbound) {
   // Test MATCH (old) WITH COUNT(old) AS c WHERE old.prop < 42
   auto prop = this->dba.NameToProperty("prop");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))), WITH(COUNT(IDENT("old"), false), AS("c")),
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("old"))),
+                                  WITH(COUNT(IDENT("old"), false), AS("c")),
                                   WHERE(LESS(PROPERTY_LOOKUP(this->dba, "old", prop), LITERAL(42)))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
@@ -356,7 +361,8 @@ TYPED_TEST(TestSymbolGenerator, NestedAggregation) {
 TYPED_TEST(TestSymbolGenerator, WrongAggregationContext) {
   // Test MATCH (n) WITH n.prop AS prop WHERE SUM(prop) < 42
   auto prop = this->dba.NameToProperty("prop");
-  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(PROPERTY_LOOKUP(this->dba, "n", prop), AS("prop")),
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                  WITH(PROPERTY_LOOKUP(this->dba, "n", prop), AS("prop")),
                                   WHERE(LESS(SUM(IDENT("prop"), false), LITERAL(42)))));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
 }
@@ -563,8 +569,8 @@ TYPED_TEST(TestSymbolGenerator, WithUnwindReturn) {
   auto ret_as_list = AS("list");
   auto ret_elem = IDENT("elem");
   auto ret_as_elem = AS("elem");
-  auto query = QUERY(SINGLE_QUERY(WITH(LIST(LITERAL(1), LITERAL(2)), with_as_list), unwind,
-                                  RETURN(ret_list, ret_as_list, ret_elem, ret_as_elem)));
+  auto query = QUERY(SINGLE_QUERY(
+      WITH(LIST(LITERAL(1), LITERAL(2)), with_as_list), unwind, RETURN(ret_list, ret_as_list, ret_elem, ret_as_elem)));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   // Symbols for: `list`, `elem`, `AS list`, `AS elem`
   EXPECT_EQ(symbol_table.max_position(), 4);
@@ -638,6 +644,25 @@ TYPED_TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariables) {
   auto node = this->storage.template Create<NodeAtom>(ident_n);
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), ret));
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, MatchReturnAsteriskNoUserVariablesInsideSubquery) {
+  // MATCH (n) CALL { RETURN * } RETURN n
+  auto subquery_ret = this->storage.template Create<Return>();
+  subquery_ret->body_.all_identifiers = true;
+
+  auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), subquery_ret));
+  auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, WithAsteriskAllowedAtTopLevel) {
+  // WITH * RETURN 42
+  auto with = this->storage.template Create<With>();
+  with->body_.all_identifiers = true;
+
+  auto query = QUERY(SINGLE_QUERY(with, RETURN(LITERAL(42), AS("res"))));
+  EXPECT_NO_THROW(memgraph::query::MakeSymbolTable(query));
 }
 
 TYPED_TEST(TestSymbolGenerator, MatchMergeExpandLabel) {
@@ -847,8 +872,8 @@ TYPED_TEST(TestSymbolGenerator, MatchBfsReturn) {
   auto *node_n = NODE("n");
   auto *r_prop = PROPERTY_LOOKUP(this->dba, "r", prop);
   auto *n_prop = PROPERTY_LOOKUP(this->dba, "n", prop);
-  auto *bfs = this->storage.template Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::BREADTH_FIRST,
-                                                      EdgeAtom::Direction::OUT, std::vector<EdgeTypeIx>{});
+  auto *bfs = this->storage.template Create<EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT, std::vector<QueryEdgeType>{});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = r_prop;
@@ -907,12 +932,75 @@ TYPED_TEST(TestSymbolGenerator, MatchBfsUsesLaterSymbolError) {
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
+TYPED_TEST(TestSymbolGenerator, MatchKShortestLimitUsesPreviousOuterSymbol) {
+  // Test MATCH (a) -[r *KSHORTEST|a.prop]-> (m) RETURN r
+  // `PreVisit(EdgeAtom &)` returns false, suppressing the generic child traversal, so the `| k`
+  // limit resolves only because it is visited explicitly.
+  auto prop = this->dba.NameToProperty("prop");
+  auto *node_a = NODE("a");
+  auto *limit = PROPERTY_LOOKUP(this->dba, "a", prop);
+  auto *kshortest =
+      this->storage.template Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT);
+  kshortest->filter_lambda_.inner_edge = IDENT("e");
+  kshortest->filter_lambda_.inner_node = IDENT("n");
+  kshortest->limit_ = limit;
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_a, kshortest, NODE("m"))), RETURN("r")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  EXPECT_EQ(symbol_table.at(*node_a->identifier_), symbol_table.at(*dynamic_cast<Identifier *>(limit->expression_)));
+}
+
+TYPED_TEST(TestSymbolGenerator, MatchKShortestLimitUsesEdgeSymbolError) {
+  // Test MATCH (n) -[r *KSHORTEST|r]-> (m) RETURN r
+  // The limit is visited inside the edge-range scope, so it cannot reference the edge list the
+  // expansion itself binds.
+  auto *kshortest =
+      this->storage.template Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT);
+  kshortest->filter_lambda_.inner_edge = IDENT("e");
+  kshortest->filter_lambda_.inner_node = IDENT("n");
+  kshortest->limit_ = IDENT("r");
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), kshortest, NODE("m"))), RETURN("r")));
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
+}
+
+// `PreVisit(EdgeAtom &)` must not hold a `Scope &` across its children's `Accept` calls: a pattern
+// comprehension in a bound or in `| k` pushes a scope, reallocating the capacity-1 `scopes_`, and the
+// writes after the traversal then miss the live scope. The edge identifier is left unbound, so a
+// valid query answers "Unbound variable: r".
+TYPED_TEST(TestSymbolGenerator, EdgeAtomChildScopePushKeepsTheEdgeBound) {
+  // MATCH (n) -[r *BFS 1..size([(n)-[e]->(m) | m])]-> (o) RETURN r
+  auto *bound_edge = IDENT("r");
+  auto *bfs =
+      this->storage.template Create<EdgeAtom>(bound_edge, EdgeAtom::Type::BREADTH_FIRST, EdgeAtom::Direction::OUT);
+  bfs->filter_lambda_.inner_edge = IDENT("inner_e");
+  bfs->filter_lambda_.inner_node = IDENT("inner_n");
+  bfs->lower_bound_ = LITERAL(1);
+  bfs->upper_bound_ =
+      FN("size", PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("e"), NODE("m")), nullptr, IDENT("m")));
+  auto *bound_query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("o"))), RETURN("r")));
+  auto bound_symbols = memgraph::query::MakeSymbolTable(bound_query);
+  EXPECT_EQ(bound_symbols.at(*bound_edge).type(), Symbol::Type::EDGE_LIST);
+
+  // MATCH (n) -[r *KSHORTEST|size([(n)-[e]->(m) | m])]-> (o) RETURN r
+  // The limit is the child this branch newly visits, so it pushes a scope from a fresh site.
+  auto *limit_edge = IDENT("r");
+  auto *kshortest =
+      this->storage.template Create<EdgeAtom>(limit_edge, EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT);
+  kshortest->filter_lambda_.inner_edge = IDENT("inner_e");
+  kshortest->filter_lambda_.inner_node = IDENT("inner_n");
+  kshortest->limit_ =
+      FN("size", PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("e"), NODE("m")), nullptr, IDENT("m")));
+  auto *limit_query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), kshortest, NODE("o"))), RETURN("r")));
+  auto limit_symbols = memgraph::query::MakeSymbolTable(limit_query);
+  EXPECT_EQ(limit_symbols.at(*limit_edge).type(), Symbol::Type::EDGE_LIST);
+}
+
 TYPED_TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   // MATCH ()-[*]-() RETURN 42 AS res
   auto ident_n = this->storage.template Create<Identifier>("anon_n", false);
   auto node = this->storage.template Create<NodeAtom>(ident_n);
   auto edge = this->storage.template Create<EdgeAtom>(this->storage.template Create<Identifier>("anon_r", false),
-                                                      EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::BOTH);
+                                                      EdgeAtom::Type::DEPTH_FIRST,
+                                                      EdgeAtom::Direction::BOTH);
   edge->filter_lambda_.inner_edge = this->storage.template Create<Identifier>("anon_inner_e", false);
   edge->filter_lambda_.inner_node = this->storage.template Create<Identifier>("anon_inner_n", false);
   auto end_node = this->storage.template Create<NodeAtom>(this->storage.template Create<Identifier>("anon_end", false));
@@ -923,10 +1011,10 @@ TYPED_TEST(TestSymbolGenerator, MatchVariableLambdaSymbols) {
   EXPECT_EQ(symbol_table.max_position(), 7);
   // All symbols except `AS res` are anonymously generated.
   for (const auto &symbol : symbol_table.table()) {
-    if (symbol.second.name() == "res") {
-      EXPECT_TRUE(symbol.second.user_declared());
+    if (symbol.name() == "res") {
+      EXPECT_TRUE(symbol.user_declared());
     } else {
-      EXPECT_FALSE(symbol.second.user_declared());
+      EXPECT_FALSE(symbol.user_declared());
     }
   }
 }
@@ -939,8 +1027,8 @@ TYPED_TEST(TestSymbolGenerator, MatchWShortestReturn) {
   auto *node_n = NODE("n");
   auto *r_weight = PROPERTY_LOOKUP(this->dba, "r", weight);
   auto *r_filter = PROPERTY_LOOKUP(this->dba, "r", filter);
-  auto *shortest = this->storage.template Create<EdgeAtom>(IDENT("r"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH,
-                                                           EdgeAtom::Direction::OUT, std::vector<EdgeTypeIx>{});
+  auto *shortest = this->storage.template Create<EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, EdgeAtom::Direction::OUT, std::vector<QueryEdgeType>{});
   {
     shortest->weight_lambda_.inner_edge = IDENT("r");
     shortest->weight_lambda_.inner_node = IDENT("n");
@@ -1117,16 +1205,16 @@ TYPED_TEST(TestSymbolGenerator, CallWithoutFieldsReturnAsterisk) {
 TEST(TestSymbolTable, CreateAnonymousSymbols) {
   SymbolTable symbol_table;
   auto anon1 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon1.name_, "anon1");
+  ASSERT_EQ(anon1.name(), "anon1");
   auto anon2 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon2.name_, "anon2");
+  ASSERT_EQ(anon2.name(), "anon2");
 }
 
 TEST(TestSymbolTable, CreateAnonymousSymbolWithExistingUserSymbolCalledAnon) {
   SymbolTable symbol_table;
   symbol_table.CreateSymbol("anon1", false);
   auto anon2 = symbol_table.CreateAnonymousSymbol();
-  ASSERT_EQ(anon2.name_, "anon2");
+  ASSERT_EQ(anon2.name(), "anon2");
 }
 
 TYPED_TEST(TestSymbolGenerator, PredefinedIdentifiers) {
@@ -1200,38 +1288,628 @@ TYPED_TEST(TestSymbolGenerator, Foreach) {
   EXPECT_THROW(memgraph::query::MakeSymbolTable(query), UnboundVariableError);
 }
 
-TYPED_TEST(TestSymbolGenerator, Exists) {
-  auto query = QUERY(SINGLE_QUERY(
+TYPED_TEST(TestSymbolGenerator, SubqueryExpression) {
+  {
+    auto query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                           WHERE(EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::BOTH, {}, false), NODE("m")))),
+                           RETURN("n")));
+    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  }
+
+  {
+    auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("", std::nullopt, false)))),
+                                    RETURN("n")));
+    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  }
+
+  {
+    auto query = QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m")))), RETURN("n")));
+    EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  }
+
+  {
+    // Symbols for match pattern, node symbol, exists pattern, exists edge, exists second node, named expression in
+    // return
+    auto query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        WHERE(EXISTS(
+            PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false), NODE("node", std::nullopt, false)))),
+        RETURN("n")));
+    auto symbol_table = MakeSymbolTable(query);
+    ASSERT_EQ(symbol_table.max_position(), 7);
+
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
+
+    expression->Accept(collector);
+
+    ASSERT_EQ(collector.symbols_.size(), 1);
+
+    auto symbol = *collector.symbols_.begin();
+    ASSERT_EQ(symbol.name(), "n");
+  }
+
+  {
+    auto subquery = QUERY(SINGLE_QUERY(
+        MATCH(
+            PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false), NODE("node", std::nullopt, false))),
+        RETURN("n")));
+    auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS_SUBQUERY(subquery)), RETURN("n")));
+    auto symbol_table = MakeSymbolTable(query);
+
+    // match pattern, node, edge, second node, return param, node, return param, exists
+    ASSERT_EQ(symbol_table.max_position(), 8);
+
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
+
+    expression->Accept(collector);
+
+    ASSERT_EQ(collector.symbols_.size(), 1);
+
+    auto symbol = *collector.symbols_.begin();
+    ASSERT_EQ(symbol.name(), "n");
+  }
+}
+
+// A MATCH resolves identifiers in its property maps and variable-length bounds after the whole clause. Inside an
+// un-imported `CALL {}` that must reject an outer name; the scoped and `CALL (*)` imports still resolve it.
+TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoundary) {
+  auto body_reading_m = [this] {
+    auto *node = NODE("n");
+    std::get<0>(node->properties_)[this->storage.GetPropertyIx("prop")] = IDENT("m");
+    return SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n"));
+  };
+
+  // MATCH (m) CALL { MATCH (n {prop: m}) RETURN n } RETURN n - `m` is never imported.
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(body_reading_m()), RETURN("n")))),
+      UnboundVariableError);
+
+  // MATCH (m) CALL (m) { ... } RETURN n - imported by name.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(body_reading_m(), {"m"}), RETURN("n")))));
+
+  // MATCH (m) CALL (*) { ... } RETURN n - imported wholesale.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED_ALL(body_reading_m()), RETURN("n")))));
+
+  // MATCH (m) MATCH (n {prop: m}) RETURN n - no subquery boundary at all, still resolves.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         MATCH(PATTERN([this] {
+                           auto *node = NODE("n");
+                           std::get<0>(node->properties_)[this->storage.GetPropertyIx("prop")] = IDENT("m");
+                           return node;
+                         }())),
+                         RETURN("n")))));
+}
+
+// `external_symbols_` must be exactly what the body reads from outside. Too few places the conjunct too low; too many
+// makes it unplantable. Asserted directly, because a scenario sees only the planner symptom.
+TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
+  auto names = [](const std::unordered_set<Symbol> &symbols) {
+    std::vector<std::string> out;
+    out.reserve(symbols.size());
+    std::ranges::transform(symbols, std::back_inserter(out), [](const auto &symbol) { return symbol.name(); });
+    std::ranges::sort(out);
+    return out;
+  };
+  using Names = std::vector<std::string>;
+
+  auto check_shapes = [&](auto make_subquery) {
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (x) WHERE x = a } RETURN a
+      // Correlated only through the body's WHERE.
+      auto *subquery = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), WHERE(EQ(IDENT("x"), IDENT("a"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { WITH a AS q MATCH (q)-[r]->(m) RETURN m } RETURN a
+      // Renamed by a WITH before any pattern uses it. `q` is the body's own.
+      auto *subquery = make_subquery(QUERY(
+          SINGLE_QUERY(WITH(NEXPR("q", IDENT("a"))), MATCH(PATTERN(NODE("q"), EDGE("r"), NODE("m"))), RETURN("m"))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (p)-[r]->(f) MATCH (f)-[r2]->(g) } RETURN a
+      // `f` is declared by the first MATCH and reused by the second, so it is the body's own.
+      auto *subquery = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"), EDGE("r"), NODE("f"))),
+                                                        MATCH(PATTERN(NODE("f"), EDGE("r2"), NODE("g"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (b) WHERE EXISTS { MATCH (c) WHERE c = b } } RETURN a
+      // `b` is external to the inner body and internal to the outer one. Nothing reaches the caller.
+      auto *inner = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("c"))), WHERE(EQ(IDENT("c"), IDENT("b"))))));
+      auto *outer = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("b"))), WHERE(inner))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(outer), RETURN("a"))));
+      EXPECT_EQ(names(inner->external_symbols_), Names{"b"});
+      EXPECT_EQ(names(outer->external_symbols_), Names{});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (x) RETURN x UNION MATCH (y) WHERE y = a RETURN y } RETURN a
+      // Correlated only in the second UNION branch.
+      auto *subquery = make_subquery(
+          QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), RETURN(IDENT("x"), AS("r"))),
+                UNION(SINGLE_QUERY(
+                    MATCH(PATTERN(NODE("y"))), WHERE(EQ(IDENT("y"), IDENT("a"))), RETURN(IDENT("y"), AS("r"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+  };
+
+  check_shapes([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });
+}
+
+// The collector takes a subquery's `external_symbols_`, including for a subquery in a comprehension's filter.
+TYPED_TEST(TestSymbolGenerator, UsedSymbolsCollectorTakesSubqueryExternals) {
+  using Names = std::vector<std::string>;
+  auto collect = [](const SymbolTable &symbol_table, Expression *expression) {
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    expression->Accept(collector);
+    Names out;
+    std::ranges::transform(
+        collector.symbols_, std::back_inserter(out), [](const auto &symbol) { return symbol.name(); });
+    std::ranges::sort(out);
+    return out;
+  };
+
+  {
+    // MATCH (a) WHERE EXISTS { MATCH (x)-[r]->(y) WHERE x = a } RETURN a
+    auto *subquery = EXISTS_SUBQUERY(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"), EDGE("r"), NODE("y"))), WHERE(EQ(IDENT("x"), IDENT("a"))))));
+    auto symbol_table = MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+    EXPECT_EQ(collect(symbol_table, subquery), Names{"a"});
+  }
+  {
+    // MATCH (a), (b) WHERE [(a)-[e]->(m) WHERE EXISTS { MATCH (x) WHERE x = m AND x = b } | m] RETURN a
+    // `b` is read only inside the filter's subquery. `m` is outside the body but bound by the comprehension.
+    auto *subquery = EXISTS_SUBQUERY(QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), WHERE(AND(EQ(IDENT("x"), IDENT("m")), EQ(IDENT("x"), IDENT("b")))))));
+    auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("e"), NODE("m")), WHERE(subquery), IDENT("m"));
+    auto symbol_table =
+        MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a")), PATTERN(NODE("b"))), WHERE(pc), RETURN("a"))));
+    EXPECT_EQ(collect(symbol_table, pc), (Names{"a", "b"}));
+  }
+}
+
+// The gate ladder: EXISTS is allowed only in the positions the planner has a splice point for, and the checks run in a
+// fixed order - so a refusal can change identity when an earlier rung moves. Every position gets a case, allowed or
+// refused, and the refused ones assert the message.
+// Both folds share the gate, so the list is one fact about two constructs: the comments spell EXISTS, the second pass
+// reruns each as COUNT. The gate never reads the fold today, so that pass guards a future one.
+TYPED_TEST(TestSymbolGenerator, SubqueryAllowedPositions) {
+  auto check_positions = [this](auto make_subquery) {
+    auto subquery = [&] { return make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))))); };
+
+    // MATCH (n) WHERE EXISTS { ... } RETURN n
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(subquery()), RETURN("n"))));
+
+    // MATCH (n) RETURN EXISTS { ... } AS h
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(subquery(), AS("h")))));
+
+    // MATCH (n) WITH n, EXISTS { ... } AS h RETURN h
+    MakeSymbolTable(QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH(NEXPR("n", IDENT("n")), NEXPR("h", subquery())), RETURN("h"))));
+
+    // MATCH (n) WITH n WHERE EXISTS { ... } RETURN n  (issue #3385)
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n"), WHERE(subquery()), RETURN("n"))));
+
+    // MATCH (n) WITH n ORDER BY EXISTS { ... } RETURN n
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n", ORDER_BY(subquery())), RETURN("n"))));
+
+    // MATCH (n) RETURN n ORDER BY EXISTS { ... }
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", ORDER_BY(subquery())))));
+
+    // MATCH (n) RETURN collect(EXISTS { ... }) AS c - inside an aggregate argument.
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(COLLECT_LIST(subquery(), false), AS("c")))));
+
+    // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { ... }) RETURN n
+    // Refused in every forced-fold position, but a MATCH's WHERE defers to where the expression sits - so it stays
+    // correct, and allowed, inside a lambda.
+    EXPECT_NO_THROW(MakeSymbolTable(QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(ALL("x", LIST(LITERAL(1)), WHERE(subquery()))), RETURN("n")))));
+
+    // MATCH (n) OPTIONAL MATCH (n)-[e]->(q) WHERE EXISTS { ... } RETURN n
+    // An OPTIONAL MATCH's WHERE is a WHERE outside a return body like any other, and it predates this work.
+    EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                                       OPTIONAL_MATCH(PATTERN(NODE("n"), EDGE("e"), NODE("q"))),
+                                                       WHERE(subquery()),
+                                                       RETURN("n")))));
+
+    // MATCH (n) RETURN [(n)-[r2]->(m2) WHERE EXISTS { ... } | m2] AS l
+    // The comprehension pushes its own scope, so its WHERE does not read as a return body's: a deferred fold again.
+    EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("n"))),
+        RETURN(
+            PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("n"), EDGE("r2"), NODE("m2")), WHERE(subquery()), IDENT("m2")),
+            AS("l"))))));
+  };
+
+  check_positions([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });
+  check_positions([this](auto *subquery) { return COUNT_SUBQUERY(subquery); });
+  check_positions([this](auto *subquery) { return COLLECT_SUBQUERY(subquery); });
+
+  // The pattern form takes the same positions, under either fold.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
-      WHERE(EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::BOTH, {}, false), NODE("m")))), RETURN("n")));
-  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+      RETURN(EXISTS(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {}, false), NODE("m", std::nullopt, false))),
+             AS("h")))));
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(COUNT_PATTERN(
+                 PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {}, false), NODE("m", std::nullopt, false))),
+             AS("c")))));
+}
 
-  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                             WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("", std::nullopt, false)))), RETURN("n")));
-  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+// A body's pattern name cannot reuse a name from outside it, whether or not that name holds a path.
+TYPED_TEST(TestSymbolGenerator, SubqueryBodyRefusesAShadowingPatternName) {
+  auto body = [this] { return QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("a"), EDGE("r"), NODE("b"))))); };
 
-  query = QUERY(
-      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m")))), RETURN("n")));
-  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+  // MATCH p = (x)-[e]->(y) RETURN EXISTS { MATCH p = (a)-[r]->(b) } AS h
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("p", NODE("x"), EDGE("e"), NODE("y"))),
+                                                  RETURN(EXISTS_SUBQUERY(body()), AS("h"))))),
+               SemanticException);
 
-  // Symbols for match pattern, node symbol, exists pattern, exists edge, exists second node, named expression in return
-  query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                             WHERE(EXISTS(PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false),
-                                                  NODE("node", std::nullopt, false)))),
-                             RETURN("n")));
-  auto symbol_table = MakeSymbolTable(query);
-  ASSERT_EQ(symbol_table.max_position(), 7);
+  // The outer name need not be a path: MATCH (p) RETURN EXISTS { MATCH p = (a)-[r]->(b) } AS h
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), RETURN(EXISTS_SUBQUERY(body()), AS("h"))))),
+      SemanticException);
 
-  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
-  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-  auto *expression = dynamic_cast<Expression *>(match->where_->expression_);
+  // The body's name is not one the caller used.
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(NAMED_PATTERN("q", NODE("x"), EDGE("e"), NODE("y"))),
+                                                     RETURN(EXISTS_SUBQUERY(body()), AS("h"))))));
+}
 
-  expression->Accept(collector);
+// The only reader of Scope::subquery_fold: drop that field and a COUNT reports itself as an EXISTS, nothing failing.
+TYPED_TEST(TestSymbolGenerator, SubqueryPatternRefusesAnUnboundedVariableByConstruct) {
+  auto expect_message = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
 
-  ASSERT_EQ(collector.symbols_.size(), 1);
+  // MATCH (n) RETURN EXISTS((n)-[r]->(m)) AS h - `m` is user-declared and bound nowhere outside the pattern.
+  expect_message(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), AS("h")))),
+      "Unbounded variables are not allowed in EXISTS!");
 
-  auto symbol = *collector.symbols_.begin();
-  ASSERT_EQ(symbol.name_, "n");
+  expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                    RETURN(COUNT_PATTERN(PATTERN(NODE("n"), EDGE("r"), NODE("m"))), AS("c")))),
+                 "Unbounded variables are not allowed in COUNT!");
+}
+
+// A lambda's element variable must not survive the lambda, even when the body pushes a scope. scopes_ is a vector
+// built with capacity 1, so the push reallocates and a Scope& held across the body would dangle - the unbind would
+// then miss the live scope and leak the variable out, and the write itself is a use-after-free.
+TYPED_TEST(TestSymbolGenerator, LambdaVariableDoesNotEscapeAScopePushingBody) {
+  // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { MATCH (n)-[r]->(m) }) AND x = 1 RETURN n
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          WHERE(AND(ALL("x",
+                        LIST(LITERAL(1)),
+                        WHERE(EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))))))),
+                    EQ(IDENT("x"), LITERAL(1)))),
+          RETURN("n")))),
+      UnboundVariableError);
+
+  // The same shape with a pattern comprehension, which pushes a scope of its own:
+  // MATCH (n) WHERE all(x IN [1] WHERE size([(n)-[r]->(m) | m]) > 0) AND x = 1 RETURN n
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          WHERE(AND(ALL("x",
+                        LIST(LITERAL(1)),
+                        WHERE(GREATER(FN("size",
+                                         PATTERN_COMPREHENSION(
+                                             nullptr, PATTERN(NODE("n"), EDGE("r"), NODE("m")), nullptr, IDENT("m"))),
+                                      LITERAL(0)))),
+                    EQ(IDENT("x"), LITERAL(1)))),
+          RETURN("n")))),
+      UnboundVariableError);
+}
+
+// Both folds again - and here the message is part of what is pinned, since it names the construct the user wrote.
+TYPED_TEST(TestSymbolGenerator, SubqueryRefusedPositions) {
+  auto check_positions = [this](auto make_subquery, std::string_view construct) {
+    auto prop = this->dba.NameToProperty("prop");
+    auto subquery = [&] { return make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m")))))); };
+    auto expect_message = [](auto *query, std::string_view message) {
+      try {
+        MakeSymbolTable(query);
+        FAIL() << "expected the query to be refused";
+      } catch (const memgraph::utils::NotYetImplemented &e) {
+        EXPECT_EQ(std::string_view{e.what()}, message);
+      }
+    };
+
+    const std::string generic =
+        fmt::format("Not yet implemented: {} is not supported in this position yet!", construct);
+
+    // SET n.prop = EXISTS { ... } - the in_set_property gate is gone; default-deny covers it, with the generic message.
+    expect_message(QUERY(SINGLE_QUERY(
+                       MATCH(PATTERN(NODE("n"))), SET(PROPERTY_LOOKUP(this->dba, "n", prop), subquery()), RETURN("n"))),
+                   generic);
+
+    // FOREACH (i IN [1] | SET n.prop = EXISTS { ... })
+    expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                      FOREACH(NEXPR("i", LIST(LITERAL(1))),
+                                              {SET(PROPERTY_LOOKUP(this->dba, "n", prop), subquery())}))),
+                   generic);
+
+    // UNWIND [EXISTS { ... }] AS h - PR 4's territory, no splice point here yet.
+    expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), UNWIND(NEXPR("h", LIST(subquery()))), RETURN("h"))),
+                   generic);
+
+    // RETURN n SKIP EXISTS { ... } - SKIP shares in_return with the projection but has no splice point of its own.
+    expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", SKIP(subquery())))), generic);
+
+    // RETURN n LIMIT EXISTS { ... } - the other half of the `!in_skip && !in_limit` conjunct.
+    expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n", LIMIT(subquery())))), generic);
+
+    // The lambda binds its variable outside the planner's reach, so a forced splice would read an unbound element.
+
+    // RETURN all(x IN [1] WHERE EXISTS { ... }) AS h
+    expect_message(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(ALL("x", LIST(LITERAL(1)), WHERE(subquery())), AS("h")))),
+        generic);
+
+    // RETURN single(x IN [1] WHERE EXISTS { ... }) AS h
+    expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                      RETURN(SINGLE("x", LIST(LITERAL(1)), WHERE(subquery())), AS("h")))),
+                   generic);
+
+    // RETURN [x IN [1] WHERE EXISTS { ... } | x] AS h - the filter half of a list comprehension.
+    expect_message(QUERY(SINGLE_QUERY(
+                       MATCH(PATTERN(NODE("n"))),
+                       RETURN(LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), WHERE(subquery()), nullptr), AS("h")))),
+                   generic);
+
+    // RETURN [x IN [1] | EXISTS { ... }] AS h - and its result half.
+    expect_message(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                           RETURN(LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), nullptr, subquery()), AS("h")))),
+        generic);
+
+    // RETURN extract(x IN [1] | EXISTS { ... }) AS h
+    expect_message(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(EXTRACT("x", LIST(LITERAL(1)), subquery()), AS("h")))),
+        generic);
+
+    // A lambda in a WITH's WHERE is refused as well: that position is a forced fold too.
+    expect_message(
+        QUERY(SINGLE_QUERY(
+            MATCH(PATTERN(NODE("n"))), WITH("n"), WHERE(ALL("x", LIST(LITERAL(1)), WHERE(subquery()))), RETURN("n"))),
+        generic);
+
+    // A lambda in ORDER BY, likewise.
+    expect_message(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                      RETURN("n", ORDER_BY(ALL("x", LIST(LITERAL(1)), WHERE(subquery())))))),
+                   generic);
+
+    // reduce(...) keeps its own message, and it now fires from a RETURN too, where !in_where used to answer first.
+    expect_message(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                           RETURN(REDUCE("acc", LITERAL(false), "x", LIST(LITERAL(1)), subquery()), AS("h")))),
+        fmt::format("Not yet implemented: {} cannot be used within REDUCE!", construct));
+
+    // A CASE does not launder an unsupported position: SET is still refused, wrapped or not.
+    auto case_expr = [this](Expression *condition, Expression *then_expr, Expression *else_expr) -> Expression * {
+      return this->storage.template Create<memgraph::query::IfOperator>(condition, then_expr, else_expr);
+    };
+    expect_message(QUERY(SINGLE_QUERY(
+                       MATCH(PATTERN(NODE("n"))),
+                       SET(PROPERTY_LOOKUP(this->dba, "n", prop), case_expr(LITERAL(true), subquery(), LITERAL(false))),
+                       RETURN("n"))),
+                   generic);
+  };
+
+  check_positions([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); }, "EXISTS");
+  check_positions([this](auto *subquery) { return COUNT_SUBQUERY(subquery); }, "COUNT");
+  check_positions([this](auto *subquery) { return COLLECT_SUBQUERY(subquery); }, "COLLECT");
+
+  // The gate runs before either form is inspected, so the pattern form is refused identically. Pinned once, not per
+  // position.
+  auto expect_refused = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const memgraph::utils::NotYetImplemented &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+  expect_refused(QUERY(SINGLE_QUERY(
+                     MATCH(PATTERN(NODE("n"))),
+                     UNWIND(NEXPR("h", LIST(EXISTS(PATTERN(NODE("n"), EDGE("r"), NODE("m", std::nullopt, false)))))),
+                     RETURN("h"))),
+                 "Not yet implemented: EXISTS is not supported in this position yet!");
+  expect_refused(
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          UNWIND(NEXPR("c", LIST(COUNT_PATTERN(PATTERN(NODE("n"), EDGE("r"), NODE("m", std::nullopt, false)))))),
+          RETURN("c"))),
+      "Not yet implemented: COUNT is not supported in this position yet!");
+}
+
+// A CASE carries whichever position holds it, so these belong with the allowed shapes. They pin what the symbol
+// generator accepts and nothing more - the planner side is the behave suite's.
+TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
+  auto exists_subquery = [this] {
+    return EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))))));
+  };
+  auto case_expr = [this](Expression *condition, Expression *then_expr, Expression *else_expr) -> Expression * {
+    return this->storage.template Create<memgraph::query::IfOperator>(condition, then_expr, else_expr);
+  };
+  // The refusals below are pinned by message, not by type: at the base every one of these threw the CASE message
+  // instead, so a type-only assertion would pass with this change reverted.
+  auto expect_message = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const memgraph::utils::NotYetImplemented &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+  // MATCH (n) WHERE CASE WHEN true THEN EXISTS { ... } ELSE false END RETURN n
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), WHERE(case_expr(LITERAL(true), exists_subquery(), LITERAL(false))), RETURN("n"))));
+
+  // MATCH (n) RETURN CASE WHEN EXISTS { ... } THEN true ELSE false END AS h - EXISTS in the condition.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     RETURN(case_expr(exists_subquery(), LITERAL(true), LITERAL(false)), AS("h")))));
+
+  // The same in a WITH projection and in a WITH's WHERE.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     WITH(NEXPR("h", case_expr(exists_subquery(), LITERAL(true), LITERAL(false)))),
+                                     RETURN("h"))));
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     WITH("n"),
+                                     WHERE(case_expr(exists_subquery(), LITERAL(true), LITERAL(false))),
+                                     RETURN("n"))));
+
+  // An EXISTS in both arms.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     RETURN(case_expr(LITERAL(true), exists_subquery(), exists_subquery()), AS("h")))));
+
+  // Nested CASE.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(case_expr(LITERAL(true), case_expr(exists_subquery(), LITERAL(true), LITERAL(false)), LITERAL(false)),
+             AS("h")))));
+
+  // Inside an aggregate's argument.
+  MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         RETURN(COLLECT_LIST(case_expr(exists_subquery(), LITERAL(1), LITERAL(0)), false), AS("c")))));
+
+  // Beside an aggregation.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(COUNT(IDENT("n"), false), AS("c"), case_expr(exists_subquery(), LITERAL(1), LITERAL(0)), AS("h")))));
+
+  // ORDER BY a CASE holding an EXISTS.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     RETURN("n", ORDER_BY(case_expr(exists_subquery(), LITERAL(1), LITERAL(0)))))));
+
+  // The pattern form is gated identically.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WHERE(case_expr(
+          LITERAL(true),
+          EXISTS(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {}, false), NODE("m", std::nullopt, false))),
+          LITERAL(false))),
+      RETURN("n"))));
+
+  // A MATCH's WHERE defers, so the lambda is fine there.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WHERE(ALL("x", LIST(LITERAL(1)), WHERE(case_expr(exists_subquery(), LITERAL(true), LITERAL(false))))),
+      RETURN("n"))));
+
+  // The same lambda in a RETURN is still refused: a CASE gives the branch no splice point the lambda lacks.
+  expect_message(
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          RETURN(ALL("x", LIST(LITERAL(1)), WHERE(case_expr(exists_subquery(), LITERAL(true), LITERAL(false)))),
+                 AS("h")))),
+      "Not yet implemented: EXISTS is not supported in this position yet!");
+}
+
+// An aggregation reads every row of a group at once, so no expression evaluated once per element of a list can
+// hold one. The list's own elements are not rows, and the identifier the lambda binds is not on the frame the
+// Aggregate writes.
+TYPED_TEST(TestSymbolGenerator, AggregationInsideExpressionOverList) {
+  // Pinned by message, not by type: the position gate a line above throws SemanticException too, and it is what
+  // answers for these same constructs outside a RETURN. A type-only assertion would pass with this gate removed.
+  auto refused = [this](std::string_view query_text, Expression *expression) {
+    SCOPED_TRACE(query_text);
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(expression, AS("r"))));
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()},
+                "Using aggregation functions inside an expression over a list is not allowed.");
+    }
+  };
+  refused("MATCH (n) RETURN [x IN [1] | count(n)] AS r",
+          LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), nullptr, COUNT(IDENT("n"), false)));
+  refused(
+      "MATCH (n) RETURN [x IN [1] WHERE count(n) > 0] AS r",
+      LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), WHERE(GREATER(COUNT(IDENT("n"), false), LITERAL(0))), nullptr));
+  refused("MATCH (n) RETURN all(x IN [1] WHERE count(n) > 0) AS r",
+          ALL("x", LIST(LITERAL(1)), WHERE(GREATER(COUNT(IDENT("n"), false), LITERAL(0)))));
+  refused("MATCH (n) RETURN reduce(s = 0, x IN [1] | s + count(n)) AS r",
+          REDUCE("s", LITERAL(0), "x", LIST(LITERAL(1)), ADD(IDENT("s"), COUNT(IDENT("n"), false))));
+  refused("MATCH (n) RETURN extract(x IN [1] | count(n)) AS r",
+          EXTRACT("x", LIST(LITERAL(1)), COUNT(IDENT("n"), false)));
+  // An aggregation over the list itself is not inside the lambda, so it stays allowed.
+  auto *over_the_list = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), RETURN(ALL("x", COLLECT_LIST(IDENT("n"), false), WHERE(LITERAL(true))), AS("r"))));
+  MakeSymbolTable(over_the_list);
+}
+
+// A simple CASE compares one test expression against every alternative, so the generator reaches it once per arm.
+// An EXISTS names its pattern variables at parse time, so each arm past the first redeclares them unless the EXISTS
+// scopes them. The searched form above cannot reach this: an IfOperator built directly holds a distinct condition.
+TYPED_TEST(TestSymbolGenerator, ExistsAsSimpleCaseTest) {
+  auto case_expr = [this](Expression *condition, Expression *then_expr, Expression *else_expr) -> Expression * {
+    return this->storage.template Create<memgraph::query::IfOperator>(condition, then_expr, else_expr);
+  };
+  // `CASE <test> WHEN true THEN 1 WHEN false THEN 2 ELSE 3 END`, desugared as the parser desugars it.
+  auto simple_case = [&](Expression *test) {
+    return case_expr(EQ(test, LITERAL(true)), LITERAL(1), case_expr(EQ(test, LITERAL(false)), LITERAL(2), LITERAL(3)));
+  };
+
+  auto pattern_form = [this] {
+    return EXISTS(PATTERN(NODE("n"), EDGE("r", EdgeAtom::Direction::OUT, {}, false), NODE("m", std::nullopt, false)));
+  };
+  auto subquery_form = [this] {
+    return EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))))));
+  };
+
+  // The pattern form is the one that broke: its anonymous edge kept its parse-time name.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(simple_case(pattern_form()), AS("h")))));
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(simple_case(pattern_form())), RETURN("n"))));
+
+  // The subquery form always had a scope; pinned so the two cannot drift apart again.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(simple_case(subquery_form()), AS("h")))));
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(simple_case(subquery_form())), RETURN("n"))));
+
+  // Four arms, so the test is reached four times.
+  auto *test = pattern_form();
+  auto *four_arms = case_expr(
+      EQ(test, LITERAL(1)),
+      LITERAL(1),
+      case_expr(EQ(test, LITERAL(2)),
+                LITERAL(2),
+                case_expr(EQ(test, LITERAL(3)), LITERAL(3), case_expr(EQ(test, LITERAL(4)), LITERAL(4), LITERAL(0)))));
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(four_arms, AS("h")))));
+
+  // Two side by side, each reached twice: the first's variables must be gone before the second declares its own.
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     RETURN(AND(simple_case(pattern_form()), simple_case(pattern_form())), AS("h")))));
+}
+
+// An aggregation may sit inside a CASE, like any other expression holding one.
+TYPED_TEST(TestSymbolGenerator, AggregationInsideCase) {
+  // MATCH (n) RETURN CASE WHEN true THEN count(n) ELSE 0 END AS h
+  auto *case_expr =
+      this->storage.template Create<memgraph::query::IfOperator>(LITERAL(true), COUNT(IDENT("n"), false), LITERAL(0));
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(case_expr, AS("h")))));
 }
 
 TYPED_TEST(TestSymbolGenerator, Subqueries) {
@@ -1239,6 +1917,12 @@ TYPED_TEST(TestSymbolGenerator, Subqueries) {
   // Yields exception because n in subquery is referenced in outer scope
   auto subquery = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN("n")));
   auto query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY(subquery), RETURN("n")));
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+
+  // WITH 1 AS x CALL { RETURN 2 AS x } RETURN x
+  // Yields exception because aliased return in subquery conflicts with outer scope variable
+  subquery = QUERY(SINGLE_QUERY(RETURN(LITERAL(2), AS("x"))));
+  query = QUERY(SINGLE_QUERY(WITH(LITERAL(1), AS("x")), CALL_SUBQUERY(subquery), RETURN("x")));
   EXPECT_THROW(MakeSymbolTable(query), SemanticException);
 
   // MATCH (n) CALL { MATCH (m) RETURN m.prop } RETURN n
@@ -1363,7 +2047,9 @@ TYPED_TEST(TestSymbolGenerator, PropertyCachingTwoMultipleLookups) {
 
   auto has_properties1 = MAP({in_prop1_key, LITERAL(0000)}, {in_prop2_key, LITERAL(10)});
   auto has_properties2 = MAP({in_prop1_key, LITERAL(1111)}, {in_prop2_key, LITERAL(16)});
-  auto new_map = MAP({out_prop1_key, out_prop1_val}, {out_prop2_key, out_prop2_val}, {out_prop3_key, out_prop3_val},
+  auto new_map = MAP({out_prop1_key, out_prop1_val},
+                     {out_prop2_key, out_prop2_val},
+                     {out_prop3_key, out_prop3_val},
                      {out_prop4_key, out_prop4_val});
   auto query = QUERY(
       SINGLE_QUERY(WITH(has_properties1, AS("item1"), has_properties2, AS("item2")), RETURN(new_map, AS("new_map"))));
@@ -1442,3 +2128,458 @@ TYPED_TEST(TestSymbolGenerator, PropertyCachingMixedLookups2) {
   ASSERT_TRUE(prop3_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
   ASSERT_TRUE(prop4_eval_mode == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES);
 }
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInReturn) {
+  auto prop = this->dba.NameToProperty("prop");
+
+  // MATCH (n) RETURN [(n)-[edge]->(m) | m.prop] AS alias
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(NEXPR(
+          "alias",
+          PATTERN_COMPREHENSION(
+              nullptr,
+              PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false), NODE("m", std::nullopt, false)),
+              nullptr,
+              PROPERTY_LOOKUP(this->dba, "m", prop))))));
+
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 7);
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  auto *pc = dynamic_cast<PatternComprehension *>(ret->body_.named_expressions[0]->expression_);
+
+  pc->Accept(collector);
+
+  // n, edge, m, Path
+  ASSERT_EQ(collector.symbols_.size(), 1);
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInWith) {
+  auto prop = this->dba.NameToProperty("prop");
+
+  // MATCH (n) WITH [(n)-[edge]->(m) | m.prop] AS alias RETURN alias
+  auto query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      WITH(NEXPR(
+          "alias",
+          PATTERN_COMPREHENSION(
+              nullptr,
+              PATTERN(NODE("n"), EDGE("edge", EdgeAtom::Direction::BOTH, {}, false), NODE("m", std::nullopt, false)),
+              nullptr,
+              PROPERTY_LOOKUP(this->dba, "m", prop)))),
+      RETURN("alias")));
+
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 8);
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
+  auto *pc = dynamic_cast<PatternComprehension *>(with->body_.named_expressions[0]->expression_);
+
+  pc->Accept(collector);
+
+  // n, edge, m, Path
+  ASSERT_EQ(collector.symbols_.size(), 1);
+}
+
+TYPED_TEST(TestSymbolGenerator, ListComprehensionInReturn) {
+  // RETURN [x in [1, 2, 3] | x + 1] AS added_numbers
+  auto *ident = IDENT("x");
+  auto query = QUERY(SINGLE_QUERY(RETURN(
+      NEXPR("added_numbers",
+            LIST_COMPREHENSION(ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)), nullptr, ADD(ident, LITERAL(1)))))));
+
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 2);
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_[0]);
+  auto *lc = dynamic_cast<ListComprehension *>(ret->body_.named_expressions[0]->expression_);
+
+  lc->Accept(collector);
+
+  // 0, we erase the x symbol as it is only mentioned in the list comprehension
+  ASSERT_EQ(collector.symbols_.size(), 0);
+}
+
+TYPED_TEST(TestSymbolGenerator, ListComprehensionInWith) {
+  // WITH [x in [1, 2, 3] WHERE x = 2 | x + 1] AS added_numbers RETURN added_numbers
+  auto *ident = IDENT("x");
+  auto query = QUERY(SINGLE_QUERY(
+      WITH(NEXPR(
+          "added_numbers",
+          LIST_COMPREHENSION(
+              ident, LIST(LITERAL(1), LITERAL(2), LITERAL(3)), WHERE(EQ(ident, LITERAL(2))), ADD(ident, LITERAL(1))))),
+      RETURN("added_numbers")));
+
+  auto symbol_table = MakeSymbolTable(query);
+  ASSERT_EQ(symbol_table.max_position(), 3);
+
+  memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+  auto *with = dynamic_cast<With *>(query->single_query_->clauses_[0]);
+  auto *lc = dynamic_cast<ListComprehension *>(with->body_.named_expressions[0]->expression_);
+
+  lc->Accept(collector);
+
+  // 0, we erase the x symbol as it is only mentioned in the list comprehension
+  ASSERT_EQ(collector.symbols_.size(), 0);
+}
+
+// Shadowing of un-imported outer variables inside a `CALL {}` subquery. Such a name is out of scope in the subquery,
+// so a pattern occurrence of it declares a fresh variable rather than referencing the outer one. Referencing it would
+// resolve to the outer symbol and make the branch write through its frame slot, which the subquery shares with its
+// caller. `COMPREHENSION_OVER(name)` builds `[(<name>)-->() | 1]`.
+//
+// Note the subquery RETURNs below list two NamedExpressions rather than a bare name plus one: `RETURN("t", NEXPR(...))`
+// selects the `RETURN(expr, AS(name))` overload, which would overwrite the comprehension with an identifier.
+#define COMPREHENSION_OVER(name)                                                                                       \
+  PATTERN_COMPREHENSION(                                                                                               \
+      nullptr,                                                                                                         \
+      PATTERN(                                                                                                         \
+          NODE(name), EDGE("anon_edge", EdgeAtom::Direction::OUT, {}, false), NODE("anon_node", std::nullopt, false)), \
+      nullptr,                                                                                                         \
+      LITERAL(1))
+
+namespace {
+
+const Identifier &ComprehensionStartNode(PatternComprehension *pc) {
+  auto *node = dynamic_cast<NodeAtom *>(pc->pattern_->atoms_[0]);
+  MG_ASSERT(node, "expected the comprehension's first atom to be a node");
+  return *node->identifier_;
+}
+
+// A subquery's RETURN rejects an unaliased expression, and the NEXPR helper does not set the flag.
+NamedExpression *Aliased(NamedExpression *named_expr) {
+  named_expr->is_aliased_ = true;
+  return named_expr;
+}
+
+}  // namespace
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryShadowsUnimportedOuterVariable) {
+  // MATCH (p) CALL { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN p, k
+  auto *outer_p = NODE("p");
+  auto *comprehension = COMPREHENSION_OVER("p");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
+                                RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), CALL_SUBQUERY(subquery), RETURN("p", "k")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  const auto outer_symbol = symbol_table.at(*outer_p->identifier_);
+  const auto inner_symbol = symbol_table.at(ComprehensionStartNode(comprehension));
+  EXPECT_NE(outer_symbol, inner_symbol) << "the un-imported name must be declared afresh, not bound to the outer `p`";
+  EXPECT_EQ(outer_symbol.name(), inner_symbol.name());
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesExplicitlyImportedVariable) {
+  // MATCH (p) CALL (p) { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN p, k
+  auto *outer_p = NODE("p");
+  auto *comprehension = COMPREHENSION_OVER("p");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
+                                RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
+  auto *call_sub = CALL_SUBQUERY(subquery);
+  call_sub->has_variable_scope_ = true;
+  call_sub->scoped_variables_.push_back(NEXPR("p", IDENT("p")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), call_sub, RETURN("p", "k")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(*outer_p->identifier_), symbol_table.at(ComprehensionStartNode(comprehension)))
+      << "an explicitly imported name is in scope, so it must still correlate";
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesWithCallStar) {
+  // MATCH (p) CALL (*) { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN p, k
+  auto *outer_p = NODE("p");
+  auto *comprehension = COMPREHENSION_OVER("p");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
+                                RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
+  auto *call_sub = CALL_SUBQUERY(subquery);
+  call_sub->has_variable_scope_ = true;
+  call_sub->all_variables_scoped_ = true;
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), call_sub, RETURN("p", "k")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(*outer_p->identifier_), symbol_table.at(ComprehensionStartNode(comprehension)))
+      << "CALL (*) imports every user-declared outer variable";
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInNestedSubqueryReshadowsImportedVariable) {
+  // MATCH (p) CALL (p) { CALL { MATCH (t) RETURN t, [(p)-->() | 1] AS k } RETURN t, k } RETURN p, k
+  // The inner `CALL {}` imports nothing, so `p` is out of scope again even though the outer subquery imported it.
+  auto *outer_p = NODE("p");
+  auto *comprehension = COMPREHENSION_OVER("p");
+  auto *inner_subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))),
+                                      RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
+  auto *outer_subquery = SINGLE_QUERY(CALL_SUBQUERY(inner_subquery), RETURN("t", "k"));
+  auto *call_sub = CALL_SUBQUERY(outer_subquery);
+  call_sub->has_variable_scope_ = true;
+  call_sub->scoped_variables_.push_back(NEXPR("p", IDENT("p")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), call_sub, RETURN("p", "k")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_NE(symbol_table.at(*outer_p->identifier_), symbol_table.at(ComprehensionStartNode(comprehension)))
+      << "the innermost CALL {} imported nothing, so `p` is out of scope there too";
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionInSubqueryCorrelatesItsOwnScopeVariable) {
+  // MATCH (p) CALL { MATCH (t) RETURN t, [(t)-->() | 1] AS k } RETURN t, k
+  // `t` is declared inside the subquery, so it is in scope there and must correlate, not be shadowed.
+  auto *inner_t = NODE("t");
+  auto *comprehension = COMPREHENSION_OVER("t");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(inner_t)),
+                                RETURN(Aliased(NEXPR("t", IDENT("t"))), Aliased(NEXPR("k", comprehension))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), CALL_SUBQUERY(subquery), RETURN("t", "k")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(*inner_t->identifier_), symbol_table.at(ComprehensionStartNode(comprehension)))
+      << "a name declared inside the subquery is in scope there, so shadowing must not fire";
+}
+
+// Pins the premise the planner fix rests on: `VisitReturnBody` re-injects the import rather than
+// minting a new symbol for it.
+TYPED_TEST(TestSymbolGenerator, ScopedCallImportKeepsItsSymbolAcrossIntermediateWith) {
+  // MATCH (m) CALL (m) { MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  auto *outer_m = NODE("m");
+  auto *post_with_m = NODE("m");
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                MATCH(PATTERN(post_with_m, EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *call_sub = CALL_SUBQUERY(subquery);
+  call_sub->has_variable_scope_ = true;
+  call_sub->scoped_variables_.push_back(NEXPR("m", IDENT("m")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_m)), call_sub, RETURN("a", "b")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(*outer_m->identifier_), symbol_table.at(*post_with_m->identifier_))
+      << "the import survives the WITH as the same symbol, so it names the outer frame slot";
+}
+
+// The legacy form declares a fresh symbol instead, which is why the planner clears its import set there.
+TYPED_TEST(TestSymbolGenerator, LegacyCallImportDoesNotKeepItsSymbolAcrossIntermediateWith) {
+  // MATCH (m) CALL { WITH m MATCH (m)-[r]-(a) WITH a MATCH (m)-[r2]-(b) RETURN a, b } RETURN a, b
+  auto *outer_m = NODE("m");
+  auto *post_with_m = NODE("m");
+  auto *subquery = SINGLE_QUERY(WITH("m"),
+                                MATCH(PATTERN(NODE("m"), EDGE("r"), NODE("a"))),
+                                WITH("a"),
+                                MATCH(PATTERN(post_with_m, EDGE("r2"), NODE("b"))),
+                                RETURN("a", "b"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_m)), CALL_SUBQUERY(subquery), RETURN("a", "b")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_NE(symbol_table.at(*outer_m->identifier_), symbol_table.at(*post_with_m->identifier_))
+      << "the legacy form imports nothing, so the name after the WITH is declared afresh";
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionAtTopLevelCorrelatesToABoundName) {
+  // MATCH (zz) RETURN [(zz)-->() | 1] AS k
+  // Outside a subquery there is no boundary to shadow against, so a bound name in a comprehension pattern must resolve
+  // to the same symbol. Asserting the symbol's *name* would pass either way - both branches name it "zz".
+  auto *outer = NODE("zz");
+  auto *comprehension = COMPREHENSION_OVER("zz");
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(outer)), RETURN(NEXPR("k", static_cast<Expression *>(comprehension)))));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(ComprehensionStartNode(comprehension)), symbol_table.at(*outer->identifier_))
+      << "at top level the shadowing rule must not fire";
+}
+
+// Moved here from `subqueries.feature` because that suite also runs with `USING PARALLEL EXECUTION`, and this shape
+// (an aggregation inside a `CALL {}`) hits a pre-existing parallel-executor bug that nulls every outer variable --
+// unrelated to what the scenario is checking. Asserting the symbol identity pins the rule directly instead.
+TYPED_TEST(TestSymbolGenerator, PlainMatchInSubqueryShadowsUnimportedOuterVariable) {
+  // MATCH (a) CALL { MATCH (a)-[:R]->(x) RETURN x } RETURN a, x
+  // The subquery's own MATCH pattern is the same case as the comprehension: `a` is out of scope, so the pattern
+  // declares it afresh. Binding it to the outer symbol made the branch's scan overwrite the caller's frame slot,
+  // which dropped every outer row but the last.
+  auto *outer_a = NODE("a");
+  auto *inner_a = NODE("a");
+  auto *subquery = SINGLE_QUERY(
+      MATCH(PATTERN(inner_a, EDGE("anon_edge", EdgeAtom::Direction::OUT, {}, false), NODE("x"))), RETURN("x"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_a)), CALL_SUBQUERY(subquery), RETURN("a", "x")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_NE(symbol_table.at(*outer_a->identifier_), symbol_table.at(*inner_a->identifier_))
+      << "a subquery MATCH pattern must declare the un-imported name afresh, leaving the outer `a` intact";
+}
+
+TYPED_TEST(TestSymbolGenerator, CreateInSubqueryMayRedeclareUnimportedOuterVariable) {
+  // MATCH (p) CALL { CREATE (p) RETURN p AS q } RETURN q
+  // `p` is out of scope in the subquery, so the CREATE declares a fresh node instead of raising a redeclaration
+  // error, and the outer `p` keeps its own frame slot.
+  auto *outer_p = NODE("p");
+  auto *created_p = NODE("p");
+  auto *subquery = SINGLE_QUERY(CREATE(PATTERN(created_p)), RETURN(IDENT("p"), AS("q")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(outer_p)), CALL_SUBQUERY(subquery), RETURN("q")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_NE(symbol_table.at(*outer_p->identifier_), symbol_table.at(*created_p->identifier_))
+      << "the created node must be a fresh symbol, so the outer `p` survives the subquery";
+}
+
+TYPED_TEST(TestSymbolGenerator, ComprehensionInWhereRejectsAlreadyBoundRelationship) {
+  // MATCH (a)-[r]->(b) WITH a, r WHERE [(a)-[r]->(y) | 1] = [] RETURN a
+  // Reusing a bound *node* correlates the comprehension; reusing a bound *relationship* has no operator behind it -
+  // `Expand` has no `existing_edge` counterpart to `existing_node`. Left to resolve to the outer symbol, the planner
+  // received an already-bound edge symbol and tripped an assertion that aborted the process, reachable from EXPLAIN.
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::OUT), NODE("y")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::OUT), NODE("b"))),
+                                   WITH(IDENT("a"), AS("a"), IDENT("r"), AS("r")),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("a")));
+
+  EXPECT_THAT([&] { MakeSymbolTable(query); },
+              ThrowsMessage<SemanticException>(::testing::HasSubstr("already bound relationship 'r'")));
+}
+
+TYPED_TEST(TestSymbolGenerator, ComprehensionInWhereStillCorrelatesAnAlreadyBoundNode) {
+  // MATCH (a)-[r]->(b) WITH a AS a, b AS b WHERE [(a)-[]->(b) | 1] = [] RETURN a
+  // The positive control for the rejection above: a bound *node* in the same position must keep resolving to the symbol
+  // already in scope - here the one the WITH projects, which is what the comprehension has to correlate to.
+  auto *with_a = NEXPR("a", IDENT("a"));
+  auto *inner_a = NODE("a");
+  auto *pattern_comp = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(inner_a, EDGE("anon1", EdgeAtom::Direction::OUT), NODE("b")), nullptr, LITERAL(1));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::OUT), NODE("b"))),
+                                   WITH(with_a, NEXPR("b", IDENT("b"))),
+                                   WHERE(EQ(pattern_comp, LIST())),
+                                   RETURN("a")));
+
+  auto symbol_table = MakeSymbolTable(query);
+
+  EXPECT_EQ(symbol_table.at(*inner_a->identifier_), symbol_table.at(*with_a))
+      << "a bound node in a comprehension pattern must correlate to the WITH's output symbol, not declare a fresh one";
+}
+
+TYPED_TEST(TestSymbolGenerator, ExistsSubqueryRejectsAlreadyBoundRelationship) {
+  // MATCH (a)-[r]->(b) WHERE EXISTS { MATCH (a)-[r]->(y) RETURN y } RETURN a
+  // Same planner limitation reached through the other spelling that resolves pattern names against the outer scope.
+  // This one aborted the process on master too.
+  auto *subquery =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::OUT), NODE("y"))), RETURN("y")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r", EdgeAtom::Direction::OUT), NODE("b"))),
+                                   WHERE(EXISTS_SUBQUERY(subquery)),
+                                   RETURN("a")));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, SubqueryReturningShadowingNameStillCollidesWithOuterScope) {
+  // MATCH (p) CALL { CREATE (p) RETURN p } RETURN p
+  // Returning the shadowing name under its own name would collide with the caller's `p`; still rejected.
+  auto *subquery = SINGLE_QUERY(CREATE(PATTERN(NODE("p"))), RETURN("p"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), CALL_SUBQUERY(subquery), RETURN("p")));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, ExistsPatternInSubqueryRejectsUnimportedOuterVariable) {
+  // MATCH (p) CALL { MATCH (t) WHERE exists((p)-->()) RETURN t } RETURN t
+  // A pattern expression may not introduce variables, so the out-of-scope `p` is an unbound reference.
+  auto *exists = EXISTS(PATTERN(
+      NODE("p"), EDGE("anon_edge", EdgeAtom::Direction::OUT, {}, false), NODE("anon_node", std::nullopt, false)));
+  auto *subquery = SINGLE_QUERY(MATCH(PATTERN(NODE("t"))), WHERE(exists), RETURN("t"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), CALL_SUBQUERY(subquery), RETURN("t")));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+// A pattern comprehension may not reference a symbol the same CREATE clause declares. The operator that binds the
+// symbol is the one that reads the comprehension's result, so the frame slot is unwritten no matter where the
+// RollUpApply is spliced. A comprehension over a symbol bound by an *earlier* clause is fine and must keep working -
+// that is the whole point of correlating them.
+namespace {
+
+// NODE() has no properties overload, so set the map directly. The variant's first alternative is the map, which is
+// what a default-constructed NodeAtom holds.
+NodeAtom *WithProperty(AstStorage &storage, NodeAtom *node, const std::string &name, Expression *value) {
+  std::get<std::unordered_map<PropertyIx, Expression *>>(node->properties_)[storage.GetPropertyIx(name)] = value;
+  return node;
+}
+
+}  // namespace
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedBySameClauseIsRejected) {
+  // CREATE (q:L {c: [(q)-->() | 1]})
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("q"));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedBySameClauseInForeachIsRejected) {
+  // FOREACH (i IN [1] | CREATE (q:L {c: [(q)-->() | 1]}))
+  // The FOREACH-wrapped form is the one that regressed: before the fix the merge-base planned it with an uncorrelated
+  // scan and completed with a wrong count, and afterwards it failed with an internal error.
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("q"));
+  auto *query = QUERY(SINGLE_QUERY(FOREACH(NEXPR("i", LIST(LITERAL(1))), {CREATE(PATTERN(created))})));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedByEarlierPatternInSameClauseIsRejected) {
+  // CREATE (a:L), (q:L {c: [(a)-->() | 1]})
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("a"));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("a", "L")), PATTERN(created))));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionReferencingCreatedNodeOnlyInItsFilterIsRejected) {
+  // CREATE (q:L {c: [(z)-->() WHERE z = q | 1]})
+  // The reference is outside the comprehension's pattern, so it resolves through a different branch of
+  // Visit(Identifier) than the cases above.
+  auto *comprehension = PATTERN_COMPREHENSION(
+      nullptr,
+      PATTERN(
+          NODE("z"), EDGE("anon_edge", EdgeAtom::Direction::OUT, {}, false), NODE("anon_node", std::nullopt, false)),
+      WHERE(EQ(IDENT("z"), IDENT("q"))),
+      LITERAL(1));
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", comprehension);
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
+
+  EXPECT_THROW(MakeSymbolTable(query), SemanticException);
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverNodeCreatedByAnEarlierCreateClauseIsAccepted) {
+  // CREATE (a:L) CREATE (q:L {c: [(a)-->() | 1]})
+  // A separate clause binds `a`, so the comprehension is drained after it and correlates normally.
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("a"));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("a", "L"))), CREATE(PATTERN(created))));
+
+  EXPECT_NO_THROW(MakeSymbolTable(query));
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverMatchedNodeInsideCreateIsAccepted) {
+  // MATCH (p) CREATE (q:L {c: [(p)-->() | 1]})
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("p"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"))), CREATE(PATTERN(created))));
+
+  EXPECT_NO_THROW(MakeSymbolTable(query));
+}
+
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverItsOwnNodesInsideCreateIsAccepted) {
+  // CREATE (q:L {c: [(z)-->() | 1]})
+  // Nothing the CREATE binds is referenced, so the comprehension stands alone.
+  auto *created = WithProperty(this->storage, NODE("q", "L"), "c", COMPREHENSION_OVER("z"));
+  auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
+
+  EXPECT_NO_THROW(MakeSymbolTable(query));
+}
+
+#undef COMPREHENSION_OVER

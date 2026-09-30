@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,56 +15,249 @@
 
 #include <utils/memory_tracker.hpp>
 #include <utils/on_scope_exit.hpp>
+#include <utils/resource_monitoring.hpp>
+
+using memgraph::utils::MemoryTracker;
+using memgraph::utils::OutOfMemoryException;
 
 TEST(MemoryTrackerTest, ExceptionEnabler) {
-  memgraph::utils::MemoryTracker memory_tracker;
+  auto memory_tracker = MemoryTracker{};
 
-  static constexpr size_t hard_limit = 10;
+  static constexpr auto hard_limit = 10;
   memory_tracker.SetHardLimit(hard_limit);
 
-  std::atomic<bool> can_continue{false};
-  std::atomic<bool> enabler_created{false};
-  std::thread t1{[&] {
-    // wait until the second thread creates exception enabler
-    while (!enabler_created)
-      ;
+  auto can_continue = std::atomic<bool>{false};
+  auto enabler_created = std::atomic<bool>{false};
 
-    // we use the OnScopeExit so the test doesn't deadlock when
-    // an ASSERT fails
-    memgraph::utils::OnScopeExit thread_notifier{[&] {
-      // tell the second thread it can finish its test
-      can_continue = true;
-    }};
+  auto non_throwing_thread = std::jthread{[&] {
+    while (!enabler_created);
 
-    ASSERT_NO_THROW(memory_tracker.Alloc(hard_limit + 1));
+    auto thread_notifier = memgraph::utils::OnScopeExit{[&] { can_continue = true; }};
+    const MemoryTracker::RefusalHandledScope refusal_handled;
+    ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
   }};
 
-  std::thread t2{[&] {
-    memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler exception_enabler;
+  auto throwing_thread = std::jthread{[&] {
+    auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+    const MemoryTracker::RefusalHandledScope refusal_handled;
     enabler_created = true;
-    ASSERT_THROW(memory_tracker.Alloc(hard_limit + 1), memgraph::utils::OutOfMemoryException);
+    ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
 
-    // hold the enabler until the first thread finishes
-    while (!can_continue)
-      ;
+    while (!can_continue);
   }};
-
-  t1.join();
-  t2.join();
 }
 
 TEST(MemoryTrackerTest, ExceptionBlocker) {
-  memgraph::utils::MemoryTracker memory_tracker;
+  auto memory_tracker = MemoryTracker{};
 
-  static constexpr size_t hard_limit = 10;
+  static constexpr auto hard_limit = 10;
   memory_tracker.SetHardLimit(hard_limit);
 
-  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler exception_enabler;
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
   {
-    memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
+    auto exception_blocker = MemoryTracker::OutOfMemoryExceptionBlocker{};
 
-    ASSERT_NO_THROW(memory_tracker.Alloc(hard_limit + 1));
+    ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
     ASSERT_EQ(memory_tracker.Amount(), hard_limit + 1);
   }
-  ASSERT_THROW(memory_tracker.Alloc(hard_limit + 1), memgraph::utils::OutOfMemoryException);
+  ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
+}
+
+// Tests for parent-child memory tracker propagation.
+// Per-DB domain trackers are children of db_total_memory_tracker_ which is a child of
+// total_memory_tracker, so every byte tracked in a child is reflected in the parent aggregate.
+
+TEST(EmbeddingTrackingTest, TwoChildrenTrackedSeparatelyParentAggregates) {
+  auto parent = MemoryTracker{};
+  auto malloc_tracker = MemoryTracker{&parent};
+  auto mmap_tracker = MemoryTracker{&parent};
+
+  ASSERT_TRUE(malloc_tracker.Alloc(100));
+  ASSERT_TRUE(mmap_tracker.Alloc(200));
+
+  EXPECT_EQ(malloc_tracker.Amount(), 100);
+  EXPECT_EQ(mmap_tracker.Amount(), 200);
+  EXPECT_EQ(parent.Amount(), 300);
+}
+
+TEST(EmbeddingTrackingTest, PartialFreeFromChildrenReflectedInParent) {
+  auto parent = MemoryTracker{};
+  auto malloc_tracker = MemoryTracker{&parent};
+  auto mmap_tracker = MemoryTracker{&parent};
+
+  ASSERT_TRUE(malloc_tracker.Alloc(100));
+  ASSERT_TRUE(mmap_tracker.Alloc(200));
+
+  malloc_tracker.Free(100);
+
+  EXPECT_EQ(malloc_tracker.Amount(), 0);
+  EXPECT_EQ(mmap_tracker.Amount(), 200);
+  EXPECT_EQ(parent.Amount(), 200);
+}
+
+// When the parent (total) hard limit would be exceeded, child.Alloc returns false
+// and rolls back the child's own amount so both trackers stay unchanged.
+TEST(EmbeddingTrackingTest, ParentLimitBlocksChildAllocAndRollsBackChildAmount) {
+  auto parent = MemoryTracker{};
+  auto child = MemoryTracker{&parent};
+
+  parent.SetHardLimit(100);
+  auto enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
+
+  ASSERT_TRUE(child.Alloc(50));
+  ASSERT_FALSE(child.Alloc(100));
+
+  EXPECT_EQ(child.Amount(), 50);
+  EXPECT_EQ(parent.Amount(), 50);
+}
+
+TEST(EmbeddingTrackingTest, ChildOwnLimitBlocksAllocationIndependentlyOfParent) {
+  auto parent = MemoryTracker{};
+  auto child = MemoryTracker{&parent};
+
+  child.SetHardLimit(100);
+  auto enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
+
+  ASSERT_TRUE(child.Alloc(50));
+  ASSERT_FALSE(child.Alloc(100));
+
+  EXPECT_EQ(child.Amount(), 50);
+  EXPECT_EQ(parent.Amount(), 50);
+}
+
+// DoCheck propagates to the parent. Verify it throws when the parent's amount
+// exceeds its hard limit and exception throwing is enabled.
+TEST(EmbeddingTrackingTest, ExceedingOverallLimitThrowsOutOfMemoryException) {
+  auto parent = MemoryTracker{};
+  auto child = MemoryTracker{&parent};
+
+  parent.SetHardLimit(100);
+
+  // Bypass limit enforcement to simulate a committed allocation that pushes
+  // the tracker over the limit (mirrors the blocker used in jemalloc hooks).
+  {
+    auto blocker = MemoryTracker::OutOfMemoryExceptionBlocker{};
+    ASSERT_TRUE(child.Alloc(150));
+  }
+  EXPECT_EQ(parent.Amount(), 150);
+
+  auto enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  EXPECT_THROW(child.DoCheck(), OutOfMemoryException);
+}
+
+TEST(MemoryTrackerTest, SetHardLimitZeroFallsBackToMaximumHardLimit) {
+  auto tracker = MemoryTracker{};
+  tracker.SetMaximumHardLimit(2048);
+  tracker.SetHardLimit(1024);
+  ASSERT_EQ(tracker.HardLimit(), 1024);
+
+  tracker.SetHardLimit(0);
+  EXPECT_EQ(tracker.HardLimit(), 2048);
+}
+
+TEST(MemoryTrackerTest, SetHardLimitClampsAgainstMaximum) {
+  auto tracker = MemoryTracker{};
+  tracker.SetMaximumHardLimit(2048);
+
+  tracker.SetHardLimit(8192);
+  EXPECT_EQ(tracker.HardLimit(), 2048);
+
+  tracker.SetHardLimit(512);
+  EXPECT_EQ(tracker.HardLimit(), 512);
+}
+
+// An over-limit allocation is refused only where the caller has declared that it turns a refusal
+// into an exception. Anywhere else it is tracked and allowed.
+TEST(MemoryTrackerTest, OverLimitAllocIsRefusedOnlyWhereRefusalIsHandled) {
+  auto memory_tracker = MemoryTracker{};
+
+  static constexpr auto hard_limit = 10;
+  memory_tracker.SetHardLimit(hard_limit);
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
+  EXPECT_EQ(memory_tracker.Amount(), hard_limit + 1);
+  memory_tracker.Free(hard_limit + 1);
+
+  const MemoryTracker::RefusalHandledScope refusal_handled;
+  ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
+  EXPECT_EQ(memory_tracker.Amount(), 0);
+}
+
+// A suspension exempts allocations made on the runtime's behalf, and nests inside a handled scope
+// without disturbing it.
+TEST(MemoryTrackerTest, SuspensionExemptsAndRestores) {
+  auto memory_tracker = MemoryTracker{};
+
+  static constexpr auto hard_limit = 10;
+  memory_tracker.SetHardLimit(hard_limit);
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+  const MemoryTracker::RefusalHandledScope refusal_handled;
+
+  {
+    const MemoryTracker::RefusalSuspendedScope refusal_suspended;
+    ASSERT_TRUE(memory_tracker.Alloc(hard_limit + 1));
+    memory_tracker.Free(hard_limit + 1);
+  }
+
+  ASSERT_FALSE(memory_tracker.Alloc(hard_limit + 1));
+}
+
+// A parent's limit is the child's too, so the exemption has to hold for the whole chain.
+TEST(MemoryTrackerTest, ParentChainIsExemptWhereRefusalIsNotHandled) {
+  auto parent = MemoryTracker{};
+  auto child = MemoryTracker{&parent};
+
+  static constexpr auto hard_limit = 10;
+  parent.SetHardLimit(hard_limit);
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  ASSERT_TRUE(child.Alloc(hard_limit + 1));
+  EXPECT_EQ(parent.Amount(), hard_limit + 1);
+}
+
+// The transactions resource can refuse an allocation too, so it answers the same question.
+TEST(MemoryTrackerTest, TransactionsResourceIsRefusedOnlyWhereRefusalIsHandled) {
+  static constexpr auto limit = 10;
+  auto transactions_memory = memgraph::utils::TransactionsMemoryResource{limit};
+
+  auto exception_enabler = MemoryTracker::OutOfMemoryExceptionEnabler{};
+
+  ASSERT_TRUE(transactions_memory.Allocate(limit + 1));
+
+  const MemoryTracker::RefusalHandledScope refusal_handled;
+  ASSERT_FALSE(transactions_memory.Allocate(limit + 1));
+}
+
+// A session count is not an allocation, so the allocator's refusal boundary does not apply to it.
+TEST(MemoryTrackerTest, SessionLimitIsEnforcedWithoutARefusalScope) {
+  auto resources = memgraph::utils::UserResources{1, memgraph::utils::TransactionsMemoryResource::kUnlimited};
+
+  ASSERT_TRUE(resources.IncrementSessions());
+  ASSERT_FALSE(resources.IncrementSessions());
+}
+
+// Answering whether a refusal may be delivered can itself allocate, so it is asked only once the
+// limit has been exceeded.
+TEST(MemoryTrackerTest, IncrementAsksWhetherToRefuseOnlyWhenOverLimit) {
+  static constexpr auto limit = 10;
+  auto resource = memgraph::utils::Resource<size_t>{limit};
+
+  auto asked = 0;
+  auto may_refuse = [&asked] {
+    ++asked;
+    return true;
+  };
+
+  ASSERT_TRUE(resource.Increment(limit, may_refuse).success);
+  EXPECT_EQ(asked, 0);
+
+  ASSERT_FALSE(resource.Increment(1, may_refuse).success);
+  EXPECT_EQ(asked, 1);
 }

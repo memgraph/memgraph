@@ -1,0 +1,272 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include <mutex>
+
+#include <map>
+#include <utility>
+
+#include "memory/db_arena_fwd.hpp"
+#include "metrics/metric_handles.hpp"
+#include "metrics/scoped_gauge.hpp"
+#include "storage/v2/common_function_signatures.hpp"
+#include "storage/v2/constraints/constraints.hpp"
+#include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
+#include "storage/v2/indices/edge_type_index.hpp"
+#include "storage/v2/indices/errors.hpp"
+#include "storage/v2/inmemory/indices_mvcc.hpp"
+#include "storage/v2/inmemory/light_edge_guard.hpp"
+#include "storage/v2/vertex_accessor.hpp"
+#include "utils/rw_lock.hpp"
+
+namespace memgraph::storage {
+
+class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
+ private:
+  struct Entry {
+    Vertex *from_vertex;
+    Vertex *to_vertex;
+
+    Edge *edge;  // Stays Edge* deliberately: the upstream abort tuple now carries EdgeRef,
+                 // but this index is only populated when properties_on_edges=true, where
+                 // the edge object is always materialised and a raw pointer is valid.
+
+    uint64_t timestamp;
+
+    friend bool operator<(Entry const &lhs, Entry const &rhs) {
+      return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex, lhs.timestamp) <
+             std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
+    }
+
+    friend bool operator==(Entry const &lhs, Entry const &rhs) {
+      return std::tie(lhs.edge, lhs.from_vertex, lhs.to_vertex, lhs.timestamp) ==
+             std::tie(rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.timestamp);
+    }
+  };
+
+ public:
+  explicit InMemoryEdgeTypeIndex(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
+  class Iterable {
+   public:
+    Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+             utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+             View view, Storage *storage, Transaction *transaction, Gid max_gid);
+
+    class Iterator {
+     public:
+      Iterator(Iterable *self, utils::SkipListDb<Entry>::Iterator index_iterator);
+
+      EdgeAccessor const &operator*() const { return current_accessor_; }
+
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
+
+      Iterator &operator++();
+
+     private:
+      void AdvanceUntilValid();
+
+      Iterable *self_;
+      utils::SkipListDb<Entry>::Iterator index_iterator_;
+      EdgeRef current_edge_{nullptr};
+      EdgeAccessor current_accessor_;
+    };
+
+    Iterator begin() { return {this, index_accessor_.begin()}; }
+
+    Iterator end() { return {this, index_accessor_.end()}; }
+
+   private:
+    EdgePin pin_accessor_edge_;
+    utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_vertex_;
+    utils::SkipListDb<Entry>::Accessor index_accessor_;
+    [[maybe_unused]] EdgeTypeId edge_type_;
+    View view_;
+    Storage *storage_;
+    Transaction *transaction_;
+    Gid max_gid_;
+  };
+
+  class ChunkedIterable {
+   public:
+    ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+                    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, EdgeTypeId edge_type,
+                    View view, Storage *storage, Transaction *transaction, size_t num_chunks, Gid max_gid);
+
+    class Iterator {
+     public:
+      Iterator(ChunkedIterable *self, utils::SkipListDb<Entry>::ChunkedIterator index_iterator)
+          : self_(self),
+            index_iterator_(index_iterator),
+            current_edge_accessor_(EdgeRef{nullptr}, EdgeTypeId{}, nullptr, nullptr, self_->storage_,
+                                   self_->transaction_) {
+        AdvanceUntilValid();
+      }
+
+      EdgeAccessor const &operator*() const { return current_edge_accessor_; }
+
+      bool operator==(const Iterator &other) const { return index_iterator_ == other.index_iterator_; }
+
+      bool operator!=(const Iterator &other) const { return index_iterator_ != other.index_iterator_; }
+
+      Iterator &operator++() {
+        ++index_iterator_;
+        AdvanceUntilValid();
+        return *this;
+      }
+
+     private:
+      void AdvanceUntilValid();
+
+      ChunkedIterable *self_;
+      utils::SkipListDb<Entry>::ChunkedIterator index_iterator_;
+      EdgeAccessor current_edge_accessor_;
+      EdgeRef current_edge_{nullptr};
+    };
+
+    class Chunk {
+      Iterator begin_;
+      Iterator end_;
+
+     public:
+      Chunk(ChunkedIterable *self, utils::SkipListDb<Entry>::Chunk &chunk)
+          : begin_{self, chunk.begin()}, end_{self, chunk.end()} {}
+
+      Iterator begin() { return begin_; }
+
+      Iterator end() { return end_; }
+    };
+
+    Chunk get_chunk(size_t id) { return {this, chunks_[id]}; }
+
+    size_t size() const { return chunks_.size(); }
+
+   private:
+    EdgePin pin_accessor_edge_;
+    utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_vertex_;
+    utils::SkipListDb<Entry>::Accessor index_accessor_;
+    EdgeTypeId edge_type_;
+    View view_;
+    Storage *storage_;
+    Transaction *transaction_;
+    utils::SkipListDb<Entry>::ChunkCollection chunks_;
+    Gid max_gid_;
+  };
+
+ public:
+  struct IndividualIndex {
+    explicit IndividualIndex() : skip_list_{} {}
+
+    ~IndividualIndex();
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
+
+    utils::SkipListDb<Entry> skip_list_;
+    IndexStatus status_{};
+    metrics::ScopedGauge gauge_{};
+  };
+
+ private:
+  struct IndicesContainer {
+    IndicesContainer(IndicesContainer const &other) : indices_(other.indices_) {}
+
+    IndicesContainer(IndicesContainer &&) = default;
+    IndicesContainer &operator=(IndicesContainer const &) = default;
+    IndicesContainer &operator=(IndicesContainer &&) = default;
+    IndicesContainer() = default;
+    ~IndicesContainer() = default;
+
+    std::map<EdgeTypeId, std::shared_ptr<IndividualIndex>, std::less<EdgeTypeId>,
+             memory::DbAwareAllocator<std::pair<const EdgeTypeId, std::shared_ptr<IndividualIndex>>>>
+        indices_;  // This should be a std::map because we use it
+                   // with assumption that it's sorted
+  };
+
+ public:
+  struct ActiveIndices : storage::EdgeTypeIndex::ActiveIndices {
+    explicit ActiveIndices(std::shared_ptr<IndicesContainer const> indices = std::make_shared<IndicesContainer>())
+        : index_container_{std::move(indices)} {}
+
+    bool IndexReady(EdgeTypeId edge_type) const override;
+
+    bool IndexExists(EdgeTypeId edge_type) const override;
+
+    auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> override;
+
+    auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t override;
+
+    void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                              const Transaction &tx) override;
+
+    void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
+    auto GetAbortProcessor() const -> AbortProcessor override;
+
+    Iterable Edges(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_acc, View view,
+                   Storage *storage, Transaction *transaction);
+
+    ChunkedIterable ChunkedEdges(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                 View view, Storage *storage, Transaction *transaction, size_t num_chunks);
+
+   private:
+    std::shared_ptr<IndicesContainer const> index_container_;
+    // Built from index_container_, which never changes here, so concurrent aborts share one build.
+    mutable std::once_flag indexed_built_;
+    mutable std::vector<EdgeTypeId> indexed_;
+  };
+
+  /// @throw std::bad_alloc
+  bool CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
+                          ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {});
+
+  bool RegisterIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater);
+  auto PopulateIndex(EdgeTypeId edge_type, utils::SkipListDb<Vertex>::Accessor vertices,
+                     ActiveIndicesUpdater const &updater, ProgressCallback const &on_progress = {},
+                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
+      -> std::expected<void, IndexPopulateError>;
+
+  bool PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp);
+
+  /// Removes the index and returns the evicted IndividualIndex (nullptr if absent).
+  [[nodiscard]] auto DropIndex(EdgeTypeId edge_type, ActiveIndicesUpdater const &updater)
+      -> std::shared_ptr<IndividualIndex>;
+
+  /// Sweeps nothing unless `arming` says an edge was created or removed, and returns how many
+  /// indexes that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                 IndexArming const &arming);
+
+  void DropGraphClearIndices() override;
+
+  void RunGC();
+
+  auto GetActiveIndices() const -> std::shared_ptr<EdgeTypeIndex::ActiveIndices> override;
+
+ private:
+  void CleanupAllIndices();
+  auto GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex>;
+
+  metrics::GaugeHandle gauge_{};
+  utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
+      std::make_shared<IndicesContainer const>()};
+
+  // For correct GC we need a copy of all indexes, even if dropped, this is so we can ensure dangling ptr are removed
+  // even for dropped indices
+  using AllIndicesEntry = std::shared_ptr<IndividualIndex>;
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{
+      std::make_shared<std::vector<AllIndicesEntry> const>()};
+};
+
+}  // namespace memgraph::storage

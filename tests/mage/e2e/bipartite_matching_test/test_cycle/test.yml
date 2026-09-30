@@ -1,0 +1,6 @@
+query: >
+    CALL bipartite_matching.max() YIELD maximum_bipartite_matching
+    RETURN maximum_bipartite_matching
+
+output:
+    - maximum_bipartite_matching: 3

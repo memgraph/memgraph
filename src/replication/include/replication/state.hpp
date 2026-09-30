@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,30 +13,33 @@
 
 #include "kvstore/kvstore.hpp"
 #include "replication/config.hpp"
-#include "replication/epoch.hpp"
 #include "replication/replication_client.hpp"
-#include "replication/role.hpp"
-#include "replication_coordination_glue/mode.hpp"
+#include "replication_coordination_glue/common.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "replication_server.hpp"
 #include "status.hpp"
-#include "utils/result.hpp"
-#include "utils/synchronized.hpp"
+#include "utils/uuid.hpp"
 
 #include <atomic>
 #include <cstdint>
 #include <list>
+#include <optional>
 #include <variant>
-#include <vector>
+
+#include "nlohmann/json_fwd.hpp"
 
 namespace memgraph::replication {
 
 enum class RolePersisted : uint8_t { UNKNOWN_OR_NO, YES };
 
-enum class RegisterReplicaError : uint8_t { NAME_EXISTS, END_POINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
+enum class RegisterReplicaStatus : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD_NOT_BE_PERSISTED, NOT_MAIN, SUCCESS };
 
 struct RoleMainData {
   RoleMainData() = default;
-  explicit RoleMainData(ReplicationEpoch e) : epoch_(std::move(e)) {}
+
+  explicit RoleMainData(bool const writing_enabled, utils::UUID const uuid)
+      : uuid_(uuid), writing_enabled_(writing_enabled) {}
+
   ~RoleMainData() = default;
 
   RoleMainData(RoleMainData const &) = delete;
@@ -44,18 +47,34 @@ struct RoleMainData {
   RoleMainData(RoleMainData &&) = default;
   RoleMainData &operator=(RoleMainData &&) = default;
 
-  ReplicationEpoch epoch_;
-  std::list<ReplicationClient> registered_replicas_{};  // TODO: data race issues
+  std::list<ReplicationClient> registered_replicas_;
+  utils::UUID uuid_;  // also used in ReplicationStorageClient but important thing is that at both places, the value is
+  // immutable.
+  bool writing_enabled_{false};
 };
 
+// Implicit move constructor is noexcept because all fields have also noexcept move constructor
 struct RoleReplicaData {
   ReplicationServerConfig config;
   std::unique_ptr<ReplicationServer> server;
+  // uuid of main instance that replica is listening to
+  utils::UUID uuid_;
+};
+
+struct ReplicationData_t {
+  // Common data for both replica and main
+  // The source value is stored in Raft distributed config, this is only a cached value
+  // on the data instance's side. Needs to be accessed in a thread-safe way using ReplState lock because two threads are
+  // using this value:
+  // 1. RPC thread that handles communication with coordinators
+  // 2. RPC thread used for communication with main (if instance is replica)
+  uint64_t deltas_batch_progress_size_{replication_coordination_glue::kDefaultDeltasBatchProgressSize};
+  std::variant<RoleMainData, RoleReplicaData> data_;
 };
 
 // Global (instance) level object
 struct ReplicationState {
-  explicit ReplicationState(std::optional<std::filesystem::path> durability_dir);
+  explicit ReplicationState(std::optional<std::filesystem::path> durability_dir, bool ha_cluster = false);
   ~ReplicationState() = default;
 
   ReplicationState(ReplicationState const &) = delete;
@@ -63,44 +82,100 @@ struct ReplicationState {
   ReplicationState &operator=(ReplicationState const &) = delete;
   ReplicationState &operator=(ReplicationState &&) = delete;
 
-  enum class FetchReplicationError : uint8_t {
-    NOTHING_FETCHED,
-    PARSE_ERROR,
-  };
+  enum class FetchReplicationError : uint8_t { NOTHING_FETCHED, PARSE_ERROR, REPL_SERVER_FAILURE };
 
-  using ReplicationData_t = std::variant<RoleMainData, RoleReplicaData>;
-  using FetchReplicationResult_t = utils::BasicResult<FetchReplicationError, ReplicationData_t>;
+  using FetchReplicationResult_t = std::expected<ReplicationData_t, FetchReplicationError>;
+  using FetchVariantResult_t = std::expected<std::variant<RoleMainData, RoleReplicaData>, FetchReplicationError>;
   auto FetchReplicationData() -> FetchReplicationResult_t;
 
-  auto GetRole() const -> ReplicationRole {
-    return std::holds_alternative<RoleReplicaData>(replication_data_) ? ReplicationRole::REPLICA
-                                                                      : ReplicationRole::MAIN;
+  auto GetRole() const -> replication_coordination_glue::ReplicationRole {
+    return std::holds_alternative<RoleReplicaData>(replication_data_.data_)
+               ? replication_coordination_glue::ReplicationRole::REPLICA
+               : replication_coordination_glue::ReplicationRole::MAIN;
   }
-  bool IsMain() const { return GetRole() == ReplicationRole::MAIN; }
-  bool IsReplica() const { return GetRole() == ReplicationRole::REPLICA; }
+
+  bool IsMain() const { return GetRole() == replication_coordination_glue::ReplicationRole::MAIN; }
+
+  bool IsReplica() const { return GetRole() == replication_coordination_glue::ReplicationRole::REPLICA; }
+
+  auto IsMainWriteable() const -> bool {
+    if (auto const *main = std::get_if<RoleMainData>(&replication_data_.data_)) {
+      return !part_of_ha_cluster_ || main->writing_enabled_;
+    }
+    return false;
+  }
+
+  auto EnableWritingOnMain() -> bool {
+    if (auto *main = std::get_if<RoleMainData>(&replication_data_.data_)) {
+      main->writing_enabled_ = true;
+      return true;
+    }
+    return false;
+  }
+
+  auto DisableWritingOnMain() -> bool {
+    if (auto *main = std::get_if<RoleMainData>(&replication_data_.data_)) {
+      main->writing_enabled_ = false;
+      return true;
+    }
+    return false;
+  }
+
+  auto GetMainRole() -> RoleMainData & {
+    MG_ASSERT(IsMain(), "Instance is not MAIN");
+    return std::get<RoleMainData>(replication_data_.data_);
+  }
+
+  auto GetMainRole() const -> RoleMainData const & {
+    MG_ASSERT(IsMain(), "Instance is not MAIN");
+    return std::get<RoleMainData>(replication_data_.data_);
+  }
+
+  auto GetReplicaRole() -> RoleReplicaData & {
+    MG_ASSERT(!IsMain(), "Instance is MAIN");
+    return std::get<RoleReplicaData>(replication_data_.data_);
+  }
+
+  auto GetReplicaRole() const -> RoleReplicaData const & {
+    MG_ASSERT(!IsMain(), "Instance is MAIN");
+    return std::get<RoleReplicaData>(replication_data_.data_);
+  }
 
   bool HasDurability() const { return nullptr != durability_; }
 
-  bool TryPersistRoleMain(std::string new_epoch);
-  bool TryPersistRoleReplica(const ReplicationServerConfig &config);
+  bool TryPersistRoleMain(utils::UUID main_uuid);
+  bool TryPersistRoleReplica(const ReplicationServerConfig &config, utils::UUID const &main_uuid);
   bool TryPersistUnregisterReplica(std::string_view name);
-  bool TryPersistRegisteredReplica(const ReplicationClientConfig &config);
+  bool TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid);
 
-  // TODO: locked access
-  auto ReplicationData() -> ReplicationData_t & { return replication_data_; }
-  auto ReplicationData() const -> ReplicationData_t const & { return replication_data_; }
-  utils::BasicResult<RegisterReplicaError, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
+  auto ReplicationData() -> std::variant<RoleMainData, RoleReplicaData> & { return replication_data_.data_; }
 
-  bool SetReplicationRoleMain();
+  auto ReplicationData() const -> std::variant<RoleMainData, RoleReplicaData> const & {
+    return replication_data_.data_;
+  }
 
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
+  std::expected<ReplicationClient *, RegisterReplicaStatus> RegisterReplica(const ReplicationClientConfig &config);
+
+  bool SetReplicationRoleMain(const utils::UUID &main_uuid);
+  [[nodiscard]] bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                               std::optional<utils::UUID> const &maybe_main_uuid);
+
+  std::optional<nlohmann::json> GetTelemetryJson() const;
+
+  // const because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires constness
+  // of functions being invoked
+  void Shutdown() const;
+
+  auto GetDeltasBatchProgressSize() const -> uint64_t;
+  void UpdateDeltasBatchProgressSize(uint64_t new_value);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
-  std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
+  std::atomic<RolePersisted> role_persisted_ = RolePersisted::UNKNOWN_OR_NO;
+  bool part_of_ha_cluster_{false};
 };
 
 }  // namespace memgraph::replication

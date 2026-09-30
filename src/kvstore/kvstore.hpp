@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,15 @@
 
 #pragma once
 
+#include <cstddef>
 #include <filesystem>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
 #include "utils/exceptions.hpp"
@@ -118,7 +122,8 @@ class KVStore final {
   bool DeletePrefix(const std::string &prefix = "");
 
   /**
-   * Store values under the given keys and delete the keys.
+   * Store values under the given keys and delete the keys. If keys in delete are the same as in put you could end
+   * without any keys.
    *
    * @param items
    * @param keys
@@ -154,19 +159,27 @@ class KVStore final {
   bool CompactRange(const std::string &begin_prefix, const std::string &end_prefix);
 
   /**
+   * Flushes all memtables to storage.
+   *
+   * @return - true if the flush finished successfully, false otherwise.
+   */
+  bool SyncWal();
+
+  /**
    * Custom prefix-based iterator over kvstore.
    *
    * It filters all (key, value) pairs where the key has a certain prefix
    * and behaves as if all of those pairs are stored in a single iterable
    * collection of std::pair<std::string, std::string>.
    */
-  class iterator final : public std::iterator<std::input_iterator_tag,                      // iterator_category
-                                              std::pair<std::string, std::string>,          // value_type
-                                              long,                                         // difference_type
-                                              const std::pair<std::string, std::string> *,  // pointer
-                                              const std::pair<std::string, std::string> &   // reference
-                                              > {
+  class iterator final {
    public:
+    using iterator_concept [[maybe_unused]] = std::input_iterator_tag;
+    using value_type = std::pair<std::string, std::string>;
+    using difference_type = long;
+    using pointer = const std::pair<std::string, std::string> *;
+    using reference = const std::pair<std::string, std::string> &;
+
     explicit iterator(const KVStore *kvstore, const std::string &prefix = "", bool at_end = false);
 
     iterator(const iterator &other) = delete;
@@ -195,6 +208,7 @@ class KVStore final {
 
    private:
     struct impl;
+
     std::unique_ptr<impl> pimpl_;
   };
 
@@ -204,6 +218,7 @@ class KVStore final {
 
  private:
   struct impl;
+
   std::unique_ptr<impl> pimpl_;
 };
 

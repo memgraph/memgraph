@@ -1,0 +1,4 @@
+query: >
+  RETURN text.compare_cleaned('graph database','graph database') AS result;
+output:
+  - result: true

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstring>
 #include <memory>
+#include <span>
 #include <vector>
 
 #include <fmt/format.h>
@@ -51,7 +52,7 @@ enum class ChunkState : uint8_t {
 template <typename TBuffer>
 class ChunkedDecoderBuffer {
  public:
-  explicit ChunkedDecoderBuffer(TBuffer &buffer) : buffer_(buffer) { data_.reserve(kChunkMaxDataSize); }
+  explicit ChunkedDecoderBuffer(TBuffer &buffer) : buffer_(buffer) { data_.reserve(kChunkWholeSize); }
 
   /**
    * Reads data from the internal buffer.
@@ -63,6 +64,7 @@ class ChunkedDecoderBuffer {
    */
   bool Read(uint8_t *data, size_t len) {
     if (len > Size()) return false;
+    if (len == 0) return true;
     memcpy(data, &data_[pos_], len);
     pos_ += len;
     if (Size() == 0) {
@@ -71,6 +73,15 @@ class ChunkedDecoderBuffer {
     }
     return true;
   }
+
+  /**
+   * Reads data from the internal buffer into a span.
+   *
+   * @param data a span to write data into
+   * @returns true if exactly data.size() bytes were copied,
+   *          false otherwise
+   */
+  bool Read(std::span<uint8_t> data) { return Read(data.data(), data.size()); }
 
   /**
    * Peeks data from the internal buffer.
@@ -87,6 +98,17 @@ class ChunkedDecoderBuffer {
     memcpy(data, &data_[pos_ + offset], len);
     return true;
   }
+
+  /**
+   * Peeks data from the internal buffer into a span.
+   * Reads data, but doesn't remove it from the buffer.
+   *
+   * @param data a span to write data into
+   * @param offset offset from the beginning of the data
+   * @returns true if exactly data.size() bytes were copied,
+   *          false otherwise
+   */
+  bool Peek(std::span<uint8_t> data, size_t offset = 0) { return Peek(data.data(), data.size(), offset); }
 
   /**
    * Gets a chunk from the underlying raw data buffer.

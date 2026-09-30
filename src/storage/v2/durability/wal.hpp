@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,26 +13,68 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <set>
 #include <string>
 
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/delta.hpp"
+#include "storage/v2/description_store.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
+#include "storage/v2/durability/ttl_operation_type.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
+namespace memgraph::storage {
+class NameIdMapper;
+}  // namespace memgraph::storage
+
 namespace memgraph::storage::durability {
+
+struct WalDeltaData;
+
+/// True iff this pre-v15 delta marks the end of its implicit transaction.
+bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData &delta);
+
+/// What a finalized WAL file records about its own contents. Back-patched into the header by WalFile::FinalizeWal,
+/// so that readers needing only this much don't have to parse every delta to derive it.
+struct WalSummary {
+  uint64_t from_timestamp;
+  uint64_t to_timestamp;
+  /// Deltas belonging to transactions the writer completed, always positive. A file with
+  /// no complete transaction has nothing to summarize and so carries no summary at all rather than one saying zero,
+  /// which is also how the unwritten placeholder is recognised.
+  uint64_t num_deltas;
+};
+
+/// Everything a WAL file states about itself up front, readable without touching the delta region.
+struct WalHeader {
+  uint64_t offset_metadata;
+  uint64_t offset_deltas;
+
+  std::string uuid;
+  std::string epoch_id;
+  uint64_t seq_num;
+  /// Absent while the file is still being written, and for files written before kWalHeader. Deriving the same facts for
+  /// such a file means parsing its deltas with ReadWalInfo.
+  std::optional<WalSummary> summary;
+};
 
 /// Structure used to hold information about a WAL.
 struct WalInfo {
@@ -47,133 +89,423 @@ struct WalInfo {
   uint64_t num_deltas;
 };
 
+template <auto MIN_VER, typename Type>
+struct VersionDependant {};
+
+// Note this is highly composable
+// `Before` can also be VersionDependantUpgradable:
+// e.g. VersionDependantUpgradable<10, VersionDependantUpgradable<9, int, int, AddOne>, int, Multiply2>
+// if version read was < 9
+// - version is less than 10 so does its Before -> VersionDependantUpgradable<9, int, int, AddOne>
+// - version is less than 9 so does its Before -> int
+// - Inner VersionDependantUpgradable gets int, applies AddOne to get a new int
+// - Outer VersionDependantUpgradable gets int, applies Multiply2 to get a new int
+template <auto MIN_VER, typename Before, typename After, auto Upgrader>
+struct VersionDependantUpgradable {};
+
+// Common structures used by more than one WAL Delta
+
+using CompositeStr = std::vector<std::string>;
+
+inline auto UpgradeForCompositeIndices(std::string v) -> CompositeStr { return std::vector{std::move(v)}; };
+
+using UpgradableSingleProperty = VersionDependantUpgradable<kCompositeIndicesForLabelProperties, std::string,
+                                                            CompositeStr, UpgradeForCompositeIndices>;
+
+struct CompositePropertyPaths;
+using PathStr = std::vector<std::string>;
+auto UpgradeForNestedIndices(CompositeStr v) -> std::vector<PathStr>;
+using UpgradableSingularPaths =
+    VersionDependantUpgradable<kNestedIndices, UpgradableSingleProperty, std::vector<PathStr>, UpgradeForNestedIndices>;
+
+struct CompositePropertyPaths {
+  friend bool operator==(CompositePropertyPaths const &, CompositePropertyPaths const &) = default;
+  using ctr_types = std::tuple<UpgradableSingularPaths>;
+  std::vector<PathStr> property_paths_;
+
+  auto convert(memgraph::storage::NameIdMapper *mapper) const -> std::vector<memgraph::storage::PropertyPath>;
+};
+
+struct VertexOpInfo {
+  friend bool operator==(const VertexOpInfo &, const VertexOpInfo &) = default;
+  using ctr_types = std::tuple<Gid>;
+  Gid gid;
+};
+
+struct VertexLabelOpInfo {
+  friend bool operator==(const VertexLabelOpInfo &, const VertexLabelOpInfo &) = default;
+  using ctr_types = std::tuple<Gid, std::string>;
+  Gid gid;
+  std::string label;
+};
+
+struct EdgeOpInfo {
+  friend bool operator==(const EdgeOpInfo &, const EdgeOpInfo &) = default;
+  using ctr_types = std::tuple<Gid, std::string, Gid, Gid>;
+  Gid gid;
+  std::string edge_type;
+  Gid from_vertex;
+  Gid to_vertex;
+};
+
+struct LabelOpInfo {
+  friend bool operator==(const LabelOpInfo &, const LabelOpInfo &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string label;
+};
+
+struct LabelPropertyOpInfo {
+  friend bool operator==(const LabelPropertyOpInfo &, const LabelPropertyOpInfo &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string label;
+  std::string property;
+};
+
+struct LabelOrderedPropertiesOpInfo {
+  friend bool operator==(const LabelOrderedPropertiesOpInfo &, const LabelOrderedPropertiesOpInfo &) = default;
+  using ctr_types =
+      std::tuple<std::string, CompositePropertyPaths, VersionDependant<kDescriptionAndDescIndexSupport, IndexOrder>>;
+  std::string label;
+  CompositePropertyPaths composite_property_paths;
+  std::optional<IndexOrder> order;  // std::nullopt for pre-v34 WALs, defaults to ASC
+};
+
+struct LabelUnorderedPropertiesOpInfo {
+  friend bool operator==(const LabelUnorderedPropertiesOpInfo &, const LabelUnorderedPropertiesOpInfo &) = default;
+  using ctr_types = std::tuple<std::string, std::set<std::string, std::less<>>>;
+  std::string label;
+  std::set<std::string, std::less<>> properties;
+};
+
+struct EdgeTypeOpInfo {
+  friend bool operator==(const EdgeTypeOpInfo &, const EdgeTypeOpInfo &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string edge_type;
+};
+
+struct EdgeTypePropertyOpInfo {
+  friend bool operator==(const EdgeTypePropertyOpInfo &, const EdgeTypePropertyOpInfo &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string edge_type;
+  std::string property;
+};
+
+struct PropertyOpInfo {
+  friend bool operator==(const PropertyOpInfo &, const PropertyOpInfo &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string property;
+};
+
+struct TypeConstraintOpInfo {
+  friend bool operator==(const TypeConstraintOpInfo &, const TypeConstraintOpInfo &) = default;
+  using ctr_types = std::tuple<std::string, std::string, TypeConstraintKind>;
+  std::string label;
+  std::string property;
+  TypeConstraintKind kind;
+};
+
+// Wal Deltas after Decode
+struct WalVertexCreate : VertexOpInfo {};
+
+struct WalVertexDelete : VertexOpInfo {};
+
+struct WalVertexAddLabel : VertexLabelOpInfo {};
+
+struct WalVertexRemoveLabel : VertexLabelOpInfo {};
+
+struct WalVertexSetProperty {
+  friend bool operator==(const WalVertexSetProperty &, const WalVertexSetProperty &) = default;
+  using ctr_types = std::tuple<Gid, std::string, ExternalPropertyValue>;
+  Gid gid;
+  std::string property;
+  ExternalPropertyValue value;
+};
+
+struct WalEdgeSetProperty {
+  friend bool operator==(const WalEdgeSetProperty &lhs, const WalEdgeSetProperty &rhs) {
+    // Since kEdgeSetDeltaWithVertexInfo version delta holds from vertex gid; this is an extra information (no need to
+    // check it)
+    return std::tie(lhs.gid, lhs.property, lhs.value) == std::tie(rhs.gid, rhs.property, rhs.value);
+  }
+
+  using ctr_types =
+      std::tuple<Gid, std::string, ExternalPropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>,
+                 VersionDependant<kExtendedEdgeSetProperty, Gid>,
+                 VersionDependant<kExtendedEdgeSetProperty, std::string>>;
+  Gid gid;
+  std::string property;
+  ExternalPropertyValue value;
+  std::optional<Gid> from_gid;  //!< Used to simplify the edge search (from kEdgeSetDeltaWithVertexInfo)
+  std::optional<Gid> to_gid;    //!< In-vertex GID for faster replica resolution (from kExtendedEdgeSetProperty)
+  std::optional<std::string> edge_type;  //!< Edge type name for FindEdge (from kExtendedEdgeSetProperty)
+};
+
+struct WalEdgeCreate : EdgeOpInfo {};
+
+struct WalEdgeDelete : EdgeOpInfo {};
+
+enum class TransactionAccessType : uint8_t {
+  UNIQUE = 0,
+  WRITE = 1,
+  READ = 2,
+  READ_ONLY = 3,
+};
+
+struct WalTransactionStart {
+  friend bool operator==(const WalTransactionStart &lhs, const WalTransactionStart &rhs) = default;
+  using ctr_types = std::tuple<VersionDependant<kTxnStart, bool>, VersionDependant<kTtlSupport, TransactionAccessType>>;
+  std::optional<bool> commit;
+  std::optional<TransactionAccessType> access_type;
+};
+
+struct WalTransactionEnd {
+  friend bool operator==(const WalTransactionEnd &, const WalTransactionEnd &) = default;
+  using ctr_types = std::tuple<VersionDependant<kCrcProtection, uint32_t>>;
+  std::optional<uint32_t> txn_crc;  // Started protecting txns with CRC summary since kCrcProtection version
+};
+
+struct WalLabelIndexCreate : LabelOpInfo {};
+
+struct WalLabelIndexDrop : LabelOpInfo {};
+
+struct WalLabelIndexStatsClear : LabelOpInfo {};
+
+struct WalLabelPropertyIndexStatsClear : LabelOpInfo {
+};  // Special case, this clear is done on all label/property pairs that contain the defined label
+
+struct WalEdgeTypeIndexCreate : EdgeTypeOpInfo {};
+
+struct WalEdgeTypeIndexDrop : EdgeTypeOpInfo {};
+
+struct WalLabelIndexStatsSet {
+  friend bool operator==(const WalLabelIndexStatsSet &, const WalLabelIndexStatsSet &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string label;
+  std::string json_stats;
+};
+
+struct WalLabelPropertyIndexCreate : LabelOrderedPropertiesOpInfo {};
+
+struct WalLabelPropertyIndexDrop : LabelOrderedPropertiesOpInfo {};
+
+struct WalPointIndexCreate : LabelPropertyOpInfo {};
+
+struct WalPointIndexDrop : LabelPropertyOpInfo {};
+
+struct WalExistenceConstraintCreate : LabelPropertyOpInfo {};
+
+struct WalExistenceConstraintDrop : LabelPropertyOpInfo {};
+
+struct WalLabelPropertyIndexStatsSet {
+  friend bool operator==(const WalLabelPropertyIndexStatsSet &, const WalLabelPropertyIndexStatsSet &) = default;
+  using ctr_types = std::tuple<std::string, CompositePropertyPaths, std::string>;
+  std::string label;
+  CompositePropertyPaths composite_property_paths;
+  std::string json_stats;
+};
+
+struct WalEdgeTypePropertyIndexCreate : EdgeTypePropertyOpInfo {};
+
+struct WalEdgeTypePropertyIndexDrop : EdgeTypePropertyOpInfo {};
+
+struct WalEdgePropertyIndexCreate : PropertyOpInfo {};
+
+struct WalEdgePropertyIndexDrop : PropertyOpInfo {};
+
+struct WalVertexPropertyIndexCreate : PropertyOpInfo {};
+
+struct WalVertexPropertyIndexDrop : PropertyOpInfo {};
+
+struct WalUniqueConstraintCreate : LabelUnorderedPropertiesOpInfo {};
+
+struct WalUniqueConstraintDrop : LabelUnorderedPropertiesOpInfo {};
+
+struct WalTypeConstraintCreate : TypeConstraintOpInfo {};
+
+struct WalTypeConstraintDrop : TypeConstraintOpInfo {};
+
+struct WalTextIndexCreate {
+  friend bool operator==(const WalTextIndexCreate &, const WalTextIndexCreate &) = default;
+  using ctr_types =
+      std::tuple<std::string, std::string, VersionDependant<kTextIndexWithProperties, std::vector<std::string>>>;
+  std::string index_name;
+  std::string label;
+  std::optional<std::vector<std::string>> properties;  //!< Optional properties, if not set, no properties are indexed
+};
+
+inline auto UpgradeDropTextIndexRemoveLabel(std::pair<std::string, std::string> name_and_label) -> std::string {
+  return name_and_label.first;  // Extract only the index_name, discard the label
+};
+
+using UpgradableDropTextIndex =
+    VersionDependantUpgradable<kTextIndexWithProperties, std::pair<std::string, std::string>, std::string,
+                               UpgradeDropTextIndexRemoveLabel>;
+
+struct WalTextIndexDrop {
+  friend bool operator==(const WalTextIndexDrop &, const WalTextIndexDrop &) = default;
+  using ctr_types = std::tuple<UpgradableDropTextIndex>;
+  std::string index_name;
+  std::optional<std::string> label;  //!< Optional label, only used for versions < kTextIndexWithProperties
+};
+
+struct WalTextEdgeIndexCreate {
+  friend bool operator==(const WalTextEdgeIndexCreate &, const WalTextEdgeIndexCreate &) = default;
+  using ctr_types = std::tuple<std::string, std::string, std::vector<std::string>>;
+  std::string index_name;
+  std::string edge_type;
+  std::vector<std::string> properties;  //!< Properties to index, if empty all properties are indexed
+};
+
+struct WalEnumCreate {
+  friend bool operator==(const WalEnumCreate &, const WalEnumCreate &) = default;
+  using ctr_types = std::tuple<std::string, std::vector<std::string>>;
+  std::string etype;
+  std::vector<std::string> evalues;
+};
+
+struct WalEnumAlterAdd {
+  friend bool operator==(const WalEnumAlterAdd &, const WalEnumAlterAdd &) = default;
+  using ctr_types = std::tuple<std::string, std::string>;
+  std::string etype;
+  std::string evalue;
+};
+
+struct WalEnumAlterUpdate {
+  friend bool operator==(const WalEnumAlterUpdate &, const WalEnumAlterUpdate &) = default;
+  using ctr_types = std::tuple<std::string, std::string, std::string>;
+  std::string etype;
+  std::string evalue_old;
+  std::string evalue_new;
+};
+
+// Filter on a vector index: mode (SINGLE/WILDCARD/ANY_OF/ALL_OF) + the ids it covers.
+// Pre-v34 WALs wrote a single label/edge_type name; the upgraders below promote that to
+// {mode=SINGLE, ids={label_name}}.
+struct VectorFilterInfo {
+  friend bool operator==(VectorFilterInfo const &, VectorFilterInfo const &) = default;
+  using ctr_types = std::tuple<std::uint8_t, std::vector<std::string>>;
+  std::uint8_t mode;
+  std::vector<std::string> ids;
+};
+
+inline auto UpgradeForVectorMultiLabel(std::string name) -> VectorFilterInfo {
+  return {.mode = static_cast<std::uint8_t>(VectorMatchMode::SINGLE), .ids = {std::move(name)}};
+}
+
+using UpgradableVectorFilter =
+    VersionDependantUpgradable<kVectorIndexMultiLabel, std::string, VectorFilterInfo, UpgradeForVectorMultiLabel>;
+
+struct WalVectorIndexCreate {
+  friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
+  using ctr_types = std::tuple<std::string, UpgradableVectorFilter, std::string, std::string, std::uint16_t,
+                               std::uint16_t, std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
+  std::string index_name;
+  VectorFilterInfo label_filter;
+  std::string property;
+  std::string metric_kind;
+  std::uint16_t dimension;
+  std::uint16_t resize_coefficient;
+  std::size_t capacity;
+  std::optional<std::uint8_t> scalar_kind;
+};
+
+struct WalVectorEdgeIndexCreate {
+  friend bool operator==(const WalVectorEdgeIndexCreate &, const WalVectorEdgeIndexCreate &) = default;
+  using ctr_types = std::tuple<std::string, UpgradableVectorFilter, std::string, std::string, std::uint16_t,
+                               std::uint16_t, std::size_t, uint8_t>;
+  std::string index_name;
+  VectorFilterInfo edge_type_filter;
+  std::string property;
+  std::string metric_kind;
+  std::uint16_t dimension;
+  std::uint16_t resize_coefficient;
+  std::size_t capacity;
+  std::uint8_t scalar_kind;
+};
+
+struct WalVectorIndexDrop {
+  friend bool operator==(const WalVectorIndexDrop &, const WalVectorIndexDrop &) = default;
+  using ctr_types = std::tuple<std::string>;
+  std::string index_name;
+};
+
+struct WalDescriptionSet {
+  friend bool operator==(const WalDescriptionSet &, const WalDescriptionSet &) = default;
+  DescriptionTargetKind kind;
+  std::vector<std::string> labels;
+  std::string edge_type;
+  std::string property;
+  std::string description;
+  std::vector<std::string> from_labels;
+  std::vector<std::string> to_labels;
+  ExternalPropertyValue value;
+};
+
+struct WalDescriptionDelete {
+  friend bool operator==(const WalDescriptionDelete &, const WalDescriptionDelete &) = default;
+  DescriptionTargetKind kind;
+  std::vector<std::string> labels;
+  std::string edge_type;
+  std::string property;
+  std::vector<std::string> from_labels;
+  std::vector<std::string> to_labels;
+  ExternalPropertyValue value;
+};
+
+// Single TTL WAL structure that encompasses all TTL operations
+struct WalTtlOperation {
+  friend bool operator==(const WalTtlOperation &, const WalTtlOperation &) = default;
+  using ctr_types = std::tuple<TtlOperationType, std::optional<std::chrono::microseconds>,
+                               std::optional<std::chrono::system_clock::time_point>,
+                               bool>;  // operation_type, period, start_time, should_run_edge_ttl
+
+  TtlOperationType operation_type;
+  std::optional<std::chrono::microseconds> period;                  // Raw period (for CONFIGURE operation)
+  std::optional<std::chrono::system_clock::time_point> start_time;  // Raw start time (for CONFIGURE operation)
+  bool should_run_edge_ttl;  // Whether edge TTL should be run (for CONFIGURE operation)
+};
+
 /// Structure used to return loaded WAL delta data.
 struct WalDeltaData {
-  enum class Type {
-    VERTEX_CREATE,
-    VERTEX_DELETE,
-    VERTEX_ADD_LABEL,
-    VERTEX_REMOVE_LABEL,
-    VERTEX_SET_PROPERTY,
-    EDGE_CREATE,
-    EDGE_DELETE,
-    EDGE_SET_PROPERTY,
-    TRANSACTION_END,
-    LABEL_INDEX_CREATE,
-    LABEL_INDEX_DROP,
-    LABEL_INDEX_STATS_SET,
-    LABEL_INDEX_STATS_CLEAR,
-    LABEL_PROPERTY_INDEX_CREATE,
-    LABEL_PROPERTY_INDEX_DROP,
-    LABEL_PROPERTY_INDEX_STATS_SET,
-    LABEL_PROPERTY_INDEX_STATS_CLEAR,
-    EXISTENCE_CONSTRAINT_CREATE,
-    EXISTENCE_CONSTRAINT_DROP,
-    UNIQUE_CONSTRAINT_CREATE,
-    UNIQUE_CONSTRAINT_DROP,
-  };
-
-  Type type{Type::TRANSACTION_END};
-
-  struct {
-    Gid gid;
-  } vertex_create_delete;
-
-  struct {
-    Gid gid;
-    std::string label;
-  } vertex_add_remove_label;
-
-  struct {
-    Gid gid;
-    std::string property;
-    PropertyValue value;
-  } vertex_edge_set_property;
-
-  struct {
-    Gid gid;
-    std::string edge_type;
-    Gid from_vertex;
-    Gid to_vertex;
-  } edge_create_delete;
-
-  struct {
-    std::string label;
-  } operation_label;
-
-  struct {
-    std::string label;
-    std::string property;
-  } operation_label_property;
-
-  struct {
-    std::string label;
-    std::set<std::string, std::less<>> properties;
-  } operation_label_properties;
-
-  struct {
-    std::string label;
-    std::string stats;
-  } operation_label_stats;
-
-  struct {
-    std::string label;
-    std::string property;
-    std::string stats;
-  } operation_label_property_stats;
+  std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
+               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd,
+               WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear,
+               WalEdgeTypeIndexCreate, WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop,
+               WalLabelIndexStatsSet, WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate,
+               WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
+               WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
+               WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
+               WalTextIndexCreate, WalTextIndexDrop, WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd,
+               WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation,
+               WalDescriptionSet, WalDescriptionDelete, WalVertexPropertyIndexCreate, WalVertexPropertyIndexDrop>
+      data_ = WalTransactionEnd{};
 };
 
 bool operator==(const WalDeltaData &a, const WalDeltaData &b);
-bool operator!=(const WalDeltaData &a, const WalDeltaData &b);
 
-constexpr bool IsWalDeltaDataTypeTransactionEndVersion15(const WalDeltaData::Type type) {
-  switch (type) {
-    // These delta actions are all found inside transactions so they don't
-    // indicate a transaction end.
-    case WalDeltaData::Type::VERTEX_CREATE:
-    case WalDeltaData::Type::VERTEX_DELETE:
-    case WalDeltaData::Type::VERTEX_ADD_LABEL:
-    case WalDeltaData::Type::VERTEX_REMOVE_LABEL:
-    case WalDeltaData::Type::EDGE_CREATE:
-    case WalDeltaData::Type::EDGE_DELETE:
-    case WalDeltaData::Type::VERTEX_SET_PROPERTY:
-    case WalDeltaData::Type::EDGE_SET_PROPERTY:
-      return false;
-
-    // This delta explicitly indicates that a transaction is done.
-    case WalDeltaData::Type::TRANSACTION_END:
-      return true;
-
-    // These operations aren't transactional and they are encoded only using
-    // a single delta, so they each individually mark the end of their
-    // 'transaction'.
-    case WalDeltaData::Type::LABEL_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_INDEX_DROP:
-    case WalDeltaData::Type::LABEL_INDEX_STATS_SET:
-    case WalDeltaData::Type::LABEL_INDEX_STATS_CLEAR:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_CREATE:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_DROP:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_SET:
-    case WalDeltaData::Type::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_CREATE:
-    case WalDeltaData::Type::EXISTENCE_CONSTRAINT_DROP:
-    case WalDeltaData::Type::UNIQUE_CONSTRAINT_CREATE:
-    case WalDeltaData::Type::UNIQUE_CONSTRAINT_DROP:
-      return true;  // TODO: Still true?
+inline bool IsWalDeltaDataTransactionEnd(const WalDeltaData &delta, const uint64_t version = kVersion) {
+  if (version < kMetaDataDeltasHaveExplicitTransactionEnd) [[unlikely]] {
+    return IsWalDeltaDataImplicitTransactionEndVersion15(delta);
   }
+  // All deltas are now handled in a transactional scope, this is because it is
+  // possible to have metadeltas and deltas in the same txn
+  return std::holds_alternative<WalTransactionEnd>(delta.data_);
 }
 
-constexpr bool IsWalDeltaDataTypeTransactionEnd(const WalDeltaData::Type type, const uint64_t version = kVersion) {
-  if (version < 16U) {
-    return IsWalDeltaDataTypeTransactionEndVersion15(type);
-  }
-  // All deltas are now handled in a transactional scope
-  return type == WalDeltaData::Type::TRANSACTION_END;
-}
+/// Function used to read the WAL file's header, without parsing the deltas.
+/// @throw RecoveryFailure
+WalHeader ReadWalHeader(const std::filesystem::path &path);
 
-/// Function used to read information about the WAL file.
+/// Function used to read information about the WAL file. Always parses every delta, verifying each transaction's CRC.
 /// @throw RecoveryFailure
 WalInfo ReadWalInfo(const std::filesystem::path &path);
+
+/// The same information, read the cheapest way the file allows: taken from the summary of a finalized file, and
+/// derived by parsing the deltas of one that has none - a file the writer never finalized, or one predating kWalHeader.
+/// Prefer this when the information is all that's wanted; a summary is trusted rather than checked against the deltas.
+/// A caller that already read the header can hand it over to save reading it again.
+/// @throw RecoveryFailure
+WalInfo ReadWalContents(const std::filesystem::path &path, std::optional<WalHeader> known_header = std::nullopt);
 
 /// Function used to read the WAL delta header. The function returns the delta
 /// timestamp.
@@ -184,45 +516,101 @@ uint64_t ReadWalDeltaHeader(BaseDecoder *decoder);
 /// read delta data. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-WalDeltaData ReadWalDeltaData(BaseDecoder *decoder);
+WalDeltaData ReadWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
 
 /// Function used to skip the current WAL delta data. The function returns the
 /// skipped delta type. The WAL delta header must be read before calling this
 /// function.
 /// @throw RecoveryFailure
-WalDeltaData::Type SkipWalDeltaData(BaseDecoder *decoder);
+bool SkipWalDeltaData(BaseDecoder *decoder, uint64_t version = kVersion);
 
 /// Function used to encode a `Delta` that originated from a `Vertex`.
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConfig::Items items, const Delta &delta,
-                 const Vertex &vertex, uint64_t timestamp);
-
-/// Function used to encode a `Delta` that originated from an `Edge`.
-void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta &delta, const Edge &edge,
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items items, const Delta &delta, Vertex *vertex,
                  uint64_t timestamp);
 
-/// Function used to encode the transaction end.
-void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
+/// Function used to encode a `Delta` that originated from an `Edge`.
+void EncodeDelta(BaseEncoder *encoder, Storage *storage, const Delta &delta, Edge *edge, uint64_t timestamp,
+                 Gid in_vertex_gid, EdgeTypeId edge_type_id);
 
-/// Function used to encode non-transactional operation.
-void EncodeOperation(BaseEncoder *encoder, NameIdMapper *name_id_mapper, StorageMetadataOperation operation,
-                     LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                     const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
+struct WalTxnDataPos {
+  uint64_t commit_flag_wal_position_{0};  // position of the commit flag inside the transaction-start frame
+  uint64_t crc_wal_pos_{0};               // position of the stored CRC value inside the transaction-end frame
+  uint32_t stored_crc_{0};                // the CRC value written at crc_wal_pos_ (kept in memory to patch in place)
+};
+
+/// Positions filled in when encoding the transaction end.
+struct WalTxnEndPos {
+  uint64_t crc_wal_pos_{0};  // position where the CRC value is written
+  uint32_t stored_crc_{0};   // the CRC value written at crc_wal_pos_
+};
+
+/// Function used to encode the transaction start
+/// Returns the position where the flag 'commit' is about to be written
+uint64_t EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
+
+/// Function used to encode the transaction end.
+/// Returns the end of the CRC-protected region and the position where the CRC value is written.
+WalTxnEndPos EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
+
+// Common to WAL & replication
+void EncodeEdgeTypeIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type);
+void EncodeEdgeTypePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, EdgeTypeId edge_type,
+                                 PropertyId prop);
+void EncodePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, PropertyId prop);
+void EncodeEnumAlterAdd(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val);
+void EncodeEnumAlterUpdate(BaseEncoder &encoder, EnumStore const &enum_store, Enum enum_val,
+                           std::string enum_value_old);
+void EncodeEnumCreate(BaseEncoder &encoder, EnumStore const &enum_store, EnumTypeId etype);
+void EncodeLabel(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label);
+void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                           std::span<PropertyPath const> properties);
+void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                           std::set<PropertyId> const &properties);
+void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId property,
+                          TypeConstraintKind type);
+void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, PropertyId prop);
+void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
+                              std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats);
+void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
+void EncodeTextIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexSpec &text_index_info);
+void EncodeTextEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                             const TextEdgeIndexSpec &text_edge_index_info);
+void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &spec);
+void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
+void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name);
+
+void EncodeDescriptionSet(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
+                          std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
+                          std::string_view description, std::span<LabelId const> from_labels = {},
+                          std::span<LabelId const> to_labels = {}, ExternalPropertyValue const &value = {});
+void EncodeDescriptionDelete(BaseEncoder &encoder, NameIdMapper &name_id_mapper, DescriptionTargetKind kind,
+                             std::span<LabelId const> labels, EdgeTypeId edge_type, PropertyId property,
+                             std::span<LabelId const> from_labels = {}, std::span<LabelId const> to_labels = {},
+                             ExternalPropertyValue const &value = {});
+
+// TTL encoding function
+void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
+                        const std::optional<std::chrono::microseconds> &period,
+                        const std::optional<std::chrono::system_clock::time_point> &start_time,
+                        bool should_run_edge_ttl);
+
+void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
 /// @throw RecoveryFailure
-RecoveryInfo LoadWal(const std::filesystem::path &path, RecoveredIndicesAndConstraints *indices_constraints,
-                     std::optional<uint64_t> last_loaded_timestamp, utils::SkipList<Vertex> *vertices,
-                     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
-                     SalientConfig::Items items);
+std::optional<RecoveryInfo> LoadWal(
+    std::filesystem::path const &path, RecoveredIndicesAndConstraints *indices_constraints,
+    std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipListDb<Vertex> *vertices,
+    utils::SkipListDb<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
+    SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
+    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::DescriptionStore *description_store);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
  public:
-  WalFile(const std::filesystem::path &wal_directory, std::string_view uuid, std::string_view epoch_id,
+  WalFile(const std::filesystem::path &wal_directory, utils::UUID const &uuid, const std::string_view epoch_id,
           SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
-          utils::FileRetainer *file_retainer);
-  WalFile(std::filesystem::path current_wal_path, SalientConfig::Items items, NameIdMapper *name_id_mapper,
-          uint64_t seq_num, uint64_t from_timestamp, uint64_t to_timestamp, uint64_t count,
           utils::FileRetainer *file_retainer);
 
   WalFile(const WalFile &) = delete;
@@ -232,13 +620,25 @@ class WalFile {
 
   ~WalFile();
 
-  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
-  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
+  void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t timestamp, Storage *storage);
+  void AppendDelta(const Delta &delta, Edge *edge, uint64_t timestamp, Storage *storage, Gid in_vertex_gid,
+                   EdgeTypeId edge_type_id);
 
-  void AppendTransactionEnd(uint64_t timestamp);
+  // True means storage should use deltas associated with this txn, false means skip until
+  // you find the next txn.
+  uint64_t AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type);
 
-  void AppendOperation(StorageMetadataOperation operation, LabelId label, const std::set<PropertyId> &properties,
-                       const LabelIndexStats &stats, const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
+  // Updates the commit flag in the WAL file by setting it to treu
+  void UpdateCommitStatus(WalTxnDataPos const &wal_positions);
+
+  WalTxnEndPos AppendTransactionEnd(uint64_t timestamp);
+
+  void AppendOperation(StorageMetadataOperation operation, const std::optional<std::string> text_index_name,
+                       LabelId label, const std::set<PropertyId> &properties, const LabelIndexStats &stats,
+                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
+
+  void AppendOperation(StorageMetadataOperation operation, EdgeTypeId edge_type, const std::set<PropertyId> &properties,
+                       uint64_t timestamp);
 
   void Sync();
 
@@ -267,19 +667,56 @@ class WalFile {
   void FinalizeWal();
   void DeleteWal();
 
- private:
+  auto encoder() -> BaseEncoder & { return wal_; }
+
   void UpdateStats(uint64_t timestamp);
+
+ private:
+  /// Fills in the summary of what was actually written, over the placeholders the constructor reserved.
+  void WriteSummary();
+
+  /// Bytes the summary region occupies: three values plus its own CRC trailer, each a marker and a uint64.
+  static constexpr uint64_t kSummaryBytes = 4 * (sizeof(Marker) + sizeof(uint64_t));
 
   SalientConfig::Items items_;
   NameIdMapper *name_id_mapper_;
-  Encoder wal_;
+  Encoder<utils::OutputFile> wal_;
   std::filesystem::path path_;
   uint64_t from_timestamp_;
   uint64_t to_timestamp_;
   uint64_t count_;
+  // count_ as of the last completed transaction, i.e. excluding a transaction still being appended.
+  uint64_t num_deltas_{0};
   uint64_t seq_num_;
+  // Where FinalizeWal writes the summary. Deliberately outside the CRC-protected metadata section above it.
+  uint64_t offset_summary_{0};
 
   utils::FileRetainer *file_retainer_;
 };
 
 }  // namespace memgraph::storage::durability
+
+template <>
+class fmt::formatter<memgraph::storage::durability::CompositePropertyPaths> {
+ public:
+  constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
+
+  template <typename FormatContext>
+  auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper, FormatContext &ctx) const {
+    auto out = ctx.out();
+    bool first_path = true;
+
+    for (auto const &path : wrapper.property_paths_) {
+      if (!first_path) out = fmt::format_to(out, ", ");
+      first_path = false;
+
+      bool first_id = true;
+      for (auto const &prop_name : path) {
+        if (!first_id) out = fmt::format_to(out, ".");
+        first_id = false;
+        out = fmt::format_to(out, "{}", prop_name);
+      }
+    }
+    return out;
+  }
+};

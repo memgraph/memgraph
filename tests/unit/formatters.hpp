@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,13 +29,13 @@ inline std::string ToString(const memgraph::query::VertexAccessor &vertex, const
   std::ostringstream os;
   os << "V(";
   auto maybe_labels = vertex.Labels(memgraph::storage::View::NEW);
-  MG_ASSERT(maybe_labels.HasValue());
-  memgraph::utils::PrintIterable(os, *maybe_labels, ":",
-                                 [&](auto &stream, auto label) { stream << acc.LabelToName(label); });
+  MG_ASSERT(maybe_labels.has_value());
+  memgraph::utils::PrintIterable(
+      os, *maybe_labels, ":", [&](auto &stream, auto label) { stream << acc.LabelToName(label); });
   if (maybe_labels->size() > 0) os << " ";
   os << "{";
   auto maybe_properties = vertex.Properties(memgraph::storage::View::NEW);
-  MG_ASSERT(maybe_properties.HasValue());
+  MG_ASSERT(maybe_properties.has_value());
   memgraph::utils::PrintIterable(os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
     stream << acc.PropertyToName(pair.first) << ": " << pair.second;
   });
@@ -49,7 +49,7 @@ inline std::string ToString(const memgraph::query::EdgeAccessor &edge, const TAc
   os << "E[" << acc.EdgeTypeToName(edge.EdgeType());
   os << " {";
   auto maybe_properties = edge.Properties(memgraph::storage::View::NEW);
-  MG_ASSERT(maybe_properties.HasValue());
+  MG_ASSERT(maybe_properties.has_value());
   memgraph::utils::PrintIterable(os, *maybe_properties, ", ", [&](auto &stream, const auto &pair) {
     stream << acc.PropertyToName(pair.first) << ": " << pair.second;
   });
@@ -83,6 +83,15 @@ inline std::string ToString(const memgraph::utils::LocalDateTime) { return ""; }
 
 inline std::string ToString(const memgraph::utils::Duration) { return ""; }
 
+// TODO: formatting of enum and points
+inline std::string ToString(const memgraph::storage::Enum) { return ""; }
+
+inline std::string ToString(const memgraph::storage::Point2d) { return ""; }
+
+inline std::string ToString(const memgraph::storage::Point3d) { return ""; }
+
+inline std::string ToString(const memgraph::utils::ZonedDateTime &zdt) { return zdt.ToString(); }
+
 template <class TAccessor>
 inline std::string ToString(const memgraph::query::TypedValue &value, const TAccessor &acc) {
   std::ostringstream os;
@@ -104,8 +113,8 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
       break;
     case memgraph::query::TypedValue::Type::List:
       os << "[";
-      memgraph::utils::PrintIterable(os, value.ValueList(), ", ",
-                                     [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
+      memgraph::utils::PrintIterable(
+          os, value.ValueList(), ", ", [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
       os << "]";
       break;
     case memgraph::query::TypedValue::Type::Map:
@@ -136,10 +145,28 @@ inline std::string ToString(const memgraph::query::TypedValue &value, const TAcc
     case memgraph::query::TypedValue::Type::Duration:
       os << ToString(value.ValueDuration());
       break;
+    case memgraph::query::TypedValue::Type::Enum:
+      os << ToString(value.ValueEnum());
+      break;
+    case memgraph::query::TypedValue::Type::ZonedDateTime:
+      os << ToString(value.ValueZonedDateTime());
+      break;
     case memgraph::query::TypedValue::Type::Graph:
+      throw std::logic_error{"Not implemented"};
+    case memgraph::query::TypedValue::Type::VirtualGraph:
+      throw std::logic_error{"Not implemented"};
+    case memgraph::query::TypedValue::Type::VirtualEdge:
+      throw std::logic_error{"Not implemented"};
+    case memgraph::query::TypedValue::Type::VirtualNode:
       throw std::logic_error{"Not implemented"};
     case memgraph::query::TypedValue::Type::Function:
       throw std::logic_error{"Not implemented"};
+    case memgraph::query::TypedValue::Type::Point2d:
+      os << ToString(value.ValuePoint2d());
+      break;
+    case memgraph::query::TypedValue::Type::Point3d:
+      os << ToString(value.ValuePoint3d());
+      break;
   }
   return os.str();
 }

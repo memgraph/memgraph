@@ -1,0 +1,5 @@
+query: >
+  CALL convert_c.to_tree(null) YIELD value RETURN value;
+
+output:
+  - value: {}

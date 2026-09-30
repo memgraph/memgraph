@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,11 +14,16 @@
 #include "bolt_common.hpp"
 #include "bolt_testdata.hpp"
 #include "communication/bolt/v1/decoder/decoder.hpp"
+#include "timezone_handler.hpp"
 
 using memgraph::communication::bolt::Value;
 
-inline constexpr const int SIZE = 131072;
+namespace {
+
+inline constexpr const int SIZE = 131'072;
 uint8_t data[SIZE];
+
+}  // namespace
 
 /**
  * TestDecoderBuffer
@@ -173,11 +178,11 @@ TEST_F(BoltDecoder, StringLarge) {
   // test all ok
   buffer.Clear();
   buffer.Write(header, 5);
-  buffer.Write(data, 100000);
+  buffer.Write(data, 100'000);
   ASSERT_EQ(decoder.ReadValue(&dv), true);
   ASSERT_EQ(dv.type(), Value::Type::String);
   std::string &str = dv.ValueString();
-  for (int j = 0; j < 100000; ++j) EXPECT_EQ((uint8_t)str[j], data[j]);
+  for (int j = 0; j < 100'000; ++j) EXPECT_EQ((uint8_t)str[j], data[j]);
 }
 
 TEST_F(BoltDecoder, List) {
@@ -273,7 +278,7 @@ TEST_F(BoltDecoder, Map) {
     }
     ASSERT_EQ(decoder.ReadValue(&dv), true);
     ASSERT_EQ(dv.type(), Value::Type::Map);
-    std::map<std::string, Value> &val = dv.ValueMap();
+    auto &val = dv.ValueMap();
     ASSERT_EQ(val.size(), 15);
     for (int j = 0; j < 15; ++j) {
       char tmp_chr = 'a' + j;
@@ -491,7 +496,7 @@ TEST_F(BoltDecoder, DateRecent) {
   using Sig = memgraph::communication::bolt::Signature;
   const auto date = memgraph::utils::Date({2021, 7, 20});
   const auto days = date.DaysSinceEpoch();
-  ASSERT_EQ(days, 18828);
+  ASSERT_EQ(days, 18'828);
   const auto *d_bytes = std::bit_cast<const uint8_t *>(&days);
   // clang-format off
   std::array<uint8_t, 7> data = {
@@ -578,7 +583,7 @@ TEST_F(BoltDecoder, ArbitraryDuration) {
   ASSERT_EQ(secs, 3723);
   const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = dur.SubSecondsAsNanoseconds();
-  ASSERT_EQ(nanos, 5000000);
+  ASSERT_EQ(nanos, 5'000'000);
   const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = memgraph::communication::bolt::Marker;
   using Sig = memgraph::communication::bolt::Signature;
@@ -644,7 +649,7 @@ TEST_F(BoltDecoder, LocalTimeOneThousandMicro) {
   const auto value = Value(memgraph::utils::LocalTime(1000));
   const auto &local_time = value.ValueLocalTime();
   const auto nanos = local_time.NanosecondsSinceEpoch();
-  ASSERT_EQ(nanos, 1000000);
+  ASSERT_EQ(nanos, 1'000'000);
   const auto *n_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = memgraph::communication::bolt::Marker;
   using Sig = memgraph::communication::bolt::Signature;
@@ -662,21 +667,21 @@ TEST_F(BoltDecoder, LocalTimeOneThousandMicro) {
   AssertThatLocalTimeIsEqual(dv.ValueLocalTime(), local_time);
 }
 
-TEST_F(BoltDecoder, LocalDateTime) {
+void test_LocalDateTime() {
   TestDecoderBuffer buffer;
   DecoderT decoder(buffer);
 
   Value dv;
 
   const auto local_time = memgraph::utils::LocalTime(memgraph::utils::LocalTimeParameters({0, 0, 30, 1, 0}));
-  const auto date = memgraph::utils::Date(1);
+  const auto date = memgraph::utils::Date(std::chrono::microseconds{1});
   const auto value = Value(memgraph::utils::LocalDateTime(date, local_time));
   const auto local_date_time = value.ValueLocalDateTime();
   const auto secs = local_date_time.SecondsSinceEpoch();
   ASSERT_EQ(secs, 30);
   const auto *sec_bytes = std::bit_cast<const uint8_t *>(&secs);
   const auto nanos = local_date_time.SubSecondsAsNanoseconds();
-  ASSERT_EQ(nanos, 1000000);
+  ASSERT_EQ(nanos, 1'000'000);
   const auto *nano_bytes = std::bit_cast<const uint8_t *>(&nanos);
   using Marker = memgraph::communication::bolt::Marker;
   using Sig = memgraph::communication::bolt::Signature;
@@ -695,6 +700,160 @@ TEST_F(BoltDecoder, LocalDateTime) {
   buffer.Clear();
   buffer.Write(data.data(), data.size());
   ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::LocalDateTime), true);
-  AssertThatDatesAreEqual(dv.ValueLocalDateTime().date, local_date_time.date);
-  AssertThatLocalTimeIsEqual(dv.ValueLocalDateTime().local_time, local_date_time.local_time);
+  AssertThatDatesAreEqual(dv.ValueLocalDateTime().date(), local_date_time.date());
+  AssertThatLocalTimeIsEqual(dv.ValueLocalDateTime().local_time(), local_date_time.local_time());
+}
+
+TEST_F(BoltDecoder, LocalDateTime) { test_LocalDateTime(); }
+
+TEST_F(BoltDecoder, LocalDateTimeTZ) {
+  HandleTimezone htz;
+  htz.Set("Europe/Rome");
+  test_LocalDateTime();
+  htz.Set("America/Los_Angeles");
+  test_LocalDateTime();
+}
+
+TEST_F(BoltDecoder, ZonedDateTime) {
+  using Marker = memgraph::communication::bolt::Marker;
+
+  auto check_case = [](const auto &zdt, const uint8_t version, const auto &expected) {
+    TestDecoderBuffer buffer;
+    DecoderT decoder(buffer);
+    decoder.UpdateVersion(version);
+
+    Value dv;
+
+    std::vector<uint8_t> data{
+        Cast(Marker::TinyStruct3),
+    };
+    data.push_back(static_cast<uint8_t>(expected.type));
+    data.insert(data.end(), expected.seconds.begin(), expected.seconds.end());
+    data.insert(data.end(), expected.nanoseconds.begin(), expected.nanoseconds.end());
+    data.insert(data.end(), expected.tz.begin(), expected.tz.end());
+
+    buffer.Clear();
+    buffer.Write(data.data(), data.size());
+    ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::ZonedDateTime), true);
+    ASSERT_EQ(dv.ValueZonedDateTime(), zdt);
+  };
+
+  const std::array test_cases{
+      std::make_tuple(zdt_testdata::zdt, 5, zdt_testdata::expected_zdt),
+      std::make_tuple(zdt_testdata::zdt_offset, 5, zdt_testdata::expected_zdt_offset),
+      std::make_tuple(zdt_testdata::zdt, 4, zdt_testdata::expected_legacy_zdt),
+      std::make_tuple(zdt_testdata::zdt_offset, 4, zdt_testdata::expected_legacy_zdt_offset),
+  };
+
+  for (const auto &[zdt, version, expected] : test_cases) {
+    check_case(zdt, version, expected);
+  }
+}
+
+TEST_F(BoltDecoder, Point2d) {
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
+  using enum memgraph::storage::CoordinateReferenceSystem;
+  using Point2d = memgraph::storage::Point2d;
+
+  auto run_test = [](Point2d const &point_2d) {
+    auto assert_points_are_equal = [](auto const &point1, auto const &point2) {
+      ASSERT_EQ(point1.crs(), point2.crs());
+      ASSERT_EQ(point1.x(), point2.x());
+      ASSERT_EQ(point1.y(), point2.y());
+    };
+
+    TestDecoderBuffer buffer;
+    DecoderT decoder(buffer);
+    Value dv;
+
+    auto const x = point_2d.x();
+    auto const y = point_2d.y();
+    auto const srid = memgraph::storage::CrsToSrid(point_2d.crs());
+
+    auto const *x_bytes = std::bit_cast<const uint8_t *>(&x);
+    auto const *y_bytes = std::bit_cast<const uint8_t *>(&y);
+    auto const *srid_bytes = std::bit_cast<const uint8_t *>(&srid);
+
+    // clang-format off
+    auto const data = std::array<uint8_t, 26> {
+                              Cast(Marker::TinyStruct3),
+                              Cast(Sig::Point2d),
+                              Cast(Marker::Int16),
+                              srid_bytes[1], srid_bytes[0],
+                              Cast(Marker::Float64),
+                              x_bytes[7], x_bytes[6], x_bytes[5], x_bytes[4],
+                              x_bytes[3], x_bytes[2], x_bytes[1], x_bytes[0],
+                              Cast(Marker::Float64),
+                              y_bytes[7], y_bytes[6], y_bytes[5], y_bytes[4],
+                              y_bytes[3], y_bytes[2], y_bytes[1], y_bytes[0]};
+    // clang-format on
+    buffer.Write(data.data(), data.size());
+    ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Point2d), true);
+    ASSERT_EQ(dv.type(), Value::Type::Point2d);
+    assert_points_are_equal(dv.ValuePoint2d(), point_2d);
+  };
+
+  auto const point_wgs = memgraph::storage::Point2d(WGS84_2d, 1.0, 2.0);
+  auto const point_cartesian = memgraph::storage::Point2d(Cartesian_2d, 3.0, 4.0);
+
+  std::invoke(run_test, point_wgs);
+  std::invoke(run_test, point_cartesian);
+}
+
+TEST_F(BoltDecoder, Point3d) {
+  using Marker = memgraph::communication::bolt::Marker;
+  using Sig = memgraph::communication::bolt::Signature;
+  using enum memgraph::storage::CoordinateReferenceSystem;
+  using Point3d = memgraph::storage::Point3d;
+
+  auto run_test = [](Point3d const &point_3d) {
+    auto assert_points_are_equal = [](auto const &point1, auto const &point2) {
+      ASSERT_EQ(point1.crs(), point2.crs());
+      ASSERT_EQ(point1.x(), point2.x());
+      ASSERT_EQ(point1.y(), point2.y());
+      ASSERT_EQ(point1.z(), point2.z());
+    };
+
+    TestDecoderBuffer buffer;
+    DecoderT decoder(buffer);
+    Value dv;
+
+    auto const x = point_3d.x();
+    auto const y = point_3d.y();
+    auto const z = point_3d.z();
+    auto const srid = memgraph::storage::CrsToSrid(point_3d.crs());
+
+    auto const *x_bytes = std::bit_cast<const uint8_t *>(&x);
+    auto const *y_bytes = std::bit_cast<const uint8_t *>(&y);
+    auto const *z_bytes = std::bit_cast<const uint8_t *>(&z);
+    auto const *srid_bytes = std::bit_cast<const uint8_t *>(&srid);
+
+    // clang-format off
+    auto const data = std::array<uint8_t, 33> {
+                              Cast(Marker::TinyStruct4),
+                              Cast(Sig::Point3d),
+                              Cast(Marker::Int16),
+                              srid_bytes[1], srid_bytes[0],
+                              Cast(Marker::Float64),
+                              x_bytes[7], x_bytes[6], x_bytes[5], x_bytes[4],
+                              x_bytes[3], x_bytes[2], x_bytes[1], x_bytes[0],
+                              Cast(Marker::Float64),
+                              y_bytes[7], y_bytes[6], y_bytes[5], y_bytes[4],
+                              y_bytes[3], y_bytes[2], y_bytes[1], y_bytes[0],
+                              Cast(Marker::Float64),
+                              z_bytes[7], z_bytes[6], z_bytes[5], z_bytes[4],
+                              z_bytes[3], z_bytes[2], z_bytes[1], z_bytes[0]};
+    // clang-format on
+    buffer.Write(data.data(), data.size());
+    ASSERT_EQ(decoder.ReadValue(&dv, Value::Type::Point3d), true);
+    ASSERT_EQ(dv.type(), Value::Type::Point3d);
+    assert_points_are_equal(dv.ValuePoint3d(), point_3d);
+  };
+
+  auto const point_wgs = memgraph::storage::Point3d(WGS84_3d, 1.0, 2.0, 3.0);
+  auto const point_cartesian = memgraph::storage::Point3d(Cartesian_3d, 4.0, 5.0, 6.0);
+
+  std::invoke(run_test, point_wgs);
+  std::invoke(run_test, point_cartesian);
 }

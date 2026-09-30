@@ -1,564 +1,274 @@
-name: Diff
+name: "Diff"
 concurrency:
-  group: ${{ github.head_ref || github.sha }}
+  group: ${{ inputs.ref || github.head_ref || github.sha }}
   cancel-in-progress: true
 
 on:
-  push:
-    branches:
-      - master
-  workflow_dispatch:
+  merge_group:
   pull_request:
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - ".clang-format"
-      - "CODEOWNERS"
-      - "licenses/*"
+  workflow_dispatch:
+    inputs:
+      community_core:
+        type: boolean
+        default: true
+        description: "Community: Core"
+      coverage_core:
+        type: boolean
+        default: true
+        description: "Coverage: Core"
+      coverage_clang_tidy:
+        type: boolean
+        default: true
+        description: "Coverage: Clang-Tidy"
+      debug_core:
+        type: boolean
+        default: true
+        description: "Debug: Core"
+      debug_integration:
+        type: boolean
+        default: true
+        description: "Debug: Integration"
+      jepsen_core:
+        type: boolean
+        default: true
+        description: "Jepsen: Core"
+      release_core:
+        type: boolean
+        default: true
+        description: "Release: Core"
+      release_benchmark:
+        type: boolean
+        default: true
+        description: "Release: Benchmark"
+      release_e2e:
+        type: boolean
+        default: true
+        description: "Release: E2E"
+      release_stress:
+        type: boolean
+        default: true
+        description: "Release: Stress"
+      mage_amd:
+        type: boolean
+        default: true
+        description: "MAGE: AMD"
+      mage_arm:
+        type: boolean
+        default: true
+        description: "MAGE: ARM"
+      mage_cuda:
+        type: boolean
+        default: true
+        description: "MAGE: CUDA"
+      mgcxx_unit:
+        type: boolean
+        default: true
+        description: "MGCXX: Unit"
+      python_build_version:
+        type: string
+        default: ''
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the default Python inside each build container."
+      python_runtime_version:
+        type: string
+        default: ''
+        description: "After building, remove the build Python and swap in this version (e.g. 3.13) so tests run the binary against a different libpython. Empty disables the swap."
+      profile_build:
+        type: boolean
+        default: false
+        description: "Profile every memgraph build"
+  workflow_call:
+    inputs:
+      community_core:
+        type: boolean
+        default: true
+        description: "Community: Core"
+      coverage_core:
+        type: boolean
+        default: true
+        description: "Coverage: Core"
+      coverage_clang_tidy:
+        type: boolean
+        default: true
+        description: "Coverage: Clang-Tidy"
+      debug_core:
+        type: boolean
+        default: true
+        description: "Debug: Core"
+      debug_integration:
+        type: boolean
+        default: true
+        description: "Debug: Integration"
+      jepsen_core:
+        type: boolean
+        default: true
+        description: "Jepsen: Core"
+      release_core:
+        type: boolean
+        default: true
+        description: "Release: Core"
+      release_benchmark:
+        type: boolean
+        default: true
+        description: "Release: Benchmark"
+      release_e2e:
+        type: boolean
+        default: true
+        description: "Release: E2E"
+      release_stress:
+        type: boolean
+        default: true
+        description: "Release: Stress"
+      mage_amd:
+        type: boolean
+        default: true
+        description: "MAGE: AMD"
+      mage_arm:
+        type: boolean
+        default: true
+        description: "MAGE: ARM"
+      mage_cuda:
+        type: boolean
+        default: true
+        description: "MAGE: CUDA"
+      mgcxx_unit:
+        type: boolean
+        default: true
+        description: "MGCXX: Unit"
+      python_build_version:
+        type: string
+        default: ''
+        description: "Override the Python version Memgraph is built against (e.g. 3.12). Empty uses the default Python inside each build container."
+      python_runtime_version:
+        type: string
+        default: ''
+        description: "After building, remove the build Python and swap in this version (e.g. 3.13) so tests run the binary against a different libpython. Empty disables the swap."
+      profile_build:
+        type: boolean
+        default: false
+        description: "Profile every memgraph build"
+      ref:
+        description: 'Branch or commit ref to run the workflow on'
+        required: false
+        default: ''
+        type: string
 
 jobs:
-  community_build:
-    name: "Community build"
-    runs-on: [self-hosted, Linux, X64, Diff]
+  DiffSetup:
+    runs-on: ubuntu-latest
+    outputs:
+      run_community_core: ${{ steps.setup.outputs.run_community_core }}
+      run_coverage_core: ${{ steps.setup.outputs.run_coverage_core }}
+      run_coverage_clang_tidy: ${{ steps.setup.outputs.run_coverage_clang_tidy }}
+      run_debug_core: ${{ steps.setup.outputs.run_debug_core }}
+      run_debug_integration: ${{ steps.setup.outputs.run_debug_integration }}
+      run_jepsen_core: ${{ steps.setup.outputs.run_jepsen_core }}
+      run_release_core: ${{ steps.setup.outputs.run_release_core }}
+      run_release_benchmark: ${{ steps.setup.outputs.run_release_benchmark}}
+      run_release_e2e: ${{ steps.setup.outputs.run_release_e2e }}
+      run_release_stress: ${{ steps.setup.outputs.run_release_stress }}
+      run_mage_amd: ${{ steps.setup.outputs.run_mage_amd }}
+      run_mage_arm: ${{ steps.setup.outputs.run_mage_arm }}
+      run_mage_cuda: ${{ steps.setup.outputs.run_mage_cuda }}
+      run_mgcxx_unit: ${{ steps.setup.outputs.run_mgcxx_unit }}
     env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
+      GH_CONTEXT: ${{ toJson(github) }}
+      GH_CONTEXT_FILE_NAME: github_context.json
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
-
-      - name: Build community binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build community binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -DMG_ENTERPRISE=OFF ..
-          make -j$THREADS
-
-      - name: Run unit tests
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run unit tests.
-          cd build
-          ctest -R memgraph__unit --output-on-failure -j$THREADS
-
-  code_analysis:
-    name: "Code analysis"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-        # This is also needed if we want do to comparison against other branches
-        # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
-      - name: Fetch all history for all tags and branches
-        run: git fetch
-
-      - name: Initialize deps
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-      - name: Set base branch
-        if: ${{ github.event_name == 'pull_request' }}
-        run: |
-          echo "BASE_BRANCH=origin/${{ github.base_ref }}" >> $GITHUB_ENV
-
-      - name: Set base branch # if we manually dispatch or push to master
-        if: ${{ github.event_name != 'pull_request' }}
-        run: |
-          echo "BASE_BRANCH=origin/master" >> $GITHUB_ENV
-
-      - name: Python code analysis
-        run: |
-          CHANGED_FILES=$(git diff -U0 ${{ env.BASE_BRANCH }}... --name-only)
-          for file in ${CHANGED_FILES}; do
-            echo ${file}
-            if [[ ${file} == *.py ]]; then
-              python3 -m black --check --diff ${file}
-              python3 -m isort --profile black --check-only --diff ${file}
-            fi
-          done
-
-      - name: Build combined ASAN, UBSAN and coverage binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          cd build
-          cmake -DTEST_COVERAGE=ON -DASAN=ON -DUBSAN=ON ..
-          make -j$THREADS memgraph__unit
-
-      - name: Run unit tests
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run unit tests. It is restricted to 2 threads intentionally, because higher concurrency makes the timing related tests unstable.
-          cd build
-          LSAN_OPTIONS=suppressions=$PWD/../tools/lsan.supp UBSAN_OPTIONS=halt_on_error=1 ctest -R memgraph__unit --output-on-failure -j2
-
-      - name: Compute code coverage
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Compute code coverage.
-          cd tools/github
-          ./coverage_convert
-
-          # Package code coverage.
-          cd generated
-          tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu
-
-      - name: Save code coverage
-        uses: actions/upload-artifact@v3
-        with:
-          name: "Code coverage"
-          path: tools/github/generated/code_coverage.tar.gz
-
-      - name: Run clang-tidy
-        run: |
-          source /opt/toolchain-v4/activate
-
-          # Restrict clang-tidy results only to the modified parts
-          git diff -U0 ${{ env.BASE_BRANCH }}... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build  -regex ".+\.cpp" | tee ./build/clang_tidy_output.txt
-
-          # Fail if any warning is reported
-          ! cat ./build/clang_tidy_output.txt | ./tools/github/clang-tidy/grep_error_lines.sh > /dev/null
-
-  debug_build:
-    name: "Debug build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Build debug binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build debug binaries.
-          cd build
-          cmake ..
-          make -j$THREADS
-
-      - name: Run leftover CTest tests
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run leftover CTest tests (all except unit and benchmark tests).
-          cd build
-          ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure
-
-      - name: Run drivers tests
-        run: |
-          ./tests/drivers/run.sh
-
-      - name: Run integration tests
-        run: |
-          tests/integration/run.sh
-
-      - name: Run cppcheck and clang-format
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run cppcheck and clang-format.
-          cd tools/github
-          ./cppcheck_and_clang_format diff
-
-      - name: Save cppcheck and clang-format errors
-        uses: actions/upload-artifact@v3
-        with:
-          name: "Code coverage"
-          path: tools/github/cppcheck_and_clang_format.txt
-
-  release_build:
-    name: "Release build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-
-      - name: Build release binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build release binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release ..
-          make -j$THREADS
-
-      - name: Run GQL Behave tests
-        run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          cd gql_behave
-          ./continuous_integration
-
-      - name: Save quality assurance status
-        uses: actions/upload-artifact@v3
-        with:
-          name: "GQL Behave Status"
-          path: |
-            tests/gql_behave/gql_behave_status.csv
-            tests/gql_behave/gql_behave_status.html
-
-      - name: Run unit tests
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run unit tests.
-          cd build
-          ctest -R memgraph__unit --output-on-failure -j$THREADS
-
-      - name: Ensure Kafka and Pulsar are up
-        run: |
-          cd tests/e2e/streams/kafka
-          docker-compose up -d
-          cd ../pulsar
-          docker-compose up -d
-
-      - name: Run e2e tests
-        run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          source ve3/bin/activate_e2e
-          cd e2e
-          ./run.sh
-
-      - name: Ensure Kafka and Pulsar are down
-        if: always()
-        run: |
-          cd tests/e2e/streams/kafka
-          docker-compose down
-          cd ../pulsar
-          docker-compose down
-
-      - name: Run stress test (plain)
-        run: |
-          cd tests/stress
-          source ve3/bin/activate
-          ./continuous_integration
-
-      - name: Run stress test (SSL)
-        run: |
-          cd tests/stress
-          source ve3/bin/activate
-          ./continuous_integration --use-ssl
-
-      - name: Run durability test
-        run: |
-          cd tests/stress
-          source ve3/bin/activate
-          python3 durability --num-steps 5
-
-      - name: Create enterprise DEB package
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-          cd build
-
-          # create mgconsole
-          # we use the -B to force the build
-          make -j$THREADS -B mgconsole
-
-          # Create enterprise DEB package.
-          mkdir output && cd output
-          cpack -G DEB --config ../CPackConfig.cmake
-
-      - name: Save enterprise DEB package
-        uses: actions/upload-artifact@v3
-        with:
-          name: "Enterprise DEB package"
-          path: build/output/memgraph*.deb
-
-      - name: Save test data
-        uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: "Test data"
-          path: |
-            # multiple paths could be defined
-            build/logs
-
-  experimental_build_ha:
-    name: "High availability build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Build release binaries
-        run: |
-          source /opt/toolchain-v4/activate
-          ./init
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release -DMG_EXPERIMENTAL_HIGH_AVAILABILITY=ON ..
-          make -j$THREADS
-      - name: Run unit tests
-        run: |
-          source /opt/toolchain-v4/activate
-          cd build
-          ctest -R memgraph__unit --output-on-failure -j$THREADS
-      - name: Run e2e tests
-        run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          source ve3/bin/activate_e2e
-          cd e2e
-          ./run.sh "Coordinator"
-          ./run.sh "Client initiated failover"
-          ./run.sh "Uninitialized cluster"
-      - name: Save test data
-        uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: "Test data"
-          path: |
-            # multiple paths could be defined
-            build/logs
-
-  experimental_build_mt:
-    name: "MultiTenancy replication build"
-    runs-on: [self-hosted, Linux, X64, Diff]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-
-      - name: Build release binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build MT replication experimental binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=Release -D MG_EXPERIMENTAL_REPLICATION_MULTITENANCY=ON ..
-          make -j$THREADS
-
-      - name: Run unit tests
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Run unit tests.
-          cd build
-          ctest -R memgraph__unit --output-on-failure -j$THREADS
-
-      - name: Run e2e tests
-        run: |
-          cd tests
-          ./setup.sh /opt/toolchain-v4/activate
-          source ve3/bin/activate_e2e
-          cd e2e
-
-          # Just the replication based e2e tests
-          ./run.sh "Replicate multitenancy"
-          ./run.sh "Show"
-          ./run.sh "Show while creating invalid state"
-          ./run.sh "Delete edge replication"
-          ./run.sh "Read-write benchmark"
-          ./run.sh "Index replication"
-          ./run.sh "Constraints"
-
-      - name: Save test data
-        uses: actions/upload-artifact@v3
-        if: always()
-        with:
-          name: "Test data"
-          path: |
-            # multiple paths could be defined
-            build/logs
-
-  release_jepsen_test:
-    name: "Release Jepsen Test"
-    runs-on: [self-hosted, Linux, X64, Debian10, JepsenControl]
-    #continue-on-error: true
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Build release binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-          # Initialize dependencies.
-          ./init
-          # Build only memgraph release binarie.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
-          make -j$THREADS memgraph
-
-      - name: Run Jepsen tests
-        run: |
-          cd tests/jepsen
-          ./run.sh test-all-individually --binary ../../build/memgraph --ignore-run-stdout-logs --ignore-run-stderr-logs
-
-      - name: Save Jepsen report
-        uses: actions/upload-artifact@v3
-        if: ${{ always() }}
-        with:
-          name: "Jepsen Report"
-          path: tests/jepsen/Jepsen.tar.gz
-
-  release_benchmarks:
-    name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
-    env:
-      THREADS: 24
-      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
-      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
-
-    steps:
-      - name: Set up repository
-        uses: actions/checkout@v3
-        with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
-          fetch-depth: 0
-
-      - name: Build release binaries
-        run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
-
-          # Initialize dependencies.
-          ./init
-
-          # Build only memgraph release binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
-          make -j$THREADS
-
-      - name: Run macro benchmarks
-        run: |
-          cd tests/macro_benchmark
-          ./harness QuerySuite MemgraphRunner \
-            --groups aggregation 1000_create unwind_create dense_expand match \
-            --no-strict
-
-      - name: Get branch name (merge)
-        if: github.event_name != 'pull_request'
-        shell: bash
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
-
-      - name: Get branch name (pull request)
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
-
-      - name: Upload macro benchmark results
-        run: |
-          cd tools/bench-graph-client
-          virtualenv -p python3 ve3
-          source ve3/bin/activate
-          pip install -r requirements.txt
-          ./main.py --benchmark-name "macro_benchmark" \
-                    --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
-
-      # TODO (andi) No need for path flags and for --disk-storage and --in-memory-analytical
-      - name: Run mgbench
-        run: |
-          cd tests/mgbench
-          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/medium/*/*
-
-      - name: Upload mgbench results
-        run: |
-          cd tools/bench-graph-client
-          virtualenv -p python3 ve3
-          source ve3/bin/activate
-          pip install -r requirements.txt
-          ./main.py --benchmark-name "mgbench" \
-                    --benchmark-results "../../tests/mgbench/benchmark_result.json" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
+      - name: Dump GitHub context
+        run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
+      - name: Set up diff execution
+        id: setup
+        run: ./tools/ci/diff_setup.py --gh-context-path "$GH_CONTEXT_FILE_NAME" --base-branch "origin/master"
+
+  Community:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_community.yaml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      arch: 'amd'
+      os: 'ubuntu-24.04'
+      run_core: ${{ needs.DiffSetup.outputs.run_community_core }}
+      python_build_version: ${{ inputs.python_build_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
+      profile_build: ${{ inputs.profile_build == true }}
+    secrets: inherit
+
+  Coverage:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_coverage.yaml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      arch: 'amd'
+      os: 'ubuntu-24.04'
+      run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
+      run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_clang_tidy }}
+      python_build_version: ${{ inputs.python_build_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
+      profile_build: ${{ inputs.profile_build == true }}
+    secrets: inherit
+
+  Debug:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_debug.yaml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      arch: 'amd'
+      os: 'ubuntu-24.04'
+      run_core: ${{ needs.DiffSetup.outputs.run_debug_core }}
+      run_integration: ${{ needs.DiffSetup.outputs.run_debug_integration }}
+      python_build_version: ${{ inputs.python_build_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
+      profile_build: ${{ inputs.profile_build == true }}
+    secrets: inherit
+
+  Jepsen:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_jepsen.yaml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      run_core: ${{ needs.DiffSetup.outputs.run_jepsen_core }}
+      profile_build: ${{ inputs.profile_build == true }}
+    secrets: inherit
+
+  Release:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_release.yaml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      arch: 'amd'
+      os: 'ubuntu-24.04'
+      run_core: ${{ needs.DiffSetup.outputs.run_release_core }}
+      run_benchmark: ${{ needs.DiffSetup.outputs.run_release_benchmark }}
+      run_e2e: ${{ needs.DiffSetup.outputs.run_release_e2e }}
+      run_stress: ${{ needs.DiffSetup.outputs.run_release_stress }}
+      python_build_version: ${{ inputs.python_build_version }}
+      python_runtime_version: ${{ inputs.python_runtime_version }}
+      profile_build: ${{ inputs.profile_build == true }}
+    secrets: inherit
+
+  Mage:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_mage.yml
+    with:
+      ref: ${{ inputs.ref || github.ref }}
+      os: 'ubuntu-24.04'
+      run_amd: ${{ needs.DiffSetup.outputs.run_mage_amd == 'true' }}
+      run_arm: ${{ needs.DiffSetup.outputs.run_mage_arm == 'true' }}
+      run_cuda: ${{ needs.DiffSetup.outputs.run_mage_cuda == 'true' }}
+      # Mage only overrides the build-time Python; runtime stays the image
+      # default, so no python_runtime_version (no swap) is forwarded.
+      python_build_version: ${{ inputs.python_build_version }}
+    secrets: inherit
+
+  MGCXX:
+    needs: DiffSetup
+    uses: ./.github/workflows/diff_mgcxx.yml
+    with:
+      run_test: ${{ needs.DiffSetup.outputs.run_mgcxx_unit == 'true' }}
+      ref: ${{ inputs.ref || github.ref }}
+    secrets: inherit

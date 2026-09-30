@@ -1,0 +1,5 @@
+query: >
+  RETURN map.merge({id: 1}, null) AS merged
+
+output:
+  - merged: {id: 1}

@@ -1,0 +1,8 @@
+sources:
+  "2.2.0-memgraph":
+    sha256: 466c36c6508a451734e4f4d76825cf9cd9b8716d2b70ef36479ae40f08271f88
+    url: https://github.com/gflags/gflags/archive/v2.2.0.tar.gz
+patches:
+  "2.2.0-memgraph":
+    - patch_file: "patches/gflags-memgraph.patch"
+      patch_description: "Fixes for Memgraph"

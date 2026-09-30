@@ -1,0 +1,7 @@
+query: >
+    MATCH (b:B)
+    CALL graph_util.descendants(b) YIELD descendants
+    RETURN size(descendants) AS size
+
+output:
+    - size: 0

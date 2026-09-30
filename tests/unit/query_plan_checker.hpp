@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <climits>
+#include <set>
+#include <string>
 #include <utility>
+#include <vector>
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
@@ -20,6 +23,9 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/rule_based_planner.hpp"
+#include "storage/v2/enum.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query::plan {
@@ -29,7 +35,52 @@ class BaseOpChecker {
   virtual ~BaseOpChecker() = default;
 
   virtual void CheckOp(LogicalOperator &, const SymbolTable &) = 0;
+
+ protected:
+  BaseOpChecker() = default;
+  BaseOpChecker(const BaseOpChecker &) = default;
+  BaseOpChecker(BaseOpChecker &&) noexcept = default;
+  BaseOpChecker &operator=(const BaseOpChecker &) = default;
+  BaseOpChecker &operator=(BaseOpChecker &&) noexcept = default;
 };
+
+/// Type-erased wrapper for BaseOpChecker that allows value semantics.
+/// This enables using checkers in containers without manual memory management.
+/// Uses shared_ptr internally to allow cheap copies (shared ownership).
+/// Example: Checkers checkers{ExpectOnce{}, ExpectExpand{}, ExpectProduce{}};
+class Checker {
+ public:
+  template <typename T, typename = std::enable_if_t<std::is_base_of_v<BaseOpChecker, std::decay_t<T>>>>
+  Checker(T &&checker) : impl_(std::make_shared<Model<std::decay_t<T>>>(std::forward<T>(checker))) {}
+
+  Checker(Checker &&) = default;
+  Checker &operator=(Checker &&) = default;
+  Checker(const Checker &) = default;
+  Checker &operator=(const Checker &) = default;
+
+  BaseOpChecker *get() const { return impl_->get(); }
+
+ private:
+  struct Concept {
+    virtual ~Concept() = default;
+    virtual BaseOpChecker *get() = 0;
+  };
+
+  template <typename T>
+  struct Model : Concept {
+    T checker;
+
+    template <typename U>
+    explicit Model(U &&c) : checker(std::forward<U>(c)) {}
+
+    BaseOpChecker *get() override { return &checker; }
+  };
+
+  std::shared_ptr<Concept> impl_;
+};
+
+/// Container type alias for a list of type-erased checkers
+using Checkers = std::vector<Checker>;
 
 class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
  public:
@@ -44,6 +95,10 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   PlanChecker(const std::list<BaseOpChecker *> &checkers, const SymbolTable &symbol_table)
       : checkers_(checkers), symbol_table_(symbol_table) {}
+
+  PlanChecker(const Checkers &checkers, const SymbolTable &symbol_table) : symbol_table_(symbol_table) {
+    for (const auto &checker : checkers) checkers_.emplace_back(checker.get());
+  }
 
 #define PRE_VISIT(TOp)              \
   bool PreVisit(TOp &op) override { \
@@ -62,9 +117,12 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Delete);
   PRE_VISIT(ScanAll);
   PRE_VISIT(ScanAllByLabel);
-  PRE_VISIT(ScanAllByLabelPropertyValue);
-  PRE_VISIT(ScanAllByLabelPropertyRange);
-  PRE_VISIT(ScanAllByLabelProperty);
+  PRE_VISIT(ScanAllByLabelProperties);
+  PRE_VISIT(ScanAllByEdgeType);
+  PRE_VISIT(ScanAllByEdgeTypeProperty);
+  PRE_VISIT(ScanAllByEdgeProperty);
+  PRE_VISIT(ScanAllByEdgeId);
+  PRE_VISIT(ScanAllByVertexProperty);
   PRE_VISIT(ScanAllById);
   PRE_VISIT(Expand);
   PRE_VISIT(ExpandVariable);
@@ -83,16 +141,21 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Limit);
   PRE_VISIT(OrderBy);
   PRE_VISIT(EvaluatePatternFilter);
+  PRE_VISIT(SetNestedProperty);
+  PRE_VISIT(RemoveNestedProperty);
+
   bool PreVisit(Merge &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
     return false;
   }
+
   bool PreVisit(Optional &op) override {
     CheckOp(op);
     op.input()->Accept(*this);
     return false;
   }
+
   PRE_VISIT(Unwind);
   PRE_VISIT(Distinct);
 
@@ -140,6 +203,35 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   PRE_VISIT(CallProcedure);
 
+  bool PreVisit(RollUpApply &op) override {
+    CheckOp(op);
+    return false;
+  }
+
+  PRE_VISIT(PeriodicCommit);
+  PRE_VISIT(LoadCsv);
+  PRE_VISIT(LoadParquet);
+
+  PRE_VISIT(AggregateParallel);
+  PRE_VISIT(OrderByParallel);
+  PRE_VISIT(ParallelMerge);
+  PRE_VISIT(ScanParallel);
+  PRE_VISIT(ScanParallelByLabel);
+  PRE_VISIT(ScanParallelByLabelProperties);
+  PRE_VISIT(ScanParallelByEdge);
+  PRE_VISIT(ScanParallelByEdgeType);
+  PRE_VISIT(ScanParallelByEdgeTypeProperty);
+  PRE_VISIT(ScanParallelByEdgeProperty);
+  PRE_VISIT(ScanParallelByVertexProperty);
+  PRE_VISIT(ScanChunk);
+  PRE_VISIT(ScanChunkByEdge);
+
+  bool PreVisit(PeriodicSubquery &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
 #undef PRE_VISIT
 #undef VISIT
 
@@ -165,15 +257,97 @@ class OpChecker : public BaseOpChecker {
   virtual void ExpectOp(TOp &, const SymbolTable &) {}
 };
 
+using ExpectOnce = OpChecker<Once>;
 using ExpectCreateNode = OpChecker<CreateNode>;
 using ExpectCreateExpand = OpChecker<CreateExpand>;
 using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
-using ExpectScanAllByLabel = OpChecker<ScanAllByLabel>;
-using ExpectScanAllById = OpChecker<ScanAllById>;
+using ExpectScanAllByEdgeType = OpChecker<ScanAllByEdgeType>;
+
+/// `ExpectFilter` checks none of what a filter tests. This checks its OR label groups, each as a set of
+/// label names, for tests about which groups survive planning.
+class ExpectFilterOrLabels : public OpChecker<Filter> {
+ public:
+  explicit ExpectFilterOrLabels(std::vector<std::set<std::string>> groups) : groups_(std::move(groups)) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &) override {
+    std::vector<std::set<std::string>> actual;
+    for (const auto &filter_info : filter.all_filters_) {
+      for (const auto &group : filter_info.or_labels) {
+        auto &names = actual.emplace_back();
+        for (const auto &label : group) names.insert(label.name);
+      }
+    }
+    EXPECT_THAT(actual, testing::UnorderedElementsAreArray(groups_));
+  }
+
+ private:
+  std::vector<std::set<std::string>> groups_;
+};
+
+/// Checks the labels a filter demands of every row, as a set of label names.
+class ExpectFilterLabels : public OpChecker<Filter> {
+ public:
+  explicit ExpectFilterLabels(std::set<std::string> labels) : labels_(std::move(labels)) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &) override {
+    std::set<std::string> actual;
+    for (const auto &filter_info : filter.all_filters_) {
+      for (const auto &label : filter_info.labels) actual.insert(label.name);
+    }
+    EXPECT_EQ(actual, labels_);
+  }
+
+ private:
+  std::set<std::string> labels_;
+};
+
+class ExpectScanAllByEdgeId : public OpChecker<ScanAllByEdgeId> {
+ public:
+  explicit ExpectScanAllByEdgeId(bool expects_string_id = false) : expects_string_id_(expects_string_id) {}
+
+  void ExpectOp(ScanAllByEdgeId &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.expects_string_id_, expects_string_id_);
+  }
+
+ private:
+  bool expects_string_id_;
+};
+
+class ExpectScanAllById : public OpChecker<ScanAllById> {
+ public:
+  explicit ExpectScanAllById(bool expects_string_id = false) : expects_string_id_(expects_string_id) {}
+
+  void ExpectOp(ScanAllById &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.expects_string_id_, expects_string_id_);
+  }
+
+ private:
+  bool expects_string_id_;
+};
+
 using ExpectExpand = OpChecker<Expand>;
 using ExpectConstructNamedPath = OpChecker<ConstructNamedPath>;
 using ExpectProduce = OpChecker<Produce>;
+
+// Asserts which columns a Produce projects, where plan shape alone does not discriminate.
+class ExpectProduceColumns : public OpChecker<Produce> {
+ public:
+  explicit ExpectProduceColumns(std::vector<std::string> names) : names_(std::move(names)) {}
+
+  void ExpectOp(Produce &produce, const SymbolTable &) override {
+    std::vector<std::string> actual;
+    actual.reserve(produce.named_expressions_.size());
+    for (auto *named_expr : produce.named_expressions_) {
+      actual.emplace_back(named_expr->name_);
+    }
+    EXPECT_THAT(actual, testing::UnorderedElementsAreArray(names_));
+  }
+
+ private:
+  std::vector<std::string> names_;
+};
+
 using ExpectEmptyResult = OpChecker<EmptyResult>;
 using ExpectSetProperty = OpChecker<SetProperty>;
 using ExpectSetProperties = OpChecker<SetProperties>;
@@ -186,16 +360,68 @@ using ExpectLimit = OpChecker<Limit>;
 using ExpectOrderBy = OpChecker<OrderBy>;
 using ExpectUnwind = OpChecker<Unwind>;
 using ExpectDistinct = OpChecker<Distinct>;
-using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
+
+/// The deferred fold. @p Fold is checked because a wrong one is a wrong value, not a wrong shape.
+template <RollUpApply::Fold TFold>
+class ExpectEvaluatePatternFilterWithFold : public OpChecker<EvaluatePatternFilter> {
+ public:
+  void ExpectOp(EvaluatePatternFilter &op, const SymbolTable & /*symbol_table*/) override {
+    EXPECT_EQ(op.fold_, TFold) << "unexpected EvaluatePatternFilter fold";
+  }
+};
+
+using ExpectEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kBool>;
+using ExpectCountEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kCount>;
+using ExpectCollectEvaluatePatternFilter = ExpectEvaluatePatternFilterWithFold<RollUpApply::Fold::kList>;
+using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
+using ExpectLoadCsv = OpChecker<LoadCsv>;
+using ExpectLoadParquet = OpChecker<LoadParquet>;
+using ExpectBasicCallProcedure = OpChecker<CallProcedure>;
+using ExpectSetNestedProperty = OpChecker<SetNestedProperty>;
+using ExpectRemoveNestedProperty = OpChecker<RemoveNestedProperty>;
+using ExpectAggregateParallel = OpChecker<AggregateParallel>;
+using ExpectOrderByParallel = OpChecker<OrderByParallel>;
+using ExpectParallelMerge = OpChecker<ParallelMerge>;
+using ExpectScanParallel = OpChecker<ScanParallel>;
+using ExpectScanParallelByLabel = OpChecker<ScanParallelByLabel>;
+using ExpectScanParallelByLabelProperties = OpChecker<ScanParallelByLabelProperties>;
+using ExpectScanParallelByEdge = OpChecker<ScanParallelByEdge>;
+using ExpectScanParallelByEdgeType = OpChecker<ScanParallelByEdgeType>;
+using ExpectScanParallelByEdgeTypeProperty = OpChecker<ScanParallelByEdgeTypeProperty>;
+using ExpectScanParallelByEdgeProperty = OpChecker<ScanParallelByEdgeProperty>;
+using ExpectScanParallelByVertexProperty = OpChecker<ScanParallelByVertexProperty>;
+using ExpectScanChunk = OpChecker<ScanChunk>;
+using ExpectScanChunkByEdge = OpChecker<ScanChunkByEdge>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
-  explicit ExpectFilter(const std::vector<std::list<BaseOpChecker *>> &pattern_filters = {})
-      : pattern_filters_(pattern_filters) {}
+  // Default constructor (no pattern filters)
+  ExpectFilter() = default;
+
+  // Constructor with only expected edge types (no pattern filters)
+  explicit ExpectFilter(std::vector<std::string> expected_edge_types)
+      : expected_edge_types_(std::move(expected_edge_types)) {}
+
+  // Constructor taking raw pointer lists (legacy)
+  explicit ExpectFilter(std::vector<std::list<BaseOpChecker *>> pattern_filters,
+                        std::optional<std::vector<std::string>> expected_edge_types = std::nullopt)
+      : pattern_filters_ptrs_(std::move(pattern_filters)), expected_edge_types_(std::move(expected_edge_types)) {}
+
+  // Constructor taking Checkers (value semantics, owns the checkers)
+  explicit ExpectFilter(std::vector<Checkers> pattern_filters,
+                        std::optional<std::vector<std::string>> expected_edge_types = std::nullopt)
+      : pattern_filters_(std::move(pattern_filters)), expected_edge_types_(std::move(expected_edge_types)) {
+    for (const auto &filter : pattern_filters_) {
+      pattern_filters_ptrs_.emplace_back();
+      for (const auto &checker : filter) {
+        pattern_filters_ptrs_.back().emplace_back(checker.get());
+      }
+    }
+  }
 
   void ExpectOp(Filter &filter, const SymbolTable &symbol_table) override {
-    for (auto i = 0; i < filter.pattern_filters_.size(); i++) {
-      PlanChecker check_updates(pattern_filters_[i], symbol_table);
+    for (size_t i = 0; i < filter.pattern_filters_.size(); i++) {
+      PlanChecker check_updates(pattern_filters_ptrs_[i], symbol_table);
 
       filter.pattern_filters_[i]->Accept(check_updates);
     }
@@ -210,21 +436,46 @@ class ExpectFilter : public OpChecker<Filter> {
     }
     if (expr) filter_expressions.emplace_back(expr);
 
+    // Check for EdgeTypesTest if expected_edge_types_ is specified
+    if (expected_edge_types_) {
+      bool found_edge_types_test = false;
+      for (auto *filter_expr : filter_expressions) {
+        if (auto *edge_types_test = utils::Downcast<EdgeTypesTest>(filter_expr)) {
+          found_edge_types_test = true;
+          // Verify the edge types match
+          ASSERT_EQ(edge_types_test->valid_edgetypes_.size(), expected_edge_types_->size())
+              << "EdgeTypesTest has " << edge_types_test->valid_edgetypes_.size() << " edge types, expected "
+              << expected_edge_types_->size();
+          for (size_t i = 0; i < expected_edge_types_->size(); ++i) {
+            ASSERT_EQ(edge_types_test->valid_edgetypes_[i].name, (*expected_edge_types_)[i])
+                << "EdgeTypesTest edge type mismatch at index " << i;
+          }
+          break;
+        }
+      }
+      ASSERT_TRUE(found_edge_types_test) << "Expected EdgeTypesTest in filter but none found";
+    }
+
     auto it = filter_expressions.begin();
     for (; it != filter_expressions.end(); it++) {
-      if ((*it)->GetTypeInfo().name == query::Exists::kType.name) {
+      if ((*it)->GetTypeInfo().name == query::SubqueryExpression::kType.name) {
         break;
       }
     }
     while (it != filter_expressions.end()) {
-      ASSERT_TRUE((*it)->GetTypeInfo().name == query::Exists::kType.name)
-          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '" << query::Exists::kType.name
-          << "'!";
+      ASSERT_TRUE((*it)->GetTypeInfo().name == query::SubqueryExpression::kType.name)
+          << "Filter expression is '" << (*it)->GetTypeInfo().name << "' expected '"
+          << query::SubqueryExpression::kType.name << "'!";
       it++;
     }
   }
 
-  std::vector<std::list<BaseOpChecker *>> pattern_filters_;
+ private:
+  // Owned storage (when using Checkers constructor)
+  std::vector<Checkers> pattern_filters_;
+  // Pointer views for PlanChecker
+  std::vector<std::list<BaseOpChecker *>> pattern_filters_ptrs_;
+  std::optional<std::vector<std::string>> expected_edge_types_;
 };
 
 class ExpectForeach : public OpChecker<Foreach> {
@@ -267,7 +518,7 @@ class ExpectUnion : public OpChecker<Union> {
   void ExpectOp(Union &union_op, const SymbolTable &symbol_table) override {
     PlanChecker check_left_op(left_, symbol_table);
     union_op.left_op_->Accept(check_left_op);
-    PlanChecker check_right_op(left_, symbol_table);
+    PlanChecker check_right_op(right_, symbol_table);
     union_op.right_op_->Accept(check_right_op);
   }
 
@@ -287,6 +538,13 @@ class ExpectExpandBfs : public OpChecker<ExpandVariable> {
  public:
   void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
     EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::BREADTH_FIRST);
+  }
+};
+
+class ExpectExpandKShortest : public OpChecker<ExpandVariable> {
+ public:
+  void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
+    EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::KSHORTEST);
   }
 };
 
@@ -315,8 +573,8 @@ class ExpectAggregate : public OpChecker<Aggregate> {
       ASSERT_NE(aggr_it, aggregations_.end());
       auto *aggr = *aggr_it++;
       // TODO: Proper expression equality
-      EXPECT_EQ(typeid(aggr_elem.value).hash_code(), typeid(aggr->expression1_).hash_code());
-      EXPECT_EQ(typeid(aggr_elem.key).hash_code(), typeid(aggr->expression2_).hash_code());
+      EXPECT_EQ(typeid(aggr_elem.arg1).hash_code(), typeid(aggr->expression1_).hash_code());
+      EXPECT_EQ(typeid(aggr_elem.arg2).hash_code(), typeid(aggr->expression2_).hash_code());
       EXPECT_EQ(aggr_elem.op, aggr->op_);
       EXPECT_EQ(aggr_elem.distinct, aggr->distinct_);
       EXPECT_EQ(aggr_elem.output_sym, symbol_table.at(*aggr));
@@ -324,9 +582,16 @@ class ExpectAggregate : public OpChecker<Aggregate> {
     EXPECT_EQ(aggr_it, aggregations_.end());
     // TODO: Proper group by expression equality
     std::unordered_set<size_t> got_group_by;
-    for (auto *expr : op.group_by_) got_group_by.insert(typeid(*expr).hash_code());
     std::unordered_set<size_t> expected_group_by;
-    for (auto *expr : group_by_) expected_group_by.insert(typeid(*expr).hash_code());
+    for (auto *expr : op.group_by_) got_group_by.insert(typeid(*expr).hash_code());
+    auto is_constant = [](const Expression *expression) {
+      return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
+    };
+    std::ranges::for_each(group_by_, [&expected_group_by, &is_constant](auto *expr) {
+      if (!is_constant(expr)) {
+        expected_group_by.insert(typeid(*expr).hash_code());
+      }
+    });
     EXPECT_EQ(got_group_by, expected_group_by);
   }
 
@@ -372,70 +637,138 @@ class ExpectOptional : public OpChecker<Optional> {
   const std::list<BaseOpChecker *> &optional_;
 };
 
-class ExpectScanAllByLabelPropertyValue : public OpChecker<ScanAllByLabelPropertyValue> {
+class ExpectScanAllByLabel : public OpChecker<ScanAllByLabel> {
  public:
-  ExpectScanAllByLabelPropertyValue(memgraph::storage::LabelId label,
-                                    const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
-                                    memgraph::query::Expression *expression)
-      : label_(label), property_(prop_pair.second), expression_(expression) {}
+  explicit ExpectScanAllByLabel(std::optional<memgraph::storage::LabelId> label = std::nullopt) : label_(label) {}
 
-  void ExpectOp(ScanAllByLabelPropertyValue &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.label_, label_);
-    EXPECT_EQ(scan_all.property_, property_);
-    // TODO: Proper expression equality
-    EXPECT_EQ(typeid(scan_all.expression_).hash_code(), typeid(expression_).hash_code());
-  }
-
- private:
-  memgraph::storage::LabelId label_;
-  memgraph::storage::PropertyId property_;
-  memgraph::query::Expression *expression_;
-};
-
-class ExpectScanAllByLabelPropertyRange : public OpChecker<ScanAllByLabelPropertyRange> {
- public:
-  ExpectScanAllByLabelPropertyRange(memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
-                                    std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound,
-                                    std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound)
-      : label_(label), property_(property), lower_bound_(lower_bound), upper_bound_(upper_bound) {}
-
-  void ExpectOp(ScanAllByLabelPropertyRange &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.label_, label_);
-    EXPECT_EQ(scan_all.property_, property_);
-    if (lower_bound_) {
-      ASSERT_TRUE(scan_all.lower_bound_);
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.lower_bound_->value()).hash_code(), typeid(lower_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.lower_bound_->type(), lower_bound_->type());
-    }
-    if (upper_bound_) {
-      ASSERT_TRUE(scan_all.upper_bound_);
-      // TODO: Proper expression equality
-      EXPECT_EQ(typeid(scan_all.upper_bound_->value()).hash_code(), typeid(upper_bound_->value()).hash_code());
-      EXPECT_EQ(scan_all.upper_bound_->type(), upper_bound_->type());
+  void ExpectOp(ScanAllByLabel &scan_all, const SymbolTable &) override {
+    if (label_) {
+      EXPECT_EQ(*label_, scan_all.label_);
     }
   }
 
  private:
-  memgraph::storage::LabelId label_;
-  memgraph::storage::PropertyId property_;
-  std::optional<ScanAllByLabelPropertyRange::Bound> lower_bound_;
-  std::optional<ScanAllByLabelPropertyRange::Bound> upper_bound_;
+  std::optional<memgraph::storage::LabelId> label_;
 };
 
-class ExpectScanAllByLabelProperty : public OpChecker<ScanAllByLabelProperty> {
- public:
-  ExpectScanAllByLabelProperty(memgraph::storage::LabelId label,
-                               const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
-      : label_(label), property_(prop_pair.second) {}
+inline bool ExpressionRangesMatch(ExpressionRange const &lhs, ExpressionRange const &rhs) {
+  auto const compare_bound_expression = [](std::optional<utils::Bound<Expression *>> const &lhs,
+                                           std::optional<utils::Bound<Expression *>> const &rhs) {
+    if (!lhs && !rhs) return true;
+    if (!lhs || !rhs) return false;
+    if (lhs->type() != rhs->type()) return false;
+    // In keeping with the other tests, we are comparing expressions by
+    // hash code of their types, rather than performing a full expression
+    // comparison.
+    // Note: value() is a const method returning const ref, so no side effects
+    auto const &lhs_expr = *lhs->value();
+    auto const &rhs_expr = *rhs->value();
+    if (typeid(lhs_expr).hash_code() != typeid(rhs_expr).hash_code()) return false;
+    return true;
+  };
 
-  void ExpectOp(ScanAllByLabelProperty &scan_all, const SymbolTable &) override {
-    EXPECT_EQ(scan_all.label_, label_);
-    EXPECT_EQ(scan_all.property_, property_);
+  if (lhs.type_ != rhs.type_) return false;
+  if ((lhs.membership_list_ == nullptr) != (rhs.membership_list_ == nullptr)) return false;
+  return compare_bound_expression(lhs.lower_, rhs.lower_) && compare_bound_expression(lhs.upper_, rhs.upper_);
+}
+
+class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties> {
+ public:
+  ExpectScanAllByLabelProperties(memgraph::storage::LabelId label,
+                                 std::vector<memgraph::storage::PropertyPath> properties,
+                                 std::vector<ExpressionRange> expression_ranges)
+      : label_(label), properties_(std::move(properties)), expression_ranges_(std::move(expression_ranges)) {}
+
+  void ExpectOp(ScanAllByLabelProperties &scan, const SymbolTable &) override {
+    EXPECT_EQ(scan.label_, label_);
+    EXPECT_EQ(scan.properties_, properties_);
+    ASSERT_EQ(scan.expression_ranges_.size(), expression_ranges_.size());
+    EXPECT_TRUE(ranges::equal(scan.expression_ranges_, expression_ranges_, ExpressionRangesMatch));
   }
 
  private:
   memgraph::storage::LabelId label_;
+  std::vector<memgraph::storage::PropertyPath> properties_;
+  std::vector<ExpressionRange> expression_ranges_;
+};
+
+class ExpectScanAllByEdgeTypeProperty : public OpChecker<ScanAllByEdgeTypeProperty> {
+ public:
+  ExpectScanAllByEdgeTypeProperty(memgraph::storage::EdgeTypeId edge_type,
+                                  const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
+                                  std::optional<ExpressionRange> expression_range = std::nullopt)
+      : edge_type_(edge_type), property_(prop_pair.second), expression_range_(std::move(expression_range)) {}
+
+  void ExpectOp(ScanAllByEdgeTypeProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.common_.edge_types[0], edge_type_);
+    EXPECT_EQ(scan_all.property_, property_);
+    if (expression_range_) {
+      EXPECT_TRUE(ExpressionRangesMatch(scan_all.expression_range_, *expression_range_));
+    }
+  }
+
+ private:
+  memgraph::storage::EdgeTypeId edge_type_;
+  memgraph::storage::PropertyId property_;
+  std::optional<ExpressionRange> expression_range_;
+};
+
+class ExpectScanAllByEdgeProperty : public OpChecker<ScanAllByEdgeProperty> {
+ public:
+  explicit ExpectScanAllByEdgeProperty(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair,
+                                       std::optional<ExpressionRange> expression_range = std::nullopt)
+      : property_(prop_pair.second), expression_range_(std::move(expression_range)) {}
+
+  void ExpectOp(ScanAllByEdgeProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+    if (expression_range_) {
+      EXPECT_TRUE(ExpressionRangesMatch(scan_all.expression_range_, *expression_range_));
+    }
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+  std::optional<ExpressionRange> expression_range_;
+};
+
+class ExpectScanAllByVertexProperty : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexProperty(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+};
+
+class ExpectScanAllByVertexPropertyValue : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexPropertyValue(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+    EXPECT_EQ(scan_all.expression_range_.type_, memgraph::query::plan::ExpressionRange::Type::EQUAL);
+  }
+
+ private:
+  memgraph::storage::PropertyId property_;
+};
+
+class ExpectScanAllByVertexPropertyRange : public OpChecker<ScanAllByVertexProperty> {
+ public:
+  explicit ExpectScanAllByVertexPropertyRange(const std::pair<std::string, memgraph::storage::PropertyId> &prop_pair)
+      : property_(prop_pair.second) {}
+
+  void ExpectOp(ScanAllByVertexProperty &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.property_, property_);
+    EXPECT_EQ(scan_all.expression_range_.type_, memgraph::query::plan::ExpressionRange::Type::RANGE);
+  }
+
+ private:
   memgraph::storage::PropertyId property_;
 };
 
@@ -522,6 +855,77 @@ class ExpectCallProcedure : public OpChecker<CallProcedure> {
   std::vector<Symbol> result_syms_;
 };
 
+class ExpectRollUpApply : public OpChecker<RollUpApply> {
+ public:
+  // Constructor taking unique_ptr lists (for backward compatibility)
+  ExpectRollUpApply(const std::list<std::unique_ptr<BaseOpChecker>> &input,
+                    const std::list<std::unique_ptr<BaseOpChecker>> &list_collection_branch) {
+    for (const auto &checker : input) input_ptrs_.emplace_back(checker.get());
+    for (const auto &checker : list_collection_branch) list_collection_branch_ptrs_.emplace_back(checker.get());
+  }
+
+  // Constructor taking raw pointer lists (for use in pattern filters - legacy)
+  ExpectRollUpApply(const std::list<BaseOpChecker *> &input, const std::list<BaseOpChecker *> &list_collection_branch)
+      : input_ptrs_(input), list_collection_branch_ptrs_(list_collection_branch) {}
+
+  // Constructor taking Checkers (value semantics, owns the checkers)
+  ExpectRollUpApply(Checkers input, Checkers list_collection_branch)
+      : input_(std::move(input)), list_collection_branch_(std::move(list_collection_branch)) {
+    for (const auto &checker : input_) input_ptrs_.emplace_back(checker.get());
+    for (const auto &checker : list_collection_branch_) list_collection_branch_ptrs_.emplace_back(checker.get());
+  }
+
+  void ExpectOp(RollUpApply &op, const SymbolTable &symbol_table) override {
+    EXPECT_EQ(op.fold_, expected_fold_) << "unexpected RollUpApply fold";
+    PlanChecker input_checker(input_ptrs_, symbol_table);
+    op.input_->Accept(input_checker);
+    ASSERT_TRUE(op.list_collection_branch_);
+    PlanChecker list_collection_branch_checker(list_collection_branch_ptrs_, symbol_table);
+    op.list_collection_branch_->Accept(list_collection_branch_checker);
+  }
+
+ protected:
+  RollUpApply::Fold expected_fold_{RollUpApply::Fold::kList};
+
+ private:
+  // Owned storage (when using Checkers constructor)
+  Checkers input_;
+  Checkers list_collection_branch_;
+  // Pointer views for PlanChecker
+  std::list<BaseOpChecker *> input_ptrs_;
+  std::list<BaseOpChecker *> list_collection_branch_ptrs_;
+};
+
+/// A RollUpApply carrying one of the column-less folds - what an EXISTS or a COUNT in a projection, an ORDER BY or a
+/// WITH's WHERE is planned as. @p TFold is checked because a wrong one is a wrong value, not a wrong shape.
+template <RollUpApply::Fold TFold>
+class ExpectRollUpApplyWithFold : public ExpectRollUpApply {
+ public:
+  /// Constrained so the pack cannot hijack this type's own copy/move construction.
+  template <typename... TArgs>
+    requires(sizeof...(TArgs) != 1 || !(std::same_as<std::remove_cvref_t<TArgs>, ExpectRollUpApplyWithFold> || ...))
+  explicit ExpectRollUpApplyWithFold(TArgs &&...args) : ExpectRollUpApply(std::forward<TArgs>(args)...) {
+    expected_fold_ = TFold;
+  }
+};
+
+using ExpectExistsRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kBool>;
+using ExpectCountRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kCount>;
+using ExpectCollectRollUpApply = ExpectRollUpApplyWithFold<RollUpApply::Fold::kList>;
+
+class ExpectPeriodicSubquery : public OpChecker<PeriodicSubquery> {
+ public:
+  explicit ExpectPeriodicSubquery(const std::list<BaseOpChecker *> &subquery) : subquery_(subquery) {}
+
+  void ExpectOp(PeriodicSubquery &periodic_subquery, const SymbolTable &symbol_table) override {
+    PlanChecker check_subquery(subquery_, symbol_table);
+    periodic_subquery.subquery_->Accept(check_subquery);
+  }
+
+ private:
+  std::list<BaseOpChecker *> subquery_;
+};
+
 template <class T>
 std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg) {
   std::list<std::unique_ptr<BaseOpChecker>> l;
@@ -536,11 +940,27 @@ std::list<std::unique_ptr<BaseOpChecker>> MakeCheckers(T arg, Rest &&...rest) {
   return std::move(l);
 }
 
+// Helper to build checker lists in natural top-down order (instead of reverse bottom-up order).
+// Example:
+//   Instead of:  list.push_back(make_unique<Once>()); list.push_back(make_unique<ScanAll>());
+//   You can use: auto list = PlanFromTopDown<Produce, Expand, ScanAll, Once>();
+//
+// This makes test expectations more intuitive by specifying operations in the order you think about them.
+template <typename... Checkers>
+std::list<std::unique_ptr<BaseOpChecker>> PlanFromTopDown() {
+  std::list<std::unique_ptr<BaseOpChecker>> result;
+  // Fold expression that creates each checker and adds it at the front of the list
+  // This reverses the parameter order, converting top-down to bottom-up
+  (result.push_front(std::make_unique<Checkers>()), ...);
+  return result;
+}
+
 template <class TPlanner, class TDbAccessor>
-TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query) {
+TPlanner MakePlanner(TDbAccessor *dba, AstStorage &storage, SymbolTable &symbol_table, CypherQuery *query,
+                     const std::vector<IndexHint> &index_hints = {}) {
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
-  auto query_parts = CollectQueryParts(symbol_table, storage, query);
-  return TPlanner(query_parts, planning_context);
+  auto query_parts = CollectQueryParts(symbol_table, storage, query, false);
+  return TPlanner(query_parts, planning_context, index_hints);
 }
 
 class FakeDbAccessor {
@@ -551,30 +971,148 @@ class FakeDbAccessor {
     return 0;
   }
 
-  int64_t VerticesCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    for (const auto &index : label_property_index_) {
-      if (std::get<0>(index) == label && std::get<1>(index) == property) {
+  int64_t VerticesCount(memgraph::storage::LabelId label,
+                        std::span<memgraph::storage::PropertyPath const> properties) const {
+    auto it = std::ranges::find_if(label_properties_index_, [&](auto const &each) {
+      return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
+    });
+
+    if (it != label_properties_index_.end()) {
+      return std::get<2>(*it);
+    } else {
+      return 0;
+    }
+  }
+
+  int64_t VerticesCount(memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties,
+                        std::span<memgraph::storage::PropertyValueRange const> bounds) const {
+    // Stub implementation - returns 0
+    return 0;
+  }
+
+  bool PointIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
+    return false;
+  }
+
+  std::optional<uint64_t> VerticesPointCount(storage::LabelId label, storage::PropertyId property) const {
+    return std::nullopt;
+  }
+
+  int64_t EdgesCount() const {
+    int64_t count = 0;
+    for (const auto &index : edge_type_index_) {
+      count += index.second;
+    }
+    // Return at least 1 to allow cost estimation heuristics to work
+    // This prevents ShouldUseSTShortestPath from returning false early
+    return count > 0 ? count : 1;
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type) const {
+    auto found = edge_type_index_.find(edge_type);
+    if (found != edge_type_index_.end()) return found->second;
+    return 0;
+  }
+
+  int64_t EdgesCount(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property) const {
+    for (const auto &index : edge_type_property_index_) {
+      if (std::get<0>(index) == edge_type && std::get<1>(index) == property) {
         return std::get<2>(index);
       }
     }
     return 0;
   }
 
-  bool LabelIndexExists(memgraph::storage::LabelId label) const {
+  int64_t EdgesCount(memgraph::storage::PropertyId property) const { return 0; }
+
+  bool LabelIndexReady(memgraph::storage::LabelId label) const {
     return label_index_.find(label) != label_index_.end();
   }
 
-  bool LabelPropertyIndexExists(memgraph::storage::LabelId label, memgraph::storage::PropertyId property) const {
-    for (const auto &index : label_property_index_) {
-      if (std::get<0>(index) == label && std::get<1>(index) == property) {
+  bool LabelPropertyIndexReady(memgraph::storage::LabelId label,
+                               std::span<memgraph::storage::PropertyPath const> properties) const {
+    return std::ranges::find_if(label_properties_index_, [&](auto const &each) {
+             return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
+           }) != label_properties_index_.end();
+  }
+
+  auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
+                                          std::span<storage::PropertyPath const> properties) const
+      -> std::vector<storage::LabelPropertiesIndicesInfo> {
+    auto res = std::vector<storage::LabelPropertiesIndicesInfo>{};
+
+    for (auto const &[label, props, _, order] : label_properties_index_) {
+      auto label_it = std::ranges::find(labels, label);
+      if (label_it == labels.end()) {
+        continue;
+      }
+
+      std::vector<long> properties_poses;
+      properties_poses.reserve(properties.size());
+      bool has_matching_property = false;
+      for (auto prop : props) {
+        auto prop_it = std::ranges::find(properties, prop);
+        if (prop_it == properties.end()) {
+          properties_poses.emplace_back(-1);
+        } else {
+          has_matching_property = true;
+          auto distance = std::distance(properties.begin(), prop_it);
+          // NOLINTNEXTLINE(google-runtime-int)
+          properties_poses.emplace_back(static_cast<long>(distance));
+        }
+      }
+
+      if (has_matching_property) {
+        auto l_pos = std::distance(labels.begin(), label_it);
+        res.emplace_back(l_pos, std::move(properties_poses), label, props, order);
+      }
+    }
+
+    return res;
+  }
+
+  bool EdgeTypeIndexReady(memgraph::storage::EdgeTypeId edge_type) const {
+    return edge_type_index_.find(edge_type) != edge_type_index_.end();
+  }
+
+  bool EdgeTypePropertyIndexReady(memgraph::storage::EdgeTypeId edge_type,
+                                  memgraph::storage::PropertyId property) const {
+    for (const auto &index : edge_type_property_index_) {
+      if (std::get<0>(index) == edge_type && std::get<1>(index) == property) {
         return true;
       }
     }
     return false;
   }
 
+  bool EdgePropertyIndexReady(memgraph::storage::PropertyId property) const {
+    return edge_property_index_.find(property) != edge_property_index_.end();
+  }
+
+  bool VertexPropertyIndexReady(memgraph::storage::PropertyId property) const {
+    return vertex_property_index_.contains(property);
+  }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId property) const {
+    auto found = vertex_property_index_.find(property);
+    if (found != vertex_property_index_.end()) return found->second;
+    return 0;
+  }
+
+  int64_t VerticesCount(memgraph::storage::PropertyId /*property*/,
+                        const memgraph::storage::PropertyValue & /*value*/) const {
+    return 0;
+  }
+
+  int64_t VerticesCount(
+      memgraph::storage::PropertyId /*property*/,
+      const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> & /*lower*/,
+      const std::optional<memgraph::utils::Bound<memgraph::storage::PropertyValue>> & /*upper*/) const {
+    return 0;
+  }
+
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
-      const memgraph::storage::LabelId label, const memgraph::storage::PropertyId property) const {
+      const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {
     return memgraph::storage::LabelPropertyIndexStats{.statistic = 0, .avg_group_size = 1};  // unique id
   }
 
@@ -584,14 +1122,48 @@ class FakeDbAccessor {
 
   void SetIndexCount(memgraph::storage::LabelId label, int64_t count) { label_index_[label] = count; }
 
-  void SetIndexCount(memgraph::storage::LabelId label, memgraph::storage::PropertyId property, int64_t count) {
-    for (auto &index : label_property_index_) {
-      if (std::get<0>(index) == label && std::get<1>(index) == property) {
+  void SetIndexCount(memgraph::storage::LabelId label, memgraph::storage::PropertyPath const &property, int64_t count,
+                     memgraph::storage::IndexOrder order = memgraph::storage::IndexOrder::ASC) {
+    std::vector properties{property};
+    for (auto &index : label_properties_index_) {
+      if (std::get<0>(index) == label && std::get<1>(index) == properties && std::get<3>(index) == order) {
         std::get<2>(index) = count;
         return;
       }
     }
-    label_property_index_.emplace_back(label, property, count);
+    label_properties_index_.emplace_back(label, std::move(properties), count, order);
+  }
+
+  void SetIndexCount(memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties,
+                     int64_t count, memgraph::storage::IndexOrder order = memgraph::storage::IndexOrder::ASC) {
+    auto it = std::ranges::find_if(label_properties_index_, [&](auto const &each) {
+      return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties) &&
+             std::get<3>(each) == order;
+    });
+
+    if (it != label_properties_index_.end()) {
+      std::get<2>(*it) = count;
+    } else {
+      label_properties_index_.emplace_back(label, std::vector(properties.begin(), properties.end()), count, order);
+    }
+  }
+
+  void SetIndexCount(memgraph::storage::EdgeTypeId edge_type, int64_t count) { edge_type_index_[edge_type] = count; }
+
+  void SetIndexCount(memgraph::storage::EdgeTypeId edge_type, memgraph::storage::PropertyId property, int64_t count) {
+    for (auto &index : edge_type_property_index_) {
+      if (std::get<0>(index) == edge_type && std::get<1>(index) == property) {
+        std::get<2>(index) = count;
+        return;
+      }
+    }
+    edge_type_property_index_.emplace_back(edge_type, property, count);
+  }
+
+  void SetIndexCount(memgraph::storage::PropertyId property, int64_t count) { edge_property_index_[property] = count; }
+
+  void SetVertexPropertyIndexCount(memgraph::storage::PropertyId property, int64_t count) {
+    vertex_property_index_[property] = count;
   }
 
   memgraph::storage::LabelId NameToLabel(const std::string &name) {
@@ -608,6 +1180,8 @@ class FakeDbAccessor {
     return edge_types_.emplace(name, memgraph::storage::EdgeTypeId::FromUint(edge_types_.size())).first->second;
   }
 
+  memgraph::storage::EdgeTypeId EdgeType(const std::string &name) { return NameToEdgeType(name); }
+
   memgraph::storage::PropertyId NameToProperty(const std::string &name) {
     auto found = properties_.find(name);
     if (found != properties_.end()) return found->second;
@@ -623,7 +1197,34 @@ class FakeDbAccessor {
     LOG_FATAL("Unable to find property name");
   }
 
+  std::string EdgeTypeToName(memgraph::storage::EdgeTypeId edge_type) const {
+    for (const auto &kv : edge_types_) {
+      if (kv.second == edge_type) return kv.first;
+    }
+    LOG_FATAL("Unable to find edge type name");
+  }
+
   std::string PropertyName(memgraph::storage::PropertyId property) const { return PropertyToName(property); }
+
+  auto GetEnumValue(std::string_view name, std::string_view value)
+      -> std::expected<storage::Enum, storage::EnumStorageError> {
+    // Does this need to be less fake?
+    return memgraph::storage::Enum{memgraph::storage::EnumTypeId{0}, memgraph::storage::EnumValueId{0}};
+  }
+
+  int64_t VerticesCount() const {
+    // Return a small non-zero default for cost estimation heuristics
+    // This prevents ShouldUseSTShortestPath from returning false early
+    // A value of 1 allows the heuristics to work while being minimal
+    return 1;
+  }
+
+  auto GetStorageAccessor() const -> storage::Storage::Accessor * {
+    // Stub implementation - returns nullptr
+    // This will cause a crash if GetNameIdMapper() is called on the result
+    // Tests using FakeDbAccessor should avoid code paths that call this
+    return nullptr;
+  }
 
  private:
   std::unordered_map<std::string, memgraph::storage::LabelId> labels_;
@@ -631,7 +1232,14 @@ class FakeDbAccessor {
   std::unordered_map<std::string, memgraph::storage::PropertyId> properties_;
 
   std::unordered_map<memgraph::storage::LabelId, int64_t> label_index_;
-  std::vector<std::tuple<memgraph::storage::LabelId, memgraph::storage::PropertyId, int64_t>> label_property_index_;
+  std::vector<std::tuple<memgraph::storage::LabelId, std::vector<memgraph::storage::PropertyPath>, int64_t,
+                         memgraph::storage::IndexOrder>>
+      label_properties_index_;
+  std::unordered_map<memgraph::storage::EdgeTypeId, int64_t> edge_type_index_;
+  std::vector<std::tuple<memgraph::storage::EdgeTypeId, memgraph::storage::PropertyId, int64_t>>
+      edge_type_property_index_;
+  std::unordered_map<memgraph::storage::PropertyId, int64_t> edge_property_index_;
+  std::unordered_map<memgraph::storage::PropertyId, int64_t> vertex_property_index_;
 };
 
 }  // namespace memgraph::query::plan

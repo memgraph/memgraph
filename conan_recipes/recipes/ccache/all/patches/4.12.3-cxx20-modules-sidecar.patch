@@ -1,0 +1,964 @@
+diff --git a/IMPLEMENTATION_PLAN.md b/IMPLEMENTATION_PLAN.md
+new file mode 100644
+index 00000000..efa660d4
+--- /dev/null
++++ b/IMPLEMENTATION_PLAN.md
+@@ -0,0 +1,83 @@
++# C++20 Modules: Sidecar-Based Cache Coherence
++
++Replaces the current `hash_binary_file(pcm)` approach (commit `9f34fc7b`)
++which over-invalidates whenever PCM bytes drift (Conan paths, source
++absolute paths, recipe revisions). New approach: each module producer
++emits a `<pcm>.ccache-meta` sidecar containing the producer compile's
++`result_key`. Consumers fold the sidecar's `result_key` into their hash
++instead of hashing PCM bytes.
++
++Invariant: the consumer cache key changes whenever any input that
++semantically affects the PCM's emitted code changes. Path-only changes
++in the PCM bytes do not invalidate consumers.
++
++## Stage 1: argsinfo + arg detection
++**Goal**: ccache recognises module producer compiles.
++**Success Criteria**:
++- New `argsinfo.output_pcm` field set when `-fmodule-output=<path>` appears
++  (after `@`-file expansion), with optional surrounding quotes stripped.
++**Tests**: unit test in `unittest/test_argprocessing.cpp` checking the
++field is populated for representative CMake/clang command lines.
++**Status**: Not Started
++
++## Stage 2: sidecar module
++**Goal**: standalone `ModuleSidecar` with parse/format/staleness check.
++**Success Criteria**:
++- `module_sidecar.{hpp,cpp}` with `read(pcm_path)` returning optional
++  struct, `write(pcm_path, result_key)` writing tmp+rename atomically.
++- Sidecar format: `result_key=<hex>\npcm_size=<bytes>\npcm_mtime_ns=<n>\n`.
++- `matches_pcm()` validates `(pcm_size, pcm_mtime_ns)` against current stat.
++**Tests**: round-trip; staleness on size mismatch; staleness on mtime
++mismatch; missing file returns nullopt.
++**Status**: Not Started
++
++## Stage 3: consumer-side fail-closed
++**Goal**: replace existing `-fmodule-file=` byte-hash with sidecar fold +
++fail-closed on absence.
++**Success Criteria**:
++- In `hash_argument`, on `-fmodule-file=`: read sidecar; if present and
++  matches stat, fold `result_key` into hash; if absent or stale, return
++  `Statistic::could_not_use_module_sidecar`.
++- New stats counter for tracking.
++**Tests**:
++- Hit when sidecar valid.
++- Fail-closed (cache miss recorded) when sidecar absent.
++- Fail-closed when sidecar present but stale (PCM modified).
++- Hit *across PCM byte differences* when sidecar `result_key` is stable.
++**Status**: Not Started
++
++## Stage 4: producer-side caching
++**Goal**: cache the `.pcm` as a secondary output of the producer compile;
++synthesise sidecar on every cache hit and miss.
++**Success Criteria**:
++- `Result` includes `output_pcm` when set.
++- On miss after compile: `.pcm` cached; sidecar synthesised.
++- On hit replay: secondary outputs (`.pcm`) restored before primary `.o`,
++  each via tmp+rename; sidecar synthesised after `.pcm` is in place.
++**Tests**:
++- Producer hit → `.pcm` reappears with identical bytes.
++- Producer hit → sidecar present and valid.
++- Crash-during-replay simulation: `.o` mtime never advances if `.pcm`
++  failed to land (drop-write fault injection).
++**Status**: Not Started
++
++## Stage 5: end-to-end
++**Goal**: original failing test passes; new tests for path-drift and
++stale-PCM scenarios.
++**Success Criteria**:
++- `test/suites/cxx20_modules.bash` extended:
++  - layout-change test (existing) still passes.
++  - **new**: path-drift test (build PCM at `/tmp/A`, then at `/tmp/B`,
++    consumer should HIT both times if `result_key` unchanged) — proves
++    over-invalidation fixed.
++  - **new**: stale-PCM test (mutate `.pcm` directly without ccache;
++    consumer should fail-closed) — proves correctness preserved.
++**Status**: Not Started
++
++## Stage 6: docs + upstreamability
++**Goal**: ready for upstream PR.
++**Success Criteria**:
++- `doc/manual.adoc` updated.
++- `MANUAL.adoc` describes new statistic counter.
++- News entry.
++**Status**: Not Started
+diff --git a/src/ccache/CMakeLists.txt b/src/ccache/CMakeLists.txt
+index 14017331..ce091cf9 100644
+--- a/src/ccache/CMakeLists.txt
++++ b/src/ccache/CMakeLists.txt
+@@ -10,6 +10,7 @@ set(
+   hash.cpp
+   hashutil.cpp
+   language.cpp
++  module_sidecar.cpp
+   progressbar.cpp
+   version.cpp
+ )
+diff --git a/src/ccache/argprocessing.cpp b/src/ccache/argprocessing.cpp
+index 12d804ca..4f0e5dec 100644
+--- a/src/ccache/argprocessing.cpp
++++ b/src/ccache/argprocessing.cpp
+@@ -618,6 +618,20 @@ process_option_arg(const Context& ctx,
+     }
+   }
+ 
++  // C++20 named modules: -fmodule-output=<path> declares this compile is a
++  // module producer that will emit a BMI/PCM at <path> alongside the .o.
++  // Capture the path so the .pcm becomes a tracked secondary output.
++  if (util::starts_with(arg, "-fmodule-output=")) {
++    std::string_view val = std::string_view(arg).substr(16);
++    // Strip optional surrounding double-quotes (CMake emits both forms).
++    if (val.size() >= 2 && val.front() == '"' && val.back() == '"') {
++      val = val.substr(1, val.size() - 2);
++    }
++    if (!val.empty()) {
++      args_info.output_pcm = std::filesystem::path(std::string(val));
++    }
++  }
++
+   if (arg == "-c" || arg == "--compile") { // --compile is NVCC
+     state.found_c_opt = args[i];
+     return Statistic::none;
+diff --git a/src/ccache/argsinfo.hpp b/src/ccache/argsinfo.hpp
+index c433b3fc..a2ff76b2 100644
+--- a/src/ccache/argsinfo.hpp
++++ b/src/ccache/argsinfo.hpp
+@@ -71,6 +71,10 @@ struct ArgsInfo
+   // Assembler listing file.
+   std::filesystem::path output_al;
+ 
++  // C++20 named module BMI/PCM output specified by -fmodule-output=<path>.
++  // Empty if this is not a module producer compile.
++  std::filesystem::path output_pcm;
++
+   // The given PCH filepath being compiled to (by -Fp option).
+   std::filesystem::path orig_included_pch_file;
+ 
+diff --git a/src/ccache/ccache.cpp b/src/ccache/ccache.cpp
+index 1466c041..87a426df 100644
+--- a/src/ccache/ccache.cpp
++++ b/src/ccache/ccache.cpp
+@@ -41,6 +41,7 @@
+ #include <ccache/execute.hpp>
+ #include <ccache/hash.hpp>
+ #include <ccache/hashutil.hpp>
++#include <ccache/module_sidecar.hpp>
+ #include <ccache/signalhandler.hpp>
+ #include <ccache/storage/storage.hpp>
+ #include <ccache/util/args.hpp>
+@@ -1056,6 +1057,17 @@ write_result(Context& ctx,
+     return false;
+   }
+ 
++  // C++20 named modules: cache the BMI/PCM as a secondary output.
++  // Required for correctness: on a producer cache hit, replaying the .o
++  // without also replaying the .pcm would leave consumers reading a stale
++  // PCM (the original ODR/struct-layout bug, from the producer side).
++  if (!ctx.args_info.output_pcm.empty()
++      && !serializer.add_file(core::result::FileType::module_bmi,
++                              ctx.args_info.output_pcm)) {
++    LOG("Module BMI/PCM file {} missing", ctx.args_info.output_pcm);
++    return false;
++  }
++
+   core::CacheEntry::Header header(ctx.config, core::CacheEntryType::result);
+   const auto cache_entry_data = core::CacheEntry::serialize(header, serializer);
+ 
+@@ -1068,6 +1080,13 @@ write_result(Context& ctx,
+ 
+   ctx.storage.put(result_key, core::CacheEntryType::result, cache_entry_data);
+ 
++  // Synthesise the sidecar after the cache entry is committed so consumers
++  // can fold in this producer's result_key by reading <pcm>.ccache-meta.
++  // Same code path runs on hit (after replay); see ResultRetriever caller.
++  if (!ctx.args_info.output_pcm.empty()) {
++    ModuleSidecar::write_for(ctx.args_info.output_pcm, result_key);
++  }
++
+   return true;
+ }
+ 
+@@ -2154,6 +2173,48 @@ hash_argument(const Context& ctx,
+     return {};
+   }
+ 
++  // C++20 named modules: -fmodule-file=[<name>=]<file>
++  //
++  // The PCM is a content-bearing input that affects emitted code (struct
++  // layouts, template instantiations). However the PCM bytes vary with
++  // absolute paths embedded inside the BMI, which makes byte-content
++  // hashing over-invalidate (the same logical inputs at a different build
++  // path yields different bytes). Instead of hashing PCM bytes, fold in
++  // the producer's result_key as recorded in the sidecar
++  // "<pcm>.ccache-meta", validating its (size, mtime) snapshot against
++  // the current PCM stat. This keys the consumer to the *logical* inputs
++  // of the producer rather than the byte-level result.
++  //
++  // Fail-closed: if the sidecar is absent or stale, refuse to cache this
++  // compile. A stale sidecar would otherwise risk returning an .o that
++  // does not match the current PCM (the original ODR/struct-layout bug).
++  if (util::starts_with(args[i], "-fmodule-file=")) {
++    std::string_view val = std::string_view(args[i]).substr(14);
++    // -fmodule-file=<file> or -fmodule-file=<name>=<file>
++    auto eq_pos = val.find('=');
++    std::string_view pcm_path = (eq_pos != std::string_view::npos)
++                                  ? val.substr(eq_pos + 1)
++                                  : val;
++    if (!pcm_path.empty()) {
++      const std::filesystem::path pcm{std::string(pcm_path)};
++      auto sidecar = ModuleSidecar::read_for(pcm);
++      if (!sidecar) {
++        LOG("Module sidecar absent for {}; refusing to cache (fail-closed)",
++            pcm_path);
++        return tl::unexpected(Statistic::could_not_use_module_sidecar);
++      }
++      if (!sidecar->matches_pcm(pcm)) {
++        LOG("Module sidecar stale for {} (size/mtime mismatch); "
++            "refusing to cache (fail-closed)",
++            pcm_path);
++        return tl::unexpected(Statistic::could_not_use_module_sidecar);
++      }
++      hash.hash_delimiter("module_file");
++      hash.hash(sidecar->result_key);
++      return {};
++    }
++  }
++
+   if (util::starts_with(args[i], "-fplugin=")) {
+     DirEntry dir_entry(&args[i][9], DirEntry::LogOnError::yes);
+     if (dir_entry.is_regular_file()) {
+@@ -2523,6 +2584,13 @@ from_cache(Context& ctx, FromCacheCallMode mode, const Hash::Digest& result_key)
+     return false;
+   }
+ 
++  // C++20 named modules: synthesise <pcm>.ccache-meta after the .pcm has
++  // been replayed from the cache. This mirrors the miss path so consumers
++  // see a valid sidecar regardless of whether the producer hit or missed.
++  if (!ctx.args_info.output_pcm.empty()) {
++    ModuleSidecar::write_for(ctx.args_info.output_pcm, result_key);
++  }
++
+   LOG_RAW("Succeeded getting cached result");
+   return true;
+ }
+diff --git a/src/ccache/core/result.cpp b/src/ccache/core/result.cpp
+index 344f0bf9..e47ce5cc 100644
+--- a/src/ccache/core/result.cpp
++++ b/src/ccache/core/result.cpp
+@@ -156,6 +156,9 @@ file_type_to_string(FileType type)
+ 
+   case FileType::ipa_clones:
+     return ".000i.ipa-clones";
++
++  case FileType::module_bmi:
++    return ".pcm";
+   }
+ 
+   return k_unknown_file_type;
+diff --git a/src/ccache/core/result.hpp b/src/ccache/core/result.hpp
+index 9e577da1..ba66c827 100644
+--- a/src/ccache/core/result.hpp
++++ b/src/ccache/core/result.hpp
+@@ -93,6 +93,9 @@ enum class FileType : UnderlyingFileTypeInt {
+   // ipa clones generated by -fdump-ipa-clones, i.e. output file but with a
+   // .000i.ipa-clones extension.
+   ipa_clones = 12,
++
++  // C++20 named module BMI/PCM specified by -fmodule-output=<path>.
++  module_bmi = 13,
+ };
+ 
+ const char* file_type_to_string(FileType type);
+diff --git a/src/ccache/core/resultretriever.cpp b/src/ccache/core/resultretriever.cpp
+index 86632483..6d61c861 100644
+--- a/src/ccache/core/resultretriever.cpp
++++ b/src/ccache/core/resultretriever.cpp
+@@ -209,6 +209,9 @@ ResultRetriever::get_dest_path(FileType file_type) const
+       return m_ctx.args_info.output_ipa;
+     }
+     break;
++
++  case FileType::module_bmi:
++    return m_ctx.args_info.output_pcm;
+   }
+ 
+   return {};
+diff --git a/src/ccache/core/statistic.hpp b/src/ccache/core/statistic.hpp
+index 6ec2dd69..53b43e91 100644
+--- a/src/ccache/core/statistic.hpp
++++ b/src/ccache/core/statistic.hpp
+@@ -82,8 +82,9 @@ enum class Statistic {
+   bad_input_file = 82,
+   modified_input_file = 83,
+   unsupported_source_encoding = 84,
++  could_not_use_module_sidecar = 85,
+ 
+-  END = 85,
++  END = 86,
+ };
+ 
+ enum class StatisticsFormat {
+diff --git a/src/ccache/core/statistics.cpp b/src/ccache/core/statistics.cpp
+index 80082b75..ae45709e 100644
+--- a/src/ccache/core/statistics.cpp
++++ b/src/ccache/core/statistics.cpp
+@@ -130,6 +130,13 @@ const StatisticsField k_statistics_fields[] = {
+   // Preconditions for using C++ modules were not fulfilled.
+   FIELD(could_not_use_modules, "Could not use modules", FLAG_UNCACHEABLE),
+ 
++  // A C++20 module producer's sidecar (<pcm>.ccache-meta) was missing or
++  // stale at consumer-compile time, so the consumer fell back to fail-closed
++  // (refused to use ccache for that compile).
++  FIELD(could_not_use_module_sidecar,
++        "Could not use module sidecar",
++        FLAG_UNCACHEABLE),
++
+   // Preconditions for using precompiled headers were not fulfilled.
+   FIELD(could_not_use_precompiled_header,
+         "Could not use precompiled header",
+diff --git a/src/ccache/language.cpp b/src/ccache/language.cpp
+index ff068ea1..8803c29e 100644
+--- a/src/ccache/language.cpp
++++ b/src/ccache/language.cpp
+@@ -71,6 +71,14 @@ const struct
+   {".TCC",  "c++-header"              },
+   {".cu",   "cu"                      }, // Special case in language_for_file: "cuda" for Clang
+   {".hip",  "hip"                     },
++  // C++20 named module interface units. Both Clang and GCC accept these
++  // extensions; CMake's clang-scan-deps + ninja flow uses .cppm.
++  {".cppm", "c++-module"              },
++  {".CPPM", "c++-module"              },
++  {".cxxm", "c++-module"              },
++  {".CXXM", "c++-module"              },
++  {".ixx",  "c++-module"              },
++  {".IXX",  "c++-module"              },
+   {nullptr, nullptr                   },
+ };
+ 
+@@ -86,6 +94,10 @@ const struct
+   {"c++",                      "c++-cpp-output"          },
+   {"c++-cpp-output",           "c++-cpp-output"          },
+   {"c++-header",               "c++-cpp-output"          },
++  // C++20 named module interface unit. The textual portion (global module
++  // fragment + module purview) is preprocessed as ordinary C++; ccache
++  // treats it identically to "c++" for preprocessor-mode purposes.
++  {"c++-module",               "c++-cpp-output"          },
+   {"cu",                       "cpp-output"              }, // NVCC
+   {"cuda",                     "cpp-output"              }, // Clang
+   {"hip",                      "cpp-output"              },
+diff --git a/src/ccache/module_sidecar.cpp b/src/ccache/module_sidecar.cpp
+new file mode 100644
+index 00000000..6a79ea5c
+--- /dev/null
++++ b/src/ccache/module_sidecar.cpp
+@@ -0,0 +1,165 @@
++// Copyright (C) 2026 Joel Rosdahl and other contributors
++//
++// See doc/authors.adoc for a complete list of contributors.
++//
++// This program is free software; you can redistribute it and/or modify it
++// under the terms of the GNU General Public License as published by the Free
++// Software Foundation; either version 3 of the License, or (at your option)
++// any later version.
++
++#include "module_sidecar.hpp"
++
++#include <ccache/util/direntry.hpp>
++#include <ccache/util/file.hpp>
++#include <ccache/util/format.hpp>
++#include <ccache/util/logging.hpp>
++#include <ccache/util/string.hpp>
++#include <ccache/util/time.hpp>
++
++#include <charconv>
++#include <string_view>
++
++namespace fs = std::filesystem;
++
++namespace {
++
++constexpr std::string_view k_sidecar_suffix = ".ccache-meta";
++
++// Decode a lowercase hex string of length 2*N into the digest. Returns false
++// on any non-hex character or wrong length.
++bool
++parse_hex_digest(std::string_view hex, Hash::Digest& out)
++{
++  if (hex.size() != 2 * out.size()) {
++    return false;
++  }
++  for (size_t i = 0; i < out.size(); ++i) {
++    uint8_t byte = 0;
++    auto [_, ec] =
++      std::from_chars(hex.data() + 2 * i, hex.data() + 2 * i + 2, byte, 16);
++    if (ec != std::errc{}) {
++      return false;
++    }
++    out[i] = byte;
++  }
++  return true;
++}
++
++std::string
++format_hex_digest(const Hash::Digest& d)
++{
++  std::string out;
++  out.reserve(2 * d.size());
++  static constexpr char k_hex[] = "0123456789abcdef";
++  for (uint8_t b : d) {
++    out.push_back(k_hex[b >> 4]);
++    out.push_back(k_hex[b & 0xf]);
++  }
++  return out;
++}
++
++} // namespace
++
++fs::path
++ModuleSidecar::sidecar_path_for(const fs::path& pcm_path)
++{
++  fs::path p = pcm_path;
++  p += k_sidecar_suffix;
++  return p;
++}
++
++std::optional<ModuleSidecar>
++ModuleSidecar::read_for(const fs::path& pcm_path)
++{
++  const auto path = sidecar_path_for(pcm_path);
++  auto data = util::read_file<std::string>(path);
++  if (!data) {
++    return std::nullopt;
++  }
++
++  ModuleSidecar out;
++  bool saw_key = false;
++  bool saw_size = false;
++  bool saw_mtime = false;
++
++  for (auto line : util::split_into_views(*data, "\n")) {
++    if (line.empty()) {
++      continue;
++    }
++    auto eq = line.find('=');
++    if (eq == std::string_view::npos) {
++      continue;
++    }
++    auto key = line.substr(0, eq);
++    auto val = line.substr(eq + 1);
++
++    if (key == "result_key") {
++      if (!parse_hex_digest(val, out.result_key)) {
++        LOG("Module sidecar at {} has malformed result_key", path);
++        return std::nullopt;
++      }
++      saw_key = true;
++    } else if (key == "pcm_size") {
++      auto [_, ec] =
++        std::from_chars(val.data(), val.data() + val.size(), out.pcm_size);
++      if (ec != std::errc{}) {
++        LOG("Module sidecar at {} has malformed pcm_size", path);
++        return std::nullopt;
++      }
++      saw_size = true;
++    } else if (key == "pcm_mtime_ns") {
++      auto [_, ec] =
++        std::from_chars(val.data(), val.data() + val.size(), out.pcm_mtime_ns);
++      if (ec != std::errc{}) {
++        LOG("Module sidecar at {} has malformed pcm_mtime_ns", path);
++        return std::nullopt;
++      }
++      saw_mtime = true;
++    }
++    // Unknown keys ignored for forward compatibility.
++  }
++
++  if (!saw_key || !saw_size || !saw_mtime) {
++    LOG("Module sidecar at {} is missing required keys", path);
++    return std::nullopt;
++  }
++  return out;
++}
++
++bool
++ModuleSidecar::write_for(const fs::path& pcm_path,
++                         const Hash::Digest& result_key)
++{
++  util::DirEntry pcm(pcm_path);
++  if (!pcm.is_regular_file()) {
++    LOG("Cannot write module sidecar; pcm missing or not a regular file: {}",
++        pcm_path);
++    return false;
++  }
++
++  const auto body = fmt::format("result_key={}\n"
++                                "pcm_size={}\n"
++                                "pcm_mtime_ns={}\n",
++                                format_hex_digest(result_key),
++                                pcm.size(),
++                                pcm.mtime().nsec());
++
++  const auto path = sidecar_path_for(pcm_path);
++  auto r = util::write_file(path, body, util::WriteFileMode::unlink);
++  if (!r) {
++    LOG("Failed to write module sidecar {}: {}", path, r.error());
++    return false;
++  }
++  return true;
++}
++
++bool
++ModuleSidecar::matches_pcm(const fs::path& pcm_path) const
++{
++  util::DirEntry pcm(pcm_path);
++  if (!pcm.is_regular_file()) {
++    return false;
++  }
++  return pcm.size() == pcm_size
++         && pcm.mtime().nsec() == pcm_mtime_ns;
++}
+diff --git a/src/ccache/module_sidecar.hpp b/src/ccache/module_sidecar.hpp
+new file mode 100644
+index 00000000..e9e82961
+--- /dev/null
++++ b/src/ccache/module_sidecar.hpp
+@@ -0,0 +1,55 @@
++// Copyright (C) 2026 Joel Rosdahl and other contributors
++//
++// See doc/authors.adoc for a complete list of contributors.
++//
++// This program is free software; you can redistribute it and/or modify it
++// under the terms of the GNU General Public License as published by the Free
++// Software Foundation; either version 3 of the License, or (at your option)
++// any later version.
++
++#pragma once
++
++#include <ccache/hash.hpp>
++
++#include <cstdint>
++#include <filesystem>
++#include <optional>
++
++// Sidecar file written next to a C++20 module BMI/PCM as
++// "<pcm_path>.ccache-meta". Encodes the producer compilation's result_key
++// together with stat metadata that lets a consumer detect a stale sidecar
++// without re-hashing PCM bytes.
++//
++// File format (text, key=value, one entry per line, LF terminator):
++//
++//   result_key=<lowercase hex of digest>
++//   pcm_size=<bytes>
++//   pcm_mtime_ns=<nanoseconds since unix epoch>
++//
++// Future extensions append new keys. Unknown keys are ignored on read.
++class ModuleSidecar
++{
++public:
++  Hash::Digest result_key{};
++  uint64_t pcm_size = 0;
++  int64_t pcm_mtime_ns = 0;
++
++  // Read and parse the sidecar at "<pcm_path>.ccache-meta". Returns
++  // std::nullopt if the file is missing or malformed.
++  static std::optional<ModuleSidecar>
++  read_for(const std::filesystem::path& pcm_path);
++
++  // Write a sidecar describing the just-emitted PCM at pcm_path. Synthesises
++  // (pcm_size, pcm_mtime_ns) from the current stat of pcm_path. Returns
++  // false if the PCM does not exist or the write failed (a missing sidecar
++  // is non-fatal but means future consumers will fail closed).
++  static bool write_for(const std::filesystem::path& pcm_path,
++                        const Hash::Digest& result_key);
++
++  // Whether this sidecar's recorded (size, mtime) match the current stat
++  // of pcm_path. Mismatch indicates the PCM was rewritten outside ccache.
++  bool matches_pcm(const std::filesystem::path& pcm_path) const;
++
++  // Path of the sidecar associated with pcm_path.
++  static std::filesystem::path sidecar_path_for(const std::filesystem::path& pcm_path);
++};
+diff --git a/test/CMakeLists.txt b/test/CMakeLists.txt
+index ab3c3b9f..ad7f6ab1 100644
+--- a/test/CMakeLists.txt
++++ b/test/CMakeLists.txt
+@@ -29,6 +29,7 @@ addtest(clang_cu_direct)
+ addtest(cleanup)
+ addtest(color_diagnostics)
+ addtest(config)
++addtest(cxx20_modules)
+ addtest(debug_compilation_dir)
+ addtest(debug_prefix_map)
+ addtest(depend)
+diff --git a/test/suites/cxx20_modules.bash b/test/suites/cxx20_modules.bash
+new file mode 100644
+index 00000000..bf3a6d7c
+--- /dev/null
++++ b/test/suites/cxx20_modules.bash
+@@ -0,0 +1,361 @@
++# Test C++20 named modules with sidecar-based cache coherence.
++#
++# Producer compiles emit a BMI/PCM specified via -fmodule-output=<path>.
++# ccache treats the PCM as a tracked secondary cached output and writes
++# a "<pcm>.ccache-meta" sidecar containing the producer's result_key.
++#
++# Consumers reference modules via -fmodule-file=[<name>=]<path>. Instead
++# of hashing PCM bytes (which embed absolute paths and so over-invalidate
++# whenever the build path or Conan dependency paths drift), ccache reads
++# the sidecar and folds its recorded result_key into the consumer hash.
++# If the sidecar is missing or its (size, mtime) snapshot disagrees with
++# the current PCM, the consumer fails closed (could_not_use_module_sidecar).
++#
++# Scope: -fmodule-file= consumer hashing and -fmodule-output= producer
++# caching. Out of scope: -fprebuilt-module-path= directory lookup,
++# --precompile (produces PCM with no .o; not the CMake/clang flow), MSVC
++# /reference and /ifcOutput, and GCC's implicit .gcm caching.
++
++SUITE_cxx20_modules_PROBE() {
++    if ! $COMPILER_TYPE_CLANG; then
++        echo "C++20 named modules require Clang"
++        return
++    fi
++
++    cat <<EOF >probe_mod.cppm
++export module probe;
++export int probe_value = 1;
++EOF
++
++    # Use the same compile shape we test below: -x c++-module with both
++    # .o and .pcm outputs in one invocation. This is what CMake+ninja's
++    # clang-scan-deps flow generates for cppm sources.
++    if ! $COMPILER -std=c++20 -x c++-module -fmodule-output=probe_mod.pcm \
++            -c probe_mod.cppm -o probe_mod.cppm.o 2>/dev/null \
++        || ! [ -f probe_mod.pcm ]; then
++        echo "compiler does not support -fmodule-output= producer flow"
++        rm -f probe_mod.cppm probe_mod.pcm probe_mod.cppm.o
++        return
++    fi
++
++    cat <<EOF >probe_consumer.cpp
++import probe;
++int main() { return probe_value; }
++EOF
++    if ! $COMPILER -std=c++20 -fmodule-file=probe=probe_mod.pcm \
++            -c probe_consumer.cpp -o probe_consumer.o 2>/dev/null; then
++        echo "compiler does not support -fmodule-file=name=file syntax"
++    fi
++
++    rm -f probe_mod.cppm probe_mod.pcm probe_mod.cppm.o
++    rm -f probe_consumer.cpp probe_consumer.o
++}
++
++SUITE_cxx20_modules_SETUP() {
++    unset CCACHE_NODIRECT
++
++    cat <<EOF >mod.cppm
++export module mod;
++export struct Base {
++    int x = 42;
++};
++EOF
++
++    cat <<EOF >consumer.cpp
++import mod;
++int get_x() {
++    Base b;
++    return b.x;
++}
++EOF
++}
++
++# Build a module producer through ccache. After this, mod.pcm and
++# mod.pcm.ccache-meta both exist on disk.
++ccache_build_producer() {
++    local pcm_out="$1"; shift
++    $CCACHE_COMPILE -std=c++20 -x c++-module \
++        -fmodule-output="$pcm_out" \
++        -c mod.cppm -o mod.cppm.o "$@"
++}
++
++SUITE_cxx20_modules() {
++    # -------------------------------------------------------------------------
++    TEST "producer caches .pcm and writes sidecar"
++
++    ccache_build_producer mod.pcm
++    expect_stat direct_cache_miss 1
++    expect_exists mod.pcm
++    expect_exists mod.pcm.ccache-meta
++
++    # Sidecar must list result_key, pcm_size, pcm_mtime_ns.
++    grep -q '^result_key=' mod.pcm.ccache-meta \
++        || test_failed "sidecar missing result_key line"
++    grep -q '^pcm_size=' mod.pcm.ccache-meta \
++        || test_failed "sidecar missing pcm_size line"
++    grep -q '^pcm_mtime_ns=' mod.pcm.ccache-meta \
++        || test_failed "sidecar missing pcm_mtime_ns line"
++
++    # Wipe outputs and rebuild — must be a producer cache hit, restoring
++    # both .o and .pcm from cache, then re-synthesising the sidecar.
++    rm -f mod.cppm.o mod.pcm mod.pcm.ccache-meta
++
++    ccache_build_producer mod.pcm
++    expect_stat direct_cache_hit 1
++    expect_stat direct_cache_miss 1
++    expect_exists mod.cppm.o
++    expect_exists mod.pcm
++    expect_exists mod.pcm.ccache-meta
++
++    # -------------------------------------------------------------------------
++    TEST "consumer hits when sidecar is valid"
++
++    ccache_build_producer mod.pcm
++    expect_stat direct_cache_miss 1
++
++    # First consumer compile: cache miss (cold).
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o
++    expect_stat direct_cache_hit 0
++    expect_stat direct_cache_miss 2
++    expect_stat could_not_use_module_sidecar 0
++
++    # Second consumer compile: cache hit, sidecar consulted, no PCM bytes hashed.
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o
++    expect_stat direct_cache_hit 1
++    expect_stat direct_cache_miss 2
++    expect_stat could_not_use_module_sidecar 0
++
++    # -------------------------------------------------------------------------
++    TEST "consumer hit survives PCM byte differences when result_key is unchanged"
++
++    # Establish baseline: producer miss + consumer miss, then consumer hit.
++    ccache_build_producer mod.pcm
++    expect_stat direct_cache_miss 1
++
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o
++    expect_stat direct_cache_miss 2
++
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o
++    expect_stat direct_cache_hit 1
++
++    # Simulate PCM byte drift WITHOUT a logical change (e.g. Conan path
++    # drift in CI): replace PCM with a byte-different copy, and rewrite
++    # only the (size, mtime) fields in the sidecar so it still matches
++    # the on-disk PCM. result_key stays the same — that's the invariant
++    # we hash on the consumer side.
++    printf '   ' >> mod.pcm
++    new_size=$(stat -c%s mod.pcm 2>/dev/null || stat -f%z mod.pcm)
++    new_mtime_ns=$(python3 -c "import os; print(os.stat('mod.pcm').st_mtime_ns)")
++
++    awk -v sz="$new_size" -v mt="$new_mtime_ns" '
++        /^pcm_size=/    { print "pcm_size=" sz; next }
++        /^pcm_mtime_ns=/{ print "pcm_mtime_ns=" mt; next }
++        { print }
++    ' mod.pcm.ccache-meta > mod.pcm.ccache-meta.new
++    mv mod.pcm.ccache-meta.new mod.pcm.ccache-meta
++
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o
++    expect_stat direct_cache_hit 2
++    expect_stat could_not_use_module_sidecar 0
++
++    # -------------------------------------------------------------------------
++    TEST "consumer fails closed when sidecar is absent"
++
++    # Build PCM directly (no ccache) — no sidecar produced.
++    $COMPILER -std=c++20 -x c++-module -fmodule-output=mod.pcm \
++        -c mod.cppm -o mod.cppm.o
++    rm -f mod.pcm.ccache-meta
++
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o
++    expect_stat could_not_use_module_sidecar 1
++    expect_stat direct_cache_hit 0
++
++    # -------------------------------------------------------------------------
++    TEST "consumer fails closed when sidecar is stale (size mismatch)"
++
++    ccache_build_producer mod.pcm
++    expect_stat direct_cache_miss 1
++
++    # Consumer cold compile populates the cache (another miss).
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o
++    expect_stat direct_cache_miss 2
++    expect_stat could_not_use_module_sidecar 0
++
++    # Mutate the PCM directly (someone bypasses ccache to rebuild it).
++    # The sidecar's recorded (size, mtime) now disagrees with the
++    # on-disk PCM, so the consumer must fail closed rather than risk a
++    # stale .o.
++    printf 'extra' >> mod.pcm
++
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o
++    expect_stat could_not_use_module_sidecar 1
++    expect_stat direct_cache_hit 0
++
++    # -------------------------------------------------------------------------
++    TEST "logical change to PCM source produces new result_key and consumer miss"
++
++    ccache_build_producer mod.pcm                        # producer miss 1
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o                    # consumer miss 2
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o                    # consumer hit 1
++    expect_stat direct_cache_hit 1
++    expect_stat direct_cache_miss 2
++
++    # Add a field — struct layout shifts; consumer.o compiled against the
++    # old PCM would have wrong offsets, so this MUST miss.
++    cat <<EOF >mod.cppm
++export module mod;
++export struct Base {
++    int x = 42;
++    int y = 99;
++};
++EOF
++    ccache_build_producer mod.pcm                        # producer miss 3
++
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o                    # consumer miss 4
++    expect_stat direct_cache_hit 1
++    expect_stat direct_cache_miss 4
++
++    # -------------------------------------------------------------------------
++    TEST "consumer fails closed when sidecar is stale (mtime mismatch)"
++
++    # Sidecar staleness has two failure modes: size or mtime. Test mtime.
++    ccache_build_producer mod.pcm
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o
++    expect_stat direct_cache_miss 2
++    expect_stat could_not_use_module_sidecar 0
++
++    # Touch the PCM (size identical, mtime shifts forward).
++    sleep 1
++    touch mod.pcm
++
++    $CCACHE_COMPILE -std=c++20 -fmodule-file=mod=mod.pcm \
++        -c consumer.cpp -o consumer.o
++    expect_stat could_not_use_module_sidecar 1
++    expect_stat direct_cache_hit 0
++
++    # -------------------------------------------------------------------------
++    TEST "modmap response file (@file) with quoted -fmodule-output= path"
++
++    # CMake/ninja invokes module producers as:
++    #   clang++ ... @<modmap_file> -o <obj> -c <cppm>
++    # where <modmap_file> contains "-x c++-module" and "-fmodule-output=...".
++    # ccache must expand the @-file so it sees -fmodule-output= and treats
++    # the compile as a module producer.
++    #
++    # CMake's planner-style modmaps quote the output path
++    # ("-fmodule-output="src/.../foo.pcm""), and ccache must strip the
++    # surrounding double-quotes so the recorded args_info.output_pcm
++    # matches the path the compiler actually writes to.
++    cat <<EOF >mod.modmap
++-x c++-module
++-fmodule-output="mod.pcm"
++EOF
++    $CCACHE_COMPILE -std=c++20 @mod.modmap -c mod.cppm -o mod.cppm.o
++    expect_stat direct_cache_miss 1
++    expect_exists mod.pcm
++    expect_exists mod.pcm.ccache-meta
++
++    # Identical re-invocation via @-file: must hit, .pcm restored.
++    rm -f mod.cppm.o mod.pcm mod.pcm.ccache-meta
++    $CCACHE_COMPILE -std=c++20 @mod.modmap -c mod.cppm -o mod.cppm.o
++    expect_stat direct_cache_hit 1
++    expect_exists mod.cppm.o
++    expect_exists mod.pcm
++    expect_exists mod.pcm.ccache-meta
++
++    # -------------------------------------------------------------------------
++    TEST "producer-that-also-consumes: transitive change propagates"
++
++    # Real codebases have module producers that themselves import other
++    # modules (e.g. memgraph property_value.cppm imports memgraph.utils.fnv).
++    # Their modmap contains BOTH -fmodule-output= and -fmodule-file=.
++    # When the imported module's source changes, the importing producer's
++    # hash must also change so its own consumers miss.
++
++    # Lower-level module "leaf".
++    cat <<EOF >leaf.cppm
++export module leaf;
++export int leaf_value() { return 1; }
++EOF
++
++    # Higher-level module "top" that imports leaf and re-exposes a value
++    # derived from it.
++    cat <<EOF >top.cppm
++export module top;
++import leaf;
++export int top_value() { return leaf_value() + 10; }
++EOF
++
++    cat <<EOF >top_consumer.cpp
++import top;
++int main_top() { return top_value(); }
++EOF
++
++    # Build leaf, then top (consuming leaf via -fmodule-file=), then a
++    # consumer of top. Counts as we go:
++    #   leaf producer compile          -> direct_cache_miss = 1
++    #   top producer compile           -> direct_cache_miss = 2
++    #   top_consumer compile (cold)    -> direct_cache_miss = 3
++    #   top_consumer compile (replay)  -> direct_cache_hit  = 1
++    $CCACHE_COMPILE -std=c++20 -x c++-module \
++        -fmodule-output=leaf.pcm \
++        -c leaf.cppm -o leaf.cppm.o
++    expect_exists leaf.pcm.ccache-meta
++
++    $CCACHE_COMPILE -std=c++20 -x c++-module \
++        -fmodule-output=top.pcm \
++        -fmodule-file=leaf=leaf.pcm \
++        -c top.cppm -o top.cppm.o
++    expect_exists top.pcm.ccache-meta
++
++    $CCACHE_COMPILE -std=c++20 \
++        -fmodule-file=leaf=leaf.pcm -fmodule-file=top=top.pcm \
++        -c top_consumer.cpp -o top_consumer.o
++
++    $CCACHE_COMPILE -std=c++20 \
++        -fmodule-file=leaf=leaf.pcm -fmodule-file=top=top.pcm \
++        -c top_consumer.cpp -o top_consumer.o
++    expect_stat direct_cache_hit 1
++    expect_stat direct_cache_miss 3
++
++    # Now mutate leaf's source. This must propagate transitively:
++    #   leaf source change -> leaf.pcm rebuilt with new result_key
++    #     -> leaf.pcm.ccache-meta result_key changes
++    #     -> top's compile (which imports leaf via -fmodule-file=) hashes
++    #        leaf's new result_key, so top's own result_key changes
++    #     -> top.pcm.ccache-meta result_key changes
++    #     -> top_consumer's hash changes -> miss (not hit).
++    cat <<EOF >leaf.cppm
++export module leaf;
++export int leaf_value() { return 999; }   // logical change
++EOF
++
++    $CCACHE_COMPILE -std=c++20 -x c++-module \
++        -fmodule-output=leaf.pcm \
++        -c leaf.cppm -o leaf.cppm.o                          # leaf miss   -> 4
++    $CCACHE_COMPILE -std=c++20 -x c++-module \
++        -fmodule-output=top.pcm \
++        -fmodule-file=leaf=leaf.pcm \
++        -c top.cppm -o top.cppm.o                            # top miss    -> 5
++    $CCACHE_COMPILE -std=c++20 \
++        -fmodule-file=leaf=leaf.pcm -fmodule-file=top=top.pcm \
++        -c top_consumer.cpp -o top_consumer.o                # consumer miss -> 6
++
++    # Hit count must NOT advance — the transitive change invalidated the
++    # consumer's cache key. If the .pcm bytes had been hashed instead of
++    # the result_key chain, the consumer might have hit on a stale .o.
++    expect_stat direct_cache_hit 1
++    expect_stat direct_cache_miss 6
++}

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,9 +22,11 @@
 #include "gtest/gtest.h"
 
 #include "communication/result_stream_faker.hpp"
+#include "query/auth_checker.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/stream/streams.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 
@@ -36,12 +38,15 @@ class QueryExecution : public testing::Test {
   const std::string testSuite = "query_plan_edge_cases";
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
   std::optional<memgraph::query::InterpreterContext> interpreter_context_;
+  std::optional<memgraph::query::AllowEverythingAuthChecker> auth_checker_;
   std::optional<memgraph::query::Interpreter> interpreter_;
 
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_query_plan_edge_cases"};
 
-  std::optional<memgraph::replication::ReplicationState> repl_state;
+  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
+      repl_state;
   std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  std::optional<memgraph::system::System> system_state;
 
   void SetUp() override {
     auto config = [&]() {
@@ -56,7 +61,7 @@ class QueryExecution : public testing::Test {
     }();  // iile
 
     repl_state.emplace(memgraph::storage::ReplicationStateRootPath(config));
-    db_gk.emplace(config, *repl_state);
+    db_gk.emplace(config);
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
@@ -65,14 +70,30 @@ class QueryExecution : public testing::Test {
                                                : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
               "Wrong storage mode!");
     db_acc_ = std::move(db_acc);
-
-    interpreter_context_.emplace(memgraph::query::InterpreterConfig{}, nullptr, &repl_state.value());
+    system_state.emplace();
+    interpreter_context_.emplace(memgraph::query::InterpreterConfig{},
+                                 nullptr,
+                                 nullptr,
+                                 nullptr,
+                                 &repl_state.value(),
+                                 *system_state,
+                                 nullptr
+#ifdef MG_ENTERPRISE
+                                 ,
+                                 nullptr,
+                                 nullptr
+#endif
+    );
+    auth_checker_.emplace();
     interpreter_.emplace(&*interpreter_context_, *db_acc_);
+    interpreter_->SetUser(auth_checker_->GenQueryUser(std::nullopt, {}));
   }
 
   void TearDown() override {
     interpreter_ = std::nullopt;
+    auth_checker_.reset();
     interpreter_context_ = std::nullopt;
+    system_state.reset();
     db_acc_.reset();
     db_gk.reset();
     repl_state.reset();
@@ -90,7 +111,7 @@ class QueryExecution : public testing::Test {
   auto Execute(const std::string &query) {
     ResultStreamFaker stream(this->db_acc_->get()->storage());
 
-    auto [header, _1, qid, _2] = interpreter_->Prepare(query, {}, {});
+    auto [header, _1, qid, _2] = interpreter_->Prepare(query, memgraph::query::no_params_fn, {});
     stream.Header(header);
     auto summary = interpreter_->PullAll(&stream);
     stream.Summary(summary);
@@ -100,7 +121,7 @@ class QueryExecution : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(QueryExecution, StorageTypes);
+TYPED_TEST_SUITE(QueryExecution, StorageTypes);
 
 TYPED_TEST(QueryExecution, MissingOptionalIntoExpand) {
   // validating bug where expanding from Null (due to a preceeding optional
@@ -145,4 +166,71 @@ TYPED_TEST(QueryExecution, EdgeUniquenessInOptional) {
                           "RETURN n, r1, r2")
                 .size(),
             3);
+}
+
+TYPED_TEST(QueryExecution, NamedPathOverBoundNodeInSubqueryBody) {
+  // A named path over nothing but one already-bound node is built on the value the caller bound.
+  this->Execute("CREATE (:Node)");
+
+  auto results = this->Execute("MATCH (n) RETURN COUNT { MATCH p = (n) } AS c");
+
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results[0][0].ValueInt(), 1);
+}
+
+TYPED_TEST(QueryExecution, BoundNodeInSubqueryBodyIsNull) {
+  // A pattern never matches a null node, so a body that is one already-bound node has to read the bound
+  // value rather than fold to a constant.
+  this->Execute("CREATE (:Person {name: 'lonely'})");
+
+  auto results = this->Execute(
+      "MATCH (a:Person) OPTIONAL MATCH (a)-[:KNOWS]->(f) "
+      "RETURN EXISTS { MATCH (f) } AS e, COUNT { MATCH (f) } AS c");
+
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_FALSE(results[0][0].ValueBool());
+  EXPECT_EQ(results[0][1].ValueInt(), 0);
+}
+
+TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNull) {
+  // The same holds outside a subquery: re-stating a bound node as a whole pattern is a match, not a no-op.
+  auto results = this->Execute("WITH null AS f MATCH (f) RETURN count(*) AS c");
+
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results[0][0].ValueInt(), 0);
+}
+
+TYPED_TEST(QueryExecution, MatchOnBoundNodeIsNotANode) {
+  // A null cannot match a pattern, but a value of any other type cannot even be asked: the pattern says the
+  // variable holds a node, so anything else is a type error rather than a row that quietly matches.
+  this->Execute("CREATE (:Person)-[:KNOWS]->(:Person)");
+
+  EXPECT_THROW(this->Execute("WITH 1 AS f MATCH (f) RETURN count(*) AS c"), memgraph::query::QueryRuntimeException);
+
+  // The type is not always known before the query runs: here only the rows without a friend hold the integer.
+  EXPECT_THROW(this->Execute("MATCH (p:Person) OPTIONAL MATCH (p)-[:KNOWS]->(f) "
+                             "WITH coalesce(f, 1) AS g MATCH (g) RETURN count(*) AS c"),
+               memgraph::query::QueryRuntimeException);
+
+  // A node passes, so what the guard rejects is the type and not the reuse of a variable.
+  auto results = this->Execute("MATCH (p:Person) WITH p AS g MATCH (g) RETURN count(*) AS c");
+  ASSERT_EQ(results.size(), 1U);
+  EXPECT_EQ(results[0][0].ValueInt(), 2);
+}
+
+TYPED_TEST(QueryExecution, SubqueryBodyCorrelatesAcrossSeparatePatterns) {
+  // Two patterns in a body reach each other's variables through what the body's first operator says it modifies.
+  // The caller's variables have to be among them, or a filter naming one of them together with a variable of the
+  // other pattern belongs to neither, and planning gives up.
+  this->Execute("CREATE (:Person {name: 'a', age: 5}), (:Person {name: 'b', age: 1})");
+  this->Execute("CREATE (:X {name: 'a'})-[:R]->(:Y {name: 'a'})");
+
+  auto results = this->Execute(
+      "MATCH (a:Person) "
+      "RETURN COUNT { MATCH (a), (x)-[:R]->(y) WHERE y.name = a.name AND a.age > 3 } AS c "
+      "ORDER BY c DESC");
+
+  ASSERT_EQ(results.size(), 2U);
+  EXPECT_EQ(results[0][0].ValueInt(), 1);
+  EXPECT_EQ(results[1][0].ValueInt(), 0);
 }

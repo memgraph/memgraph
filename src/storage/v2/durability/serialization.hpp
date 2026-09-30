@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,14 +11,16 @@
 
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/marker.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/crc_accumulator.hpp"
 #include "utils/file.hpp"
 
 namespace memgraph::storage::durability {
@@ -33,57 +35,112 @@ class BaseEncoder {
   virtual void WriteMarker(Marker marker) = 0;
   virtual void WriteBool(bool value) = 0;
   virtual void WriteUint(uint64_t value) = 0;
+  virtual uint32_t WriteCrc() = 0;
   virtual void WriteDouble(double value) = 0;
   virtual void WriteString(std::string_view value) = 0;
-  virtual void WritePropertyValue(const PropertyValue &value) = 0;
+  virtual void WriteEnum(storage::Enum value) = 0;
+  virtual void WritePoint2d(storage::Point2d value) = 0;
+  virtual void WritePoint3d(storage::Point3d value) = 0;
+  virtual void WriteExternalPropertyValue(const ExternalPropertyValue &value) = 0;
+  virtual auto GetPosition() -> uint64_t = 0;
+
+  virtual void ResetCrcAcc() = 0;
+
+  virtual auto CrcAccValue() const -> uint32_t = 0;
 };
 
 /// Encoder that is used to generate a snapshot/WAL.
+template <typename FileType>
 class Encoder final : public BaseEncoder {
  public:
-  void Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
+  bool Initialize(const std::filesystem::path &path);
+  bool Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
 
-  void OpenExisting(const std::filesystem::path &path);
+  bool OpenExisting(const std::filesystem::path &path);
 
   void Close();
   // Main write function, the only one that is allowed to write to the `file_`
   // directly.
   void Write(const uint8_t *data, uint64_t size);
 
+  /// See NonConcurrentOutputFile::AppendFrom.
+  [[nodiscard]] std::optional<uint64_t> AppendFrom(int src_fd, uint64_t size)
+    requires std::same_as<FileType, utils::NonConcurrentOutputFile>;
+
   void WriteMarker(Marker marker) override;
   void WriteBool(bool value) override;
   void WriteUint(uint64_t value) override;
+  uint32_t WriteCrc() override;
+  void WriteCrcAt(uint64_t position, uint32_t crc);
   void WriteDouble(double value) override;
   void WriteString(std::string_view value) override;
-  void WritePropertyValue(const PropertyValue &value) override;
+  void WriteEnum(storage::Enum value) override;
+  void WritePoint2d(storage::Point2d value) override;
+  void WritePoint3d(storage::Point3d value) override;
+  void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
-  uint64_t GetPosition();
+  uint64_t GetPosition() override;
   void SetPosition(uint64_t position);
 
   void Sync();
 
-  void Finalize();
+  /// See NonConcurrentOutputFile::EnableWritebackPacing.
+  void EnableWritebackPacing(size_t window_bytes,
+                             utils::PageCachePolicy completed_window = utils::PageCachePolicy::kDrop)
+    requires std::same_as<FileType, utils::NonConcurrentOutputFile>
+  {
+    file_.EnableWritebackPacing(window_bytes, completed_window);
+  }
+
+  /// Syncs and closes the file, disposing of its pages as `page_cache` says.
+  void Finalize(utils::PageCachePolicy page_cache = utils::PageCachePolicy::kKeep);
 
   // Disable flushing of the internal buffer.
-  void DisableFlushing();
+  void DisableFlushing()
+    requires std::same_as<FileType, utils::OutputFile>;
   // Enable flushing of the internal buffer.
-  void EnableFlushing();
+  void EnableFlushing()
+    requires std::same_as<FileType, utils::OutputFile>;
   // Try flushing the internal buffer.
-  void TryFlushing();
+  void TryFlushing()
+    requires std::same_as<FileType, utils::OutputFile>;
   // Get the current internal buffer with its size.
   std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
 
   // Get the total size of the current file.
   size_t GetSize();
 
+  auto GetPath() const { return file_.path(); }
+
+  void ResetCrcAcc() override { crc_acc.Reset(); }
+
+  auto CrcAccValue() const -> uint32_t override { return crc_acc.Value(); }
+
  private:
-  utils::OutputFile file_;
+  FileType file_;
+  utils::CrcAccumulator crc_acc;
+  // Logical write position: the file offset plus the bytes still sitting in file_'s buffer. Tracked
+  // here so GetPosition never has to flush the buffer and seek — two syscalls per query which, on the
+  // WAL hot path (every transaction records its start and end positions), defeat write batching.
+  uint64_t logical_position_{0};
+  // High-water mark of logical_position_: the size of everything this encoder wrote, so GetSize
+  // never has to seek to the end of the file. Encoders write files from scratch or from their end
+  // (Initialize/OpenExisting), so the watermark is the file size.
+  uint64_t logical_size_{0};
 };
 
 /// Decoder interface class. Used to implement streams from different sources
 /// (e.g. file and network).
 class BaseDecoder {
  protected:
+  // An interface base with a protected destructor still has to say what its special members are, or
+  // a derived class that owns a move-only handle silently loses its move constructor to the
+  // deprecated implicit copy.
+  BaseDecoder() = default;
+  BaseDecoder(const BaseDecoder &) = default;
+  BaseDecoder(BaseDecoder &&) = default;
+  BaseDecoder &operator=(const BaseDecoder &) = default;
+  BaseDecoder &operator=(BaseDecoder &&) = default;
   ~BaseDecoder() = default;
 
  public:
@@ -92,10 +149,16 @@ class BaseDecoder {
   virtual std::optional<uint64_t> ReadUint() = 0;
   virtual std::optional<double> ReadDouble() = 0;
   virtual std::optional<std::string> ReadString() = 0;
-  virtual std::optional<PropertyValue> ReadPropertyValue() = 0;
+  virtual std::optional<Enum> ReadEnumValue() = 0;
+  virtual std::optional<Point2d> ReadPoint2dValue() = 0;
+  virtual std::optional<Point3d> ReadPoint3dValue() = 0;
+  virtual std::optional<ExternalPropertyValue> ReadExternalPropertyValue() = 0;
 
   virtual bool SkipString() = 0;
-  virtual bool SkipPropertyValue() = 0;
+  virtual bool SkipExternalPropertyValue() = 0;
+
+  virtual void ResetCrcAcc() = 0;
+  virtual auto CrcAccValue() -> uint32_t = 0;
 };
 
 /// Decoder that is used to read a generated snapshot/WAL.
@@ -108,6 +171,9 @@ class Decoder final : public BaseDecoder {
   bool Read(uint8_t *data, size_t size);
   bool Peek(uint8_t *data, size_t size);
 
+  /// See InputFile::DropCachedPages.
+  void DropCachedPages() const { file_.DropCachedPages(); }
+
   std::optional<Marker> PeekMarker();
 
   std::optional<Marker> ReadMarker() override;
@@ -115,14 +181,20 @@ class Decoder final : public BaseDecoder {
   std::optional<uint64_t> ReadUint() override;
   std::optional<double> ReadDouble() override;
   std::optional<std::string> ReadString() override;
-  std::optional<PropertyValue> ReadPropertyValue() override;
-
+  std::optional<Enum> ReadEnumValue() override;
+  std::optional<Point2d> ReadPoint2dValue() override;
+  std::optional<Point3d> ReadPoint3dValue() override;
+  std::optional<ExternalPropertyValue> ReadExternalPropertyValue() override;
   bool SkipString() override;
-  bool SkipPropertyValue() override;
+  bool SkipExternalPropertyValue() override;
 
-  std::optional<uint64_t> GetSize();
-  std::optional<uint64_t> GetPosition();
+  uint64_t GetSize();
+  uint64_t GetPosition();
   bool SetPosition(uint64_t position);
+
+  void ResetCrcAcc() override { file_.ResetCrc(); }
+
+  auto CrcAccValue() -> uint32_t override { return file_.CrcValue(); }
 
  private:
   utils::InputFile file_;

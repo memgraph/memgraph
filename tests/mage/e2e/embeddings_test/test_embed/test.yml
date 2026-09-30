@@ -1,0 +1,11 @@
+query: >
+  WITH {device: "cpu"} AS configuration
+  CALL embeddings.text(["Hello, world!"], configuration)
+  YIELD success, embeddings, dimension
+  RETURN size(embeddings) as embeddings_num, size(embeddings[0]) as embedding_size, dimension, size(embeddings[0]) = dimension as embedding_size_equals_dimension;
+
+output:
+  - embeddings_num: 1
+    embedding_size: 384
+    dimension: 384
+    embedding_size_equals_dimension: true

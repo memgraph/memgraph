@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,11 +12,10 @@
 #include <gtest/gtest.h>
 
 #include "disk_test_utils.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/on_scope_exit.hpp"
-using memgraph::replication::ReplicationRole;
 
 namespace {
 int64_t VerticesCount(memgraph::storage::Storage::Accessor *accessor) {
@@ -45,19 +44,21 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
   void TestVisibility(std::unique_ptr<memgraph::storage::Storage> &storage,
                       const memgraph::storage::IsolationLevel &default_isolation_level,
                       const memgraph::storage::IsolationLevel &override_isolation_level) {
-    auto creator = storage->Access(ReplicationRole::MAIN);
-    auto default_isolation_level_reader = storage->Access(ReplicationRole::MAIN);
-    auto override_isolation_level_reader = storage->Access(ReplicationRole::MAIN, override_isolation_level);
+    auto creator = storage->Access(memgraph::storage::WRITE);
+    auto default_isolation_level_reader = storage->Access(memgraph::storage::WRITE);
+    auto override_isolation_level_reader =
+        storage->Access(memgraph::storage::StorageAccessType::WRITE, override_isolation_level, std::nullopt);
 
     ASSERT_EQ(VerticesCount(default_isolation_level_reader.get()), 0);
     ASSERT_EQ(VerticesCount(override_isolation_level_reader.get()), 0);
 
     static constexpr auto iteration_count = 10;
     {
-      SCOPED_TRACE(fmt::format(
-          "Visibility while the creator transaction is active "
-          "(default isolation level = {}, override isolation level = {})",
-          IsolationLevelToString(default_isolation_level), IsolationLevelToString(override_isolation_level)));
+      SCOPED_TRACE(
+          fmt::format("Visibility while the creator transaction is active "
+                      "(default isolation level = {}, override isolation level = {})",
+                      IsolationLevelToString(default_isolation_level),
+                      IsolationLevelToString(override_isolation_level)));
       for (size_t i = 1; i <= iteration_count; ++i) {
         creator->CreateVertex();
 
@@ -70,12 +71,13 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
       }
     }
 
-    ASSERT_FALSE(creator->Commit().HasError());
+    ASSERT_TRUE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     {
-      SCOPED_TRACE(fmt::format(
-          "Visibility after the creator transaction is committed "
-          "(default isolation level = {}, override isolation level = {})",
-          IsolationLevelToString(default_isolation_level), IsolationLevelToString(override_isolation_level)));
+      SCOPED_TRACE(
+          fmt::format("Visibility after the creator transaction is committed "
+                      "(default isolation level = {}, override isolation level = {})",
+                      IsolationLevelToString(default_isolation_level),
+                      IsolationLevelToString(override_isolation_level)));
       const auto check_vertices_count = [](auto &accessor, const auto isolation_level) {
         const auto expected_count =
             isolation_level == memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION ? 0 : iteration_count;
@@ -86,13 +88,15 @@ class StorageIsolationLevelTest : public ::testing::TestWithParam<memgraph::stor
       check_vertices_count(override_isolation_level_reader, override_isolation_level);
     }
 
-    ASSERT_FALSE(default_isolation_level_reader->Commit().HasError());
-    ASSERT_FALSE(override_isolation_level_reader->Commit().HasError());
+    ASSERT_FALSE(
+        !default_isolation_level_reader->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    ASSERT_FALSE(
+        !override_isolation_level_reader->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
     SCOPED_TRACE("Visibility after a new transaction is started");
-    auto verifier = storage->Access(ReplicationRole::MAIN);
+    auto verifier = storage->Access(memgraph::storage::WRITE);
     ASSERT_EQ(VerticesCount(verifier.get()), iteration_count);
-    ASSERT_FALSE(verifier->Commit().HasError());
+    ASSERT_TRUE(verifier->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 };
 
@@ -114,7 +118,7 @@ TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
   config.transaction.isolation_level = default_isolation_level;
 
   for (const auto override_isolation_level : isolation_levels) {
-    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::DiskStorage(config));
+    auto storage = disk_test_utils::CreateDiskStorage(config);
     auto on_exit = memgraph::utils::OnScopeExit{[&]() { disk_test_utils::RemoveRocksDbDirs(testSuite); }};
     try {
       this->TestVisibility(storage, default_isolation_level, override_isolation_level);
@@ -128,5 +132,5 @@ TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
   }
 }
 
-INSTANTIATE_TEST_CASE_P(ParameterizedStorageIsolationLevelTests, StorageIsolationLevelTest,
-                        ::testing::ValuesIn(isolation_levels), StorageIsolationLevelTest::PrintToStringParamName());
+INSTANTIATE_TEST_SUITE_P(ParameterizedStorageIsolationLevelTests, StorageIsolationLevelTest,
+                         ::testing::ValuesIn(isolation_levels), StorageIsolationLevelTest::PrintToStringParamName());

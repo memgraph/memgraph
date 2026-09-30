@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,7 +10,7 @@
 // licenses/APL.txt.
 
 #include <gflags/gflags.h>
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
@@ -48,6 +48,7 @@ int main(int argc, char **argv) {
     }
     if (FLAGS_auth_should_fail) {
       MG_ASSERT(!what.empty(), "The authentication should have failed!");
+      return 0;  // Auth failed, nothing left to do
     } else {
       MG_ASSERT(what.empty(),
                 "The authentication should have succeeded, but "

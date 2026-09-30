@@ -1,0 +1,16 @@
+workloads:
+  - name: "Replicate multitenancy"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["system_replication/multitenancy.py"]
+  - name: "Replicate auth data"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["system_replication/auth.py"]
+  - name: "Replicate parameters"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["system_replication/replicate_parameters.py"]
+  - name: "Replicate tenant profiles"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["system_replication/replicate_tenant_profiles.py"]
+  - name: "Hot/cold tenant convergence"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["system_replication/hot_cold_convergence.py"]

@@ -84,6 +84,13 @@ objectclass: organizationalUnit
 objectclass: top
 ou: roles
 
+# Role root
+dn: cn=root_role,ou=roles,dc=memgraph,dc=com
+cn: root_role
+member: cn=root,ou=people,dc=memgraph,dc=com
+objectclass: groupOfNames
+objectclass: top
+
 # Role moderator
 dn: cn=moderator,ou=roles,dc=memgraph,dc=com
 cn: moderator

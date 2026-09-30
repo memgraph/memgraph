@@ -1,0 +1,54 @@
+# Hot/Cold OOM Stress Workload
+#
+# Hammers the hot/cold suspend/resume engine under a HARD MEMORY CEILING.
+# Verifies that:
+#   - OOM is always a clean retriable error (never a crash / half-state).
+#   - Hot/cold suspend+resume is crash-free under concurrent memory pressure.
+#   - Per-tenant node counts match committed writes (no data loss) even when
+#     the memory hog forced OOM repeatedly.
+#   - Runtime tenant-profile changes (resource limits) while tenants cycle
+#     COLD/HOT do not corrupt state.
+#
+# 1024 MiB ceiling: several tenants can grow to a few hundred MiB each and
+# collectively crowd the budget, so the memory-hog thread reliably trips OOM.
+#
+# NOTE: v2 re-scoped the feature to MANUAL suspend/resume only.  All
+# auto-eviction machinery was deleted. The feature is always on (no flag).
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--storage-wal-enabled=true"
+    - "--storage-snapshot-interval-sec=300"
+    - "--data-recovery-on-startup=true"
+    - "--memory-limit=1024"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: hot-cold-oom-stress
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/hot_cold_oom/workload.py
+      script_args:
+        - "--endpoint"
+        - "127.0.0.1:7687"
+        - "--parallelism"
+        - "6"
+        - "--num-tenants"
+        - "4"
+        - "--duration-sec"
+        - "120"
+        - "--payload-bytes"
+        - "16384"
+      timeout_min: 15

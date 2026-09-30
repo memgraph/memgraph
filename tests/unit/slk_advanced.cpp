@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,35 +11,58 @@
 
 #include <gtest/gtest.h>
 
-#include "coordination/coordinator_config.hpp"
+#include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_rpc.hpp"
 #include "coordination/coordinator_slk.hpp"
-#include "replication/config.hpp"
+#include "io/network/endpoint.hpp"
 #include "replication_coordination_glue/mode.hpp"
+#include "rpc/utils.hpp"
 #include "slk_common.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/replication/slk.hpp"
 #include "storage/v2/temporal.hpp"
+#include "utils/temporal.hpp"
+
+using memgraph::io::network::Endpoint;
+
+TEST(SlkAdvanced, Variant) {
+  memgraph::slk::Loopback loopback;
+  auto builder = loopback.GetBuilder();
+  std::variant<int32_t, std::string> original{"hello"};
+  memgraph::slk::Save(original, builder);
+  auto reader = loopback.GetReader();
+  std::variant<int32_t, std::string> decoded;
+  memgraph::slk::Load(&decoded, reader);
+  ASSERT_EQ(original, decoded);
+}
 
 TEST(SlkAdvanced, PropertyValueList) {
-  std::vector<memgraph::storage::PropertyValue> original{
-      memgraph::storage::PropertyValue("hello world!"),
-      memgraph::storage::PropertyValue(5),
-      memgraph::storage::PropertyValue(1.123423),
-      memgraph::storage::PropertyValue(true),
-      memgraph::storage::PropertyValue(),
-      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))};
-  ASSERT_EQ(original[0].type(), memgraph::storage::PropertyValue::Type::String);
-  ASSERT_EQ(original[1].type(), memgraph::storage::PropertyValue::Type::Int);
-  ASSERT_EQ(original[2].type(), memgraph::storage::PropertyValue::Type::Double);
-  ASSERT_EQ(original[3].type(), memgraph::storage::PropertyValue::Type::Bool);
-  ASSERT_EQ(original[4].type(), memgraph::storage::PropertyValue::Type::Null);
-  ASSERT_EQ(original[5].type(), memgraph::storage::PropertyValue::Type::TemporalData);
+  const auto sample_duration = memgraph::utils::AsSysTime(23);
+  std::vector<memgraph::storage::ExternalPropertyValue> original{
+      memgraph::storage::ExternalPropertyValue("hello world!"),
+      memgraph::storage::ExternalPropertyValue(5),
+      memgraph::storage::ExternalPropertyValue(1.123423),
+      memgraph::storage::ExternalPropertyValue(true),
+      memgraph::storage::ExternalPropertyValue(),
+      memgraph::storage::ExternalPropertyValue(
+          memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+      memgraph::storage::ExternalPropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               sample_duration,
+                                               memgraph::utils::Timezone(std::chrono::minutes{60})))};
+  ASSERT_EQ(original[0].type(), memgraph::storage::ExternalPropertyValue::Type::String);
+  ASSERT_EQ(original[1].type(), memgraph::storage::ExternalPropertyValue::Type::Int);
+  ASSERT_EQ(original[2].type(), memgraph::storage::ExternalPropertyValue::Type::Double);
+  ASSERT_EQ(original[3].type(), memgraph::storage::ExternalPropertyValue::Type::Bool);
+  ASSERT_EQ(original[4].type(), memgraph::storage::ExternalPropertyValue::Type::Null);
+  ASSERT_EQ(original[5].type(), memgraph::storage::ExternalPropertyValue::Type::TemporalData);
+  ASSERT_EQ(original[6].type(), memgraph::storage::ExternalPropertyValue::Type::ZonedTemporalData);
 
   memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   memgraph::slk::Save(original, builder);
 
-  std::vector<memgraph::storage::PropertyValue> decoded;
+  std::vector<memgraph::storage::ExternalPropertyValue> decoded;
   auto reader = loopback.GetReader();
   memgraph::slk::Load(&decoded, reader);
 
@@ -47,26 +70,34 @@ TEST(SlkAdvanced, PropertyValueList) {
 }
 
 TEST(SlkAdvanced, PropertyValueMap) {
-  std::map<std::string, memgraph::storage::PropertyValue> original{
-      {"hello", memgraph::storage::PropertyValue("world")},
-      {"number", memgraph::storage::PropertyValue(5)},
-      {"real", memgraph::storage::PropertyValue(1.123423)},
-      {"truth", memgraph::storage::PropertyValue(true)},
-      {"nothing", memgraph::storage::PropertyValue()},
+  const auto sample_duration = memgraph::utils::AsSysTime(23);
+  memgraph::storage::ExternalPropertyValue::map_t original{
+      {"hello", memgraph::storage::ExternalPropertyValue("world")},
+      {"number", memgraph::storage::ExternalPropertyValue(5)},
+      {"real", memgraph::storage::ExternalPropertyValue(1.123423)},
+      {"truth", memgraph::storage::ExternalPropertyValue(true)},
+      {"nothing", memgraph::storage::ExternalPropertyValue()},
       {"date",
-       memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))}};
-  ASSERT_EQ(original["hello"].type(), memgraph::storage::PropertyValue::Type::String);
-  ASSERT_EQ(original["number"].type(), memgraph::storage::PropertyValue::Type::Int);
-  ASSERT_EQ(original["real"].type(), memgraph::storage::PropertyValue::Type::Double);
-  ASSERT_EQ(original["truth"].type(), memgraph::storage::PropertyValue::Type::Bool);
-  ASSERT_EQ(original["nothing"].type(), memgraph::storage::PropertyValue::Type::Null);
-  ASSERT_EQ(original["date"].type(), memgraph::storage::PropertyValue::Type::TemporalData);
+       memgraph::storage::ExternalPropertyValue(
+           memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))},
+      {"zoned_temporal",
+       memgraph::storage::ExternalPropertyValue(
+           memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                                sample_duration,
+                                                memgraph::utils::Timezone("Europe/Zagreb")))}};
+  ASSERT_EQ(original["hello"].type(), memgraph::storage::ExternalPropertyValue::Type::String);
+  ASSERT_EQ(original["number"].type(), memgraph::storage::ExternalPropertyValue::Type::Int);
+  ASSERT_EQ(original["real"].type(), memgraph::storage::ExternalPropertyValue::Type::Double);
+  ASSERT_EQ(original["truth"].type(), memgraph::storage::ExternalPropertyValue::Type::Bool);
+  ASSERT_EQ(original["nothing"].type(), memgraph::storage::ExternalPropertyValue::Type::Null);
+  ASSERT_EQ(original["date"].type(), memgraph::storage::ExternalPropertyValue::Type::TemporalData);
+  ASSERT_EQ(original["zoned_temporal"].type(), memgraph::storage::ExternalPropertyValue::Type::ZonedTemporalData);
 
   memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   memgraph::slk::Save(original, builder);
 
-  std::map<std::string, memgraph::storage::PropertyValue> decoded;
+  memgraph::storage::ExternalPropertyValue::map_t decoded;
   auto reader = loopback.GetReader();
   memgraph::slk::Load(&decoded, reader);
 
@@ -74,44 +105,58 @@ TEST(SlkAdvanced, PropertyValueMap) {
 }
 
 TEST(SlkAdvanced, PropertyValueComplex) {
-  std::vector<memgraph::storage::PropertyValue> vec_v{
-      memgraph::storage::PropertyValue("hello world!"),
-      memgraph::storage::PropertyValue(5),
-      memgraph::storage::PropertyValue(1.123423),
-      memgraph::storage::PropertyValue(true),
-      memgraph::storage::PropertyValue(),
-      memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))};
-  ASSERT_EQ(vec_v[0].type(), memgraph::storage::PropertyValue::Type::String);
-  ASSERT_EQ(vec_v[1].type(), memgraph::storage::PropertyValue::Type::Int);
-  ASSERT_EQ(vec_v[2].type(), memgraph::storage::PropertyValue::Type::Double);
-  ASSERT_EQ(vec_v[3].type(), memgraph::storage::PropertyValue::Type::Bool);
-  ASSERT_EQ(vec_v[4].type(), memgraph::storage::PropertyValue::Type::Null);
-  ASSERT_EQ(vec_v[5].type(), memgraph::storage::PropertyValue::Type::TemporalData);
+  const auto sample_duration = memgraph::utils::AsSysTime(23);
+  std::vector<memgraph::storage::ExternalPropertyValue> vec_v{
+      memgraph::storage::ExternalPropertyValue("hello world!"),
+      memgraph::storage::ExternalPropertyValue(5),
+      memgraph::storage::ExternalPropertyValue(1.123423),
+      memgraph::storage::ExternalPropertyValue(true),
+      memgraph::storage::ExternalPropertyValue(),
+      memgraph::storage::ExternalPropertyValue(
+          memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23)),
+      memgraph::storage::ExternalPropertyValue(
+          memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               sample_duration,
+                                               memgraph::utils::Timezone("Europe/Zagreb")))};
+  ASSERT_EQ(vec_v[0].type(), memgraph::storage::ExternalPropertyValue::Type::String);
+  ASSERT_EQ(vec_v[1].type(), memgraph::storage::ExternalPropertyValue::Type::Int);
+  ASSERT_EQ(vec_v[2].type(), memgraph::storage::ExternalPropertyValue::Type::Double);
+  ASSERT_EQ(vec_v[3].type(), memgraph::storage::ExternalPropertyValue::Type::Bool);
+  ASSERT_EQ(vec_v[4].type(), memgraph::storage::ExternalPropertyValue::Type::Null);
+  ASSERT_EQ(vec_v[5].type(), memgraph::storage::ExternalPropertyValue::Type::TemporalData);
+  ASSERT_EQ(vec_v[6].type(), memgraph::storage::ExternalPropertyValue::Type::ZonedTemporalData);
 
-  std::map<std::string, memgraph::storage::PropertyValue> map_v{
-      {"hello", memgraph::storage::PropertyValue("world")},
-      {"number", memgraph::storage::PropertyValue(5)},
-      {"real", memgraph::storage::PropertyValue(1.123423)},
-      {"truth", memgraph::storage::PropertyValue(true)},
-      {"nothing", memgraph::storage::PropertyValue()},
+  memgraph::storage::ExternalPropertyValue::map_t map_v{
+      {"hello", memgraph::storage::ExternalPropertyValue("world")},
+      {"number", memgraph::storage::ExternalPropertyValue(5)},
+      {"real", memgraph::storage::ExternalPropertyValue(1.123423)},
+      {"truth", memgraph::storage::ExternalPropertyValue(true)},
+      {"nothing", memgraph::storage::ExternalPropertyValue()},
       {"date",
-       memgraph::storage::PropertyValue(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))}};
-  ASSERT_EQ(map_v["hello"].type(), memgraph::storage::PropertyValue::Type::String);
-  ASSERT_EQ(map_v["number"].type(), memgraph::storage::PropertyValue::Type::Int);
-  ASSERT_EQ(map_v["real"].type(), memgraph::storage::PropertyValue::Type::Double);
-  ASSERT_EQ(map_v["truth"].type(), memgraph::storage::PropertyValue::Type::Bool);
-  ASSERT_EQ(map_v["nothing"].type(), memgraph::storage::PropertyValue::Type::Null);
-  ASSERT_EQ(map_v["date"].type(), memgraph::storage::PropertyValue::Type::TemporalData);
+       memgraph::storage::ExternalPropertyValue(
+           memgraph::storage::TemporalData(memgraph::storage::TemporalType::Date, 23))},
+      {"zoned_temporal",
+       memgraph::storage::ExternalPropertyValue(
+           memgraph::storage::ZonedTemporalData(memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                                sample_duration,
+                                                memgraph::utils::Timezone("Europe/Zagreb")))}};
+  ASSERT_EQ(map_v["hello"].type(), memgraph::storage::ExternalPropertyValue::Type::String);
+  ASSERT_EQ(map_v["number"].type(), memgraph::storage::ExternalPropertyValue::Type::Int);
+  ASSERT_EQ(map_v["real"].type(), memgraph::storage::ExternalPropertyValue::Type::Double);
+  ASSERT_EQ(map_v["truth"].type(), memgraph::storage::ExternalPropertyValue::Type::Bool);
+  ASSERT_EQ(map_v["nothing"].type(), memgraph::storage::ExternalPropertyValue::Type::Null);
+  ASSERT_EQ(map_v["date"].type(), memgraph::storage::ExternalPropertyValue::Type::TemporalData);
+  ASSERT_EQ(map_v["zoned_temporal"].type(), memgraph::storage::ExternalPropertyValue::Type::ZonedTemporalData);
 
-  memgraph::storage::PropertyValue original(std::vector<memgraph::storage::PropertyValue>{
-      memgraph::storage::PropertyValue(vec_v), memgraph::storage::PropertyValue(map_v)});
-  ASSERT_EQ(original.type(), memgraph::storage::PropertyValue::Type::List);
+  memgraph::storage::ExternalPropertyValue original(std::vector<memgraph::storage::ExternalPropertyValue>{
+      memgraph::storage::ExternalPropertyValue(vec_v), memgraph::storage::ExternalPropertyValue(map_v)});
+  ASSERT_EQ(original.type(), memgraph::storage::ExternalPropertyValue::Type::List);
 
   memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
   memgraph::slk::Save(original, builder);
 
-  memgraph::storage::PropertyValue decoded;
+  memgraph::storage::ExternalPropertyValue decoded;
   auto reader = loopback.GetReader();
   memgraph::slk::Load(&decoded, reader);
 
@@ -119,24 +164,19 @@ TEST(SlkAdvanced, PropertyValueComplex) {
 }
 
 TEST(SlkAdvanced, ReplicationClientConfigs) {
-  using ReplicationClientInfo = memgraph::coordination::CoordinatorClientConfig::ReplicationClientInfo;
+  using ReplicationClientInfo = memgraph::coordination::ReplicationClientInfo;
   using ReplicationClientInfoVec = std::vector<ReplicationClientInfo>;
   using ReplicationMode = memgraph::replication_coordination_glue::ReplicationMode;
 
   ReplicationClientInfoVec original{ReplicationClientInfo{.instance_name = "replica1",
                                                           .replication_mode = ReplicationMode::SYNC,
-                                                          .replication_ip_address = "127.0.0.1",
-                                                          .replication_port = 10000},
+                                                          .replication_server = Endpoint{"127.0.0.1", 10'000}},
                                     ReplicationClientInfo{.instance_name = "replica2",
                                                           .replication_mode = ReplicationMode::ASYNC,
-                                                          .replication_ip_address = "127.0.1.1",
-                                                          .replication_port = 10010},
-                                    ReplicationClientInfo{
-                                        .instance_name = "replica3",
-                                        .replication_mode = ReplicationMode::ASYNC,
-                                        .replication_ip_address = "127.1.1.1",
-                                        .replication_port = 1110,
-                                    }};
+                                                          .replication_server = Endpoint{"127.0.0.1", 10'010}},
+                                    ReplicationClientInfo{.instance_name = "replica3",
+                                                          .replication_mode = ReplicationMode::ASYNC,
+                                                          .replication_server = Endpoint{"127.0.0.1", 10'011}}};
 
   memgraph::slk::Loopback loopback;
   auto builder = loopback.GetBuilder();
@@ -147,4 +187,184 @@ TEST(SlkAdvanced, ReplicationClientConfigs) {
   memgraph::slk::Load(&decoded, reader);
 
   ASSERT_EQ(original, decoded);
+}
+
+TEST(SlkAdvanced, ReplicationLagResultSuccess) {
+  using memgraph::coordination::ReplicaDBLagData;
+  using memgraph::coordination::ReplicationLagResult;
+  using memgraph::coordination::ReplicationLagStatus;
+
+  auto const original = ReplicationLagResult::Success(
+      {{"instance_1", {{"memgraph", ReplicaDBLagData{.num_committed_txns_ = 7, .num_txns_behind_main_ = 0}}}},
+       {"instance_2", {{"memgraph", ReplicaDBLagData{.num_committed_txns_ = 5, .num_txns_behind_main_ = 2}}}}});
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original, builder);
+
+  ReplicationLagResult decoded;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded, reader);
+
+  ASSERT_EQ(decoded.status_, ReplicationLagStatus::SUCCESS);
+  ASSERT_EQ(decoded.data_.size(), 2);
+  auto const &lagging = decoded.data_.at("instance_2").at("memgraph");
+  ASSERT_EQ(lagging.num_committed_txns_, 5);
+  ASSERT_EQ(lagging.num_txns_behind_main_, 2);
+}
+
+TEST(SlkAdvanced, ReplicationLagResultFailure) {
+  using memgraph::coordination::ReplicationLagResult;
+  using memgraph::coordination::ReplicationLagStatus;
+
+  auto const original = ReplicationLagResult::Failure(ReplicationLagStatus::MAIN_UNRESPONSIVE);
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original, builder);
+
+  ReplicationLagResult decoded;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded, reader);
+
+  ASSERT_EQ(decoded.status_, ReplicationLagStatus::MAIN_UNRESPONSIVE);
+  ASSERT_TRUE(decoded.data_.empty());
+}
+
+// A v1 requester gets the bare map it knows: the data on success, and the empty map it already reads as "no data" for
+// every failure.
+TEST(SlkAdvanced, ReplicationLagResDowngradesToV1) {
+  using memgraph::coordination::CoordReplicationLagRes;
+  using memgraph::coordination::CoordReplicationLagResV1;
+  using memgraph::coordination::ReplicaDBLagData;
+  using memgraph::coordination::ReplicationLagResult;
+  using memgraph::coordination::ReplicationLagStatus;
+
+  {
+    CoordReplicationLagRes const res{ReplicationLagResult::Success(
+        {{"instance_1", {{"memgraph", ReplicaDBLagData{.num_committed_txns_ = 7, .num_txns_behind_main_ = 0}}}}})};
+
+    memgraph::slk::Loopback loopback;
+    memgraph::rpc::SaveWithDowngrade(res, CoordReplicationLagResV1::kVersion, loopback.GetBuilder());
+
+    CoordReplicationLagResV1 decoded;
+    memgraph::slk::Load(&decoded, loopback.GetReader());
+
+    ASSERT_EQ(decoded.arg_.size(), 1);
+    ASSERT_EQ(decoded.arg_.at("instance_1").at("memgraph").num_committed_txns_, 7);
+  }
+  {
+    CoordReplicationLagRes const res{ReplicationLagResult::Failure(ReplicationLagStatus::NO_CURRENT_MAIN)};
+
+    memgraph::slk::Loopback loopback;
+    memgraph::rpc::SaveWithDowngrade(res, CoordReplicationLagResV1::kVersion, loopback.GetBuilder());
+
+    CoordReplicationLagResV1 decoded;
+    memgraph::slk::Load(&decoded, loopback.GetReader());
+
+    ASSERT_TRUE(decoded.arg_.empty());
+  }
+}
+
+TEST(SlkAdvanced, ExternalPropertyValueIntList) {
+  memgraph::storage::ExternalPropertyValue::int_list_t original{1, 2, 3, 4, 5};
+  memgraph::storage::ExternalPropertyValue original_value(original);
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original_value, builder);
+
+  memgraph::storage::ExternalPropertyValue decoded_value;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded_value, reader);
+
+  ASSERT_EQ(decoded_value.type(), memgraph::storage::ExternalPropertyValue::Type::IntList);
+  const auto &decoded_list = decoded_value.ValueIntList();
+  ASSERT_EQ(original.size(), decoded_list.size());
+  for (size_t i = 0; i < original.size(); ++i) {
+    ASSERT_EQ(original[i], decoded_list[i]);
+  }
+}
+
+TEST(SlkAdvanced, ExternalPropertyValueNumericList) {
+  memgraph::storage::ExternalPropertyValue::numeric_list_t original{42, 3.14, 100, 2.718};
+  memgraph::storage::ExternalPropertyValue original_value(original);
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original_value, builder);
+
+  memgraph::storage::ExternalPropertyValue decoded_value;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded_value, reader);
+
+  ASSERT_EQ(decoded_value.type(), memgraph::storage::ExternalPropertyValue::Type::NumericList);
+  const auto &decoded_list = decoded_value.ValueNumericList();
+  ASSERT_EQ(original.size(), decoded_list.size());
+
+  ASSERT_TRUE(std::holds_alternative<int>(decoded_list[0]));
+  ASSERT_EQ(std::get<int>(decoded_list[0]), 42);
+
+  ASSERT_TRUE(std::holds_alternative<double>(decoded_list[1]));
+  ASSERT_DOUBLE_EQ(std::get<double>(decoded_list[1]), 3.14);
+
+  ASSERT_TRUE(std::holds_alternative<int>(decoded_list[2]));
+  ASSERT_EQ(std::get<int>(decoded_list[2]), 100);
+
+  ASSERT_TRUE(std::holds_alternative<double>(decoded_list[3]));
+  ASSERT_DOUBLE_EQ(std::get<double>(decoded_list[3]), 2.718);
+}
+
+TEST(SlkAdvanced, ExternalPropertyValueDoubleList) {
+  memgraph::storage::ExternalPropertyValue::double_list_t original{1.1, 2.2, 3.3, 4.4, 5.5};
+  memgraph::storage::ExternalPropertyValue original_value(original);
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original_value, builder);
+
+  memgraph::storage::ExternalPropertyValue decoded_value;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded_value, reader);
+
+  ASSERT_EQ(decoded_value.type(), memgraph::storage::ExternalPropertyValue::Type::DoubleList);
+  const auto &decoded_list = decoded_value.ValueDoubleList();
+  ASSERT_EQ(original.size(), decoded_list.size());
+  for (size_t i = 0; i < original.size(); ++i) {
+    ASSERT_DOUBLE_EQ(original[i], decoded_list[i]);
+  }
+}
+
+TEST(SlkAdvanced, ExternalPropertyValueList) {
+  memgraph::storage::ExternalPropertyValue::list_t original;
+  original.emplace_back("hello");
+  original.emplace_back(42);
+  original.emplace_back(3.14);
+  original.emplace_back(true);
+
+  memgraph::storage::ExternalPropertyValue original_value(original);
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original_value, builder);
+
+  memgraph::storage::ExternalPropertyValue decoded_value;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded_value, reader);
+
+  ASSERT_EQ(decoded_value.type(), memgraph::storage::ExternalPropertyValue::Type::List);
+  const auto &decoded_list = decoded_value.ValueList();
+  ASSERT_EQ(original.size(), decoded_list.size());
+
+  ASSERT_EQ(decoded_list[0].type(), memgraph::storage::ExternalPropertyValue::Type::String);
+  ASSERT_EQ(decoded_list[0].ValueString(), "hello");
+
+  ASSERT_EQ(decoded_list[1].type(), memgraph::storage::ExternalPropertyValue::Type::Int);
+  ASSERT_EQ(decoded_list[1].ValueInt(), 42);
+
+  ASSERT_EQ(decoded_list[2].type(), memgraph::storage::ExternalPropertyValue::Type::Double);
+  ASSERT_DOUBLE_EQ(decoded_list[2].ValueDouble(), 3.14);
+
+  ASSERT_EQ(decoded_list[3].type(), memgraph::storage::ExternalPropertyValue::Type::Bool);
+  ASSERT_EQ(decoded_list[3].ValueBool(), true);
 }

@@ -13,9 +13,10 @@ function(add_concurrent_test test_cpp)
   # used to help create two targets of the same name even though CMake
   # requires unique logical target names
   set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
-  target_link_libraries(${target_name} gtest gmock gtest_main)
-  # register test
-  add_test(${target_name} ${exec_name})
+  target_link_libraries(${target_name} GTest::gtest GTest::gmock GTest::gtest_main)
+  # register test - use modern add_test with COMMAND to get absolute path
+  add_test(NAME ${target_name} COMMAND $<TARGET_FILE:${target_name}>)
+  set_tests_properties(${target_name} PROPERTIES LABELS "concurrent")
   add_dependencies(memgraph__concurrent ${target_name})
 endfunction(add_concurrent_test)
 
@@ -32,25 +33,34 @@ add_concurrent_test(stack.cpp)
 target_link_libraries(${test_prefix}stack mg-utils gflags)
 
 add_concurrent_test(skip_list_insert.cpp)
-target_link_libraries(${test_prefix}skip_list_insert mg-utils)
+target_link_libraries(${test_prefix}skip_list_insert mg-utils mg-memory)
 
 add_concurrent_test(skip_list_insert_competitive.cpp)
-target_link_libraries(${test_prefix}skip_list_insert_competitive mg-utils)
+target_link_libraries(${test_prefix}skip_list_insert_competitive mg-utils mg-memory)
+
+add_concurrent_test(skip_list_estimate.cpp)
+target_link_libraries(${test_prefix}skip_list_estimate mg-utils mg-memory)
 
 add_concurrent_test(skip_list_mixed.cpp)
-target_link_libraries(${test_prefix}skip_list_mixed mg-utils)
+target_link_libraries(${test_prefix}skip_list_mixed mg-utils mg-memory)
 
 add_concurrent_test(skip_list_remove.cpp)
-target_link_libraries(${test_prefix}skip_list_remove mg-utils)
+target_link_libraries(${test_prefix}skip_list_remove mg-utils mg-memory)
 
 add_concurrent_test(skip_list_remove_competitive.cpp)
-target_link_libraries(${test_prefix}skip_list_remove_competitive mg-utils)
+target_link_libraries(${test_prefix}skip_list_remove_competitive mg-utils mg-memory)
+
+add_concurrent_test(skip_list_find.cpp)
+target_link_libraries(${test_prefix}skip_list_find mg-utils mg-memory)
 
 add_concurrent_test(spin_lock.cpp)
 target_link_libraries(${test_prefix}spin_lock mg-utils)
 
 add_concurrent_test(storage_indices.cpp)
-target_link_libraries(${test_prefix}storage_indices mg-utils mg-storage-v2)
+target_link_libraries(${test_prefix}storage_indices mg-utils mg::storage)
 
 add_concurrent_test(storage_unique_constraints.cpp)
-target_link_libraries(${test_prefix}storage_unique_constraints mg-utils mg-storage-v2)
+target_link_libraries(${test_prefix}storage_unique_constraints mg-utils mg::storage)
+
+add_concurrent_test(storage_gc_soak.cpp)
+target_link_libraries(${test_prefix}storage_gc_soak mg-utils mg::storage)

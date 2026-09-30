@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -53,8 +53,9 @@ class TransactionQueueMultipleTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -68,7 +69,20 @@ class TransactionQueueMultipleTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::query::InterpreterContext interpreter_context{{}, nullptr, &repl_state};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          nullptr,
+                                                          &repl_state,
+                                                          system_state,
+                                                          nullptr
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr,
+                                                          nullptr
+#endif
+  };
   InterpreterFaker main_interpreter{&interpreter_context, db};
   std::vector<InterpreterFaker *> running_interpreters;
 
@@ -89,7 +103,7 @@ class TransactionQueueMultipleTest : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(TransactionQueueMultipleTest, StorageTypes);
+TYPED_TEST_SUITE(TransactionQueueMultipleTest, StorageTypes);
 
 // Tests whether admin can see transaction of superadmin
 TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {
@@ -124,6 +138,10 @@ TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {
 
     auto show_stream = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
     ASSERT_EQ(show_stream.GetResults().size(), NUM_INTERPRETERS + 1);
+    // All transactions should be "running" at this point
+    for (const auto &row : show_stream.GetResults()) {
+      EXPECT_EQ(row[3].ValueString(), "running");
+    }
     // Choose random transaction to kill
     std::random_device rd;
     std::mt19937 gen(rd());
@@ -138,9 +156,14 @@ TYPED_TEST(TransactionQueueMultipleTest, TerminateTransaction) {
     ASSERT_EQ(terminate_stream.GetResults().size(), 1U);
     EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), run_trans_id);
     ASSERT_TRUE(terminate_stream.GetResults()[0][1].ValueBool());  // that the transaction is actually killed
-    // test here show transactions
+    // test here show transactions — the terminated transaction should NOT show as "terminating"
     auto show_stream_after_kill = this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+    // The terminated transaction is now hidden.
     ASSERT_EQ(show_stream_after_kill.GetResults().size(), NUM_INTERPRETERS);
+    // Verify the remaining transactions are NOT "terminating"
+    for (const auto &row : show_stream_after_kill.GetResults()) {
+      EXPECT_NE(row[3].ValueString(), "terminating");
+    }
     // wait to finish for threads
     for (int i = 0; i < NUM_INTERPRETERS; ++i) {
       running_threads[i].join();

@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.sort(null) AS result;
+
+output:
+  - result: []

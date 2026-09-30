@@ -1,0 +1,5 @@
+query: >
+  RETURN map.remove_keys({name:{matija: "matija",ptica: {}}},["matija"],{recursive: true}) AS result;
+
+output:
+  - result: {}

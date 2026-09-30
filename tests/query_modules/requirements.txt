@@ -1,0 +1,9 @@
+setuptools==80.9.0
+six==1.17.0
+pytest==9.0.3
+numpy==1.26.4
+scipy==1.13.0
+networkx==2.5.1
+gqlalchemy==1.8.0
+pyyaml==6.0.1
+pytz==2023.3

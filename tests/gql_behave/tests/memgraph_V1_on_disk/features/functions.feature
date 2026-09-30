@@ -685,7 +685,9 @@ Feature: Functions
             """
             RETURN all(x IN [1, 2, '3'] WHERE x < 3) AS a
             """
-        Then an error should be raised
+        Then the result should be:
+            | a    |
+            | null |
 
     Scenario: All test 04:
         When executing query:
@@ -702,8 +704,8 @@ Feature: Functions
             RETURN all(x IN [Null, Null, 0] WHERE x = 0) AS a
             """
         Then the result should be:
-            | a     |
-            | false |
+            | a    |
+            | null |
 
     Scenario: All test 06:
         When executing query:
@@ -755,7 +757,9 @@ Feature: Functions
             """
             RETURN single(x IN [1, 2, '3'] WHERE x > 2) AS a
             """
-        Then an error should be raised
+        Then the result should be:
+            | a    |
+            | null |
 
     Scenario: Single test 04:
         When executing query:
@@ -773,7 +777,7 @@ Feature: Functions
             """
         Then the result should be:
             | a    |
-            | true |
+            | null |
 
     Scenario: Single test 06:
         When executing query:
@@ -790,8 +794,8 @@ Feature: Functions
             RETURN single(x IN [Null, Null, 0] WHERE x > 0) AS a
             """
         Then the result should be:
-            | a     |
-            | false |
+            | a    |
+            | null |
 
     Scenario: Single test 08:
         When executing query:
@@ -800,7 +804,7 @@ Feature: Functions
             """
         Then the result should be:
             | a     |
-            | true  |
+            | null  |
 
     Scenario: Single test 09:
         When executing query:
@@ -872,8 +876,8 @@ Feature: Functions
             RETURN any(x IN [Null, Null, 0] WHERE x > 0) AS a
             """
         Then the result should be:
-            | a     |
-            | false |
+            | a    |
+            | null |
 
    Scenario: Any test 07:
         When executing query:
@@ -936,7 +940,7 @@ Feature: Functions
             """
         Then the result should be:
             | a    |
-            | true |
+            | null |
 
     Scenario: None test 06:
         When executing query:

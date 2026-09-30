@@ -41,6 +41,7 @@ def test_does_default_config_match():
             "bolt_num_workers",
             "data_directory",
             "log_file",
+            "storage_snapshot_thread_count",
             "storage_recovery_thread_count",
         ]
         if flag_name in machine_dependent_configurations:

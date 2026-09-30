@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: responsive-reads
+      script: "ha/workloads/responsive_reads/workload.py"
+      timeout_min: 240

@@ -1,0 +1,3938 @@
+#!/bin/bash
+set -Eeuo pipefail
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+SCRIPT_NAME=${0##*/}
+PROJECT_ROOT="$SCRIPT_DIR/../.."
+source "$PROJECT_ROOT/environment/util.sh"
+MGBUILD_HOME_DIR="/home/mg"
+MGBUILD_ROOT_DIR="$MGBUILD_HOME_DIR/memgraph"
+
+DEFAULT_TOOLCHAIN="v8"
+SUPPORTED_TOOLCHAINS=(
+    v7 v8
+)
+DEFAULT_OS="all"
+
+SUPPORTED_OS=(
+    all
+    centos-9 centos-9-arm
+    centos-10 centos-10-arm
+    debian-12 debian-12-arm
+    debian-13 debian-13-arm
+    fedora-43 fedora-43-arm
+    fedora-44 fedora-44-arm
+    fedora-45 fedora-45-arm
+    rocky-10 rocky-10-arm
+    ubuntu-22.04 ubuntu-22.04-arm
+    ubuntu-24.04 ubuntu-24.04-arm
+    ubuntu-26.04 ubuntu-26.04-arm
+)
+
+SUPPORTED_OS_V7=(
+    centos-9 centos-10
+    debian-12 debian-12-arm debian-13 debian-13-arm
+    fedora-42 fedora-42-arm
+    rocky-10
+    ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
+)
+
+SUPPORTED_OS_V8=(
+    centos-9 centos-9-arm
+    centos-10 centos-10-arm
+    debian-12 debian-12-arm
+    debian-13 debian-13-arm
+    fedora-43 fedora-43-arm
+    fedora-44 fedora-44-arm
+    fedora-45 fedora-45-arm
+    rocky-10 rocky-10-arm
+    ubuntu-22.04 ubuntu-22.04-arm
+    ubuntu-24.04 ubuntu-24.04-arm
+    ubuntu-26.04 ubuntu-26.04-arm
+)
+
+DEFAULT_BUILD_TYPE="Release"
+SUPPORTED_BUILD_TYPES=(
+    Debug
+    Release
+    RelWithDebInfo
+)
+DEFAULT_ARCH="amd"
+SUPPORTED_ARCHS=(
+    amd
+    arm
+)
+SUPPORTED_TESTS=(
+    clang-tidy cppcheck-and-clang-format code-analysis
+    code-coverage drivers drivers-high-availability durability e2e e2e-parallel gql-behave
+    integration integration-parallel leftover-CTest macro-benchmark
+    mgbench stress-plain stress-ssl
+    query_modules_e2e query_modules_unit
+    unit unit-coverage upload-to-bench-graph
+)
+DEFAULT_THREADS=0
+DEFAULT_ENTERPRISE_LICENSE=""
+DEFAULT_ORGANIZATION_NAME="memgraph"
+DEFAULT_BENCH_GRAPH_HOST="bench-graph-api"
+DEFAULT_BENCH_GRAPH_PORT="9001"
+DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
+DEFAULT_MGDEPS_CACHE_PORT="80"
+DEFAULT_CCACHE_ENABLED="true"
+DEFAULT_CONAN_CACHE_ENABLED="true"
+DEFAULT_MGBENCH_CACHE_ENABLED="true"
+MGBENCH_CACHE_CONTAINER_DIR="/home/mg/.cache/mgbench"
+DEFAULT_CARGO_CACHE_ENABLED="true"
+CARGO_CACHE_CONTAINER_DIR="/home/mg/.cargo"
+DISABLE_NODE=false  # use this to disable tests which use node.js when there's a hack
+DEFAULT_RUST_VERSION="$MG_RUST_VERSION"
+DEFAULT_NODE_VERSION="$MG_NODE_VERSION"
+UV_VERSION="0.12.17"
+
+print_help () {
+  echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
+  echo -e "\nInteract with mgbuild containers"
+
+  echo -e "\nCommands:"
+  echo -e "  build [OPTIONS]                    Build mgbuild image"
+  echo -e "  build-memgraph [OPTIONS]           Build memgraph binary inside mgbuild container"
+  echo -e "  init-tests                         Initialize tests inside mgbuild container"
+  echo -e "  copy [OPTIONS]                     Copy an artifact from mgbuild container to host"
+  echo -e "  copy-debug-symbols [OPTIONS]       Copy all .debug sidecars from build tree to host (requires split-debug build)"
+  echo -e "  package-memgraph                   Create memgraph package from built binary inside mgbuild container"
+  echo -e "  package-docker [OPTIONS]           Create memgraph docker image and pack it as .tar.gz"
+  echo -e "  package-smoke-image [OPTIONS]      Build a Docker image with the .deb/.rpm package installed (for smoke tests)"
+  echo -e "  package-mage-deb [OPTIONS]         Create MAGE DEB package"
+  echo -e "  package-mage-rpm [OPTIONS]         Create MAGE RPM package"
+  echo -e "  package-mage-docker [OPTIONS]      Create MAGE docker image"
+  echo -e "  package-mage-offline-installer [OPTIONS]  Build a self-contained .run installer for Memgraph + MAGE on Ubuntu 24.04"
+  echo -e "  pull                               Pull mgbuild image from dockerhub"
+  echo -e "  push [OPTIONS]                     Push mgbuild image to dockerhub"
+  echo -e "  run [OPTIONS]                      Run mgbuild container"
+  echo -e "  stop [OPTIONS]                     Stop mgbuild container"
+  echo -e "  test-memgraph TEST                 Run a selected test TEST (see supported tests below) inside mgbuild container"
+  echo -e "                                     'smoke' accepts --image IMAGE and --fips (FIPS image: the feature subset"
+  echo -e "                                     available without embedded Python, plus the FIPS compliance checks)"
+  echo -e "  check-core-dumps                   Check the runner is configured to produce Memgraph core dumps (warn-only)"
+  echo -e "  test-mage TEST                     Run a selected test TEST (see supported tests below) inside MAGE docker image"
+  echo -e "  generate-memgraph-build-sbom       Generate Memgraph build SBOM"
+  echo -e "  generate-mage-image-sbom [OPTIONS] Generate MAGE image SBOM"
+  echo -e "  build-pymgclient                   Build pymgclient inside mgbuild container"
+  echo -e "  build-ssl [OPTIONS]                Build OpenSSL inside mgbuild container"
+
+  echo -e "\nSupported tests:"
+  echo -e "  \"${SUPPORTED_TESTS[*]}\""
+
+  echo -e "\nGlobal options:"
+  echo -e "  --arch string                 Specify target architecture (\"${SUPPORTED_ARCHS[*]}\") (default \"$DEFAULT_ARCH\")"
+  echo -e "  --bench-graph-host string     Specify ip address for bench graph server endpoint (default \"$DEFAULT_BENCH_GRAPH_HOST\")"
+  echo -e "  --bench-graph-port string     Specify port for bench graph server endpoint (default \"$DEFAULT_BENCH_GRAPH_PORT\")"
+  echo -e "  --build-type string           Specify build type (\"${SUPPORTED_BUILD_TYPES[*]}\") (default \"$DEFAULT_BUILD_TYPE\")"
+  echo -e "  --enterprise-license string   Specify the enterprise license (default \"\")"
+  echo -e "  --mgdeps-cache-host string    Specify ip address for mgdeps cache server endpoint (default \"$DEFAULT_MGDEPS_CACHE_HOST\")"
+  echo -e "  --mgdeps-cache-port string    Specify port for mgdeps cache server endpoint (default \"$DEFAULT_MGDEPS_CACHE_PORT\")"
+  echo -e "  --organization-name string    Specify the organization name (default \"memgraph\")"
+  echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
+  echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
+  echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
+  echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
+  echo -e "  --no-conan-cache              Disable conan cache volume mounting (default \"$DEFAULT_CONAN_CACHE_ENABLED\") -> this allows sharing conan cache between containers"
+  echo -e "  --no-mgbench-cache            Disable mgbench cache volume mounting (default \"$DEFAULT_MGBENCH_CACHE_ENABLED\") -> without it mgbench recalibrates query counts and re-downloads datasets every run"
+  echo -e "  --mgbench-cache-dir string    Specify host directory for the mgbench cache (default \"\$HOME/.cache/mgbench-ci\")"
+  echo -e "  --no-cargo-cache              Disable cargo cache volume mounting (default \"$DEFAULT_CARGO_CACHE_ENABLED\") -> without it every build re-downloads crates from crates.io"
+  echo -e "  --cargo-cache-dir string      Specify host directory for the cargo registry and git caches (default \"\$HOME/.cargo-ci\")"
+  echo -e "  --enable-monitoring           Ship test metrics/logs to a remote monitoring stack (default \"false\"); requires --monitoring-host, --cluster-id and --cluster-env"
+  echo -e "  --monitoring-host string      Hostname or IP of the remote monitoring stack (required with --enable-monitoring)"
+  echo -e "  --cluster-id string           Cluster identifier label attached to exported metrics/logs (required with --enable-monitoring)"
+  echo -e "  --cluster-env string          Cluster environment label attached to exported metrics/logs (required with --enable-monitoring)"
+  echo -e "  --service-name string         Service name label attached to exported metrics/logs (default \"\")"
+
+  echo -e "\nbuild options:"
+  echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
+  echo -e "  --rust-version number         Specify rustc and cargo version which be installed (default \"$DEFAULT_RUST_VERSION\")"
+  echo -e "  --node-version number         Specify nodejs version which be installed (default \"$DEFAULT_NODE_VERSION\")"
+
+  echo -e "\nbuild-memgraph options:"
+  echo -e "  --asan                        Build with ASAN"
+  echo -e "  --cmake-only                  Only run cmake configure command"
+  echo -e "  --community                   Build community version"
+  echo -e "  --coverage                    Build with code coverage"
+  echo -e "  --init-only                   Only run init script"
+  echo -e "  --no-copy                     Don't copy the memgraph repo from host."
+  echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
+  echo -e "  --ubsan                       Build with UBSAN"
+  echo -e "  --disable-jemalloc            Build without jemalloc"
+  echo -e "  --disable-testing             Build without tests (faster build for packaging)"
+  echo -e "  --link-threads int            Pin the number of concurrent link steps (default 0: derived from the memory available to the container). Compile parallelism is unaffected."
+  echo -e "  --memory-per-compile-job-mb int  Memory budgeted per compile step when deriving parallelism (maps to -DMG_MEMORY_PER_COMPILE_JOB_MB)."
+  echo -e "  --memory-per-link-job-mb int  Memory budgeted per link step when deriving parallelism (maps to -DMG_MEMORY_PER_LINK_JOB_MB)."
+  echo -e "  --split-debug                 Extract debug info into sidecar .debug files (requires --build-type RelWithDebInfo or Debug)"
+  echo -e "  --mage MODE                   MAGE query modules: off (default), on (build alongside memgraph), only (just MAGE; trims the conan graph). Mirrors build.sh's --mage. Combine with global --cugraph for GPU modules."
+  echo -e "  --cuda                        CUDA flavour of the mage package: ships the GPU python requirements (maps to -DMG_MAGE_CUDA=ON; implied by --cugraph)."
+  echo -e "  --no-python                   Build memgraph without the embedded Python interpreter (maps to -DMG_PYTHON_SUPPORT=OFF; the package then has no libpython/python3/pip dependencies)."
+  echo -e "  --profile                     Profile the build with tools/build_profile: per-step peak memory/CPU/wall and machine memory over time. Runs the same build with ccache disabled; results are copied to build_profile_results/ on the host."
+  echo -e "  --python-build-version str    Build against an exact Python version, e.g. 3.12 (default \"\", uses the container's default Python). Maps to -DMG_PYTHON_VERSION."
+  echo -e "  --python-runtime-version str  After building, remove the build Python and install this version instead (Ubuntu/deadsnakes), so subsequent test steps run the abi3 binary against a different libpython (default \"\", no swap)."
+  echo -e "  --no-abi3-rewrite             Skip the abi3 DT_NEEDED rewrite and the libpython3.so symlink (maps to -DMG_PYTHON_REWRITE_DT_NEEDED=OFF). Binaries keep the versioned libpython dependency; faster for CI builds that only test on the build container. Incompatible with --python-runtime-version."
+  echo -e "  --conan-remote string         Specify conan remote (default \"\")"
+  echo -e "  --conan-username string       Specify conan username (default \"\")"
+  echo -e "  --conan-password string       Specify conan password (default \"\")"
+  echo -e "  --build-dependency string     Specify build dependency (default \"\"). Set to \"all\" to install all dependencies, or a specific dependency name to install only that dependency. Dependencies are specified in the format of \"<package>/<version>\"."
+
+  echo -e "\nbuild-ssl options:"
+  echo -e "  --conan-remote string         Specify conan remote (optional)"
+  echo -e "  --conan-username string       Specify conan username (optional, but required for uploading to remote)"
+  echo -e "  --conan-password string       Specify conan password (optional, but required for uploading to remote)"
+  echo -e "  --version string              Specify OpenSSL version (default \"3.5.4\")"
+
+  echo -e "\ncopy options (default \"--binary\"):"
+  echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
+  echo -e "  --binary                      Copy memgraph binary from mgbuild container to host (default)"
+  echo -e "  --build-logs                  Copy build logs from mgbuild container to host"
+  echo -e "  --dest-dir string             Specify a custom path for destination directory on host"
+  echo -e "  --package                     Copy memgraph package from mgbuild container to host"
+  echo -e "  --mgconsole                   Copy the toolchain's mgconsole from mgbuild container to tests/smoke/bin (for smoke tests)"
+  echo -e "  --use-make-install            Use 'ninja install' with DESTDIR instead of copying individual files"
+
+  echo -e "\npackage-docker options:"
+  echo -e "  --dest-dir string             Specify a custom path for destination directory on host. Provide relative path inside memgraph directory."
+  echo -e "  --src-dir string              Specify a custom path for the source directory on host. Provide relative path inside memgraph directory."
+  echo -e "                                This directory should contain the memgraph package."
+  echo -e "  --keep-image-loaded bool      Keep built Docker image loaded after packaging (default false)."
+  echo -e "  --package-flavour string        Docker package flavour: 'prod', 'debug' or 'fips' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and produces an image with source and debug tooling. 'fips' builds the FIPS 140-3 image and requires a package built with --no-python plus the FIPS OpenSSL packages staged in build/ (fetch-openssl-packages.sh --fips)."
+
+  echo -e "\npackage-mage-deb / package-mage-rpm options:"
+  echo -e "  --malloc                      Variant flag — affects the output filename only"
+  echo -e "  --cuda                        Variant flag — affects the output filename only (implied by global --cugraph; the GPU requirements ship when the build used --cugraph)"
+  echo -e "                                Packages come from the container's unified build (build-memgraph --mage on|only)."
+
+  echo -e "\npackage-mage-docker options:"
+  echo -e "  --docker-repository-name str  Docker repository name (default \"memgraph/memgraph-mage\")"
+  echo -e "  --image-tag string            Image tag (required)"
+  echo -e "  --memgraph-ref string         Memgraph git ref (required)"
+  echo -e "  --cache-present bool          Whether build cache is present (default false)"
+  echo -e "  --custom-mirror bool          Use custom APT mirror (default false)"
+  echo -e "  --cuda bool                   CUDA variant (default false)"
+  echo -e "  --package-flavour string        Docker package flavour: 'prod' or 'debug' (default 'prod'). 'debug' requires --build-type RelWithDebInfo and uses the relwithdebinfo dockerfile target."
+
+  echo -e "\npackage-memgraph options:"
+  echo -e "  --format string               Package format(s) to build: 'deb', 'rpm' or 'both' (default: the container OS's native format)."
+
+  echo -e "\npackage-smoke-image options:"
+  echo -e "  --src-dir string              Relative path inside memgraph directory containing the .deb/.rpm package."
+  echo -e "  --image-tag string            Tag to apply to the resulting memgraph/memgraph:<tag> image (required)."
+  echo -e "  --wheels-dir string           Optional relative path containing pre-built Python wheels (e.g. gssapi)."
+
+  echo -e "\npush options:"
+  echo -e "  -p, --password string         Specify password for docker login (default empty)"
+  echo -e "  -u, --username string         Specify username for docker login (default empty)"
+
+  echo -e "\nrun options:"
+  echo -e "  --pull                        Pull the mgbuild image before running"
+
+  echo -e "\nstop options:"
+  echo -e "  --remove                      Remove the stopped mgbuild container"
+
+  echo -e "\nmgbench options:"
+  echo -e "  --dataset string              Specify dataset to benchmark (default \"pokec\")"
+  echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
+  echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
+  echo -e "  --no-authorization            Skip the fine-grained authorization run of each workload"
+
+
+
+  echo -e "\nmgbench-ha options:"
+  echo -e "  --size string                 Specify dataset size: small, medium, large (default \"medium\")"
+  echo -e "  --export-results-file string  Output file for results (default \"benchmark_result_ha.json\")"
+  echo -e "  --cluster-description string  Cluster description in tests/mgbench (default \"ha_cluster.yaml\"; ha_cluster_2_replicas.yaml for two replicas)"
+  echo -e "  Measures only a main with one SYNC replica behind three coordinators. Needs an enterprise license."
+
+  echo -e "\ngenerate-memgraph-build-sbom options:"
+  echo -e "  --conan-remote string         Specify conan remote (optional)"
+  echo -e "  --sbom-scripts-dir string     Path to the infra SBOM scripts (required)"
+
+  echo -e "\ngenerate-mage-image-sbom options:"
+  echo -e "  --image-tag string            Specify the MAGE image tag (required)"
+  echo -e "  --sbom-scripts-dir string     Path to the infra SBOM scripts (required)"
+
+  echo -e "\npackage-mage-offline-installer options:"
+  echo -e "  --memgraph-deb PATH           Path to the memgraph .deb (required)"
+  echo -e "  --mage-deb PATH               Path to the memgraph-mage .deb (required)"
+  echo -e "  --output PATH                 Output path for the .run file (default: ./memgraph-mage-offline-<version>-<arch><variant>.run)"
+  echo -e "  --wheels-dir PATH             Directory of pre-built host wheels to bundle (default: \"\$PROJECT_ROOT/release/package/mage/wheels\")"
+  echo -e "  --malloc                      Variant flag — affects the output filename only"
+  echo -e "  --cuda                        Bundle CUDA-flavoured Python wheels (requires --arch amd)"
+  echo -e "  --cuda-version X.Y            CUDA version for the S3 wheel path (default \"13.0\")"
+  echo -e "                                Build-type and cugraph come from the global --build-type / --cugraph flags."
+
+  echo -e "\nToolchain v4 supported OSs:"
+  echo -e "  \"${SUPPORTED_OS_V4[*]}\""
+
+  echo -e "\nToolchain v5 supported OSs:"
+  echo -e "  \"${SUPPORTED_OS_V5[*]}\""
+
+  echo -e "\nToolchain v6 supported OSs:"
+  echo -e "  \"${SUPPORTED_OS_V6[*]}\""
+
+    echo -e "\nToolchain v7 supported OSs:"
+  echo -e "  \"${SUPPORTED_OS_V7[*]}\""
+
+  echo -e "\nExample usage:"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd build --git-ref my-special-branch"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd run"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo build-memgraph --community"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo build-memgraph --disable-testing"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type Debug build-memgraph --asan --ubsan --profile"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo test-memgraph unit"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset pokec --size large"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset ldbc_bi --size medium --export-results-file my_results.json"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd package"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd copy --package"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd copy --use-make-install --dest-dir build/install"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd stop --remove"
+}
+
+# Color codes
+RED_BOLD='\033[1;31m'
+YELLOW_BOLD='\033[1;33m'
+GREEN_BOLD='\033[1;32m'
+RESET='\033[0m'
+
+check_support() {
+  local is_supported=false
+  case "$1" in
+    arch)
+      for e in "${SUPPORTED_ARCHS[@]}"; do
+        if [[ "$e" == "$2" ]]; then
+          is_supported=true
+          break
+        fi
+      done
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Error: Architecture $2 isn't supported!\nChoose from  ${SUPPORTED_ARCHS[*]}"
+        exit 1
+      fi
+    ;;
+    build_type)
+      for e in "${SUPPORTED_BUILD_TYPES[@]}"; do
+        if [[ "$e" == "$2" ]]; then
+          is_supported=true
+          break
+        fi
+      done
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Error: Build type $2 isn't supported!\nChoose from  ${SUPPORTED_BUILD_TYPES[*]}"
+        exit 1
+      fi
+    ;;
+    os)
+      for e in "${SUPPORTED_OS[@]}"; do
+        if [[ "$e" == "$2" ]]; then
+          is_supported=true
+          break
+        fi
+      done
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Error: OS $2 isn't supported!\nChoose from  ${SUPPORTED_OS[*]}"
+        exit 1
+      fi
+    ;;
+    toolchain)
+      for e in "${SUPPORTED_TOOLCHAINS[@]}"; do
+        if [[ "$e" == "$2" ]]; then
+          is_supported=true
+          break
+        fi
+      done
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Error: Toolchain version $2 isn't supported!\nChoose from  ${SUPPORTED_TOOLCHAINS[*]}"
+        exit 1
+      fi
+    ;;
+    os_toolchain_combo)
+      if [[ "$3" == "v7" ]]; then
+        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V7[@]}")
+      elif [[ "$3" == "v8" ]]; then
+        local SUPPORTED_OS_TOOLCHAIN=("${SUPPORTED_OS_V8[@]}")
+      else
+        echo -e "Error: $3 isn't a supported toolchain_version!\nChoose from ${SUPPORTED_TOOLCHAINS[*]}"
+        exit 1
+      fi
+      for e in "${SUPPORTED_OS_TOOLCHAIN[@]}"; do
+        if [[ "$e" == "$2" ]]; then
+          is_supported=true
+          break
+        fi
+      done
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Error: Toolchain version $3 doesn't support OS $2!\nChoose from ${SUPPORTED_OS_TOOLCHAIN[*]}"
+        exit 1
+      fi
+    ;;
+    pokec_size)
+      if [[ "$2" == "small" || "$2" == "medium" || "$2" == "large" ]]; then
+        is_supported=true
+      fi
+      if [[ "$is_supported" == false ]]; then
+        echo -e "Error: Pokec size $2 isn't supported!\nChoose from small, medium, large"
+        exit 1
+      fi
+    ;;
+    *)
+      echo -e "Error: This function can only check arch, build_type, os, toolchain version and os toolchain combination"
+      exit 1
+    ;;
+  esac
+}
+
+# Returns 0 (true) if $1 <= $2
+version_lte() {
+  # sort -V sorts them in ascending order, so the first in the sorted list is the smaller.
+  # If $1 equals the first in the list, $1 <= $2
+  [ "$1" = "$(echo -e "$1\n$2" | sort -V | head -n1)" ]
+}
+# Returns 0 (true) if $1 < $2
+version_lt() {
+  [ "$1" = "$2" ] && return 1
+  version_lte "$1" "$2"
+}
+
+##################################################
+######## BUILD, COPY AND PACKAGE MEMGRAPH ########
+##################################################
+
+# Returns 0 (true) if at least one host cache is mounted into the containers.
+any_cache_enabled() {
+  [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]] \
+    || [[ "$mgbench_cache_enabled" == "true" ]] || [[ "$cargo_cache_enabled" == "true" ]]
+}
+
+# Emits the enabled cache bind mounts, indented as entries of a compose
+# service's `volumes:` list.
+emit_cache_volumes() {
+  if [[ "$ccache_enabled" == "true" ]]; then
+    echo "      - ~/.cache/ccache:/home/mg/.cache/ccache"
+  fi
+  if [[ "$conan_cache_enabled" == "true" ]]; then
+    echo "      - $conan_cache_dir:/home/mg/.conan2"
+  fi
+  if [[ "$mgbench_cache_enabled" == "true" ]]; then
+    echo "      - $mgbench_cache_dir:$MGBENCH_CACHE_CONTAINER_DIR"
+  fi
+  if [[ "$cargo_cache_enabled" == "true" ]]; then
+    echo "      - $cargo_cache_dir/registry:$CARGO_CACHE_CONTAINER_DIR/registry"
+    echo "      - $cargo_cache_dir/git:$CARGO_CACHE_CONTAINER_DIR/git"
+  fi
+}
+
+# GITHUB_TOKEN is forwarded into the container for in-container GitHub API use
+# (e.g. release/get_version.py); git fetches are authenticated via
+# github_auth_in_container. Anonymous access from the shared runner IP gets
+# rate-limited.
+github_token_enabled() {
+  [[ -n "${GITHUB_TOKEN:-}" ]]
+}
+
+compose_override_enabled() {
+  any_cache_enabled || github_token_enabled
+}
+
+# Emits the per-service override entries (cache mounts, forwarded env).
+emit_service_override() {
+  if any_cache_enabled; then
+    echo "    volumes:"
+    emit_cache_volumes
+  fi
+  if github_token_enabled; then
+    # Interpolated by compose at `up` time, so the token never lands on disk.
+    echo "    environment:"
+    echo "      - GITHUB_TOKEN=\${GITHUB_TOKEN:-}"
+  fi
+}
+
+# Function to handle compose override file creation and cleanup
+setup_compose_override() {
+  local compose_files="-f ${arch}-builders-${toolchain_version}.yml"
+
+  if compose_override_enabled; then
+    cat > compose-override.yml << EOF
+services:
+EOF
+    if [[ "$os" == "all" ]]; then
+      # For all OS, we need to add the override to all services
+      grep "^  mgbuild_" ${arch}-builders-${toolchain_version}.yml | while read -r line; do
+        service_name=$(echo "$line" | sed 's/://')
+        echo "  $service_name:" >> compose-override.yml
+        emit_service_override >> compose-override.yml
+      done
+    else
+      # For specific OS, only add the override to the target service
+      echo "  $build_container:" >> compose-override.yml
+      emit_service_override >> compose-override.yml
+    fi
+    compose_files="$compose_files -f compose-override.yml"
+  fi
+
+  echo "$compose_files"
+}
+
+cleanup_compose_override() {
+  if compose_override_enabled; then
+    rm -f compose-override.yml
+  fi
+}
+
+# Make in-container git send GITHUB_TOKEN preemptively on every github.com
+# request (same header actions/checkout uses). GitHub's rate-limit reply is an
+# in-protocol error, not a 401, so a credential helper would never be consulted.
+# Written once to the system-wide /etc/gitconfig so every later `docker exec`,
+# whether -u mg or -u root (package.sh runs as root), and any nested clone
+# (mgconsole's ExternalProjects) is covered. The container is ephemeral.
+github_auth_in_container() {
+  local container=$1
+  if github_token_enabled; then
+    echo "Configuring authenticated github.com access in $container..."
+    local auth_b64
+    auth_b64="$(printf '%s' "x-access-token:$GITHUB_TOKEN" | base64 | tr -d '\n')"
+    docker exec -u root "$container" git config --system http.https://github.com/.extraheader \
+      "AUTHORIZATION: basic $auth_b64"
+  fi
+}
+
+setup_host_cache_permissions() {
+  # Set up ccache permissions if enabled
+  if [[ "$ccache_enabled" == "true" ]]; then
+    echo "Setting up host ccache directory permissions..."
+    mkdir -p ~/.cache/ccache
+
+    # Set open permissions on the parent .cache directory to allow other tools to create subdirectories
+    # Suppress both errors and warnings about operations not permitted
+    chmod -R a+rwX ~/.cache 2>/dev/null || true
+
+    echo "Host ccache directory permissions set to a+rwX (open access)"
+  fi
+
+  if [[ "$conan_cache_enabled" == "true" ]]; then
+    echo "Setting up host conan cache directory permissions..."
+    mkdir -pv $conan_cache_dir
+
+    # Set open permissions on the conan cache directory to allow cross-container access
+    # Suppress both errors and warnings about operations not permitted
+    chmod -R a+rwX $conan_cache_dir 2>/dev/null || true
+
+    echo "Host conan cache directory permissions set to a+rwX (open access)"
+  fi
+
+  if [[ "$mgbench_cache_enabled" == "true" ]]; then
+    echo "Setting up host mgbench cache directory permissions..."
+    mkdir -pv -- "$mgbench_cache_dir"
+
+    # Set open permissions on the mgbench cache directory to allow cross-container access
+    # Suppress both errors and warnings about operations not permitted
+    chmod -R a+rwX -- "$mgbench_cache_dir" 2>/dev/null || true
+
+    echo "Host mgbench cache directory permissions set to a+rwX (open access)"
+  fi
+
+  if [[ "$cargo_cache_enabled" == "true" ]]; then
+    echo "Setting up host cargo cache directory permissions..."
+    mkdir -pv -- "$cargo_cache_dir/registry" "$cargo_cache_dir/git"
+
+    chmod a+rwX -- "$cargo_cache_dir" "$cargo_cache_dir/registry" "$cargo_cache_dir/git" 2>/dev/null || true
+
+    echo "Host cargo cache directory permissions set to a+rwX (open access)"
+  fi
+}
+
+# rustup and nvm accept partial version specs ("1.89" is the newest 1.89.x), but
+# cargo/node always report all three components, so a literal compare against a
+# partial spec never matches and reinstalls the toolchain on every build.
+version_satisfies () {
+  local installed="$1" requested="$2"
+  [[ -n "$installed" ]] || return 1
+  [[ "$installed" == "$requested" || "$installed" == "$requested".* ]]
+}
+
+copy_project_files() {
+  echo "Copying project files..."
+  project_files=$(ls -A1 "$PROJECT_ROOT")
+  while IFS= read -r f; do
+    # Skip build directory when copying project files
+    if [[ "$f" != "build" ]]; then
+      docker cp "$PROJECT_ROOT/$f" "$build_container:$MGBUILD_ROOT_DIR/"
+    fi
+  done <<< "$project_files"
+  # Change ownership of copied files so the mg user inside container can access them
+  docker exec -u root $build_container bash -c "chown -R mg:mg $MGBUILD_ROOT_DIR"
+}
+
+
+upload_conan_cache() {
+  local conan_username=$1
+  local conan_password=$2
+  local package_name=""
+  if [[ $# -gt 2 ]]; then
+    package_name=$3
+  fi
+  if [[ -z "$conan_username" ]] || [[ -z "$conan_password" ]]; then
+    echo "Warning: Conan username and password are required for Conan cache upload"
+    return 0
+  fi
+  docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan remote login -p $conan_password artifactory $conan_username"
+  if [[ -n "$package_name" ]]; then
+    docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"$package_name\" -r=artifactory --confirm"
+  else
+    docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && source env/bin/activate && conan upload \"*/*\" -r=artifactory --confirm"
+  fi
+  return $?
+}
+
+# Point the unversioned abi3 SONAME `libpython3.so` at an exact Python version's
+# versioned library inside the build container, so the memgraph binary (whose
+# DT_NEEDED was rewritten to `libpython3.so`) both builds and runs against that
+# version. Arg: <version> e.g. 3.12
+point_libpython3_so () {
+  local version="$1"
+  docker exec -u root "$build_container" bash -c '
+    v="'"$version"'"
+    target=$(ls /usr/lib/*/libpython${v}.so.1.0 /usr/lib/libpython${v}.so.1.0 2>/dev/null | head -n 1)
+    if [ -n "$target" ]; then
+      ln -sf "$(basename "$target")" "$(dirname "$target")/libpython3.so"
+      ldconfig || true
+      echo "Pointed libpython3.so -> $target"
+    else
+      echo "WARNING: libpython${v}.so.1.0 not found in the container" >&2
+    fi'
+}
+
+# Install an exact Python version from the deadsnakes PPA and point libpython3.so
+# at it. deadsnakes is Ubuntu-only; on other distros this warns and relies on the
+# container already providing the version (find_package fails loudly otherwise).
+# Arg: <version> e.g. 3.12
+install_python_from_deadsnakes () {
+  local version="$1"
+  if [[ "$os" != ubuntu* ]]; then
+    echo "WARNING: Python $version requested on non-Ubuntu OS '$os'; deadsnakes is Ubuntu-only, skipping install. The container must already provide Python $version." >&2
+    return 0
+  fi
+  echo "Installing Python $version from the deadsnakes PPA ..."
+  docker exec -u root "$build_container" bash -c "export DEBIAN_FRONTEND=noninteractive && \
+    apt-get update && \
+    apt-get install -y python${version} python${version}-dev python${version}-venv"
+  point_libpython3_so "$version"
+}
+
+# Remove an exact Python version (interpreter, headers and shared library) so we
+# can prove the abi3 binary no longer depends on the version it was built with.
+# No-op on non-Ubuntu. Refuses to remove the container's system python3 (purging
+# it would cascade-remove python3 and the build/test tooling that depends on it);
+# in that case the version stays installed but libpython3.so is still repointed
+# by the caller, so the abi3 cross-version test remains valid. Arg: <version>
+remove_python_version () {
+  local version="$1"
+  [[ "$os" == ubuntu* ]] || return 0
+  docker exec -u root "$build_container" bash -c '
+    export DEBIAN_FRONTEND=noninteractive
+    v="'"$version"'"
+    default=$(python3 --version 2>/dev/null | cut -d" " -f2 | cut -d. -f1,2)
+    if [ "$v" = "$default" ]; then
+      echo "Refusing to remove Python $v: it is the container system python3 (build/test tooling depends on it). Keeping it installed; libpython3.so is still repointed for the abi3 test." >&2
+      exit 0
+    fi
+    echo "Removing Python $v from the container ..."
+    apt-get purge -y "python$v" "python$v-dev" "libpython$v" "libpython$v-dev" || true
+    ldconfig || true'
+}
+
+# Print, in bold orange for easy visual verification in CI, which libpython the
+# freshly built binary resolves to. After the abi3 rewrite DT_NEEDED reads
+# `libpython3.so`; resolve that symlink to the concrete versioned library.
+# Arg: <label> e.g. "build" or "runtime"
+report_libpython_link () {
+  local label="$1"
+  local mg_binary="$MGBUILD_ROOT_DIR/build/memgraph"
+  local info
+  info=$(docker exec -u mg "$build_container" bash -c '
+    bin="'"$mg_binary"'"
+    needed=$(patchelf --print-needed "$bin" 2>/dev/null | grep -i "^libpython" | head -n 1 || true)
+    resolved=$(ldd "$bin" 2>/dev/null | awk "/libpython/ {print \$3; exit}" || true)
+    real=$(readlink -f "$resolved" 2>/dev/null || true)
+    echo "DT_NEEDED=${needed:-<none>} -> ${real:-<unresolved>}"' 2>/dev/null || true)
+  printf '\033[1;38;5;208m%s\033[0m\n' "Memgraph libpython link (${label}): ${info:-<unknown>}"
+}
+
+
+# Warm cargo's registry cache in a dedicated, retried step. Arg: <mage mode>.
+prefetch_cargo_deps () {
+  local mage_mode="$1"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
+  local crate_dirs=()
+  # Mirrors what the build actually compiles: mgcxx is part of memgraph proper
+  # (skipped for --mage only), the rust query modules come with MAGE.
+  if [[ "$mage_mode" != "only" ]]; then
+    crate_dirs+=("mgcxx/text_search")
+  fi
+  if [[ "$mage_mode" != "off" ]]; then
+    crate_dirs+=("src/mage/rust/rsmgp-example")
+  fi
+
+  local crate_dir attempt
+  for crate_dir in "${crate_dirs[@]}"; do
+    if ! docker exec -u mg "$build_container" bash -c "test -f $MGBUILD_ROOT_DIR/$crate_dir/Cargo.toml"; then
+      continue
+    fi
+    echo "Fetching cargo dependencies for $crate_dir..."
+    for attempt in 1 2 3; do
+      if docker exec -u mg "$build_container" bash -c "$ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/$crate_dir && cargo fetch"; then
+        break
+      fi
+      if [[ "$attempt" -eq 3 ]]; then
+        echo "Warning: cargo fetch for $crate_dir failed after $attempt attempts, continuing anyway"
+        break
+      fi
+      echo "cargo fetch for $crate_dir failed (attempt $attempt), retrying in $((attempt * 10))s..."
+      sleep $((attempt * 10))
+    done
+  done
+}
+
+build_memgraph () {
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
+  local container_build_dir="$MGBUILD_ROOT_DIR/build"
+  local container_output_dir="$container_build_dir/output"
+  local arm_flag=""
+  if [[ "$arch" == "arm" ]] || [[ "$os" =~ "-arm" ]]; then
+    arm_flag="-DMG_ARCH="ARM64""
+  fi
+  local build_type_flag="-DCMAKE_BUILD_TYPE=$build_type"
+  local community_flag=""
+  local coverage_flag=""
+  local asan_flag=""
+  local ubsan_flag=""
+  local disable_jemalloc_flag=""
+  local disable_testing_flag=""
+  local init_only=false
+  local cmake_only=false
+  local copy_from_host=true
+  local conan_remote=""
+  local conan_username=""
+  local conan_password=""
+  local build_dependency=""
+  local link_threads=0
+  local memory_per_compile_job_mb=0
+  local memory_per_link_job_mb=0
+  local split_debug=false
+  local mage_mode="off"
+  local mage_cuda=false
+  local python_build_version=""
+  local python_build_version_flag=""
+  local python_runtime_version=""
+  local python_support_flag=""
+  local abi3_rewrite=true
+  local abi3_rewrite_flag=""
+  local profile=false
+
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --profile)
+        profile=true
+        shift 1
+      ;;
+      --community)
+        community_flag="-DMG_ENTERPRISE=OFF"
+        shift 1
+      ;;
+      --init-only)
+        init_only=true
+        shift 1
+      ;;
+      --cmake-only)
+        cmake_only=true
+        shift 1
+      ;;
+      --coverage)
+        coverage_flag="-DTEST_COVERAGE=ON"
+        shift 1
+      ;;
+      --asan)
+        asan_flag="-DASAN=ON"
+        shift 1
+      ;;
+      --ubsan)
+        ubsan_flag="-DUBSAN=ON"
+        shift 1
+      ;;
+      --no-copy)
+        copy_from_host=false
+        shift 1
+      ;;
+      --disable-jemalloc)
+        disable_jemalloc_flag="-DENABLE_JEMALLOC=OFF"
+        shift 1
+      ;;
+      --disable-testing)
+        disable_testing_flag="-DMG_ENABLE_TESTING=OFF"
+        shift 1
+      ;;
+      --conan-remote)
+        conan_remote=$2
+        shift 2
+      ;;
+      --conan-username)
+        conan_username=$2
+        shift 2
+      ;;
+      --conan-password)
+        conan_password=$2
+        shift 2
+      ;;
+      --build-dependency)
+        build_dependency=$2
+        shift 2
+      ;;
+      --link-threads)
+        link_threads=$2
+        shift 2
+      ;;
+      --memory-per-compile-job-mb)
+        memory_per_compile_job_mb=$2
+        shift 2
+      ;;
+      --memory-per-link-job-mb)
+        memory_per_link_job_mb=$2
+        shift 2
+      ;;
+      --split-debug)
+        split_debug=true
+        shift 1
+      ;;
+      --mage)
+        mage_mode=$2
+        if [[ "$mage_mode" != "off" && "$mage_mode" != "on" && "$mage_mode" != "only" ]]; then
+          echo "Error: --mage must be 'off', 'on', or 'only' (got '$mage_mode')" >&2
+          exit 1
+        fi
+        shift 2
+      ;;
+      --cuda)
+        mage_cuda=true
+        shift 1
+      ;;
+      --python-build-version)
+        python_build_version="$2"
+        python_build_version_flag="-DMG_PYTHON_VERSION=$2"
+        shift 2
+      ;;
+      --no-python)
+        python_support_flag="-DMG_PYTHON_SUPPORT=OFF"
+        shift 1
+      ;;
+      --python-runtime-version)
+        python_runtime_version="$2"
+        shift 2
+      ;;
+      --no-abi3-rewrite)
+        abi3_rewrite=false
+        abi3_rewrite_flag="-DMG_PYTHON_REWRITE_DT_NEEDED=OFF"
+        shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  # The runtime swap only proves anything if the binary resolves libpython via
+  # the unversioned abi3 SONAME, which is exactly what the rewrite provides.
+  if [[ "$abi3_rewrite" == false && -n "$python_runtime_version" ]]; then
+    echo "Error: --no-abi3-rewrite cannot be combined with --python-runtime-version (the swap relies on the abi3 DT_NEEDED rewrite)" >&2
+    exit 1
+  fi
+
+  echo "Initializing deps ..."
+  # If master is not the current branch, fetch it, because the get_version
+  # script depends on it. If we are on master, the fetch command is going to
+  # fail so that's why there is the explicit check.
+  # Required here because Docker build container can't access remote.
+  cd "$PROJECT_ROOT"
+  if [[ "$(git rev-parse --abbrev-ref HEAD)" != "master" ]]; then
+      git fetch origin master:master
+  fi
+
+  if [[ "$copy_from_host" == "true" ]]; then
+    # Ensure we have a clean build directory
+    docker exec -u root "$build_container" bash -c "rm -rf $MGBUILD_ROOT_DIR"
+    docker exec -u mg "$build_container" bash -c "mkdir -p $MGBUILD_ROOT_DIR"
+    copy_project_files
+  fi
+
+  local env_script="$MGBUILD_ROOT_DIR/environment/os/${os%-arm}.sh"
+  local deps_group
+  echo "Installing dependencies using '$env_script' script..."
+  for deps_group in TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS MEMGRAPH_TEST_DEPS MEMGRAPH_RUN_DEPS; do
+    docker exec -u root -e SUDO_USER=mg -e MG_RUST_VERSION="$DEFAULT_RUST_VERSION" -e MG_NODE_VERSION="$DEFAULT_NODE_VERSION" \
+      "$build_container" bash -c "$env_script check $deps_group || $env_script install $deps_group"
+  done
+
+  # check rust version installed matches
+  local installed_rust_ver_str="$(docker exec -u mg $build_container bash -c 'source $HOME/.cargo/env && cargo --version 2>/dev/null || echo ""')"
+  local installed_rust_ver=""
+  if [[ $installed_rust_ver_str =~ v?([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+    installed_rust_ver="${BASH_REMATCH[1]}"
+    echo "Found Rust version ${installed_rust_ver} in the build container"
+  fi
+  if ! version_satisfies "$installed_rust_ver" "$DEFAULT_RUST_VERSION"; then
+    echo "Installing Rust $DEFAULT_RUST_VERSION..."
+    docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && retry_install install_rust $DEFAULT_RUST_VERSION"
+  fi
+
+  local installed_node_ver_str="$(docker exec -u mg $build_container bash -c 'export NVM_DIR="$HOME/.nvm"; [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"; node --version 2>/dev/null || echo ""')"
+  local installed_node_ver=""
+  if [[ $installed_node_ver_str =~ v?([0-9]+\.[0-9]+\.[0-9]+) ]]; then
+    installed_node_ver="${BASH_REMATCH[1]}"
+    echo "Found Node version ${installed_node_ver} in the build container"
+  fi
+  if ! version_satisfies "$installed_node_ver" "$DEFAULT_NODE_VERSION"; then
+    echo "Installing Node $DEFAULT_NODE_VERSION..."
+    docker exec -u mg "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && retry_install install_node $DEFAULT_NODE_VERSION"
+  fi
+
+  # Install the requested build-time Python (--python-build-version) from deadsnakes
+  # and point libpython3.so at it, so the build links against exactly that
+  # version. This overrides ensure_libpython3_so_symlink's "highest installed"
+  # default below (which no-ops once libpython3.so already exists).
+  if [[ -n "$python_build_version" ]]; then
+    install_python_from_deadsnakes "$python_build_version"
+  fi
+
+  # The abi3 DT_NEEDED rewrite (cmake/RewriteDtNeededAbi3.cmake) only fires when
+  # CMake's find_library(python3) locates the unversioned libpython3.so SONAME,
+  # and the rewritten binary must be loadable for the config/generate.py
+  # POST_BUILD step. RPM distros ship libpython3.so natively; Debian/Ubuntu ship
+  # only versioned libpython, so create the symlink here. Idempotent: a no-op
+  # where libpython3.so already exists. Not gated on the dep step above (which is
+  # skipped when `check` passes); only --no-abi3-rewrite skips it.
+  if [[ "$abi3_rewrite" == true ]]; then
+    docker exec -u root "$build_container" bash -c "source $MGBUILD_ROOT_DIR/environment/util.sh && ensure_libpython3_so_symlink"
+  fi
+
+  echo "Building targeted package..."
+  # Fix issue with git marking directory as not safe
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
+  if [[ "$init_only" == "true" ]]; then
+    return
+  fi
+
+  echo "Building Memgraph for $os on $build_container using Conan..."
+  # Clean build directory
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && rm -rf build/*"
+  # Fix cmake failing locally if remote is clone via ssh
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
+
+  # Zero ccache statistics before build if ccache is enabled
+  if [[ "$ccache_enabled" == "true" ]]; then
+    # Cache state pre-build: distinguishes "cache wiped between runs" (size 0)
+    # from "cache intact but cache key drifted" (size > 0 yet low hits below).
+    docker exec -u mg "$build_container" bash -c "ccache -sv" \
+      | awk '/Cache size/        {gsub(/[():%]/, ""); unit=$3; used=$4; cap=$6; pct=$7; size=used"/"cap" "unit" ("pct"%)"}
+             /^  Files:/         {files=$2}
+             /Cleanups performed:/{cleanups=$3}
+             END {printf "ccache_pre_build build_id=%s cache_size=%s files=%s cumulative_cleanups=%s\n", "'"${RUN_ID:-local}"'", size, files, (cleanups?cleanups:"0")}'
+    echo "Zeroing ccache statistics for this build..."
+    docker exec -u mg "$build_container" bash -c "ccache -z"
+  fi
+
+  # Clean conan cache before build if conan cache is enabled (optional, can be commented out if not needed)
+  if [[ "$conan_cache_enabled" == "true" ]]; then
+    echo "Conan cache is enabled - packages will be shared between builds"
+    # Uncomment the following lines if you want to clean conan cache before each build
+    # echo "Cleaning conan cache for this build..."
+    # docker exec -u mg "$build_container" bash -c "conan cache clean"
+  fi
+
+  # use this because the commands get far too long!
+  CMD_START="cd $MGBUILD_ROOT_DIR"
+
+  # Hash compiler binary content rather than its mtime. Container image rebuilds
+  # (or any tar/copy that resets /opt/toolchain-v8/bin/clang++ mtime) would
+  # otherwise invalidate every ccache entry. Content hashing of the 191 KB
+  # clang frontend driver is sub-millisecond, so the overhead is negligible.
+  #
+  # One cache serves every configuration a runner builds, and each keeps its own entries for the
+  # same sources, so ccache's default size holds a fraction of that set and a build misses on
+  # entries another configuration evicted. Set from the environment where a runner has less disk
+  # to spare.
+  if [[ "$ccache_enabled" == "true" ]]; then
+    CMD_START="$CMD_START && export CCACHE_COMPILERCHECK=content"
+    CMD_START="$CMD_START && export CCACHE_MAXSIZE=${CCACHE_MAXSIZE:-20G}"
+  fi
+
+  # Set up Conan environment
+  echo "Setting up Conan environment..."
+  docker exec -u mg "$build_container" bash -c "$CMD_START && python3 -m venv env"
+  CMD_START="$CMD_START && source ./env/bin/activate"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && pip install 'conan>=2.26.0'"
+
+  # Check if a conan profile exists and create one if needed
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan profile detect --force"
+
+  # Install our config
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan config install ./conan_config"
+
+  # Set Conan remote if specified
+  if [[ -n "$conan_remote" ]]; then
+    echo "Setting Conan remote to $conan_remote"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add artifactory $conan_remote --force"
+  fi
+
+  # Register vendored recipes as a local-recipes-index remote
+  # NOTE: also registered in build.sh — keep in sync
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan remote add memgraph-recipes /home/mg/memgraph/conan_recipes -t local-recipes-index --force"
+
+  # Install Conan dependencies
+  echo "Installing Conan dependencies..."
+  local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
+
+  # Build profile list from sanitizer flags
+  local SANITIZER_PROFILES=""
+  if [[ "$asan_flag" == "-DASAN=ON" ]]; then
+    SANITIZER_PROFILES="$SANITIZER_PROFILES -pr:h add_asan"
+    echo "ASAN enabled"
+  fi
+  if [[ "$ubsan_flag" == "-DUBSAN=ON" ]]; then
+    SANITIZER_PROFILES="$SANITIZER_PROFILES -pr:h add_ubsan"
+    echo "UBSAN enabled"
+  fi
+
+  local CONAN_PROFILE_ARGS="-pr:h memgraph_toolchain_${toolchain_version} $SANITIZER_PROFILES -pr:b memgraph_build_profile -s build_type=$build_type -s:a os=Linux -s:a os.distro=$os"
+
+  # MAGE-only: trim the conan graph; the generated toolchain then also sets
+  # MG_BUILD_MEMGRAPH=OFF / MG_BUILD_MAGE=ON (see conanfile.py).
+  if [[ "$mage_mode" == "only" ]]; then
+    CONAN_PROFILE_ARGS="$CONAN_PROFILE_ARGS -o '&:mage_only=True'"
+  fi
+
+  CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN"
+  if [[ -n "$build_dependency" ]]; then
+    echo "Installing build dependency: $build_dependency"
+    if [[ "$build_dependency" == "all" ]]; then
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing $CONAN_PROFILE_ARGS"
+    else
+      docker exec -u mg "$build_container" bash -c "$CMD_START && conan install --requires $build_dependency --lockfile="" --build=missing $CONAN_PROFILE_ARGS"
+    fi
+
+    if [[ -n "$conan_remote" && -n "$conan_username" && -n "$conan_password" ]]; then
+      echo "Uploading Conan cache to $conan_remote"
+      upload_conan_cache $conan_username $conan_password
+    fi
+
+    exit 0
+  else
+    docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing $CONAN_PROFILE_ARGS"
+  fi
+  CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
+
+  # Determine preset name based on build type (Conan generates this automatically)
+  local PRESET=""
+  if [[ "$build_type" == "Release" ]]; then
+    PRESET="conan-release"
+  elif [[ "$build_type" == "RelWithDebInfo" ]]; then
+    PRESET="conan-relwithdebinfo"
+  elif [[ "$build_type" == "Debug" ]]; then
+    PRESET="conan-debug"
+  else
+    echo "Error: Unsupported build type: $build_type"
+    exit 1
+  fi
+
+  # Configure with CMake using Conan preset and additional options
+  echo "Configuring CMake with Conan preset: $PRESET"
+
+  # Add additional CMake options if any are specified
+  local additional_options=""
+  local flags=("$arm_flag" "$community_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag" "$python_build_version_flag" "$python_support_flag" "$abi3_rewrite_flag")
+
+  for flag in "${flags[@]}"; do
+    if [[ -n "$flag" ]]; then
+      additional_options="$additional_options $flag"
+    fi
+  done
+
+  if [[ "$mage_mode" != "off" ]]; then
+    additional_options="$additional_options -DMG_BUILD_MAGE=ON"
+    # cuGraph GPU modules; CI's cugraph containers carry a prebuilt cuGraph
+    # in /opt/conda (the old tools/ci/mage-build/build.sh convention).
+    if [[ "$cugraph" == "true" ]]; then
+      additional_options="$additional_options -DMG_ENABLE_CUGRAPH=ON -DMG_CUGRAPH_ROOT=/opt/conda"
+    fi
+    if [[ "$mage_cuda" == "true" ]]; then
+      additional_options="$additional_options -DMG_MAGE_CUDA=ON"
+    fi
+  fi
+
+  # Pin link concurrency instead of deriving it from the container's memory.
+  if [[ "$link_threads" -gt 0 ]]; then
+    additional_options="$additional_options -DMG_LINK_JOBS=$link_threads"
+  fi
+
+  # Retune the per-job memory budgets that derive the compile/link pool sizes.
+  if [[ "$memory_per_compile_job_mb" -gt 0 ]]; then
+    additional_options="$additional_options -DMG_MEMORY_PER_COMPILE_JOB_MB=$memory_per_compile_job_mb"
+  fi
+  if [[ "$memory_per_link_job_mb" -gt 0 ]]; then
+    additional_options="$additional_options -DMG_MEMORY_PER_LINK_JOB_MB=$memory_per_link_job_mb"
+  fi
+
+  # Extract debug info into sidecar .debug files post-link (requires RWD/Debug).
+  if [[ "$split_debug" = true ]]; then
+    if [[ "$build_type" != "RelWithDebInfo" && "$build_type" != "Debug" ]]; then
+      echo "Error: --split-debug requires --build-type RelWithDebInfo or Debug (got '$build_type')" >&2
+      exit 1
+    fi
+    additional_options="$additional_options -DMG_SPLIT_DEBUG=ON"
+  fi
+
+  # MAGE's query-module python deps (torch/PyG/DGL) ship only as cp312 wheels,
+  # but CentOS Stream 9's default python3 is 3.9. Build memgraph against python
+  # 3.12 so the interpreter it embeds matches the deps installed at package time
+  # (see environment/os/centos-9.sh and install_python_requirements.sh).
+  # find_package(Python3 3.12 EXACT) needs the 3.12 dev package; install it here
+  # in case the prebuilt mgbuild image predates the centos-9.sh change.
+  # TODO(matt): Remove in Toolchain v8
+  if [[ "$os" == centos-9* ]]; then
+    docker exec -u root "$build_container" bash -c "rpm -q python3.12-devel >/dev/null 2>&1 || dnf install -y python3.12 python3.12-devel python3.12-pip"
+    additional_options="$additional_options -DMG_PYTHON_VERSION=3.12"
+    # Do NOT rewrite DT_NEEDED to the abi3 SONAME here. The abi3 rewrite defers
+    # to the host's libpython3.so, but on CentOS 9 that stub is the system
+    # Python 3.9 — below the 3.12 we deliberately pin for MAGE — so the rewrite
+    # would steer the 3.12-built binary onto a 3.9 runtime (an abi3 floor
+    # violation, hence the wrong-ABI query-module load failures). Keeping the
+    # versioned DT_NEEDED (libpython3.12.so.1.0) hard-pins to 3.12 and lets RPM
+    # auto-generate the correct python3.12 dependency.
+    additional_options="$additional_options -DMG_PYTHON_REWRITE_DT_NEEDED=OFF"
+  fi
+
+  local profile_dir=""
+  if [[ "$profile" == "true" ]]; then
+    profile_dir="$MGBUILD_ROOT_DIR/build_profile_results/$(date +%Y%m%d_%H%M%S)"
+    CMD_START="$CMD_START && export MG_BUILD_PROFILE_LOG=$profile_dir/steps.jsonl"
+    additional_options="$additional_options -DCMAKE_PROJECT_INCLUDE=$MGBUILD_ROOT_DIR/tools/build_profile/launcher.cmake"
+  fi
+
+  if [[ -n "$additional_options" ]]; then
+    echo "Adding additional CMake options: $additional_options"
+  fi
+
+  echo "Running CMake with preset: $PRESET $additional_options"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --preset $PRESET $additional_options"
+
+  if [[ "$cmake_only" == "true" ]]; then
+    build_target(){
+      target=$1
+      docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET --target $target -- -j"'$(nproc)'
+    }
+    # Force build that generate the header files needed by analysis (ie. clang-tidy)
+    if [[ "$mage_mode" != "only" ]]; then
+      build_target generated_code
+    fi
+    return
+  fi
+
+  prefetch_cargo_deps "$mage_mode"
+
+  # Build using Conan preset
+  echo "Building with Conan preset: $PRESET"
+  local BUILD_CMD="cmake --build --preset $PRESET -- -j"'$(nproc)'
+  if [[ "$threads" != "$DEFAULT_THREADS" ]]; then
+    BUILD_CMD="cmake --build --preset $PRESET -- -j $threads"
+  fi
+  if [[ "$profile" == "true" ]]; then
+    echo "Profiling the build (ccache disabled for the run); results -> $profile_dir"
+    local profile_status=0
+    docker exec -u mg "$build_container" bash -c "$CMD_START && tools/build_profile/profile.sh --exec --out $profile_dir -- $BUILD_CMD" || profile_status=$?
+    # Copy the results out even when the build failed: the report names the step that died.
+    mkdir -p "$PROJECT_ROOT/build_profile_results"
+    docker cp "$build_container:$profile_dir" "$PROJECT_ROOT/build_profile_results/"
+    echo "Build profile copied to $PROJECT_ROOT/build_profile_results/$(basename "$profile_dir")"
+    if [[ "$profile_status" -ne 0 ]]; then
+      echo "Error: profiled build exited with $profile_status" >&2
+      exit "$profile_status"
+    fi
+  else
+    docker exec -u mg "$build_container" bash -c "$CMD_START && $BUILD_CMD"
+  fi
+
+  # upload conan cache if remote is set
+  if [[ -n "$conan_remote" && -n "$conan_username" && -n "$conan_password" ]]; then
+    echo "Uploading Conan cache to $conan_remote"
+    upload_conan_cache $conan_username $conan_password
+  fi
+
+  # Show ccache statistics if ccache is enabled (a profiled build ran with it disabled)
+  if [[ "$ccache_enabled" == "true" && "$profile" != "true" ]]; then
+    echo ""
+    echo "=== Ccache Statistics (this build only — zeroed at start) ==="
+    docker exec -u mg "$build_container" bash -c "ccache -sv" || docker exec -u mg "$build_container" bash -c "ccache -s"
+    echo "============================================================="
+    # Compact one-line summary; greppable for CI dashboards.
+    docker exec -u mg "$build_container" bash -c "ccache -s" \
+      | awk '/Cacheable calls:/  {calls=$3" "$4" "$5}
+             /^  Hits:/          {hits=$2; ratio=$5}
+             /^    Direct:/      {direct=$2}
+             /^    Preprocessed:/{preproc=$2}
+             /^  Misses:/        {miss=$2}
+             /Cleanups performed:/{cleanups=$3}
+             END {printf "ccache_summary build_id=%s calls=%s hits=%s direct=%s preproc=%s misses=%s hit_ratio=%s cleanups=%s\n", "'"${RUN_ID:-local}"'", calls, hits, direct, preproc, miss, ratio, cleanups}'
+    echo ""
+  fi
+
+  # Clean up virtual environment
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && deactivate"
+
+  # Report which libpython the freshly built binary links to (build version).
+  report_libpython_link "build"
+
+  # Optionally prove abi3 portability: remove the Python we built against and
+  # swap in a different one, so the test steps that run after this build load
+  # the binary against a libpython it was NOT built against. The container
+  # persists across workflow steps, so the new symlink is in effect for them.
+  if [[ -n "$python_runtime_version" ]]; then
+    echo "Swapping runtime Python: removing build version '${python_build_version:-<container default>}', installing '$python_runtime_version' ..."
+    if [[ -n "$python_build_version" ]]; then
+      remove_python_version "$python_build_version"
+    fi
+    install_python_from_deadsnakes "$python_runtime_version"
+    report_libpython_link "runtime"
+  fi
+}
+
+ensure_uv_cmd() {
+  echo "export PATH=\$HOME/.local/bin:\$PATH && { command -v uv >/dev/null || PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user --no-cache-dir uv==$UV_VERSION; }"
+}
+
+init_tests() {
+  echo "Initializing tests..."
+  local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
+  local ENSURE_UV="$(ensure_uv_cmd)"
+  docker exec -u mg "$build_container" bash -c "$ENSURE_UV && $SETUP_MGDEPS_CACHE_ENDPOINT && cd $MGBUILD_ROOT_DIR && ./init-test --ci --uv"
+  echo "...Done"
+}
+
+package_memgraph() {
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  local container_output_dir="$MGBUILD_ROOT_DIR/build/output"
+  local format=""
+  local lint_command=""
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --format)
+        format=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  # Container prep and lint config are keyed on the container OS. The package
+  # format defaults to the container's native one, but the packages are
+  # host-agnostic so any container can build either (or both) via --format.
+  local native_format=""
+  if [[ "$os" == "centos-10" ]]; then
+      # install much newer rpmlint than what ships with centos-10
+      docker exec -u root "$build_container" bash -c "dnf remove -y rpmlint --noautoremove"
+      docker exec -u root "$build_container" bash -c "pip install rpmlint==2.8.0 --user"
+      native_format="rpm"
+  elif [[ "$os" =~ ^"fedora".* ]]; then
+      native_format="rpm"
+      lint_command="rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph-[0-9]*.rpm"
+  elif [[ "$os" == "rocky-10" ]]; then
+      native_format="rpm"
+      lint_command="rpmlint --file='../../release/rpm/rpmlintrc_rocky' memgraph-[0-9]*.rpm"
+  elif [[ "$os" =~ ^"centos".* ]] || [[ "$os" =~ ^"amzn".* ]] || [[ "$os" =~ ^"rocky".* ]]; then
+      native_format="rpm"
+      lint_command="rpmlint --file='../../release/rpm/rpmlintrc' memgraph-[0-9]*.rpm"
+  elif [[ "$os" =~ ^"debian".* ]]; then
+      docker exec -u root "$build_container" bash -c "apt --allow-releaseinfo-change -y update"
+      native_format="deb"
+  elif [[ "$os" =~ ^"ubuntu".* ]]; then
+      docker exec -u root "$build_container" bash -c "apt update"
+      native_format="deb"
+  else
+      echo -e "${RED_BOLD}Error: package_memgraph: unsupported os '$os'${RESET}" >&2
+      exit 1
+  fi
+
+  local formats=""
+  case "${format:-$native_format}" in
+    deb|rpm) formats="${format:-$native_format}" ;;
+    both) formats="deb rpm" ;;
+    *)
+      echo -e "${RED_BOLD}Error: --format must be 'deb', 'rpm' or 'both' (got '$format')${RESET}" >&2
+      exit 1
+    ;;
+  esac
+
+  # Cross-format tooling: deb-family containers don't ship rpmbuild (and
+  # rpm-family ones don't ship dpkg-deb); install on demand.
+  if [[ "$formats" == *"rpm"* && "$native_format" == "deb" ]]; then
+    docker exec -u root "$build_container" bash -c "command -v rpmbuild >/dev/null || apt install -y rpm"
+  fi
+  if [[ "$formats" == *"deb"* && "$native_format" == "rpm" ]]; then
+    docker exec -u root "$build_container" bash -c "command -v dpkg-deb >/dev/null || dnf install -y dpkg"
+  fi
+
+  for fmt in $formats; do
+    docker exec -u root "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && ./package.sh memgraph $fmt"
+  done
+
+  if [[ "$formats" == *"rpm"* ]]; then
+    if [[ -n "$lint_command" ]]; then
+      docker exec -u root "$build_container" bash -c "cd $container_output_dir && $lint_command"
+    fi
+    if [[ "$os" == "centos-10" ]]; then
+      docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph-[0-9]*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
+    fi
+  fi
+
+  # check each produced package for mgconsole and the required licenses
+  local licenses=(
+    "MEL.pdf"
+    "BSL.txt"
+    "APL.txt"
+  )
+  for fmt in $formats; do
+    if [[ "$fmt" == "deb" ]]; then
+      package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph_*.deb")"
+      check_output="$(docker exec -u mg $build_container bash -c "dpkg -c $package_name")"
+    else
+      # memgraph-[0-9]*.rpm matches the main package; excludes memgraph-debuginfo-*.rpm.
+      package_name="$(docker exec -u mg $build_container bash -c "ls /home/mg/memgraph/build/output/memgraph-[0-9]*.rpm")"
+      check_output="$(docker exec -u mg $build_container bash -c "rpm -ql $package_name")"
+    fi
+    if ! grep -q "mgconsole" <<< "$check_output"; then
+      echo "Error: mgconsole not found in package"
+      echo "Package: $package_name"
+      echo "Check output: $check_output"
+      exit 1
+    fi
+    echo "mgconsole found in package ($fmt)"
+
+    for license in "${licenses[@]}"; do
+      if ! grep -q "$license" <<< "$check_output"; then
+        echo "Error: $license license not found in package ($fmt)"
+        exit 1
+      fi
+    done
+    echo "Package has the required licenses ($fmt)"
+  done
+}
+
+package_docker() {
+  # TODO(gitbuda): Write the below ifs in a better way (make it automatic with new toolchain versions).
+
+  if [[ "$os" != "ubuntu-24.04" && "$os" != "ubuntu-24.04-arm" ]]; then
+    echo -e "Error: When packaging docker only '--os ubuntu-24.04' and '--os ubuntu-24.04-arm' are supported"
+    exit 1
+  fi
+
+  local package_dir="$PROJECT_ROOT/build/output/$os"
+  local docker_host_folder="$PROJECT_ROOT/build/output/docker/${arch}/${toolchain_version}"
+  local malloc=false
+  local custom_mirror=false
+  local keep_image_loaded=false
+  local package_flavour="prod"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        docker_host_folder="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      --src-dir)
+        package_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      --malloc)
+        malloc=$2
+        shift 2
+      ;;
+      --custom-mirror)
+        [[ "$2" == "true" ]] && custom_mirror=true
+        shift 2
+      ;;
+      --keep-image-loaded)
+        keep_image_loaded=$2
+        shift 2
+      ;;
+      --package-flavour)
+        package_flavour=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'" >&2
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  case "$package_flavour" in
+    prod) ;;
+    debug)
+      if [[ "$build_type" != "RelWithDebInfo" ]]; then
+        echo "Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')" >&2
+        exit 1
+      fi
+    ;;
+    fips) ;;
+    *)
+      echo "Error: --package-flavour must be 'prod', 'debug' or 'fips' (got '$package_flavour')" >&2
+      exit 1
+    ;;
+  esac
+
+  # shellcheck disable=SC2012
+  local last_package_name=$(cd $package_dir && ls -t memgraph_*.deb 2>/dev/null | head -1)
+  if [[ -z "$last_package_name" ]]; then
+    echo "Error: no main memgraph package found in $package_dir" >&2
+    echo "       (expected memgraph_*.deb)" >&2
+    exit 1
+  fi
+  local docker_build_folder="$PROJECT_ROOT/release/docker"
+  cd "$docker_build_folder"
+  echo "Using custom mirror: $custom_mirror"
+
+  if [[ "$package_flavour" == "prod" ]]; then
+    echo "Package prod flavour"
+    ./package_docker --latest --package-flavour prod --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
+  elif [[ "$package_flavour" == "fips" ]]; then
+    echo "Package fips flavour"
+    ./package_docker --package-flavour fips --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
+  else
+    echo "Package debug flavour"
+    ./package_docker --package-flavour debug --package-path "$package_dir/$last_package_name" --toolchain $toolchain_version --arch "${arch}" --src-path "$PROJECT_ROOT/src" --custom-mirror "$custom_mirror" --malloc $malloc --keep-image-loaded $keep_image_loaded
+  fi
+  # shellcheck disable=SC2012
+  local docker_image_name=$(cd "$docker_build_folder" && ls -t memgraph* | head -1)
+  local docker_host_image_path="$docker_host_folder/$docker_image_name"
+  mkdir -p "$docker_host_folder"
+  cp "$docker_build_folder/$docker_image_name" "$docker_host_folder"
+  echo "Docker images saved to $docker_host_image_path."
+}
+
+package_smoke_image() {
+  # Build a Docker image with the produced .deb/.rpm installed, tagged so the
+  # existing smoke test framework (which expects a Docker image) can run it.
+  local package_dir="$PROJECT_ROOT/build/output/$os"
+  local image_tag=""
+  local wheels_dir=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --src-dir)
+        package_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      --image-tag)
+        image_tag=$2
+        shift 2
+      ;;
+      --wheels-dir)
+        wheels_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'" >&2
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ -z "$image_tag" ]]; then
+    echo "Error: --image-tag is required for package-smoke-image" >&2
+    exit 1
+  fi
+
+  local base_image=""
+  local pkg_format=""
+  case "$os" in
+    ubuntu-26.04*) base_image="ubuntu:26.04"; pkg_format="deb" ;;
+    ubuntu-24.04*) base_image="ubuntu:24.04"; pkg_format="deb" ;;
+    ubuntu-22.04*) base_image="ubuntu:22.04"; pkg_format="deb" ;;
+    debian-12*)    base_image="debian:12";    pkg_format="deb" ;;
+    debian-13*)    base_image="debian:13";    pkg_format="deb" ;;
+    centos-9*)     base_image="quay.io/centos/centos:stream9";  pkg_format="rpm" ;;
+    centos-10*)    base_image="quay.io/centos/centos:stream10"; pkg_format="rpm" ;;
+    rocky-10*)     base_image="rockylinux/rockylinux:10";  pkg_format="rpm" ;;
+    fedora-43*)    base_image="fedora:43"; pkg_format="rpm" ;;
+    fedora-44*)    base_image="fedora:44"; pkg_format="rpm" ;;
+    fedora-45*)    base_image="fedora:45"; pkg_format="rpm" ;;
+    *)
+      echo "Error: Unsupported OS for package-smoke-image: $os" >&2
+      exit 1
+    ;;
+  esac
+
+  # Pick the package matching the target's format — a single build produces
+  # both formats, so the source dir may hold a .deb and an .rpm side by side.
+  # `|| true` keeps set -e/pipefail from silently killing the script when the
+  # glob matches nothing; the empty-name check below reports it properly.
+  local package_name=""
+  if [[ "$pkg_format" == "deb" ]]; then
+    package_name=$(cd "$package_dir" && ls -t memgraph_*.deb 2>/dev/null | head -1 || true)
+  else
+    package_name=$(cd "$package_dir" && ls -t memgraph-[0-9]*.rpm 2>/dev/null | head -1 || true)
+  fi
+  if [[ -z "$package_name" ]]; then
+    echo "Error: No memgraph $pkg_format package found in $package_dir" >&2
+    exit 1
+  fi
+  echo "Building smoke image from package: $package_dir/$package_name"
+
+  local build_dir
+  build_dir=$(mktemp -d)
+  # Ensure the temp build context is removed on any exit path — the script
+  # runs under `set -e`, so a failing docker build below would otherwise skip
+  # an unguarded cleanup line. Expanded eagerly so the path is captured even
+  # if $build_dir's scope has unwound by the time the trap fires.
+  trap "rm -rf '$build_dir'" EXIT
+  cp "$package_dir/$package_name" "$build_dir/"
+  "$PROJECT_ROOT/tools/ci/mirrors/stage.sh" "$build_dir"
+
+  local pip_find_links=""
+  local copy_wheels_line=""
+  if [[ -n "$wheels_dir" && -d "$wheels_dir" ]]; then
+    mkdir -p "$build_dir/wheels"
+    cp "$wheels_dir"/*.whl "$build_dir/wheels/" 2>/dev/null || true
+    if compgen -G "$build_dir/wheels/*.whl" >/dev/null; then
+      pip_find_links="--find-links=/wheels"
+      copy_wheels_line="COPY wheels /wheels"
+    fi
+  fi
+
+  # The package's own postinst/%post installs the query-module python deps
+  # (as the memgraph user), so the smoke image exercises the real install
+  # path instead of pre-installing them here. Only gssapi is extra: it has
+  # no PyPI wheels, so install one of ours when it matches the target's
+  # python; on a mismatch skip it — exactly what a customer install without
+  # build tooling does.
+  #
+  # Two details matter for the wheel to actually be usable at runtime:
+  #   * it must go into the interpreter that imports it, which is not always the
+  #     distro's `python3` (on el9 that is 3.9, below memgraph's floor, so the
+  #     deps land in 3.12). The importer here is an auth module, and memgraph
+  #     execve()s those, so the shebang of the installed module — which the
+  #     memgraph %post repoints when the distro python3 is too old — is the
+  #     authority on which python that is;
+  #   * the index has to stay reachable for gssapi's pure-python dependency
+  #     (decorator), which is not in the wheels dir; --only-binary=gssapi still
+  #     forbids falling back to gssapi's own sdist.
+  local gssapi_cmd="echo 'no gssapi wheel supplied; skipping'"
+  if [[ -n "$pip_find_links" ]]; then
+    gssapi_cmd="auth_py=\$(sed -n '1s|^#!||p' /usr/lib/memgraph/auth_module/kerberos.py 2>/dev/null); auth_py=\${auth_py:-python3}; echo \"installing gssapi for \$auth_py\"; runuser -l memgraph -c \"PIP_BREAK_SYSTEM_PACKAGES=1 \$auth_py -m pip install --user --no-cache-dir --no-warn-script-location --find-links=/wheels --only-binary=gssapi gssapi==1.11.1\" || echo 'no matching gssapi wheel for this python; skipping'"
+  fi
+
+  local install_cmd
+  if [[ "$pkg_format" == "deb" ]]; then
+    # Ubuntu Docker base images filter /usr/share/doc/* via
+    # /etc/dpkg/dpkg.cfg.d/excludes, dropping memgraph's license files
+    # (MEL.pdf/BSL.txt/APL.txt) which the smoke license check verifies.
+    # Add a path-include exception before installing the package, matching
+    # the workaround in release/docker/v8_deb.dockerfile.
+    install_cmd="export DEBIAN_FRONTEND=noninteractive && \
+      /mirrors/pin_mirrors.sh apply && \
+      /mirrors/retry.sh -- apt-get install -y --no-install-recommends libcurl4 libseccomp2 && \
+      if [ -f /etc/dpkg/dpkg.cfg.d/excludes ]; then \
+        echo '' >> /etc/dpkg/dpkg.cfg.d/excludes && \
+        echo '# Include all memgraph documentation files (licenses, etc.)' >> /etc/dpkg/dpkg.cfg.d/excludes && \
+        echo 'path-include=/usr/share/doc/memgraph/*' >> /etc/dpkg/dpkg.cfg.d/excludes; \
+      fi && \
+      /mirrors/retry.sh -- apt-get install -y --no-install-recommends /pkg/$package_name && \
+      ($gssapi_cmd) && \
+      rm -rf /var/lib/apt/lists/*"
+  else
+    # Fedora/CentOS/Rocky minimal docker images set tsflags=nodocs in
+    # /etc/dnf/dnf.conf, which strips memgraph's license files in
+    # /usr/share/doc/memgraph/. Override on the dnf install line so the
+    # smoke license check passes.
+    # rpm demotes %post scriptlet failures to warnings, so a failed pip
+    # install would still produce an image; assert the deps actually landed.
+    install_cmd="/mirrors/pin_mirrors.sh apply && \
+      /mirrors/retry.sh -- dnf install -y --setopt=tsflags='' libseccomp /pkg/$package_name && \
+      ls /var/lib/memgraph/.local/lib/python3.*/site-packages/networkx >/dev/null && \
+      ($gssapi_cmd) && \
+      dnf clean all"
+  fi
+
+  # The mirror scripts come in on a bind mount rather than a COPY so they
+  # leave no trace in the image the smoke tests then run.
+  cat > "$build_dir/Dockerfile" <<EOF
+FROM $base_image
+COPY $package_name /pkg/$package_name
+${copy_wheels_line}
+RUN --mount=type=bind,source=./mirrors,target=/mirrors,ro $install_cmd
+USER memgraph
+WORKDIR /usr/lib/memgraph
+EXPOSE 7687
+ENTRYPOINT ["/usr/lib/memgraph/memgraph"]
+CMD [""]
+EOF
+
+  echo "--- Dockerfile ---"
+  cat "$build_dir/Dockerfile"
+  echo "------------------"
+
+  local attempt
+  local built=false
+  for attempt in 1 2 3 4 5; do
+    if (( attempt > 1 )); then
+      echo "docker build failed (attempt $((attempt - 1))/5), retrying in $(( (attempt - 1) * 30 ))s..."
+      sleep $(( (attempt - 1) * 30 ))
+    fi
+    if docker build -t "memgraph/memgraph:$image_tag" "$build_dir"; then
+      built=true
+      break
+    fi
+  done
+  if [[ "$built" != true ]]; then
+    echo "Error: docker build failed for memgraph/memgraph:$image_tag after 5 attempts" >&2
+    exit 1
+  fi
+  echo "Built smoke image: memgraph/memgraph:$image_tag"
+}
+
+copy_memgraph() {
+  local MGBUILD_BUILD_DIR="$MGBUILD_ROOT_DIR/build"
+  local PROJECT_BUILD_DIR="$PROJECT_ROOT/build"
+  local artifact="binary"
+  local artifact_name="memgraph"
+  local container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+  local host_dir="$PROJECT_BUILD_DIR"
+  local host_dir_override=""
+  local artifact_name_override=""
+  local use_cmake_install=false
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --binary)
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
+          exit 1
+        fi
+        artifact="binary"
+        artifact_name="memgraph"
+        container_artifact_path="$MGBUILD_BUILD_DIR/$artifact_name"
+        host_dir="$PROJECT_BUILD_DIR"
+        shift 1
+      ;;
+      --build-logs)
+        if [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
+          exit 1
+        fi
+        artifact="build logs"
+        artifact_name="logs"
+        container_artifact_path="$MGBUILD_BUILD_DIR/e2e/logs"
+        host_dir="$PROJECT_BUILD_DIR"
+        shift 1
+      ;;
+      --memgraph-logs)
+        if [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
+          exit 1
+        fi
+        artifact="memgraph logs"
+        artifact_name="memgraph-logs"
+        container_artifact_path="$MGBUILD_BUILD_DIR/memgraph-logs"
+        host_dir="$PROJECT_BUILD_DIR"
+        shift 1
+      ;;
+      --package)
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "libs" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
+          exit 1
+        fi
+        artifact="package"
+        local container_package_dir="$MGBUILD_BUILD_DIR/output"
+        host_dir="$PROJECT_BUILD_DIR/output/$os"
+        artifact_name=$(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls -t memgraph_*.deb memgraph-[0-9]*.rpm 2>/dev/null | head -1")
+        container_artifact_path="$container_package_dir/$artifact_name"
+        shift 1
+      ;;
+      --libs)
+        if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
+          echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
+          exit 1
+        fi
+        artifact="libs"
+        artifact_name="libmemgraph_module_support.so"
+        container_artifact_path="$MGBUILD_BUILD_DIR/src/query/$artifact_name"
+        host_dir="$PROJECT_BUILD_DIR/src/query"
+        shift 1
+      ;;
+      --mgconsole)
+        # TODO(matt): remove when mgconsole 1.7.1 is released
+        # The toolchain's mgconsole is built against the sysroot (GLIBC floor
+        # 2.25), so it runs on every smoke target distro — unlike the released
+        # download (see tests/smoke/init_workflow.bash, which skips its
+        # download when this file is already staged).
+        artifact="mgconsole"
+        artifact_name="mgconsole"
+        container_artifact_path="/opt/toolchain-${toolchain_version}/bin/mgconsole"
+        host_dir="$PROJECT_ROOT/tests/smoke/bin"
+        shift 1
+      ;;
+      --logs-dir)
+        container_artifact_path=$2
+        artifact="logs"
+        shift 2
+      ;;
+      --dest-dir)
+        host_dir_override=$2
+        shift 2
+      ;;
+      --artifact-name)
+        artifact_name_override=$2
+        shift 2
+      ;;
+      --use-make-install)
+        if [[ "$artifact" != "binary" ]]; then
+          echo -e "Error: Only the --binary artifact can be installed using cmake install"
+          exit 1
+        fi
+        use_cmake_install=true
+        shift 1
+      ;;
+      --sbom)
+        artifact="sbom"
+        artifact_name="memgraph-sbom.cdx.json"
+        container_artifact_path="$MGBUILD_BUILD_DIR/generators/sbom/$artifact_name"
+        host_dir="$PROJECT_BUILD_DIR/generators/sbom"
+        shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ "$host_dir_override" != "" ]]; then
+    host_dir=$host_dir_override
+  fi
+  if [[ "$artifact_name_override" != "" ]]; then
+    artifact_name=$artifact_name_override
+  fi
+
+  # If using cmake install, handle it differently
+  if [[ "$use_cmake_install" == "true" ]]; then
+    local ACTIVATE_CONAN_BUILDENV="source $MGBUILD_BUILD_DIR/generators/conanbuild.sh"
+
+    # Create a temporary staging directory in the container
+    local staging_dir="/tmp/memgraph-staging"
+    docker exec -u mg "$build_container" bash -c "mkdir -p $staging_dir"
+
+    # NOTE: We use DESTDIR instead of --prefix because some install rules use absolute paths
+    # which --prefix doesn't redirect. DESTDIR prepends to ALL paths. Absolute path installs:
+    #   - /etc/memgraph/memgraph.conf (src/CMakeLists.txt)
+    #   - /etc/memgraph/apoc_compatibility_mappings.json (src/CMakeLists.txt)
+    #   - /etc/logrotate.d/memgraph (src/CMakeLists.txt)
+    #   - /lib/systemd/system (release/CMakeLists.txt)
+    #   - /etc/memgraph/auth_module/ldap.example.yaml (src/auth/CMakeLists.txt)
+    echo "Installing Memgraph using cmake --install with DESTDIR=$staging_dir..."
+    # --component memgraph skips the debuginfo + symbol-archive components,
+    # which would otherwise drop .debug sidecars into lib/memgraph/ (bloating
+    # the docker image) and flat at the prefix root (pollution).
+    docker exec -u mg "$build_container" bash -c "$ACTIVATE_CONAN_BUILDENV && DESTDIR=$staging_dir cmake --install $MGBUILD_BUILD_DIR --component memgraph"
+
+    # Copy the staged installation from container to host
+    # DESTDIR prepends to the install prefix (/usr/local), so files are at $staging_dir/usr/local/lib/memgraph/
+    echo "Copying installed files from staging directory to $host_dir..."
+    mkdir -p "$host_dir"
+    docker cp "$build_container:$staging_dir/usr/local/lib/memgraph/." "$host_dir/"
+
+    # The abi3 binary's DT_NEEDED is the unversioned `libpython3.so`, but the
+    # install tree does not bundle libpython (it is a system dependency resolved
+    # on the deployment host). Consumers of this artifact run the binary from a
+    # bare, relocated tree with an `$ORIGIN` rpath (e.g. the Jepsen nodes, which
+    # have no libpython at all), so stage the build container's libpython next to
+    # the binary — as both the real versioned file and the `libpython3.so` SONAME
+    # symlink — so it travels with the binary and resolves via `$ORIGIN`.
+    local container_libpython
+    container_libpython=$(docker exec "$build_container" bash -c \
+      'readlink -f "$(ldconfig -p 2>/dev/null | grep -oE "/[^ ]*libpython3\.[0-9]+[a-z]*\.so\.1\.0" | head -1)" 2>/dev/null' || true)
+    if [[ -n "$container_libpython" ]]; then
+      local libpython_name
+      libpython_name=$(basename "$container_libpython")
+      docker cp "$build_container:$container_libpython" "$host_dir/$libpython_name"
+      ln -sf "$libpython_name" "$host_dir/libpython3.so"
+      echo "Staged libpython ($libpython_name + libpython3.so) alongside the binary in $host_dir."
+    else
+      echo "WARNING: could not locate libpython in $build_container; the relocated binary may fail to load libpython3.so." >&2
+    fi
+
+    # Clean up staging directory
+    docker exec -u mg "$build_container" bash -c "rm -rf $staging_dir"
+
+    # Guard against host-glibc leakage: the packages hand-write the glibc
+    # floor (auto-shlibdeps is off), so this is the only automated check that
+    # the binary really was built against the toolchain sysroot (glibc 2.31).
+    "$PROJECT_ROOT/tools/ci/check-glibc-ceiling.sh" "$host_dir/memgraph" 2.31
+
+    echo "Memgraph installed to $host_dir!"
+    return
+  fi
+
+  # Original copy logic for individual files
+  local host_artifact_path="$host_dir/$artifact_name"
+  echo "Host dir: '$host_dir'"
+  echo "Artifact name: '$artifact_name'"
+  echo "Host artifact path: '$host_artifact_path'"
+  echo "Container artifact path: '$container_artifact_path'"
+  echo -e "Copying memgraph $artifact from $build_container to host ..."
+  mkdir -p "$host_dir"
+
+  if [[ "$artifact" == "logs" ]]; then
+    local temp_log_dir="/tmp/mg_logs_$$"
+    docker exec -u mg "$build_container" bash -c "mkdir -p $temp_log_dir"
+    # Find and copy all .log files to the temporary directory and copy to host
+    # Exclude log files that start with "0" (internal database logs like replication and streams)
+    docker exec -u mg "$build_container" bash -c "find $container_artifact_path -name '*.log' ! -name '0*' -exec cp {} $temp_log_dir/ \;"
+    docker cp "$build_container:$temp_log_dir/." "$host_dir/"
+    docker exec -u mg "$build_container" bash -c "rm -rf $temp_log_dir"
+    echo -e "Log files copied to $host_dir!"
+  elif [[ "$artifact" == "package" ]]; then
+    for pkg_name in $(docker exec -u mg "$build_container" bash -c "cd $container_package_dir && ls memgraph_*.deb memgraph-debuginfo_*.deb memgraph-[0-9]*.rpm memgraph-debuginfo-*.rpm 2>/dev/null"); do
+      docker cp "$build_container:$container_package_dir/$pkg_name" "$host_dir/$pkg_name"
+      echo -e "Copied $pkg_name to $host_dir/"
+    done
+  else
+    docker cp -L $build_container:$container_artifact_path $host_artifact_path
+    # Same host-glibc-leakage guard as the cmake-install path above.
+    "$PROJECT_ROOT/tools/ci/check-glibc-ceiling.sh" "$host_artifact_path" 2.31
+  fi
+  echo -e "Memgraph $artifact saved to $host_artifact_path!"
+}
+
+copy_debug_symbols() {
+  # Extract all *.debug sidecars from the build tree and copy them to the host
+  # as a flat directory (tarball preserves subdir structure for readelf).
+  # Only meaningful after a build with --split-debug (MG_SPLIT_DEBUG=ON).
+  local PROJECT_BUILD_DIR="$PROJECT_ROOT/build"
+  local MGBUILD_BUILD_DIR="$MGBUILD_ROOT_DIR/build"
+  local host_dir="$PROJECT_BUILD_DIR/debug-symbols"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        host_dir="$PROJECT_ROOT/$2"
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'" >&2
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  mkdir -p "$host_dir"
+  local container_tarball="/tmp/debug-symbols-$$.tar.gz"
+  echo "Archiving .debug sidecars from $build_container..."
+  # Exclude _CPack_Packages — CPack stages an install copy of every .debug
+  # there during package generation, which would double every upload (same
+  # build-id, same destination). Each unique sidecar lives at its build
+  # location once.
+  docker exec -u mg "$build_container" bash -c \
+    "cd $MGBUILD_BUILD_DIR && find . -path './_CPack_Packages' -prune -o -name '*.debug' -type f -print0 | tar --null -czf $container_tarball -T -"
+  docker cp "$build_container:$container_tarball" "$host_dir/debug-symbols.tar.gz"
+  docker exec -u mg "$build_container" rm -f "$container_tarball"
+  # Extract for easy per-file access (e.g. readelf + upload step).
+  tar -xzf "$host_dir/debug-symbols.tar.gz" -C "$host_dir"
+  local count
+  count=$(find "$host_dir" -name '*.debug' -type f | wc -l)
+  echo "Copied $count debug symbol files to $host_dir"
+}
+
+
+##################################################
+##################### TESTS ######################
+##################################################
+test_memgraph() {
+  # Extract --python-runtime-version (it may appear anywhere) and drop it from
+  # the positional args so each test case's own arg parser is unaffected. When
+  # set, query-module Python deps are installed for THAT interpreter: memgraph
+  # embeds the runtime-swapped libpython, so its sys.path is that version's site
+  # dirs, not the container default python3's.
+  local python_runtime_version=""
+  local _args=()
+  while [[ "$#" -gt 0 ]]; do
+    case "$1" in
+      --python-runtime-version) python_runtime_version="$2"; shift 2 ;;
+      *) _args+=("$1"); shift ;;
+    esac
+  done
+  set -- ${_args[@]+"${_args[@]}"}
+
+  local test_name="$1"
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  local ACTIVATE_VENV="source ve3/bin/activate"
+  local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
+  local EXPORT_LICENSE="export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license"
+  local EXPORT_ORG_NAME="export MEMGRAPH_ORGANIZATION_NAME=$organization_name"
+  local EXPORT_AWS_KEY_ID="export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}"
+  local EXPORT_AWS_SECRET_KEY="export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}"
+  local BUILD_DIR="$MGBUILD_ROOT_DIR/build"
+  local default_benchmark_result_file='benchmark_result.json'
+  local default_benchmark_result_ha_file='benchmark_result_ha.json'
+
+  # Parse key=value output from a deployment.sh monitoring-targets invocation
+  # and export recognized vars if not already set. Uses `<<<` (not a pipe) so
+  # exports propagate to the calling function's shell.
+  _import_monitoring_targets() {
+    while IFS='=' read -r key value; do
+      [[ -z "$value" ]] && continue
+      case "$key" in
+        MEMGRAPH_METRICS_TARGETS)
+          [[ -z "${MEMGRAPH_METRICS_TARGETS:-}" ]] && export MEMGRAPH_METRICS_TARGETS="$value"
+          ;;
+        MEMGRAPH_LOG_WS_TARGETS)
+          [[ -z "${MEMGRAPH_LOG_WS_TARGETS:-}" ]] && export MEMGRAPH_LOG_WS_TARGETS="$value"
+          ;;
+      esac
+    done <<< "$1"
+  }
+
+  resolve_native_ha_monitoring_targets() {
+    _import_monitoring_targets "$(docker exec -u mg "$build_container" bash -c \
+      "cd $MGBUILD_ROOT_DIR/tests/stress/ha/native/deployment && ./deployment.sh monitoring-targets \"$build_container\"")"
+  }
+
+  resolve_docker_ha_monitoring_targets() {
+    _import_monitoring_targets "$("$PROJECT_ROOT/tests/stress/ha/docker/deployment/deployment.sh" monitoring-targets 127.0.0.1)"
+    export MONITORING_USE_HOST_NETWORK="true"
+  }
+
+  resolve_integration_parallel_monitoring_targets() {
+    # Suites run on fixed per-suite port blocks, so the targets are known up front.
+    _import_monitoring_targets "$("$PROJECT_ROOT/tests/integration/run-parallel.sh" monitoring-targets "$build_container")"
+  }
+
+  resolve_eks_ha_monitoring_targets() {
+    _import_monitoring_targets "$("$PROJECT_ROOT/tests/stress/ha/eks/deployment/deployment.sh" monitoring-targets)"
+    # EKS monitoring targets are public endpoints; host network mode avoids the need for a shared Docker network.
+    export MONITORING_USE_HOST_NETWORK="true"
+  }
+
+  if [[ "$enable_monitoring" == "true" ]]; then
+    case "$test_name" in
+      stress-native-ha)  resolve_native_ha_monitoring_targets ;;
+      stress-docker-ha)  resolve_docker_ha_monitoring_targets ;;
+      integration-parallel) resolve_integration_parallel_monitoring_targets ;;
+      # EKS targets are resolved later in the case body, after the cluster exists.
+      stress-eks-ha)     : ;;
+    esac
+
+    if [[ "$test_name" != "stress-eks-ha" ]]; then
+      if [[ -z "$service_name" ]]; then
+        service_name="$test_name"
+        echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+      fi
+      start_monitoring
+      trap stop_monitoring EXIT INT TERM
+    fi
+  fi
+
+  # ctest's per-test results are what say which test failed and how often across
+  # repeated runs, and they matter most on the runs that failed. Copy them out of
+  # the container whatever the exit status was, then hand that status back.
+  # A failure here is reported rather than hidden: an empty summary otherwise
+  # reads the same as a clean run.
+  collect_ctest_results() {
+    local status=$1
+    mkdir -p "$PROJECT_ROOT/build/test-results"
+    if ! docker cp "$build_container:$BUILD_DIR/test-results/." "$PROJECT_ROOT/build/test-results/" 2>&1; then
+      echo "Warning: could not copy ctest results out of $build_container; this run will be absent from the flake summary." >&2
+    fi
+    return "$status"
+  }
+
+  # NOTE: If you need a fresh copy of memgraph files, call copy_project_files funcation on the line below.
+  echo "Running $test_name test on $build_container..."
+  case "$test_name" in
+    unit)
+      local status=0
+      if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j$(nproc) --output-junit test-results/unit.xml' || status=$?
+      else
+        local EXPORT_THREADS="export THREADS=$threads"
+        docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_THREADS && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j$THREADS --output-junit test-results/unit.xml' || status=$?
+      fi
+      collect_ctest_results "$status"
+    ;;
+    unit-coverage)
+      local setup_lsan_ubsan="export LSAN_OPTIONS=suppressions=$BUILD_DIR/../tools/lsan.supp && export UBSAN_OPTIONS=halt_on_error=1"
+      local status=0
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN && $setup_lsan_ubsan "'&& mkdir -p test-results && ctest -R memgraph__unit --output-on-failure -j$(nproc) --output-junit test-results/unit-coverage.xml' || status=$?
+      collect_ctest_results "$status"
+    ;;
+    leftover-CTest)
+      local status=0
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $BUILD_DIR && $ACTIVATE_TOOLCHAIN "'&& mkdir -p test-results && ctest -E "(memgraph__unit|memgraph__benchmark)" --output-on-failure --output-junit test-results/leftover-ctest.xml' || status=$?
+      collect_ctest_results "$status"
+    ;;
+    drivers)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run.sh'
+    ;;
+    drivers-high-availability)
+      copy_report() {
+        status=$?
+        echo "Copying test report to host..."
+        docker cp $build_container:$MGBUILD_ROOT_DIR/tests/drivers/test_report.tar.gz $PROJECT_ROOT/tests/drivers/test_report.tar.gz || true
+        # This trap replaces the outer stop_monitoring trap, so chain it here.
+        if [[ "$enable_monitoring" == "true" ]]; then
+          stop_monitoring || true
+        fi
+        exit $status
+      }
+      trap copy_report EXIT INT TERM
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && export DISABLE_NODE=$DISABLE_NODE "'&& ./tests/drivers/run_cluster.sh'
+    ;;
+    integration)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && tests/integration/run.sh"
+    ;;
+    integration-parallel)
+      # Runs each suite on its own port block; --threads caps the job count (default: container nproc).
+      local integration_jobs=""
+      if [[ "$threads" != "$DEFAULT_THREADS" ]]; then
+        integration_jobs="$threads"
+      fi
+      # Per-suite logs land in a known dir so they can be copied out and uploaded, pass or fail.
+      local integration_log_dir="$BUILD_DIR/integration-logs"
+      local status=0
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR && MG_INTEGRATION_LOG_DIR=$integration_log_dir tests/integration/run-parallel.sh $integration_jobs" || status=$?
+      mkdir -p "$PROJECT_ROOT/build/integration-logs"
+      if ! docker cp "$build_container:$integration_log_dir/." "$PROJECT_ROOT/build/integration-logs/" 2>&1; then
+        echo "Warning: could not copy integration logs out of $build_container." >&2
+      fi
+      return "$status"
+    ;;
+    cppcheck-and-clang-format)
+      local test_output_path="$MGBUILD_ROOT_DIR/tools/github/cppcheck_and_clang_format.txt"
+      local test_output_host_dest="$PROJECT_ROOT/tools/github/cppcheck_and_clang_format.txt"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/github && $ACTIVATE_TOOLCHAIN "'&& ./cppcheck_and_clang_format diff'
+      docker cp $build_container:$test_output_path $test_output_host_dest
+    ;;
+    stress-plain)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate "'&& ./continuous_integration --workload=standalone/native/workloads/config_small.yaml'
+    ;;
+    stress-ssl)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --workload=standalone/native/workloads/config_ssl.yaml"
+    ;;
+    stress-large)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --workload=standalone/native/workloads/config_large.yaml"
+    ;;
+    stress-native-standalone)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=standalone/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
+    ;;
+    stress-native-ha)
+      # Passwordless sudo for mg (stress tests use iptables)
+      docker exec -u root $build_container bash -c "echo 'mg ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/mg && chmod 440 /etc/sudoers.d/mg"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $EXPORT_AWS_KEY_ID && $EXPORT_AWS_SECRET_KEY && export REPLICATION_MODE=${REPLICATION_MODE:-sync} && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --deployment=ha/native ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}"
+    ;;
+    stress-docker-ha)
+      export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license
+      export MEMGRAPH_ORGANIZATION_NAME=$organization_name
+      if [[ ! -d "$PROJECT_ROOT/tests/ve3" ]]; then
+        python3 -m venv $PROJECT_ROOT/tests/ve3
+        source $PROJECT_ROOT/tests/ve3/bin/activate
+        pip install --upgrade pip
+        pip install -r $PROJECT_ROOT/tests/requirements.txt
+      else
+        source $PROJECT_ROOT/tests/ve3/bin/activate
+      fi
+      cd $PROJECT_ROOT/tests/stress && ./continuous_integration --deployment=ha/docker ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}
+    ;;
+    stress-eks-ha)
+      export MEMGRAPH_ENTERPRISE_LICENSE=$enterprise_license
+      export MEMGRAPH_ORGANIZATION_NAME=$organization_name
+
+      EKS_DEPLOYMENT_SCRIPT="$PROJECT_ROOT/tests/stress/ha/eks/deployment/deployment.sh"
+      local ci_extra_flags=()
+
+      cleanup_eks() {
+        echo "Destroying EKS cluster..."
+        "$EKS_DEPLOYMENT_SCRIPT" destroy || true
+      }
+      cleanup_eks_and_monitoring() {
+        if [[ "$enable_monitoring" == "true" ]]; then
+          stop_monitoring || true
+        fi
+        cleanup_eks
+      }
+      trap cleanup_eks_and_monitoring EXIT INT TERM
+
+      "$EKS_DEPLOYMENT_SCRIPT" start-cluster
+
+      if [[ "$enable_monitoring" == "true" ]]; then
+        "$EKS_DEPLOYMENT_SCRIPT" start
+        resolve_eks_ha_monitoring_targets
+        if [[ -z "$service_name" ]]; then
+          service_name="$test_name"
+          echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+        fi
+        start_monitoring
+        ci_extra_flags+=(--externally-managed)
+      fi
+
+      if [[ ! -d "$PROJECT_ROOT/tests/ve3" ]]; then
+        python3 -m venv "$PROJECT_ROOT/tests/ve3"
+        source "$PROJECT_ROOT/tests/ve3/bin/activate"
+        pip install --upgrade pip
+        pip install -r "$PROJECT_ROOT/tests/requirements.txt"
+      else
+        source "$PROJECT_ROOT/tests/ve3/bin/activate"
+      fi
+
+      cd "$PROJECT_ROOT/tests/stress" && ./continuous_integration --deployment=ha/eks "${ci_extra_flags[@]}" ${WORKLOAD_PATH:+--workload=$WORKLOAD_PATH}
+    ;;
+    durability)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test.log --verbose"
+    ;;
+    durability-large)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test_large.log --verbose"
+    ;;
+    gql-behave)
+      local test_output_dir="$MGBUILD_ROOT_DIR/tests/gql_behave"
+      local test_output_host_dest="$PROJECT_ROOT/tests/gql_behave"
+      # Run single-threaded version first
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration"
+      docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status.csv
+      docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status.html
+      # Run parallel execution version
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --parallel-execution"
+      docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status_parallel.csv
+      docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status_parallel.html
+    ;;
+    macro-benchmark)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export USER=mg && export LANG=$(echo $LANG) && cd $MGBUILD_ROOT_DIR/tests/macro_benchmark "'&& ./harness QuerySuite MemgraphRunner --groups aggregation 1000_create unwind_create dense_expand match --no-strict'
+    ;;
+    macro-benchmark-parallel)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export USER=mg && export LANG=$(echo $LANG) && cd $MGBUILD_ROOT_DIR/tests/macro_benchmark "'&& ./harness QueryParallelSuite MemgraphRunner --groups aggregation_parallel create_parallel bfs_parallel --num-database-workers 9 --num-clients-workers 30 --no-strict'
+    ;;
+    micro-benchmark)
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/build "'&& ulimit -s 262144 && ctest -R memgraph__benchmark -V'
+    ;;
+    mgbench)
+      shift 1
+      local DATASET='pokec'
+      local DATASET_SIZE='medium'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
+      local NO_AUTHORIZATION=""
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --dataset)
+            DATASET="$2"
+            shift 2
+          ;;
+          --size)
+            DATASET_SIZE="$2"
+            shift 2
+          ;;
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          --no-authorization)
+            NO_AUTHORIZATION="--no-authorization"
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench"
+            echo "Supported flags: --dataset, --size, --export-results-file, --no-authorization"
+            exit 1
+          ;;
+        esac
+      done
+
+      check_support pokec_size $DATASET_SIZE
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION $DATASET/$DATASET_SIZE/*/*"
+    ;;
+    mgbench-ha)
+      shift 1
+      local DATASET_SIZE='medium'
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
+      local CLUSTER_DESCRIPTION='ha_cluster.yaml'
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --size)
+            DATASET_SIZE="$2"
+            shift 2
+          ;;
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          --cluster-description)
+            CLUSTER_DESCRIPTION="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-ha"
+            echo "Supported flags: --size, --export-results-file, --cluster-description"
+            exit 1
+          ;;
+        esac
+      done
+
+      check_support pokec_size $DATASET_SIZE
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --ha-only --no-authorization --num-workers-for-benchmark 6 --export-results $EXPORT_RESULTS_FILE --vendor-specific ha-cluster-yaml=$CLUSTER_DESCRIPTION -- pokec/$DATASET_SIZE/create/pattern pokec/$DATASET_SIZE/create/vertex_big pokec/$DATASET_SIZE/arango/single_vertex_write pokec/$DATASET_SIZE/arango/single_edge_write pokec/$DATASET_SIZE/basic/single_vertex_property_update_update pokec/$DATASET_SIZE/arango/single_vertex_read"
+    ;;
+    mgbench-ha-rust)
+      shift 1
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_ha_file"
+      # Native Rust bolt+routing load-gen against the pinned 2-replica cluster: saturates the replicas
+      # on the ~1ms :Bench read where the python client is client-bound. Builds the load-gen (cargo is
+      # in the image but not on PATH), then runs the orchestrator which brings up the cluster, runs the
+      # point / heavy / split-read-write arms, and writes the bench-graph result JSON.
+      local THREADS=24
+      local DURATION=30
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --export-results-file) EXPORT_RESULTS_FILE="$2"; shift 2 ;;
+          --threads) THREADS="$2"; shift 2 ;;
+          --duration) DURATION="$2"; shift 2 ;;
+          *) echo "Error: Unknown flag '$1' for mgbench-ha-rust"; exit 1 ;;
+        esac
+      done
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && export PYTHONUNBUFFERED=1 && source /home/mg/.cargo/env && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/mgbench && cargo build --release --manifest-path rust_loadgen/Cargo.toml && export MG_REAL_BINARY=$MGBUILD_ROOT_DIR/build/memgraph && ./ha_rust_bench.py --export-results $EXPORT_RESULTS_FILE --threads $THREADS --duration $DURATION"
+    ;;
+    mgbench-supernode)
+      shift 1
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
+      local NO_AUTHORIZATION=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          --no-authorization)
+            NO_AUTHORIZATION="--no-authorization"
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-supernode" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION supernode"
+    ;;
+    mgbench-load-parquet)
+      shift 1
+      local EXPORT_RESULTS_FILE="$default_benchmark_result_file"
+      local NO_AUTHORIZATION=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          --no-authorization)
+            NO_AUTHORIZATION="--no-authorization"
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench-load-parquet" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $EXPORT_RESULTS_FILE $NO_AUTHORIZATION load_parquet"
+    ;;
+    mgbench-vector-search-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-vector-search-index"
+            echo "Supported flags: --export-results-file, --no-authorization"
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_index/default/vector/*"
+    ;;
+    mgbench-vector-search-edge-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-vector-search-edge-index" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- vector_search_edge_index/default/vector/*"
+    ;;
+    mgbench-text-search-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-text-search-index" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_index/default/text/*"
+    ;;
+    mgbench-text-search-edge-index)
+      shift 1
+      local export_results_file="$default_benchmark_result_file"
+      local no_authorization=""
+      while [[ $# -gt 0 ]]; do
+        local flag="$1"
+        case "$flag" in
+          --export-results-file)
+            export_results_file="$2"
+            shift 2
+          ;;
+          --no-authorization)
+            no_authorization="--no-authorization"
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$flag' for mgbench-text-search-edge-index" >&2
+            echo "Supported flags: --export-results-file, --no-authorization" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native $MGBENCH_CACHE_ARG --num-workers-for-benchmark 1 --export-results $export_results_file $no_authorization --vendor-specific query_modules_directory=$MGBUILD_ROOT_DIR/build/query_modules -- text_search_edge_index/default/text/*"
+    ;;
+    upload-to-bench-graph)
+      shift 1
+      local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
+      local SETUP_VE3_ENV="virtualenv -p python3 ve3 && source ve3/bin/activate && pip install -r requirements.txt"
+      local SETUP_BENCH_GRAPH_SERVER_ENDPOINT="export BENCH_GRAPH_SERVER_ENDPOINT=$bench_graph_host:$bench_graph_port"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tools/bench-graph-client && $SETUP_VE3_ENV && $SETUP_BENCH_GRAPH_SERVER_ENDPOINT && $SETUP_PASSED_ARGS "'&& ./main.py $PASSED_ARGS'
+    ;;
+    code-analysis)
+      shift 1
+      local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./python_code_analysis.sh $PASSED_ARGS'
+    ;;
+    code-coverage)
+      local test_output_path="$MGBUILD_ROOT_DIR/tools/github/generated/code_coverage.tar.gz"
+      local test_output_host_dest="$PROJECT_ROOT/tools/github/generated/code_coverage.tar.gz"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tools/github "'&& ./coverage_convert'
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tools/github/generated && tar -czf code_coverage.tar.gz coverage.json html report.json summary.rmu"
+      mkdir -p $PROJECT_ROOT/tools/github/generated
+      docker cp $build_container:$test_output_path $test_output_host_dest
+    ;;
+    clang-tidy)
+      shift 1
+      local SETUP_PASSED_ARGS="export PASSED_ARGS=\"$@\""
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests/code_analysis && $SETUP_PASSED_ARGS "'&& ./clang_tidy.sh $PASSED_ARGS'
+    ;;
+    e2e)
+      # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
+      # The Kafka/Pulsar compose stacks (tests/e2e/streams) join this container's package_default network.
+      local pycmd="python${python_runtime_version:-3}"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE KAFKA_BOOTSTRAP_SERVERS=kafka:9092 PULSAR_SERVICE_URL=pulsar://pulsar:6650 PULSAR_ADMIN_URL=http://pulsar:8080 && ./run.sh"
+    ;;
+    e2e-parallel)
+      shift 1
+      local machine_nproc="$(nproc)"
+      local nprocesses="$machine_nproc"
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --nprocesses)
+            nprocesses="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for e2e-parallel" >&2
+            echo "Supported flags: --nprocesses" >&2
+            exit 1
+          ;;
+        esac
+      done
+
+      if [[ "$nprocesses" != "$machine_nproc" ]] && { ! [[ "$nprocesses" =~ ^[0-9]+$ ]] || [[ "$nprocesses" -lt 1 ]]; }; then
+        echo "Error: --nprocesses must be a positive integer." >&2
+        exit 1
+      fi
+
+      # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
+      docker exec -u root $build_container bash -c "apt-get update && apt-get install -y lsof" # TODO(matt): install within mgbuild container
+      local pycmd="python${python_runtime_version:-3}"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user networkx==2.5.1"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && export DISABLE_NODE=$DISABLE_NODE KAFKA_BOOTSTRAP_SERVERS=kafka:9092 PULSAR_SERVICE_URL=pulsar://pulsar:6650 PULSAR_ADMIN_URL=http://pulsar:8080 && ./run_parallel.sh $nprocesses"
+    ;;
+    query_modules_e2e)
+      # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
+      if [[ "$python_runtime_version" == "3.13" || "$python_runtime_version" == "3.14" ]]; then
+        # We currently depend on an older version of scipy which only has binaries for up to Python 3.12
+        docker exec -u root $build_container bash -c "apt install -y gfortran"
+      fi
+      local pycmd="python${python_runtime_version:-3}"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user --upgrade pip"
+      docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 $pycmd -m pip install --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 -m pytest ."
+    ;;
+    query_modules_unit)
+      docker exec -u mg $build_container bash -c "source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && pip install -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tests/query_modules && export PYTHONPATH=$MGBUILD_ROOT_DIR/src/mage/python:\$PYTHONPATH && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 unit_runner.py"
+    ;;
+    smoke)
+      shift 1
+      smoke_image=""
+      reuse_env=false
+      smoke_fips=""
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --image)
+            smoke_image=$2
+            shift 2
+          ;;
+          --reuse-env)
+            reuse_env=$2
+            shift 2
+          ;;
+          --fips)
+            smoke_fips="--fips"
+            shift
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+      export MEMGRAPH_DOCKERHUB_IMAGE=$smoke_image
+      export MEMGRAPH_SMOKE_REUSE_ENV=$reuse_env
+      cleanup() {
+        local status=$?
+        if [[ "$reuse_env" != "true" ]]; then
+          rm -rf env || true
+        fi
+        docker rmi -f $smoke_image || true
+        exit $status
+      }
+      trap cleanup EXIT INT TERM
+      cd "$PROJECT_ROOT/tests/smoke"
+      # With --reuse-env true, an env left by a previous run is reused as-is.
+      if [[ "$reuse_env" == "true" && -d env ]]; then
+        source env/bin/activate
+      else
+        ./init_workflow.bash
+        python3 -m venv env
+        source env/bin/activate
+        pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
+      fi
+      ./test_single.bash "memgraph"  $smoke_fips
+    ;;
+    *)
+      echo "Error: Unknown test '$1'"
+      print_help
+      exit 1
+    ;;
+  esac
+}
+
+
+# heaptrack ships inside the toolchain (built by
+# environment/toolchain/v8/build.sh). Stage its runtime files from the
+# toolchain prefix into a self-contained /tmp/heaptrack tree (the layout the
+# docker images expect: `cp -r heaptrack/* /usr/`) and copy it out.
+copy_heaptrack() {
+  local dest_dir="release/docker"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        dest_dir=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+    esac
+  done
+  local tc="/opt/toolchain-${toolchain_version}"
+  docker exec -i -u root $build_container bash -c "
+    set -euo pipefail
+    rm -rf /tmp/heaptrack
+    mkdir -p /tmp/heaptrack/bin /tmp/heaptrack/include /tmp/heaptrack/lib/heaptrack/libexec
+    cp $tc/bin/heaptrack $tc/bin/heaptrack_print /tmp/heaptrack/bin/
+    cp $tc/include/heaptrack_api.h /tmp/heaptrack/include/
+    cp $tc/lib/heaptrack/libheaptrack_inject.so $tc/lib/heaptrack/libheaptrack_preload.so /tmp/heaptrack/lib/heaptrack/
+    cp $tc/lib/heaptrack/libexec/heaptrack_env $tc/lib/heaptrack/libexec/heaptrack_interpret /tmp/heaptrack/lib/heaptrack/libexec/
+  "
+  docker cp $build_container:/tmp/heaptrack/ $dest_dir
+}
+
+# Shared implementation for package-mage-deb / package-mage-rpm. Packages
+# come straight out of the unified build tree via package.sh (CPack
+# components mage/mage_debuginfo) — no more tarball staging or
+# dpkg-buildpackage/rpmbuild descriptor rendering. The package version is
+# derived from the build tree (get_version.py).
+# The -malloc/-cuda/-cugraph flavour spellings only ever renamed the
+# artifact; that rename now happens here, after copying to the host.
+_package_mage() {
+  local format=$1
+  shift 1
+
+  local malloc=false
+  local cuda=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --malloc)
+        malloc=true
+        shift 1
+      ;;
+      --cuda)
+        cuda=true
+        shift 1
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ "$cugraph" = true ]]; then
+    cuda=true
+  fi
+
+  # The GPU requirements manifest + postinst CUDA flag are baked into the
+  # payload at configure time — a packaging-time --cuda can't change them.
+  if [[ "$cuda" = true ]]; then
+    if ! docker exec -i -u mg $build_container bash -c \
+        "grep -Eq '^(MG_MAGE_CUDA|MG_ENABLE_CUGRAPH):[A-Za-z]*=(ON|TRUE|1)\$' $MGBUILD_ROOT_DIR/build/CMakeCache.txt"; then
+      echo -e "${RED_BOLD}Error: --cuda requires a build configured with MG_MAGE_CUDA=ON (build-memgraph --mage only --cuda) or MG_ENABLE_CUGRAPH=ON${RESET}" >&2
+      exit 1
+    fi
+  fi
+
+  local suffix=""
+  if [[ "$malloc" = true ]]; then
+    suffix="${suffix}-malloc"
+  fi
+  if [[ "$cugraph" = true ]]; then
+    suffix="${suffix}-cugraph"
+  elif [[ "$cuda" = true ]]; then
+    suffix="${suffix}-cuda"
+  fi
+
+  echo -e "${GREEN_BOLD}Packaging MAGE ${format^^} package${RESET}"
+  if [[ "$format" == "rpm" ]]; then
+    # apt fallback: deb-family build containers don't ship rpmbuild.
+    docker exec -i -u root $build_container bash -c "command -v rpmbuild >/dev/null 2>&1 || dnf install -y rpm-build || yum install -y rpm-build || apt install -y rpm"
+  fi
+
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  docker exec -i -u root $build_container bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && ./package.sh mage $format"
+
+  mkdir -pv output
+  for path in $(docker exec -i -u root $build_container bash -c "ls $MGBUILD_ROOT_DIR/build/output/memgraph-mage*.$format"); do
+    docker cp $build_container:$path output/
+    local name
+    name=$(basename "$path")
+    # No distro tag in rpm filenames: the packages are distro-agnostic now,
+    # one rpm serves every rpm-family distro.
+    if [[ -n "$suffix" ]]; then
+      local new_name="${name%.$format}${suffix}.$format"
+      mv "output/$name" "output/$new_name"
+      name=$new_name
+    fi
+    echo "Package: output/$name"
+  done
+}
+
+package_mage_deb() {
+  _package_mage deb "$@"
+}
+
+package_mage_rpm() {
+  _package_mage rpm "$@"
+}
+
+
+package_mage_docker() {
+
+  echo -e "${GREEN_BOLD}Packaging MAGE Docker image${RESET}"
+
+  local docker_repository_name="memgraph/memgraph-mage"
+  local image_tag=""
+  local memgraph_ref=""
+  local cache_present=false
+  local custom_mirror=false
+  local cuda=false
+  local package_flavour="prod"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --docker-repository-name)
+        docker_repository_name=$2
+        shift 2
+      ;;
+      --image-tag)
+        image_tag=$2
+        shift 2
+      ;;
+      --memgraph-ref)
+        memgraph_ref=$2
+        shift 2
+      ;;
+      --cache-present)
+        cache_present=$2
+        shift 2
+      ;;
+      --custom-mirror)
+        [[ "$2" == "true" ]] && custom_mirror=true
+        shift 2
+      ;;
+      --cuda)
+        [[ "$2" == "true" ]] && cuda=true
+        shift 2
+      ;;
+      --package-flavour)
+        package_flavour=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        exit 1
+      ;;
+    esac
+  done
+
+  case "$package_flavour" in
+    prod) docker_target="prod" ;;
+    debug)
+      if [[ "$build_type" != "RelWithDebInfo" ]]; then
+        echo -e "${RED_BOLD}Error: --package-flavour debug requires --build-type RelWithDebInfo (got '$build_type')${RESET}" >&2
+        exit 1
+      fi
+      docker_target="relwithdebinfo"
+    ;;
+    *)
+      echo -e "${RED_BOLD}Error: --package-flavour must be 'prod' or 'debug' (got '$package_flavour')${RESET}" >&2
+      exit 1
+    ;;
+  esac
+
+  if [[ "$cugraph" = "true" ]]; then
+    dockerfile="Dockerfile.cugraph"
+  else
+    dockerfile="Dockerfile.release"
+  fi
+
+  echo -e "${YELLOW_BOLD}build options:"
+  echo -e "  docker_repository_name: $docker_repository_name"
+  echo -e "  image_tag: $image_tag"
+  echo -e "  memgraph_ref: $memgraph_ref"
+  echo -e "  cache_present: $cache_present"
+  echo -e "  custom_mirror: $custom_mirror"
+  echo -e "  docker_target: $docker_target"
+  echo -e "  arch: $arch"
+  echo -e "  build_type: $build_type${RESET}"
+
+  if [[ -z "$docker_repository_name" || -z "$image_tag" || -z "$memgraph_ref" ]]; then
+    echo -e "${RED_BOLD}Error: package_mage_docker requires --docker-repository-name, --image-tag, --memgraph-ref${RESET}"
+    exit 1
+  fi
+
+  # copy scripts to mage directory so they can be used in the docker build
+  cp $PROJECT_ROOT/src/auth/reference_modules/requirements.txt $PROJECT_ROOT/release/package/mage/auth-module-requirements.txt
+  cp $PROJECT_ROOT/release/docker/run_with_gdb.sh $PROJECT_ROOT/release/package/mage/run_with_gdb.sh
+  # python requirements live in src/mage/python/, outside the docker context
+  cp $PROJECT_ROOT/src/mage/python/requirements.txt $PROJECT_ROOT/release/package/mage/requirements.txt
+  cp $PROJECT_ROOT/src/mage/python/requirements-gpu.txt $PROJECT_ROOT/release/package/mage/requirements-gpu.txt
+
+  local mage_deb
+  mage_deb=$(ls -1 $PROJECT_ROOT/output/memgraph-mage_*.deb 2>/dev/null | head -n 1 || true)
+  if [[ -z "$mage_deb" ]]; then
+    echo -e "${RED_BOLD}Error: no memgraph-mage deb in $PROJECT_ROOT/output — run package-mage-deb first${RESET}" >&2
+    exit 1
+  fi
+  cp -v "$mage_deb" $PROJECT_ROOT/release/package/mage/memgraph-mage.deb
+  if [[ "$docker_target" == "relwithdebinfo" ]]; then
+    local mage_debuginfo_deb
+    mage_debuginfo_deb=$(ls -1 $PROJECT_ROOT/output/memgraph-mage-debuginfo_*.deb 2>/dev/null | head -n 1 || true)
+    if [[ -z "$mage_debuginfo_deb" ]]; then
+      echo -e "${RED_BOLD}Error: no memgraph-mage-debuginfo deb in $PROJECT_ROOT/output — package a --split-debug build first${RESET}" >&2
+      exit 1
+    fi
+    cp -v "$mage_debuginfo_deb" $PROJECT_ROOT/release/package/mage/memgraph-mage-debuginfo.deb
+  fi
+
+  cd $PROJECT_ROOT/release/package/mage
+
+  build_args=(
+    --target $docker_target
+    --platform linux/${arch}64
+    --tag ${docker_repository_name}:$image_tag
+    --file $dockerfile
+    --build-arg MEMGRAPH_REF=$memgraph_ref
+    --build-arg BUILD_TYPE=$build_type
+    --build-arg CACHE_PRESENT=$cache_present
+    --build-arg CUSTOM_MIRROR=$custom_mirror
+    --build-arg CUDA=$cuda
+    --progress=plain
+  )
+
+  # copy custom mirror for CI
+  if [[ "$custom_mirror" = "true" ]]; then
+    cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $PROJECT_ROOT/release/package/mage/ci.sources
+    build_args+=(--secret id=ubuntu_sources,src=ci.sources)
+  fi
+
+  # The Dockerfile falls back to the vetted public mirror list whenever the
+  # in-network custom mirror isn't in play, so the scripts are always needed.
+  "$PROJECT_ROOT/tools/ci/mirrors/stage.sh" "$PROJECT_ROOT/release/package/mage"
+
+  # build the docker image
+  docker buildx build \
+    ${build_args[*]} \
+    --load .
+
+  # print the image size in both SI and IEC units
+  $PROJECT_ROOT/tools/ci/print_image_size.sh ${docker_repository_name} $image_tag
+
+  echo -e "${GREEN_BOLD}Docker image packaged successfully${RESET}"
+}
+
+package_mage_offline_installer() {
+
+  echo -e "${GREEN_BOLD}Building MAGE offline installer (.run)${RESET}"
+
+  local memgraph_deb=""
+  local mage_deb=""
+  local output=""
+  local wheels_dir="$PROJECT_ROOT/release/package/mage/wheels"
+  local malloc=false
+  local cuda=false
+  local cuda_version="13.0"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --memgraph-deb)
+        memgraph_deb=$2
+        shift 2
+      ;;
+      --mage-deb)
+        mage_deb=$2
+        shift 2
+      ;;
+      --output)
+        output=$2
+        shift 2
+      ;;
+      --wheels-dir)
+        wheels_dir=$2
+        shift 2
+      ;;
+      --malloc)
+        malloc=true
+        shift 1
+      ;;
+      --cuda)
+        cuda=true
+        shift 1
+      ;;
+      --cuda-version)
+        cuda_version=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ -z "$memgraph_deb" || -z "$mage_deb" ]]; then
+    echo -e "${RED_BOLD}Error: package-mage-offline-installer requires --memgraph-deb and --mage-deb${RESET}"
+    exit 1
+  fi
+
+  # cugraph is a global mgbuild flag (parallel with package_mage_deb / docker);
+  # it implies cuda for wheel selection.
+  if [[ "$cugraph" = true ]]; then
+    cuda=true
+  fi
+
+  # The mgbuild --arch values are amd/arm; the offline installer script speaks
+  # debian/dpkg arch (amd64/arm64).
+  local dpkg_arch="${arch}64"
+
+  local build_args=(
+    --memgraph-deb "$memgraph_deb"
+    --mage-deb "$mage_deb"
+    --arch "$dpkg_arch"
+    --build-type "$build_type"
+    --cuda "$cuda"
+    --cuda-version "$cuda_version"
+    --malloc "$malloc"
+    --cugraph "$cugraph"
+    --wheels-dir "$wheels_dir"
+  )
+  if [[ -n "$output" ]]; then
+    build_args+=(--output "$output")
+  fi
+
+  "$PROJECT_ROOT/tools/ci/mage-build/build-offline-installer.sh" "${build_args[@]}"
+}
+
+test_mage() {
+  local test_name="$1"
+
+  if [[ "$enable_monitoring" == "true" ]]; then
+    if [[ -z "$service_name" ]]; then
+      service_name="mage-$test_name"
+      echo -e "${GREEN_BOLD}Service name not provided, using test name: ${RED_BOLD}$service_name${RESET}"
+    fi
+    start_monitoring
+    trap stop_monitoring EXIT INT TERM
+  fi
+
+  function create_e2e_test_env() {
+    cd $PROJECT_ROOT/tests/mage
+    if [[ -d env ]]; then
+      echo -e "${YELLOW_BOLD}E2E test environment already exists${RESET}"
+      return
+    fi
+    python3 -m venv env
+    source env/bin/activate
+    pip install -r $PROJECT_ROOT/src/mage/python/tests/requirements.txt --break-system-packages
+  }
+
+  case "$1" in
+    unit)
+      shift 1
+      local ci=true
+      local cache_present=false
+      local cuda=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --ci)
+            ci=true
+            shift 1
+          ;;
+          --cache-present)
+            cache_present=true
+            shift 1
+          ;;
+          --cuda)
+            cuda=true
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+
+      local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+      echo -e "${GREEN_BOLD}Running tests in container: $build_container${RESET}"
+
+      echo -e "${GREEN_BOLD}Installing Rust $DEFAULT_RUST_VERSION${RESET}"
+      docker exec -i -u mg $build_container bash -c "source \$HOME/memgraph/environment/util.sh && retry_install install_rust $DEFAULT_RUST_VERSION"
+
+      echo -e "${GREEN_BOLD}Running Rust tests${RESET}"
+      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && source \$HOME/.cargo/env && cd \$HOME/memgraph/src/mage/rust/rsmgp-sys && cargo fmt -- --check && RUST_BACKTRACE=1 cargo test"
+
+      echo -e "${GREEN_BOLD}Running C++ tests${RESET}"
+      # MAGE unit tests are registered in the root build tree with the mage__ prefix
+      docker exec -i -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/build && ctest -R mage__ --output-on-failure -j\$(nproc)"
+
+      echo -e "${GREEN_BOLD}Running Python tests${RESET}"
+      if [[ "$cuda" == true ]]; then
+        requirements_file="requirements-gpu.txt"
+      else
+        requirements_file="requirements.txt"
+      fi
+      docker cp src/mage/python/$requirements_file $build_container:/tmp/$requirements_file
+      docker cp src/auth/reference_modules/requirements.txt $build_container:/tmp/auth_module-requirements.txt
+      local requirements_lock="${requirements_file%.txt}.lock"
+      if [[ -f "$PROJECT_ROOT/src/mage/python/$requirements_lock" ]]; then
+        docker cp src/mage/python/$requirements_lock $build_container:/tmp/$requirements_lock
+      fi
+      if [[ -f "$PROJECT_ROOT/src/auth/reference_modules/requirements.lock" ]]; then
+        docker cp src/auth/reference_modules/requirements.lock $build_container:/tmp/auth_module-requirements.lock
+      fi
+      # MAGE's deps are cp312 and memgraph embeds python 3.12, so the python
+      # test phase must run under 3.12. CentOS Stream 9 defaults python3 to 3.9,
+      # so install and use python3.12 there; other distros already ship 3.12 as
+      # python3. install_python_requirements.sh honours PYTHON=<interpreter>.
+      local pybin="python3"
+      if [[ "$os" == centos-9* ]]; then
+        pybin="python3.12"
+        docker exec -i -u root $build_container bash -c "rpm -q python3.12-pip >/dev/null 2>&1 || dnf install -y python3.12 python3.12-pip python3.12-devel"
+      fi
+
+      local ENSURE_UV="$(ensure_uv_cmd)"
+      local UV_ENV="export UV_SYSTEM_PYTHON=1 UV_BREAK_SYSTEM_PACKAGES=1 UV_NO_CACHE=1 UV_PYTHON_DOWNLOADS=never"
+      local test_requirements="src/mage/python/tests/requirements.txt"
+      if [[ -f "$PROJECT_ROOT/src/mage/python/tests/requirements.lock" ]]; then
+        test_requirements="src/mage/python/tests/requirements.lock"
+      fi
+      docker exec -i -u mg $build_container bash -c "$ENSURE_UV && $UV_ENV && cd \$HOME/memgraph/release/package/mage/ && \
+        PYTHON=$pybin ./install_python_requirements.sh --ci --uv --cache-present $cache_present --cuda $cuda --arch ${arch}64 && \
+        uv pip install --python \$(command -v $pybin) --target \$($pybin -m site --user-site) -r \$HOME/memgraph/$test_requirements"
+      docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/src/mage/python/ && $pybin -m pytest ."
+    ;;
+    e2e)
+      shift 1
+      local clean_env=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --clean-env)
+            clean_env=true
+            shift 1
+          ;;
+        esac
+      done
+      create_e2e_test_env
+      cd $PROJECT_ROOT/tests/mage
+      source env/bin/activate
+      cd e2e/ && python3 -m pytest . -k "not cugraph and not embeddings_test-test_cuda_compute"
+      if [[ "$clean_env" = true ]]; then
+        rm -rf $PROJECT_ROOT/tests/mage/env
+      fi
+    ;;
+    e2e-correctness)
+      shift 1
+      local memgraph_port=7687
+      local neo4j_port=7688
+      local neo4j_container=neo4j
+      local mage_container=mage
+      local memgraph_network=memgraph_network
+      local clean_env=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --memgraph-port)
+            memgraph_port=$2
+            shift 2
+          ;;
+          --neo4j-port)
+            neo4j_port=$2
+            shift 2
+          ;;
+          --neo4j-container)
+            neo4j_container=$2
+            shift 2
+          ;;
+          --mage-container)
+            mage_container=$2
+            shift 2
+          ;;
+          --memgraph-network)
+            memgraph_network=$2
+            shift 2
+          ;;
+          --clean-env)
+            clean_env=true
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+
+      cleanup_container() {
+        local container="$1"
+        docker stop "$container" || true
+        docker rm "$container" || true
+        if [[ "${enable_monitoring:-false}" == "true" ]]; then
+          stop_monitoring || true
+        fi
+      }
+      trap "cleanup_container '$neo4j_container'" EXIT INT TERM
+      create_e2e_test_env
+      cd $PROJECT_ROOT/tests/mage
+      source env/bin/activate
+      ./run_e2e_correctness_tests.sh \
+        $memgraph_port \
+        $neo4j_port \
+        $neo4j_container \
+        $mage_container \
+        $memgraph_network
+      cleanup_container "$neo4j_container"
+      if [[ "$clean_env" = true ]]; then
+        rm -rf $PROJECT_ROOT/tests/mage/env
+      fi
+      trap - EXIT INT TERM
+    ;;
+    e2e-migration)
+      shift 1
+      local mage_container=mage
+      local mysql_container=mysql
+      local postgresql_container=postgresql
+      local clean_env=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --mage-container)
+            mage_container=$2
+            shift 2
+          ;;
+          --mysql-container)
+            mysql_container=$2
+            shift 2
+          ;;
+          --postgresql-container)
+            postgresql_container=$2
+            shift 2
+          ;;
+          --clean-env)
+            clean_env=true
+            shift 1
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+
+      cleanup_containers() {
+        local container
+        for container in "$@"; do
+          docker stop "$container" || true
+          docker rm "$container" || true
+        done
+        if [[ "${enable_monitoring:-false}" == "true" ]]; then
+          stop_monitoring || true
+        fi
+      }
+      # Set trap to cleanup on exit/interrupt (scoped to this case branch)
+      trap "cleanup_containers '$mage_container' '$mysql_container' '$postgresql_container'" EXIT INT TERM
+      create_e2e_test_env
+      cd $PROJECT_ROOT/tests/mage
+      source env/bin/activate
+      ./run_e2e_migration_tests.sh \
+        --mage-container $mage_container \
+        --mysql-container $mysql_container \
+        --postgresql-container $postgresql_container
+      # Normal cleanup
+      cleanup_containers "$mage_container" "$mysql_container" "$postgresql_container"
+      if [[ "$clean_env" = true ]]; then
+        rm -rf $PROJECT_ROOT/tests/mage/env
+      fi
+      # Remove trap since we're done with this branch
+      trap - EXIT INT TERM
+    ;;
+    smoke)
+      shift 1
+      smoke_image=""
+      reuse_env=false
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --image)
+            smoke_image=$2
+            shift 2
+          ;;
+          --reuse-env)
+            reuse_env=$2
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1'"
+            print_help
+            exit 1
+          ;;
+        esac
+      done
+      export MEMGRAPH_DOCKERHUB_IMAGE=$smoke_image
+      # Lets the kerberos feature retain its KDC base image across runs.
+      export MEMGRAPH_SMOKE_REUSE_ENV=$reuse_env
+      cleanup() {
+        local status=$?
+        if [[ "$reuse_env" != "true" ]]; then
+          rm -rf env || true
+        fi
+        docker rmi -f $smoke_image || true
+        exit $status
+      }
+      trap cleanup EXIT INT TERM
+      cd "$PROJECT_ROOT/tests/smoke"
+      # With --reuse-env true, an env left by a previous run is reused as-is.
+      if [[ "$reuse_env" == "true" && -d env ]]; then
+        source env/bin/activate
+      else
+        ./init_workflow.bash
+        python3 -m venv env
+        source env/bin/activate
+        pip install -r "$PROJECT_ROOT/tests/smoke/requirements.txt"
+      fi
+      ./test_single.bash "mage"
+    ;;
+    *)
+      echo "Error: Unknown test '$1'"
+      print_help
+      exit 1
+    ;;
+  esac
+}
+
+build_pymgclient() {
+  echo -e "${GREEN_BOLD}Packaging pymgclient${RESET}"
+  if [[ -d wheels ]]; then
+    echo -e "${YELLOW_BOLD}Wheels directory already exists${RESET}"
+  else
+    mkdir -p wheels
+  fi
+  docker exec -i -u mg $build_container bash -c "cd \$HOME/memgraph/tools/ci && ./build-pymgclient.sh"
+  package_name=$(docker exec -i -u mg $build_container bash -c "ls \$HOME/memgraph/tools/ci/pymgclient/dist/")
+  docker cp $build_container:/home/mg/memgraph/tools/ci/pymgclient/dist/$package_name release/package/mage/wheels/
+  echo -e "${GREEN_BOLD}Package: ${RED_BOLD}$package_name${RESET}"
+}
+
+generate_memgraph_build_sbom() {
+  local conan_remote=""
+  local sbom_scripts_dir=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --conan-remote)
+        conan_remote=$2
+        shift 2
+      ;;
+      --sbom-scripts-dir)
+        sbom_scripts_dir=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1' for generate-memgraph-build-sbom" >&2
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ -z "$sbom_scripts_dir" ]]; then
+    echo -e "${RED_BOLD}Error: --sbom-scripts-dir not provided (path to the infra SBOM scripts)${RESET}" >&2
+    exit 1
+  fi
+  if [[ ! -x "$sbom_scripts_dir/build-sbom.sh" ]]; then
+    echo -e "${RED_BOLD}Error: build-sbom.sh not found or not executable under --sbom-scripts-dir ($sbom_scripts_dir)${RESET}" >&2
+    exit 1
+  fi
+
+  if [[ -z "$conan_remote" ]]; then
+    echo -e "${YELLOW_BOLD}Warning: --conan-remote not provided; SBOM generation will fail if no build is present in the container${RESET}"
+  fi
+
+  mkdir -p "$PROJECT_ROOT/sbom"
+
+  # Stage 1: drive the (still-running) build container from the host to fetch
+  # the conan + MGCXX component SBOMs and merge them into the binary build SBOM.
+  # The final image SBOM (stage 2) is produced later from the prod Docker image,
+  # after this build container has been stopped.
+  echo -e "${GREEN_BOLD}Generating Memgraph build SBOM via ${build_container}${RESET}"
+  CONAN_REMOTE="$conan_remote" SBOM_CONTAINER_USER=mg \
+    "$sbom_scripts_dir/build-sbom.sh" \
+    --build-container "$build_container" \
+    --memgraph-path "$MGBUILD_ROOT_DIR" \
+    --out-dir "$PROJECT_ROOT/sbom" \
+    --work-dir "$PROJECT_ROOT/sbom/work"
+  echo -e "${GREEN_BOLD}Memgraph build SBOM: ${RED_BOLD}sbom/memgraph-build-sbom.json${RESET}"
+}
+
+generate_mage_image_sbom() {
+  local image_tag=""
+  local sbom_scripts_dir=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --image-tag)
+        image_tag=$2
+        shift 2
+      ;;
+      --sbom-scripts-dir)
+        sbom_scripts_dir=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1' for generate-mage-image-sbom" >&2
+        exit 1
+      ;;
+    esac
+  done
+
+  if [[ -z "$image_tag" ]]; then
+    echo -e "${RED_BOLD}Error: --image-tag not provided${RESET}" >&2
+    exit 1
+  fi
+  if [[ -z "$sbom_scripts_dir" ]]; then
+    echo -e "${RED_BOLD}Error: --sbom-scripts-dir not provided (path to the infra SBOM scripts)${RESET}" >&2
+    exit 1
+  fi
+  if [[ ! -x "$sbom_scripts_dir/mage-docker-sbom.sh" ]]; then
+    echo -e "${RED_BOLD}Error: mage-docker-sbom.sh not found or not executable under --sbom-scripts-dir ($sbom_scripts_dir)${RESET}" >&2
+    exit 1
+  fi
+  if [[ ! -f "$PROJECT_ROOT/sbom/memgraph-build-sbom.json" ]]; then
+    echo -e "${RED_BOLD}Memgraph build SBOM not found, please generate it first${RESET}" >&2
+    exit 1
+  fi
+
+  # Generate the MAGE image SBOM on the host: analyse the Rust MAGE sources (in
+  # the workspace) and merge them with the memgraph build SBOM (stage 1) and a
+  # syft scan of the built MAGE prod image. No build container needed.
+  echo -e "${GREEN_BOLD}Generating MAGE image SBOM${RESET}"
+  "$sbom_scripts_dir/mage-docker-sbom.sh" \
+    --tag "$image_tag" \
+    --memgraph-path "$PROJECT_ROOT" \
+    --out-dir "$PROJECT_ROOT/sbom" \
+    --work-dir "$PROJECT_ROOT/sbom/work-mage"
+  echo -e "${GREEN_BOLD}MAGE image SBOM: ${RED_BOLD}sbom/mage-sbom.json${RESET}"
+}
+
+build_ssl() {
+  local conan_remote=""
+  local conan_username=""
+  local conan_password=""
+  local ssl_version="3.5.4"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --conan-remote)
+        conan_remote=$2
+        shift 2
+      ;;
+      --conan-username)
+        conan_username=$2
+        shift 2
+      ;;
+      --conan-password)
+        conan_password=$2
+        shift 2
+      ;;
+      --version)
+        ssl_version=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+      ;;
+    esac
+  done
+
+  echo "Building OpenSSL $ssl_version in $build_container..."
+  local conan_remote_flag=""
+  if [[ -n "$conan_remote" ]]; then
+    conan_remote_flag="--conan-remote $conan_remote"
+  fi
+  ./tools/ci/openssl/container-build.sh $build_container $conan_remote_flag --version $ssl_version
+
+  if [[ -n "$conan_username" ]] && [[ -n "$conan_password" ]]; then
+    upload_conan_cache $conan_username $conan_password "openssl/$ssl_version"
+  fi
+
+  echo "OpenSSL built and uploaded to conan cache"
+}
+
+check_core_dumps() {
+  # Verify the runner is configured to produce analyzable Memgraph core dumps.
+  # This is warn-only: it never fails the build, it just emits a GitHub warning
+  # annotation so we can see which runners still need configuring.
+  local expected_core_pattern='/tmp/mg-cores/core.%t.%P.%s'
+  local cores_dir='/tmp/mg-cores'
+  local ok=true
+
+  echo -e "${GREEN_BOLD}Checking core dump configuration...${RESET}"
+
+  # kernel.core_pattern is a host-wide setting shared with containers.
+  local actual_core_pattern=""
+  if [[ -r /proc/sys/kernel/core_pattern ]]; then
+    actual_core_pattern="$(cat /proc/sys/kernel/core_pattern)"
+  fi
+  if [[ "$actual_core_pattern" != "$expected_core_pattern" ]]; then
+    ok=false
+    echo "::warning title=Core dumps not configured::kernel.core_pattern is '${actual_core_pattern:-<unreadable>}', expected '${expected_core_pattern}'. Memgraph crashes in this run will not produce analyzable core dumps. Configure the runner with: sysctl -w kernel.core_pattern='${expected_core_pattern}'"
+  else
+    echo "  kernel.core_pattern OK: ${actual_core_pattern}"
+  fi
+
+  # The process that dumps is Memgraph running INSIDE the build container, so
+  # both the core size limit and the dump directory must be checked/prepared
+  # there. The host shell's ulimit is irrelevant to a containerized crash.
+  if docker inspect "$build_container" >/dev/null 2>&1; then
+    # A zero core size soft limit silently disables core dumps.
+    local core_limit
+    core_limit="$(docker exec -u mg "$build_container" bash -c 'ulimit -c' 2>/dev/null)"
+    if [[ -z "$core_limit" ]]; then
+      ok=false
+      echo "::warning title=Core dump ulimit unknown::Could not read 'ulimit -c' inside ${build_container} (empty result); cannot confirm core dumps are enabled."
+    elif [[ "$core_limit" == "0" ]]; then
+      ok=false
+      echo "::warning title=Core dumps disabled by ulimit::core file size limit (ulimit -c) is 0 inside ${build_container}; core dumps will be suppressed. Start the container with --ulimit core=-1."
+    else
+      echo "  core file size limit (ulimit -c) OK inside ${build_container}: ${core_limit}"
+    fi
+
+    # The crash writes into the container filesystem at $cores_dir, so make sure
+    # it exists and is world-writable there.
+    if docker exec -u root "$build_container" bash -c "mkdir -p '$cores_dir' && chmod 1777 '$cores_dir'" >/dev/null 2>&1; then
+      echo "  ${cores_dir} ready inside ${build_container}"
+    else
+      echo "::warning title=Core dump directory not writable::Could not create ${cores_dir} inside ${build_container}."
+    fi
+  else
+    echo "  Container ${build_container} not running yet; skipping in-container ulimit/${cores_dir} checks."
+  fi
+
+  if [[ "$ok" == true ]]; then
+    echo -e "${GREEN_BOLD}Core dumps are configured (${expected_core_pattern}).${RESET}"
+  else
+    echo -e "${YELLOW_BOLD}Core dumps are NOT fully configured on this runner (see warnings above).${RESET}"
+  fi
+
+  # Warn-only: never fail the build.
+  return 0
+}
+
+start_monitoring() {
+  local metrics_targets="${MEMGRAPH_METRICS_TARGETS:-$build_container:9091}"
+  local log_ws_targets="${MEMGRAPH_LOG_WS_TARGETS:-$build_container:7444}"
+
+  echo -e "${GREEN_BOLD}Setting up monitoring...${RESET}"
+  echo -e "${GREEN_BOLD}Cluster id: ${RED_BOLD}$cluster_id${RESET}"
+  echo -e "${GREEN_BOLD}Cluster env: ${RED_BOLD}$cluster_env${RESET}"
+  echo -e "${GREEN_BOLD}Service name: ${RED_BOLD}$service_name${RESET}"
+  echo -e "${GREEN_BOLD}Metrics targets: ${RED_BOLD}$metrics_targets${RESET}"
+  echo -e "${GREEN_BOLD}Log websocket targets: ${RED_BOLD}$log_ws_targets${RESET}"
+
+  # Run in a subshell so the caller's working directory is preserved.
+  (
+    cd "$PROJECT_ROOT/tools/ci/monitoring"
+    MONITORING_SERVER_HOST=$monitoring_host \
+    CLUSTER_ID=$cluster_id \
+    CLUSTER_ENV=$cluster_env \
+    SERVICE_NAME=$service_name \
+    MEMGRAPH_METRICS_TARGETS=$metrics_targets \
+    MEMGRAPH_LOG_WS_TARGETS=$log_ws_targets \
+    ./up.sh
+  )
+}
+
+stop_monitoring() {
+  echo -e "${GREEN_BOLD}Stopping monitoring...${RESET}"
+  # Run in a subshell so the caller's working directory is preserved.
+  ( cd "$PROJECT_ROOT/tools/ci/monitoring" && ./down.sh )
+}
+
+
+##################################################
+################### PARSE ARGS ###################
+##################################################
+if [ "$#" -eq 0 ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+    print_help
+    exit 0
+fi
+arch=$DEFAULT_ARCH
+build_type=$DEFAULT_BUILD_TYPE
+enterprise_license=$DEFAULT_ENTERPRISE_LICENSE
+organization_name=$DEFAULT_ORGANIZATION_NAME
+os=$DEFAULT_OS
+threads=$DEFAULT_THREADS
+toolchain_version=$DEFAULT_TOOLCHAIN
+bench_graph_host=$DEFAULT_BENCH_GRAPH_HOST
+bench_graph_port=$DEFAULT_BENCH_GRAPH_PORT
+mgdeps_cache_host=$DEFAULT_MGDEPS_CACHE_HOST
+mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
+ccache_enabled=$DEFAULT_CCACHE_ENABLED
+conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
+conan_cache_dir=""
+mgbench_cache_enabled=$DEFAULT_MGBENCH_CACHE_ENABLED
+mgbench_cache_dir=""
+cargo_cache_enabled=$DEFAULT_CARGO_CACHE_ENABLED
+cargo_cache_dir=""
+command=""
+build_container=""
+cugraph=false
+enable_monitoring=false
+monitoring_host=""
+cluster_id=""
+cluster_env=""
+service_name=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --arch)
+        arch=$2
+        check_support arch $arch
+        shift 2
+    ;;
+    --bench-graph-host)
+        bench_graph_host=$2
+        shift 2
+    ;;
+    --bench-graph-port)
+        bench_graph_port=$2
+        shift 2
+    ;;
+    --build-type)
+        build_type=$2
+        check_support build_type $build_type
+        shift 2
+    ;;
+    --cugraph)
+      [[ "$2" == "true" ]] && cugraph=true
+      shift 2
+    ;;
+    --enterprise-license)
+        enterprise_license=$2
+        shift 2
+    ;;
+    --mgdeps-cache-host)
+        mgdeps_cache_host=$2
+        shift 2
+    ;;
+    --mgdeps-cache-port)
+        mgdeps_cache_port=$2
+        shift 2
+    ;;
+    --organization-name)
+        organization_name=$2
+        shift 2
+    ;;
+    --os)
+        os=$2
+        check_support os $os
+        shift 2
+    ;;
+    --threads)
+        threads=$2
+        shift 2
+    ;;
+    --toolchain)
+        toolchain_version=$2
+        check_support toolchain $toolchain_version
+        shift 2
+    ;;
+    --no-ccache)
+      ccache_enabled="false"
+      shift 1
+    ;;
+    --no-conan-cache)
+      conan_cache_enabled="false"
+      shift 1
+    ;;
+    --conan-cache-dir)
+      conan_cache_dir=$2
+      shift 2
+    ;;
+    --no-mgbench-cache)
+      mgbench_cache_enabled="false"
+      shift 1
+    ;;
+    --mgbench-cache-dir)
+      mgbench_cache_dir=$2
+      shift 2
+    ;;
+    --no-cargo-cache)
+      cargo_cache_enabled="false"
+      shift 1
+    ;;
+    --cargo-cache-dir)
+      cargo_cache_dir=$2
+      shift 2
+    ;;
+    --enable-monitoring)
+      enable_monitoring=true
+      shift 1
+    ;;
+    --monitoring-host)
+      monitoring_host=$2
+      shift 2
+    ;;
+    --cluster-id)
+      cluster_id=$2
+      shift 2
+    ;;
+    --cluster-env)
+      cluster_env=$2
+      shift 2
+    ;;
+    --service-name)
+      service_name=$2
+      shift 2
+    ;;
+    *)
+      if [[ "$1" =~ ^--.* ]]; then
+        echo -e "Error: Unknown option '$1'"
+        print_help
+        exit 1
+      else
+        command=$1
+        shift 1
+        break
+      fi
+    ;;
+  esac
+done
+
+# only allow monitoring if all variables are set
+if [[ "$enable_monitoring" == "true" && (-z "$monitoring_host" || -z "$cluster_id" || -z "$cluster_env") ]]; then
+  echo -e "Error: Monitoring is enabled but not all monitoring variables are set"
+  echo -e "Provide --monitoring-host, --cluster-id and --cluster-env"
+  exit 1
+fi
+
+if [[ -z "$conan_cache_dir" ]]; then
+  conan_cache_dir="$HOME/.conan2-ci"
+fi
+
+if [[ -z "$mgbench_cache_dir" ]]; then
+  mgbench_cache_dir="$HOME/.cache/mgbench-ci"
+fi
+
+if [[ -z "$cargo_cache_dir" ]]; then
+  cargo_cache_dir="$HOME/.cargo-ci"
+fi
+
+# Points mgbench at the mounted cache so query counts and datasets survive between runs.
+# Empty when disabled, which leaves mgbench using .cache inside the checkout.
+MGBENCH_CACHE_ARG=""
+if [[ "$mgbench_cache_enabled" == "true" ]]; then
+  MGBENCH_CACHE_ARG="--cache-directory $MGBENCH_CACHE_CONTAINER_DIR"
+fi
+
+if [[ "$os" != "all" ]]; then
+  if [[ "$arch" == 'arm' ]] && [[ "$os" != *"-arm" ]]; then
+    os="${os}-arm"
+  fi
+  check_support os $os
+  check_support os_toolchain_combo $os $toolchain_version
+fi
+
+build_container="mgbuild_${toolchain_version}_${os}"
+if [[ "$cugraph" == "true" ]]; then
+  build_container="${build_container}-cugraph"
+fi
+
+if [[ "$command" == "" ]]; then
+  echo -e "Error: Command not provided, please provide command" >&2
+  print_help
+  exit 1
+fi
+
+if docker compose version > /dev/null 2>&1; then
+  docker_compose_cmd="docker compose"
+elif which docker-compose > /dev/null 2>&1; then
+  docker_compose_cmd="docker-compose"
+else
+  echo -e "Missing command: There has to be installed either 'docker-compose' or 'docker compose'"
+  exit 1
+fi
+echo "Using $docker_compose_cmd"
+
+##################################################
+################# PARSE COMMAND ##################
+##################################################
+case $command in
+    build)
+      cd $SCRIPT_DIR
+      # Default values for --git-ref, --rust-version and --node-version
+      git_ref_flag="--build-arg GIT_REF=master"
+      rust_version_flag="--build-arg RUST_VERSION=$DEFAULT_RUST_VERSION"
+      node_version_flag="--build-arg NODE_VERSION=$DEFAULT_NODE_VERSION"
+      rapids_version_flag="--build-arg RAPIDS_VERSION=25.12"
+      cuda_version_minor="13.1.0"
+      python_build_version_flag="--build-arg PY_VERSION=3.12"
+      while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --git-ref)
+              git_ref_flag="--build-arg GIT_REF=$2"
+              shift 2
+            ;;
+            --rust-version)
+              rust_version_flag="--build-arg RUST_VERSION=$2"
+              shift 2
+            ;;
+            --node-version)
+              node_version_flag="--build-arg NODE_VERSION=$2"
+              shift 2
+            ;;
+            --rapids-version)
+              rapids_version_flag="--build-arg RAPIDS_VERSION=$2"
+              shift 2
+            ;;
+            --cuda-version)
+              cuda_version_minor=$2
+              shift 2
+            ;;
+            --python-build-version)
+              python_build_version_flag="--build-arg PY_VERSION=$2"
+              shift 2
+            ;;
+            *)
+              echo "Error: Unknown flag '$1'"
+              print_help
+              exit 1
+            ;;
+        esac
+      done
+
+      if [[ "$cugraph" == "true" ]] && [[ "$os" != "ubuntu-24.04" ]] && [[ "$arch" != "amd" ]]; then
+        echo -e "Error: cugraph is only supported with ubuntu-24.04 and amd"
+        exit 1
+      fi
+
+      if [[ "$cugraph" == "true" ]]; then
+        cuda_version="${cuda_version_minor%%.*}"
+        cuda_version_flag="--build-arg CUDA_VERSION=${cuda_version}"
+        cuda_version_minor_flag="--build-arg CUDA_VERSION_MINOR=${cuda_version_minor}"
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $rapids_version_flag $cuda_version_flag $cuda_version_minor_flag $python_build_version_flag $build_container
+      elif [[ "$os" == "all" ]]; then
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag
+      else
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $build_container
+      fi
+    ;;
+    init-tests)
+      init_tests
+    ;;
+    run)
+      cd $SCRIPT_DIR
+      pull=false
+      custom_mirror=false
+      while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --pull)
+              pull=true
+              shift 1
+            ;;
+            --custom-mirror)
+              [[ "$2" == "true" ]] && custom_mirror=true
+              shift 2
+            ;;
+            *)
+              echo "Error: Unknown flag '$1'"
+              print_help
+              exit 1
+            ;;
+        esac
+      done
+
+      # Create ccache override file if ccache is enabled
+      compose_files=$(setup_compose_override)
+      if [[ "$conan_cache_enabled" == "true" ]]; then
+        echo "Setting conan cache directory: $conan_cache_dir"
+      fi
+      if [[ "$mgbench_cache_enabled" == "true" ]]; then
+        echo "Setting mgbench cache directory: $mgbench_cache_dir"
+      fi
+      if [[ "$cargo_cache_enabled" == "true" ]]; then
+        echo "Setting cargo cache directory: $cargo_cache_dir"
+      fi
+
+      # Set up host ccache permissions
+      setup_host_cache_permissions
+      if [[ "$os" == "all" ]]; then
+        if [[ "$pull" == "true" ]]; then
+          $docker_compose_cmd $compose_files pull --ignore-pull-failures
+        elif [[ "$docker_compose_cmd" == "docker compose" ]]; then
+            $docker_compose_cmd $compose_files pull --ignore-pull-failures --policy missing
+        fi
+        $docker_compose_cmd $compose_files up -d
+        for service_name in $(grep "^  mgbuild_" ${arch}-builders-${toolchain_version}.yml | sed 's/://'); do
+          github_auth_in_container "$service_name"
+        done
+      else
+        if [[ "$pull" == "true" ]]; then
+          $docker_compose_cmd $compose_files pull $build_container
+        elif ! docker image inspect memgraph/mgbuild:${toolchain_version}_${os} > /dev/null 2>&1; then
+          $docker_compose_cmd $compose_files pull --ignore-pull-failures $build_container
+        fi
+        $docker_compose_cmd $compose_files up -d $build_container
+        github_auth_in_container "$build_container"
+      fi
+
+      # set custom mirror for CI
+      if [[ "$custom_mirror" = "true" && "$os" =~ ^"ubuntu-24.04".* ]]; then
+        echo "Copying custom mirror to container..."
+        docker cp $PROJECT_ROOT/tools/ci/ubuntu-mirrors/${arch}/ci.sources $build_container:/etc/apt/sources.list.d/ubuntu.sources
+      fi
+
+      # Install ccache if enabled
+      if [[ "$ccache_enabled" == "true" ]]; then
+        echo "Installing ccache in container..."
+        if [[ "$os" =~ ^"debian".* || "$os" =~ ^"ubuntu".* ]]; then
+          docker exec -u root $build_container bash -c "apt update && apt install -y ccache"
+        elif [[ "$os" =~ ^"centos".* || "$os" =~ ^"rocky".* || "$os" =~ ^"fedora".* ]]; then
+          if [[ "$os" =~ ^"centos".* ]]; then
+            docker exec -u root $build_container bash -c "dnf config-manager --set-enabled crb"
+            docker exec -u root $build_container bash -c "dnf install -y epel-release"
+          fi
+          docker exec -u root $build_container bash -c "dnf -y install ccache"
+        else
+          echo "Warning: Unknown OS $os - not installing ccache"
+        fi
+
+        # Verify ccache installation and permissions
+        echo "Verifying ccache installation..."
+        docker exec -u mg $build_container bash -c "
+          ccache --version
+          ccache -s
+          echo 'Ccache is ready for use'
+        "
+
+        # Set cache directory permissions for cross-container access
+        echo "Setting cache directory permissions for cross-container access..."
+        docker exec -u root $build_container bash -c "
+          chmod -R a+rwX /home/mg/.cache/ccache
+          echo 'Cache directory permissions set for cross-container access'
+        "
+      fi
+
+      # Ensure .cache directory permissions are correct for all tools (pip, go, etc.)
+      echo "Setting up .cache directory permissions for all tools..."
+      docker exec -u root $build_container bash -c "
+        mkdir -p /home/mg/.cache
+        chown -R mg:mg /home/mg/.cache
+        chmod -R 755 /home/mg/.cache
+        echo '.cache directory permissions set for all tools'
+      "
+
+      # Set up conan cache directory permissions if conan cache is enabled
+      if [[ "$conan_cache_enabled" == "true" ]]; then
+        echo "Setting up conan cache directory permissions for cross-container access..."
+        docker exec -u root $build_container bash -c "
+          mkdir -p /home/mg/.conan2
+          chown -R mg:mg /home/mg/.conan2
+          chmod -R a+rwX /home/mg/.conan2
+          echo 'Conan cache directory permissions set for cross-container access'
+        "
+      fi
+
+      # Set up cargo cache directory permissions if the cargo cache is enabled
+      if [[ "$cargo_cache_enabled" == "true" ]]; then
+        echo "Setting up cargo cache directory permissions..."
+        docker exec -u root $build_container bash -c "
+          mkdir -p $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
+          chown mg:mg $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
+          chmod a+rwX $CARGO_CACHE_CONTAINER_DIR/registry $CARGO_CACHE_CONTAINER_DIR/git
+          echo 'Cargo cache directory permissions set'
+        "
+      fi
+
+      # Make cargo more tolerant of the transient crates.io connectivity blips
+      echo "Writing cargo network configuration..."
+      docker exec -i -u mg $build_container bash -c "mkdir -p $CARGO_CACHE_CONTAINER_DIR && cat > $CARGO_CACHE_CONTAINER_DIR/config.toml" << 'EOF'
+# Managed by release/package/mgbuild.sh - changes here are overwritten on `run`.
+[net]
+retry = 10
+git-fetch-with-cli = true
+
+[http]
+timeout = 60
+EOF
+
+      # This network will allo w the mgbuild container to access the mgdeps cache container
+      # check for `mgbuild_network` network and create it if it doesn't exist
+      if ! docker network inspect mgbuild_network > /dev/null 2>&1; then
+        docker network create mgbuild_network
+      fi
+
+      # add the build container to the `mgbuild_network` network
+      docker network connect mgbuild_network $build_container
+      docker network connect mgbuild_network mgdeps-cache || true  # allow this to fail if the mgdeps cache container is not running
+
+      # Clean up override files if they were created
+      cleanup_compose_override
+    ;;
+    stop)
+      cd $SCRIPT_DIR
+      remove=false
+      while [[ "$#" -gt 0 ]]; do
+        case "$1" in
+            --remove)
+              remove=true
+              shift 1
+            ;;
+            *)
+              echo "Error: Unknown flag '$1'"
+              print_help
+              exit 1
+            ;;
+        esac
+      done
+
+      # clean up conan cache inside container
+      conan_cache_exists=$(docker exec -u mg $build_container bash -c "test -d /home/mg/.conan2" && echo "true" || echo "false") || true
+      mgbuild_root_dir_exists=$(docker exec -u mg $build_container bash -c "test -d $MGBUILD_ROOT_DIR" && echo "true" || echo "false") || true
+      if [[ "$conan_cache_exists" == "true" && "$mgbuild_root_dir_exists" == "true" ]]; then
+        docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR && ./tools/ci/clean_conan.sh 1w"
+      fi
+
+      # remove the build container from the `mgbuild_network` network
+      docker network disconnect mgbuild_network $build_container
+      docker network disconnect mgbuild_network mgdeps-cache || true
+      docker network rm mgbuild_network || true
+      echo "mgbuild_network network removed"
+
+      # Create cache override files (same logic as run command)
+      compose_files=$(setup_compose_override)
+
+      if [[ "$os" == "all" ]]; then
+        $docker_compose_cmd $compose_files down
+      else
+        docker stop $build_container
+        if [[ "$remove" == "true" ]]; then
+          docker rm $build_container
+        fi
+      fi
+
+      # Clean up override files if they were created
+      cleanup_compose_override
+    ;;
+    pull)
+      cd $SCRIPT_DIR
+
+      # Create cache override files (same logic as run command)
+      compose_files=$(setup_compose_override)
+
+      if [[ "$os" == "all" ]]; then
+        $docker_compose_cmd $compose_files pull --ignore-pull-failures
+      else
+        $docker_compose_cmd $compose_files pull $build_container
+      fi
+
+      # Clean up override files if they were created
+      cleanup_compose_override
+    ;;
+    push)
+      docker login $@
+      cd $SCRIPT_DIR
+      if [[ "$os" == "all" ]]; then
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml push --ignore-push-failures
+      else
+        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml push $build_container
+      fi
+    ;;
+    build-memgraph)
+      build_memgraph $@
+    ;;
+    package-memgraph)
+      package_memgraph $@
+    ;;
+    test-memgraph)
+      test_memgraph $@
+    ;;
+    check-core-dumps)
+      check_core_dumps $@
+    ;;
+    copy)
+      copy_memgraph $@
+    ;;
+    copy-debug-symbols)
+      copy_debug_symbols $@
+    ;;
+    package-docker)
+      package_docker $@
+    ;;
+    package-smoke-image)
+      package_smoke_image $@
+    ;;
+    copy-heaptrack)
+      copy_heaptrack $@
+    ;;
+    package-mage-deb)
+      package_mage_deb $@
+    ;;
+    package-mage-rpm)
+      package_mage_rpm $@
+    ;;
+    package-mage-docker)
+      package_mage_docker $@
+    ;;
+    package-mage-offline-installer)
+      package_mage_offline_installer $@
+    ;;
+    test-mage)
+      test_mage $@
+    ;;
+    build-pymgclient)
+      build_pymgclient $@
+    ;;
+    generate-memgraph-build-sbom)
+      generate_memgraph_build_sbom $@
+    ;;
+    generate-mage-image-sbom)
+      generate_mage_image_sbom $@
+    ;;
+    build-ssl)
+      build_ssl $@
+    ;;
+    *)
+        echo "Error: Unknown command '$command'"
+        print_help
+        exit 1
+    ;;
+esac

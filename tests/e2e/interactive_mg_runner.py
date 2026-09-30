@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright 2022 Memgraph Ltd.
+# Copyright 2025 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,12 +10,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# TODO(gitbuda): Add action to print the context/cluster.
-# TODO(gitbuda): Add action to print logs of each Memgraph instance.
-# TODO(gitbuda): Polish naming within script.
-# TODO(gitbuda): Consider moving this somewhere higher in the project or even put inside GQLAlchemy.
-
-# The idea here is to implement simple interactive runner of Memgraph instances because:
+# The idea here is to implement a simple interactive runner of Memgraph instances because:
 #   * it should be possible to manually create new test cases first
 #     by just running this script and executing command manually from e.g. mgconsole,
 #     running single instance of Memgraph is easy but running multiple instances and
@@ -31,18 +26,22 @@
 # approaches have to be employed.
 # NOTE: The instance description / context should be compatible with tests/e2e/runner.py
 
-import atexit
+import concurrent.futures
 import logging
 import os
+import re
+import readline
+import secrets
 import sys
-import tempfile
 import time
 from argparse import ArgumentParser
 from inspect import signature
 
 import yaml
 
-from memgraph import MemgraphInstanceRunner, extract_bolt_port
+from memgraph import *
+
+log = logging.getLogger("memgraph.tests.e2e")
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", ".."))
@@ -71,17 +70,107 @@ MEMGRAPH_INSTANCES_DESCRIPTION = {
         ],
     },
 }
+
+
+HISTORY_MAX_SIZE = 1000
+HISTORY_FILE = os.path.expanduser("~/.interactive_mg_runner_history")
+history_loaded = False
+
+
+def load_history():
+    global history_loaded
+    if history_loaded:
+        return
+    history_loaded = True
+    readline.set_history_length(HISTORY_MAX_SIZE)
+    try:
+        readline.read_history_file(HISTORY_FILE)
+    except OSError:
+        pass
+
+
+def save_history():
+    try:
+        readline.write_history_file(HISTORY_FILE)
+    except OSError as e:
+        log.warning(f"Could not save action history to {HISTORY_FILE}: {e}")
+
+
+def read_action_line(prompt="ACTION> "):
+    load_history()
+    try:
+        line = input(prompt)
+    except EOFError:
+        sys.stdout.write("\n")
+        sys.exit(0)
+    # Drop consecutive duplicates, which readline adds unconditionally.
+    length = readline.get_current_history_length()
+    if length >= 2 and readline.get_history_item(length) == readline.get_history_item(length - 1):
+        readline.remove_history_item(length - 1)
+    save_history()
+    return line
+
+
+def clear_screen():
+    """Clear terminal screen (cross-platform)."""
+    # Use ANSI first (fast, no subprocess); fall back to cls/clear if needed.
+    try:
+        # Clear + move cursor to home
+        sys.stdout.write("\033[2J\033[H")
+        sys.stdout.flush()
+    except Exception:
+        os.system("cls" if os.name == "nt" else "clear")
+
+
+import subprocess
+
+
+def pids_for_port(port: int) -> list[str]:
+    # -nP: no DNS/service lookups; -iTCP:<port>: filter by TCP and port
+    # -sTCP:LISTEN: only listening sockets; -t: PIDs only
+    cmd = ["lsof", "-nP", f"-iTCP:{port}", "-sTCP:LISTEN", "-t"]
+    try:
+        out = subprocess.check_output(cmd, text=True).strip()
+        return sorted({x for x in out.split()}) if out else []
+    except subprocess.CalledProcessError:
+        return []  # no matches
+    except FileNotFoundError:
+        raise RuntimeError("lsof not found in PATH")
+
+
+def pidof(instances, instance_name):
+    if instance_name not in instances:
+        log.error(f"{instance_name} is not an active instance")
+        return
+
+    val = instances[instance_name]
+    mg_args = val["args"]
+    port = int(next(mg_arg.split("=", 1)[1] for mg_arg in mg_args if mg_arg.startswith("--bolt-port=")))
+    pids = pids_for_port(PORT_REMAP.map_port(port))
+    if len(pids) == 1:
+        pids = pids[0]  # To avoid list output
+    print("{:<15s}".format(str(pids)))
+
+
 MEMGRAPH_INSTANCES = {}
+
+# Set from --context-yaml so `start` can pick up flag edits made while instances were stopped. Empty when the cluster
+# description is the in-script default, in which case there is no file to reload from.
+CONTEXT_YAML_PATH = ""
+
 ACTIONS = {
-    "info": lambda context: info(context),
-    "stop": lambda context, name: stop(context, name),
-    "start": lambda context, name: start(context, name),
+    "info": lambda instances: info(instances),
+    "stop": lambda instances, name: stop(instances, name),
+    "start": lambda instances, name: start_wrapper(instances, name),
     "sleep": lambda _, delta: time.sleep(float(delta)),
     "exit": lambda _: sys.exit(1),
     "quit": lambda _: sys.exit(1),
+    "clear": lambda _: clear_screen(),
+    "cls": lambda _: clear_screen(),
+    "\x0c": lambda _: clear_screen(),  # Ctrl+L
+    "^L": lambda _: clear_screen(),
+    "pidof": lambda instances, instance_name: pidof(instances, instance_name),
 }
-
-CLEANUP_DIRECTORIES_ON_EXIT = False
 
 log = logging.getLogger("memgraph.tests.e2e")
 
@@ -98,57 +187,149 @@ def load_args():
     return parser.parse_args()
 
 
-def is_port_in_use(port: int) -> bool:
-    import socket
+def effective_port(port: int) -> int:
+    """
+    The port an instance configured with `port` really listens on. Under runner_parallel.py ports move into the
+    worker's window (see PortRemap in memgraph.py); Python clients follow automatically, but anything that reaches an
+    instance from a subprocess (openssl, a compiled helper, node) has to be given this port explicitly.
+    """
+    return PORT_REMAP.map_port(port)
 
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-        return s.connect_ex(("localhost", port)) == 0
+
+def wait_until_port_is_free(port: int) -> bool:
+    """
+    Return True when port is free, False if port is still not free after 10s.
+    """
+    for _ in range(100):
+        # If we can connect to the port that means previous process is still running and we have to wait for it to finish.
+        if not connectable_port(port):
+            return True
+        else:
+            time.sleep(0.1)
+    return False
 
 
-def _start_instance(name, args, log_file, setup_queries, use_ssl, procdir, data_directory):
-    assert (
-        name not in MEMGRAPH_INSTANCES.keys()
-    ), "If this raises, you are trying to start an instance with the same name than one already running."
-    assert not is_port_in_use(
-        extract_bolt_port(args)
-    ), "If this raises, you are trying to start an instance on a port already used by one already running instance."
+_ENV_REF = re.compile(r"\$\{(\w+)(?::-([^}]*))?\}")
 
-    log_file_path = os.path.join(BUILD_DIR, "logs", log_file)
-    data_directory_path = os.path.join(BUILD_DIR, data_directory)
-    mg_instance = MemgraphInstanceRunner(MEMGRAPH_BINARY, use_ssl, {data_directory_path})
+
+def expand_env_args(args):
+    """Expand ${VAR} and ${VAR:-default} in workload args, e.g. broker addresses that differ between CI and local runs."""
+    return [_ENV_REF.sub(lambda m: os.environ.get(m.group(1)) or m.group(2) or "", str(arg)) for arg in args]
+
+
+def _start(
+    name,
+    args,
+    log_file,
+    setup_queries,
+    use_ssl,
+    procdir,
+    data_directory,
+    username=None,
+    password=None,
+    storage_snapshot_on_exit: bool = False,
+    silence_output: bool = False,
+    gdb_port=None,
+):
+    """
+    Returns True if the instance was started, False if it was already running and the start was skipped.
+    """
+    existing_instance = MEMGRAPH_INSTANCES.get(name)
+    if existing_instance is not None:
+        if existing_instance.is_running():
+            log.info(f"Instance with name {name} is already running, skipping start.")
+            return False
+        log.info(f"Instance with name {name} is registered but not running, starting it again.")
+        MEMGRAPH_INSTANCES.pop(name)
+
+    args = expand_env_args(args)
+
+    # Under runner_parallel.py the ports move into this worker's window, see PortRemap in memgraph.py. An instance
+    # without --bolt-port would otherwise bind the real default port.
+    if PORT_REMAP.active and not any(str(arg).startswith(("--bolt-port", "--bolt_port")) for arg in args):
+        args = list(args) + ["--bolt-port", "7687"]
+    args = PORT_REMAP.map_args(args)
+    bolt_port = extract_bolt_port(args)
+    assert wait_until_port_is_free(
+        bolt_port
+    ), f"If this raises, you are trying to start an instance on a port {bolt_port} used by the running instance."
+
+    management_port = extract_management_port(args)
+    if management_port:
+        assert wait_until_port_is_free(
+            management_port
+        ), f"If this raises, you are trying to start with coordinator management port {management_port} which is already in use."
+
+    log_file_path = os.path.join(BUILD_DIR, "e2e", "logs", log_file)
+    data_directory_path = os.path.join(BUILD_DIR, "e2e", "data", data_directory)
+
+    mg_instance = MemgraphInstanceRunner(
+        MEMGRAPH_BINARY, use_ssl, data_directory_path, username=username, password=password, gdb_port=gdb_port
+    )
     MEMGRAPH_INSTANCES[name] = mg_instance
+
     binary_args = args + ["--log-file", log_file_path] + ["--data-directory", data_directory_path]
 
     if len(procdir) != 0:
         binary_args.append("--query-modules-directory=" + procdir)
 
-    mg_instance.start(args=binary_args, setup_queries=setup_queries)
-    assert mg_instance.is_running(), "An error occured after starting Memgraph instance: application stopped running."
+    log.info(f"Starting instance with name: {name} on bolt port {bolt_port}")
+    mg_instance.start(
+        args=binary_args,
+        setup_queries=setup_queries,
+        bolt_port=bolt_port,
+        storage_snapshot_on_exit=storage_snapshot_on_exit,
+        silence_output=silence_output,
+    )
+    assert mg_instance.is_running(), "An error occurred after starting Memgraph instance: application stopped running."
+    return True
 
 
 def stop_all(keep_directories=True):
+    """
+    Idempotent in a sense that if instances were already stopped, additional call to stop_all won't do anything wrong. Sends SIGTERM signal.
+    """
     for mg_instance in MEMGRAPH_INSTANCES.values():
         mg_instance.stop(keep_directories)
     MEMGRAPH_INSTANCES.clear()
 
 
-def stop_instance(context, name, keep_directories=True):
-    for key, _ in context.items():
-        if key != name:
-            continue
-        MEMGRAPH_INSTANCES[name].stop(keep_directories)
-        MEMGRAPH_INSTANCES.pop(name)
+def parse_instance_names(names):
+    """
+    Parses a comma-separated list of instance names, e.g. 'coordinator_1,coordinator_2', into a list of names.
+    """
+    return [name.strip() for name in str(names).split(",") if name.strip()]
 
 
 def stop(context, name, keep_directories=True):
-    if name != "all":
-        stop_instance(context, name, keep_directories)
-        return
+    """
+    Stops one or more comma-separated instances, e.g. 'coordinator_1,coordinator_2'.
+    Idempotent in a sense that stopping already stopped instance won't fail program.
+    """
+    for instance_name in parse_instance_names(name):
+        if instance_name not in context:
+            log.error(f"{instance_name} is not an active instance name")
+            continue
+        instance = MEMGRAPH_INSTANCES.pop(instance_name, None)
+        if instance is None:
+            log.info(f"Instance with name {instance_name} is not running, skipping stop.")
+            continue
+        instance.stop(keep_directories)
 
-    stop_all()
+
+def kill_all(keep_directories=True):
+    """
+    Idempotent in a sense that killing already dead instances won't fail. Sends SIGKILL signal.
+    """
+    for key in MEMGRAPH_INSTANCES.keys():
+        MEMGRAPH_INSTANCES[key].kill(keep_directories)
+    MEMGRAPH_INSTANCES.clear()
 
 
 def kill(context, name, keep_directories=True):
+    """
+    Kills instance with name 'name' from the 'context'.
+    """
     for key in context.keys():
         if key != name:
             continue
@@ -156,57 +337,182 @@ def kill(context, name, keep_directories=True):
         MEMGRAPH_INSTANCES.pop(name)
 
 
-def cleanup_directories_on_exit(value=True):
-    CLEANUP_DIRECTORIES_ON_EXIT = value
-
-
-@atexit.register
-def cleanup():
-    stop_all(CLEANUP_DIRECTORIES_ON_EXIT)
-
-
-def start_instance(context, name, procdir):
-    mg_instances = {}
-
-    for key, value in context.items():
-        if key != name:
-            continue
-        args = value["args"]
-        log_file = value["log_file"]
-        queries = []
-        if "setup_queries" in value:
-            queries = value["setup_queries"]
-        use_ssl = False
-        if "ssl" in value:
-            use_ssl = bool(value["ssl"])
-            value.pop("ssl")
-        data_directory = ""
-        if "data_directory" in value:
-            data_directory = value["data_directory"]
-        else:
-            data_directory = tempfile.TemporaryDirectory().name
-
-        instance = _start_instance(name, args, log_file, queries, use_ssl, procdir, data_directory)
-        mg_instances[name] = instance
-
-    assert len(mg_instances) == 1
-
-
-def start_all(context, procdir="", keep_directories=True):
-    stop_all(keep_directories)
-    for key, _ in context.items():
-        start_instance(context, key, procdir)
-
-
-def start(context, name, procdir=""):
-    if name != "all":
-        start_instance(context, name, procdir)
+def reload_context(context):
+    """
+    Re-reads the cluster description from the YAML the runner was started with and updates `context` in place, so flags
+    edited while instances were stopped take effect on the next start. The dict is mutated rather than replaced because
+    the interactive loop and the ACTIONS closures hold a reference to it. A no-op when the description came from the
+    in-script default. A file that has gone missing or stopped parsing leaves the current description untouched, so a
+    typo in the YAML doesn't tear down a live session.
+    """
+    if not CONTEXT_YAML_PATH:
         return
 
-    start_all(context)
+    try:
+        with open(CONTEXT_YAML_PATH, "r") as f:
+            reloaded = yaml.load(f, Loader=yaml.FullLoader)
+    except (OSError, yaml.YAMLError) as e:
+        log.error(f"Could not reload the cluster description from {CONTEXT_YAML_PATH}, keeping the current one: {e}")
+        return
+    if not isinstance(reloaded, dict):
+        log.error(f"{CONTEXT_YAML_PATH} does not contain a cluster description mapping, keeping the current one.")
+        return
+
+    for name, description in reloaded.items():
+        instance = MEMGRAPH_INSTANCES.get(name)
+        if instance is None or not instance.is_running():
+            continue
+        if description.get("args") != context.get(name, {}).get("args"):
+            log.warning(
+                f"Instance {name} is running with its previous args, so the reloaded ones are ignored. Stop it and "
+                "start it again to apply them."
+            )
+
+    # A running instance dropped from the YAML keeps its old description, otherwise `stop` and `info` would no longer
+    # recognize the name and the process would be left with no way to shut it down from here.
+    orphans = {name: context[name] for name in context.keys() - reloaded.keys() if name in MEMGRAPH_INSTANCES}
+    for name in orphans:
+        log.warning(
+            f"Instance {name} is no longer in {CONTEXT_YAML_PATH} but is still running, so its previous description is "
+            "kept. Stop it to drop it from the description."
+        )
+
+    context.clear()
+    context.update(reloaded)
+    context.update(orphans)
+    log.info(f"Reloaded the cluster description from {CONTEXT_YAML_PATH}.")
+
+
+def start_wrapper(instances, instance_name, procdir="", gdb_port=None):
+    """
+    Starts 'all' instances, a single instance or multiple comma-separated instances,
+    e.g. 'coordinator_1,coordinator_2'. Multiple instances are started in parallel.
+    Picks up any edits to the cluster description YAML first.
+    """
+    reload_context(instances)
+
+    if instance_name == "all":
+        start_all(instances, procdir, gdb_port=gdb_port, ignore_setup_failures=True)
+        return
+
+    instance_names = parse_instance_names(instance_name)
+    known_names = [name for name in instance_names if name in instances]
+    for unknown_name in set(instance_names) - set(known_names):
+        log.error(f"{unknown_name} is not an active instance name")
+
+    if known_names:
+        start_all_keep_others(
+            {name: instances[name] for name in known_names}, procdir, gdb_port=gdb_port, ignore_setup_failures=True
+        )
+
+
+def start(instances, instance_name, procdir="", gdb_port=None, run_setup_queries=True):
+    """
+    Returns True if the instance was started, False if it was skipped or unknown. When `run_setup_queries` is False,
+    setup queries are not executed and the caller is responsible for running them once all instances are up.
+    """
+    if instance_name not in instances:
+        log.error(f"{instance_name} is not an active instance name")
+        return False
+
+    value = instances[instance_name]
+    args = value["args"]
+    log_file = value["log_file"]
+
+    setup_queries = value["setup_queries"] if "setup_queries" in value else []
+    if not run_setup_queries:
+        setup_queries = []
+
+    use_ssl = False
+    if "ssl" in value:
+        use_ssl = bool(value["ssl"])
+        value.pop("ssl")
+
+    # If nothing specified, use 8-character random string.
+    data_directory = value["data_directory"] if "data_directory" in value else secrets.token_hex(4)
+
+    username = value["username"] if "username" in value else None
+    password = value["password"] if "password" in value else None
+
+    storage_snapshot_on_exit = value["storage_snapshot_on_exit"] if "storage_snapshot_on_exit" in value else False
+    silence_output = value["silence_output"] if "silence_output" in value else False
+
+    started = _start(
+        instance_name,
+        args,
+        log_file,
+        setup_queries,
+        use_ssl,
+        procdir,
+        data_directory,
+        username,
+        password,
+        storage_snapshot_on_exit=storage_snapshot_on_exit,
+        silence_output=silence_output,
+        gdb_port=gdb_port,
+    )
+    return started
+
+
+def start_all(
+    context,
+    procdir="",
+    keep_directories=True,
+    gdb_port=None,
+    ignore_setup_failures=False,
+    log_ignored_setup_failures=True,
+):
+    """
+    Start all instances by first stopping all instances and then starting all instances from the `context` in parallel.
+    If gdb_port is set, only the first instance will be started under gdbserver.
+    """
+    stop_all(keep_directories)
+    start_all_keep_others(
+        context,
+        procdir,
+        gdb_port=gdb_port,
+        ignore_setup_failures=ignore_setup_failures,
+        log_ignored_setup_failures=log_ignored_setup_failures,
+    )
+
+
+def start_all_keep_others(
+    context, procdir="", gdb_port=None, ignore_setup_failures=False, log_ignored_setup_failures=True
+):
+    """
+    Start all instances from the context in parallel but don't stop currently running instances.
+    Instances must be started in parallel because e.g. coordinators cannot finish their startup until a quorum of them
+    is reachable. Setup queries are executed sequentially in context order only after all instances are up.
+    When `ignore_setup_failures` is set, individual setup query failures are logged and skipped, e.g. when restarting
+    instances on which the queries were already applied. `log_ignored_setup_failures` can be turned off when those
+    failures happen on every restart and would drown out the rest of the output.
+    """
+    if not context:
+        return
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(context)) as executor:
+        futures = {}
+        for idx, key in enumerate(context.keys()):
+            # Only attach gdb to the first instance to avoid port conflicts
+            port = gdb_port if idx == 0 else None
+            futures[executor.submit(start, context, key, procdir, gdb_port=port, run_setup_queries=False)] = key
+        started = {key: future.result() for future, key in futures.items()}
+
+    for key, value in context.items():
+        if not started.get(key):
+            continue
+        setup_queries = value.get("setup_queries", [])
+        if setup_queries:
+            MEMGRAPH_INSTANCES[key].execute_setup_queries(
+                setup_queries,
+                ignore_failures=ignore_setup_failures,
+                log_ignored_failures=log_ignored_setup_failures,
+            )
 
 
 def info(context):
+    """
+    Prints information about the context.
+    """
     print("{:<15s}{:>6s}".format("NAME", "STATUS"))
     for name, _ in context.items():
         if name not in MEMGRAPH_INSTANCES:
@@ -215,36 +521,54 @@ def info(context):
         print("{:<15s}{:>6s}".format(name, "UP" if instance.is_running() else "DOWN"))
 
 
-def process_actions(context, actions):
-    actions = actions.split(" ")
-    actions.reverse()
-    while len(actions) > 0:
-        name = actions.pop()
-        action = ACTIONS[name]
+def process_actions(instances, data):
+    """
+    Processes all `actions` using the `context` as context.
+    """
+    data = data.split()
+    data.reverse()
+    while len(data) > 0:
+        arg = data.pop()
+        if arg not in ACTIONS:
+            log.error(f"{arg} is unknown action")
+            continue
+        action = ACTIONS[arg]
+
         args_no = len(signature(action).parameters) - 1
         assert (
-            args_no >= 0
-        ), "Wrong action definition, each action has to accept at least 1 argument which is the context."
-        assert args_no <= 1, "Actions with more than one user argument are not yet supported"
+            args_no == 0 or args_no == 1
+        ), "Wrong action definition, each action has to accept at least [0,1] argument which is the context."
+
         if args_no == 0:
-            action(context)
-        if args_no == 1:
-            action(context, actions.pop())
+            action(instances)
+        elif args_no == 1:
+            if len(data) == 0:
+                log.error(f"Not enough args provided. Expected 1 but found 0 for action {arg}")
+            else:
+                action_arg = data.pop()
+                # Merge comma-separated lists split by spaces, e.g. 'stop a, b' or 'stop a , b'.
+                while len(data) > 0 and (action_arg.endswith(",") or data[-1].startswith(",")):
+                    action_arg += data.pop()
+                action(instances, action_arg)
 
 
 if __name__ == "__main__":
     args = load_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
 
+    context = None
     if args.context_yaml == "":
         context = MEMGRAPH_INSTANCES_DESCRIPTION
     else:
-        with open(args.context_yaml, "r") as f:
+        # Resolved once so the reload on `start` is unaffected by any later change of working directory.
+        CONTEXT_YAML_PATH = os.path.realpath(args.context_yaml)
+        with open(CONTEXT_YAML_PATH, "r") as f:
             context = yaml.load(f, Loader=yaml.FullLoader)
-    if args.actions != "":
+
+    if args.actions != "" and context is not None:
         process_actions(context, args.actions)
         sys.exit(0)
 
     while True:
-        choice = input("ACTION>")
+        choice = read_action_line("ACTION>")
         process_actions(context, choice)

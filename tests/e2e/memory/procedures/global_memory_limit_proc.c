@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -54,7 +54,7 @@ static void success(struct mgp_list *args, struct mgp_graph *graph, struct mgp_r
   if (new_record_err != MGP_ERROR_NO_ERROR) return set_error(result);
 
   struct mgp_value *success_value = NULL;
-  const enum mgp_error make_string_err = mgp_value_make_string("sucess", memory, &success_value);
+  const enum mgp_error make_string_err = mgp_value_make_string("success", memory, &success_value);
   if (make_string_err != MGP_ERROR_NO_ERROR) return set_error(result);
   const enum mgp_error result_inserted = mgp_result_record_insert(record, "success_result", success_value);
   mgp_value_destroy(success_value);

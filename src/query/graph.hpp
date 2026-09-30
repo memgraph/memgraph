@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,8 +12,11 @@
 #pragma once
 
 #include <functional>
+#include <span>
 #include <utility>
-#include "query/db_accessor.hpp"
+#include "query/edge_accessor.hpp"
+#include "query/typed_value.hpp"
+#include "query/vertex_accessor.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_set.hpp"
@@ -22,6 +25,7 @@
 namespace memgraph::query {
 
 class Path;
+
 /**
  *  A data structure that holds a graph. A graph consists of at least one
  * vertex, and zero or more edges.
@@ -30,25 +34,26 @@ class Graph final {
  public:
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<Graph>;
+  using alloc_traits = std::allocator_traits<allocator_type>;
 
   /**
    * Create the graph with no elements
    * Allocations are done using the given MemoryResource.
    */
-  explicit Graph(utils::MemoryResource *memory);
+  explicit Graph(allocator_type alloc);
 
   /**
    * Construct a copy of other.
    * utils::MemoryResource is obtained by calling
    * std::allocator_traits<>::
-   *     select_on_container_copy_construction(other.GetMemoryResource()).
+   *     select_on_container_copy_construction(other.get_allocator()).
    * Since we use utils::Allocator, which does not propagate, this means that we
    * will default to utils::NewDeleteResource().
    */
   Graph(const Graph &other);
 
   /** Construct a copy using the given utils::MemoryResource */
-  Graph(const Graph &other, utils::MemoryResource *memory);
+  Graph(const Graph &other, allocator_type alloc);
 
   /**
    * Construct with the value of other.
@@ -60,13 +65,17 @@ class Graph final {
   /**
    * Construct with the value of other, but use the given utils::MemoryResource.
    * After the move, other may not be empty if `*memory !=
-   * *other.GetMemoryResource()`, because an element-wise move will be
+   * *other.get_allocator()`, because an element-wise move will be
    * performed.
    */
-  Graph(Graph &&other, utils::MemoryResource *memory);
+  Graph(Graph &&other, allocator_type alloc);
 
   /** Expands the graph with the given path. */
   void Expand(const Path &path);
+
+  /** Expand the graph from lists of nodes and edges. Any nulls or duplicate nodes/edges in these lists are ignored.
+   */
+  void Expand(std::span<TypedValue const> nodes, std::span<TypedValue const> edges);
 
   /** Inserts the vertex in the graph. */
   void InsertVertex(const VertexAccessor &vertex);
@@ -102,7 +111,7 @@ class Graph final {
   const utils::pmr::unordered_set<VertexAccessor> &vertices() const;
   const utils::pmr::unordered_set<EdgeAccessor> &edges() const;
 
-  utils::MemoryResource *GetMemoryResource() const;
+  auto get_allocator() const -> allocator_type;
 
  private:
   // Contains all the vertices in the Graph.

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,6 @@
 #include "slk/streams.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/replication/slk.hpp"
-#include "utils/cast.hpp"
 #include "utils/file.hpp"
 
 namespace memgraph::storage::replication {
@@ -29,19 +28,38 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteBool(bool value) override;
 
+  uint32_t WriteCrc() override;
+
   void WriteUint(uint64_t value) override;
 
   void WriteDouble(double value) override;
 
   void WriteString(std::string_view value) override;
 
-  void WritePropertyValue(const PropertyValue &value) override;
+  void WriteEnum(storage::Enum value) override;
 
-  void WriteBuffer(const uint8_t *buffer, size_t buffer_size);
+  void WritePoint2d(storage::Point2d value) override;
+
+  void WritePoint3d(storage::Point3d value) override;
+
+  void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
+
+  void WriteFileBuffer(const uint8_t *buffer, size_t buffer_size);
 
   void WriteFileData(utils::InputFile *file);
 
-  void WriteFile(const std::filesystem::path &path);
+  /// Sends `path` to the replica, disposing of its pages afterwards as `page_cache` says. Pass
+  /// `kKeep` for a file that is still being written to, or that something else is going to read.
+  bool WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write,
+                 utils::PageCachePolicy page_cache);
+
+  uint64_t GetPosition() override;
+
+  slk::Builder *GetBuilder() const { return builder_; }
+
+  void ResetCrcAcc() override {}
+
+  auto CrcAccValue() const -> uint32_t override { return 0; }
 
  private:
   slk::Builder *builder_;
@@ -61,17 +79,22 @@ class Decoder final : public durability::BaseDecoder {
 
   std::optional<std::string> ReadString() override;
 
-  std::optional<PropertyValue> ReadPropertyValue() override;
+  std::optional<Enum> ReadEnumValue() override;
+
+  std::optional<Point2d> ReadPoint2dValue() override;
+
+  std::optional<Point3d> ReadPoint3dValue() override;
+
+  std::optional<ExternalPropertyValue> ReadExternalPropertyValue() override;
 
   bool SkipString() override;
 
-  bool SkipPropertyValue() override;
+  bool SkipExternalPropertyValue() override;
 
-  /// Read the file and save it inside the specified directory.
-  /// @param directory Directory which will contain the read file.
-  /// @param suffix Suffix to be added to the received file's filename.
-  /// @return If the read was successful, path to the read file.
-  std::optional<std::filesystem::path> ReadFile(const std::filesystem::path &directory, const std::string &suffix = "");
+  // Replicated deltas are integrity-protected by TCP; no CRC is accumulated (see Encoder above).
+  void ResetCrcAcc() override {}
+
+  auto CrcAccValue() -> uint32_t override { return 0; }
 
  private:
   slk::Reader *reader_;

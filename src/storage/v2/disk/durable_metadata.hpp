@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,11 +13,11 @@
 
 #include <cstdint>
 #include <set>
-#include <vector>
 
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 
 namespace memgraph::storage {
 
@@ -41,7 +41,7 @@ class DurableMetadata {
   std::optional<std::vector<std::string>> LoadExistenceConstraintInfoIfExists() const;
   std::optional<std::vector<std::string>> LoadUniqueConstraintInfoIfExists() const;
 
-  void SaveBeforeClosingDB(uint64_t timestamp, uint64_t vertex_count, uint64_t edge_count);
+  void UpdateMetaData(uint64_t timestamp, uint64_t vertex_count, uint64_t edge_count);
 
   bool PersistLabelIndexCreation(LabelId label);
 
@@ -52,6 +52,10 @@ class DurableMetadata {
 
   bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property,
                                                                const std::string &key);
+
+  bool PersistTextIndexCreation(const storage::TextIndexSpec &text_index);
+
+  bool PersistTextIndexDeletion(std::string_view index_name);
 
   bool PersistUniqueConstraintCreation(LabelId label, const std::set<PropertyId> &properties);
 

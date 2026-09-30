@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,17 @@
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info_types.hpp"
+#include "storage/v2/vertex.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/small_vector.hpp"
 
 #include "absl/container/flat_hash_map.h"
 
 #include <gflags/gflags.h>
 #include <tuple>
+#include "utils/small_vector.hpp"
 
 DECLARE_uint64(delta_chain_cache_threshold);
 
@@ -33,7 +38,6 @@ using optref = std::optional<std::reference_wrapper<T>>;
 // forward declarations
 struct Vertex;
 struct Transaction;
-class PropertyValue;
 
 /** For vertices with long delta chains, its possible that its expensive
  * to rebuild state for the relevant transaction. This cache is used to
@@ -65,9 +69,9 @@ struct VertexInfoCache final {
 
   void Invalidate(Vertex const *vertex);
 
-  auto GetLabels(View view, Vertex const *vertex) const -> detail::optref<std::vector<LabelId> const>;
+  auto GetLabels(View view, Vertex const *vertex) const -> detail::optref<VertexKey const>;
 
-  void StoreLabels(View view, Vertex const *vertex, std::vector<LabelId> const &res);
+  void StoreLabels(View view, Vertex const *vertex, std::span<LabelId const> res);
 
   auto GetHasLabel(View view, Vertex const *vertex, LabelId label) const -> std::optional<bool>;
 
@@ -86,7 +90,7 @@ struct VertexInfoCache final {
 
   void Invalidate(Vertex const *vertex, PropertyId property_key);
 
-  using EdgeStore = std::vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>>;
+  using EdgeStore = Edges;
 
   auto GetInEdges(View view, Vertex const *src_vertex, Vertex const *dst_vertex,
                   const std::vector<EdgeTypeId> &edge_types) const -> detail::optref<const EdgeStore>;
@@ -120,8 +124,7 @@ struct VertexInfoCache final {
     friend bool operator==(EdgeKey const &, EdgeKey const &) = default;
 
     friend bool operator==(EdgeKey const &lhs, std::tuple<Vertex const *, EdgeTypeId> const &rhs) {
-      return lhs.src_vertex_ == std::get<0>(rhs) &&
-             std::find(lhs.edge_types_.begin(), lhs.edge_types_.end(), std::get<1>(rhs)) != lhs.edge_types_.end();
+      return lhs.src_vertex_ == std::get<0>(rhs) && std::ranges::contains(lhs.edge_types_, std::get<1>(rhs));
     }
 
     template <typename H>
@@ -146,7 +149,7 @@ struct VertexInfoCache final {
     map<Vertex const *, bool> deletedCache_;
     map<std::tuple<Vertex const *, LabelId>, bool> hasLabelCache_;
     map<std::tuple<Vertex const *, PropertyId>, PropertyValue> propertyValueCache_;
-    map<Vertex const *, std::vector<LabelId>> labelCache_;
+    map<Vertex const *, VertexKey> labelCache_;
     map<Vertex const *, std::map<PropertyId, PropertyValue>> propertiesCache_;
     // TODO: nest keys (edge_types) -> (src+dst) -> EdgeStore
     map<EdgeKey, EdgeStore> inEdgesCache_;
@@ -155,6 +158,7 @@ struct VertexInfoCache final {
     map<Vertex const *, size_t> inDegreeCache_;
     map<Vertex const *, size_t> outDegreeCache_;
   };
+
   Caches old_;
   Caches new_;
 

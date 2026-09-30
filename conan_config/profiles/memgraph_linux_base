@@ -1,0 +1,27 @@
+{% set target_arch = {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
+
+# What every Linux toolchain profile agrees on. A versioned profile includes this and adds
+# only what its own toolchain decides: where it lives, which clang it ships, and whether it
+# builds against a sysroot.
+
+[settings]
+# Every thread goes through the interposed allocator, so a debug build of it makes allocation the
+# limit in anything allocation-heavy: its assertions and lock-order checking read as lock
+# contention rather than as work the code being debugged is doing, and it asserts on arena indices
+# the CPU topology can legitimately produce. Nothing memgraph debugs is inside it.
+#
+# This is the build the release configurations already resolve to, so naming it here leaves their
+# package unchanged and costs them no rebuild. The allocator's own assertions are compiled out for
+# anything other than a debug build, which is all that is being asked for.
+jemalloc/*:build_type=RelWithDebInfo
+arch={{ target_arch }}
+compiler=clang
+compiler.cppstd=gnu23
+compiler.libcxx=libstdc++11
+os=Linux
+
+[conf]
+# NOTE: for cross-compilation, set tools.gnu:host_triplet (e.g. aarch64-unknown-linux-gnu).
+# The vendored Boost recipe passes it as <triple> to b2 for correct --target resolution.
+m4/*:tools.build:cflags=["-std=gnu17"]
+tools.cmake.cmaketoolchain:generator=Ninja

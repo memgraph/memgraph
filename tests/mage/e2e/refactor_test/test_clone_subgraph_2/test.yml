@@ -1,0 +1,46 @@
+query: >
+  MATCH (ana:Ana),
+        (marija:Marija),
+        (p2:Person{id: 2}),
+        (p3:Person{id: 3}),
+        (p4:Person{id: 4}),
+        (p5:Person{id: 5}),
+        (p6:Person{id: 6})
+  CALL refactor.clone_subgraph([ana, marija, p2, p3, p4, p5, p6], [], {
+      standinNodes:[[ana, marija]],
+      skipProperties: ["name"]
+  })
+  YIELD output
+  RETURN output;
+
+output:
+  - output:
+        labels:
+          - Person
+        properties:
+          id: 6
+  - output:
+        labels:
+          - Person
+        properties:
+          id: 5
+  - output:
+        labels:
+          - Person
+        properties:
+          id: 4
+  - output:
+        labels:
+          - Person
+        properties:
+          id: 3
+  - output:
+        labels:
+          - Person
+        properties:
+          id: 2
+  - output:
+        labels:
+          - Marija
+        properties:
+          id: 1

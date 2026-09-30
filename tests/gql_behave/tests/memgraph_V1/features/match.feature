@@ -469,6 +469,30 @@ Feature: Match
             | P12DT3M  |
             | P13DT12H |
 
+    Scenario: Test match with order by and datetime
+        Given an empty graph
+        And having executed:
+            """
+            CREATE({a: DATETIME('2024-01-22T08:11:31[Etc/UTC]')}),
+                  ({a: DATETIME('2024-01-22T08:12:31[Etc/UTC]')}),
+                  ({a: DATETIME('2024-01-22T08:42:31+00:30')}),
+                  ({a: DATETIME('2024-01-22T08:57:31+00:45')}),
+                  ({a: DATETIME('2024-01-22T09:12:31[Europe/Zurich]')}),
+                  ({a: DATETIME('2024-01-22T09:12:31[Europe/Warsaw]')})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.a ORDER BY n.a
+            """
+        Then the result should be, in order:
+            | n.a                                 |
+            | 2024-01-22T08:11:31.000000000+00:00 |
+            | 2024-01-22T08:12:31.000000000+00:00 |
+            | 2024-01-22T08:42:31.000000000+00:30 |
+            | 2024-01-22T08:57:31.000000000+00:45 |
+            | 2024-01-22T09:12:31.000000000+01:00 |
+            | 2024-01-22T09:12:31.000000000+01:00 |
+
     Scenario: Test distinct
         Given an empty graph
         And having executed:
@@ -563,7 +587,7 @@ Feature: Match
             | n.a | m.a |
             | 1   | 2   |
 
-    Scenario: Named path with length function.
+    Scenario: Named path with size function.
         Given an empty graph
         And having executed:
             """
@@ -575,6 +599,21 @@ Feature: Match
             """
         Then the result should be:
             | size(path) |
+            | 0          |
+            | 1          |
+
+    Scenario: Named path with length function.
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:starting)-[:type]->()
+            """
+        When executing query:
+            """
+            MATCH path = (:starting) -[*0..1]-> () RETURN length(path)
+            """
+        Then the result should be:
+            | length(path) |
             | 0          |
             | 1          |
 
@@ -761,6 +800,18 @@ Feature: Match
         Then the result should be:
             | path                                        |
             | <(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> |
+            | <(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3})> |
+
+    Scenario: Test DFS variable expand using IN edges with filter by edge type1
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label3)<-[* (e, n, p | NOT(type(e)='type1' AND type(last(relationships(p))) = 'type1'))]-(:label1) RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | <(:label3 {id: 3})<-[:type2 {id: 10}]-(:label1 {id: 1})> |
+            | <(:label3 {id: 3})<-[:type2 {id: 10}]-(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})> |
 
     Scenario: Test DFS variable expand with filter by edge type2
         Given graph "graph_edges"
@@ -771,6 +822,18 @@ Feature: Match
         Then the result should be:
             | path                                        |
             | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
+            | <(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
+
+    Scenario: Test DFS variable expand using IN edges with filter by edge type2
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label3)<-[* (e, n, p | NOT(type(e)='type2' AND type(last(relationships(p))) = 'type2'))]-(:label1) RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | <(:label3 {id: 3})<-[:type1 {id: 2}]-(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})> |
+            | <(:label3 {id: 3})<-[:type1 {id: 2}]-(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})-[:same {id: 30}]->(:label1 {id: 1})> |
 
     Scenario: Using path indentifier from CREATE in MERGE
         Given an empty graph
@@ -785,3 +848,352 @@ Feature: Match
         Then the result should be:
             | n        |
             | ({k: 1}) |
+
+    Scenario: Using OR expression without index
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Label1)
+            CREATE (b:Label2)
+            CREATE (c:Label1:Label2)
+            CREATE (d:Label3)
+            """
+        When executing query:
+            """
+            MATCH (n:Label1|Label2) RETURN n;
+            """
+        Then the result should be:
+            | n                |
+            | (:Label1)        |
+            | (:Label2)        |
+            | (:Label1:Label2) |
+
+    Scenario: Using OR expression with index
+        Given an empty graph
+        And with new index :Label1
+        And with new index :Label2
+        And having executed:
+            """
+            CREATE (a:Label1)
+            CREATE (b:Label2)
+            CREATE (c:Label1:Label2)
+            CREATE (d:Label3)
+            """
+        When executing query:
+            """
+            MATCH (n:Label1|Label2) RETURN n;
+            """
+        Then the result should be:
+            | n                |
+            | (:Label1)        |
+            | (:Label2)        |
+            | (:Label1:Label2) |
+
+    Scenario: Using OR expression with label property index
+        Given an empty graph
+        And with new index :Label1(id)
+        And with new index :Label2(id)
+        And having executed:
+            """
+            CREATE (a:Label1 {id: 1})
+            CREATE (b:Label2 {id: 2})
+            CREATE (c:Label1:Label2 {id: 1})
+            CREATE (d:Label1:Label2 {id: 2})
+            CREATE (e:Label3 {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (n:Label1|Label2) WHERE n.id < 2 RETURN n;
+            """
+        Then the result should be:
+            | n                        |
+            | (:Label1 {id: 1})        |
+            | (:Label1:Label2 {id: 1}) |
+
+    Scenario: Using OR expression in CREATE
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:Label1|Label2);
+            """
+        Then an error should be raised
+
+    Scenario: Using OR expression in MERGE
+        Given an empty graph
+        When executing query:
+            """
+            MERGE (n:Label1|Label2) RETURN n;
+            """
+        Then an error should be raised
+
+    Scenario: Using OR expression with label index MATCH
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And with new index :C
+        And having executed
+            """
+            CREATE (:A:B), (:A:C), (:A), (:D);
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE (n:B OR n:C) RETURN n;
+            """
+        Then the result should be:
+            | n      |
+            | (:A:C) |
+            | (:A:B) |
+
+    Scenario: Using OR expression with mixed indexed and non-indexed labels
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And having executed
+            """
+            CREATE (:A:B), (:A:Z), (:A), (:C);
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE (n:B OR n:Z) RETURN n;
+            """
+        Then the result should be:
+            | n      |
+            | (:A:B) |
+            | (:A:Z) |
+
+    Scenario: Using OR expression with label index and prop filter
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And with new index :C
+        And having executed
+            """
+            CREATE (:A:B {prop: 1}), (:A:C {prop: 2}), (:A:B {prop: 3}), (:A), (:D);
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE (n:B OR n:C) AND n.prop > 1 RETURN n;
+            """
+        Then the result should be:
+            | n                |
+            | (:A:C {prop: 2}) |
+            | (:A:B {prop: 3}) |
+
+    Scenario: Using OR expression with index and property filter on different labels
+        Given an empty graph
+        And with new index :LabelA
+        And with new index :LabelB(x)
+        And having executed:
+            """
+            CREATE (:LabelA {x: 1, name: 'A1'})
+            CREATE (:LabelA {x: 999, name: 'A999'})
+            CREATE (:LabelB {x: 1, name: 'B1'})
+            CREATE (:LabelB {x: 999, name: 'B999'});
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE (n:LabelA OR n:LabelB) AND n.x = 1 RETURN n.name ORDER BY n.name;
+            """
+        Then the result should be:
+            | n.name |
+            | 'A1'   |
+            | 'B1'   |
+
+    Scenario: Using OR expression with index and property filter on different labels with two property indices
+        Given an empty graph
+        And with new index :LabelA(y)
+        And with new index :LabelB(name)
+        And having executed:
+            """
+            CREATE (:LabelA {x: 1, name: 'A1'})
+            CREATE (:LabelA {x: 999, name: 'A999'})
+            CREATE (:LabelB {x: 1, name: 'B1'})
+            CREATE (:LabelB {x: 999, name: 'B999'});
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE (n:LabelA OR n:LabelB) AND n.x = 1 RETURN n.name ORDER BY n.name;
+            """
+        Then the result should be:
+            | n.name |
+            | 'A1'   |
+            | 'B1'   |
+
+    Scenario: Two label disjunctions over indexed labels are both tested
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And with new index :C
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) MATCH (n:B|C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction subsumed by an earlier one still holds
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B|C) MATCH (n:A|B) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction that subsumes an earlier one does not widen it
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) MATCH (n:A|B|C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction in WHERE is tested beside the one in the pattern
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) WHERE n:B OR n:C RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: Two label disjunctions in WHERE are both tested
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE (n:A OR n:B) AND (n:B OR n:C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction in WHERE equal to the pattern's
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:B|A) WHERE n:A OR n:B RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction over two variables tests either
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n), (m) WHERE n:A OR m:B RETURN count(*) AS c;
+            """
+        Then the result should be:
+            | c  |
+            | 24 |
+
+    Scenario: A label disjunction over two variables after WITH * tests either
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n), (m) WITH * WHERE n:A OR m:B RETURN count(*) AS c;
+            """
+        Then the result should be:
+            | c  |
+            | 24 |
+
+    Scenario: A label disjunction over an expression that is not a variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE head([n]):A OR head([n]):B RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label a negated pattern filter states is not demanded of the row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:E]->(), (:A:B {n: 'ab'})-[:E]->(), (:A {n: 'lonely'})
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE NOT exists((n:B)-[]-()) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v        |
+            | 'a'      |
+            | 'lonely' |
+
+    Scenario: A label disjunction a pattern filter states is tested whole
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:E]->(), (:B {n: 'b'})-[:E]->(), (:A:B {n: 'ab'})-[:E]->()
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) WHERE exists((n:B|C)-[]-()) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'b'  |

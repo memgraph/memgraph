@@ -1,0 +1,7 @@
+memgraph_query: >
+  MATCH (d:Dog), (h:Human), (c:Cat), (m:Mouse)
+  CALL nodes.link([d,m],"catches");
+
+neo4j_query: >
+  MATCH (d:Dog), (h:Human), (m:Mouse), (c: Cat)
+  CALL apoc.nodes.link([d,m], "catches");

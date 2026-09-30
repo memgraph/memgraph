@@ -1,0 +1,4 @@
+memgraph_query: >
+  CALL create.nodes(["Human","Star"],[{id: 1, name: "Josko Cagalj Jole", placeOfBirth: NULL}]) YIELD node RETURN node;
+neo4j_query: >
+  CALL apoc.create.nodes(["Human","Star"],[{id: 1, name: "Josko Cagalj Jole", placeOfBirth: NULL}]) YIELD node RETURN node;

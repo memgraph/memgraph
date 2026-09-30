@@ -1,0 +1,1 @@
+CREATE (alice:Person {name:'Alice', age:30, city:'NYC'}), (bob:Person {name:'Bob', age:25, city:'LA'}), (car1:Car {model:'Toyota', year:2020, color:'red'}), (car2:Car {model:'Honda', year:2021, color:'blue'}) CREATE (alice)-[:OWNS {since:2020, status:'active'}]->(car1) CREATE (bob)-[:OWNS {since:2021, status:'inactive'}]->(car2)

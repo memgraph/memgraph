@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,10 +10,15 @@
 // licenses/APL.txt.
 
 #include "storage/v2/vertex_info_cache.hpp"
-
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
-
+#include "storage/v2/view.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/small_vector.hpp"
+
+#include <functional>
+#include <optional>
+#include <span>
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(delta_chain_cache_threshold, 128,
@@ -57,12 +62,15 @@ VertexInfoCache &VertexInfoCache::operator=(VertexInfoCache &&) noexcept = defau
 auto VertexInfoCache::GetExists(View view, Vertex const *vertex) const -> std::optional<bool> {
   return FetchHelper<bool>(*this, std::mem_fn(&Caches::existsCache_), view, vertex);
 }
+
 void VertexInfoCache::StoreExists(View view, Vertex const *vertex, bool res) {
   Store(res, *this, std::mem_fn(&Caches::existsCache_), view, vertex);
 }
+
 auto VertexInfoCache::GetDeleted(View view, Vertex const *vertex) const -> std::optional<bool> {
   return FetchHelper<bool>(*this, std::mem_fn(&Caches::deletedCache_), view, vertex);
 }
+
 void VertexInfoCache::StoreDeleted(View view, Vertex const *vertex, bool res) {
   Store(res, *this, std::mem_fn(&Caches::deletedCache_), view, vertex);
 }
@@ -83,18 +91,22 @@ void VertexInfoCache::Invalidate(Vertex const *vertex) {
 }
 
 auto VertexInfoCache::GetLabels(View view, Vertex const *vertex) const
-    -> std::optional<std::reference_wrapper<std::vector<LabelId> const>> {
-  return FetchHelper<std::vector<LabelId>>(*this, std::mem_fn(&VertexInfoCache::Caches::labelCache_), view, vertex);
+    -> std::optional<std::reference_wrapper<VertexKey const>> {
+  return FetchHelper<VertexKey>(*this, std::mem_fn(&VertexInfoCache::Caches::labelCache_), view, vertex);
 }
-void VertexInfoCache::StoreLabels(View view, Vertex const *vertex, const std::vector<LabelId> &res) {
+
+void VertexInfoCache::StoreLabels(View view, Vertex const *vertex, std::span<LabelId const> res) {
   Store(res, *this, std::mem_fn(&Caches::labelCache_), view, vertex);
 }
+
 auto VertexInfoCache::GetHasLabel(View view, Vertex const *vertex, LabelId label) const -> std::optional<bool> {
   return FetchHelper<bool>(*this, std::mem_fn(&Caches::hasLabelCache_), view, vertex, label);
 }
+
 void VertexInfoCache::StoreHasLabel(View view, Vertex const *vertex, LabelId label, bool res) {
   Store(res, *this, std::mem_fn(&Caches::hasLabelCache_), view, vertex, label);
 }
+
 void VertexInfoCache::Invalidate(Vertex const *vertex, LabelId label) {
   new_.labelCache_.erase(vertex);
   new_.hasLabelCache_.erase(std::tuple{vertex, label});
@@ -104,16 +116,20 @@ auto VertexInfoCache::GetProperty(View view, Vertex const *vertex, PropertyId pr
     -> std::optional<std::reference_wrapper<PropertyValue const>> {
   return FetchHelper<PropertyValue>(*this, std::mem_fn(&Caches::propertyValueCache_), view, vertex, property);
 }
+
 void VertexInfoCache::StoreProperty(View view, Vertex const *vertex, PropertyId property, PropertyValue value) {
   Store(std::move(value), *this, std::mem_fn(&Caches::propertyValueCache_), view, vertex, property);
 }
+
 auto VertexInfoCache::GetProperties(View view, Vertex const *vertex) const
     -> std::optional<std::reference_wrapper<std::map<PropertyId, PropertyValue> const>> {
   return FetchHelper<std::map<PropertyId, PropertyValue>>(*this, std::mem_fn(&Caches::propertiesCache_), view, vertex);
 }
+
 void VertexInfoCache::StoreProperties(View view, Vertex const *vertex, std::map<PropertyId, PropertyValue> properties) {
   Store(std::move(properties), *this, std::mem_fn(&Caches::propertiesCache_), view, vertex);
 }
+
 void VertexInfoCache::Invalidate(Vertex const *vertex, PropertyId property_key) {
   new_.propertiesCache_.erase(vertex);
   new_.propertyValueCache_.erase(std::tuple{vertex, property_key});
@@ -124,19 +140,32 @@ auto VertexInfoCache::GetInEdges(View view, Vertex const *src_vertex, Vertex con
     -> std::optional<std::reference_wrapper<EdgeStore const>> {
   return FetchHelper<EdgeStore>(*this, std::mem_fn(&Caches::inEdgesCache_), view, src_vertex, dst_vertex, edge_types);
 }
+
 void VertexInfoCache::StoreInEdges(View view, Vertex const *src_vertex, Vertex const *dst_vertex,
                                    std::vector<EdgeTypeId> edge_types, EdgeStore in_edges) {
-  Store(std::move(in_edges), *this, std::mem_fn(&Caches::inEdgesCache_), view, src_vertex, dst_vertex,
+  Store(std::move(in_edges),
+        *this,
+        std::mem_fn(&Caches::inEdgesCache_),
+        view,
+        src_vertex,
+        dst_vertex,
         std::move(edge_types));
 }
+
 auto VertexInfoCache::GetOutEdges(View view, Vertex const *src_vertex, Vertex const *dst_vertex,
                                   const std::vector<EdgeTypeId> &edge_types) const
     -> std::optional<std::reference_wrapper<const EdgeStore>> {
   return FetchHelper<EdgeStore>(*this, std::mem_fn(&Caches::outEdgesCache_), view, src_vertex, dst_vertex, edge_types);
 }
+
 void VertexInfoCache::StoreOutEdges(View view, Vertex const *src_vertex, Vertex const *dst_vertex,
                                     std::vector<EdgeTypeId> edge_types, EdgeStore out_edges) {
-  Store(std::move(out_edges), *this, std::mem_fn(&Caches::outEdgesCache_), view, src_vertex, dst_vertex,
+  Store(std::move(out_edges),
+        *this,
+        std::mem_fn(&Caches::outEdgesCache_),
+        view,
+        src_vertex,
+        dst_vertex,
         std::move(edge_types));
 }
 
@@ -189,6 +218,6 @@ VertexInfoCache::EdgeKey::EdgeKey(Vertex const *src_vertex, Vertex const *dst_ve
                                   std::vector<EdgeTypeId> edge_types)
     : src_vertex_{src_vertex}, dst_vertex_{dst_vertex}, edge_types_{std::move(edge_types)} {
   // needed for a canonical form
-  std::sort(edge_types_.begin(), edge_types_.end());
+  std::ranges::sort(edge_types_);
 }
 }  // namespace memgraph::storage

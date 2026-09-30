@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,69 +10,86 @@
 // licenses/APL.txt.
 
 #include "utils/query_memory_tracker.hpp"
-#include <atomic>
-#include <optional>
+
+#include <mutex>
+
 #include "memory/query_memory_control.hpp"
+#include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
 namespace memgraph::utils {
 
-void QueryMemoryTracker::TrackAlloc(size_t size) {
-  if (query_tracker_.has_value()) [[likely]] {
-    query_tracker_->Alloc(static_cast<int64_t>(size));
-  }
-
-  auto *proc_tracker = GetActiveProc();
-
-  if (proc_tracker == nullptr) {
-    return;
-  }
-
-  proc_tracker->Alloc(static_cast<int64_t>(size));
+namespace {
+inline auto &GetProcTracker() {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  static thread_local memgraph::utils::MemoryTracker *proc_tracker = nullptr;
+  return proc_tracker;
 }
-void QueryMemoryTracker::TrackFree(size_t size) {
-  if (query_tracker_.has_value()) [[likely]] {
-    query_tracker_->Free(static_cast<int64_t>(size));
+}  // namespace
+
+bool QueryMemoryTracker::TrackAlloc(size_t size) {
+  const bool ok = transaction_tracker_.Alloc(static_cast<int64_t>(size));
+  if (!ok) return false;
+
+  auto *proc_tracker = GetProcTracker();
+  if (proc_tracker == nullptr) {
+    return true;
   }
+  return proc_tracker->Alloc(static_cast<int64_t>(size));
+}
 
-  auto *proc_tracker = GetActiveProc();
+void QueryMemoryTracker::TrackFree(size_t size) {
+  transaction_tracker_.Free(static_cast<int64_t>(size));
 
+  auto *proc_tracker = GetProcTracker();
   if (proc_tracker == nullptr) {
     return;
   }
-
   proc_tracker->Free(static_cast<int64_t>(size));
 }
 
+// NOTE: Currently the transaction tracker does not limit the memory usage of the query.
 void QueryMemoryTracker::SetQueryLimit(size_t size) {
   if (size == memgraph::memory::UNLIMITED_MEMORY) {
+    transaction_tracker_.ResetLimit();
     return;
   }
-  InitializeQueryTracker();
-  query_tracker_->SetMaximumHardLimit(static_cast<int64_t>(size));
-  query_tracker_->SetHardLimit(static_cast<int64_t>(size));
+  // Increment the limit by the requested size.
+  // This is to allow the transaction tracker to grow its limit if needed.
+  const auto current = transaction_tracker_.Amount();
+  transaction_tracker_.SetMaximumHardLimit(current + static_cast<int64_t>(size));
+  transaction_tracker_.SetHardLimit(current + static_cast<int64_t>(size));
 }
 
-memgraph::utils::MemoryTracker *QueryMemoryTracker::GetActiveProc() {
-  if (active_proc_id == NO_PROCEDURE) [[likely]] {
-    return nullptr;
+int64_t QueryMemoryTracker::Amount() const { return transaction_tracker_.Amount(); }
+
+void QueryMemoryTracker::StopProcTracking() { GetProcTracker() = nullptr; }
+
+void QueryMemoryTracker::CreateOrSetProcTracker(int64_t procedure_id, size_t limit) {
+  auto *&proc_tracker = GetProcTracker();
+  DMG_ASSERT(procedure_id >= 0, "Procedure id must be non-negative");
+  // Read-only access to the proc tracker
+  {
+    const std::shared_lock lock(proc_trackers_mutex_);
+    auto it = proc_memory_trackers_.find(procedure_id);
+    if (it != proc_memory_trackers_.end()) {
+      proc_tracker = &it->second;
+      return;
+    }
   }
-  return &proc_memory_trackers_[active_proc_id];
-}
-
-void QueryMemoryTracker::SetActiveProc(int64_t new_active_proc) { active_proc_id = new_active_proc; }
-
-void QueryMemoryTracker::StopProcTracking() { active_proc_id = QueryMemoryTracker::NO_PROCEDURE; }
-
-void QueryMemoryTracker::TryCreateProcTracker(int64_t procedure_id, size_t limit) {
-  if (proc_memory_trackers_.contains(procedure_id)) {
-    return;
+  // Write access to the proc tracker
+  {
+    const std::unique_lock lock(proc_trackers_mutex_);
+    auto [it, inserted] = proc_memory_trackers_.try_emplace(procedure_id);
+    // Only set limits if we actually inserted a new entry.
+    // Another thread may have inserted between releasing the shared lock and acquiring the unique lock.
+    // Setting limits on an already-in-use tracker would cause data races and incorrect behavior.
+    if (inserted) {
+      it->second.SetMaximumHardLimit(static_cast<int64_t>(limit));
+      it->second.SetHardLimit(static_cast<int64_t>(limit));
+    }
+    proc_tracker = &it->second;
   }
-  auto [it, inserted] = proc_memory_trackers_.emplace(procedure_id, utils::MemoryTracker{});
-  it->second.SetMaximumHardLimit(static_cast<int64_t>(limit));
-  it->second.SetHardLimit(static_cast<int64_t>(limit));
 }
-
-void QueryMemoryTracker::InitializeQueryTracker() { query_tracker_.emplace(MemoryTracker{}); }
 
 }  // namespace memgraph::utils

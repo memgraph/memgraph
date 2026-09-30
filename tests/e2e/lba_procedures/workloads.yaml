@@ -1,43 +1,72 @@
 args: &args
-  - "--bolt-port"
-  - "7687"
+  - "--bolt-port=7687"
   - "--log-level=TRACE"
+  - "--schema-info-enabled=true"
 
 query_modules_setup_queries: &query_modules_setup_queries
+  # Create a role before the first user so builtin role creation (admin/readwrite/readonly) is suppressed.
+  - "CREATE ROLE _dummy_role;"
   - "CREATE USER admin IDENTIFIED BY 'test';"
   - "GRANT ALL PRIVILEGES TO admin"
   - "GRANT DATABASE * TO admin"
   - "CREATE USER user IDENTIFIED BY 'test';"
   - "GRANT ALL PRIVILEGES TO user"
   - "GRANT DATABASE * TO user"
+  - "GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO user;"
+  - "GRANT READ, SET PROPERTY {*} ON EDGES OF TYPE * TO user;"
 
 show_privileges_setup_queries: &show_privileges_setup_queries
+  # Create a role before the first user so builtin role creation (admin/readwrite/readonly) is suppressed.
+  - "CREATE ROLE _dummy_role;"
   - "Create User Josip;"
-  - "Grant Read On Labels :Label1 to Josip;"
-  - "Grant Nothing On Labels :Label2 to Josip;"
-  - "Grant Update On Labels :Label3 to Josip;"
-  - "Grant Read On Labels :Label4 to Josip;"
-  - "Grant Create_Delete On Labels :Label5 to Josip;"
-  - "Grant Update On Labels :Label6 to Josip;"
-  - "Grant Create_Delete On Labels :Label7 to Josip;"
-  - "Grant Nothing On Labels :Label7 to Josip;"
+  - "GRANT READ ON NODES CONTAINING LABELS :Label1 TO Josip;"
+  - "DENY * ON NODES CONTAINING LABELS :Label2 TO Josip;"
+  - "GRANT UPDATE ON NODES CONTAINING LABELS :Label3 TO Josip;"
+  - "GRANT READ ON NODES CONTAINING LABELS :Label4 TO Josip;"
+  - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS :Label5 TO Josip;"
+  - "GRANT UPDATE ON NODES CONTAINING LABELS :Label6 TO Josip;"
+  - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS :Label7 TO Josip;"
+  - "DENY * ON NODES CONTAINING LABELS :Label7 TO Josip;"
   - "Create User Boris;"
-  - "Grant Auth to Boris;"
-  - "Grant Read On Labels :Label1 to Boris;"
-  - "Grant Nothing On Labels :Label2 to Boris;"
-  - "Grant Update On Labels :Label3 to Boris;"
-  - "Grant Read On Labels :Label4 to Boris;"
-  - "Grant Create_Delete On Labels :Label5 to Boris;"
-  - "Grant Update On Labels :Label6 to Boris;"
-  - "Grant Create_Delete On Labels :Label7 to Boris;"
-  - "Grant Nothing On Labels :Label7 to Boris;"
+  - "Grant Auth TO Boris;"
+  - "GRANT READ ON NODES CONTAINING LABELS :Label1 TO Boris;"
+  - "DENY * ON NODES CONTAINING LABELS :Label2 TO Boris;"
+  - "GRANT UPDATE ON NODES CONTAINING LABELS :Label3 TO Boris;"
+  - "GRANT READ ON NODES CONTAINING LABELS :Label4 TO Boris;"
+  - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS :Label5 TO Boris;"
+  - "GRANT UPDATE ON NODES CONTAINING LABELS :Label6 TO Boris;"
+  - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS :Label7 TO Boris;"
+  - "DENY * ON NODES CONTAINING LABELS :Label7 TO Boris;"
   - "Create User Niko;"
-  - "Grant Auth to Niko;"
-  - "Grant Create_Delete On Labels * to Niko;"
-  - "Grant Read On Labels * to Niko;"
+  - "Grant Auth TO Niko;"
+  - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS * TO Niko;"
+  - "GRANT READ ON NODES CONTAINING LABELS * TO Niko;"
   - "Create User Bruno;"
-  - "Grant Auth to Bruno;"
-  - "Grant Update On Labels * to Bruno;"
+  - "Grant Auth TO Bruno;"
+  - "GRANT UPDATE ON NODES CONTAINING LABELS * TO Bruno;"
+
+schema_info_setup_queries: &schema_info_setup_queries
+  # Create a role before the first user so builtin role creation (admin/readwrite/readonly) is suppressed.
+  - "CREATE ROLE _dummy_role;"
+  - "CREATE USER admin;"
+  - "GRANT ALL PRIVILEGES TO admin;"
+  - "GRANT CREATE, DELETE ON NODES CONTAINING LABELS * TO admin;"
+  - "GRANT CREATE, DELETE ON EDGES OF TYPE * TO admin;"
+  - "CREATE USER josip;"
+  - "GRANT STATS TO josip;"
+  - "GRANT READ ON NODES CONTAINING LABELS * TO josip"
+  - "GRANT READ ON EDGES OF TYPE * TO josip"
+  - "CREATE USER toni;"
+  - "GRANT STATS TO toni;"
+  - "GRANT READ ON NODES CONTAINING LABELS * TO toni"
+  - "CREATE USER buda;"
+  - "GRANT STATS TO buda;"
+  - "CREATE USER kate"
+  - "GRANT READ ON NODES CONTAINING LABELS :Public TO kate"
+  - "GRANT STATS TO kate;"
+  - "CREATE USER matea"
+  - "GRANT READ ON EDGES OF TYPE :TYPE TO matea"
+  - "GRANT STATS TO matea;"
 
 
 read_query_modules_in_memory_cluster: &read_query_modules_in_memory_cluster
@@ -48,32 +77,12 @@ read_query_modules_in_memory_cluster: &read_query_modules_in_memory_cluster
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
-read_query_modules_disk_cluster: &read_query_modules_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *query_modules_setup_queries
-      validation_queries: []
-
 update_query_modules_in_memory_cluster: &update_query_modules_in_memory_cluster
   cluster:
     main:
       args: *args
       log_file: "lba-e2e.log"
       setup_queries: *query_modules_setup_queries
-      validation_queries: []
-
-update_query_modules_disk_cluster: &update_query_modules_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *query_modules_setup_queries
       validation_queries: []
 
 show_privileges_in_memory_cluster: &show_privileges_in_memory_cluster
@@ -84,16 +93,6 @@ show_privileges_in_memory_cluster: &show_privileges_in_memory_cluster
       setup_queries: *show_privileges_setup_queries
       validation_queries: []
 
-show_privileges_disk_cluster: &show_privileges_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *show_privileges_setup_queries
-      validation_queries: []
-
 read_permission_in_memory_queries: &read_permission_in_memory_queries
   cluster:
     main:
@@ -102,33 +101,12 @@ read_permission_in_memory_queries: &read_permission_in_memory_queries
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
-read_permission_disk_queries: &read_permission_disk_queries
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *query_modules_setup_queries
-      validation_queries: []
-
-
 create_delete_query_modules_in_memory_cluster: &create_delete_query_modules_in_memory_cluster
   cluster:
     main:
       args: *args
       log_file: "lba-e2e.log"
       setup_queries: *query_modules_setup_queries
-      validation_queries: []
-
-create_delete_query_modules_disk_cluster: &create_delete_query_modules_disk_cluster
-  cluster:
-    main:
-      args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *query_modules_setup_queries
       validation_queries: []
 
 update_permission_queries_in_memory_cluster: &update_permission_queries_in_memory_cluster
@@ -139,14 +117,12 @@ update_permission_queries_in_memory_cluster: &update_permission_queries_in_memor
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
-update_permission_queries_disk_cluster: &update_permission_queries_disk_cluster
+schema_info_in_memory_queries: &schema_info_in_memory_queries
   cluster:
     main:
       args: *args
-      log_file: "disk-lba-e2e.log"
-      setup_queries:
-        - "STORAGE MODE ON_DISK_TRANSACTIONAL"
-        - *query_modules_setup_queries
+      log_file: "lba-e2e.log"
+      setup_queries: *schema_info_setup_queries
       validation_queries: []
 
 workloads:
@@ -156,23 +132,11 @@ workloads:
     args: ["lba_procedures/read_query_modules.py"]
     <<: *read_query_modules_in_memory_cluster
 
-  - name: "read-query-modules on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/read_query_modules.py"]
-    <<: *read_query_modules_disk_cluster
-
   - name: "update-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/update_query_modules.py"]
     <<: *update_query_modules_in_memory_cluster
-
-  - name: "update-query-modules on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/update_query_modules.py"]
-    <<: *update_query_modules_disk_cluster
 
   - name: "create-delete-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
@@ -180,23 +144,11 @@ workloads:
     args: ["lba_procedures/create_delete_query_modules.py"]
     <<: *create_delete_query_modules_in_memory_cluster
 
-  - name: "create-delete-query-modules on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/create_delete_query_modules.py"]
-    <<: *create_delete_query_modules_disk_cluster
-
   - name: "show-privileges"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/show_privileges.py"]
     <<: *show_privileges_in_memory_cluster
-
-  - name: "show-privileges on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/show_privileges.py"]
-    <<: *show_privileges_disk_cluster
 
   - name: "read-permission-queries"
     binary: "tests/e2e/pytest_runner.sh"
@@ -204,20 +156,20 @@ workloads:
     args: ["lba_procedures/read_permission_queries.py"]
     <<: *read_permission_in_memory_queries
 
-  - name: "read-permission-queries on disk"
-    binary: "tests/e2e/pytest_runner.sh"
-    proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/read_permission_queries.py"]
-    <<: *read_permission_disk_queries
-
   - name: "update-permission-queries"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/update_permission_queries.py"]
     <<: *update_permission_queries_in_memory_cluster
 
-  - name: "update-permission-queries on disk"
+  - name: "schema-info-queries-permission"
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/lba_procedures/procedures/"
-    args: ["lba_procedures/update_permission_queries.py"]
-    <<: *update_permission_queries_disk_cluster
+    args: ["lba_procedures/schema_info_queries_permission.py"]
+    <<: *schema_info_in_memory_queries
+
+  - name: "fine-grained-permissions-matrix"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/fine_grained_permission_matrix.py"]
+    <<: *create_delete_query_modules_in_memory_cluster

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,9 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
-#include "utils/memory.hpp"
 
 namespace memgraph::query {
 
@@ -27,9 +28,29 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(IndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
+  void Visit(EdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(PointIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(TextIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(CreateTextEdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(VectorIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
   void Visit(AnalyzeGraphQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
-  void Visit(AuthQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::AUTH); }
+  void Visit(AuthQuery &query) override {
+    // Special cases
+    if (query.action_ == AuthQuery::Action::SHOW_CURRENT_USER || query.action_ == AuthQuery::Action::SHOW_CURRENT_ROLE)
+      return;  // No privilege needed to show current user or role
+    if (query.action_ == AuthQuery::Action::CHANGE_PASSWORD) return;  // No privilege needed to change your own password
+
+    // Default to AUTH
+    AddPrivilege(AuthQuery::Privilege::AUTH);
+  }
 
   void Visit(ExplainQuery &query) override { query.cypher_query_->Accept(dynamic_cast<QueryVisitor &>(*this)); }
 
@@ -41,6 +62,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
       // TODO: Reconsider priviliges, this 4 should have the same.
       case DatabaseInfoQuery::InfoType::EDGE_TYPES:
       case DatabaseInfoQuery::InfoType::NODE_LABELS:
+      case DatabaseInfoQuery::InfoType::VECTOR_INDEX:
         // TODO: This should be INDEX | STATS, but we don't have support for
         // *or* with privileges.
         AddPrivilege(AuthQuery::Privilege::INDEX);
@@ -50,6 +72,9 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
         // for *or* with privileges.
         AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
         break;
+      case DatabaseInfoQuery::InfoType::METRICS:
+        AddPrivilege(AuthQuery::Privilege::STATS);
+        break;
     }
   }
 
@@ -57,123 +82,256 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     switch (info_query.info_type_) {
       case SystemInfoQuery::InfoType::STORAGE:
       case SystemInfoQuery::InfoType::BUILD:
+      case SystemInfoQuery::InfoType::ACTIVE_USERS:
+      case SystemInfoQuery::InfoType::FIPS:
         AddPrivilege(AuthQuery::Privilege::STATS);
+        break;
+      case SystemInfoQuery::InfoType::LICENSE:
+        // same privilege as for SHOW DATABASE SETTINGS
+        AddPrivilege(AuthQuery::Privilege::CONFIG);
         break;
     }
   }
 
-  void Visit(ConstraintQuery &constraint_query) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
+  void Visit(ConstraintQuery & /*constraint_query*/) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
 
   void Visit(CypherQuery &query) override {
+    if (query.pre_query_directives_.parallel_execution_) {
+      AddPrivilege(AuthQuery::Privilege::PARALLEL_EXECUTION);
+    }
     query.single_query_->Accept(*this);
     for (auto *cypher_union : query.cypher_unions_) {
       cypher_union->Accept(*this);
     }
   }
 
-  void Visit(DumpQuery &dump_query) override { AddPrivilege(AuthQuery::Privilege::DUMP); }
+  void Visit(DumpQuery & /*dump_query*/) override { AddPrivilege(AuthQuery::Privilege::DUMP); }
 
-  void Visit(LockPathQuery &lock_path_query) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
+  void Visit(LockPathQuery & /*lock_path_query*/) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 
-  void Visit(FreeMemoryQuery &free_memory_query) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
+  void Visit(FreeMemoryQuery & /*free_memory_query*/) override { AddPrivilege(AuthQuery::Privilege::FREE_MEMORY); }
 
   void Visit(ShowConfigQuery & /*show_config_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
-  void Visit(TriggerQuery &trigger_query) override { AddPrivilege(AuthQuery::Privilege::TRIGGER); }
+  void Visit(ShowQueryCallableMappingsQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
-  void Visit(StreamQuery &stream_query) override { AddPrivilege(AuthQuery::Privilege::STREAM); }
+  void Visit(TriggerQuery & /*trigger_query*/) override { AddPrivilege(AuthQuery::Privilege::TRIGGER); }
 
-  void Visit(ReplicationQuery &replication_query) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
+  void Visit(StreamQuery & /*stream_query*/) override { AddPrivilege(AuthQuery::Privilege::STREAM); }
 
-  void Visit(IsolationLevelQuery &isolation_level_query) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
+  void Visit(ReplicationQuery & /*replication_query*/) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
+
+  void Visit(ReplicationInfoQuery & /*replication_query*/) override { AddPrivilege(AuthQuery::Privilege::REPLICATION); }
+
+  void Visit(IsolationLevelQuery & /*isolation_level_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
   void Visit(StorageModeQuery & /*storage_mode_query*/) override { AddPrivilege(AuthQuery::Privilege::STORAGE_MODE); }
 
-  void Visit(CreateSnapshotQuery &create_snapshot_query) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
+  void Visit(CreateSnapshotQuery & /*create_snapshot_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::DURABILITY);
+  }
+
+  void Visit(RecoverSnapshotQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
+
+  void Visit(ShowSnapshotsQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
+
+  void Visit(ShowNextSnapshotQuery & /* unused */) override { AddPrivilege(AuthQuery::Privilege::DURABILITY); }
 
   void Visit(SettingQuery & /*setting_query*/) override { AddPrivilege(AuthQuery::Privilege::CONFIG); }
 
   void Visit(TransactionQueueQuery & /*transaction_queue_query*/) override {}
 
+  void Visit(SessionQuery & /*session_query*/) override {}
+
   void Visit(EdgeImportModeQuery & /*edge_import_mode_query*/) override {}
+
+  void Visit(DropAllIndexesQuery & /*drop_all_indexes_query*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(DropAllConstraintsQuery & /*drop_all_constraints_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
+  }
+
+  void Visit(DropGraphQuery & /*drop_graph_query*/) override {}
 
   void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
 
   void Visit(MultiDatabaseQuery &query) override {
     switch (query.action_) {
       case MultiDatabaseQuery::Action::CREATE:
-      case MultiDatabaseQuery::Action::DROP:
         AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
         break;
-      case MultiDatabaseQuery::Action::USE:
-      case MultiDatabaseQuery::Action::SHOW:
-        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE);
+      case MultiDatabaseQuery::Action::DROP:
+      case MultiDatabaseQuery::Action::RENAME:
+        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
+        if (query.force_) {
+          AddPrivilege(AuthQuery::Privilege::TRANSACTION_MANAGEMENT);
+        }
+        break;
+      case MultiDatabaseQuery::Action::SUSPEND:
+      case MultiDatabaseQuery::Action::RESUME:
+        AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_EDIT);
         break;
     }
+  }
+
+  void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
+
+  void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */ }
+
+  void Visit(ParameterQuery & /*parameter_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::SERVER_SIDE_PARAMETERS);
   }
 
   void Visit(ShowDatabasesQuery & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */
   }
 
-  void Visit(CoordinatorQuery & /*coordinator_query*/) override { AddPrivilege(AuthQuery::Privilege::COORDINATOR); }
+  void Visit(CoordinatorQuery &coordinator_query) override {
+    // Coordinator queries run only on coordinators, where they are gated by the coordinator READ/WRITE privilege model.
+    // Read-only introspection needs READ; every mutating/admin coordinator query needs WRITE (a superset of READ).
+    switch (coordinator_query.action_) {
+      case CoordinatorQuery::Action::SHOW_INSTANCE:
+      case CoordinatorQuery::Action::SHOW_INSTANCES:
+      case CoordinatorQuery::Action::SHOW_COORDINATOR_SETTINGS:
+      case CoordinatorQuery::Action::SHOW_REPLICATION_LAG:
+      case CoordinatorQuery::Action::SHOW_ROUTING_TABLE:
+        AddPrivilege(AuthQuery::Privilege::COORDINATOR_READ);
+        break;
+      case CoordinatorQuery::Action::REGISTER_INSTANCE:
+      case CoordinatorQuery::Action::UNREGISTER_INSTANCE:
+      case CoordinatorQuery::Action::SET_INSTANCE_TO_MAIN:
+      case CoordinatorQuery::Action::ADD_COORDINATOR_INSTANCE:
+      case CoordinatorQuery::Action::REMOVE_COORDINATOR_INSTANCE:
+      case CoordinatorQuery::Action::DEMOTE_INSTANCE:
+      case CoordinatorQuery::Action::FORCE_RESET_CLUSTER_STATE:
+      case CoordinatorQuery::Action::YIELD_LEADERSHIP:
+      case CoordinatorQuery::Action::SET_COORDINATOR_SETTING:
+      case CoordinatorQuery::Action::UPDATE_CONFIG:
+        AddPrivilege(AuthQuery::Privilege::COORDINATOR_WRITE);
+        break;
+    }
+  }
+
+  void Visit(CreateEnumQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
+
+  void Visit(ShowEnumsQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
+
+  void Visit(AlterEnumAddValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
+
+  void Visit(AlterEnumUpdateValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::CREATE); }
+
+  void Visit(ReloadSSLQuery & /*reload_ssl_query*/) override { AddPrivilege(AuthQuery::Privilege::RELOAD_TLS); }
+
+  void Visit(ShowMemoryInfoQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
+
+  void Visit(TtlQuery & /*ttl_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::CONFIG);
+    AddPrivilege(AuthQuery::Privilege::INDEX);
+    AddPrivilege(AuthQuery::Privilege::MATCH);
+    AddPrivilege(AuthQuery::Privilege::DELETE);
+  }
+
+  void Visit(AlterEnumRemoveValueQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::DELETE); }
+
+  void Visit(DropEnumQuery & /*enum_query*/) override { AddPrivilege(AuthQuery::Privilege::DELETE); }
+
+  void Visit(ShowSchemaInfoQuery & /*schema_info_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
+
+  void Visit(SessionTraceQuery & /*session_trace_query*/) override {}
+
+  void Visit(SessionSettingQuery & /*session_setting_query*/) override {}
+
+  void Visit(DescriptionQuery & /*description_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::SERVER_SIDE_DESCRIPTIONS);
+  }
+
+  void Visit(UserProfileQuery & /*user_profile_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::PROFILE_RESTRICTION);
+  }
+
+  void Visit(TenantProfileQuery & /*tenant_profile_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::PROFILE_RESTRICTION);
+  }
 
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;
   }
+
   bool PreVisit(CallProcedure &procedure) override {
-    const auto maybe_proc =
-        procedure::FindProcedure(procedure::gModuleRegistry, procedure.procedure_name_, utils::NewDeleteResource());
+    const auto maybe_proc = procedure::FindProcedure(procedure::gModuleRegistry, procedure.procedure_name_);
     if (maybe_proc && maybe_proc->second->info.required_privilege) {
       AddPrivilege(*maybe_proc->second->info.required_privilege);
     }
     return false;
   }
+
   bool PreVisit(Delete & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::DELETE);
     return false;
   }
+
   bool PreVisit(Match & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MATCH);
     return false;
   }
+
   bool PreVisit(Merge & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MERGE);
     return false;
   }
+
   bool PreVisit(SetProperty & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::SET);
     return false;
   }
+
   bool PreVisit(SetProperties & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::SET);
     return false;
   }
+
   bool PreVisit(SetLabels & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::SET);
     return false;
   }
+
   bool PreVisit(RemoveProperty & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::REMOVE);
     return false;
   }
+
   bool PreVisit(RemoveLabels & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::REMOVE);
     return false;
   }
+
   bool PreVisit(LoadCsv & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::READ_FILE);
     return false;
   }
 
+  bool PreVisit(LoadParquet & /*unused*/) override {
+    AddPrivilege(AuthQuery::Privilege::READ_FILE);
+    return false;
+  }
+
+  bool PreVisit(LoadJsonl & /*unused*/) override {
+    AddPrivilege(AuthQuery::Privilege::READ_FILE);
+    return false;
+  }
+
   bool Visit(Identifier & /*unused*/) override { return true; }
+
   bool Visit(PrimitiveLiteral & /*unused*/) override { return true; }
+
   bool Visit(ParameterLookup & /*unused*/) override { return true; }
+
+  bool Visit(EnumValueAccess & /*unused*/) override { return true; }
 
  private:
   void AddPrivilege(AuthQuery::Privilege privilege) {
-    if (!utils::Contains(privileges_, privilege)) {
+    if (!std::ranges::contains(privileges_, privilege)) {
       privileges_.push_back(privilege);
     }
   }

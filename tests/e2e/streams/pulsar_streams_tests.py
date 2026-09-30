@@ -321,7 +321,7 @@ def test_restart_after_error(pulsar_client, pulsar_topics, connection):
 def test_service_url(pulsar_client, pulsar_topics, connection, transformation):
     assert len(pulsar_topics) > 0
     cursor = connection.cursor()
-    LOCAL = "pulsar://127.0.0.1:6650"
+    LOCAL = common.PULSAR_SERVICE_URL
     common.execute_and_fetch_all(
         cursor,
         f"CREATE PULSAR STREAM test TOPICS {','.join(pulsar_topics)} TRANSFORM {transformation} SERVICE_URL '{LOCAL}'",

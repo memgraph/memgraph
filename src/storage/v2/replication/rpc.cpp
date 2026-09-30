@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,396 +10,263 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/rpc.hpp"
-#include <cstdint>
+
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
-#include "utils/typeinfo.hpp"
 
 namespace memgraph {
 
 namespace storage::replication {
 
-void AppendDeltasReq::Save(const AppendDeltasReq &self, memgraph::slk::Builder *builder) {
+void PrepareCommitReq::Save(const PrepareCommitReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
-void AppendDeltasReq::Load(AppendDeltasReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-void AppendDeltasRes::Save(const AppendDeltasRes &self, memgraph::slk::Builder *builder) {
+
+void PrepareCommitReq::Load(PrepareCommitReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void PrepareCommitRes::Save(const PrepareCommitRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
-void AppendDeltasRes::Load(AppendDeltasRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
+void PrepareCommitRes::Load(PrepareCommitRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void FinalizeCommitReq::Save(const FinalizeCommitReq &self, memgraph::slk::Builder *builder) {
+  slk::Save(self, builder);
+}
+
+void FinalizeCommitReq::Load(FinalizeCommitReq *self, memgraph::slk::Reader *reader) { slk::Load(self, reader); }
+
+void FinalizeCommitRes::Save(const FinalizeCommitRes &self, memgraph::slk::Builder *builder) {
+  slk::Save(self, builder);
+}
+
+void FinalizeCommitRes::Load(FinalizeCommitRes *self, memgraph::slk::Reader *reader) { slk::Load(self, reader); }
+
 void HeartbeatReq::Save(const HeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void HeartbeatReq::Load(HeartbeatReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void HeartbeatRes::Save(const HeartbeatRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void HeartbeatRes::Load(HeartbeatRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void SnapshotReq::Save(const SnapshotReq &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
+
 void SnapshotReq::Load(SnapshotReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void SnapshotRes::Save(const SnapshotRes &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
+
 void SnapshotRes::Load(SnapshotRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void WalFilesReq::Save(const WalFilesReq &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
+
 void WalFilesReq::Load(WalFilesReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void WalFilesRes::Save(const WalFilesRes &self, memgraph::slk::Builder *builder) { memgraph::slk::Save(self, builder); }
+
 void WalFilesRes::Load(WalFilesRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void CurrentWalReq::Save(const CurrentWalReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void CurrentWalReq::Load(CurrentWalReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void CurrentWalRes::Save(const CurrentWalRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
+
 void CurrentWalRes::Load(CurrentWalRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-void TimestampReq::Save(const TimestampReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void TimestampReq::Load(TimestampReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-void TimestampRes::Save(const TimestampRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void TimestampRes::Load(TimestampRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-void CreateDatabaseReq::Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void CreateDatabaseReq::Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-void CreateDatabaseRes::Save(const CreateDatabaseRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void CreateDatabaseRes::Load(CreateDatabaseRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-void DropDatabaseReq::Save(const DropDatabaseReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void DropDatabaseReq::Load(DropDatabaseReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-void DropDatabaseRes::Save(const DropDatabaseRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void DropDatabaseRes::Load(DropDatabaseRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-void SystemRecoveryReq::Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void SystemRecoveryReq::Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
-void SystemRecoveryRes::Save(const SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-void SystemRecoveryRes::Load(SystemRecoveryRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
-}
 
 }  // namespace storage::replication
 
-constexpr utils::TypeInfo storage::replication::AppendDeltasReq::kType{utils::TypeId::REP_APPEND_DELTAS_REQ,
-                                                                       "AppendDeltasReq", nullptr};
-
-constexpr utils::TypeInfo storage::replication::AppendDeltasRes::kType{utils::TypeId::REP_APPEND_DELTAS_RES,
-                                                                       "AppendDeltasRes", nullptr};
-
-constexpr utils::TypeInfo storage::replication::HeartbeatReq::kType{utils::TypeId::REP_HEARTBEAT_REQ, "HeartbeatReq",
-                                                                    nullptr};
-
-constexpr utils::TypeInfo storage::replication::HeartbeatRes::kType{utils::TypeId::REP_HEARTBEAT_RES, "HeartbeatRes",
-                                                                    nullptr};
-
-constexpr utils::TypeInfo storage::replication::SnapshotReq::kType{utils::TypeId::REP_SNAPSHOT_REQ, "SnapshotReq",
-                                                                   nullptr};
-
-constexpr utils::TypeInfo storage::replication::SnapshotRes::kType{utils::TypeId::REP_SNAPSHOT_RES, "SnapshotRes",
-                                                                   nullptr};
-
-constexpr utils::TypeInfo storage::replication::WalFilesReq::kType{utils::TypeId::REP_WALFILES_REQ, "WalFilesReq",
-                                                                   nullptr};
-
-constexpr utils::TypeInfo storage::replication::WalFilesRes::kType{utils::TypeId::REP_WALFILES_RES, "WalFilesRes",
-                                                                   nullptr};
-
-constexpr utils::TypeInfo storage::replication::CurrentWalReq::kType{utils::TypeId::REP_CURRENT_WAL_REQ,
-                                                                     "CurrentWalReq", nullptr};
-
-constexpr utils::TypeInfo storage::replication::CurrentWalRes::kType{utils::TypeId::REP_CURRENT_WAL_RES,
-                                                                     "CurrentWalRes", nullptr};
-
-constexpr utils::TypeInfo storage::replication::TimestampReq::kType{utils::TypeId::REP_TIMESTAMP_REQ, "TimestampReq",
-                                                                    nullptr};
-
-constexpr utils::TypeInfo storage::replication::TimestampRes::kType{utils::TypeId::REP_TIMESTAMP_RES, "TimestampRes",
-                                                                    nullptr};
-
-constexpr utils::TypeInfo storage::replication::CreateDatabaseReq::kType{utils::TypeId::REP_CREATE_DATABASE_REQ,
-                                                                         "CreateDatabaseReq", nullptr};
-
-constexpr utils::TypeInfo storage::replication::CreateDatabaseRes::kType{utils::TypeId::REP_CREATE_DATABASE_RES,
-                                                                         "CreateDatabaseRes", nullptr};
-
-constexpr utils::TypeInfo storage::replication::DropDatabaseReq::kType{utils::TypeId::REP_DROP_DATABASE_REQ,
-                                                                       "DropDatabaseReq", nullptr};
-
-constexpr utils::TypeInfo storage::replication::DropDatabaseRes::kType{utils::TypeId::REP_DROP_DATABASE_RES,
-                                                                       "DropDatabaseRes", nullptr};
-
-constexpr utils::TypeInfo storage::replication::SystemRecoveryReq::kType{utils::TypeId::REP_SYSTEM_RECOVERY_REQ,
-                                                                         "SystemRecoveryReq", nullptr};
-
-constexpr utils::TypeInfo storage::replication::SystemRecoveryRes::kType{utils::TypeId::REP_SYSTEM_RECOVERY_RES,
-                                                                         "SystemRecoveryRes", nullptr};
-
 // Autogenerated SLK serialization code
 namespace slk {
-// Serialize code for TimestampRes
-
-void Save(const memgraph::storage::replication::TimestampRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
-  memgraph::slk::Save(self.current_commit_timestamp, builder);
-}
-
-void Load(memgraph::storage::replication::TimestampRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
-  memgraph::slk::Load(&self->current_commit_timestamp, reader);
-}
-
-// Serialize code for TimestampReq
-
-void Save(const memgraph::storage::replication::TimestampReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.uuid, builder);
-}
-
-void Load(memgraph::storage::replication::TimestampReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->uuid, reader);
-}
 
 // Serialize code for CurrentWalRes
 
 void Save(const memgraph::storage::replication::CurrentWalRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
-  memgraph::slk::Save(self.current_commit_timestamp, builder);
+  slk::Save(self.current_commit_timestamp_, builder);
+  slk::Save(self.num_txns_committed_, builder);
 }
 
 void Load(memgraph::storage::replication::CurrentWalRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
-  memgraph::slk::Load(&self->current_commit_timestamp, reader);
+  slk::Load(&self->current_commit_timestamp_, reader);
+  slk::Load(&self->num_txns_committed_, reader);
 }
 
 // Serialize code for CurrentWalReq
 
 void Save(const memgraph::storage::replication::CurrentWalReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
+  memgraph::slk::Save(self.reset_needed, builder);
 }
 
 void Load(memgraph::storage::replication::CurrentWalReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
+  memgraph::slk::Load(&self->reset_needed, reader);
 }
 
 // Serialize code for WalFilesRes
 
 void Save(const memgraph::storage::replication::WalFilesRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
-  memgraph::slk::Save(self.current_commit_timestamp, builder);
+  slk::Save(self.current_commit_timestamp_, builder);
+  slk::Save(self.num_txns_committed_, builder);
 }
 
 void Load(memgraph::storage::replication::WalFilesRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
-  memgraph::slk::Load(&self->current_commit_timestamp, reader);
+  slk::Load(&self->current_commit_timestamp_, reader);
+  slk::Load(&self->num_txns_committed_, reader);
 }
 
 // Serialize code for WalFilesReq
 
 void Save(const memgraph::storage::replication::WalFilesReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
   memgraph::slk::Save(self.file_number, builder);
+  memgraph::slk::Save(self.reset_needed, builder);
 }
 
 void Load(memgraph::storage::replication::WalFilesReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
   memgraph::slk::Load(&self->file_number, reader);
+  memgraph::slk::Load(&self->reset_needed, reader);
 }
 
 // Serialize code for SnapshotRes
 
 void Save(const memgraph::storage::replication::SnapshotRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
-  memgraph::slk::Save(self.current_commit_timestamp, builder);
+  slk::Save(self.current_commit_timestamp_, builder);
+  slk::Save(self.num_txns_committed_, builder);
 }
 
 void Load(memgraph::storage::replication::SnapshotRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
-  memgraph::slk::Load(&self->current_commit_timestamp, reader);
+  slk::Load(&self->current_commit_timestamp_, reader);
+  slk::Load(&self->num_txns_committed_, reader);
 }
 
 // Serialize code for SnapshotReq
 
 void Save(const memgraph::storage::replication::SnapshotReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.uuid, builder);
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.storage_uuid, builder);
 }
 
 void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->uuid, reader);
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->storage_uuid, reader);
 }
 
 // Serialize code for HeartbeatRes
 
 void Save(const memgraph::storage::replication::HeartbeatRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
-  memgraph::slk::Save(self.current_commit_timestamp, builder);
-  memgraph::slk::Save(self.epoch_id, builder);
+  slk::Save(self.success_, builder);
+  slk::Save(self.current_commit_timestamp_, builder);
+  slk::Save(self.epoch_id_, builder);
+  slk::Save(self.num_txns_committed_, builder);
 }
 
 void Load(memgraph::storage::replication::HeartbeatRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
-  memgraph::slk::Load(&self->current_commit_timestamp, reader);
-  memgraph::slk::Load(&self->epoch_id, reader);
+  slk::Load(&self->success_, reader);
+  slk::Load(&self->current_commit_timestamp_, reader);
+  slk::Load(&self->epoch_id_, reader);
+  slk::Load(&self->num_txns_committed_, reader);
 }
 
 // Serialize code for HeartbeatReq
 
 void Save(const memgraph::storage::replication::HeartbeatReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.uuid, builder);
   memgraph::slk::Save(self.main_commit_timestamp, builder);
   memgraph::slk::Save(self.epoch_id, builder);
 }
 
 void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
   memgraph::slk::Load(&self->uuid, reader);
   memgraph::slk::Load(&self->main_commit_timestamp, reader);
   memgraph::slk::Load(&self->epoch_id, reader);
 }
 
-// Serialize code for AppendDeltasRes
+// Serialize code for PrepareCommitRes
 
-void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.success, builder);
-  memgraph::slk::Save(self.current_commit_timestamp, builder);
+void Save(const storage::replication::PrepareCommitRes &self, Builder *builder) { slk::Save(self.success, builder); }
+
+void Load(storage::replication::PrepareCommitRes *self, Reader *reader) { memgraph::slk::Load(&self->success, reader); }
+
+// Serialize code for PrepareCommitReq
+
+void Save(const memgraph::storage::replication::PrepareCommitReq &self, memgraph::slk::Builder *builder) {
+  slk::Save(self.main_uuid, builder);
+  slk::Save(self.storage_uuid, builder);
+  slk::Save(self.previous_commit_timestamp, builder);
+  slk::Save(self.two_phase_commit, builder);
+  slk::Save(self.durability_commit_timestamp, builder);
 }
 
-void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->success, reader);
-  memgraph::slk::Load(&self->current_commit_timestamp, reader);
+void Load(memgraph::storage::replication::PrepareCommitReq *self, memgraph::slk::Reader *reader) {
+  slk::Load(&self->main_uuid, reader);
+  slk::Load(&self->storage_uuid, reader);
+  slk::Load(&self->previous_commit_timestamp, reader);
+  slk::Load(&self->two_phase_commit, reader);
+  slk::Load(&self->durability_commit_timestamp, reader);
 }
 
-// Serialize code for AppendDeltasReq
+// Serialize code for FinalizeCommitRes
 
-void Save(const memgraph::storage::replication::AppendDeltasReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.uuid, builder);
-  memgraph::slk::Save(self.previous_commit_timestamp, builder);
-  memgraph::slk::Save(self.seq_num, builder);
+void Save(const storage::replication::FinalizeCommitRes &self, Builder *builder) { slk::Save(self.success, builder); }
+
+void Load(storage::replication::FinalizeCommitRes *self, Reader *reader) { slk::Load(&self->success, reader); }
+
+// Serialize code for FinalizeCommitReq
+void Save(const memgraph::storage::replication::FinalizeCommitReq &self, memgraph::slk::Builder *builder) {
+  slk::Save(self.decision, builder);
+  slk::Save(self.main_uuid, builder);
+  slk::Save(self.storage_uuid, builder);
+  slk::Save(self.durability_commit_timestamp, builder);
 }
 
-void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->uuid, reader);
-  memgraph::slk::Load(&self->previous_commit_timestamp, reader);
-  memgraph::slk::Load(&self->seq_num, reader);
+void Load(memgraph::storage::replication::FinalizeCommitReq *self, memgraph::slk::Reader *reader) {
+  slk::Load(&self->decision, reader);
+  slk::Load(&self->main_uuid, reader);
+  slk::Load(&self->storage_uuid, reader);
+  slk::Load(&self->durability_commit_timestamp, reader);
 }
 
 // Serialize SalientConfig
-
 void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.name, builder);
+  memgraph::slk::Save(*self.name.str_view(), builder);
   memgraph::slk::Save(self.uuid, builder);
-  memgraph::slk::Save(utils::EnumToNum<3, uint8_t>(self.storage_mode), builder);
+  memgraph::slk::Save(std::to_underlying(self.storage_mode), builder);
   memgraph::slk::Save(self.items.properties_on_edges, builder);
   memgraph::slk::Save(self.items.enable_schema_metadata, builder);
 }
 
 void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->name, reader);
+  std::string name;
+  memgraph::slk::Load(&name, reader);
+  self->name = std::move(name);
   memgraph::slk::Load(&self->uuid, reader);
   uint8_t sm = 0;
   memgraph::slk::Load(&sm, reader);
-  if (!utils::NumToEnum<3>(sm, self->storage_mode)) {
+  if (!utils::NumToEnum(sm, self->storage_mode)) {
     throw SlkReaderException("Unexpected result line:{}!", __LINE__);
   }
   memgraph::slk::Load(&self->items.properties_on_edges, reader);
   memgraph::slk::Load(&self->items.enable_schema_metadata, reader);
-}
-
-// Serialize code for CreateDatabaseReq
-
-void Save(const memgraph::storage::replication::CreateDatabaseReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.epoch_id, builder);
-  memgraph::slk::Save(self.expected_group_timestamp, builder);
-  memgraph::slk::Save(self.new_group_timestamp, builder);
-  memgraph::slk::Save(self.config, builder);
-}
-
-void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->epoch_id, reader);
-  memgraph::slk::Load(&self->expected_group_timestamp, reader);
-  memgraph::slk::Load(&self->new_group_timestamp, reader);
-  memgraph::slk::Load(&self->config, reader);
-}
-
-// Serialize code for CreateDatabaseRes
-
-void Save(const memgraph::storage::replication::CreateDatabaseRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
-}
-
-void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
-}
-
-// Serialize code for DropDatabaseReq
-
-void Save(const memgraph::storage::replication::DropDatabaseReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.epoch_id, builder);
-  memgraph::slk::Save(self.expected_group_timestamp, builder);
-  memgraph::slk::Save(self.new_group_timestamp, builder);
-  memgraph::slk::Save(self.uuid, builder);
-}
-
-void Load(memgraph::storage::replication::DropDatabaseReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->epoch_id, reader);
-  memgraph::slk::Load(&self->expected_group_timestamp, reader);
-  memgraph::slk::Load(&self->new_group_timestamp, reader);
-  memgraph::slk::Load(&self->uuid, reader);
-}
-
-// Serialize code for DropDatabaseRes
-
-void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
-}
-
-void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
-}
-
-// Serialize code for SystemRecoveryReq
-
-void Save(const memgraph::storage::replication::SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.forced_group_timestamp, builder);
-  memgraph::slk::Save(self.database_configs, builder);
-}
-
-void Load(memgraph::storage::replication::SystemRecoveryReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->forced_group_timestamp, reader);
-  memgraph::slk::Load(&self->database_configs, reader);
-}
-
-// Serialize code for SystemRecoveryRes
-
-void Save(const memgraph::storage::replication::SystemRecoveryRes &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
-}
-
-void Load(memgraph::storage::replication::SystemRecoveryRes *self, memgraph::slk::Reader *reader) {
-  uint8_t res = 0;
-  memgraph::slk::Load(&res, reader);
-  if (!utils::NumToEnum(res, self->result)) {
-    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
-  }
 }
 
 }  // namespace slk

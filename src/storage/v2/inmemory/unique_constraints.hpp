@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,37 +11,35 @@
 
 #pragma once
 
+#include <memory>
 #include <optional>
-#include <span>
-#include <thread>
 #include <variant>
+#include <vector>
+#include "memory/db_arena_fwd.hpp"
+#include "metrics/metric_handles.hpp"
+#include "metrics/scoped_gauge.hpp"
+#include "storage/v2/common_function_signatures.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
+#include "storage/v2/constraints/constraints_mvcc.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
-#include "utils/logging.hpp"
-#include "utils/rw_spin_lock.hpp"
+#include "storage/v2/index_arming.hpp"
+#include "utils/rw_lock.hpp"
+#include "utils/skip_list.hpp"
+#include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
-/// Utility class to store data in a fixed size array. The array is used
-/// instead of `std::vector` to avoid `std::bad_alloc` exception where not
-/// necessary.
-template <class T>
-struct FixedCapacityArray {
-  size_t size;
-  T values[kUniqueConstraintsMaxProperties];
-
-  explicit FixedCapacityArray(size_t array_size) : size(array_size) {
-    MG_ASSERT(size <= kUniqueConstraintsMaxProperties, "Invalid array size!");
-  }
-};
-
-using PropertyIdArray = FixedCapacityArray<PropertyId>;
+struct Transaction;
+class Storage;
 
 class InMemoryUniqueConstraints : public UniqueConstraints {
- private:
+ public:
+  explicit InMemoryUniqueConstraints(metrics::GaugeHandle gauge = {}) : gauge_{gauge} {}
+
   struct Entry {
     std::vector<PropertyValue> values;
     const Vertex *vertex;
@@ -54,34 +52,85 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
     bool operator==(const std::vector<PropertyValue> &rhs) const;
   };
 
-  static std::optional<ConstraintViolation> DoValidate(const Vertex &vertex,
-                                                       utils::SkipList<Entry>::Accessor &constraint_accessor,
-                                                       const LabelId &label, const std::set<PropertyId> &properties);
-
- public:
+  /// Both validators call `cancel_check` once per vertex and throw PopulateCancel when it returns true. The parallel
+  /// one reports it through a flag and re-throws after joining, so an escaping exception can never terminate the
+  /// process.
   struct MultipleThreadsConstraintValidation {
-    bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties);
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+                    utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
+                    const std::set<PropertyId> &properties, ProgressCallback const &on_progress = {},
+                    CheckCancelFunction const &cancel_check = neverCancel) const
+        -> std::expected<void, ConstraintViolation>;
 
     const durability::ParallelizedSchemaCreationInfo &parallel_exec_info;
   };
+
   struct SingleThreadConstraintValidation {
-    bool operator()(const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-                    utils::SkipList<Entry>::Accessor &constraint_accessor, const LabelId &label,
-                    const std::set<PropertyId> &properties);
+    auto operator()(const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+                    utils::SkipListDb<Entry>::Accessor &constraint_accessor, const LabelId &label,
+                    const std::set<PropertyId> &properties, ProgressCallback const &on_progress = {},
+                    CheckCancelFunction const &cancel_check = neverCancel) const
+        -> std::expected<void, ConstraintViolation>;
   };
 
-  /// Indexes the given vertex for relevant labels and properties.
-  /// This method should be called before committing and validating vertices
-  /// against unique constraints.
-  /// @throw std::bad_alloc
-  void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx);
+  // constraints are created and dropped with read only access
+  // a status is needed to not drop the constraint before it gets validated
+  // new writes can't happen during this time due to read only access
+  struct IndividualConstraint {
+    explicit IndividualConstraint() : skiplist{} {}
 
-  void UpdateBeforeCommit(const Vertex *vertex, std::unordered_set<LabelId> &added_labels,
-                          std::unordered_set<PropertyId> &added_properties, const Transaction &tx);
+    ~IndividualConstraint();
+    void Publish(uint64_t commit_timestamp, metrics::GaugeHandle gauge);
 
-  void AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp);
+    utils::SkipListDb<Entry> skiplist;
+    ConstraintStatus status{};  // MVCC status tracking
+    metrics::ScopedGauge gauge_{};
+  };
+
+  using IndividualConstraintPtr = std::shared_ptr<IndividualConstraint>;
+
+  using PropertiesConstraints =
+      std::map<std::set<PropertyId>, IndividualConstraintPtr, std::less<std::set<PropertyId>>,
+               memory::DbAwareAllocator<std::pair<const std::set<PropertyId>, IndividualConstraintPtr>>>;
+
+  using Container = std::map<LabelId, PropertiesConstraints, std::less<LabelId>,
+                             memory::DbAwareAllocator<std::pair<const LabelId, PropertiesConstraints>>>;
+
+  using ContainerPtr = std::shared_ptr<Container const>;
+
+  /// ActiveConstraints implementation for unique constraints.
+  /// Provides snapshot-based access for a transaction's lifetime.
+  class ActiveConstraints final : public UniqueConstraints::ActiveConstraints {
+   public:
+    explicit ActiveConstraints(ContainerPtr snapshot = std::make_shared<Container>());
+
+    auto ListConstraints(uint64_t start_timestamp) const
+        -> std::vector<std::pair<LabelId, std::set<PropertyId>>> override;
+    void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) override;
+    auto GetAbortProcessor() const -> AbortProcessor override;
+    void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const override;
+    void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
+    bool empty() const override;
+    auto ConstrainedProperties() const -> InterestingProperties override;
+    auto ConstrainedLabels() const -> InterestingLabels override;
+
+    // Unique constraints are validated at commit time via UpdateBeforeCommit(),
+    // so label changes don't require incremental updates during the transaction.
+    void UpdateOnRemoveLabel(LabelId /*removed_label*/, const Vertex & /*vertex_before_update*/,
+                             const uint64_t /*transaction_start_timestamp*/) override {}
+
+    void UpdateOnAddLabel(LabelId /*added_label*/, const Vertex & /*vertex_before_update*/,
+                          uint64_t /*transaction_start_timestamp*/) override {}
+
+   private:
+    ContainerPtr container_;
+    // Sorted, and borrowed by every transaction started against this snapshot.
+    std::vector<PropertyId> constrained_properties_;
+    std::vector<LabelId> constrained_labels_;
+  };
+
+  /// Creates an ActiveConstraints snapshot for transaction use.
+  auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> override;
 
   /// Creates unique constraint on the given `label` and a list of `properties`.
   /// Returns constraint violation if there are multiple vertices with the same
@@ -92,46 +141,92 @@ class InMemoryUniqueConstraints : public UniqueConstraints {
   /// exceeds the maximum allowed number of properties, and
   /// `CreationStatus::SUCCESS` on success.
   /// @throw std::bad_alloc
-  utils::BasicResult<ConstraintViolation, CreationStatus> CreateConstraint(
-      LabelId label, const std::set<PropertyId> &properties, const utils::SkipList<Vertex>::Accessor &vertex_accessor,
-      const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info);
+  /// @throw PopulateCancel if `cancel_check` asks to stop; the caller is responsible for deregistering the constraint.
+  auto CreateConstraint(LabelId label, const std::set<PropertyId> &properties,
+                        const utils::SkipListDb<Vertex>::Accessor &vertex_accessor,
+                        const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info,
+                        ProgressCallback const &on_progress = {}, CheckCancelFunction const &cancel_check = neverCancel)
+      -> std::expected<CreationStatus, ConstraintViolation>;
 
-  /// Deletes the specified constraint. Returns `DeletionStatus::NOT_FOUND` if
-  /// there is not such constraint in the storage,
-  /// `DeletionStatus::EMPTY_PROPERTIES` if the given set of `properties` is
-  /// empty, `DeletionStatus::PROPERTIES_SIZE_LIMIT_EXCEEDED` if the given set
-  /// of `properties` exceeds the maximum allowed number of properties, and
-  /// `DeletionStatus::SUCCESS` on success.
-  DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
+  /// Publishes a constraint after validation, making it visible at the given commit timestamp.
+  bool PublishConstraint(LabelId label, const std::set<PropertyId> &properties, uint64_t commit_timestamp);
 
-  bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const override;
+  /// Drops a constraint. Returns the evicted IndividualConstraint so the caller
+  /// can reinstall it via RestoreConstraint on abort, alongside the deletion
+  /// status. {SUCCESS, ptr} on success; {NOT_FOUND/EMPTY_PROPERTIES/..., nullptr}
+  /// otherwise.
+  struct DropResult {
+    DeletionStatus status;
+    IndividualConstraintPtr evicted;
+  };
 
-  void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
-                           const uint64_t transaction_start_timestamp) override {}
+  [[nodiscard]] auto DropConstraint(LabelId label, const std::set<PropertyId> &properties) -> DropResult;
 
-  void UpdateOnAddLabel(LabelId added_label, const Vertex &vertex_before_update,
-                        uint64_t transaction_start_timestamp) override{};
+  /// Reinstalls a previously-evicted IndividualConstraint. No-op if the slot
+  /// has been reclaimed by a concurrent CREATE (constraint DDL runs under
+  /// READ_ONLY/UNIQUE, which does not serialize peers).
+  void RestoreConstraint(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr evicted);
+
+  /// Hands an evicted constraint over for reclamation once the DROP is known to have committed. Its skiplist holds one
+  /// entry per constrained vertex, so freeing it is O(constrained vertices) -- minutes on a large tenant. Without this
+  /// the last reference dies with the committing transaction's callbacks, running that teardown inline on whichever
+  /// thread committed, which for a replica is the RPC handler its peer is waiting on. GC reaps it instead, once no
+  /// reader snapshot references it any more.
+  void RetireConstraint(IndividualConstraintPtr evicted);
 
   /// Validates the given vertex against unique constraints before committing.
   /// This method should be called while commit lock is active with
   /// `commit_timestamp` being a potential commit timestamp of the transaction.
   /// @throw std::bad_alloc
-  std::optional<ConstraintViolation> Validate(const Vertex &vertex, const Transaction &tx,
-                                              uint64_t commit_timestamp) const;
+  auto Validate(const std::unordered_set<Vertex const *> &vertices, const Transaction &tx,
+                uint64_t commit_timestamp) const -> std::expected<void, ConstraintViolation>;
 
-  std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
+  /// How many entries the named constraint holds, or nullopt when there is no such constraint.
+  /// Every vertex the constraint covers accounts for one; anything beyond that is an obsolete entry
+  /// still waiting for a sweep, which is what makes this worth asking: it is how a sweep that was
+  /// owed and never ran becomes visible from outside. Counts what the constraint holds, so an entry
+  /// already removed is gone from it whether or not its memory has been reclaimed.
+  auto EntryCount(LabelId label, std::set<PropertyId> const &properties) const -> std::optional<uint64_t>;
 
-  /// GC method that removes outdated entries from constraints' storages.
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+  /// GC method that removes outdated entries from constraints' storages. Sweeps only the
+  /// constraints whose label or one of whose properties `arming` names, and answers with how
+  /// many that was.
+  uint64_t RemoveObsoleteEntries(Storage *storage, uint64_t oldest_active_start_timestamp, const std::stop_token &token,
+                                 IndexArming const &arming);
 
   void Clear() override;
 
-  static std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation> GetCreationFunction(
-      const std::optional<durability::ParallelizedSchemaCreationInfo> &);
+  void DropGraphClearConstraints();
+
+  static auto GetCreationFunction(const std::optional<durability::ParallelizedSchemaCreationInfo> &)
+      -> std::variant<MultipleThreadsConstraintValidation, SingleThreadConstraintValidation>;
+
+  void RunGC();
 
  private:
-  std::map<std::pair<LabelId, std::set<PropertyId>>, utils::SkipList<Entry>> constraints_;
-  std::map<LabelId, std::map<std::set<PropertyId>, utils::SkipList<Entry> *>> constraints_by_label_;
+  auto GetIndividualConstraint(const LabelId label, const std::set<PropertyId> &properties) const
+      -> IndividualConstraintPtr;
+
+  // Installs ptr if the slot is absent; returns the installed ptr or nullptr.
+  // Shared by CreateConstraint (validates via the returned skiplist) and RestoreConstraint.
+  auto InstallConstraint_(LabelId label, const std::set<PropertyId> &properties, IndividualConstraintPtr ptr)
+      -> IndividualConstraintPtr;
+
+  // Reaps anything in retired_ that only this list still references. Called from GC, so the skiplist teardown lands
+  // there rather than on a committing thread.
+  void ReclaimRetiredConstraints();
+
+  // Drops every reference retired_ holds, for teardown paths where the whole container is going away. Unconditional
+  // rather than refcount-gated: anything a reader snapshot still points at stays alive on its own reference and dies
+  // with that reader. Without this the list keeps entries until the object is destroyed, and with periodic GC off
+  // nothing else would ever release them.
+  void ReleaseRetiredConstraints();
+
+  metrics::GaugeHandle gauge_{};
+  utils::Synchronized<ContainerPtr, utils::WritePrioritizedRWLock> container_{std::make_shared<Container const>()};
+  // Dropped constraints awaiting reclamation. A reader that took an ActiveConstraints snapshot before the DROP can
+  // still be iterating one of these, so the refcount -- not this list -- decides when the memory actually goes.
+  utils::Synchronized<std::vector<IndividualConstraintPtr>, utils::SpinLock> retired_{};
 };
 
 }  // namespace memgraph::storage

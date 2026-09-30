@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,8 @@
 #include <chrono>
 #include <memory>
 #include <mutex>
-#include <thread>
+#include <span>
+#include <string_view>
 #include <utility>
 
 #include <openssl/bio.h>
@@ -62,7 +63,11 @@ class OutputStream final {
 
   bool Write(const uint8_t *data, size_t len, bool have_more = false) { return write_function_(data, len, have_more); }
 
-  bool Write(const std::string &str, bool have_more = false) {
+  bool Write(std::span<const uint8_t> data, bool have_more = false) {
+    return Write(data.data(), data.size(), have_more);
+  }
+
+  bool Write(std::string_view str, bool have_more = false) {
     return Write(reinterpret_cast<const uint8_t *>(str.data()), str.size(), have_more);
   }
 
@@ -97,14 +102,18 @@ class Session final {
     // are always sending optimal packets. Even if we don't send optimal
     // packets, there will be no delay between packets and throughput won't
     // suffer.
-    socket_.SetNonBlocking();
+    if (auto const val = socket_.SetNonBlocking(); !val.has_value()) {
+      LOG_FATAL(val.error());
+    }
+
     socket_.SetKeepAlive();
     socket_.SetNoDelay();
 
     // Prepare SSL if we should be using it.
     if (context->use_ssl()) {
       // Create a new SSL object that will be used for SSL communication.
-      ssl_ = SSL_new(context->context());
+      tls_context_ = context->context_clone();
+      ssl_ = SSL_new(tls_context_->native_handle());
       MG_ASSERT(ssl_ != nullptr, "Couldn't create server SSL object!");
 
       // Create a new BIO (block I/O) SSL object so that OpenSSL can communicate
@@ -155,7 +164,7 @@ class Session final {
     utils::OnScopeExit on_exit([this] { RefreshLastEventTime(false); });
 
     // Allocate the buffer to fill the data.
-    auto buf = input_buffer_.write_end()->Allocate();
+    auto buf = input_buffer_.write_end()->GetBuffer();
 
     if (ssl_) {
       // We clear errors here to prevent errors piling up in the internal
@@ -220,7 +229,7 @@ class Session final {
       // Check for read errors.
       if (len == -1) {
         // This means read would block or read was interrupted by signal, we
-        // return `true` to indicate that all data is processad and to stop
+        // return `true` to indicate that all data is processed and to stop
         // reading of data.
         if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) {
           return true;
@@ -250,7 +259,7 @@ class Session final {
    * different threads in the network stack.
    */
   bool TimedOut() {
-    std::unique_lock<utils::SpinLock> guard(lock_);
+    auto guard = std::unique_lock{lock_};
     if (execution_active_) return false;
     return last_event_time_ + std::chrono::seconds(inactivity_timeout_sec_) < std::chrono::steady_clock::now();
   }
@@ -262,7 +271,7 @@ class Session final {
 
  private:
   void RefreshLastEventTime(bool active) {
-    std::unique_lock<utils::SpinLock> guard(lock_);
+    auto guard = std::unique_lock{lock_};
     execution_active_ = active;
     last_event_time_ = std::chrono::steady_clock::now();
   }
@@ -309,11 +318,12 @@ class Session final {
       // This function guarantees that all data will be written to the socket
       // even if the socket is non-blocking. It will use a non-busy wait to send
       // all data.
-      return socket_.Write(data, len, have_more);
+      return socket_.Write(data, len, have_more).has_value();
     }
   }
 
   // We own the socket.
+  std::shared_ptr<boost::asio::ssl::context> tls_context_;
   io::network::Socket socket_;
 
   // Input and output buffers/streams.

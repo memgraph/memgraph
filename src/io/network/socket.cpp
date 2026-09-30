@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,25 @@
 
 #include <arpa/inet.h>
 #include <fcntl.h>
+#include <netdb.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <poll.h>
+#include <spdlog/spdlog.h>
+#include <sys/socket.h>
+#include <sys/time.h>
+#include <unistd.h>
+#include <cerrno>
+#include <chrono>
+#include <cstring>
+#include <string>
 
 #include "io/network/addrinfo.hpp"
+#include "io/network/endpoint.hpp"
 #include "io/network/network_error.hpp"
 #include "io/network/socket.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 
@@ -36,16 +49,16 @@ Socket &Socket::operator=(Socket &&other) noexcept {
   return *this;
 }
 
-Socket::~Socket() noexcept {
-  if (socket_ != -1) close(socket_);
-}
+Socket::~Socket() noexcept { Close(); }
 
-void Socket::Close() {
+void Socket::Close() noexcept {
   if (socket_ == -1) return;
-  close(socket_);
+  Close(socket_, endpoint_.SocketAddress());
   socket_ = -1;
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 void Socket::Shutdown() {
   if (socket_ == -1) return;
   shutdown(socket_, SHUT_RDWR);
@@ -53,54 +66,181 @@ void Socket::Shutdown() {
 
 bool Socket::IsOpen() const { return socket_ != -1; }
 
-bool Socket::Connect(const Endpoint &endpoint) {
-  if (socket_ != -1) return false;
+void Socket::Close(int const sfd, std::string_view socket_addr) {
+  if (close(sfd) != 0) {
+    int const err_sc = errno;
+    spdlog::error("Failed to close fd for {}. Errno: {}", socket_addr, std::strerror(err_sc));
+  }
+}
+
+bool Socket::Connect(const Endpoint &endpoint, std::chrono::milliseconds const connect_timeout_ms,
+                     bool const keep_non_blocking) {
+  if (socket_ != -1) {
+    spdlog::trace("Socket::Connect failed, socket_ not ready!");
+    return false;
+  }
+
+  auto const socket_addr = endpoint.SocketAddress();
+
+  try {
+    for (const auto &it : AddrInfo{endpoint}) {
+      metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.socket_connect_seconds};
+
+      int const sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
+      if (sfd == -1) {
+        spdlog::trace("Socket creation failed while connecting to {}. File descriptor is -1", socket_addr);
+        continue;
+      }
+
+      const int sockfd_flags_orig = fcntl(sfd, F_GETFL, 0);
+      if (sockfd_flags_orig < 0) {
+        spdlog::error("Failed to read file status and file access mode during connect");
+        Close(sfd, socket_addr);
+        continue;
+      }
+
+      if (fcntl(sfd, F_SETFL, sockfd_flags_orig | O_NONBLOCK) < 0) {
+        spdlog::error("Failed to set socket to non-blocking mode during connect.");
+        Close(sfd, socket_addr);
+        continue;
+      }
+
+      auto async_connect = [&](int const fd, const sockaddr *addr, socklen_t addrlen) -> bool {
+        // if connect succeeded
+        if (connect(fd, addr, addrlen) == 0) {
+          return true;
+        }
+
+        // Failure which we don't handle
+        if (errno != EINPROGRESS && errno != EWOULDBLOCK) {
+          spdlog::error("Failed to connect to socket with err code {}", errno);
+          return false;
+        }
+
+        auto const start_time = std::chrono::steady_clock::now();
+        auto const deadline = start_time + connect_timeout_ms;
+
+        while (true) {
+          auto const now = std::chrono::steady_clock::now();
+
+          if (now >= deadline) {
+            errno = ETIMEDOUT;
+            return false;
+          }
+
+          auto const ms_remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count();
+
+          std::array<pollfd, 1> pfds{{{.fd = fd, .events = POLLOUT}}};
+          int const poll_status = poll(pfds.data(), pfds.size(), static_cast<int>(ms_remaining));
+
+          // Socket is ready, likely writeable
+          if (poll_status > 0) {
+            int error = 0;
+            socklen_t len = sizeof(error);
+
+            // Check if the connection was successful
+            if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &len) == 0 && error == 0) {
+              return true;
+            }
+
+            // Update errno if the connection wasn't successful
+            errno = error;
+            return false;
+          }
+
+          // Poll status of 0 indicated timeout
+          if (poll_status == 0) {
+            errno = ETIMEDOUT;
+            return false;
+          }
+
+          // If errno == EINTR, it means that the signal occurred while the system call was in progress
+          // In that case we retry, otherwise abort and return false
+          // https://stackoverflow.com/questions/41474299/checking-if-errno-eintr-what-does-it-mean
+          if (errno != EINTR) {
+            return false;
+          }
+        }
+      };
+
+      if (!async_connect(sfd, it.ai_addr, it.ai_addrlen)) {
+        Close(sfd, socket_addr);
+        continue;
+      }
+
+      if (!keep_non_blocking && fcntl(sfd, F_SETFL, sockfd_flags_orig) < 0) {
+        spdlog::error("Failed to set socket to blocking mode during connect");
+        Close(sfd, socket_addr);
+        continue;
+      }
+
+      // Success
+      socket_ = sfd;
+      endpoint_ = endpoint;
+
+      break;
+    }
+  } catch (const NetworkError &e) {
+    spdlog::trace("Error occurred while connecting to {}. Error: {}", endpoint.SocketAddress(), e.what());
+    return false;
+  }
+
+  return socket_ != -1;
+}
+
+bool Socket::Bind(const Endpoint &endpoint) {
+  if (socket_ != -1) {
+    spdlog::trace("Socket::Bind failed, socket_ not ready!");
+    return false;
+  }
+
+  auto const socket_addr = endpoint.SocketAddress();
 
   try {
     for (const auto &it : AddrInfo{endpoint}) {
       int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
-      if (sfd == -1) continue;
-      if (connect(sfd, it.ai_addr, it.ai_addrlen) == 0) {
+      if (sfd == -1) {
+        spdlog::trace("Socket creation failed in Socket::Bind for socket address {}. File descriptor is -1",
+                      endpoint.SocketAddress());
+        continue;
+      }
+
+      int on = 1;
+      if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) != 0) {
+        spdlog::trace("setsockopt in Socket::Bind failed for socket address {}", socket_addr);
+        // If the setsockopt failed close the file descriptor to prevent file
+        // descriptors being leaked
+        if (close(sfd) != 0) {
+          int const err_sc = errno;
+          spdlog::error(
+              "Failed to close fd for {}. Closing started because 'setsockopt' failed while binding. Errno: {}",
+              socket_addr,
+              std::strerror(err_sc));
+        }
+        continue;
+      }
+
+      if (bind(sfd, it.ai_addr, it.ai_addrlen) == 0) {
         socket_ = sfd;
-        endpoint_ = endpoint;
         break;
       }
-      // If the connect failed close the file descriptor to prevent file
+      // If the bind failed close the file descriptor to prevent file
       // descriptors being leaked
-      close(sfd);
+      spdlog::trace("Socket::Bind failed. Closing file descriptor for socket address {}", endpoint.SocketAddress());
+      if (close(sfd) != 0) {
+        int const err_sc = errno;
+        spdlog::error("Failed to close fd for {} while trying to bind. Errno: {}", socket_addr, std::strerror(err_sc));
+      }
     }
-  } catch (const NetworkError &e) {
+  } catch (NetworkError const &e) {
+    spdlog::trace("Error happened while trying to bind to {}. Error: {}", endpoint.SocketAddress(), e.what());
     return false;
   }
 
-  return !(socket_ == -1);
-}
-
-bool Socket::Bind(const Endpoint &endpoint) {
-  if (socket_ != -1) return false;
-
-  for (const auto &it : AddrInfo{endpoint}) {
-    int sfd = socket(it.ai_family, it.ai_socktype, it.ai_protocol);
-    if (sfd == -1) continue;
-
-    int on = 1;
-    if (setsockopt(sfd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) != 0) {
-      // If the setsockopt failed close the file descriptor to prevent file
-      // descriptors being leaked
-      close(sfd);
-      continue;
-    }
-
-    if (bind(sfd, it.ai_addr, it.ai_addrlen) == 0) {
-      socket_ = sfd;
-      break;
-    }
-    // If the bind failed close the file descriptor to prevent file
-    // descriptors being leaked
-    close(sfd);
+  if (socket_ == -1) {
+    spdlog::trace("Socket::Bind failed. socket_ is -1 for socket address {}", endpoint.SocketAddress());
+    return false;
   }
-
-  if (socket_ == -1) return false;
 
   // detect bound port, used when the server binds to a random port
   struct sockaddr_in6 portdata;
@@ -108,39 +248,57 @@ bool Socket::Bind(const Endpoint &endpoint) {
   if (getsockname(socket_, reinterpret_cast<sockaddr *>(&portdata), &portdatalen) < 0) {
     // If the getsockname failed close the file descriptor to prevent file
     // descriptors being leaked
-    close(socket_);
+    if (close(socket_) != 0) {
+      int const err_sc = errno;
+      spdlog::error("Failed to close fd for {}. Closing started because 'getsockname' failed. Errno: {}",
+                    socket_addr,
+                    std::strerror(err_sc));
+    }
     socket_ = -1;
+    spdlog::trace("Socket::Bind failed. getsockname failed, closing file descriptor for socket address {}",
+                  endpoint.SocketAddress());
     return false;
   }
 
-  endpoint_ = Endpoint(endpoint.address, ntohs(portdata.sin6_port));
+  endpoint_ = Endpoint(endpoint.GetAddress(), ntohs(portdata.sin6_port));
 
   return true;
 }
 
-void Socket::SetNonBlocking() {
-  const unsigned flags = fcntl(socket_, F_GETFL);
-  constexpr unsigned o_nonblock = O_NONBLOCK;
-  MG_ASSERT(flags != -1, "Can't get socket mode");
-  MG_ASSERT(fcntl(socket_, F_SETFL, flags | o_nonblock) != -1, "Can't set socket nonblocking");
+// Not const because of C-API
+// NOLINTNEXTLINE
+[[nodiscard]] auto Socket::SetNonBlocking() -> std::expected<void, std::string> {
+  int flags = fcntl(socket_, F_GETFL);
+  if (flags < 0) {
+    return std::unexpected{"Failed to read flags when setting socket to the non-blocking mode"};
+  }
+  flags |= O_NONBLOCK;
+  if (fcntl(socket_, F_SETFL, flags) < 0) {
+    spdlog::error("Failed to restore socket to the non-blocking mode");
+    return std::unexpected{"Failed to restore socket to the non-blocking mode"};
+  }
+  return {};
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 void Socket::SetKeepAlive() {
-  int optval = 1;
-  MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_KEEPALIVE, &optval, sizeof(optval)), "Can't set socket keep alive");
+  auto const set_opt = [this](int const level, int const optname, int value, char const *const opt_name) {
+    if (setsockopt(socket_, level, optname, &value, sizeof(value)) != 0) {
+      int const err_sc = errno;
+      spdlog::error("Failed to set socket option {} for keep alive. Errno: {}", opt_name, std::strerror(err_sc));
+      LOG_FATAL("Can't set socket keep alive");
+    }
+  };
 
-  optval = 20;  // wait 20s before sending keep-alive packets
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPIDLE, (void *)&optval, sizeof(optval)),
-            "Can't set socket keep alive");
-
-  optval = 4;  // 4 keep-alive packets must fail to close
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPCNT, (void *)&optval, sizeof(optval)), "Can't set socket keep alive");
-
-  optval = 15;  // send keep-alive packets every 15s
-  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_KEEPINTVL, (void *)&optval, sizeof(optval)),
-            "Can't set socket keep alive");
+  set_opt(SOL_SOCKET, SO_KEEPALIVE, 1, "SO_KEEPALIVE");
+  set_opt(SOL_TCP, TCP_KEEPIDLE, 20, "TCP_KEEPIDLE");    // wait 20s before sending keep-alive packets
+  set_opt(SOL_TCP, TCP_KEEPCNT, 4, "TCP_KEEPCNT");       // 4 keep-alive packets must fail to close
+  set_opt(SOL_TCP, TCP_KEEPINTVL, 15, "TCP_KEEPINTVL");  // send keep-alive packets every 15s
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 void Socket::SetNoDelay() {
   int optval = 1;
   MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_NODELAY, (void *)&optval, sizeof(optval)), "Can't set socket no delay");
@@ -157,6 +315,12 @@ void Socket::SetTimeout(int64_t sec, int64_t usec) {
   MG_ASSERT(!setsockopt(socket_, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv)), "Can't set socket timeout");
 }
 
+// NOLINTNEXTLINE(readability-make-member-function-const)
+void Socket::SetUserTimeout(int timeout_ms) {
+  MG_ASSERT(!setsockopt(socket_, SOL_TCP, TCP_USER_TIMEOUT, &timeout_ms, sizeof(timeout_ms)),
+            "Can't set TCP_USER_TIMEOUT");
+}
+
 int Socket::ErrorStatus() const {
   int optval = 0;
   socklen_t optlen = sizeof(optval);
@@ -165,8 +329,12 @@ int Socket::ErrorStatus() const {
   return optval;
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 std::optional<Socket> Socket::Accept() {
   sockaddr_storage addr;
   socklen_t addr_size = sizeof addr;
@@ -188,12 +356,15 @@ std::optional<Socket> Socket::Accept() {
 
   inet_ntop(addr.ss_family, addr_src, addr_decoded, sizeof(addr_decoded));
 
-  Endpoint endpoint(addr_decoded, port);
+  Endpoint const endpoint(addr_decoded, port);
 
   return Socket(sfd, endpoint);
 }
 
-bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
+// Not const because of C-API
+// NOLINTNEXTLINE
+auto Socket::Write(const uint8_t *data, size_t len, bool have_more, std::optional<int> timeout_ms)
+    -> std::expected<void, ClientCommunicationError> {
   // MSG_NOSIGNAL is here to disable raising a SIGPIPE signal when a
   // connection dies mid-write, the socket will only return an EPIPE error.
   constexpr unsigned msg_nosignal = MSG_NOSIGNAL;
@@ -203,54 +374,124 @@ bool Socket::Write(const uint8_t *data, size_t len, bool have_more) {
     auto written = send(socket_, data, len, static_cast<int>(flags));
     if (written == -1) {
       if (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR) {
-        // Terminal error, return failure.
-        return false;
+        if (errno == ETIMEDOUT) {
+          spdlog::warn("TCP_USER_TIMEOUT triggered on socket write (fd={}): unacknowledged data exceeded timeout",
+                       socket_);
+        } else {
+          spdlog::warn("Socket write error (fd={}, errno={}): {}", socket_, errno, strerror(errno));
+        }
+        return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
       }
       // Non-fatal error, retry after the socket is ready. This is here to
       // implement a non-busy wait. If we just continue with the loop we have a
       // busy wait.
-      if (!WaitForReadyWrite()) return false;
+      if (!WaitForReadyWrite(timeout_ms)) {
+        return std::unexpected{ClientCommunicationError::TIMEOUT_ERROR};
+      }
     } else if (written == 0) {
       // The client closed the connection.
-      return false;
+      return std::unexpected{ClientCommunicationError::GENERIC_ERROR};
     } else {
       len -= written;
       data += written;
     }
   }
-  return true;
+  return {};
 }
 
-bool Socket::Write(std::string_view s, bool have_more) {
-  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more);
+auto Socket::Write(std::string_view s, bool have_more, std::optional<int> timeout_ms)
+    -> std::expected<void, ClientCommunicationError> {
+  return Write(reinterpret_cast<const uint8_t *>(s.data()), s.size(), have_more, timeout_ms);
 }
 
+// Not const because of C-API
+// NOLINTNEXTLINE
 ssize_t Socket::Read(void *buffer, size_t len, bool nonblock) {
   return recv(socket_, buffer, len, nonblock ? MSG_DONTWAIT : 0);
 }
 
-bool Socket::WaitForReadyRead() {
+bool Socket::WaitForReadyRead(std::optional<int> timeout_ms) const {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLIN;
   // We call poll with one element in the poll fds array (first and second
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
-  int ret = poll(&p, 1, -1);
-  if (ret < 1) return false;
+
+  auto deadline = std::invoke([&timeout_ms]() -> std::optional<std::chrono::steady_clock::time_point> {
+    if (!timeout_ms) return std::nullopt;
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(*timeout_ms);
+  });
+
+  int ret;
+  do {
+    // -1 for blocking indefinitely, otherwise wait for the remaining time until deadline.
+    auto const remaining_timeout_ms = std::invoke([&deadline]() -> int {
+      if (!deadline) return -1;
+      return static_cast<int>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now()).count());
+    });
+
+    if (deadline.has_value() && remaining_timeout_ms < 0) {
+      spdlog::error("Waiting too long to get in ready state for reading. Timeout occurred.");
+      return false;
+    }
+
+    ret = poll(&p, 1, remaining_timeout_ms);
+  } while (ret < 0 && errno == EINTR);
+
+  if (ret == -1) {
+    spdlog::error("Error occurred while polling for file descriptors.");
+    return false;
+  }
+  if (ret == 0) {
+    spdlog::error("Waiting too long to get in ready state for reading. Timeout occurred.");
+    return false;
+  }
+
   constexpr unsigned pollin = POLLIN;
   return static_cast<unsigned>(p.revents) & pollin;
 }
 
-bool Socket::WaitForReadyWrite() {
+bool Socket::WaitForReadyWrite(std::optional<int> timeout_ms) const {
   struct pollfd p;
   p.fd = socket_;
   p.events = POLLOUT;
   // We call poll with one element in the poll fds array (first and second
   // arguments), also we set the timeout to -1 to block indefinitely until an
   // event occurs.
-  int ret = poll(&p, 1, -1);
-  if (ret < 1) return false;
+
+  auto deadline = std::invoke([&timeout_ms]() -> std::optional<std::chrono::steady_clock::time_point> {
+    if (!timeout_ms) return std::nullopt;
+    return std::chrono::steady_clock::now() + std::chrono::milliseconds(*timeout_ms);
+  });
+
+  int ret;
+  do {
+    // -1 for blocking indefinitely, otherwise wait for the remaining time until deadline.
+    auto const remaining_timeout_ms = std::invoke([&deadline]() -> int {
+      if (!deadline) return -1;
+      return static_cast<int>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(*deadline - std::chrono::steady_clock::now()).count());
+    });
+
+    // -1 is allowed if there was no timeout set
+    if (deadline.has_value() && remaining_timeout_ms < 0) {
+      spdlog::error("Waiting too long to get in ready state for writing. Timeout occurred.");
+      return false;
+    }
+
+    ret = poll(&p, 1, remaining_timeout_ms);
+  } while (ret < 0 && errno == EINTR);
+
+  if (ret == -1) {
+    spdlog::error("Error occurred while polling for file descriptors.");
+    return false;
+  }
+  if (ret == 0) {
+    spdlog::error("Waiting too long to get in ready state for writing. Timeout occurred.");
+    return false;
+  }
   constexpr unsigned pollout = POLLOUT;
   return static_cast<unsigned>(p.revents) & pollout;
 }

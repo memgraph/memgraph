@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,10 +14,21 @@
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/ssl.h>
+#include <openssl/types.h>
+#include <cstddef>
+#include <cstdint>
 
 // Centos 7 OpenSSL includes libkrb5 which has brings in macros TRUE and FALSE. undef to prevent issues.
 #undef TRUE
 #undef FALSE
+
+#include <expected>
+#include <memory>
+#include <optional>
+#include <span>
+#include <string_view>
+
+#include <boost/asio/ssl/context.hpp>
 
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
@@ -37,7 +48,8 @@ namespace memgraph::communication {
  */
 class Client final {
  public:
-  explicit Client(ClientContext *context);
+  explicit Client(ClientContext *context,
+                  std::chrono::milliseconds connect_timeout_ms = std::chrono::milliseconds{5000});
 
   ~Client();
 
@@ -55,12 +67,12 @@ class Client final {
   /**
    * This function returns `true` if the socket is in an error state.
    */
-  bool ErrorStatus();
+  bool ErrorStatus() const;
 
   /**
    * This function returns `true` if the socket is connected to a remote host.
    */
-  bool IsConnected();
+  bool IsConnected() const;
 
   /**
    * This function shuts down the socket.
@@ -77,8 +89,10 @@ class Client final {
    * stores it in an internal buffer. If `exactly_len` is set to `false` then
    * less than `len` bytes can be received. It returns `true` if the read
    * succeeded and `false` if it didn't.
+   * Propagates timeout_ms to Socket::WaitForReadyRead.
    */
-  bool Read(size_t len, bool exactly_len = true);
+  [[nodiscard]] auto Read(size_t len, bool exactly_len = true, std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, io::network::ClientCommunicationError>;
 
   /**
    * This function returns a pointer to the read data that is currently stored
@@ -90,7 +104,7 @@ class Client final {
    * This function returns the size of the read data that is currently stored in
    * the client.
    */
-  size_t GetDataSize();
+  size_t GetDataSize() const;
 
   /**
    * This function removes first `len` bytes from the data buffer.
@@ -107,24 +121,43 @@ class Client final {
    * TODO (mferencevic): the `have_more` flag currently isn't supported when
    * using OpenSSL
    */
-  bool Write(const uint8_t *data, size_t len, bool have_more = false);
+  [[nodiscard]] auto Write(const uint8_t *data, size_t len, bool have_more = false,
+                           std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, io::network::ClientCommunicationError>;
 
   /**
    * This function writes data to the socket.
    */
-  bool Write(const std::string &str, bool have_more = false);
+  [[nodiscard]] auto Write(std::span<const uint8_t> data, bool have_more = false,
+                           std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, io::network::ClientCommunicationError> {
+    return Write(data.data(), data.size(), have_more, timeout_ms);
+  }
 
-  const io::network::Endpoint &endpoint();
+  /**
+   * This function writes data to the socket.
+   */
+  [[nodiscard]] auto Write(std::string_view str, bool have_more = false, std::optional<int> timeout_ms = std::nullopt)
+      -> std::expected<void, io::network::ClientCommunicationError>;
+
+  const io::network::Endpoint &endpoint() const;
 
  private:
   void ReleaseSslObjects();
+  auto SetupSslObjects() -> std::expected<void, std::string>;
+  auto DriveSslHandshake() -> std::expected<void, std::string>;
 
   io::network::Socket socket_;
   Buffer buffer_;
 
   ClientContext *context_;
+  // Pins the SSL context for the lifetime of this connection so a concurrent
+  // cluster TLS reload cannot free the SSL_CTX underneath `ssl_`. Mirrors the
+  // shape used by the v2/http/websocket sessions.
+  std::shared_ptr<boost::asio::ssl::context> ssl_context_;
   SSL *ssl_{nullptr};
   BIO *bio_{nullptr};
+  std::chrono::milliseconds connect_timeout_ms_;
 };
 
 /**
@@ -165,7 +198,11 @@ class ClientOutputStream final {
 
   bool Write(const uint8_t *data, size_t len, bool have_more = false);
 
-  bool Write(const std::string &str, bool have_more = false);
+  bool Write(std::span<const uint8_t> data, bool have_more = false) {
+    return Write(data.data(), data.size(), have_more);
+  }
+
+  bool Write(std::string_view str, bool have_more = false);
 
  private:
   Client &client_;

@@ -1,0 +1,7 @@
+query: >
+  CALL do.case([TRUE, "MATCH (n: Node) WHERE n.id < 10 AND n.id >= 10 RETURN *;"],
+                      "",
+                      {id: 0})
+  YIELD *;
+
+output: []

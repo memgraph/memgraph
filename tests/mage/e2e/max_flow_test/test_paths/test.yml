@@ -1,0 +1,8 @@
+query: >
+  MATCH (source {id: 0}), (sink {id: 5})
+  CALL max_flow.get_paths(source, sink)
+  YIELD path, flow
+  RETURN count(path) AS count
+
+output:
+    - count: 4

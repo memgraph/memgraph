@@ -1,0 +1,162 @@
+name: Runner Cache Warmup
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner:
+        type: string
+        description: Runner name
+        default: ""
+
+env:
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  OS: ubuntu-24.04
+  TOOLCHAIN: v8
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+
+run-name: Runner Cache Warmup
+
+jobs:
+  cache-warmup:
+    if: ${{ inputs.runner != '' }}
+    runs-on: [self-hosted, Linux, '${{ inputs.runner }}']
+    timeout-minutes: 180
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          fetch-depth: 0
+
+      - name: Set Architecture
+        run: |
+          uname_arch="$(uname -m)"
+          [[ "$uname_arch" ]] && ARCH="amd" || ARCH="arm"
+          echo "Memgraph build architecture: $ARCH"
+          echo "ARCH=${ARCH}" >> $GITHUB_ENV
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
+      - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Build release binary
+        run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.0)
+          echo "Linking with $LINK_THREADS threads"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type RelWithDebInfo \
+          --threads 12 \
+          build-memgraph \
+          --link-threads $LINK_THREADS \
+          --split-debug \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+      - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Build Debug binary
+        run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 3.5)
+          echo "Linking with $LINK_THREADS threads"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type Debug \
+          --threads 12 \
+          build-memgraph \
+          --link-threads $LINK_THREADS \
+          --split-debug \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+      - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run --custom-mirror $USE_CUSTOM_MIRROR
+
+      - name: Build Coverage binary
+        run: |
+          LINK_THREADS=$(./tools/ci/compute-build-threads.sh 5.0)
+          echo "Linking with $LINK_THREADS threads"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type Debug \
+          --threads 12 \
+          build-memgraph --coverage --asan --ubsan \
+          --link-threads $LINK_THREADS \
+          --split-debug \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh

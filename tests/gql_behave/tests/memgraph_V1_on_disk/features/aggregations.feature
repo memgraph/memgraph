@@ -195,7 +195,10 @@ Feature: Aggregations
             """
             MATCH (a) RETURN MIN(a.x) AS n
             """
-        Then an error should be raised
+        Then the result should be:
+            | n   |
+            | 'x' |
+        And no side effects
 
     Scenario: Min test 02:
         Given an empty graph
@@ -236,6 +239,75 @@ Feature: Aggregations
             | min(null) |
             | null      |
 
+    Scenario: Min test 05: Date
+        Given any graph
+        When executing query:
+            """
+            UNWIND [date("2024-03-05"), date("2023-04-05"), date("2023-03-06")] AS i
+            RETURN min(i)
+            """
+        Then the result should be:
+            | min(i)     |
+            | 2023-03-06 |
+        And no side effects
+
+    Scenario: Min test 06: LocalTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [localTime("09:16:00"), localTime("09:15:59"), localTime("10:15:00")] AS i
+            RETURN min(i)
+            """
+        Then the result should be:
+            | min(i)             |
+            | 09:15:59.000000000 |
+        And no side effects
+
+    Scenario: Min test 07: LocalDateTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [localDateTime("2024-03-05T09:15:00"),
+            localDateTime("2023-04-05T09:15:00"),
+            localDateTime("2023-03-06T09:15:00"),
+            localDateTime("2023-03-05T10:15:00"),
+            localDateTime("2023-03-05T09:16:00"),
+            localDateTime("2023-03-05T09:15:59")] AS i
+            RETURN min(i)
+            """
+        Then the result should be:
+            | min(i)                        |
+            | 2023-03-05T09:15:59.000000000 |
+        And no side effects
+
+    Scenario: Min test 08: ZonedDateTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [datetime("2024-01-22T08:12:31[Etc/UTC]"),
+            datetime("2024-01-22T08:42:31+00:30"),
+            datetime("2024-01-22T08:57:31+00:45"),
+            datetime("2024-01-22T09:12:31[Europe/Zurich]"),
+            datetime("2024-01-22T09:12:31[Europe/Warsaw]")] AS i
+            RETURN min(i)
+            """
+        Then the result should be:
+            | min(i)                              |
+            | 2024-01-22T08:12:31.000000000+00:00 |
+        And no side effects
+
+    Scenario: Min test 09: Duration
+        Given any graph
+        When executing query:
+            """
+            UNWIND [duration("PT2M2.33S"), duration("PT2M2.33S")] AS i
+            RETURN min(i)
+            """
+        Then the result should be:
+            | min(i)        |
+            | PT2M2.33S     |
+        And no side effects
+
     Scenario: Max test 01:
         Given an empty graph
         And having executed
@@ -246,7 +318,10 @@ Feature: Aggregations
             """
             MATCH (a) RETURN MAX(a.x) AS n
             """
-        Then an error should be raised
+        Then the result should be:
+            | n |
+            | 7 |
+        And no side effects
 
     Scenario: Max test 02:
         Given an empty graph
@@ -286,6 +361,75 @@ Feature: Aggregations
         Then the result should be:
             | max(null) |
             | null      |
+
+    Scenario: Max test 05: Date
+        Given any graph
+        When executing query:
+            """
+            UNWIND [date("2024-03-05"), date("2023-04-05"), date("2023-03-06")] AS i
+            RETURN max(i)
+            """
+        Then the result should be:
+            | max(i)     |
+            | 2024-03-05 |
+        And no side effects
+
+    Scenario: Max test 06: LocalTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [localTime("10:15:00"), localTime("09:16:00"), localTime("09:15:59")] AS i
+            RETURN max(i)
+            """
+        Then the result should be:
+            | max(i)             |
+            | 10:15:00.000000000 |
+        And no side effects
+
+    Scenario: Max test 07: LocalDateTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [localDateTime("2024-03-05T09:15:00"),
+            localDateTime("2023-04-05T09:15:00"),
+            localDateTime("2023-03-06T09:15:00"),
+            localDateTime("2023-03-05T10:15:00"),
+            localDateTime("2023-03-05T09:16:00"),
+            localDateTime("2023-03-05T09:15:59")] AS i
+            RETURN max(i)
+            """
+        Then the result should be:
+            | max(i)                        |
+            | 2024-03-05T09:15:00.000000000 |
+        And no side effects
+
+    Scenario: Max test 08: ZonedDateTime
+        Given any graph
+        When executing query:
+            """
+            UNWIND [datetime("2024-01-22T08:12:31[Etc/UTC]"),
+            datetime("2024-01-22T08:42:31+00:30"),
+            datetime("2024-01-22T08:57:31+00:45"),
+            datetime("2024-01-22T09:12:31[Europe/Zurich]"),
+            datetime("2024-01-22T09:12:31[Europe/Warsaw]")] AS i
+            RETURN max(i)
+            """
+        Then the result should be:
+            | max(i)                              |
+            | 2024-01-22T09:12:31.000000000+01:00 |
+        And no side effects
+
+    Scenario: Max test 09: Duration
+        Given any graph
+        When executing query:
+            """
+            UNWIND [duration("PT2M2.33S"), duration("PT2M2.33S")] AS i
+            RETURN max(i)
+            """
+        Then the result should be:
+            | max(i)        |
+            | PT2M2.33S     |
+        And no side effects
 
     Scenario: Collect test 01:
         Given an empty graph
@@ -329,7 +473,7 @@ Feature: Aggregations
             | n                                 |
             | {a_key: 13, b_key: 11, c_key: 12} |
 
-        Scenario: Combined aggregations - some evauluates to null:
+        Scenario: Combined aggregations - some evaluate to null:
         Given an empty graph
         And having executed
             """
@@ -403,6 +547,147 @@ Feature: Aggregations
         Then the result should be:
           | y |
 
+    Scenario: Two-argument projection creates a subgraph from lists of nodes and edges
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (d: N {x: 4}), (a)-[:R {q: 1}]->(b), (c)-[:R {q: 2}]->(d)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) WITH project([x, z], [r]) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then the result should be:
+            | x |
+            | 4 |
+            | 3 |
+            | 2 |
+            | 1 |
+
+    Scenario: Two-argument projection ignores duplicate nodes
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 1}]->(b), (b)-[:R {q: 2}]->(c), (a)-[:R {q: 3}]->(c)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) WITH project([x, z], [r]) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then the result should be:
+            | x |
+            | 3 |
+            | 2 |
+            | 1 |
+
+    Scenario: Two-argument projection ignores duplicate edges
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 4}]->(b), (b)-[:R {q: 5}]->(c), (a)-[:R {q: 6}]->(c)
+            """
+        When executing query:
+            """
+            MATCH p=(x)-[r:R]->(z) WITH project([x, z], [r]) as graph WITH graph.edges as edges UNWIND edges as e RETURN e.q as q ORDER BY q DESC
+            """
+        Then the result should be:
+            | q |
+            | 6 |
+            | 5 |
+            | 4 |
+
+    Scenario: Two-argument projection ignores null nodes
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 1}]->(b), (b)-[:R {q: 2}]->(c), (a)-[:R {q: 3}]->(c)
+            """
+        When executing query:
+            """
+            MATCH (x1)-[r1:R]->(z1) OPTIONAL MATCH(x2)-[r2:R2]->(z2) WITH project([x1, x2, z1, z2], [r1, r2]) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then the result should be:
+            | x |
+            | 3 |
+            | 2 |
+            | 1 |
+
+    Scenario: Two-argument projection ignores null edges
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 4}]->(b), (b)-[:R {q: 5}]->(c), (a)-[:R {q: 6}]->(c)
+            """
+        When executing query:
+            """
+            MATCH (x1)-[r1:R]->(z1) OPTIONAL MATCH(x2)-[r2:R2]->(z2) WITH project([x1, x2, z1, z2], [r1, r2]) as graph WITH graph.edges as edges UNWIND edges as e RETURN e.q as q ORDER BY q DESC
+            """
+        Then the result should be:
+            | q |
+            | 6 |
+            | 5 |
+            | 4 |
+
+    Scenario: Two-argument projection errors if first argument is not a list of nodes
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 1}]->(b), (b)-[:R {q: 2}]->(c), (a)-[:R {q: 3}]->(c)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) WITH project([r], [r]) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then an error should be raised
+
+    Scenario: Two-argument projection errors if second argument is not a list of edges
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (c:N {x:3}), (a)-[:R {q: 1}]->(b), (b)-[:R {q: 2}]->(c), (a)-[:R {q: 3}]->(c)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) WITH project([x], [x]) as graph WITH graph.nodes as nodes UNWIND nodes as n RETURN n.x as x ORDER BY x DESC
+            """
+        Then an error should be raised
+
+    Scenario: Two-argument projection errors if incident start node is missing from a projected edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (a)-[:R {q: 1}]->(b)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) RETURN project([z], [r]) AS graph;
+            """
+        Then an error should be raised
+
+    Scenario: Two-argument projection errors if incident end node is missing from a projected edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (a)-[:R {q: 1}]->(b)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) RETURN project([x], [r]) AS graph;
+            """
+        Then an error should be raised
+
+    Scenario: Two-argument projection errors if both incident nodes are missing from a projected edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE (a:N {x:1}), (b:N {x:2}), (a)-[:R {q: 1}]->(b)
+            """
+        When executing query:
+            """
+            MATCH (x)-[r:R]->(z) RETURN project([], [r]) AS graph;
+            """
+        Then an error should be raised
+
     Scenario: Empty collect aggregation:
       Given an empty graph
       And having executed
@@ -441,7 +726,7 @@ Feature: Aggregations
           """
       Then the result should be:
           | tags                                                                                                                                             |
-          | [{description: 'SYSTEM_TAG', short_code: 'TST'}, {description: 'SYSTEM_TAG', short_code: 'PRD'}, {description: 'SYSTEM_TAG', short_code: 'STG'}] |
+          | [{description: 'SYSTEM_TAG', short_code: 'STG'}, {description: 'SYSTEM_TAG', short_code: 'PRD'}, {description: 'SYSTEM_TAG', short_code: 'TST'}] |
 
     Scenario: Count directly without WITH clause 01
       Given an empty graph
@@ -474,3 +759,43 @@ Feature: Aggregations
         | 20    | 21    | 22    | 1   |
         | 10    | 11    | 12    | 1   |
         | 1     | 2     | 3     | 1   |
+
+    Scenario: Empty aggregation without grouping keys 01:
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n) RETURN count(*) > 0 AS exists
+            """
+        Then the result should be:
+            | exists |
+            | false  |
+
+    Scenario: Empty aggregation without grouping keys 02:
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n) RETURN sum(n.prop) + 1 AS prop_sum
+            """
+        Then the result should be:
+            | prop_sum |
+            | 1        |
+
+    Scenario: Empty aggregation without grouping keys 03:
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n) RETURN sum(n.prop) > 0 AS has_props
+            """
+        Then the result should be:
+            | has_props |
+            | false     |
+
+    Scenario: Empty aggregation without grouping keys 04:
+        Given an empty graph
+        When executing query:
+            """
+            MATCH (n) RETURN size(collect(n)) = 0 AS is_empty
+            """
+        Then the result should be:
+            | is_empty |
+            | true     |

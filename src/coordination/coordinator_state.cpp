@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,213 +9,246 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "coordination/coordinator_state.hpp"
-#include <span>
-#include "coordination/coordinator_client.hpp"
-
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_config.hpp"
-#include "coordination/coordinator_entity_info.hpp"
-#include "flags/replication.hpp"
+#include "coordination/coordinator_state.hpp"
+
+#include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_instance.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "spdlog/spdlog.h"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 
-#include <atomic>
-#include <exception>
+#include <nlohmann/json.hpp>
 #include <optional>
+#include <string_view>
+#include <variant>
 
 namespace memgraph::coordination {
 
-namespace {
+CoordinatorState::CoordinatorState(CoordinatorInstanceInitConfig const &config) {
+  data_.emplace<CoordinatorInstance>(config);
+}
 
-bool CheckName(const std::list<CoordinatorClient> &replicas, const CoordinatorClientConfig &config) {
-  auto name_matches = [&instance_name = config.instance_name](auto const &replica) {
-    return replica.InstanceName() == instance_name;
+CoordinatorState::CoordinatorState(ReplicationInstanceInitConfig const &config) {
+  ManagementServerConfig const mgmt_config{
+      io::network::Endpoint{kDefaultManagementServerIp, static_cast<uint16_t>(config.management_port)},
   };
-  return std::any_of(replicas.begin(), replicas.end(), name_matches);
-};
-
-}  // namespace
-
-CoordinatorState::CoordinatorState() {
-  MG_ASSERT(!(FLAGS_coordinator && FLAGS_coordinator_server_port),
-            "Instance cannot be a coordinator and have registered coordinator server.");
-
-  if (FLAGS_coordinator_server_port) {
-    auto const config = CoordinatorServerConfig{
-        .ip_address = kDefaultReplicationServerIp,
-        .port = static_cast<uint16_t>(FLAGS_coordinator_server_port),
-    };
-
-    data_ = CoordinatorMainReplicaData{.coordinator_server_ = std::make_unique<CoordinatorServer>(config)};
-  }
+  data_ = CoordinatorMainReplicaData{.data_instance_management_server_ = std::make_unique<DataInstanceManagementServer>(
+                                         mgmt_config, config.tls_config)};
+  spdlog::info("Created data instance management server on address {}:{}.",
+               mgmt_config.endpoint.GetAddress(),
+               mgmt_config.endpoint.GetPort());
 }
 
-auto CoordinatorState::RegisterReplica(const CoordinatorClientConfig &config)
-    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> {
-  const auto name_endpoint_status =
-      std::visit(memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
-                                               return RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR;
-                                             },
-                                             [&config](const CoordinatorData &coordinator_data) {
-                                               if (memgraph::coordination::CheckName(
-                                                       coordinator_data.registered_replicas_, config)) {
-                                                 return RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
-                                               }
-                                               return RegisterMainReplicaCoordinatorStatus::SUCCESS;
-                                             }},
-                 data_);
+auto CoordinatorState::RegisterReplicationInstance(DataInstanceConfig const &config)
+    -> RegisterInstanceCoordinatorStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot register replica since variant holds wrong alternative");
 
-  if (name_endpoint_status != RegisterMainReplicaCoordinatorStatus::SUCCESS) {
-    return name_endpoint_status;
-  }
-
-  // Maybe no need to return client if you can start replica client here
-  return &std::get<CoordinatorData>(data_).registered_replicas_.emplace_back(config);
-}
-
-auto CoordinatorState::RegisterMain(const CoordinatorClientConfig &config)
-    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *> {
-  const auto endpoint_status = std::visit(
-      memgraph::utils::Overloaded{
-          [](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
-            return RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR;
-          },
-          [](const CoordinatorData & /*coordinator_data*/) { return RegisterMainReplicaCoordinatorStatus::SUCCESS; }},
+  return std::visit(
+      memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                    return RegisterInstanceCoordinatorStatus::NOT_COORDINATOR;
+                                  },
+                                  [config](CoordinatorInstance &coordinator_instance) {
+                                    return coordinator_instance.RegisterReplicationInstance(config);
+                                  }},
       data_);
-
-  if (endpoint_status != RegisterMainReplicaCoordinatorStatus::SUCCESS) {
-    return endpoint_status;
-  }
-
-  auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
-  registered_main = std::make_unique<CoordinatorClient>(config);
-  return registered_main.get();
 }
 
-auto CoordinatorState::ShowReplicas() const -> std::vector<CoordinatorEntityInfo> {
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
-            "Can't call show replicas on data_, as variant holds wrong alternative");
-  std::vector<CoordinatorEntityInfo> result;
-  const auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
-  result.reserve(registered_replicas.size());
-  std::ranges::transform(registered_replicas, std::back_inserter(result), [](const auto &replica) {
-    return CoordinatorEntityInfo{replica.InstanceName(), replica.Endpoint()};
-  });
-  return result;
+auto CoordinatorState::UnregisterReplicationInstance(std::string_view instance_name)
+    -> UnregisterInstanceCoordinatorStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot unregister instance since variant holds wrong alternative");
+
+  return std::visit(
+      memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                    return UnregisterInstanceCoordinatorStatus::NOT_COORDINATOR;
+                                  },
+                                  [&instance_name](CoordinatorInstance &coordinator_instance) {
+                                    return coordinator_instance.UnregisterReplicationInstance(instance_name);
+                                  }},
+      data_);
 }
 
-auto CoordinatorState::ShowMain() const -> std::optional<CoordinatorEntityInfo> {
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
-            "Can't call show main on data_, as variant holds wrong alternative");
-  const auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
-  if (registered_main) {
-    return CoordinatorEntityInfo{registered_main->InstanceName(), registered_main->Endpoint()};
-  }
-  return std::nullopt;
+auto CoordinatorState::DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot demote instance to replica since variant holds wrong alternative");
+
+  return std::visit(
+      memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                    return DemoteInstanceCoordinatorStatus::NOT_COORDINATOR;
+                                  },
+                                  [&instance_name](CoordinatorInstance &coordinator_instance) {
+                                    return coordinator_instance.DemoteInstanceToReplica(instance_name);
+                                  }},
+      data_);
 }
 
-auto CoordinatorState::PingReplicas() const -> std::unordered_map<std::string_view, bool> {
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
-            "Can't call ping replicas on data_, as variant holds wrong alternative");
-  std::unordered_map<std::string_view, bool> result;
-  const auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
-  result.reserve(registered_replicas.size());
-  for (const CoordinatorClient &replica_client : registered_replicas) {
-    result.emplace(replica_client.InstanceName(), replica_client.DoHealthCheck());
-  }
+auto CoordinatorState::ReconcileClusterState() -> ReconcileClusterStateStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot force reset cluster state since variant holds wrong alternative.");
 
-  return result;
+  return std::visit(
+      memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                    spdlog::error(
+                                        "Coordinator cannot force reset cluster state since it is not a "
+                                        "coordinator instance.");
+                                    return ReconcileClusterStateStatus::FAIL;
+                                  },
+                                  [](CoordinatorInstance &coordinator_instance) {
+                                    return coordinator_instance.TryVerifyOrCorrectClusterState();
+                                  }},
+      data_);
 }
 
-auto CoordinatorState::PingMain() const -> std::optional<CoordinatorEntityHealthInfo> {
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_),
-            "Can't call show main on data_, as variant holds wrong alternative");
-  const auto &registered_main = std::get<CoordinatorData>(data_).registered_main_;
-  if (registered_main) {
-    return CoordinatorEntityHealthInfo{registered_main->InstanceName(), registered_main->DoHealthCheck()};
-  }
-  return std::nullopt;
+auto CoordinatorState::SetReplicationInstanceToMain(std::string_view instance_name)
+    -> SetInstanceToMainCoordinatorStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot register replica since variant holds wrong alternative");
+
+  return std::visit(
+      memgraph::utils::Overloaded{[](const CoordinatorMainReplicaData & /*coordinator_main_replica_data*/) {
+                                    return SetInstanceToMainCoordinatorStatus::NOT_COORDINATOR;
+                                  },
+                                  [&instance_name](CoordinatorInstance &coordinator_instance) {
+                                    return coordinator_instance.SetReplicationInstanceToMain(instance_name);
+                                  }},
+      data_);
 }
 
-auto CoordinatorState::DoFailover() -> DoFailoverStatus {
-  // 1. MAIN is already down, stop sending frequent checks
-  // 2. find new replica (coordinator)
-  // 3. make copy replica's client as potential new main client (coordinator)
-  // 4. send failover RPC to new main (coordinator and new main)
-  // 5. exchange old main to new main (coordinator)
-  // 6. remove replica which was promoted to main from all replicas -> this will shut down RPC frequent check client
-  // (coordinator)
-  // 7. for new main start frequent checks (coordinator)
-
-  MG_ASSERT(std::holds_alternative<CoordinatorData>(data_), "Cannot do failover since variant holds wrong alternative");
-  using ReplicationClientInfo = CoordinatorClientConfig::ReplicationClientInfo;
-
-  // 1.
-  auto &current_main = std::get<CoordinatorData>(data_).registered_main_;
-
-  if (!current_main) {
-    return DoFailoverStatus::CLUSTER_UNINITIALIZED;
-  }
-
-  if (current_main->DoHealthCheck()) {
-    return DoFailoverStatus::MAIN_ALIVE;
-  }
-  current_main->StopFrequentCheck();
-
-  // 2.
-  // Get all replicas and find new main
-  auto &registered_replicas = std::get<CoordinatorData>(data_).registered_replicas_;
-
-  const auto chosen_replica = std::ranges::find_if(
-      registered_replicas, [](const CoordinatorClient &replica) { return replica.DoHealthCheck(); });
-  if (chosen_replica == registered_replicas.end()) {
-    return DoFailoverStatus::ALL_REPLICAS_DOWN;
-  }
-
-  std::vector<ReplicationClientInfo> repl_clients_info;
-  repl_clients_info.reserve(registered_replicas.size() - 1);
-  std::ranges::for_each(registered_replicas, [&chosen_replica, &repl_clients_info](const CoordinatorClient &replica) {
-    if (replica != *chosen_replica) {
-      repl_clients_info.emplace_back(replica.ReplicationClientInfo());
-    }
-  });
-
-  // 3.
-  // Set on coordinator data of new main
-  // allocate resources for new main, clear replication info on this replica as main
-  // set last response time
-  auto potential_new_main = std::make_unique<CoordinatorClient>(chosen_replica->Config());
-  potential_new_main->ReplicationClientInfo().reset();
-  potential_new_main->UpdateTimeCheck(chosen_replica->GetLastTimeResponse());
-
-  // 4.
-  if (!chosen_replica->SendPromoteReplicaToMainRpc(std::move(repl_clients_info))) {
-    spdlog::error("Sent RPC message, but exception was caught, aborting Failover");
-    // TODO: new status and rollback all changes that were done...
-    MG_ASSERT(false, "RPC message failed");
-  }
-
-  // 5.
-  current_main = std::move(potential_new_main);
-
-  // 6. remove old replica
-  // TODO: Stop pinging chosen_replica before failover.
-  // Check that it doesn't fail when you call StopFrequentCheck if it is already stopped
-  registered_replicas.erase(chosen_replica);
-
-  // 7.
-  current_main->StartFrequentCheck();
-
-  return DoFailoverStatus::SUCCESS;
+auto CoordinatorState::ShowInstance() const -> InstanceStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Can't call show instance on data_, as variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).ShowInstance();
 }
 
-auto CoordinatorState::GetCoordinatorServer() const -> CoordinatorServer & {
+auto CoordinatorState::ShowInstances() const -> std::optional<std::vector<InstanceStatus>> {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Can't call show instances on data_, as variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).ShowInstances();
+}
+
+auto CoordinatorState::GetDataInstanceManagementServer() const -> DataInstanceManagementServer & {
   MG_ASSERT(std::holds_alternative<CoordinatorMainReplicaData>(data_),
             "Cannot get coordinator server since variant holds wrong alternative");
-  return *std::get<CoordinatorMainReplicaData>(data_).coordinator_server_;
+  return *std::get<CoordinatorMainReplicaData>(data_).data_instance_management_server_;
 }
+
+auto CoordinatorState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const
+    -> AddCoordinatorInstanceStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot be added since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).AddCoordinatorInstance(config);
+}
+
+auto CoordinatorState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot be unregistered since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).RemoveCoordinatorInstance(coordinator_id);
+}
+
+auto CoordinatorState::UpdateConfig(coordination::UpdateInstanceConfig const &config)
+    -> coordination::UpdateConfigStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot be unregistered since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).UpdateConfig(config);
+}
+
+auto CoordinatorState::SetCoordinatorSetting(std::string_view const setting_name,
+                                             std::string_view const setting_value) const
+    -> SetCoordinatorSettingStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator's settings cannot be updated since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).SetCoordinatorSetting(setting_name, setting_value);
+}
+
+auto CoordinatorState::CreateRole(std::string_view const role_name) const -> CreateRoleStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator role cannot be created since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).CreateRole(role_name);
+}
+
+auto CoordinatorState::DropRole(std::string_view const role_name) const -> DropRoleStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator role cannot be dropped since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).DropRole(role_name);
+}
+
+auto CoordinatorState::GetRoles() const -> std::optional<std::vector<CoordinatorRole>> {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator roles cannot be retrieved since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetRoles();
+}
+
+auto CoordinatorState::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> GrantPrivilegeStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator privilege cannot be granted since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GrantPrivilege(role_name, privileges);
+}
+
+auto CoordinatorState::RevokePrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> RevokePrivilegeStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator privilege cannot be revoked since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).RevokePrivilege(role_name, privileges);
+}
+
+auto CoordinatorState::GetRolePrivileges(std::string_view const role_name) const
+    -> std::optional<std::pair<bool, uint64_t>> {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator role privileges cannot be retrieved since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetRolePrivileges(role_name);
+}
+
+auto CoordinatorState::ShowCoordinatorSettings() const
+    -> std::optional<std::vector<std::pair<std::string, std::string>>> {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator settings cannot be retrieved since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).ShowCoordinatorSettings();
+}
+
+auto CoordinatorState::ShowReplicationLag() const -> std::optional<ReplicationLagResult> {
+  return std::get<CoordinatorInstance>(data_).ShowReplicationLag();
+}
+
+auto CoordinatorState::GetRoutingTable(std::string_view db_name) const -> RoutingTable {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot get routing table since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetRoutingTable(db_name);
+}
+
+auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData> {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot get leader coordinator data since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetLeaderCoordinatorData();
+}
+
+auto CoordinatorState::YieldLeadership() const -> YieldLeadershipStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot yield leadership since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).YieldLeadership();
+}
+
+auto CoordinatorState::GetTelemetryJson() const -> nlohmann::json {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot return telemetry json data since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetTelemetryJson();
+}
+
+auto CoordinatorState::IsCoordinator() const -> bool { return std::holds_alternative<CoordinatorInstance>(data_); }
+
+auto CoordinatorState::IsDataInstance() const -> bool {
+  return std::holds_alternative<CoordinatorMainReplicaData>(data_);
+}
+
+void CoordinatorState::ShutDownCoordinator() {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot get leader coordinator data since variant holds wrong alternative");
+  std::get<CoordinatorInstance>(data_).ShuttingDown();
+}
+
 }  // namespace memgraph::coordination
 #endif

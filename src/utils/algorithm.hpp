@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,10 +12,8 @@
 #pragma once
 
 #include <algorithm>
-#include <chrono>
+#include <functional>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <utility>
 
 #include "utils/exceptions.hpp"
@@ -25,15 +23,15 @@ namespace memgraph::utils {
 /**
  * Outputs a collection of items as a string, separating them with the given delimiter.
  *
- * @param first Starting iterator of collection which items are going to be
- *  printed.
- * @param last Ending iterator of the collection.
+ * @param iterable An iterable collection of items.
  * @param delim Delimiter that is put between items.
  * @param transformation Function which accepts an item and returns a derived value.
  */
-template <typename TIterator, typename TTransformation>
-inline std::string IterableToString(TIterator first, TIterator last, const std::string_view delim = ", ",
+template <typename TTransformation = std::identity>
+inline std::string IterableToString(std::ranges::input_range auto const &iterable, std::string_view delim = ", ",
                                     TTransformation transformation = {}) {
+  auto first = iterable.begin();
+  auto const last = iterable.end();
   std::string representation;
   if (first != last) {
     representation.append(transformation(*first));
@@ -45,30 +43,6 @@ inline std::string IterableToString(TIterator first, TIterator last, const std::
   }
 
   return representation;
-}
-
-/**
- * Outputs a collection of items as a string, separating them with the given delimiter.
- *
- * @param iterable An iterable collection of items.
- * @param delim Delimiter that is put between items.
- * @param transformation Function which accepts an item and returns a derived value.
- */
-template <typename TIterable, typename TTransformation>
-inline std::string IterableToString(const TIterable &iterable, const std::string_view delim = ", ",
-                                    TTransformation transformation = {}) {
-  return IterableToString(iterable.begin(), iterable.end(), delim, transformation);
-}
-
-/**
- * Outputs a collection of items as a string, separating them with the given delimiter.
- *
- * @param iterable An iterable collection of items.
- * @param delim Delimiter that is put between items.
- */
-template <typename TIterable>
-inline std::string IterableToString(const TIterable &iterable, const std::string_view delim = ", ") {
-  return IterableToString(iterable, delim, std::identity{});
 }
 
 /**
@@ -167,48 +141,6 @@ inline TVal First(TIterable &&iterable, TVal &&empty_value) {
   return empty_value;
 }
 
-template <class TElement, class THash, class TEqual, class TAllocator>
-bool Contains(const std::unordered_set<TElement, THash, TEqual, TAllocator> &iterable, const TElement &element) {
-  return iterable.find(element) != iterable.end();
-}
-
-template <class TKey, class TValue, class THash, class TKeyEqual, class TAllocator>
-bool Contains(const std::unordered_map<TKey, TValue, THash, TKeyEqual, TAllocator> &iterable, const TKey &key) {
-  return iterable.find(key) != iterable.end();
-}
-
-/**
- * Returns `true` if the given iterable contains the given element.
- *
- * @param iterable An iterable collection of values.
- * @param element The sought element.
- * @return `true` if element is contained in iterable.
- * @tparam TIiterable type of iterable.
- * @tparam TElement type of element.
- */
-template <typename TIterable, typename TElement>
-inline bool Contains(const TIterable &iterable, const TElement &element) {
-  return std::find(iterable.begin(), iterable.end(), element) != iterable.end();
-}
-
-/**
- * Return a reversed copy of the given collection.
- * The copy is allocated using the default allocator.
- */
-template <class TCollection>
-TCollection Reversed(const TCollection &collection) {
-  return TCollection(std::rbegin(collection), std::rend(collection));
-}
-
-/**
- * Return a reversed copy of the given collection.
- * The copy is allocated with the given `alloc`.
- */
-template <class TCollection, class TAllocator>
-TCollection Reversed(const TCollection &collection, const TAllocator &alloc) {
-  return TCollection(std::rbegin(collection), std::rend(collection), alloc);
-}
-
 /**
  * Converts a (beginning, end) pair of iterators into an iterable that can be
  * passed on to itertools.
@@ -219,11 +151,39 @@ class Iterable {
   Iterable(TIterator &&begin, TIterator &&end) : begin_(std::move(begin)), end_(std::move(end)) {}
 
   auto begin() { return begin_; };
+
   auto end() { return end_; };
 
  private:
   TIterator begin_;
   TIterator end_;
 };
+
+/**
+ * Computes the cartesian product of the elements of the given vectors,
+ * and invokes the callback function for each product element.
+ * For example, given a vectors [[1, 2], [3, 4]], the callback would be invoked
+ * for [1, 3], [1, 4], [2, 3], [2, 4].
+ */
+template <typename T, typename CallbackFn>
+void cartesian_product(const std::vector<std::vector<T>> &vecs, CallbackFn callback) {
+  if (vecs.empty()) return;
+
+  std::function<void(std::size_t, std::vector<T> &)> const cartesian_product_impl = [&](size_t depth,
+                                                                                        std::vector<T> &temp) {
+    if (depth == vecs.size()) {
+      std::invoke(callback, temp);
+      return;
+    }
+
+    for (auto const &val : vecs[depth]) {
+      temp[depth] = val;
+      cartesian_product_impl(depth + 1, temp);
+    }
+  };
+
+  std::vector<T> temp(vecs.size());
+  cartesian_product_impl(0, temp);
+}
 
 }  // namespace memgraph::utils

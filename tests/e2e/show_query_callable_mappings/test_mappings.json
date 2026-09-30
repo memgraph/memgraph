@@ -1,0 +1,4 @@
+{
+  "apoc.custom.procedure": "mgps.components",
+  "apoc.custom.function": "math.log"
+}

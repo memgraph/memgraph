@@ -1,0 +1,196 @@
+#!/usr/bin/env bash
+SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
+
+# Source the util.sh file to get the parse_operating_system function
+source "$SCRIPT_DIR/../util.sh"
+
+# Distro scripts no longer exposed through install_deps.sh (the files remain
+# and can still be run directly).
+DEPRECATED_OS=(
+    ubuntu-20.04
+)
+
+# Every distro script in this directory is a supported OS; the filename is
+# the OS name.
+SUPPORTED_OS=()
+for script in "$SCRIPT_DIR"/*.sh; do
+    name="$(basename "$script" .sh)"
+    case "$name" in
+        lib|install_deps|template|test|run) continue ;;
+    esac
+    for deprecated in "${DEPRECATED_OS[@]}"; do
+        [[ "$name" == "$deprecated" ]] && continue 2
+    done
+    SUPPORTED_OS+=("$name")
+done
+
+# Define toolchain download URLs for supported OS and architectures
+declare -A TOOLCHAIN_URLS=(
+    [x86_64]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-x86_64.tar.gz"
+    [aarch64]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v8/toolchain-v8-binaries-aarch64.tar.gz"
+)
+
+# Parse command line arguments to extract --set-os flag
+SET_OS=""
+ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --set-os)
+            SET_OS="$2"
+            shift 2
+            ;;
+        -h|--help)
+            cat <<EOF
+Usage:
+    ./install_deps.sh [command] [dependency_set] [--set-os <os>]
+
+Options:
+    --set-os <os>  Override OS detection and use specified OS.
+                   Supported values: ${SUPPORTED_OS[*]}
+
+Commands:
+    prepare       Downloads and extracts specified dependencies.
+                  Supported only for TOOLCHAIN_RUN_DEPS.
+    install       Install the specified dependencies.
+    check         Check the specified dependencies.
+
+Dependency sets:
+    TOOLCHAIN_RUN_DEPS       Dependencies required for the toolchain runtime.
+    MEMGRAPH_BUILD_DEPS      Dependencies required for building Memgraph.
+    MEMGRAPH_TEST_DEPS       Extra dependencies (on top of MEMGRAPH_BUILD_DEPS)
+                             required to run the test suites.
+    MEMGRAPH_RUN_DEPS        Dependencies required to run a Memgraph package.
+
+Examples:
+    sudo ./install_deps.sh prepare TOOLCHAIN_RUN_DEPS
+    sudo ./install_deps.sh check TOOLCHAIN_RUN_DEPS
+    sudo ./install_deps.sh install TOOLCHAIN_RUN_DEPS
+    sudo ./install_deps.sh check MEMGRAPH_BUILD_DEPS
+    sudo ./install_deps.sh install MEMGRAPH_BUILD_DEPS
+    sudo ./install_deps.sh install TOOLCHAIN_RUN_DEPS --set-os ubuntu-24.04
+    sudo ./install_deps.sh --set-os ubuntu-24.04 install TOOLCHAIN_RUN_DEPS
+
+
+Link to create new github issue: https://github.com/memgraph/memgraph/issues/new?title=install-deps.sh%20...&assignee=gitbuda&body=%0A%0A%0A---%0AI%27m+a+human.+Please+be+nice.
+EOF
+            exit 0
+            ;;
+        *)
+            ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Set the arguments back to $@ for the rest of the script
+set -- "${ARGS[@]}"
+
+# Function to check and install dependencies for a given distribution script
+run_script() {
+    local distro_script=$1
+    echo "Running script for $@"
+    $SCRIPT_DIR/"$@"
+}
+
+# New function for 'prepare' command to download and extract the toolchain
+prepare_toolchain() {
+    local os_arch="$1"
+    local toolchain_arch=$([[ "$(uname -m)" == "aarch64" ]] && echo "aarch64" || echo "x86_64")
+    local toolchain_url="${TOOLCHAIN_URLS[$toolchain_arch]}"
+
+    if [ -z "$toolchain_url" ]; then
+        echo "No toolchain URL found for $os_arch. Please ensure your OS and architecture are supported."
+        exit 1
+    fi
+
+    echo "Setting up toolchain for $os_arch..."
+    curl -fL --proto '=https' --proto-redir '=https' "$toolchain_url" --output /tmp/toolchain.tar.gz || {
+        echo "Failed to download toolchain. Please check your internet connection or the URL and try again."
+        exit 1
+    }
+
+    echo "Extracting toolchain to /opt..."
+    tar xzvf /tmp/toolchain.tar.gz -C /opt && rm -f /tmp/toolchain.tar.gz || {
+        echo "Failed to extract toolchain. Please check the archive and your permissions."
+        exit 1
+    }
+
+    echo "Toolchain setup complete."
+}
+
+# Detect OS, version, and architecture
+if [[ -n "$SET_OS" ]]; then
+    # Parse OS and VER from SET_OS string (e.g., "ubuntu-24.04" -> OS="ubuntu", VER="24.04")
+    # Handle formats like: ubuntu-24.04, ubuntu-24.04-arm, centos-9, debian-11-arm
+    if [[ "$SET_OS" =~ ^([a-z]+)-([0-9.]+)$ ]]; then
+        OS="${BASH_REMATCH[1]}"
+        VER="${BASH_REMATCH[2]}"
+    else
+        echo "Error: Invalid OS format: $SET_OS. Expected format: os-version"
+        exit 1
+    fi
+elif [[ "$OSTYPE" == "freebsd"* ]]; then
+    # No /etc/os-release here; the shared detection reads uname instead.
+    parse_operating_system
+elif [ -f /etc/os-release ]; then
+    . /etc/os-release
+    parse_operating_system
+elif type lsb_release >/dev/null 2>&1; then
+    OS=$(lsb_release -si)
+    VER=$(lsb_release -sr)
+elif [ -f /etc/lsb-release ]; then
+    . /etc/lsb-release
+    OS=$DISTRIB_ID
+    VER=$DISTRIB_RELEASE
+elif [ -f /etc/debian_version ]; then
+    OS=Debian
+    VER=$(cat /etc/debian_version)
+else
+    echo "OS not identified"
+    exit 1
+fi
+
+# Normalize OS name to lowercase. One distro script serves every
+# architecture, so the OS identifier carries no arch suffix.
+OS=$(echo "$OS" | tr '[:upper:]' '[:lower:]')
+OS_ARCH="${OS}-${VER}"
+
+OS_ARCH_SCRIPT="${OS_ARCH}.sh"
+
+# Check if OS_ARCH is in the SUPPORTED_OS array
+is_supported=false
+for supported_os in "${SUPPORTED_OS[@]}"; do
+    if [[ "$OS_ARCH" == "$supported_os" ]]; then
+        is_supported=true
+        break
+    fi
+done
+
+if [[ "$1" == "prepare" ]]; then
+    if [[ "$2" == "TOOLCHAIN_RUN_DEPS" ]]; then
+        if [[ "$is_supported" == true ]]; then
+            prepare_toolchain "$OS_ARCH"
+        else
+            echo "Unsupported OS: $OS_ARCH. The 'prepare' command cannot proceed."
+            echo "Supported OS values: ${SUPPORTED_OS[*]}"
+            exit 1
+        fi
+    else
+        echo "Error: The 'prepare' command only supports 'TOOLCHAIN_RUN_DEPS' as the second argument."
+        exit 1
+    fi
+else
+    # If supported, run the script with all original arguments
+    if [[ "$is_supported" == true ]]; then
+        if [ -z "$SET_OS" ]; then
+            run_script "$OS_ARCH_SCRIPT" "$@"
+        else
+            run_script "$OS_ARCH_SCRIPT" "$@" --skip-check
+        fi
+    else
+        echo "Unsupported OS: $OS_ARCH"
+        echo "Supported OS values: ${SUPPORTED_OS[*]}"
+        exit 1
+    fi
+fi

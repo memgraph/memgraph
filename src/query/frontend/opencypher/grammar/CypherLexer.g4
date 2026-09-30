@@ -58,6 +58,7 @@ ASTERISK  : '*' ;
 SLASH     : '/' ;
 PERCENT   : '%' ;
 CARET     : '^' ;
+AMPERSAND : '&' ;
 PLUS_EQ   : '+=' ;
 
 /* Some random unicode characters that can be used to draw arrows. */
@@ -69,6 +70,7 @@ DashPart           : '­' | '‐' | '‑' | '‒' | '–' | '—' | '―'
 
 /* Cypher reserved words. */
 ALL            : A L L ;
+ALLSHORTEST    : A L L S H O R T E S T ;
 AND            : A N D ;
 ANY            : A N Y ;
 AS             : A S ;
@@ -80,6 +82,7 @@ BY             : B Y ;
 CALL           : C A L L ;
 CASE           : C A S E ;
 COALESCE       : C O A L E S C E ;
+COLLECT        : C O L L E C T ;
 CONSTRAINT     : C O N S T R A I N T ;
 CONTAINS       : C O N T A I N S ;
 COUNT          : C O U N T ;
@@ -102,11 +105,13 @@ FILTER         : F I L T E R ;
 IN             : I N ;
 INDEX          : I N D E X ;
 INFO           : I N F O ;
+INSTANCE       : I N S T A N C E ;
 IS             : I S ;
 KB             : K B ;
 KEY            : K E Y ;
-LIMIT          : L I M I T ;
+KSHORTEST      : K S H O R T E S T ;
 L_SKIP         : S K I P ;
+LIMIT          : L I M I T ;
 MATCH          : M A T C H ;
 MB             : M B ;
 MEMORY         : M E M O R Y ;
@@ -122,6 +127,7 @@ PROCEDURE      : P R O C E D U R E ;
 PROFILE        : P R O F I L E ;
 QUERY          : Q U E R Y ;
 REDUCE         : R E D U C E ;
+REGISTER       : R E G I S T E R;
 REMOVE         : R E M O V E ;
 RETURN         : R E T U R N ;
 SET            : S E T ;
@@ -131,6 +137,7 @@ STARTS         : S T A R T S ;
 STORAGE        : S T O R A G E ;
 THEN           : T H E N ;
 TRUE           : T R U E ;
+TYPED          : T Y P E D ;
 UNION          : U N I O N ;
 UNIQUE         : U N I Q U E ;
 UNLIMITED      : U N L I M I T E D ;
@@ -139,7 +146,6 @@ WHEN           : W H E N ;
 WHERE          : W H E R E ;
 WITH           : W I T H ;
 WSHORTEST      : W S H O R T E S T ;
-ALLSHORTEST    : A L L S H O R T E S T ;
 XOR            : X O R ;
 YIELD          : Y I E L D ;
 

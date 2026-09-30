@@ -53,17 +53,17 @@ def test_analyze_graph_delete_statistics(delete_query, multi_db):
     assert len(analyze_graph_results) == 2
     delete_stats_results = execute_and_fetch_all(cursor, delete_query)
     assert len(delete_stats_results) == 2
-    if delete_stats_results[0][1] == "id1":
+    if delete_stats_results[0][1] == ["id1"]:
         first_index = 0
     else:
         first_index = 1
-    assert delete_stats_results[first_index] == ("Label", "id1")
-    assert delete_stats_results[1 - first_index] == ("Label", "id2")
+    assert delete_stats_results[first_index] == ("Label", ["id1"])
+    assert delete_stats_results[1 - first_index] == ("Label", ["id2"])
     # After deleting statistics, id2 should be chosen because it has less vertices
     expected_explain_after_delete_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter {{n.id1}}",),
-        (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
+        (f" * ScanAllByLabelProperties (n :Label {{id2}})",),
         (f" * Once",),
     ]
     assert (
@@ -97,7 +97,7 @@ def test_analyze_full_graph(analyze_query, multi_db):
     expected_explain_before_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter {{n.id1}}",),
-        (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
+        (f" * ScanAllByLabelProperties (n :Label {{id2}})",),
         (f" * Once",),
     ]
     assert (
@@ -107,18 +107,18 @@ def test_analyze_full_graph(analyze_query, multi_db):
     # Run analyze query
     analyze_graph_results = execute_and_fetch_all(cursor, analyze_query)
     assert len(analyze_graph_results) == 2
-    if analyze_graph_results[0][1] == "id1":
+    if analyze_graph_results[0][1] == ["id1"]:
         first_index = 0
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 5, 10, 0, 0)
+    assert analyze_graph_results[first_index] == ("Label", ["id1"], 100, 100, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", ["id2"], 50, 5, 10, 0, 0)
     # After analyzing graph, id1 index should be chosen because it has smaller average group size
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter {{n.id2}}",),
-        (f" * ScanAllByLabelPropertyValue (n :Label {{id1}})",),
+        (f" * ScanAllByLabelProperties (n :Label {{id1}})",),
         (f" * Once",),
     ]
     assert (
@@ -143,17 +143,17 @@ def test_cardinality_different_avg_group_size_uniform_dist(multi_db):
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id2);")
     analyze_graph_results = execute_and_fetch_all(cursor, "ANALYZE GRAPH")
-    if analyze_graph_results[0][1] == "id1":
+    if analyze_graph_results[0][1] == ["id1"]:
         first_index = 0
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 20, 5, 0, 0)
+    assert analyze_graph_results[first_index] == ("Label", ["id1"], 100, 100, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", ["id2"], 100, 20, 5, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter {{n.id2}}",),
-        (f" * ScanAllByLabelPropertyValue (n :Label {{id1}})",),
+        (f" * ScanAllByLabelProperties (n :Label {{id1}})",),
         (f" * Once",),
     ]
     assert (
@@ -174,17 +174,17 @@ def test_cardinality_same_avg_group_size_uniform_dist_diff_vertex_count(multi_db
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id2);")
     analyze_graph_results = execute_and_fetch_all(cursor, "ANALYZE GRAPH")
-    if analyze_graph_results[0][1] == "id1":
+    if analyze_graph_results[0][1] == ["id1"]:
         first_index = 0
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 100, 1, 0, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 50, 50, 1, 0, 0)
+    assert analyze_graph_results[first_index] == ("Label", ["id1"], 100, 100, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", ["id2"], 50, 50, 1, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter {{n.id1}}",),
-        (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
+        (f" * ScanAllByLabelProperties (n :Label {{id2}})",),
         (f" * Once",),
     ]
     assert (
@@ -205,17 +205,17 @@ def test_large_diff_in_num_vertices_v1(multi_db):
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id2);")
     analyze_graph_results = execute_and_fetch_all(cursor, "ANALYZE GRAPH")
-    if analyze_graph_results[0][1] == "id1":
+    if analyze_graph_results[0][1] == ["id1"]:
         first_index = 0
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 1000, 1000, 1, 0, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 99, 1, 99, 0, 0)
+    assert analyze_graph_results[first_index] == ("Label", ["id1"], 1000, 1000, 1, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", ["id2"], 99, 1, 99, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter {{n.id1}}",),
-        (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
+        (f" * ScanAllByLabelProperties (n :Label {{id2}})",),
         (f" * Once",),
     ]
     assert (
@@ -236,17 +236,17 @@ def test_large_diff_in_num_vertices_v2(multi_db):
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id2);")
     analyze_graph_results = execute_and_fetch_all(cursor, "ANALYZE GRAPH")
-    if analyze_graph_results[0][1] == "id1":
+    if analyze_graph_results[0][1] == ["id1"]:
         first_index = 0
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 99, 1, 99, 0, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 1000, 1000, 1, 0, 0)
+    assert analyze_graph_results[first_index] == ("Label", ["id1"], 99, 1, 99, 0, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", ["id2"], 1000, 1000, 1, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter {{n.id2}}",),
-        (f" * ScanAllByLabelPropertyValue (n :Label {{id1}})",),
+        (f" * ScanAllByLabelProperties (n :Label {{id1}})",),
         (f" * Once",),
     ]
     assert (
@@ -277,17 +277,17 @@ def test_same_avg_group_size_diff_distribution(multi_db):
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id1);")
     execute_and_fetch_all(cursor, "CREATE INDEX ON :Label(id2);")
     analyze_graph_results = execute_and_fetch_all(cursor, "ANALYZE GRAPH")
-    if analyze_graph_results[0][1] == "id1":
+    if analyze_graph_results[0][1] == ["id1"]:
         first_index = 0
     else:
         first_index = 1
     # Check results
-    assert analyze_graph_results[first_index] == ("Label", "id1", 100, 5, 20, 32.5, 0)
-    assert analyze_graph_results[1 - first_index] == ("Label", "id2", 100, 5, 20, 0, 0)
+    assert analyze_graph_results[first_index] == ("Label", ["id1"], 100, 5, 20, 32.5, 0)
+    assert analyze_graph_results[1 - first_index] == ("Label", ["id2"], 100, 5, 20, 0, 0)
     expected_explain_after_analysis = [
         (f" * Produce {{n}}",),
         (f" * Filter {{n.id1}}",),
-        (f" * ScanAllByLabelPropertyValue (n :Label {{id2}})",),
+        (f" * ScanAllByLabelProperties (n :Label {{id2}})",),
         (f" * Once",),
     ]
     assert (
@@ -313,16 +313,16 @@ def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
         f" * EmptyResult",
         f" * Merge",
         f" |\\ On Match",
-        f" | * Expand (s)-[anon3:HAS_REL_TO]->(n)",
+        f" | * Expand (n)<-[anon3:HAS_REL_TO]-(s)",
         f" | * Once",
         f" |\\ On Create",
         f" | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
         f" | * Once",
-        f" * Cartesian {{s : n}}",
+        f" * Cartesian {{n : s}}",
         f" |\\ ",
-        f" | * ScanAllByLabel (n :Node)",
+        f" | * ScanAllByLabelProperties (s :SuperNode {{id}})",
         f" | * Once",
-        f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" * ScanAllByLabel (n :Node)",
         f" * Once",
     ]
 
@@ -343,7 +343,7 @@ def test_given_supernode_when_expanding_then_expand_other_way_around(memgraph):
         f" | * Once",
         f" * Cartesian {{n : s}}",
         f" |\\ ",
-        f" | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" | * ScanAllByLabelProperties (s :SuperNode {{id}})",
         f" | * Once",
         f" * ScanAllByLabel (n :Node)",
         f" * Once",
@@ -376,37 +376,7 @@ def test_given_supernode_when_subquery_then_carry_information_to_subquery(memgra
         f" * Produce {{0}}",
         f" * Accumulate",
         f" * Accumulate",
-        f" * Apply",
-        f" |\\ ",
-        f" | * EmptyResult",
-        f" | * Merge",
-        f" | |\\ On Match",
-        f" | | * Expand (s)-[anon3:HAS_REL_TO]->(n)",
-        f" | | * Once",
-        f" | |\\ On Create",
-        f" | | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
-        f" | | * Once",
-        f" | * Produce {{n, s}}",
-        f" | * Once",
-        f" * Cartesian {{s : n}}",
-        f" |\\ ",
-        f" | * ScanAllByLabel (n :Node)",
-        f" | * Once",
-        f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
-        f" * Once",
-    ]
-
-    result_without_analysis = list(memgraph.execute_and_fetch(query))
-    result_without_analysis = [x[QUERY_PLAN] for x in result_without_analysis]
-    assert expected_explain == result_without_analysis
-
-    memgraph.execute("analyze graph;")
-
-    expected_explain_after_analysis = [
-        f" * Produce {{0}}",
-        f" * Accumulate",
-        f" * Accumulate",
-        f" * Apply",
+        f" * Apply (pass row)",
         f" |\\ ",
         f" | * EmptyResult",
         f" | * Merge",
@@ -420,7 +390,37 @@ def test_given_supernode_when_subquery_then_carry_information_to_subquery(memgra
         f" | * Once",
         f" * Cartesian {{n : s}}",
         f" |\\ ",
-        f" | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" | * ScanAllByLabelProperties (s :SuperNode {{id}})",
+        f" | * Once",
+        f" * ScanAllByLabel (n :Node)",
+        f" * Once",
+    ]
+
+    result_without_analysis = list(memgraph.execute_and_fetch(query))
+    result_without_analysis = [x[QUERY_PLAN] for x in result_without_analysis]
+    assert expected_explain == result_without_analysis
+
+    memgraph.execute("analyze graph;")
+
+    expected_explain_after_analysis = [
+        f" * Produce {{0}}",
+        f" * Accumulate",
+        f" * Accumulate",
+        f" * Apply (pass row)",
+        f" |\\ ",
+        f" | * EmptyResult",
+        f" | * Merge",
+        f" | |\\ On Match",
+        f" | | * Expand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | | * Once",
+        f" | |\\ On Create",
+        f" | | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
+        f" | | * Once",
+        f" | * Produce {{n, s}}",
+        f" | * Once",
+        f" * Cartesian {{n : s}}",
+        f" |\\ ",
+        f" | * ScanAllByLabelProperties (s :SuperNode {{id}})",
         f" | * Once",
         f" * ScanAllByLabel (n :Node)",
         f" * Once",
@@ -452,44 +452,44 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
         f" | * Produce {{s}}",
         f" | * Accumulate",
         f" | * Accumulate",
-        f" | * Apply",
+        f" | * Apply (pass row)",
         f" | |\\ ",
         f" | | * EmptyResult",
         f" | | * Merge",
         f" | | |\\ On Match",
-        f" | | | * Expand (s)-[anon7:HAS_REL_TO]->(n)",
+        f" | | | * Expand (n)<-[anon7:HAS_REL_TO]-(s)",
         f" | | | * Once",
         f" | | |\\ On Create",
         f" | | | * CreateExpand (n)<-[anon7:HAS_REL_TO]-(s)",
         f" | | | * Once",
         f" | | * Produce {{n, s}}",
         f" | | * Once",
-        f" | * Cartesian {{s : n}}",
+        f" | * Cartesian {{n : s}}",
         f" | |\\ ",
-        f" | | * ScanAllByLabel (n :Node)",
+        f" | | * ScanAllByLabelProperties (s :SuperNode {{id}})",
         f" | | * Once",
-        f" | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" | * ScanAllByLabel (n :Node)",
         f" | * Once",
         f" * Produce {{s}}",
         f" * Accumulate",
         f" * Accumulate",
-        f" * Apply",
+        f" * Apply (pass row)",
         f" |\\ ",
         f" | * EmptyResult",
         f" | * Merge",
         f" | |\\ On Match",
-        f" | | * Expand (s)-[anon3:HAS_REL_TO]->(n)",
+        f" | | * Expand (n)<-[anon3:HAS_REL_TO]-(s)",
         f" | | * Once",
         f" | |\\ On Create",
         f" | | * CreateExpand (n)<-[anon3:HAS_REL_TO]-(s)",
         f" | | * Once",
         f" | * Produce {{n, s}}",
         f" | * Once",
-        f" * Cartesian {{s : n}}",
+        f" * Cartesian {{n : s}}",
         f" |\\ ",
-        f" | * ScanAllByLabel (n :Node)",
+        f" | * ScanAllByLabelProperties (s :SuperNode {{id}})",
         f" | * Once",
-        f" * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" * ScanAllByLabel (n :Node)",
         f" * Once",
     ]
 
@@ -505,7 +505,7 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
         f" | * Produce {{s}}",
         f" | * Accumulate",
         f" | * Accumulate",
-        f" | * Apply",
+        f" | * Apply (pass row)",
         f" | |\\ ",
         f" | | * EmptyResult",
         f" | | * Merge",
@@ -519,14 +519,14 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
         f" | | * Once",
         f" | * Cartesian {{n : s}}",
         f" | |\\ ",
-        f" | | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" | | * ScanAllByLabelProperties (s :SuperNode {{id}})",
         f" | | * Once",
         f" | * ScanAllByLabel (n :Node)",
         f" | * Once",
         f" * Produce {{s}}",
         f" * Accumulate",
         f" * Accumulate",
-        f" * Apply",
+        f" * Apply (pass row)",
         f" |\\ ",
         f" | * EmptyResult",
         f" | * Merge",
@@ -540,7 +540,7 @@ def test_given_supernode_when_subquery_and_union_then_carry_information(memgraph
         f" | * Once",
         f" * Cartesian {{n : s}}",
         f" |\\ ",
-        f" | * ScanAllByLabelPropertyValue (s :SuperNode {{id}})",
+        f" | * ScanAllByLabelProperties (s :SuperNode {{id}})",
         f" | * Once",
         f" * ScanAllByLabel (n :Node)",
         f" * Once",

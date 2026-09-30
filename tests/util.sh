@@ -1,28 +1,70 @@
 #!/bin/bash
 
+DISABLE_NODE=${DISABLE_NODE:-false}
+_TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_REPO_ROOT="$(dirname "$_TESTS_DIR")"
+source "$_REPO_ROOT/environment/util.sh"
+unset _TESTS_DIR _REPO_ROOT
+
+NODE_MIN_VERSION="${NODE_MIN_VERSION:-20}"
+NODE_INSTALL_VERSION="${NODE_INSTALL_VERSION:-$MG_NODE_VERSION}"
+PNPM_VERSION="${PNPM_VERSION:-10.33.4}"
+
+# True when a node on PATH is at least $1 major.
+node_major_at_least() {
+  local want="$1" have
+  command -v node >/dev/null 2>&1 || return 1
+  have="$(node --version 2>/dev/null)" || return 1
+  have="${have##v}"
+  have="${have%%.*}"
+  [ -n "$have" ] || return 1
+  [ "$have" -ge "$want" ] 2>/dev/null
+}
+
 setup_node() {
+  if [ "$DISABLE_NODE" = "true" ]; then
+    echo "Skipping node setup because DISABLE_NODE is set to true"
+    return 0
+  fi
+
   if [ -f "$HOME/.nvm/nvm.sh" ]; then
     . "$HOME/.nvm/nvm.sh"
-    nvm install 14
-    nvm use 14
+    if ! node_major_at_least "$NODE_MIN_VERSION"; then
+      nvm use default >/dev/null 2>&1 || true
+    fi
+    if ! node_major_at_least "$NODE_MIN_VERSION"; then
+      echo "No node >= $NODE_MIN_VERSION installed under nvm; installing $NODE_INSTALL_VERSION"
+      nvm install "$NODE_INSTALL_VERSION"
+      nvm use "$NODE_INSTALL_VERSION"
+    fi
   fi
 
   if ! command -v node >/dev/null; then
-    echo "Could NOT node. Make sure node is installed."
+    echo "Could NOT find node. Make sure node is installed."
     exit 1
   fi
-  if ! command -v npm >/dev/null; then
-    echo "Could NOT npm. Make sure npm is installed."
+
+  local npm_out
+  if [ "$(pnpm --version 2>/dev/null)" != "$PNPM_VERSION" ]; then
+    echo "Installing pnpm@$PNPM_VERSION."
+    if ! npm_out="$(npm install -g "pnpm@$PNPM_VERSION" 2>&1)"; then
+      echo "ERROR: failed to install pnpm@$PNPM_VERSION:"
+      echo "$npm_out"
+      exit 1
+    fi
+    hash -r 2>/dev/null || true
+  fi
+
+  local pnpm_version
+  pnpm_version="$(pnpm --version 2>/dev/null || true)"
+  if [ "$pnpm_version" != "$PNPM_VERSION" ]; then
+    echo "ERROR: expected pnpm $PNPM_VERSION, found ${pnpm_version:-none}."
     exit 1
   fi
-  node_version=$(node --version)
-  npm_version=$(npm --version)
-  echo "NODE VERSION: $node_version"
-  echo "NPM  VERSION: $npm_version"
-  node_major_version=${node_version##v}
-  node_major_version=${node_major_version%%.*}
-  if [ ! "$node_major_version" -ge 14 ]; then
-    echo "ERROR: It's required to have node >= 14."
+  echo "NODE VERSION: $(node --version)"
+  echo "PNPM VERSION: $pnpm_version"
+  if ! node_major_at_least "$NODE_MIN_VERSION"; then
+    echo "ERROR: It's required to have node >= $NODE_MIN_VERSION, found $(node --version)."
     exit 1
   fi
 }

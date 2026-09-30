@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,9 @@
 #include "mgp.hpp"
 #include "utils/on_scope_exit.hpp"
 
-enum mgp_error Alloc(mgp_memory *memory, void *ptr) {
+#include <iostream>
+
+enum mgp_error Alloc(mgp_memory *memory, void *&ptr) {
   const size_t mb_size_512 = 1 << 29;
 
   return mgp_alloc(memory, mb_size_512, (void **)(&ptr));
@@ -33,19 +35,22 @@ enum mgp_error Alloc(mgp_memory *memory, void *ptr) {
 
 // change communication between threads with feature and promise
 std::atomic<int> num_allocations{0};
-void *ptr_;
+void *ptr_ = nullptr;
 
 void AllocFunc(mgp_memory *memory, mgp_graph *graph) {
   try {
     [[maybe_unused]] const enum mgp_error tracking_error = mgp_track_current_thread_allocations(graph);
+
     enum mgp_error alloc_err { mgp_error::MGP_ERROR_NO_ERROR };
+
     alloc_err = Alloc(memory, ptr_);
+    std::cout << (int)alloc_err << std::endl;
     if (alloc_err != mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
       num_allocations.fetch_add(1, std::memory_order_relaxed);
     }
-    if (alloc_err != mgp_error::MGP_ERROR_NO_ERROR) {
-      assert(false);
-    }
+    // UNABLE_TO_ALLOCATE is a valid/expected outcome when a memory limit is enforced.
+    // Only assert on truly unexpected error codes.
+    assert(alloc_err == mgp_error::MGP_ERROR_NO_ERROR || alloc_err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE);
   } catch (const std::exception &e) {
     [[maybe_unused]] const enum mgp_error untracking_error = mgp_untrack_current_thread_allocations(graph);
     assert(false);
@@ -77,10 +82,14 @@ void Thread(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_m
 
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
-    mgp::memory = memory;
-
-    AddProcedure(Thread, std::string("thread").c_str(), mgp::ProcedureType::Read, {},
-                 {mgp::Return(std::string("allocated_all").c_str(), mgp::Type::Bool)}, module, memory);
+    mgp::MemoryDispatcherGuard guard(memory);
+    AddProcedure(Thread,
+                 std::string("thread").c_str(),
+                 mgp::ProcedureType::Read,
+                 {},
+                 {mgp::Return(std::string("allocated_all").c_str(), mgp::Type::Bool)},
+                 module,
+                 memory);
 
   } catch (const std::exception &e) {
     return 1;

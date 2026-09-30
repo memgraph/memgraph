@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 
 #include <fmt/format.h>
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <iterator>
 
@@ -50,8 +51,8 @@ inline std::vector<std::string> StringifySupportedVersions(uint8_t *data) {
 }
 
 inline bool CopyProtocolInformationIfSupported(uint16_t version, uint8_t *protocol) {
-  const auto *supported_version = std::find(std::begin(kSupportedVersions), std::end(kSupportedVersions), version);
-  if (supported_version != std::end(kSupportedVersions)) {
+  const auto *supported_version = std::ranges::find(kSupportedVersions, version);
+  if (supported_version != std::ranges::end(kSupportedVersions)) {
     std::memcpy(protocol, &version, sizeof(version));
     return true;
   }
@@ -64,6 +65,7 @@ inline bool CopyProtocolInformationIfSupportedWithOffset(auto data_position, uin
     uint8_t minor;
     uint8_t major;
   } bolt_range_version;
+
   std::memcpy(&bolt_range_version, data_position, sizeof(bolt_range_version));
   if (bolt_range_version.major == 0 || bolt_range_version.minor == 0) return false;
   bolt_range_version.offset = std::min(bolt_range_version.offset, bolt_range_version.minor);
@@ -85,7 +87,7 @@ inline bool CopyProtocolInformationIfSupportedWithOffset(auto data_position, uin
  */
 template <typename TSession>
 State StateHandshakeRun(TSession &session) {
-  auto precmp = std::memcmp(session.input_stream_.data(), kPreamble, sizeof(kPreamble));
+  auto precmp = std::memcmp(session.input_stream_.data(), kPreamble.data(), kPreamble.size());
   if (precmp != 0) [[unlikely]] {
     spdlog::trace("Received a wrong preamble!");
     return State::Close;
@@ -93,16 +95,16 @@ State StateHandshakeRun(TSession &session) {
 
   DMG_ASSERT(session.input_stream_.size() >= kHandshakeSize, "Wrong size of the handshake data!");
 
-  auto dataPosition = session.input_stream_.data() + sizeof(kPreamble);
-  uint8_t protocol[4] = {0x00};
+  auto dataPosition = session.input_stream_.data() + kPreamble.size();
+  auto protocol = std::array<uint8_t, 4>{0x00};
 
-  session.client_supported_bolt_versions_ = std::move(StringifySupportedVersions(dataPosition));
+  session.client_supported_bolt_versions_ = StringifySupportedVersions(dataPosition);
 
   for (int i = 0; i < 4 && !protocol[3]; ++i) {
     // If there is an offset defined (e.g. 0x00 0x03 0x03 0x04) the second byte
     // That would enable the client to pick between 4.0 and 4.3 versions
     // as per changes in handshake bolt protocol in v4.3
-    if (CopyProtocolInformationIfSupportedWithOffset(dataPosition + 1, protocol + 2)) break;
+    if (CopyProtocolInformationIfSupportedWithOffset(dataPosition + 1, protocol.data() + 2)) break;
 
     dataPosition += 2;  // version is defined only by the last 2 bytes
     uint16_t version{0};
@@ -110,7 +112,7 @@ State StateHandshakeRun(TSession &session) {
     if (!version) {
       break;
     }
-    if (CopyProtocolInformationIfSupported(version, protocol + 2)) {
+    if (CopyProtocolInformationIfSupported(version, protocol.data() + 2)) {
       break;
     }
 
@@ -124,7 +126,7 @@ State StateHandshakeRun(TSession &session) {
     return State::Close;
   }
 
-  if (!session.output_stream_.Write(protocol, sizeof(protocol))) {
+  if (!session.output_stream_.Write(protocol)) {
     spdlog::trace("Couldn't write handshake response!");
     return State::Close;
   }

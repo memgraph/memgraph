@@ -1,0 +1,13 @@
+kshortest_limit_cluster: &kshortest_limit_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges", "--query-plan-cache-max-size=0"]
+      log_file: "kshortest_limit.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "KShortest limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["kshortest_limit/kshortest_limit.py"]
+    <<: *kshortest_limit_cluster

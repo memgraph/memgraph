@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,77 +11,75 @@
 
 #include "utils/thread_pool.hpp"
 
+#include <utility>
+
 namespace memgraph::utils {
 
-ThreadPool::ThreadPool(const size_t pool_size) {
+ThreadPool::ThreadPool(const size_t pool_size, ThreadInitFn thread_init) : thread_init_(std::move(thread_init)) {
   for (size_t i = 0; i < pool_size; ++i) {
-    thread_pool_.emplace_back(([this] { this->ThreadLoop(); }));
+    thread_pool_.emplace_back([this] { this->ThreadLoop(); });
   }
 }
 
-void ThreadPool::AddTask(std::function<void()> new_task) {
-  task_queue_.WithLock([&](auto &queue) {
-    queue.emplace(std::make_unique<TaskSignature>(std::move(new_task)));
-    unfinished_tasks_num_.fetch_add(1);
-  });
-  std::unique_lock pool_guard(pool_lock_);
-  queue_cv_.notify_one();
-}
-
-void ThreadPool::Shutdown() {
-  terminate_pool_.store(true);
+bool ThreadPool::AddTask(TaskSignature new_task) {
   {
-    std::unique_lock pool_guard(pool_lock_);
-    queue_cv_.notify_all();
-  }
-
-  for (auto &thread : thread_pool_) {
-    if (thread.joinable()) {
-      thread.join();
+    auto guard = std::unique_lock{pool_lock_};
+    if (pool_stop_source_.stop_requested()) {
+      return false;
     }
+    task_queue_.emplace(std::move(new_task));
+    unfinished_tasks_num_.fetch_add(1);
   }
 
+  queue_cv_.notify_one();
+  return true;
+}
+
+size_t ThreadPool::ShutDown() {
+  // Declared first so it's destroyed last -- after thread_pool_.clear() joins the workers, and not
+  // under `pool_lock_` -- because destroying a discarded task runs arbitrary user destructors, e.g.
+  // the after-commit trigger pool's storage-accessor Abort/FinalizeTransaction and gatekeeper release.
+  auto discarded = std::queue<TaskSignature>{};
+  {
+    auto guard = std::unique_lock{pool_lock_};
+    pool_stop_source_.request_stop();
+    task_queue_.swap(discarded);
+  }
+  auto const discarded_count = discarded.size();
+  unfinished_tasks_num_.fetch_sub(discarded_count, std::memory_order_relaxed);
+
+  queue_cv_.notify_all();
   thread_pool_.clear();
-  stopped_.store(true);
+
+  return discarded_count;
 }
 
 ThreadPool::~ThreadPool() {
-  if (!stopped_.load()) {
-    Shutdown();
+  if (!pool_stop_source_.stop_requested()) {
+    ShutDown();
   }
 }
 
-std::unique_ptr<ThreadPool::TaskSignature> ThreadPool::PopTask() {
-  return task_queue_.WithLock([](auto &queue) -> std::unique_ptr<TaskSignature> {
-    if (queue.empty()) {
-      return nullptr;
-    }
-    auto front = std::move(queue.front());
-    queue.pop();
-    return front;
-  });
-}
-
 void ThreadPool::ThreadLoop() {
-  std::unique_ptr<TaskSignature> task = PopTask();
+  TaskSignature thread_cleanup;
+  if (thread_init_) {
+    thread_cleanup = thread_init_();
+  }
+  auto const token = pool_stop_source_.get_token();
   while (true) {
-    while (task) {
-      if (terminate_pool_.load()) {
-        return;
-      }
-      (*task)();
-      unfinished_tasks_num_.fetch_sub(1);
-      task = PopTask();
+    TaskSignature task;
+    {
+      auto guard = std::unique_lock{pool_lock_};
+      queue_cv_.wait(guard, token, [&] { return !task_queue_.empty(); });
+      if (token.stop_requested()) break;
+      task = std::move(task_queue_.front());
+      task_queue_.pop();
     }
-
-    std::unique_lock guard(pool_lock_);
-    queue_cv_.wait(guard, [&] {
-      task = PopTask();
-      return task || terminate_pool_.load();
-    });
-    if (terminate_pool_.load()) {
-      return;
-    }
+    task();
+    unfinished_tasks_num_.fetch_sub(1);
+  }
+  if (thread_cleanup) {
+    thread_cleanup();
   }
 }
 

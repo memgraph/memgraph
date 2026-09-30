@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,43 +17,52 @@
 #else
 #define SPDLOG_ACTIVE_LEVEL SPDLOG_LEVEL_OFF
 #endif
-#include <array>
-#include <cstdint>
-#include <filesystem>
-#include <optional>
-
+#include <fmt/base.h>
 #include <fmt/format.h>
+#include <spdlog/async_logger.h>
+#include <spdlog/common.h>
+#include <iostream>
+#include <optional>
+#include <source_location>
+#include <string>
+#include <string_view>
+// NOTE: fmt 9+ introduced fmt/std.h, it's important because of, e.g., std::path formatting. toolchain-v4 has fmt 8,
+// the guard is here because of fmt 8 compatibility.
+#if FMT_VERSION > 90000
+#include <fmt/std.h>
+#endif
 #include <spdlog/fmt/ostr.h>
-#include <spdlog/sinks/stdout_color_sinks.h>
 #include <spdlog/spdlog.h>
-
 #include <boost/preprocessor/comparison/equal.hpp>
 #include <boost/preprocessor/control/if.hpp>
 #include <boost/preprocessor/variadic/size.hpp>
 
 namespace memgraph::logging {
 
-// TODO (antonio2368): Replace with std::source_location when it's supported by
-// compilers
-inline void AssertFailed(const char *file_name, int line_num, const char *expr, const std::string &message) {
-  spdlog::critical(
-      "\nAssertion failed in file {} at line {}."
-      "\n\tExpression: '{}'"
-      "{}",
-      file_name, line_num, expr, !message.empty() ? fmt::format("\n\tMessage: '{}'", message) : "");
-  std::terminate();
+// Single non-format-string argument: wrap with "{}" so fmt::format can handle formattable types (e.g. ExceptionInfo).
+template <typename T>
+std::string FormatForStderr(T &&val) {
+  return fmt::format("{}", std::forward<T>(val));
 }
+
+// Format string + arguments: forward directly to fmt::format.
+template <typename T, typename Arg, typename... Args>
+std::string FormatForStderr(T &&fmt_str, Arg &&arg, Args &&...args) {
+  return fmt::format(fmt::runtime(std::forward<T>(fmt_str)), std::forward<Arg>(arg), std::forward<Args>(args)...);
+}
+
+[[noreturn]] void AssertFailed(std::source_location loc, const char *expr, const std::string &message);
 
 #define GET_MESSAGE(...) \
   BOOST_PP_IF(BOOST_PP_EQUAL(BOOST_PP_VARIADIC_SIZE(__VA_ARGS__), 0), "", fmt::format(__VA_ARGS__))
 
-#define MG_ASSERT(expr, ...)                                                                  \
-  do {                                                                                        \
-    if (expr) [[likely]] {                                                                    \
-      (void)0;                                                                                \
-    } else {                                                                                  \
-      ::memgraph::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__)); \
-    }                                                                                         \
+#define MG_ASSERT(expr, ...)                                                                                 \
+  do {                                                                                                       \
+    if (!(expr)) [[unlikely]] { /* NOLINT(readability-simplify-boolean-expr) */                              \
+      [&]() __attribute__((noinline, cold, noreturn)) {                                                      \
+        ::memgraph::logging::AssertFailed(std::source_location::current(), #expr, GET_MESSAGE(__VA_ARGS__)); \
+      }();                                                                                                   \
+    }                                                                                                        \
   } while (false)
 
 #ifndef NDEBUG
@@ -64,16 +73,13 @@ inline void AssertFailed(const char *file_name, int line_num, const char *expr, 
   } while (false)
 #endif
 
-template <typename... Args>
-void Fatal(const char *msg, const Args &...msg_args) {
-  spdlog::critical(msg, msg_args...);
-  std::terminate();
-}
-
-#define LOG_FATAL(...)             \
-  do {                             \
-    spdlog::critical(__VA_ARGS__); \
-    std::terminate();              \
+#define LOG_FATAL(...)                                                               \
+  do {                                                                               \
+    spdlog::critical(__VA_ARGS__);                                                   \
+    if (std::dynamic_pointer_cast<spdlog::async_logger>(spdlog::default_logger())) { \
+      std::cerr << ::memgraph::logging::FormatForStderr(__VA_ARGS__) << '\n';        \
+    }                                                                                \
+    std::terminate();                                                                \
   } while (0)
 
 #ifndef NDEBUG
@@ -84,16 +90,16 @@ void Fatal(const char *msg, const Args &...msg_args) {
   } while (false)
 #endif
 
-inline void RedirectToStderr() { spdlog::set_default_logger(spdlog::stderr_color_mt("stderr")); }
+void RedirectToStderr();
 
 // /// Use it for operations that must successfully finish.
 inline void AssertRocksDBStatus(const auto &status) { MG_ASSERT(status.ok(), "rocksdb: {}", status.ToString()); }
 
-inline bool CheckRocksDBStatus(const auto &status) {
-  if (!status.ok()) [[unlikely]] {
-    spdlog::error("rocksdb: {}", status.ToString());
-  }
-  return status.ok();
-}
-
+// Redacts the value of any credential-bearing clause in `input`. Returns
+// nullopt when there is nothing to redact, so callers can keep using the
+// original text rather than a copy of it.
+//
+// Redaction fails closed: a value whose closing quote is missing is redacted
+// to the end of the input, because the alternative is logging the secret.
+std::optional<std::string> MaskSensitiveInformation(std::string_view input);
 }  // namespace memgraph::logging

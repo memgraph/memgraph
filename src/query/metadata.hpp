@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <map>
 #include <string>
-#include <string_view>
 #include <type_traits>
 
 #include "query/typed_value.hpp"
@@ -43,14 +42,31 @@ enum class NotificationCode : uint8_t {
   REPLICA_PORT_WARNING,
   REGISTER_REPLICA,
 #ifdef MG_ENTERPRISE
-  REGISTER_COORDINATOR_SERVER,
-  DO_FAILOVER,
+  REGISTER_REPLICATION_INSTANCE,
+  ADD_COORDINATOR_INSTANCE,
+  REMOVE_COORDINATOR_INSTANCE,
+  UPDATE_CONFIG,
+  UNREGISTER_INSTANCE,
+  DEMOTE_INSTANCE_TO_REPLICA,
+  FORCE_RESET_CLUSTER_STATE,
+  YIELD_LEADERSHIP,
+  LEADER_NOT_REACHABLE,
+  REPLICATION_LAG_UNAVAILABLE,
 #endif
   SET_REPLICA,
+  SYNC_REPLICATION_FAILURE,
   START_STREAM,
   START_ALL_STREAMS,
   STOP_STREAM,
   STOP_ALL_STREAMS,
+  ENABLE_TTL,
+  DISABLE_TTL,
+  STOP_TTL,
+  PARALLEL_EXECUTION_FALLBACK,
+  RELOAD_SSL,
+  INDEX_CONSTRAINT_NAME_IGNORED,
+  CREATE_USER,
+  CREATE_ROLE,
 };
 
 struct Notification {

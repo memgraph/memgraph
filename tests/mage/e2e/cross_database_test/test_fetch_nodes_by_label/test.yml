@@ -1,0 +1,23 @@
+query: >
+    CALL cross_database.bolt('(:Person)', {
+        host: 'localhost',
+        port: 7687
+    })
+    YIELD row
+    RETURN row.labels AS labels, row.properties.name AS name,
+           row.properties.age AS age, row.properties.active AS active
+    ORDER BY row.properties.name
+
+output:
+    - labels: ['Person']
+      name: 'Alice'
+      age: 30
+      active: true
+    - labels: ['Person']
+      name: 'Bob'
+      age: 25
+      active: false
+    - labels: ['Person']
+      name: 'Charlie'
+      age: 35
+      active: true

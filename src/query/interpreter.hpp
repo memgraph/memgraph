@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,56 +11,118 @@
 
 #pragma once
 
-#include <unordered_set>
-
 #include <gflags/gflags.h>
+#include <atomic>
+#include <chrono>
+#include <functional>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <utility>
 
-#include "coordination/coordinator_entity_info.hpp"
 #include "dbms/database.hpp"
-#include "dbms/dbms_handler.hpp"
-#include "memory/query_memory_control.hpp"
-#include "query/auth_checker.hpp"
-#include "query/auth_query_handler.hpp"
-#include "query/config.hpp"
+#include "dbms/database_protector.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "memory/db_arena_fwd.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
 #include "query/db_accessor.hpp"
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/cypher_main_visitor.hpp"
-#include "query/frontend/stripped.hpp"
-#include "query/interpret/frame.hpp"
-#include "query/metadata.hpp"
-#include "query/plan/operator.hpp"
-#include "query/plan/read_write_type_checker.hpp"
+#include "query/plan_v2/frontend/query_planner_context.hpp"
 #include "query/stream.hpp"
-#include "query/stream/streams.hpp"
-#include "query/trigger.hpp"
-#include "query/typed_value.hpp"
-#include "spdlog/spdlog.h"
-#include "storage/v2/disk/storage.hpp"
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage.hpp"
-#include "utils/event_counter.hpp"
+#include "query/trigger_context.hpp"
+#include "system/transaction.hpp"
 #include "utils/event_trigger.hpp"
-#include "utils/logging.hpp"
 #include "utils/memory.hpp"
-#include "utils/settings.hpp"
-#include "utils/skip_list.hpp"
+#include "utils/priorities.hpp"
+#include "utils/session_context.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/thread_pool.hpp"
-#include "utils/timer.hpp"
-#include "utils/tsc.hpp"
 
-namespace memgraph::metrics {
-extern const Event FailedQuery;
-extern const Event FailedPrepare;
-extern const Event FailedPull;
-extern const Event SuccessfulQuery;
-}  // namespace memgraph::metrics
+#ifdef MG_ENTERPRISE
+#include "coordination/instance_status.hpp"
+#include "coordination/replication_lag_info.hpp"
+#include "coordination/utils.hpp"
+#include "metrics/scoped_gauge.hpp"
+#include "utils/resource_monitoring.hpp"
+#endif
 
 namespace memgraph::query {
+
+class FineGrainedAuthChecker;
+struct CachedFineGrainedAuth;
+
+struct QueryAllocator {
+  explicit QueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
+      : tracked_memory_{db_query_tracker}, upstream_{&tracked_memory_} {}
+
+  QueryAllocator(QueryAllocator const &) = delete;
+  QueryAllocator &operator=(QueryAllocator const &) = delete;
+
+  // No move addresses to pool & monotonic fields must be stable
+  QueryAllocator(QueryAllocator &&) = delete;
+  QueryAllocator &operator=(QueryAllocator &&) = delete;
+
+  auto resource() -> utils::MemoryResource * {
+#ifndef MG_MEMORY_PROFILE
+    return &pool;
+#else
+    return &upstream_;
+#endif
+  }
+
+  auto resource_without_pool() -> utils::MemoryResource * {
+#ifndef MG_MEMORY_PROFILE
+    return &monotonic;
+#else
+    return &upstream_;
+#endif
+  }
+
+  auto resource_without_pool_or_mono() -> utils::MemoryResource * { return &upstream_; }
+
+ private:
+  // At least one page to ensure not sharing page with other subsystems
+  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL;
+  // TODO: need to profile to check for good defaults, also maybe PoolResource
+  //  needs to be smarter. We expect more reuse of smaller objects than larger
+  //  objects. 64*1024B is maybe wasteful, whereas 256*32B maybe sensible.
+  //  Depends on number of small objects expected.
+  static constexpr auto kPoolBlockPerChunk = 64UL;
+  static constexpr auto kPoolMaxBlockSize = 1024UL;
+
+  utils::TrackingMemoryResource tracked_memory_{nullptr};
+  utils::ResourceWithOutOfMemoryException upstream_{&tracked_memory_};
+#ifndef MG_MEMORY_PROFILE
+  memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, &upstream_};
+  memgraph::utils::PoolResource<> pool{kPoolBlockPerChunk, &monotonic, &upstream_};
+#endif
+};
+
+struct ThreadSafeQueryAllocator {
+  explicit ThreadSafeQueryAllocator(utils::MemoryTracker *db_query_tracker = nullptr)
+      : tracked_memory_{db_query_tracker}, upstream_{&tracked_memory_}, monotonic{kMonotonicInitialSize, &upstream_} {}
+
+  ~ThreadSafeQueryAllocator() = default;
+
+  ThreadSafeQueryAllocator(ThreadSafeQueryAllocator const &) = delete;
+  ThreadSafeQueryAllocator &operator=(ThreadSafeQueryAllocator const &) = delete;
+
+  // No move addresses to pool & monotonic fields must be stable
+  ThreadSafeQueryAllocator(ThreadSafeQueryAllocator &&) = delete;
+  ThreadSafeQueryAllocator &operator=(ThreadSafeQueryAllocator &&) = delete;
+
+  auto resource() -> utils::MemoryResource * { return &pool; }
+
+ private:
+  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL * 1024UL;
+  static constexpr auto kPoolBlockPerChunk = 255;
+  static constexpr auto kPoolMaxBlockSize = 1024UL;
+
+  utils::TrackingMemoryResource tracked_memory_{nullptr};
+  utils::ResourceWithOutOfMemoryException upstream_{&tracked_memory_};
+  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic;
+  memgraph::utils::PoolResource<utils::impl::ThreadSafePool> pool{kPoolBlockPerChunk, &monotonic, &upstream_};
+};
 
 struct InterpreterContext;
 
@@ -69,6 +131,7 @@ inline constexpr size_t kExecutionPoolMaxBlockSize = 1024UL;  // 2 ^ 10
 
 enum class QueryHandlerResult { COMMIT, ABORT, NOTHING };
 
+#ifdef MG_ENTERPRISE
 class CoordinatorQueryHandler {
  public:
   CoordinatorQueryHandler() = default;
@@ -80,63 +143,76 @@ class CoordinatorQueryHandler {
   CoordinatorQueryHandler(CoordinatorQueryHandler &&) = default;
   CoordinatorQueryHandler &operator=(CoordinatorQueryHandler &&) = default;
 
-  struct Replica {
-    std::string name;
-    std::string socket_address;
-    ReplicationQuery::SyncMode sync_mode;
-    std::optional<double> timeout;
-    uint64_t current_timestamp_of_replica;
-    uint64_t current_number_of_timestamp_behind_master;
-    ReplicationQuery::ReplicaState state;
-  };
-
-#ifdef MG_ENTERPRISE
   struct MainReplicaStatus {
     std::string_view name;
-    std::string socket_address;
+    std::string_view socket_address;
     bool alive;
     bool is_main;
 
-    MainReplicaStatus(std::string_view name, std::string socket_address, bool alive, bool is_main)
-        : name{name}, socket_address{std::move(socket_address)}, alive{alive}, is_main{is_main} {}
+    MainReplicaStatus(std::string_view name, std::string_view socket_address, bool alive, bool is_main)
+        : name{name}, socket_address{socket_address}, alive{alive}, is_main{is_main} {}
   };
-#endif
 
-#ifdef MG_ENTERPRISE
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void RegisterReplicaCoordinatorServer(const std::string &replication_socket_address,
-                                                const std::string &coordinator_socket_address,
-                                                const std::chrono::seconds instance_check_frequency,
-                                                const std::string &instance_name,
-                                                CoordinatorQuery::SyncMode sync_mode) = 0;
-  virtual void RegisterMainCoordinatorServer(const std::string &socket_address,
-                                             const std::chrono::seconds instance_check_frequency,
-                                             const std::string &instance_name) = 0;
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
+                                           std::string_view replication_server, std::string_view instance_name,
+                                           CoordinatorQuery::SyncMode sync_mode) = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<coordination::CoordinatorEntityInfo> ShowReplicasOnCoordinator() const = 0;
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void UnregisterInstance(std::string_view instance_name) = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<coordination::CoordinatorEntityInfo> ShowMainOnCoordinator() const = 0;
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void SetReplicationInstanceToMain(std::string_view instance_name) = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::unordered_map<std::string_view, bool> PingReplicasOnCoordinator() const = 0;
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual coordination::InstanceStatus ShowInstance() const = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<coordination::CoordinatorEntityHealthInfo> PingMainOnCoordinator() const = 0;
+  /// nullopt if the leader couldn't be reached.
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual std::optional<std::vector<coordination::InstanceStatus>> ShowInstances() const = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DoFailover() const = 0;
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void AddCoordinatorInstance(int32_t coordinator_id, std::string_view bolt_server,
+                                      std::string_view coordinator_server, std::string_view management_server) = 0;
 
-  /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<MainReplicaStatus> ShowMainReplicaStatus(
-      const std::vector<coordination::CoordinatorEntityInfo> &replicas,
-      const std::unordered_map<std::string_view, bool> &health_check_replicas,
-      const std::optional<coordination::CoordinatorEntityInfo> &main,
-      const std::optional<coordination::CoordinatorEntityHealthInfo> &health_check_main) const = 0;
+  virtual void RemoveCoordinatorInstance(int32_t coordinator_id) = 0;
 
-#endif
+  virtual void UpdateConfig(std::variant<int32_t, std::string> instance, io::network::Endpoint bolt_endpoint) = 0;
+
+  virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
+
+  virtual void ForceResetClusterState() = 0;
+
+  virtual void YieldLeadership() = 0;
+
+  virtual void SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) = 0;
+
+  /// Both return nullopt if the leader couldn't be reached.
+  virtual std::optional<std::vector<std::pair<std::string, std::string>>> ShowCoordinatorSettings() = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void CreateRole(std::string_view role_name, bool if_not_exists) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void DropRole(std::string_view role_name) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual std::vector<std::string> ShowRoles() = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void GrantCoordinatorPrivilege(std::string_view role_name, uint64_t privileges) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred.
+  virtual void RevokeCoordinatorPrivilege(std::string_view role_name, uint64_t privileges) = 0;
+
+  /// @throw QueryRuntimeException if an error occurred. Returns the role's coordinator permission mask.
+  virtual uint64_t ShowRolePrivileges(std::string_view role_name) = 0;
+
+  virtual std::optional<coordination::ReplicationLagResult> ShowReplicationLag() = 0;
+
+  virtual coordination::RoutingTable GetRoutingTable(std::string_view db_name) = 0;
 };
+#endif
 
 class AnalyzeGraphQueryHandler {
  public:
@@ -162,9 +238,13 @@ class AnalyzeGraphQueryHandler {
 struct PreparedQuery {
   std::vector<std::string> header;
   std::vector<AuthQuery::Privilege> privileges;
-  std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
+  std::move_only_function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
+  utils::Priority priority{utils::Priority::LOW};
+  // Lazily renders the EXPLAIN plan for the slow-query log; empty unless slow logging may
+  // apply. Pull invokes it past the duration gate, while the plan's DbAccessor is alive.
+  std::function<std::string()> slow_query_plan_renderer{};
 };
 
 /**
@@ -172,26 +252,101 @@ struct PreparedQuery {
  * NOTE: maybe need to parse more in the future, ATM we ignore some parts from BOLT
  */
 struct QueryExtras {
-  std::map<std::string, memgraph::storage::PropertyValue> metadata_pv;
-  std::optional<int64_t> tx_timeout;
+  storage::ExternalPropertyValue::map_t metadata_pv{};
+  std::optional<int64_t> tx_timeout{};
+  bool is_read{false};
 };
 
 struct CurrentDB {
   CurrentDB() = default;  // TODO: remove, we should always have an implicit default obtainable from somewhere
                           //       ATM: it is provided by the DatabaseAccess
                           //       future: should be a name + ptr to dbms_handler, lazy fetch when needed
+
+  // No lock needed: db_acc_ is set via the member-init list, before this CurrentDB becomes reachable
+  // (e.g. via InterpreterContext::interpreters), so no other thread can observe it mid-construction.
   explicit CurrentDB(memgraph::dbms::DatabaseAccess db_acc) : db_acc_{std::move(db_acc)} {}
 
   CurrentDB(CurrentDB const &) = delete;
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                bool unique = false);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
   void CleanupDBTransaction(bool abort);
+
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
-    // do we lock here?
-    db_acc_ = std::move(new_db);
-    in_explicit_db_ = in_explicit_db;
+    // Move the outgoing Accessor out of db_acc_ under the lock, then let it destruct AFTER the lock is
+    // released (see db_acc_mutex_ for why: its dtor can block on a foreign GKInternals::mutex_).
+    std::optional<memgraph::dbms::DatabaseAccess> old_db;
+    {
+      std::lock_guard lock{db_acc_mutex_};
+      old_db = std::exchange(db_acc_, std::move(new_db));
+      in_explicit_db_ = in_explicit_db;
+    }
+  }
+
+  void ResetDB() {
+    // Swap db_acc_ out under the lock so a concurrent foreign_db_view() immediately sees "no database";
+    // old_db is destructed below, OUTSIDE the lock, because the storage-accessor dtors take storage locks
+    // and must not run under db_acc_mutex_ (its leaf-lock property).
+    std::optional<memgraph::dbms::DatabaseAccess> old_db;
+    {
+      std::lock_guard lock{db_acc_mutex_};
+      old_db.swap(db_acc_);
+    }
+    // Release the storage-side accessors FIRST, while old_db still pins the Database/Storage alive.
+    // ~InMemoryAccessor runs Abort()/FinalizeTransaction() which dereference the Storage, and the gatekeeper
+    // never destroys the Storage while an Accessor is live (finish_suspend asserts count_==0). Releasing the
+    // DatabaseAccess (old_db) LAST therefore keeps a concurrent deferred/FORCE teardown from freeing the
+    // Storage out from under those dtors -- the UAF the previous db_acc_-first order left open.
+    db_transactional_accessor_.reset();
+    execution_db_accessor_.reset();
+    trigger_context_collector_.reset();
+    old_db.reset();  // db access released last; still outside db_acc_mutex_
+  }
+
+  // Releases db_acc_ only if held, marked for deletion, and no storage-side accessor is live.
+  // Those accessors hold raw Storage references without a pin of their own, so dropping the last
+  // gatekeeper pin under them would let a deferred teardown free the Storage (same ordering as ResetDB).
+  // E.g. a nested BEGIN inside an open explicit transaction reaches here before it throws; the pin is
+  // then released by the next ResetInterpreter after the transaction ends, or by ResetDB.
+  // is_marked_for_deletion() reads an atomic_bool (no GKInternals::mutex_), so it is safe to call
+  // under db_acc_mutex_; the swapped-out Accessor is destructed after the lock is released.
+  void ReleaseDbIfMarked() {
+    if (db_transactional_accessor_ || execution_db_accessor_ || trigger_context_collector_) return;
+    std::optional<memgraph::dbms::DatabaseAccess> old_db;
+    {
+      std::lock_guard lock{db_acc_mutex_};
+      if (db_acc_ && db_acc_->is_marked_for_deletion()) {
+        old_db.swap(db_acc_);
+      }
+    }
+  }
+
+  // Owning-thread-only. Reads db_acc_ with no synchronization, safe only because a session's queries are
+  // serialized -- Bolt's worker pool never runs two for one session at once, so the owning thread's read
+  // never overlaps that session's own SetCurrentDB writer. The verifier's ACTIVE->VERIFYING CAS does NOT
+  // make this safe for a foreign thread: the Pull/write path never consults transaction_status_, so the CAS
+  // establishes no happens-before against SetCurrentDB's db_acc_ swap -- a foreign unlocked read here would
+  // tear against a concurrent USE DATABASE. A foreign thread -- including one observing an IDLE session --
+  // must use foreign_db_view() instead.
+  std::string name() const { return db_acc_ ? db_acc_->get()->name() : ""; }
+
+  // Safe from any thread: unlike name(), it needs no verifier CAS, which can never succeed on IDLE anyway.
+  // Reads db_acc_ live, not cached -- DbmsHandler::Rename mutates storage's name in place, not db_acc_.
+  struct ForeignDbView {
+    std::string name;                 // "" when the session holds no database
+    bool marked_for_deletion{false};  // false when there is no database
+  };
+
+  [[nodiscard]] ForeignDbView foreign_db_view() const {
+    std::lock_guard lock{db_acc_mutex_};
+    if (!db_acc_) return {};
+    // is_marked_for_deletion() MUST resolve to Accessor::is_marked_for_deletion() (the plain atomic_bool
+    // read in gatekeeper.hpp) -- NOT Gatekeeper::is_marked_for_deletion(), which locks GKInternals::mutex_.
+    // db_acc_ is optional<DatabaseAccess = Gatekeeper<Database>::Accessor>, so db_acc_-> yields an Accessor
+    // and this resolves to the lockless overload. Taking the gatekeeper mutex here would add a
+    // db_acc_mutex_ -> gatekeeper-mutex edge and break db_acc_mutex_'s leaf-lock property.
+    return {db_acc_->get()->name(), db_acc_->is_marked_for_deletion()};
   }
 
   // TODO: don't provide explicitly via constructor, instead have a lazy way of getting the current/default
@@ -202,7 +357,24 @@ struct CurrentDB {
   std::optional<DbAccessor> execution_db_accessor_;
   std::optional<TriggerContextCollector> trigger_context_collector_;
   bool in_explicit_db_{false};
+  metrics::ScopedGauge transaction_gauge_;
+
+  // Guards mutation of db_acc_ only; owning-thread reads (name(), ~100 direct db_acc_ reads in interpreter.cpp) skip
+  // it because a session's queries are serialized, so a reader and writer for the same session never overlap.
+  // Must NOT be a spinlock: foreign_db_view() calls Storage::name(), which blocks on a shared_mutex inside
+  // utils::SafeString.
+  //
+  // GKInternals-MUTEX-FREE (not a textbook leaf lock -- it does take SafeString's shared_mutex via name()
+  // above): every writer swaps the outgoing Accessor out under this lock and destroys it after releasing, so
+  // no Accessor dtor -- and thus no GKInternals::mutex_ -- ever runs beneath it. That matters because
+  // GetActiveUsersInfo holds the interpreters SpinLock across this lock, and an Accessor dtor can block on a
+  // GKInternals::mutex_ that finish_suspend() holds across a whole ~Database; nesting them would stall the
+  // session table behind a tenant suspend.
+  mutable std::mutex db_acc_mutex_;
 };
+
+using UserParameters_fn = std::function<UserParameters(storage::Storage const *)>;
+constexpr auto no_params_fn = [](storage::Storage const *) -> UserParameters { return {}; };
 
 class Interpreter final {
  public:
@@ -212,7 +384,11 @@ class Interpreter final {
   Interpreter &operator=(const Interpreter &) = delete;
   Interpreter(Interpreter &&) = delete;
   Interpreter &operator=(Interpreter &&) = delete;
-  ~Interpreter() { Abort(); }
+
+  ~Interpreter();
+
+  void ResetCachedFga();
+  FineGrainedAuthChecker const *GetCachedFga() const;
 
   struct PrepareResult {
     std::vector<std::string> headers;
@@ -221,18 +397,91 @@ class Interpreter final {
     std::optional<std::string> db;
   };
 
-  std::optional<std::string> username_;
+#ifdef MG_ENTERPRISE
+  struct RouteResult {
+    int ttl{300};
+    std::string db{};  // Currently not used since we don't have any specific replication groups etc.
+    coordination::RoutingTable servers{};
+  };
+#endif
+
+  struct SessionInfo {
+    std::string uuid;
+    std::string username;
+    std::string login_timestamp;
+  };
+
+  // Owning-thread only: written/read by SetUser/ResetUser/SetSessionInfo on the same thread.
+  // Foreign threads must use the snapshots below — a cross-thread read races a non-atomic shared_ptr (UAF if ResetUser
+  // runs concurrently).
+  std::shared_ptr<QueryUserOrRole> user_or_role_{};
+#ifdef MG_ENTERPRISE
+  // Coordinator privilege mask captured at login (auth::Permission bits). Consulted directly only for role-less
+  // (basic-auth passthrough) sessions, which carry full WRITE; sessions with coordinator roles recompute their mask
+  // per check via EffectiveCoordinatorPermissions. Zero denies everything, so an interpreter that never authenticated
+  // grants nothing: every privileged path must call SetCoordinatorPrivileges explicitly.
+  uint64_t coordinator_permissions_{0};
+  // Role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session). A claim
+  // captured at login, not a fact: both the privilege mask (EffectiveCoordinatorPermissions) and SHOW CURRENT ROLE
+  // re-check these names against the leader's committed role set on every use, so a dropped role stops counting and
+  // stops being reported without waiting for a reconnect.
+  std::vector<std::string> coordinator_roles_;
+  std::shared_ptr<utils::UserResources> user_resource_;
+#endif
+  std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
+  SessionInfo session_info_;
+  // Leaf lock for session_info_; only the foreign GetActiveUsersInfo reader locks (owning-thread reads serialized).
+  mutable std::mutex session_info_mutex_;
+  // Published snapshots of user_or_role_ and session_info_ for foreign readers; atomic<shared_ptr> makes
+  // load() refcount-safe (raw ptr/relaxed atomic reintroduces UAF). Keep WHOLE: operator== checks username+rolenames
+  // jointly.
+  std::atomic<std::shared_ptr<QueryUserOrRole>> foreign_user_view_{};
+  std::atomic<std::shared_ptr<const SessionInfo>> foreign_session_view_{};
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 
   bool expect_rollback_{false};
-  std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
-  std::optional<std::map<std::string, storage::PropertyValue>> metadata_{};  //!< User defined transaction metadata
+  std::optional<utils::SteadyTimePoint> current_timeout_deadline_{};
+  std::optional<storage::ExternalPropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
+
+  void ResetDB() { current_db_.ResetDB(); }
+
   void OnChangeCB(auto cb) { on_change_.emplace(cb); }
+#else
+  void SetCurrentDB();
 #endif
+
+  utils::Priority GetQueryPriority(std::optional<int> qid) const {
+    const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
+    if (qid_value < 0 || qid_value >= query_executions_.size()) {
+      throw InvalidArgumentsException("qid", "Query with specified ID does not exist!");
+    }
+    return query_executions_[qid_value]->prepared_query->priority;
+  }
+
+  utils::Priority ApproximateNextQueryPriority() const {
+    // If in transaction => low, we are for sure in a cypher query situation
+    // If not in transaction, we have to check the last query priority <- there can't be qid, so just check the last
+    return in_explicit_transaction_    ? utils::Priority::LOW
+           : query_executions_.empty() ? utils::Priority::HIGH
+                                       : query_executions_.back()->prepared_query->priority;
+  }
+
+  struct ParseInfo {
+    ParsedQuery parsed_query;
+    double parsing_time;
+  };
+
+  enum class TransactionQuery : uint8_t { BEGIN, COMMIT, ROLLBACK };
+
+  using ParseRes = std::variant<ParseInfo, TransactionQuery>;
+
+  Interpreter::ParseRes Parse(const std::string &query, UserParameters_fn params_getter, QueryExtras const &extras);
+
+  Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
 
   /**
    * Prepare a query for execution.
@@ -242,9 +491,24 @@ class Interpreter final {
    *
    * @throw query::QueryException
    */
-  Interpreter::PrepareResult Prepare(const std::string &query,
-                                     const std::map<std::string, storage::PropertyValue> &params,
-                                     QueryExtras const &extras);
+  Interpreter::PrepareResult Prepare(const std::string &query, UserParameters_fn params_getter,
+                                     QueryExtras const &extras) {
+    // Split Prepare in two (Parse and Prepare)
+    // This allows us to parse, deduce priority and schedule accordingly
+    // Leaving this one-shot version for back-compatiblity
+    return Prepare(Parse(query, params_getter, extras), params_getter, extras);
+  }
+
+  /**
+   * Checks if the user has the required privileges to execute the query.
+   *
+   * @throw query::QueryException
+   */
+  void CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db = {});
+
+#ifdef MG_ENTERPRISE
+  auto Route(std::optional<std::string> const &db) -> RouteResult;
+#endif
 
   /**
    * Execute the last prepared query and stream *all* of the results into the
@@ -292,7 +556,12 @@ class Interpreter final {
 
   std::optional<uint64_t> GetTransactionId() const;
 
-  void CommitTransaction();
+  // True iff an active transaction has no pending writes; its COMMIT is a near-noop the scheduler routes HIGH.
+  bool IsCurrentTransactionEmpty() const;
+
+  // Returns the notification produced by the commit, if any. A SYNC replication failure does not abort the
+  // transaction, so it is reported as a notification instead of an exception.
+  std::optional<Notification> CommitTransaction();
 
   void RollbackTransaction();
 
@@ -306,88 +575,180 @@ class Interpreter final {
    */
   void Abort();
 
-  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};  // Tie to current_transaction_
-  std::optional<uint64_t> current_transaction_;
+  struct TxVerifier {
+    TxVerifier(TransactionStatus original_status, std::atomic<TransactionStatus> &transaction_status)
+        : original_status_(original_status), transaction_status_(transaction_status) {}
+
+    ~TxVerifier() {
+      TransactionStatus expected = TransactionStatus::VERIFYING;
+      transaction_status_.compare_exchange_strong(
+          expected, original_status_, std::memory_order_release, std::memory_order_relaxed);
+    }
+
+    TxVerifier(const TxVerifier &) = delete;
+    TxVerifier(TxVerifier &&) = delete;
+    TxVerifier &operator=(const TxVerifier &) = delete;
+    TxVerifier &operator=(TxVerifier &&) = delete;
+
+    TransactionStatus status() const { return original_status_; }
+
+   private:
+    TransactionStatus original_status_;
+    std::atomic<TransactionStatus> &transaction_status_;
+  };
+
+  /**
+   * Attempt to CAS the transaction status to VERIFYING so its state can be
+   * safely read by another thread. Returns a TxVerifier RAII guard that
+   * restores the original status on destruction, or nullopt if the CAS failed.
+   */
+  std::optional<TxVerifier> TryAcquireForVerification();
+
+  std::atomic<TransactionStatus> transaction_status_{TransactionStatus::IDLE};
+  // current_transaction_ is protected by the transaction_status_ atomic.
+  // When transaction_status_ is VERIFYING, current_transaction_ is stable.
+  // When transaction_status_ is IDLE, current_transaction_ is nullopt.
+  std::optional<uint64_t> current_transaction_{std::nullopt};
+  // Set in SetupInterpreterTransaction; published via the release-store on transaction_status_
+  // and read by ShowTransactions under a verifier (acquire on the same atomic). system_clock
+  // is used for start_time; steady_clock for elapsed_ms (immune to NTP / manual clock jumps).
+  std::chrono::system_clock::time_point transaction_start_time_{};
+  std::chrono::steady_clock::time_point transaction_start_steady_{};
 
   void ResetUser();
 
-  void SetUser(std::string_view username);
+#ifdef MG_ENTERPRISE
+  void SetUser(std::shared_ptr<QueryUserOrRole> user, std::shared_ptr<utils::UserResources> user_resource = nullptr);
 
-  struct SystemTransactionGuard {
-    explicit SystemTransactionGuard(std::unique_lock<utils::ResourceLock> guard, dbms::DbmsHandler &dbms_handler)
-        : system_guard_(std::move(guard)), dbms_handler_{&dbms_handler} {
-      dbms_handler_->NewSystemTransaction();
-    }
-    SystemTransactionGuard &operator=(SystemTransactionGuard &&) = default;
-    SystemTransactionGuard(SystemTransactionGuard &&) = default;
+  // Sets the session's effective coordinator privilege mask (auth::Permission bits). Called at authentication time on
+  // coordinators; a basic-auth passthrough session is granted full WRITE.
+  void SetCoordinatorPrivileges(uint64_t privileges) { coordinator_permissions_ = privileges; }
 
-    ~SystemTransactionGuard() {
-      if (system_guard_.owns_lock()) dbms_handler_->ResetSystemTransaction();
-    }
+  // Sets the role names the session authenticated with on a coordinator (reported by SHOW CURRENT ROLE).
+  void SetCoordinatorRoles(std::vector<std::string> roles) { coordinator_roles_ = std::move(roles); }
 
-    dbms::AllSyncReplicaStatus Commit() { return dbms_handler_->Commit(); }
+  // The role names the session authenticated with on a coordinator (empty for a basic-auth passthrough session).
+  const std::vector<std::string> &GetCoordinatorRoles() const { return coordinator_roles_; }
 
-   private:
-    std::unique_lock<utils::ResourceLock> system_guard_;
-    dbms::DbmsHandler *dbms_handler_;
-  };
+  // The session's effective coordinator privilege mask. A role-less (basic-auth passthrough) session uses the mask
+  // fixed at login; an SSO session recomputes it from its role names against the leader's committed role set on
+  // every check, so REVOKE/DROP ROLE downgrades long-lived sessions without a reconnect.
+  uint64_t EffectiveCoordinatorPermissions() const;
+#else
+  void SetUser(std::shared_ptr<QueryUserOrRole> user);
+#endif
 
-  std::optional<SystemTransactionGuard> system_transaction_guard_{};
+  void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp);
+
+  SessionInfo GetSessionInfoSnapshot() const {
+    std::lock_guard lock{session_info_mutex_};
+    return session_info_;
+  }
+
+  std::optional<memgraph::system::Transaction> system_transaction_{};
+
+  memgraph::system::Transaction *system_transaction_ptr() {
+    return system_transaction_ ? &*system_transaction_ : nullptr;
+  }
+
+  memgraph::logging::SessionLogContext *GetLogContext() noexcept { return &session_log_ctx_; }
+
+  // Reused across queries so the planner-v2 extraction buffers (frontier map,
+  // selection, in-degree, topo order) keep their allocated capacity instead of
+  // being freed and re-grown each query.
+  plan::v2::QueryPlannerContext &query_planner_context() { return query_planner_context_; }
 
  private:
+  void MaybeEmitFailedQueryLog(std::string_view query, std::string_view error) const {
+    // TLS guard absent => no bolt message is in flight (worker/GC/NuRaft thread); never emit.
+    if (memgraph::logging::ScopedSessionLog::Current() == nullptr) return;
+    if (!flags::run_time::GetEffectiveLogFailedQueries(session_log_ctx_)) return;
+    const auto db_name = CurrentDbLogName();
+    memgraph::logging::EmitFailedQueryLog(session_log_ctx_.user(), db_name, query, error);
+  }
+
+  // db= field for the slow-/failed-query log: the current DB name, or "<none>".
+  std::string CurrentDbLogName() const {
+    auto name = current_db_.name();
+    return name.empty() ? std::string{"<none>"} : name;
+  }
+
+  memgraph::logging::SessionLogContext session_log_ctx_{};
+
   void ResetInterpreter() {
     query_executions_.clear();
-    system_guard.reset();
-    system_transaction_guard_.reset();
+    system_transaction_.reset();
     transaction_queries_->clear();
-    if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
-      current_db_.db_acc_.reset();
-    }
+    commit_notification_.reset();
+    current_db_.ReleaseDbIfMarked();
   }
 
   struct QueryExecution {
-    std::variant<utils::MonotonicBufferResource, utils::PoolResource> execution_memory;
-    utils::ResourceWithOutOfMemoryException execution_memory_with_exception;
-    std::optional<PreparedQuery> prepared_query;
+    static constexpr struct ThreadSafe {
+    } thread_safe_;
 
-    std::map<std::string, TypedValue> summary;
-    std::vector<Notification> notifications;
+    // QueryExecution memory is charged to the DB whose query/trigger is being
+    // prepared. System-only executions may pass nullptr because they do not run
+    // inside a DB query-memory budget.
+    explicit QueryExecution(utils::MemoryTracker *db_query_tracker = nullptr)
+        : execution_memory{std::in_place_type<QueryAllocator>, db_query_tracker}, memory_tracker{db_query_tracker} {}
 
-    static auto Create(std::variant<utils::MonotonicBufferResource, utils::PoolResource> memory_resource,
-                       std::optional<PreparedQuery> prepared_query = std::nullopt) -> std::unique_ptr<QueryExecution> {
-      return std::make_unique<QueryExecution>(std::move(memory_resource), std::move(prepared_query));
-    }
-
-    explicit QueryExecution(std::variant<utils::MonotonicBufferResource, utils::PoolResource> memory_resource,
-                            std::optional<PreparedQuery> prepared_query)
-        : execution_memory(std::move(memory_resource)), prepared_query{std::move(prepared_query)} {
-      std::visit(
-          [&](auto &memory_resource) {
-            execution_memory_with_exception = utils::ResourceWithOutOfMemoryException(&memory_resource);
-          },
-          execution_memory);
-    };
+    QueryExecution(ThreadSafe /*marker*/, utils::MemoryTracker *db_query_tracker)
+        : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>, db_query_tracker},
+          memory_tracker{db_query_tracker} {}
 
     QueryExecution(const QueryExecution &) = delete;
-    QueryExecution(QueryExecution &&) = default;
+    QueryExecution(QueryExecution &&) = delete;
     QueryExecution &operator=(const QueryExecution &) = delete;
-    QueryExecution &operator=(QueryExecution &&) = default;
+    QueryExecution &operator=(QueryExecution &&) = delete;
 
-    ~QueryExecution() {
-      // We should always release the execution memory AFTER we
-      // destroy the prepared query which is using that instance
-      // of execution memory.
-      prepared_query.reset();
-      std::visit([](auto &memory_resource) { memory_resource.Release(); }, execution_memory);
+    ~QueryExecution() = default;
+
+    std::variant<QueryAllocator, ThreadSafeQueryAllocator>
+        execution_memory;  // NOTE: before all other fields which uses this memory
+
+    /// Tracks this query's allocations when there is no storage transaction to do it. A transaction
+    /// carries one of these for the same purpose; nothing about it needs the transaction, only the
+    /// database's tracker to report to, and that may be absent too.
+    /// NOTE: before `prepared_query`, whose plan holds a pointer to this.
+    utils::QueryMemoryTracker memory_tracker;
+
+    std::optional<PreparedQuery> prepared_query;
+    std::map<std::string, TypedValue> summary;
+    std::vector<Notification> notifications;
+    // Original query text, kept so log emits can quote it after the lambda chain
+    // owning parsed_query is torn down.
+    // TODO: avoidable allocation. Already copied into transaction_queries_; could be moved
+    // from parsed_query (after its EXPLAIN/PROFILE uses) or skipped when slow+failed logging
+    // are both off — but then the save-gate must stay a superset of the emit-gate.
+    std::string query_string;
+
+    static auto Create(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(db_query_tracker);
+    }
+
+    static auto CreateThreadSafe(utils::MemoryTracker *db_query_tracker = nullptr) -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(thread_safe_, db_query_tracker);
+    }
+
+    utils::MemoryResource *resource() {
+      return std::visit([](auto &mem) { return mem.resource(); }, execution_memory);
     }
 
     void CleanRuntimeData() {
-      if (prepared_query.has_value()) {
-        prepared_query.reset();
-      }
+      prepared_query.reset();
       notifications.clear();
     }
   };
+
+  // Query text for the failed-query log: prefer Pull's captured copy; before Pull moves
+  // it out, captured is empty and the text still lives on the QueryExecution.
+  static std::string_view FailedQueryText(const std::string &captured,
+                                          const std::unique_ptr<QueryExecution> &query_execution) {
+    if (!captured.empty()) return captured;
+    if (query_execution) return query_execution->query_string;
+    return {};
+  }
 
   // Interpreter supports multiple prepared queries at the same time.
   // The client can reference a specific query for pull using an arbitrary qid
@@ -401,10 +762,8 @@ class Interpreter final {
   // and deletion of a single query execution, i.e. when a query finishes,
   // we reset the corresponding unique_ptr.
   // TODO Figure out how this would work for multi-database
-  // Exists only during a single transaction (for now should be okay as is)
+  // SubqueryExpression only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
-  // TODO: our upgradable lock guard for system
-  std::optional<utils::ResourceLockGuard> system_guard;
 
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
@@ -413,28 +772,45 @@ class Interpreter final {
 
   std::optional<FrameChangeCollector> frame_change_collector_;
 
+  plan::v2::QueryPlannerContext query_planner_context_;
+
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
-  PreparedQuery PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras = {});
+  // Notification produced by the last Commit(); set when the transaction committed on main but could not be
+  // replicated to every SYNC replica. Consumed by whoever drove the commit (Pull or CommitTransaction).
+  std::optional<Notification> commit_notification_;
+
+  static void AppendNotificationToSummary(const Notification &notification, std::map<std::string, TypedValue> &summary);
+
+  PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
   void Commit();
+  // Resets tx-tracking left ACTIVE by SetupInterpreterTransaction when NOTHING skips Commit()/Abort()'s cleanup.
+  void FinishAutocommitNothing();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
   size_t ActiveQueryExecutions() {
-    return std::count_if(query_executions_.begin(), query_executions_.end(),
-                         [](const auto &execution) { return execution && execution->prepared_query; });
+    return std::ranges::count_if(query_executions_,
+                                 [](const auto &execution) { return execution && execution->prepared_query; });
   }
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
-  void SetupDatabaseTransaction(bool couldCommit, bool unique = false);
+  void SetupDatabaseTransaction(bool couldCommit,
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
 };
 
 template <typename TStream>
 std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std::optional<int> n,
                                                     std::optional<int> qid) {
+  // Update the TLS arena index used to route allocations to the correct database arena.
+  // The previous arena is restored on scope exit so pool threads are unaffected.
+  std::optional<memory::DbArenaScope> plan_cache_db_arena_scope;
+  if (current_db_.db_acc_) {
+    plan_cache_db_arena_scope.emplace(current_db_.db_acc_->get());
+  }
   MG_ASSERT(in_explicit_transaction_ || !qid, "qid can be only used in explicit transaction!");
 
   const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
@@ -454,12 +830,20 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   // it after it finishes executing because it gets destroyed alongside
   // the prepared query and its execution memory.
   std::optional<std::map<std::string, TypedValue>> maybe_summary;
+  // Stash before query_execution can be invalidated by ResetInterpreter / reset.
+  std::string captured_query_string;
+  std::optional<std::string> captured_plan_text;
+  // Slow-query gate, evaluated while the plan renderer's DbAccessor is still alive
+  // and emitted below once this statement finishes. Each statement is logged on its
+  // own completion: for autocommit that is right after Commit() (so a failing commit
+  // logs as failed, not slow); inside an explicit transaction every statement is its
+  // own slow-query unit, independent of the later COMMIT/ROLLBACK.
+  bool emit_slow_query = false;
+  int64_t slow_query_duration_ms = 0;
   try {
     // Wrap the (statically polymorphic) stream type into a common type which
     // the handler knows.
-    AnyStream stream{result_stream,
-                     std::visit([](auto &execution_memory) -> utils::MemoryResource * { return &execution_memory; },
-                                query_execution->execution_memory)};
+    AnyStream stream{result_stream, query_execution->resource()};
     const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
     // Stream is using execution memory of the query_execution which
     // can be deleted after its execution so the stream should be cleared
@@ -469,11 +853,35 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
     // If the query finished executing, we have received a value which tells
     // us what to do after.
     if (maybe_res) {
-      if (current_transaction_) {
-        memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
-      }
       // Save its summary
       maybe_summary.emplace(std::move(query_execution->summary));
+      captured_query_string = std::move(query_execution->query_string);
+
+      // Evaluate the gate now, while the renderer's DbAccessor is alive (Commit /
+      // ResetInterpreter tear it down). For autocommit, emit is deferred to after
+      // Commit() so a commit failure is logged as failed, not slow.
+      {
+        const auto threshold_ms = flags::run_time::GetEffectiveLogMinDurationMs(session_log_ctx_);
+        if (threshold_ms >= 0) {
+          auto duration_seconds = [&](const char *key) -> double {
+            auto it = maybe_summary->find(key);
+            if (it == maybe_summary->end() || !it->second.IsDouble()) return 0.0;
+            return it->second.ValueDouble();
+          };
+          const double total_sec = duration_seconds("parsing_time") + duration_seconds("planning_time") +
+                                   duration_seconds("plan_execution_time");
+          slow_query_duration_ms = static_cast<int64_t>(total_sec * 1000.0);
+          if (slow_query_duration_ms >= threshold_ms) {
+            emit_slow_query = true;
+            auto &renderer = query_execution->prepared_query->slow_query_plan_renderer;
+            if (renderer && flags::run_time::GetEffectiveLogQueryPlan(session_log_ctx_)) {
+              captured_plan_text = renderer();
+            }
+          }
+        }
+      }
+
+      // NOTE: must happen before Commit(), which clears the runtime data of every query execution.
       if (!query_execution->notifications.empty()) {
         std::vector<TypedValue> notifications;
         notifications.reserve(query_execution->notifications.size());
@@ -490,12 +898,20 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
           case QueryHandlerResult::ABORT:
             Abort();
             break;
-          case QueryHandlerResult::NOTHING:
-            // The only cases in which we have nothing to do are those where
-            // we're either in an explicit transaction or the query is such that
-            // a transaction wasn't started on a call to `Prepare()`.
-            MG_ASSERT(in_explicit_transaction_ || !current_db_.db_transactional_accessor_);
+          case QueryHandlerResult::NOTHING: {
+            // NOTHING means no storage transaction was opened on `Prepare()` (this switch only runs
+            // for autocommit queries -- it is inside `if (!in_explicit_transaction_)`).
+            MG_ASSERT(!current_db_.db_transactional_accessor_);
+            // Unlike COMMIT/ABORT, NOTHING must dispose the ACTIVE state itself or the session stays active.
+            FinishAutocommitNothing();
             break;
+          }
+        }
+        // The commit itself can report a SYNC replication failure. This also covers the explicit COMMIT
+        // query, whose handler already cleared in_explicit_transaction_ by the time we get here.
+        if (commit_notification_) {
+          AppendNotificationToSummary(*commit_notification_, *maybe_summary);
+          commit_notification_.reset();
         }
         // As the transaction is done we can clear all the executions
         // NOTE: we cannot clear query_execution inside the Abort and Commit
@@ -508,20 +924,27 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         query_execution.reset(nullptr);
       }
     }
-  } catch (const ExplicitTransactionUsageException &) {
-    if (current_transaction_) {
-      memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
-    }
+  } catch (const ExplicitTransactionUsageException &e) {
+    memgraph::logging::EmitSessionTraceEvent(e.what());
+    MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e.what());
     query_execution.reset(nullptr);
     throw;
-  } catch (const utils::BasicException &) {
-    if (current_transaction_) {
-      memgraph::memory::TryStopTrackingOnTransaction(*current_transaction_);
-    }
-    // Trigger first failed query
+  } catch (const utils::BasicException &e) {
+    memgraph::logging::EmitSessionTraceEvent(e.what());
+    MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e.what());
     metrics::FirstFailedQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedQuery);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::FailedPull);
+    if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
+      mh->failed_query.Increment();
+      mh->failed_pull.Increment();
+    } else {
+      metrics::Metrics().global.failed_query->Increment();
+      metrics::Metrics().global.failed_pull->Increment();
+    }
+    // PeriodicCommitException means the storage layer already aborted the transaction internally.
+    // Null the accessor first so AbortCommand does not call Abort() a second time.
+    if (dynamic_cast<const PeriodicCommitException *>(&e)) {
+      current_db_.CleanupDBTransaction(false);
+    }
     AbortCommand(&query_execution);
     throw;
   }
@@ -529,7 +952,21 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   if (maybe_summary) {
     // Toggle first successfully completed query
     metrics::FirstSuccessfulQuery();
-    memgraph::metrics::IncrementCounter(memgraph::metrics::SuccessfulQuery);
+    if (auto *mh = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr) {
+      mh->successful_query.Increment();
+    } else {
+      metrics::Metrics().global.successful_query->Increment();
+    }
+
+    // Emit the slow-query line now that the commit succeeded (gate evaluated pre-commit).
+    if (emit_slow_query) {
+      std::optional<std::string_view> plan_view;
+      if (captured_plan_text.has_value()) plan_view = *captured_plan_text;
+      const auto db_name = CurrentDbLogName();
+      memgraph::logging::EmitSlowQueryLog(
+          session_log_ctx_.user(), db_name, captured_query_string, slow_query_duration_ms, plan_view);
+    }
+
     // return the execution summary
     maybe_summary->insert_or_assign("has_more", false);
     return std::move(*maybe_summary);

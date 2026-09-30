@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,10 +17,8 @@
 #include <unordered_set>
 
 #include "disk_test_utils.hpp"
-#include "query/common.hpp"
-#include "query/db_accessor.hpp"
+#include "replication_coordination_glue/role.hpp"
 #include "storage/v2/delta.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_store.hpp"
@@ -29,8 +27,6 @@
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/rocksdb_serialization.hpp"
-
-using memgraph::replication::ReplicationRole;
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -43,7 +39,7 @@ class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
 
   RocksDBStorageTest() {
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    storage = std::make_unique<DiskStorage>(config_);
+    storage = disk_test_utils::CreateDiskStorage(config_);
   }
 
   void TearDown() override {
@@ -59,19 +55,19 @@ class RocksDBStorageTest : public ::testing::TestWithParam<bool> {
 };
 
 TEST_F(RocksDBStorageTest, SerializeVertexGID) {
-  auto acc = storage->Access(ReplicationRole::MAIN);
+  auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertex = acc->CreateVertex();
   auto gid = vertex.Gid();
   ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_), "|" + gid.ToString());
 }
 
 TEST_F(RocksDBStorageTest, SerializeVertexGIDLabels) {
-  auto acc = storage->Access(ReplicationRole::MAIN);
+  auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertex = acc->CreateVertex();
   auto ser_player_label = acc->NameToLabel("Player");
   auto ser_user_label = acc->NameToLabel("User");
-  ASSERT_FALSE(vertex.AddLabel(ser_player_label).HasError());
-  ASSERT_FALSE(vertex.AddLabel(ser_user_label).HasError());
+  ASSERT_TRUE(vertex.AddLabel(ser_player_label).has_value());
+  ASSERT_TRUE(vertex.AddLabel(ser_user_label).has_value());
   auto gid = vertex.Gid();
   ASSERT_EQ(memgraph::utils::SerializeVertex(*vertex.vertex_),
             ser_player_label.ToString() + "," + ser_user_label.ToString() + "|" + gid.ToString());

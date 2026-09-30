@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: vector-index-concurrent-ops
+      script: "ha/workloads/vector_index_concurrent_ops/workload.py"
+      timeout_min: 10

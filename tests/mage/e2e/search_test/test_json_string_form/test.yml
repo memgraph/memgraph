@@ -1,0 +1,6 @@
+query: >
+  CALL search.node('{"Person": "name"}', 'exact', 'Bob') YIELD node
+  RETURN node;
+
+output:
+  - node: {"labels": ["Person"], "properties": {"name": "Bob"}}

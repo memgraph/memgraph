@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,13 +15,14 @@
  */
 #pragma once
 
-#include <exception>
-#include <string_view>
+#include "utils/stacktrace.hpp"
 
 #include <fmt/format.h>
 #include <fmt/ostream.h>
 
-#include "utils/stacktrace.hpp"
+#include <exception>
+#include <string_view>
+#include <utility>
 
 namespace memgraph::utils {
 
@@ -42,11 +43,25 @@ namespace memgraph::utils {
 class BasicException : public std::exception {
  public:
   /**
-   * @brief Constructor (C++ STL strings).
+   * @brief Constructor (C++ STL string_view).
    *
    * @param message The error message.
    */
   explicit BasicException(std::string_view message) noexcept : msg_(message) {}
+
+  /**
+   * @brief Constructor (string literal).
+   *
+   * @param message The error message.
+   */
+  explicit BasicException(const char *message) noexcept : msg_(message) {}
+
+  /**
+   * @brief Constructor (C++ STL strings).
+   *
+   * @param message The error message.
+   */
+  explicit BasicException(std::string message) noexcept : msg_(std::move(message)) {}
 
   /**
    * @brief Constructor with format string (C++ STL strings).
@@ -75,6 +90,11 @@ class BasicException : public std::exception {
   virtual std::string name() const { return "BasicException"; }
 
  protected:
+  BasicException(const BasicException &) = default;
+  BasicException(BasicException &&) noexcept = default;
+  BasicException &operator=(const BasicException &) = default;
+  BasicException &operator=(BasicException &&) noexcept = default;
+
   /**
    * @brief Error message.
    */
@@ -168,6 +188,7 @@ class ParseException final : public BasicException {
 };
 
 inline std::string GetExceptionName(const std::exception &e) { return typeid(e).name(); }
+
 inline std::string GetExceptionName(const utils::BasicException &be) { return be.name(); }
 
 }  // namespace memgraph::utils

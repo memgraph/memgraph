@@ -1,0 +1,12 @@
+# labelFilter whitelist: A is returned although it lacks Mid because an unfiltered start node
+# is exempt, B is whitelisted, and C is neither so the walk stops there.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {labelFilter: ['+Mid'], maxHops: 5})
+  YIELD result
+  WITH result ORDER BY size(nodes(result)), [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A"]
+  - names: ["A", "B"]

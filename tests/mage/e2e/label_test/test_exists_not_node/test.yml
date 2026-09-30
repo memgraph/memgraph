@@ -1,0 +1,6 @@
+query: >
+  MATCH (:Student)-[k:KNOWS]->(:Student)
+  RETURN label.exists(k, "Knows") AS output;
+
+output:
+  - output: False

@@ -1,0 +1,13 @@
+--- a/bcrypt.c
++++ b/bcrypt.c
+@@ -19,6 +19,10 @@
+ #include <errno.h>
+ 
+ #include "bcrypt.h"
++/* Only the OW interface is used here, so skip the GNU compatibility
++   declarations, which clash with the ones libc provides on some platforms.
++   crypt_blowfish/wrapper.c does the same for itself. */
++#define __SKIP_GNU
+ #include "crypt_blowfish/ow-crypt.h"
+ 
+ #define RANDBYTES (16)

@@ -74,6 +74,7 @@ def main():
         {"interval": 2, "duration": 10},
         {"license-type": "oem"},
         {"license-type": "enterprise"},
+        {"license-type": "ai_platform"},
     ]
     for test in tests:
         print("\033[1;36m~~ Executing test with arguments:", json.dumps(test, sort_keys=True), "~~\033[0m")

@@ -1,0 +1,54 @@
+name: 'Docker Login with Retry'
+description: 'Login to Docker Hub with retry logic for network resilience'
+
+inputs:
+  username:
+    description: 'Docker Hub username'
+    required: true
+  password:
+    description: 'Docker Hub password'
+    required: true
+  max-retries:
+    description: 'Maximum number of retry attempts'
+    required: false
+    default: '3'
+  retry-delay:
+    description: 'Delay between retries in seconds'
+    required: false
+    default: '10'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Log in to Docker Hub with retry
+      shell: bash
+      env:
+        DOCKER_USERNAME: ${{ inputs.username }}
+        DOCKER_PASSWORD: ${{ inputs.password }}
+        MAX_RETRIES: ${{ inputs.max-retries }}
+        RETRY_DELAY: ${{ inputs.retry-delay }}
+      run: |
+        set -euo pipefail
+
+        # Ensure masking even if password wasn’t passed from secrets.*
+        echo "::add-mask::${DOCKER_PASSWORD}"
+
+        # Basic validation (numbers only)
+        [[ "${MAX_RETRIES}" =~ ^[0-9]+$ ]] || { echo "max-retries must be an integer"; exit 2; }
+        [[ "${RETRY_DELAY}" =~ ^[0-9]+$ ]] || { echo "retry-delay must be an integer"; exit 2; }
+
+        for i in $(seq 1 "${MAX_RETRIES}"); do
+          echo "Attempt ${i} of ${MAX_RETRIES}: Logging in to Docker Hub..."
+          if printf '%s' "${DOCKER_PASSWORD}" | docker login -u "${DOCKER_USERNAME}" --password-stdin; then
+            echo "Successfully logged in to Docker Hub"
+            break
+          else
+            echo "Failed to log in to Docker Hub (attempt ${i})"
+            if [ "${i}" -eq "${MAX_RETRIES}" ]; then
+              echo "All attempts failed"
+              exit 1
+            fi
+            echo "Waiting ${RETRY_DELAY} seconds before retry..."
+            sleep "${RETRY_DELAY}"
+          fi
+        done

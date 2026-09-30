@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,58 +9,90 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <cstddef>
+#include <cstdlib>
 #include <new>
+#include <optional>
+#include <string>
+#include <utility>
 
 #if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
 #else
 #include <malloc.h>
-#include <cstdlib>
 #endif
 
 #include "utils/memory_tracker.hpp"
 
+#if !__has_feature(thread_sanitizer)
+
 namespace {
-void *newImpl(const std::size_t size) {
-  auto *ptr = malloc(size);
+inline void *newImpl(const std::size_t size) {
+  auto *ptr = [size] {
+    const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
+    return malloc(size);
+  }();
   if (ptr != nullptr) [[likely]] {
     return ptr;
+  }
+
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+  auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg();
+  if (maybe_msg) {
+    throw memgraph::utils::OutOfMemoryException{std::move(*maybe_msg)};
   }
 
   throw std::bad_alloc{};
 }
 
-void *newImpl(const std::size_t size, const std::align_val_t align) {
-  auto *ptr = aligned_alloc(static_cast<std::size_t>(align), size);
+inline void *newImpl(const std::size_t size, const std::align_val_t align) {
+  auto *ptr = [size, align] {
+    const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
+    return aligned_alloc(static_cast<std::size_t>(align), size);
+  }();
   if (ptr != nullptr) [[likely]] {
     return ptr;
+  }
+
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+  auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg();
+  if (maybe_msg) {
+    throw memgraph::utils::OutOfMemoryException{std::move(*maybe_msg)};
   }
 
   throw std::bad_alloc{};
 }
 
-void *newNoExcept(const std::size_t size) noexcept { return malloc(size); }
-void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept {
-  return aligned_alloc(size, static_cast<std::size_t>(align));
+inline void *newNoExcept(const std::size_t size) noexcept {
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+  return malloc(size);
+}
+
+inline void *newNoExcept(const std::size_t size, const std::align_val_t align) noexcept {
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+  return aligned_alloc(static_cast<std::size_t>(align), size);
 }
 
 #if USE_JEMALLOC
-void deleteImpl(void *ptr) noexcept {
+extern "C" void dallocx(void *ptr, int flags);
+extern "C" void sdallocx(void *ptr, size_t size, int flags);
+
+inline void deleteImpl(void *ptr) noexcept {
   if (ptr == nullptr) [[unlikely]] {
     return;
   }
+
   dallocx(ptr, 0);
 }
 
-void deleteImpl(void *ptr, const std::align_val_t align) noexcept {
+inline void deleteImpl(void *ptr, const std::align_val_t align) noexcept {
   if (ptr == nullptr) [[unlikely]] {
     return;
   }
+
   dallocx(ptr, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
 }
 
-void deleteSized(void *ptr, const std::size_t size) noexcept {
+inline void deleteSized(void *ptr, const std::size_t size) noexcept {
   if (ptr == nullptr) [[unlikely]] {
     return;
   }
@@ -68,7 +100,7 @@ void deleteSized(void *ptr, const std::size_t size) noexcept {
   sdallocx(ptr, size, 0);
 }
 
-void deleteSized(void *ptr, const std::size_t size, const std::align_val_t align) noexcept {
+inline void deleteSized(void *ptr, const std::size_t size, const std::align_val_t align) noexcept {
   if (ptr == nullptr) [[unlikely]] {
     return;
   }
@@ -77,28 +109,30 @@ void deleteSized(void *ptr, const std::size_t size, const std::align_val_t align
 }
 
 #else
-void deleteImpl(void *ptr) noexcept { free(ptr); }
+inline void deleteImpl(void *ptr) noexcept { free(ptr); }
 
-void deleteImpl(void *ptr, const std::align_val_t /*unused*/) noexcept { free(ptr); }
+inline void deleteImpl(void *ptr, const std::align_val_t /*unused*/) noexcept { free(ptr); }
 
-void deleteSized(void *ptr, const std::size_t /*unused*/) noexcept { free(ptr); }
+inline void deleteSized(void *ptr, const std::size_t /*unused*/) noexcept { free(ptr); }
 
-void deleteSized(void *ptr, const std::size_t /*unused*/, const std::align_val_t /*unused*/) noexcept { free(ptr); }
+inline void deleteSized(void *ptr, const std::size_t /*unused*/, const std::align_val_t /*unused*/) noexcept {
+  free(ptr);
+}
 #endif
 
-void TrackMemory(std::size_t size) {
+inline void TrackMemory(std::size_t size) {
 #if !USE_JEMALLOC
-  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
+  memgraph::utils::graph_memory_tracker.Alloc(static_cast<int64_t>(size));
 #endif
 }
 
-void TrackMemory(std::size_t size, const std::align_val_t align) {
+inline void TrackMemory(std::size_t size, const std::align_val_t align) {
 #if !USE_JEMALLOC
-  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
+  memgraph::utils::graph_memory_tracker.Alloc(static_cast<int64_t>(size));
 #endif
 }
 
-bool TrackMemoryNoExcept(const std::size_t size) {
+inline bool TrackMemoryNoExcept(const std::size_t size) {
   try {
     TrackMemory(size);
   } catch (...) {
@@ -108,7 +142,7 @@ bool TrackMemoryNoExcept(const std::size_t size) {
   return true;
 }
 
-bool TrackMemoryNoExcept(const std::size_t size, const std::align_val_t align) {
+inline bool TrackMemoryNoExcept(const std::size_t size, const std::align_val_t align) {
   try {
     TrackMemory(size, align);
   } catch (...) {
@@ -118,28 +152,28 @@ bool TrackMemoryNoExcept(const std::size_t size, const std::align_val_t align) {
   return true;
 }
 
-void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size = 0) noexcept {
+inline void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size = 0) noexcept {
   try {
 #if !USE_JEMALLOC
     if (size) {
-      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+      memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
       // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
-      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
+      memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
     }
 #endif
   } catch (...) {
   }
 }
 
-void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std::size_t size = 0) noexcept {
+inline void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std::size_t size = 0) noexcept {
   try {
 #if !USE_JEMALLOC
     if (size) {
-      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
+      memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(size));
     } else {
       // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
-      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
+      memgraph::utils::graph_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
     }
 #endif
   } catch (...) {
@@ -148,110 +182,152 @@ void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std
 
 }  // namespace
 
-void *operator new(const std::size_t size) {
+#if USE_JEMALLOC
+void *JeMalloc(size_t size, int flags);
+
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+__attribute__((visibility("default"))) void *JeNew(size_t size, int flags) {
+  auto *ptr = [size, flags] {
+    const memgraph::utils::MemoryTracker::RefusalHandledScope refusal_handled;
+    return JeMalloc(size, flags);
+  }();
+  if (ptr != nullptr) [[likely]] {
+    return ptr;
+  }
+
+  [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+  auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg();
+  if (maybe_msg) {
+    throw memgraph::utils::OutOfMemoryException{std::move(*maybe_msg)};
+  }
+
+  throw std::bad_alloc{};
+}
+
+void JeDealloc(void *ptr, size_t size, int flags) noexcept;
+
+// Sized deallocation with explicit flags (e.g. MALLOCX_TCACHE_NONE).
+// Mirrors JeNew: calls through JeDealloc (query tracking + je_sdallocx).
+// NOLINTNEXTLINE(misc-use-internal-linkage)
+__attribute__((visibility("default"))) void JeFree(void *ptr, size_t size, int flags) noexcept {
+  JeDealloc(ptr, size, flags);
+}
+#endif
+
+__attribute__((visibility("default"))) void *operator new(const std::size_t size) {
   TrackMemory(size);
   return newImpl(size);
 }
 
-void *operator new[](const std::size_t size) {
+__attribute__((visibility("default"))) void *operator new[](const std::size_t size) {
   TrackMemory(size);
   return newImpl(size);
 }
 
-void *operator new(const std::size_t size, const std::align_val_t align) {
+__attribute__((visibility("default"))) void *operator new(const std::size_t size, const std::align_val_t align) {
   TrackMemory(size, align);
   return newImpl(size, align);
 }
 
-void *operator new[](const std::size_t size, const std::align_val_t align) {
+__attribute__((visibility("default"))) void *operator new[](const std::size_t size, const std::align_val_t align) {
   TrackMemory(size, align);
   return newImpl(size, align);
 }
 
-void *operator new(const std::size_t size, const std::nothrow_t & /*unused*/) noexcept {
+__attribute__((visibility("default"))) void *operator new(const std::size_t size,
+                                                          const std::nothrow_t & /*unused*/) noexcept {
   if (TrackMemoryNoExcept(size)) [[likely]] {
     return newNoExcept(size);
   }
   return nullptr;
 }
 
-void *operator new[](const std::size_t size, const std::nothrow_t & /*unused*/) noexcept {
+__attribute__((visibility("default"))) void *operator new[](const std::size_t size,
+                                                            const std::nothrow_t & /*unused*/) noexcept {
   if (TrackMemoryNoExcept(size)) [[likely]] {
     return newNoExcept(size);
   }
   return nullptr;
 }
 
-void *operator new(const std::size_t size, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
+__attribute__((visibility("default"))) void *operator new(const std::size_t size, const std::align_val_t align,
+                                                          const std::nothrow_t & /*unused*/) noexcept {
   if (TrackMemoryNoExcept(size, align)) [[likely]] {
     return newNoExcept(size, align);
   }
   return nullptr;
 }
 
-void *operator new[](const std::size_t size, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
+__attribute__((visibility("default"))) void *operator new[](const std::size_t size, const std::align_val_t align,
+                                                            const std::nothrow_t & /*unused*/) noexcept {
   if (TrackMemoryNoExcept(size, align)) [[likely]] {
     return newNoExcept(size, align);
   }
   return nullptr;
 }
 
-void operator delete(void *ptr) noexcept {
+__attribute__((visibility("default"))) void operator delete(void *ptr) noexcept {
   UntrackMemory(ptr);
   deleteImpl(ptr);
 }
 
-void operator delete[](void *ptr) noexcept {
+__attribute__((visibility("default"))) void operator delete[](void *ptr) noexcept {
   UntrackMemory(ptr);
   deleteImpl(ptr);
 }
 
-void operator delete(void *ptr, const std::align_val_t align) noexcept {
+__attribute__((visibility("default"))) void operator delete(void *ptr, const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align);
   deleteImpl(ptr, align);
 }
 
-void operator delete[](void *ptr, const std::align_val_t align) noexcept {
+__attribute__((visibility("default"))) void operator delete[](void *ptr, const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align);
   deleteImpl(ptr, align);
 }
 
-void operator delete(void *ptr, const std::size_t size) noexcept {
+__attribute__((visibility("default"))) void operator delete(void *ptr, std::size_t size) noexcept {
   UntrackMemory(ptr, size);
   deleteSized(ptr, size);
 }
 
-void operator delete[](void *ptr, const std::size_t size) noexcept {
+__attribute__((visibility("default"))) void operator delete[](void *ptr, std::size_t size) noexcept {
   UntrackMemory(ptr, size);
   deleteSized(ptr, size);
 }
 
-void operator delete(void *ptr, const std::size_t size, const std::align_val_t align) noexcept {
+__attribute__((visibility("default"))) void operator delete(void *ptr, std::size_t size,
+                                                            const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align, size);
   deleteSized(ptr, size, align);
 }
 
-void operator delete[](void *ptr, const std::size_t size, const std::align_val_t align) noexcept {
+__attribute__((visibility("default"))) void operator delete[](void *ptr, std::size_t size,
+                                                              const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align, size);
   deleteSized(ptr, size, align);
 }
 
-void operator delete(void *ptr, const std::nothrow_t & /*unused*/) noexcept {
+__attribute__((visibility("default"))) void operator delete(void *ptr, const std::nothrow_t & /*unused*/) noexcept {
   UntrackMemory(ptr);
   deleteImpl(ptr);
 }
 
-void operator delete[](void *ptr, const std::nothrow_t & /*unused*/) noexcept {
+__attribute__((visibility("default"))) void operator delete[](void *ptr, const std::nothrow_t & /*unused*/) noexcept {
   UntrackMemory(ptr);
   deleteImpl(ptr);
 }
 
-void operator delete(void *ptr, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
+__attribute__((visibility("default"))) void operator delete(void *ptr, const std::align_val_t align,
+                                                            const std::nothrow_t & /*unused*/) noexcept {
   UntrackMemory(ptr, align);
   deleteImpl(ptr, align);
 }
 
-void operator delete[](void *ptr, const std::align_val_t align, const std::nothrow_t & /*unused*/) noexcept {
+__attribute__((visibility("default"))) void operator delete[](void *ptr, const std::align_val_t align,
+                                                              const std::nothrow_t & /*unused*/) noexcept {
   UntrackMemory(ptr, align);
   deleteImpl(ptr, align);
 }
+
+#endif  // !__has_feature(thread_sanitizer)

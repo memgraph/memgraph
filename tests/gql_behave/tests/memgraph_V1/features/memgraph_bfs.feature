@@ -136,6 +136,42 @@ Feature: Bfs
           | pth                                        |
           | <(:label1{id:1})-[:type1{id:1}]->(:label2{id:2})-[:type1{id:2}]->(:label3{id:3})> |
 
+    Scenario: Test BFS variable expand using IN edges with filter by last edge type of accumulated path
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH pth=(:label3)<-[*BFS (e,n,p | type(relationships(p)[-1]) = 'type1')]-(:label1) return pth;
+          """
+      Then the result should be:
+          | pth                                        |
+          | <(:label3 {id: 3})<-[:type1 {id: 2}]-(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})> |
+
+    Scenario: Test BFS variable expand using IN edges with filter by number of vertices in the accumulated path
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH p=(n)<-[*BFS (r, n, p | size(nodes(p)) > 0)]-(m {id:1}) return p;
+          """
+      Then the result should be:
+          | p                                                                                            |
+          | <(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})>                                      |
+          | <(:label3 {id: 3})<-[:type2 {id: 10}]-(:label1 {id: 1})>                                     |
+          | <(:label4 {id: 4})<-[:type1 {id: 3}]-(:label3 {id: 3})<-[:type2 {id: 10}]-(:label1 {id: 1})> |
+          | <(:label5 {id: 5})<-[:type3 {id: 20}]-(:label1 {id: 1})>                                     |
+
+    Scenario: Test BFS variable expand using IN edges with filter by id of vertices but accumulated path is not used
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH p=(n)<-[*BFS (r, n, p | r.id > 0)]-(m {id:1}) return p;
+          """
+      Then the result should be:
+          | p                                                                                            |
+          | <(:label2 {id: 2})<-[:type1 {id: 1}]-(:label1 {id: 1})>                                      |
+          | <(:label3 {id: 3})<-[:type2 {id: 10}]-(:label1 {id: 1})>                                     |
+          | <(:label4 {id: 4})<-[:type1 {id: 3}]-(:label3 {id: 3})<-[:type2 {id: 10}]-(:label1 {id: 1})> |
+          | <(:label5 {id: 5})<-[:type3 {id: 20}]-(:label1 {id: 1})>                                     |
+
     Scenario: Test BFS variable expand with restict filter by last edge type of accumulated path
       Given an empty graph
       And having executed:
@@ -175,7 +211,12 @@ Feature: Bfs
     Then the result should be empty
 
     Scenario: Test BFS variable expand with filter by order of ids in accumulated path when target vertex is indexed
-        Given graph "graph_index"
+        Given an empty graph
+        And with new index :label4
+        And having executed:
+            """
+            CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})-[:type1 {id:3}]->(:label4 {id: 4});
+            """
         When executing query:
             """
             MATCH pth=(:label1)-[*BFS (e,n,p | (nodes(p)[-1]).id > (nodes(p)[-2]).id)]->(:label4) return pth;
@@ -185,7 +226,12 @@ Feature: Bfs
             | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})-[:type1 {id: 3}]->(:label4 {id: 4})> |
 
     Scenario: Test BFS variable expand with filter by order of ids in accumulated path when target vertex is NOT indexed
-        Given graph "graph_index"
+        Given an empty graph
+        And with new index :label4
+        And having executed:
+            """
+            CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})-[:type1 {id:3}]->(:label4 {id: 4});
+            """
         When executing query:
             """
             MATCH pth=(:label1)-[*BFS (e,n,p | (nodes(p)[-1]).id > (nodes(p)[-2]).id)]->(:label3) return pth;
@@ -213,3 +259,15 @@ Feature: Bfs
         Then the result should be:
             | path                                        |
             | <(:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})> |
+
+    Scenario: Test BFS variable expand with already processed vertex and loop with filter by path
+        Given graph "graph_edges"
+        When executing query:
+            """
+            MATCH path=(:label1)-[*BFS 1..1 (e, n, p | True)]-() RETURN path;
+            """
+        Then the result should be:
+            | path                                        |
+            | < (:label1 {id: 1})-[:type3 {id: 20}]->(:label5 {id: 5}) > |
+            | < (:label1 {id: 1})-[:type2 {id: 10}]->(:label3 {id: 3}) > |
+            | < (:label1 {id: 1})-[:type1 {id: 1}]->(:label2 {id: 2}) >  |

@@ -1,3 +1,5 @@
+exclude: ^conan_recipes/
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.4.0
@@ -5,21 +7,26 @@ repos:
       - id: check-yaml
         args: [--allow-multiple-documents]
       - id: end-of-file-fixer
+        exclude: ^(src/mage/cpp/community_detection_module/grappolo/|src/planner/test/approval_tests/)
       - id: trailing-whitespace
+        exclude: ^src/mage/cpp/community_detection_module/grappolo/
   - repo: https://github.com/psf/black
     rev: 23.1.0
     hooks:
       - id: black
+        exclude: ^conan_recipes/
   - repo: https://github.com/pycqa/isort
     rev: 5.12.0
     hooks:
       - id: isort
         name: isort (python)
         args: ["--profile", "black"]
+        exclude: ^conan_recipes/
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v13.0.0
+    rev: v20.1.7
     hooks:
       - id: clang-format
+        exclude: ^src/mage/cpp/community_detection_module/grappolo/
 #  - repo: local
 #    hooks:
 #      - id: clang-tidy
@@ -33,3 +40,14 @@ repos:
 #        require_serial: true
 #        args: [--compile_commands_path=build]
 #        pass_filenames: false
+  - repo: local
+    hooks:
+      - id: keyword-consistency
+        name: keyword-consistency
+        description: Check consistency between lexer tokens, grammar keywords, and stripped constants
+        entry: python ./tools/pre-commit/check_keyword_consistency.py
+        language: python
+        files: ^(src/query/frontend/opencypher/grammar/.*\.g4|src/query/frontend/stripped_lexer_constants\.hpp)$
+        fail_fast: true
+        require_serial: true
+        pass_filenames: false

@@ -1,0 +1,8 @@
+query: >
+    MATCH (a:A)
+    CALL graph_util.descendants(a) YIELD descendants
+    UNWIND descendants as descendant
+    RETURN descendant.id AS id
+
+output:
+    - id: 2

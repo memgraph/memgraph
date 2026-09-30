@@ -1,0 +1,13 @@
+# The label sequence repeats, so X is judged against 'B' when the walk reaches it at depth 1 and
+# against 'A' when it reaches it at depth 2 -- allowed the first way, pruned the second. A verdict
+# remembered for X alone, without the step it was reached at, would wrongly return S-M-X too.
+query: >
+  MATCH (s:Node {name: "S"})
+  CALL path.expand_config(s, {labelFilter: 'A,B', minHops: 1, maxHops: 2})
+  YIELD result
+  WITH result ORDER BY [n IN nodes(result) | n.name]
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["S", "M"]
+  - names: ["S", "X"]

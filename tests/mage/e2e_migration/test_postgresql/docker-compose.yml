@@ -1,0 +1,24 @@
+services:
+  postgresql:
+    image: postgres:15.14
+    container_name: ${POSTGRESQL_CONTAINER}
+    ports:
+      - "5432:5432"
+    networks:
+      - memgraph_test_network
+    environment:
+      POSTGRES_DB: test_db
+      POSTGRES_USER: memgraph
+      POSTGRES_PASSWORD: memgraph_password
+    volumes:
+      - ./data:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U memgraph -d test_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+networks:
+  memgraph_test_network:
+    external: true

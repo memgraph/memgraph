@@ -1,0 +1,8 @@
+query: >
+  RETURN map.remove_key({c: "b", d: "ba"}, "a") AS removed
+
+output:
+  - removed:  {
+   "c": "b",
+   "d": "ba"
+}

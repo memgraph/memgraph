@@ -1,3 +1,27 @@
+# GEMINI
+GEMINI.md
+
+# Claude
+CLAUDE.md
+.claude/
+
+# OpenCode
+.opencode/
+
+# Conan files
+conanbuild.sh
+conanbuildenv*
+conanrun.sh
+conanrunenv*
+deactivate_conanbuild.sh
+deactivate_conanrun.sh
+CMakeUserPresets.json
+
+.clangd
+# Clojure development
+.clj-kondo/
+.lsp/
+
 *.breakpoint
 *.data
 *.dSYM/
@@ -9,6 +33,9 @@
 *.swn
 *.swo
 *.swp
+*.d
+*.slo
+*.obj
 *~
 .DS_Store
 .gdb_history
@@ -22,9 +49,17 @@ cmake-build-*
 cmake/DownloadProject/
 dist/
 src/query/frontend/opencypher/generated/
+tools/ci/monitoring/generated/
 tags
 ve/
 ve3/
+env/
+venv/
+.venv/
+crash-*
+*.log
+*.profdata
+*.profraw
 perf.data*
 TAGS
 *.apollo_measurements
@@ -62,3 +97,50 @@ src/transactions/distributed/engine_rpc_messages.hpp
 /tests/manual/js/transaction_timeout/node_modules/
 .vscode/
 src/query/frontend/opencypher/grammar/.antlr/*
+tests/jepsen/src/memgraph/mtenancy/datasets/
+
+# Precompiled Headers
+*.gch
+*.pch
+
+# Compiled Static libraries
+*.lai
+*.la
+*.a
+*.lib
+
+# Executables
+*.exe
+*.app
+
+### Python ###
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# packaging
+
+**/.cache
+**/__pycache__
+**/*.pyc
+**/build
+*htmlcov
+*.coverage
+
+src/mage/python/mage/link_prediction/context/*
+mg_data/
+src/mage/python/mage/link_prediction/hyperparameter_tuning.py
+src/mage/python/mage/link_prediction/results.txt
+src/mage/python/mage/link_prediction/random_customer_results.txt
+src/mage/python/mage/link_prediction/cora_results.txt
+src/mage/python/mage/link_prediction/random_features_services_results.txt
+src/mage/python/mage/link_prediction/issue.py
+src/mage/python/mage/link_prediction/issue2.py
+
+mgcxx/include/
+mgcxx/lib/
+mgcxx/src/
+mgcxx/text_search/target/
+mgcxx/tmp/
+tools/versioned_graph_mcp/

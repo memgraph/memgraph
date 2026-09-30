@@ -1,0 +1,13 @@
+neo4j_compatible_syntax_cluster: &neo4j_compatible_syntax_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--also-log-to-stderr", "--storage-properties-on-edges=TRUE"]
+      log_file: "neo4j_compatible_syntax.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Neo4j-compatible index/constraint syntax"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["neo4j_compatible_syntax/neo4j_syntax_indices.py"]
+    <<: *neo4j_compatible_syntax_cluster

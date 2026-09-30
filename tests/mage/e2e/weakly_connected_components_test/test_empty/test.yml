@@ -1,0 +1,6 @@
+query: >
+    CALL weakly_connected_components.get() YIELD node, component_id
+    RETURN node.id AS node_id, component_id
+    ORDER BY node_id, component_id
+
+output: []

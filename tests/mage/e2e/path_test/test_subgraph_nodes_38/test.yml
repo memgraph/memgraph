@@ -1,0 +1,16 @@
+# The subgraph walk reads a relationship sequence too: reaching A1 needs the second step's incoming
+# FROM, and P2 the third step's POSTED>, so a walk that only knew the first step would stop at the
+# replies.
+query: >
+  MATCH (p:Post {name: "P1"})
+  CALL path.subgraph_nodes(p, {maxHops: 4, relationshipFilter: 'NEXT>,<FROM,POSTED>'})
+  YIELD nodes
+  RETURN nodes.name AS name ORDER BY name;
+
+output:
+  - name: "A1"
+  - name: "P1"
+  - name: "P2"
+  - name: "R1"
+  - name: "R2"
+  - name: "RB"

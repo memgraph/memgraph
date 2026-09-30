@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,12 +27,17 @@ using memgraph::communication::bolt::Session;
 using memgraph::communication::bolt::SessionException;
 using memgraph::communication::bolt::State;
 using memgraph::communication::bolt::Value;
+using bolt_map_t = memgraph::communication::bolt::map_t;
 
 static const char *kInvalidQuery = "invalid query";
 static const char *kQueryReturn42 = "RETURN 42";
 static const char *kQueryReturnMultiple = "UNWIND [1,2,3] as n RETURN n";
 static const char *kQueryShowTx = "SHOW TRANSACTIONS";
 static const char *kQueryEmpty = "no results";
+static const char *kQueryReturnBigThenFail = "big result then fail";
+// 90 × 1 KiB exceeds the 64 KiB encoder auto-flush boundary; at least one record straddles it — the regression trigger.
+inline constexpr size_t kBigRecordSize = 1024;
+inline constexpr int kBigRecordCount = 90;
 
 class TestSessionContext {};
 
@@ -42,34 +47,50 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
   TestSession(TestSessionContext *data, TestInputStream *input_stream, TestOutputStream *output_stream)
       : Session<TestInputStream, TestOutputStream>(input_stream, output_stream) {}
-  std::pair<std::vector<std::string>, std::optional<int>> Interpret(
-      const std::string &query, const std::map<std::string, Value> &params,
-      const std::map<std::string, Value> &extra) override {
+
+  memgraph::metrics::DatabaseMetricHandles *GetMetricHandles() { return nullptr; }
+
+  // No trace stream needed; nullptr opts out of the per-message guard.
+  memgraph::logging::SessionLogContext *GetLogContext() noexcept { return nullptr; }
+
+  void InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
     }
-    if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple) {
+    if (query == kQueryReturn42 || query == kQueryEmpty || query == kQueryReturnMultiple ||
+        query == kQueryReturnBigThenFail) {
       query_ = query;
-      return {{"result_name"}, {}};
-    } else if (query == kQueryShowTx) {
+      return;
+    }
+    if (query == kQueryShowTx) {
       if (md_.at("str").ValueString() != "aha" || md_.at("num").ValueInt() != 123) {
         throw ClientError("Wrong metadata!");
       }
       query_ = query;
-      return {{"username", "transaction_id", "query", "metadata"}, {}};
-    } else {
-      query_ = "";
-      throw ClientError("client sent invalid query");
+      return;
     }
+    query_ = "";
+    throw ClientError("client sent invalid query");
   }
 
-  std::map<std::string, Value> Pull(TEncoder *encoder, std::optional<int> n, std::optional<int> qid) override {
+  std::pair<std::vector<std::string>, std::optional<int>> InterpretPrepare() {
+    if (query_ == kQueryReturn42 || query_ == kQueryEmpty || query_ == kQueryReturnMultiple ||
+        query_ == kQueryReturnBigThenFail) {
+      return {{"result_name"}, {}};
+    }
+    if (query_ == kQueryShowTx) {
+      return {{"username", "transaction_id", "query", "status", "metadata"}, {}};
+    }
+    throw ClientError("client sent invalid query");
+  }
+
+  bolt_map_t Pull(std::optional<int> n, std::optional<int> qid) {
     if (should_abort_) {
       throw memgraph::query::HintedAbortError(memgraph::query::AbortReason::TERMINATED);
     }
     if (query_ == kQueryReturn42) {
-      encoder->MessageRecord(std::vector<Value>{Value(42)});
+      encoder_.MessageRecord(std::vector<Value>{Value(42)});
       return {};
     } else if (query_ == kQueryEmpty) {
       return {};
@@ -79,7 +100,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
       int local_counter = 0;
       for (; global_counter < elements.size() && (!n || local_counter < *n); ++global_counter) {
-        encoder->MessageRecord(std::vector<Value>{Value(elements[global_counter])});
+        encoder_.MessageRecord(std::vector<Value>{Value(elements[global_counter])});
         ++local_counter;
       }
 
@@ -90,40 +111,89 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
       return {std::pair("has_more", true)};
     } else if (query_ == kQueryShowTx) {
-      encoder->MessageRecord({"", 1234567890, query_, md_});
+      encoder_.MessageRecord({"", 1'234'567'890, query_, md_});
       return {};
+    } else if (query_ == kQueryReturnBigThenFail) {
+      // Emit all records (crossing the 64 KiB auto-flush boundary), then fail within the same pull —
+      // the failure lands after the records, when the straddling record is already half on the wire,
+      // the exact condition that used to splice FAILURE into that half-delivered record.
+      for (int i = 0; i < kBigRecordCount; ++i) {
+        encoder_.MessageRecord(std::vector<Value>{Value(std::string(kBigRecordSize, 'A'))});
+      }
+      throw memgraph::query::HintedAbortError(memgraph::query::AbortReason::TERMINATED);
     } else {
       throw ClientError("client sent invalid query");
     }
   }
 
-  std::map<std::string, Value> Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) override {
-    return {};
-  }
+  bolt_map_t Discard(std::optional<int> /*unused*/, std::optional<int> /*unused*/) { return {}; }
 
-  void BeginTransaction(const std::map<std::string, Value> &extra) override {
+  void BeginTransaction(const bolt_map_t &extra) {
     if (extra.contains("tx_metadata")) {
       auto const &metadata = extra.at("tx_metadata").ValueMap();
       if (!metadata.empty()) md_ = metadata;
     }
   }
-  void CommitTransaction() override { md_.clear(); }
-  void RollbackTransaction() override { md_.clear(); }
 
-  void Abort() override { md_.clear(); }
+  bolt_map_t CommitTransaction() {
+    md_.clear();
+    return {};
+  }
 
-  bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) override { return true; }
+  void RollbackTransaction() { md_.clear(); }
 
-  std::optional<std::string> GetServerNameForInit() override { return std::nullopt; }
+  void Abort() { md_.clear(); }
 
-  void Configure(const std::map<std::string, memgraph::communication::bolt::Value> &) override {}
-  std::string GetCurrentDB() const override { return ""; }
+  std::expected<void, memgraph::communication::bolt::AuthFailure> Authenticate(const std::string & /*username*/,
+                                                                               const std::string & /*password*/) {
+    return {/* success */};
+  }
+
+  std::expected<void, memgraph::communication::bolt::AuthFailure> SSOAuthenticate(const std::string & /*username*/,
+                                                                                  const std::string & /*password*/) {
+    return {/* success */};
+  }
+
+#ifdef MG_ENTERPRISE
+  // Rejection carries the client-facing message rather than a bolt AuthFailure: the coordinator SSO causes (bad token,
+  // unknown role, ungranted role) are specific to that path.
+  std::expected<void, std::string_view> CoordinatorSSOAuthenticate(const std::string & /*scheme*/,
+                                                                   const std::string & /*identity_provider_response*/) {
+    return {/* success */};
+  }
+
+  void CoordinatorPassthroughAuthenticate() {}
+
+  std::optional<bool> CoordinatorHasWritableRole() const { return std::nullopt; }
+#endif
+
+  void LogOff() {}
+
+#ifdef MG_ENTERPRISE
+  auto Route(bolt_map_t const & /*routing*/, std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
+             std::optional<std::string> const & /*db*/, bolt_map_t const & /*extra*/) -> bolt_map_t {
+    return {};
+  }
+#endif
+
+  std::optional<std::string> GetServerNameForInit() { return std::nullopt; }
+
+  void Configure(const bolt_map_t &) {}
+
+  std::string GetCurrentDB() const { return ""; }
 
   void TestHook_ShouldAbort() { should_abort_ = true; }
 
+  void Execute() {
+    while (Execute_(*this)) {
+      // Execute now exists on result, so it can be schduled again.
+      // No scheduler here, just loop until done
+    }
+  }
+
  private:
   std::string query_;
-  std::map<std::string, Value> md_;
+  bolt_map_t md_;
   bool should_abort_ = false;
 };
 
@@ -191,7 +261,18 @@ namespace v4_3 {
 inline constexpr uint8_t handshake_req[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x00, 0x03, 0x04, 0x00, 0x00,
                                             0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 inline constexpr uint8_t handshake_resp[] = {0x00, 0x00, 0x03, 0x04};
-inline constexpr uint8_t route[]{0xb3, 0x66, 0xa0, 0x90, 0xc0};
+inline constexpr uint8_t route[] = {
+    0xb3,  // struct with 3 fields
+    0x66,  // ROUTE signature
+    0xa0,  // empty map {}
+    0x90,  // empty list []
+    0x85,
+    0x6e,
+    0x65,
+    0x6f,
+    0x34,
+    0x6a  // "neo4j"
+};
 constexpr std::string_view extra_w_metadata =
     "\xa2"                                              // Map size 2
     "\x8b\x74\x78\x5f\x6d\x65\x74\x61\x64\x61\x74\x61"  // "tx_metadata"
@@ -256,7 +337,9 @@ void ExecuteHandshake(TestInputStream &input_stream, TestSession &session, std::
   session.Execute();
   ASSERT_EQ(session.state_, State::Init);
   PrintOutput(output);
-  CheckOutput(output, expected_resp, 4);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, expected_resp, 4);
+  output.clear();
 }
 
 // Write bolt chunk and execute command
@@ -277,7 +360,9 @@ void ExecuteInit(TestInputStream &input_stream, TestSession &session, std::vecto
   ASSERT_EQ(session.state_, State::Idle);
   PrintOutput(output);
   const auto *response = is_v4 ? v4::init_resp : init_resp;
-  CheckOutput(output, response, 28);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, response, 28);
+  output.clear();
 }
 
 // Write bolt encoded run request
@@ -335,7 +420,9 @@ TEST(BoltSession, HandshakeInTwoPackets) {
 
   ASSERT_EQ(session.state_, State::Init);
   PrintOutput(output);
-  CheckOutput(output, handshake_resp, 4);
+  auto to_validate = std::span<uint8_t const>{output};
+  CheckOutput(to_validate, handshake_resp, 4);
+  output.clear();
 }
 
 TEST(BoltSession, HandshakeWriteFail) {
@@ -396,14 +483,14 @@ TEST(BoltSession, HandshakeWithVersionOffset) {
     ASSERT_EQ(session.version_.minor, 3);
     ASSERT_EQ(session.version_.major, 4);
   }
-  // This should pick 4.3 version since 4.4 and 4.5 are not existant
+  // This should pick 4.4 version since 4.5 is not existant
   {
     INIT_VARS;
     const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x03, 0x05, 0x04, 0x00, 0x00,
                                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x04, 0x04};
     ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
-    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.minor, 4);
     ASSERT_EQ(session.version_.major, 4);
   }
   // With multiple offsets (added v5.2)
@@ -421,9 +508,9 @@ TEST(BoltSession, HandshakeWithVersionOffset) {
     INIT_VARS;
     const uint8_t priority_request[] = {0x60, 0x60, 0xb0, 0x17, 0x00, 0x07, 0x06, 0x04, 0x00, 0x00,
                                         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
-    const uint8_t priority_response[] = {0x00, 0x00, 0x03, 0x04};
+    const uint8_t priority_response[] = {0x00, 0x00, 0x04, 0x04};
     ExecuteHandshake(input_stream, session, output, priority_request, priority_response);
-    ASSERT_EQ(session.version_.minor, 3);
+    ASSERT_EQ(session.version_.minor, 4);
     ASSERT_EQ(session.version_.major, 4);
   }
   // Using offset but no version supported
@@ -693,7 +780,9 @@ TEST(BoltSession, ErrorIgnoreMessage) {
 
     if (i == 0) {
       ASSERT_EQ(session.state_, State::Error);
-      CheckOutput(output, ignored_resp, sizeof(ignored_resp));
+      auto to_validate = std::span<uint8_t const>{output};
+      CheckOutput(to_validate, ignored_resp, sizeof(ignored_resp));
+      output.clear();
     } else {
       ASSERT_EQ(session.state_, State::Close);
       ASSERT_EQ(output.size(), 0);
@@ -797,7 +886,9 @@ TEST(BoltSession, ErrorOK) {
 
         if (write_success) {
           EXPECT_EQ(session.state_, State::Idle);
-          CheckOutput(output, success_resp, sizeof(success_resp));
+          auto to_validate = std::span<uint8_t const>{output};
+          CheckOutput(to_validate, success_resp, sizeof(success_resp));
+          output.clear();
         } else {
           EXPECT_EQ(session.state_, State::Close);
           EXPECT_EQ(output.size(), 0);
@@ -838,10 +929,14 @@ TEST(BoltSession, ErrorOK) {
         if (write_success) {
           if (is_reset) {
             EXPECT_EQ(session.state_, State::Idle);
-            CheckOutput(output, success_resp, sizeof(success_resp));
+            auto to_validate = std::span<uint8_t const>{output};
+            CheckOutput(to_validate, success_resp, sizeof(success_resp));
+            output.clear();
           } else {
             ASSERT_EQ(session.state_, State::Error);
-            CheckOutput(output, ignored_resp, sizeof(ignored_resp));
+            auto to_validate = std::span<uint8_t const>{output};
+            CheckOutput(to_validate, ignored_resp, sizeof(ignored_resp));
+            output.clear();
           }
         } else {
           EXPECT_EQ(session.state_, State::Close);
@@ -1028,7 +1123,6 @@ TEST(BoltSession, Noop) {
 }
 
 TEST(BoltSession, Route) {
-  // Memgraph does not support route message, but it handles it
   {
     SCOPED_TRACE("v1");
     INIT_VARS;
@@ -1038,6 +1132,18 @@ TEST(BoltSession, Route) {
     ASSERT_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)), SessionException);
     EXPECT_EQ(session.state_, State::Close);
   }
+#ifdef MG_ENTERPRISE
+  {
+    SCOPED_TRACE("v4");
+    INIT_VARS;
+
+    ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+    ExecuteInit(input_stream, session, output, true);
+    ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)));
+    EXPECT_EQ(session.state_, State::Idle);
+    CheckSuccessMessage(output);
+  }
+#else
   {
     SCOPED_TRACE("v4");
     INIT_VARS;
@@ -1116,15 +1222,21 @@ TEST(BoltSession, Route) {
         0x00,
     };
     EXPECT_EQ(input_stream.size(), 0U);
-    CheckOutput(output, expected_resp, sizeof(expected_resp));
+    auto to_validate = std::span<uint8_t const>{output};
+    CheckOutput(to_validate, expected_resp, sizeof(expected_resp));
+    output.clear();
+
     EXPECT_EQ(session.state_, State::Error);
 
     SCOPED_TRACE("Try to reset connection after ROUTE failed");
     ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4::reset_req, sizeof(v4::reset_req)));
     EXPECT_EQ(input_stream.size(), 0U);
-    CheckOutput(output, success_resp, sizeof(success_resp));
+    to_validate = std::span<uint8_t const>{output};
+    CheckOutput(to_validate, success_resp, sizeof(success_resp));
+    output.clear();
     EXPECT_EQ(session.state_, State::Idle);
   }
+#endif
 }
 
 TEST(BoltSession, Rollback) {
@@ -1227,4 +1339,149 @@ TEST(BoltSession, PartialStream) {
     auto const find_msg = std::search(cbegin(output), cend(output), cbegin(error_msg), cend(error_msg));
     EXPECT_NE(find_msg, cend(output));
   }
+}
+
+TEST(BoltSession, FailureAfterLargeResultIsNotCorrupted) {
+  // Regression: failure past the 64 KiB auto-flush boundary must not splice FAILURE into a half-delivered record.
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+
+  WriteRunRequest(input_stream, kQueryReturnBigThenFail, true);
+  session.Execute();
+  ASSERT_EQ(session.state_, State::Result);
+
+  output.clear();  // isolate the bytes produced by the failing pull
+  ExecuteCommand(input_stream, session, v4::pullall_req, sizeof(v4::pullall_req));
+
+  // Reassemble the Bolt chunked stream exactly as a client would: each message is
+  // a sequence of [u16 length][payload] chunks terminated by a zero-length chunk.
+  std::vector<std::vector<uint8_t>> messages;
+  std::vector<uint8_t> current;
+  size_t i = 0;
+  while (i + 2 <= output.size()) {
+    const uint16_t len = (static_cast<uint16_t>(output[i]) << 8) | output[i + 1];
+    i += 2;
+    if (len == 0) {  // end-of-message marker
+      messages.push_back(std::move(current));
+      current.clear();
+      continue;
+    }
+    ASSERT_LE(i + len, output.size()) << "chunk length runs past the buffer — corrupt framing";
+    current.insert(current.end(), output.begin() + i, output.begin() + i + len);
+    i += len;
+  }
+  ASSERT_EQ(i, output.size()) << "trailing bytes with no end marker — corrupt framing";
+
+  // Exactly kBigRecordCount RECORD messages followed by one FAILURE, nothing merged.
+  ASSERT_EQ(messages.size(), static_cast<size_t>(kBigRecordCount) + 1);
+  for (int m = 0; m < kBigRecordCount; ++m) {
+    ASSERT_GE(messages[m].size(), 2u);
+    EXPECT_EQ(messages[m][0], 0xB1) << "record " << m << " struct marker";  // TinyStruct1
+    EXPECT_EQ(messages[m][1], 0x71) << "record " << m << " signature";      // Record
+  }
+  ASSERT_GE(messages.back().size(), 2u);
+  EXPECT_EQ(messages.back()[0], 0xB1);
+  EXPECT_EQ(messages.back()[1], 0x7F);  // Failure signature
+}
+
+TEST(BoltSession, PipelinedBurstBatchesIntoOneWrite) {
+  // Response batching: a pipelined RUN+PULL auto-commit burst must reach the socket as a SINGLE
+  // write — the deferred SUCCESS acks, the record, and the PULL summary are drained together at
+  // end-of-input — instead of one write per message. This is what supersedes the v2-layer batching.
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+
+  output.clear();
+  output_stream.write_count = 0;
+
+  // Pipeline RUN + PULL into the input buffer, THEN drive Execute once (no execute in between,
+  // or the two would drain separately).
+  WriteRunRequest(input_stream, kQueryReturn42, true);
+  WriteChunkHeader(input_stream, sizeof(v4::pullall_req));
+  input_stream.Write(v4::pullall_req, sizeof(v4::pullall_req));
+  WriteChunkTail(input_stream);
+
+  session.Execute();
+
+  // The whole burst leaves as one write.
+  EXPECT_EQ(output_stream.write_count, 1u);
+  // The single write is the end-of-input drain, which must actually send (have_more=false), not defer.
+  EXPECT_FALSE(output_stream.last_have_more);
+
+  // Byte-transparency: that single write still carries all three complete messages —
+  // RUN SUCCESS header, one RECORD, PULL SUCCESS summary — in order, nothing merged or dropped.
+  std::vector<std::vector<uint8_t>> messages;
+  std::vector<uint8_t> current;
+  size_t i = 0;
+  while (i + 2 <= output.size()) {
+    const uint16_t len = (static_cast<uint16_t>(output[i]) << 8) | output[i + 1];
+    i += 2;
+    if (len == 0) {
+      messages.push_back(std::move(current));
+      current.clear();
+      continue;
+    }
+    ASSERT_LE(i + len, output.size());
+    current.insert(current.end(), output.begin() + i, output.begin() + i + len);
+    i += len;
+  }
+  ASSERT_EQ(messages.size(), 3u);
+  ASSERT_GE(messages[0].size(), 2u);
+  EXPECT_EQ(messages[0][1], 0x70);  // SUCCESS (RUN header)
+  ASSERT_GE(messages[1].size(), 2u);
+  EXPECT_EQ(messages[1][1], 0x71);  // RECORD
+  ASSERT_GE(messages[2].size(), 2u);
+  EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
+}
+
+TEST(BoltSession, DeferredResponseFlushedBeforeGoodbye) {
+  // With response-batching, a RUN+PULL response deferred earlier in a pipelined burst must still
+  // reach the client when the same burst ends with GOODBYE — GOODBYE closes the connection, but the
+  // handler flushes the deferred buffer first, matching the pre-batching per-message flush.
+  INIT_VARS;
+
+  ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
+  ExecuteInit(input_stream, session, output, true);
+
+  output.clear();
+
+  // Pipeline RUN + PULL + GOODBYE into the input buffer, then drive once. GOODBYE throws.
+  WriteRunRequest(input_stream, kQueryReturn42, true);
+  WriteChunkHeader(input_stream, sizeof(v4::pullall_req));
+  input_stream.Write(v4::pullall_req, sizeof(v4::pullall_req));
+  WriteChunkTail(input_stream);
+  WriteChunkHeader(input_stream, sizeof(v4::goodbye));
+  input_stream.Write(v4::goodbye, sizeof(v4::goodbye));
+  WriteChunkTail(input_stream);
+
+  ASSERT_THROW(session.Execute(), memgraph::communication::SessionClosedException);
+
+  // The deferred RUN+PULL responses were flushed before the close: exactly the three framed
+  // messages RUN SUCCESS, RECORD, PULL SUCCESS — not dropped.
+  std::vector<std::vector<uint8_t>> messages;
+  std::vector<uint8_t> current;
+  size_t i = 0;
+  while (i + 2 <= output.size()) {
+    const uint16_t len = (static_cast<uint16_t>(output[i]) << 8) | output[i + 1];
+    i += 2;
+    if (len == 0) {
+      messages.push_back(std::move(current));
+      current.clear();
+      continue;
+    }
+    ASSERT_LE(i + len, output.size());
+    current.insert(current.end(), output.begin() + i, output.begin() + i + len);
+    i += len;
+  }
+  ASSERT_EQ(messages.size(), 3u);
+  ASSERT_GE(messages[0].size(), 2u);
+  EXPECT_EQ(messages[0][1], 0x70);  // SUCCESS (RUN header)
+  ASSERT_GE(messages[1].size(), 2u);
+  EXPECT_EQ(messages[1][1], 0x71);  // RECORD
+  ASSERT_GE(messages[2].size(), 2u);
+  EXPECT_EQ(messages[2][1], 0x70);  // SUCCESS (PULL summary)
 }

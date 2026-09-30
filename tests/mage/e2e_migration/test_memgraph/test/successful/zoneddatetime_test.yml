@@ -1,0 +1,11 @@
+query: |
+  CALL cross_database.bolt('MATCH (n:DummyNode) RETURN n.zoneddatetime_col AS zoneddatetime_col', {
+      host: 'localhost',
+      port: 7687
+  })
+  YIELD row
+  RETURN valueType(row.zoneddatetime_col) AS zoneddatetime_col_type, toString(row.zoneddatetime_col) AS zoneddatetime_col
+
+output:
+  - zoneddatetime_col_type: 'ZONED_DATE_TIME'
+    zoneddatetime_col: '2023-12-25T10:30:45.000000+01:00'

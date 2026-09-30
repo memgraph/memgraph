@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,15 +11,14 @@
 
 #include <gtest/gtest.h>
 
-#include <functional>
-#include <sstream>
 #include <string_view>
 
 #include "query/procedure/mg_procedure_impl.hpp"
+#include "utils/memory.hpp"
 
 #include "test_utils.hpp"
 
-static void DummyCallback(mgp_list *, mgp_func_context *, mgp_func_result *, mgp_memory *){};
+static void DummyCallback(mgp_list *, mgp_func_context *, mgp_func_result *, mgp_memory *) {};
 
 TEST(Module, InvalidFunctionRegistration) {
   mgp_module module(memgraph::utils::NewDeleteResource());

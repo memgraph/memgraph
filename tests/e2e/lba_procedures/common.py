@@ -39,8 +39,8 @@ def create_multi_db(cursor):
 
 
 def reset_permissions(admin_cursor: mgclient.Cursor, create_index: bool = False):
-    execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
-    execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES OF TYPE * FROM user;")
     execute_and_fetch_all(admin_cursor, "MATCH(n) DETACH DELETE n;")
     execute_and_fetch_all(admin_cursor, "DROP INDEX ON :read_label(prop);")
     execute_and_fetch_all(admin_cursor, "DROP INDEX ON :read_label;")
@@ -56,8 +56,8 @@ def reset_permissions(admin_cursor: mgclient.Cursor, create_index: bool = False)
 
 
 def reset_update_permissions(admin_cursor: mgclient.Cursor):
-    execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
-    execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES OF TYPE * FROM user;")
     execute_and_fetch_all(admin_cursor, "MATCH (n) DETACH DELETE n;")
 
     execute_and_fetch_all(admin_cursor, "CREATE (n:update_label {prop: 1});")
@@ -68,11 +68,11 @@ def reset_update_permissions(admin_cursor: mgclient.Cursor):
 
 
 def reset_create_delete_permissions(admin_cursor: mgclient.Cursor):
-    execute_and_fetch_all(admin_cursor, "REVOKE LABELS * FROM user;")
-    execute_and_fetch_all(admin_cursor, "REVOKE EDGE_TYPES * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE * ON NODES CONTAINING LABELS * FROM user;")
+    execute_and_fetch_all(admin_cursor, "REVOKE * ON EDGES OF TYPE * FROM user;")
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS * TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGE_TYPES * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES OF TYPE * TO user;")
 
     execute_and_fetch_all(admin_cursor, "MATCH (n) DETACH DELETE n;")
 

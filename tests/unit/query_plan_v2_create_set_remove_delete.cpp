@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,7 +18,7 @@
 #include "query/plan/operator.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-using memgraph::replication::ReplicationRole;
+#include "tests/test_commit_args_helper.hpp"
 
 template <typename StorageType>
 class QueryPlan : public testing::Test {
@@ -35,10 +35,10 @@ class QueryPlan : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(QueryPlan, StorageTypes);
+TYPED_TEST_SUITE(QueryPlan, StorageTypes);
 
 TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
-  auto dba = this->db->Access(ReplicationRole::MAIN);
+  auto dba = this->db->Access(memgraph::storage::WRITE);
 
   auto label = memgraph::storage::LabelId::FromInt(42);
   auto property = memgraph::storage::PropertyId::FromInt(1);
@@ -56,13 +56,13 @@ TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
   DbAccessor execution_dba(dba.get());
   auto context = MakeContext(ast, symbol_table, &execution_dba);
   Frame frame(context.symbol_table.max_position());
-  auto cursor = create_node.MakeCursor(memgraph::utils::NewDeleteResource());
+  auto cursor = create_node.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   int count = 0;
   while (cursor->Pull(frame, context)) {
     ++count;
-    const auto &node_value = frame[node.symbol];
+    auto const &node_value = frame[node.symbol];
     EXPECT_EQ(node_value.type(), TypedValue::Type::Vertex);
-    const auto &v = node_value.ValueVertex();
+    auto const &v = node_value.ValueVertex();
     EXPECT_TRUE(*v.HasLabel(memgraph::storage::View::NEW, label));
     EXPECT_EQ(v.GetProperty(memgraph::storage::View::NEW, property)->ValueInt(), 42);
     EXPECT_EQ(CountIterable(v.InEdges(memgraph::storage::View::NEW)->edges), 0);
@@ -76,14 +76,14 @@ TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {
 TYPED_TEST(QueryPlan, ScanAllEmpty) {
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
-  auto dba = this->db->Access(ReplicationRole::MAIN);
+  auto dba = this->db->Access(memgraph::storage::WRITE);
   DbAccessor execution_dba(dba.get());
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   {
     memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol, memgraph::storage::View::OLD);
     auto context = MakeContext(ast, symbol_table, &execution_dba);
     Frame frame(context.symbol_table.max_position());
-    auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
+    auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     int count = 0;
     while (cursor->Pull(frame, context)) ++count;
     EXPECT_EQ(count, 0);
@@ -92,7 +92,7 @@ TYPED_TEST(QueryPlan, ScanAllEmpty) {
     memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol, memgraph::storage::View::NEW);
     auto context = MakeContext(ast, symbol_table, &execution_dba);
     Frame frame(context.symbol_table.max_position());
-    auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
+    auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
     int count = 0;
     while (cursor->Pull(frame, context)) ++count;
     EXPECT_EQ(count, 0);
@@ -101,19 +101,19 @@ TYPED_TEST(QueryPlan, ScanAllEmpty) {
 
 TYPED_TEST(QueryPlan, ScanAll) {
   {
-    auto dba = this->db->Access(ReplicationRole::MAIN);
+    auto dba = this->db->Access(memgraph::storage::WRITE);
     for (int i = 0; i < 42; ++i) dba->CreateVertex();
-    EXPECT_FALSE(dba->Commit().HasError());
+    EXPECT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
-  auto dba = this->db->Access(ReplicationRole::MAIN);
+  auto dba = this->db->Access(memgraph::storage::WRITE);
   DbAccessor execution_dba(dba.get());
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   memgraph::query::plan::ScanAll scan_all(nullptr, node_symbol);
   auto context = MakeContext(ast, symbol_table, &execution_dba);
   Frame frame(context.symbol_table.max_position());
-  auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
+  auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   int count = 0;
   while (cursor->Pull(frame, context)) ++count;
   EXPECT_EQ(count, 42);
@@ -122,22 +122,22 @@ TYPED_TEST(QueryPlan, ScanAll) {
 TYPED_TEST(QueryPlan, ScanAllByLabel) {
   auto label = this->db->NameToLabel("label");
   {
-    auto unique_acc = this->db->UniqueAccess(ReplicationRole::MAIN);
-    ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   {
-    auto dba = this->db->Access(ReplicationRole::MAIN);
+    auto dba = this->db->Access(memgraph::storage::WRITE);
     // Add some unlabeled vertices
     for (int i = 0; i < 12; ++i) dba->CreateVertex();
     // Add labeled vertices
     for (int i = 0; i < 42; ++i) {
       auto v = dba->CreateVertex();
-      ASSERT_TRUE(v.AddLabel(label).HasValue());
+      ASSERT_TRUE(v.AddLabel(label).has_value());
     }
-    EXPECT_FALSE(dba->Commit().HasError());
+    EXPECT_FALSE(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
-  auto dba = this->db->Access(ReplicationRole::MAIN);
+  auto dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
   auto node_symbol = symbol_table.CreateSymbol("n", true);
@@ -145,7 +145,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   memgraph::query::plan::ScanAllByLabel scan_all(nullptr, node_symbol, label);
   auto context = MakeContext(ast, symbol_table, &execution_dba);
   Frame frame(context.symbol_table.max_position());
-  auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource());
+  auto cursor = scan_all.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   int count = 0;
   while (cursor->Pull(frame, context)) ++count;
   EXPECT_EQ(count, 42);

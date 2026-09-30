@@ -205,11 +205,7 @@ Feature: All Shortest Path
             | 20.3       |
 
     Scenario: Test match AllShortest with accumulated path filtered by order of ids
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (:label1 {id: 1})-[:type1 {id:1}]->(:label2 {id: 2})-[:type1 {id: 2}]->(:label3 {id: 3})-[:type1 {id: 3}]->(:label4 {id: 4});
-          """
+      Given graph "graph_edges"
       When executing query:
           """
           MATCH pth=(:label1)-[*ALLSHORTEST (r, n | r.id) total_weight (e,n,p | e.id > 0 and (nodes(p)[-1]).id > (nodes(p)[-2]).id)]->(:label4) RETURN pth, total_weight;
@@ -217,6 +213,16 @@ Feature: All Shortest Path
       Then the result should be:
           | pth                                                                                                               | total_weight   |
           | <(:label1{id:1})-[:type1{id:1}]->(:label2{id:2})-[:type1{id:2}]->(:label3{id:3})-[:type1{id:3}]->(:label4{id:4})> | 6              |
+
+    Scenario: Test match AllShortest using IN edges with accumulated path filtered by order of ids
+      Given graph "graph_edges"
+      When executing query:
+          """
+          MATCH pth=(:label4)<-[*ALLSHORTEST (r, n | r.id) total_weight (e,n,p | e.id > 0 and (nodes(p)[-1]).id < (nodes(p)[-2]).id)]-(:label1) RETURN pth, total_weight;
+          """
+      Then the result should be:
+          | pth                                                                                                               | total_weight   |
+          | <(:label4{id:4})<-[:type1{id:3}]-(:label3{id:3})<-[:type1{id:2}]-(:label2{id:2})<-[:type1{id:1}]-(:label1{id:1})> | 6              |
 
     Scenario: Test match AllShortest with accumulated path filtered by edge type1
       Given graph "graph_edges"
@@ -303,3 +309,36 @@ Feature: All Shortest Path
       Then the result should be:
           | path   | total_weight   |
           | <(:station {arrival: 08:00:00.000000000, departure: 08:15:00.000000000, name: 'A'})-[:ride {duration: PT1H5M, id: 1}]->(:station {arrival: 09:20:00.000000000, departure: 09:30:00.000000000, name: 'B'})-[:ride {duration: PT30M, id: 2}]->(:station {arrival: 10:00:00.000000000, departure: 10:20:00.000000000, name: 'C'})> | PT2H20M  |
+
+    Scenario: Test match AllShortest with edge case
+      Given graph "graph_wsp_edge_case"
+      And with new index :Node
+      When executing query:
+          """
+          MATCH (n:Start)
+          MATCH p=(n)-[r*allshortest ..3 (e, v | e.cost)]->(k:Node) return DISTINCT count(p) as cnt;
+          """
+      Then the result should be:
+          | cnt |
+          | 5   |
+
+    Scenario: Test match AllShortest with edge case 2
+      Given graph "graph_wsp_edge_case_2"
+      And with new index :Start
+      When executing query:
+          """
+          MATCH (n:Start)
+          MATCH p=(n)-[r*allshortest ..3 (e, v | e.cost) total_cost]->(k:Node {id:6}) return total_cost;
+          """
+      Then the result should be:
+          | total_cost |
+          | 11.0 |
+
+      When executing query:
+          """
+          MATCH (n:Start)
+          MATCH p=(n)-[r*allshortest ..4 (e, v | e.cost) total_cost]->(k:Node {id:6}) return total_cost;
+          """
+      Then the result should be:
+          | total_cost |
+          | 4.0 |

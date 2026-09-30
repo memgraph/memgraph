@@ -16,7 +16,18 @@ test_one() {
     ./prepare.sh
   fi
   if [ -x runner.py ]; then
-    ./runner.py
+    if [ "$integration_test_folder_name" = "durability" ]; then
+      echo "Running: $integration_test_folder_name (harness)"
+      $DIR/../ve3/bin/python3 -m pytest -q -p no:cacheprovider test_memgraph_server_context.py
+    fi
+    $DIR/../ve3/bin/python3 -u runner.py
+    # Durability also runs a heavy->light interop pass: recover the
+    # (heavy-written) fixtures into a light-edge instance and assert identical
+    # dump output (the v34 "Invalid edge with gid N!" regression).
+    if [ "$integration_test_folder_name" = "durability" ]; then
+      echo "Running: $integration_test_folder_name (light-edge)"
+      $DIR/../ve3/bin/python3 -u runner.py --light-edge
+    fi
   elif [ -x runner.sh ]; then
     ./runner.sh
   fi

@@ -1,0 +1,30 @@
+query: >
+  MATCH (p:Strategy {name: "Amber"})
+  CALL path.subgraph_all(p, {
+      relationshipFilter: ["FOLLOWS>", "KNOWS"],
+      labelFilter: ["+Strategy", "/Operations", ">Research", "-Support", "Analytics"]
+  })
+  YIELD nodes, rels
+  RETURN nodes, rels;
+
+output:
+  - nodes:
+        - labels:
+            - Operations
+          properties:
+            name: Jill
+        - labels:
+            - Research
+          properties:
+            name: Matt
+        - labels:
+            - Operations
+          properties:
+            name: Steve
+    rels:
+        - label: FOLLOWS
+          properties: {}
+        - label: FOLLOWS
+          properties: {}
+        - label: FOLLOWS
+          properties: {}

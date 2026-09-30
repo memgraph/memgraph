@@ -1,0 +1,5 @@
+query: >
+  MATCH (d:Dog), (h:Human) CALL path.expand([d,id(h)],[],[],1,10) YIELD result
+  RETURN count(result) AS count;
+output:
+  - count: 142

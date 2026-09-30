@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,16 +11,20 @@
 
 #pragma once
 
-#include <atomic>
-#include <cstdint>
 #include <set>
+#include <utility>
 
-#include "storage/v2/edge_ref.hpp"
+#include "storage/v2/constraints/type_constraints.hpp"
+#include "storage/v2/description_store.hpp"
+#include "storage/v2/durability/ttl_operation_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/index_order.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
-#include "storage/v2/property_value.hpp"
-#include "utils/logging.hpp"
+#include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 
 namespace memgraph::storage {
 
@@ -31,40 +35,147 @@ struct MetadataDelta {
     LABEL_INDEX_DROP,
     LABEL_INDEX_STATS_SET,
     LABEL_INDEX_STATS_CLEAR,
-    LABEL_PROPERTY_INDEX_CREATE,
-    LABEL_PROPERTY_INDEX_DROP,
-    LABEL_PROPERTY_INDEX_STATS_SET,
-    LABEL_PROPERTY_INDEX_STATS_CLEAR,
+    LABEL_PROPERTIES_INDEX_CREATE,
+    LABEL_PROPERTIES_INDEX_DROP,
+    LABEL_PROPERTIES_INDEX_STATS_SET,
+    LABEL_PROPERTIES_INDEX_STATS_CLEAR,
+    EDGE_INDEX_CREATE,
+    EDGE_INDEX_DROP,
+    EDGE_PROPERTY_INDEX_CREATE,
+    EDGE_PROPERTY_INDEX_DROP,
+    GLOBAL_EDGE_PROPERTY_INDEX_CREATE,
+    GLOBAL_EDGE_PROPERTY_INDEX_DROP,
+    GLOBAL_VERTEX_PROPERTY_INDEX_CREATE,
+    GLOBAL_VERTEX_PROPERTY_INDEX_DROP,
+    TEXT_INDEX_CREATE,
+    TEXT_EDGE_INDEX_CREATE,
+    TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
     EXISTENCE_CONSTRAINT_DROP,
     UNIQUE_CONSTRAINT_CREATE,
     UNIQUE_CONSTRAINT_DROP,
+    TYPE_CONSTRAINT_CREATE,
+    TYPE_CONSTRAINT_DROP,
+    ENUM_CREATE,
+    ENUM_ALTER_ADD,
+    ENUM_ALTER_UPDATE,
+    POINT_INDEX_CREATE,
+    POINT_INDEX_DROP,
+    VECTOR_INDEX_CREATE,
+    VECTOR_INDEX_DROP,
+    VECTOR_EDGE_INDEX_CREATE,
+    TTL_OPERATION,
+    DESCRIPTION_SET,
+    DESCRIPTION_DELETE,
   };
 
   static constexpr struct LabelIndexCreate {
   } label_index_create;
+
   static constexpr struct LabelIndexDrop {
   } label_index_drop;
+
   static constexpr struct LabelIndexStatsSet {
   } label_index_stats_set;
+
   static constexpr struct LabelIndexStatsClear {
   } label_index_stats_clear;
+
   static constexpr struct LabelPropertyIndexCreate {
   } label_property_index_create;
+
+  static constexpr struct PointIndexCreate {
+  } point_index_create;
+
+  static constexpr struct PointIndexDrop {
+  } point_index_drop;
+
   static constexpr struct LabelPropertyIndexDrop {
   } label_property_index_drop;
+
   static constexpr struct LabelPropertyIndexStatsSet {
   } label_property_index_stats_set;
+
   static constexpr struct LabelPropertyIndexStatsClear {
   } label_property_index_stats_clear;
+
+  static constexpr struct EdgeIndexCreate {
+  } edge_index_create;
+
+  static constexpr struct EdgeIndexDrop {
+  } edge_index_drop;
+
+  static constexpr struct EdgePropertyIndexCreate {
+  } edge_property_index_create;
+
+  static constexpr struct EdgePropertyIndexDrop {
+  } edge_property_index_drop;
+
+  static constexpr struct GlobalEdgePropertyIndexCreate {
+  } global_edge_property_index_create;
+
+  static constexpr struct GlobalEdgePropertyIndexDrop {
+  } global_edge_property_index_drop;
+
+  static constexpr struct GlobalVertexPropertyIndexCreate {
+  } global_vertex_property_index_create;
+
+  static constexpr struct GlobalVertexPropertyIndexDrop {
+  } global_vertex_property_index_drop;
+
+  static constexpr struct TextIndexCreate {
+  } text_index_create;
+
+  static constexpr struct TextEdgeIndexCreate {
+  } text_edge_index_create;
+
+  static constexpr struct TextIndexDrop {
+  } text_index_drop;
+
+  static constexpr struct VectorIndexCreate {
+  } vector_index_create;
+
+  static constexpr struct VectorIndexDrop {
+  } vector_index_drop;
+
+  static constexpr struct VectorEdgeIndexCreate {
+  } vector_edge_index_create;
+
   static constexpr struct ExistenceConstraintCreate {
   } existence_constraint_create;
+
   static constexpr struct ExistenceConstraintDrop {
   } existence_constraint_drop;
+
   static constexpr struct UniqueConstraintCreate {
   } unique_constraint_create;
+
   static constexpr struct UniqueConstraintDrop {
   } unique_constraint_drop;
+
+  static constexpr struct TypeConstraintCreate {
+  } type_constraint_create;
+
+  static constexpr struct TypeConstraintDrop {
+  } type_constraint_drop;
+
+  static constexpr struct EnumCreate {
+  } enum_create;
+
+  static constexpr struct EnumAlterAdd {
+  } enum_alter_add;
+
+  static constexpr struct EnumAlterUpdate {
+  } enum_alter_update;
+
+  static constexpr struct TtlOperation {
+  } ttl_operation;
+
+  static constexpr struct DescriptionSet {
+  } description_set;
+
+  static constexpr struct DescriptionDelete {
+  } description_delete;
 
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
@@ -75,17 +186,67 @@ struct MetadataDelta {
 
   MetadataDelta(LabelIndexStatsClear /*tag*/, LabelId label) : action(Action::LABEL_INDEX_STATS_CLEAR), label{label} {}
 
-  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, PropertyId property)
-      : action(Action::LABEL_PROPERTY_INDEX_CREATE), label_property{label, property} {}
+  MetadataDelta(LabelPropertyIndexCreate /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties,
+                IndexOrder order = IndexOrder::ASC)
+      : action(Action::LABEL_PROPERTIES_INDEX_CREATE), label_ordered_properties{label, std::move(properties), order} {}
 
-  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, PropertyId property)
-      : action(Action::LABEL_PROPERTY_INDEX_DROP), label_property{label, property} {}
+  MetadataDelta(LabelPropertyIndexDrop /*tag*/, LabelId label, std::vector<storage::PropertyPath> properties,
+                IndexOrder order = IndexOrder::ASC)
+      : action(Action::LABEL_PROPERTIES_INDEX_DROP), label_ordered_properties{label, std::move(properties), order} {}
 
-  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, PropertyId property, LabelPropertyIndexStats stats)
-      : action(Action::LABEL_PROPERTY_INDEX_STATS_SET), label_property_stats{label, property, stats} {}
+  MetadataDelta(LabelPropertyIndexStatsSet /*tag*/, LabelId label, std::vector<PropertyPath> properties,
+                LabelPropertyIndexStats const &stats)
+      : action(Action::LABEL_PROPERTIES_INDEX_STATS_SET), label_property_stats{label, std::move(properties), stats} {}
 
   MetadataDelta(LabelPropertyIndexStatsClear /*tag*/, LabelId label)
-      : action(Action::LABEL_PROPERTY_INDEX_STATS_CLEAR), label{label} {}
+      : action(Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR), label{label} {}
+
+  MetadataDelta(EdgeIndexCreate /*tag*/, EdgeTypeId edge_type)
+      : action(Action::EDGE_INDEX_CREATE), edge_type(edge_type) {}
+
+  MetadataDelta(EdgeIndexDrop /*tag*/, EdgeTypeId edge_type) : action(Action::EDGE_INDEX_DROP), edge_type(edge_type) {}
+
+  MetadataDelta(EdgePropertyIndexCreate /*tag*/, EdgeTypeId edge_type, PropertyId property)
+      : action(Action::EDGE_PROPERTY_INDEX_CREATE), edge_type_property{edge_type, property} {}
+
+  MetadataDelta(EdgePropertyIndexDrop /*tag*/, EdgeTypeId edge_type, PropertyId property)
+      : action(Action::EDGE_PROPERTY_INDEX_DROP), edge_type_property{edge_type, property} {}
+
+  MetadataDelta(GlobalEdgePropertyIndexCreate /*tag*/, PropertyId property)
+      : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE), edge_property{property} {}
+
+  MetadataDelta(GlobalEdgePropertyIndexDrop /*tag*/, PropertyId property)
+      : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP), edge_property{property} {}
+
+  MetadataDelta(GlobalVertexPropertyIndexCreate /*tag*/, PropertyId property)
+      : action(Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE), vertex_property{property} {}
+
+  MetadataDelta(GlobalVertexPropertyIndexDrop /*tag*/, PropertyId property)
+      : action(Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP), vertex_property{property} {}
+
+  MetadataDelta(TextIndexCreate /*tag*/, TextIndexSpec text_index_info)
+      : action(Action::TEXT_INDEX_CREATE), text_index(std::move(text_index_info)) {}
+
+  MetadataDelta(TextEdgeIndexCreate /*tag*/, TextEdgeIndexSpec text_edge_index_info)
+      : action(Action::TEXT_EDGE_INDEX_CREATE), text_edge_index(std::move(text_edge_index_info)) {}
+
+  MetadataDelta(TextIndexDrop /*tag*/, std::string index_name)
+      : action(Action::TEXT_INDEX_DROP), index_name{std::move(index_name)} {}
+
+  MetadataDelta(PointIndexCreate /*tag*/, LabelId label, PropertyId property)
+      : action(Action::POINT_INDEX_CREATE), label_property{label, property} {}
+
+  MetadataDelta(PointIndexDrop /*tag*/, LabelId label, PropertyId property)
+      : action(Action::POINT_INDEX_DROP), label_property{label, property} {}
+
+  MetadataDelta(VectorIndexCreate /*tag*/, VectorIndexSpec spec)
+      : action(Action::VECTOR_INDEX_CREATE), vector_index_spec(std::move(spec)) {}
+
+  MetadataDelta(VectorIndexDrop /*tag*/, std::string_view index_name)
+      : action(Action::VECTOR_INDEX_DROP), index_name{index_name} {}
+
+  MetadataDelta(VectorEdgeIndexCreate /*tag*/, VectorEdgeIndexSpec spec)
+      : action(Action::VECTOR_EDGE_INDEX_CREATE), vector_edge_index_spec(std::move(spec)) {}
 
   MetadataDelta(ExistenceConstraintCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::EXISTENCE_CONSTRAINT_CREATE), label_property{label, property} {}
@@ -94,10 +255,63 @@ struct MetadataDelta {
       : action(Action::EXISTENCE_CONSTRAINT_DROP), label_property{label, property} {}
 
   MetadataDelta(UniqueConstraintCreate /*tag*/, LabelId label, std::set<PropertyId> properties)
-      : action(Action::UNIQUE_CONSTRAINT_CREATE), label_properties{label, std::move(properties)} {}
+      : action(Action::UNIQUE_CONSTRAINT_CREATE), label_unordered_properties{label, std::move(properties)} {}
 
   MetadataDelta(UniqueConstraintDrop /*tag*/, LabelId label, std::set<PropertyId> properties)
-      : action(Action::UNIQUE_CONSTRAINT_DROP), label_properties{label, std::move(properties)} {}
+      : action(Action::UNIQUE_CONSTRAINT_DROP), label_unordered_properties{label, std::move(properties)} {}
+
+  MetadataDelta(TypeConstraintCreate /*tag*/, LabelId label, PropertyId property, TypeConstraintKind type)
+      : action(Action::TYPE_CONSTRAINT_CREATE), label_property_type{label, property, type} {}
+
+  MetadataDelta(TypeConstraintDrop /*tag*/, LabelId label, PropertyId property, TypeConstraintKind type)
+      : action(Action::TYPE_CONSTRAINT_DROP), label_property_type{label, property, type} {}
+
+  MetadataDelta(EnumCreate /*tag*/, EnumTypeId etype) : action(Action::ENUM_CREATE), enum_create_info{.etype = etype} {}
+
+  MetadataDelta(EnumAlterAdd /*tag*/, Enum value)
+      : action(Action::ENUM_ALTER_ADD), enum_alter_add_info{.value = value} {}
+
+  MetadataDelta(EnumAlterUpdate /*tag*/, Enum value, std::string old_value)
+      : action(Action::ENUM_ALTER_UPDATE), enum_alter_update_info{.value = value, .old_value = std::move(old_value)} {}
+
+  MetadataDelta(TtlOperation /*tag*/, durability::TtlOperationType operation_type)
+      : action(Action::TTL_OPERATION),
+        ttl_operation_info{.operation_type = operation_type, .should_run_edge_ttl = false} {}
+
+  MetadataDelta(TtlOperation /*tag*/, durability::TtlOperationType operation_type,
+                std::optional<std::chrono::microseconds> period,
+                std::optional<std::chrono::system_clock::time_point> start_time, bool should_run_edge_ttl)
+      : action(Action::TTL_OPERATION),
+        ttl_operation_info{.operation_type = operation_type,
+                           .period = period,
+                           .start_time = start_time,
+                           .should_run_edge_ttl = should_run_edge_ttl} {}
+
+  MetadataDelta(DescriptionSet /*tag*/, DescriptionTargetKind kind, std::vector<LabelId> labels, EdgeTypeId edge_type,
+                PropertyId property, std::string description, std::vector<LabelId> from_labels = {},
+                std::vector<LabelId> to_labels = {}, ExternalPropertyValue value = {})
+      : action(Action::DESCRIPTION_SET),
+        description_op{kind,
+                       std::move(labels),
+                       edge_type,
+                       property,
+                       std::move(description),
+                       std::move(from_labels),
+                       std::move(to_labels),
+                       std::move(value)} {}
+
+  MetadataDelta(DescriptionDelete /*tag*/, DescriptionTargetKind kind, std::vector<LabelId> labels,
+                EdgeTypeId edge_type, PropertyId property, std::vector<LabelId> from_labels = {},
+                std::vector<LabelId> to_labels = {}, ExternalPropertyValue value = {})
+      : action(Action::DESCRIPTION_DELETE),
+        description_op{kind,
+                       std::move(labels),
+                       edge_type,
+                       property,
+                       {},
+                       std::move(from_labels),
+                       std::move(to_labels),
+                       std::move(value)} {}
 
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;
@@ -106,21 +320,110 @@ struct MetadataDelta {
 
   ~MetadataDelta() {
     switch (action) {
-      case Action::LABEL_INDEX_CREATE:
-      case Action::LABEL_INDEX_DROP:
-      case Action::LABEL_INDEX_STATS_SET:
-      case Action::LABEL_INDEX_STATS_CLEAR:
-      case Action::LABEL_PROPERTY_INDEX_CREATE:
-      case Action::LABEL_PROPERTY_INDEX_DROP:
-      case Action::LABEL_PROPERTY_INDEX_STATS_SET:
-      case Action::LABEL_PROPERTY_INDEX_STATS_CLEAR:
-      case Action::EXISTENCE_CONSTRAINT_CREATE:
-      case Action::EXISTENCE_CONSTRAINT_DROP:
+      using enum memgraph::storage::MetadataDelta::Action;
+      case LABEL_INDEX_CREATE:
+      case LABEL_INDEX_DROP:
+      case LABEL_PROPERTIES_INDEX_STATS_CLEAR:
+      case LABEL_INDEX_STATS_CLEAR: {
+        std::destroy_at(&label);
         break;
-      case Action::UNIQUE_CONSTRAINT_CREATE:
-      case Action::UNIQUE_CONSTRAINT_DROP:
-        label_properties.properties.~set<PropertyId>();
+      }
+      case LABEL_INDEX_STATS_SET: {
+        std::destroy_at(&label_stats);
         break;
+      }
+      case Action::EDGE_INDEX_CREATE:
+      case Action::EDGE_INDEX_DROP: {
+        std::destroy_at(&edge_type);
+        break;
+      }
+      case Action::EDGE_PROPERTY_INDEX_CREATE:
+      case Action::EDGE_PROPERTY_INDEX_DROP: {
+        std::destroy_at(&edge_type_property);
+        break;
+      }
+      case Action::GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
+      case Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP: {
+        std::destroy_at(&edge_property);
+        break;
+      }
+      case Action::GLOBAL_VERTEX_PROPERTY_INDEX_CREATE:
+      case Action::GLOBAL_VERTEX_PROPERTY_INDEX_DROP: {
+        std::destroy_at(&vertex_property);
+        break;
+      }
+      case EXISTENCE_CONSTRAINT_CREATE:
+      case EXISTENCE_CONSTRAINT_DROP:
+      case POINT_INDEX_CREATE:
+      case POINT_INDEX_DROP: {
+        std::destroy_at(&label_property);
+        break;
+      }
+      case TYPE_CONSTRAINT_CREATE:
+      case TYPE_CONSTRAINT_DROP: {
+        std::destroy_at(&label_property_type);
+        break;
+      }
+      case ENUM_CREATE: {
+        std::destroy_at(&enum_create_info);
+        break;
+      }
+      case ENUM_ALTER_ADD: {
+        std::destroy_at(&enum_alter_add_info);
+        break;
+      }
+      case ENUM_ALTER_UPDATE: {
+        std::destroy_at(&enum_alter_update_info);
+        break;
+      }
+
+      case LABEL_PROPERTIES_INDEX_CREATE:
+      case LABEL_PROPERTIES_INDEX_DROP: {
+        std::destroy_at(&label_ordered_properties);
+        break;
+      }
+      case LABEL_PROPERTIES_INDEX_STATS_SET: {
+        std::destroy_at(&label_property_stats);
+        break;
+      }
+      case VECTOR_INDEX_CREATE: {
+        std::destroy_at(&vector_index_spec);
+        break;
+      }
+      case VECTOR_EDGE_INDEX_CREATE: {
+        std::destroy_at(&vector_edge_index_spec);
+        break;
+      }
+      case VECTOR_INDEX_DROP: {
+        std::destroy_at(&index_name);
+        break;
+      }
+      case UNIQUE_CONSTRAINT_CREATE:
+      case UNIQUE_CONSTRAINT_DROP: {
+        std::destroy_at(&label_unordered_properties);
+        break;
+      }
+      case TEXT_INDEX_CREATE: {
+        std::destroy_at(&text_index);
+        break;
+      }
+      case TEXT_EDGE_INDEX_CREATE: {
+        std::destroy_at(&text_edge_index);
+        break;
+      }
+      case TEXT_INDEX_DROP: {
+        std::destroy_at(&index_name);
+        break;
+      }
+      case TTL_OPERATION: {
+        std::destroy_at(&ttl_operation_info);
+        break;
+      }
+      case DESCRIPTION_SET:
+      case DESCRIPTION_DELETE: {
+        std::destroy_at(&description_op);
+        break;
+      }
     }
   }
 
@@ -129,6 +432,8 @@ struct MetadataDelta {
   union {
     LabelId label;
 
+    EdgeTypeId edge_type;
+
     struct {
       LabelId label;
       PropertyId property;
@@ -136,8 +441,14 @@ struct MetadataDelta {
 
     struct {
       LabelId label;
+      std::vector<PropertyPath> properties;
+      IndexOrder order;
+    } label_ordered_properties;
+
+    struct {
+      LabelId label;
       std::set<PropertyId> properties;
-    } label_properties;
+    } label_unordered_properties;
 
     struct {
       LabelId label;
@@ -146,9 +457,56 @@ struct MetadataDelta {
 
     struct {
       LabelId label;
-      PropertyId property;
+      std::vector<PropertyPath> properties;
       LabelPropertyIndexStats stats;
     } label_property_stats;
+
+    struct {
+      LabelId label;
+      PropertyId property;
+      TypeConstraintKind type;
+    } label_property_type;
+
+    struct {
+      EdgeTypeId edge_type;
+      PropertyId property;
+    } edge_type_property;
+
+    struct {
+      PropertyId property;
+    } edge_property;
+
+    struct {
+      PropertyId property;
+    } vertex_property;
+
+    struct {
+      EnumTypeId etype;
+    } enum_create_info;
+
+    struct {
+      Enum value;
+    } enum_alter_add_info;
+
+    struct {
+      Enum value;
+      std::string old_value;
+    } enum_alter_update_info;
+
+    TextIndexSpec text_index;
+    TextEdgeIndexSpec text_edge_index;
+
+    struct {
+      durability::TtlOperationType operation_type;
+      std::optional<std::chrono::microseconds> period;
+      std::optional<std::chrono::system_clock::time_point> start_time;
+      bool should_run_edge_ttl;
+    } ttl_operation_info;
+
+    VectorIndexSpec vector_index_spec;
+    VectorEdgeIndexSpec vector_edge_index_spec;
+    std::string index_name;
+    DescriptionEntry description_op;
   };
 };
 

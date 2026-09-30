@@ -19,108 +19,236 @@ options { tokenVocab=MemgraphCypherLexer; }
 
 import Cypher ;
 
+/* Also update src/query/frontend/stripped_lexer_constants.hpp */
 memgraphCypherKeyword : cypherKeyword
+                      | ABORTING
                       | ACTIVE
+                      | ADD
                       | AFTER
                       | ALTER
                       | ANALYZE
+                      | ANY
                       | ASYNC
+                      | AT
                       | AUTH
                       | BAD
                       | BATCH_INTERVAL
                       | BATCH_LIMIT
                       | BATCH_SIZE
                       | BEFORE
+                      | BOLT_SERVER
+                      | BOOLEAN
                       | BOOTSTRAP_SERVERS
                       | BUILD
+                      | CALL
+                      | CALLABLE
                       | CHECK
                       | CLEAR
+                      | CLUSTER
                       | COMMIT
                       | COMMITTED
+                      | COMMITTING
                       | CONFIG
                       | CONFIGS
+                      | CONSTRAINTS
                       | CONSUMER_GROUP
-                      | CREATE_DELETE
+                      | CONTAINING
+                      | COORDINATOR
+                      | COORDINATOR_READ
+                      | COORDINATOR_WRITE
                       | CREDENTIALS
                       | CSV
+                      | CURRENT
                       | DATA
-                      | DELIMITER
                       | DATABASE
+                      | DATABASES
+                      | DATE
+                      | DEFAULT
+                      | DEFINER
+                      | DELIMITER
+                      | DEMOTE
                       | DENY
-                      | DROP
+                      | DESCRIPTION
+                      | DESCRIPTIONS
+                      | DIRECTORY
+                      | DISABLE
                       | DO
+                      | DROP
                       | DUMP
+                      | DURABILITY
+                      | DURATION
                       | EDGE
+                      | EDGE_TYPE
                       | EDGE_TYPES
+                      | EDGES
+                      | ENABLE
+                      | ENUM
+                      | ENUMS
+                      | EVERY
+                      | EXACTLY
                       | EXECUTE
+                      | EXECUTION
                       | FAILOVER
+                      | FLOAT
                       | FOR
+                      | FORCE
                       | FOREACH
                       | FREE
+                      | FREE_MEMORY
                       | FROM
                       | GLOBAL
-                      | GRAPH
                       | GRANT
+                      | GRANTS
+                      | GRAPH
                       | HEADER
+                      | HOPS
                       | IDENTIFIED
-                      | NODE_LABELS
-                      | NULLIF
+                      | IF
+                      | IGNORE
+                      | IMPERSONATE_USER
                       | IMPORT
-                      | INACTIVE
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
+                      | INACTIVE
+                      | INDEXES
+                      | INSTANCE
+                      | INSTANCES
+                      | INTEGER
+                      | INTRA_CLUSTER
+                      | INVOKER
                       | ISOLATION
+                      | JSONL
                       | KAFKA
+                      | LABEL
                       | LABELS
+                      | LAG
+                      | LEADERSHIP
                       | LEVEL
+                      | FIPS
+                      | LICENSE
+                      | LIST
                       | LOAD
+                      | LOCALDATETIME
+                      | LOCALTIME
                       | LOCK
                       | MAIN
+                      | MAP
+                      | MAPPINGS
+                      | MATCHING
+                      | MEMORY
+                      | METRICS
                       | MODE
+                      | MODULE_READ
+                      | MODULE_WRITE
+                      | MULTI_DATABASE_EDIT
+                      | MULTI_DATABASE_USE
                       | NEXT
                       | NO
-                      | NOTHING
+                      | NODE_LABELS
+                      | NODES
+                      | NULLIF
+                      | OF_TOKEN
+                      | OFF
+                      | ON
+                      | ON_DISK_TRANSACTIONAL
+                      | PARAMETER
+                      | PARAMETERS
+                      | PARALLEL
+                      | PARALLEL_EXECUTION
+                      | PARQUET
                       | PASSWORD
-                      | PULSAR
+                      | PERIODIC
+                      | PERMISSIONS
+                      | POINT
                       | PORT
                       | PRIVILEGES
+                      | PROPERTY
+                      | PROFILE_RESTRICTION
+                      | PROFILES
+                      | PULSAR
+                      | QUOTE
+                      | RANGE
                       | READ
+                      | READ_FILE
+                      | RECOVER
                       | REGISTER
+                      | RELOAD
+                      | RELOAD_TLS
+                      | RENAME
+                      | REPLACE
                       | REPLICA
                       | REPLICAS
                       | REPLICATION
+                      | REQUIRE
+                      | RESET
+                      | RESOURCE
+                      | RESUME
                       | REVOKE
                       | ROLE
                       | ROLES
-                      | QUOTE
+                      | ROUTING
+                      | ROWS
+                      | RUNNING
+                      | SCHEMA
+                      | SECURITY
+                      | SERVER
+                      | SERVER_SIDE_PARAMETERS
+                      | SERVICE_URL
                       | SESSION
+                      | SESSIONS
                       | SETTING
                       | SETTINGS
                       | SNAPSHOT
+                      | SNAPSHOTS
                       | START
+                      | STATE
+                      | STATISTICS
                       | STATS
                       | STATUS
+                      | STOP
                       | STORAGE
+                      | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | TENANT
+                      | STRICT_SYNC
+                      | STRING
                       | SYNC
+                      | SUSPEND
+                      | TABLE
+                      | TERMINATE
+                      | TEXT
                       | TIMEOUT
+                      | TLS
                       | TO
                       | TOPICS
+                      | TRACE
                       | TRANSACTION
+                      | TRANSACTION_MANAGEMENT
+                      | TRANSACTIONS
                       | TRANSFORM
                       | TRIGGER
                       | TRIGGERS
+                      | TTL
+                      | TYPE
+                      | TYPES
                       | UNCOMMITTED
                       | UNLOCK
+                      | UNSET
+                      | UNREGISTER
                       | UPDATE
+                      | USAGE
                       | USE
                       | USER
                       | USERS
                       | USING
+                      | VALUE
+                      | VALUES
+                      | VECTOR
                       | VERSION
-                      | TERMINATE
-                      | TRANSACTIONS
+                      | WEBSOCKET
+                      | YIELD
+                      | ZONEDDATETIME
                       ;
 
 symbolicName : UnescapedSymbolicName
@@ -130,6 +258,12 @@ symbolicName : UnescapedSymbolicName
 
 query : cypherQuery
       | indexQuery
+      | edgeIndexQuery
+      | pointIndexQuery
+      | textIndexQuery
+      | createTextEdgeIndex
+      | vectorIndexQuery
+      | createVectorEdgeIndex
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -139,56 +273,108 @@ query : cypherQuery
       | dumpQuery
       | analyzeGraphQuery
       | replicationQuery
+      | replicationInfoQuery
       | lockPathQuery
       | freeMemoryQuery
       | triggerQuery
       | isolationLevelQuery
       | storageModeQuery
       | createSnapshotQuery
+      | recoverSnapshotQuery
+      | showSnapshotsQuery
+      | showNextSnapshotQuery
       | streamQuery
       | settingQuery
+      | parameterQuery
       | versionQuery
       | showConfigQuery
+      | showQueryCallableMappingsQuery
       | transactionQueueQuery
+      | sessionQuery
       | multiDatabaseQuery
+      | useDatabase
+      | showDatabase
       | showDatabases
       | edgeImportModeQuery
       | coordinatorQuery
+      | dropAllIndexesQuery
+      | dropAllConstraintsQuery
+      | dropGraphQuery
+      | createEnumQuery
+      | showEnumsQuery
+      | alterEnumAddValueQuery
+      | alterEnumUpdateValueQuery
+      | alterEnumRemoveValueQuery
+      | dropEnumQuery
+      | showSchemaInfoQuery
+      | ttlQuery
+      | setSessionTraceQuery
+      | sessionSettingQuery
+      | userProfileQuery
+      | tenantProfileQuery
+      | descriptionQuery
+      | reloadSSLQuery
+      | showMemoryInfo
       ;
 
-cypherQuery : ( indexHints )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
 
 authQuery : createRole
           | dropRole
           | showRoles
           | createUser
           | setPassword
+          | changePassword
           | dropUser
+          | showCurrentUser
+          | showCurrentRole
           | showUsers
           | setRole
           | clearRole
+          | grantRole
+          | revokeRole
           | grantPrivilege
           | denyPrivilege
           | revokePrivilege
           | showPrivileges
           | showRoleForUser
           | showUsersForRole
-          | grantDatabaseToUser
-          | revokeDatabaseFromUser
+          | grantDatabaseToUserOrRole
+          | denyDatabaseFromUserOrRole
+          | revokeDatabaseFromUserOrRole
           | showDatabasePrivileges
           | setMainDatabase
+          | grantImpersonateUser
+          | denyImpersonateUser
+          | grantPropertyPermission
+          | denyPropertyPermission
+          | revokePropertyPermission
           ;
 
 replicationQuery : setReplicationRole
-                 | showReplicationRole
                  | registerReplica
                  | dropReplica
-                 | showReplicas
                  ;
 
-coordinatorQuery : registerCoordinatorServer
-                 | showReplicationCluster
-                 | doFailover
+replicationInfoQuery : showReplicationRole
+                     | showReplicas
+                     ;
+
+coordinatorQuery : registerInstanceOnCoordinator
+                 | unregisterInstanceOnCoordinator
+                 | setInstanceToMain
+                 | showInstance
+                 | showInstances
+                 | addCoordinatorInstance
+                 | removeCoordinatorInstance
+                 | forceResetClusterStateOnCoordinator
+                 | demoteInstanceOnCoordinator
+                 | yieldLeadership
+                 | setCoordinatorSetting
+                 | showCoordinatorSettings
+                 | showReplicationLag
+                 | showRoutingTable
+                 | updateConfig
                  ;
 
 triggerQuery : createTrigger
@@ -209,6 +395,8 @@ clause : cypherMatch
        | loadCsv
        | foreach
        | callSubquery
+       | loadParquet
+       | loadJsonl
        ;
 
 updateClause : set
@@ -221,11 +409,27 @@ updateClause : set
 
 foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
-indexHints: USING INDEX indexHint ( ',' indexHint )* ;
+preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-indexHint: ':' labelName ( '(' propertyKeyName ')' )? ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit  | parallelExecution ;
 
-callSubquery : CALL '{' cypherQuery '}' ;
+hopsLimit: HOPS LIMIT literal ;
+
+indexHints: INDEX indexHint ( ',' indexHint )* ;
+
+indexHint: ':' labelName nestedPropertyKeyList?
+         | ':' '(' propertyKeyName ')'
+         ;
+
+periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
+
+parallelExecution : PARALLEL EXECUTION ( num_threads=literal )? ;
+
+periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
+
+scopeClause : ASTERISK | variable ( ',' variable )* ;
+
+callSubquery : OPTIONAL? CALL ( '(' scopeClause? ')' )? '{' cypherQuery '}' ( periodicSubquery )? ;
 
 streamQuery : checkStream
             | createStream
@@ -246,24 +450,50 @@ settingQuery : setSetting
              | showSettings
              ;
 
+parameterQuery : setParameter
+              | unsetParameter
+              | showParameters
+              | deleteAllParameters
+              ;
+
 transactionQueueQuery : showTransactions
                       | terminateTransactions
                       ;
 
-showTransactions : SHOW TRANSACTIONS ;
+sessionQuery : terminateSessions
+             | showSessions
+             ;
 
-doFailover : DO FAILOVER ;
+showTransactions : SHOW transactionStatusList? TRANSACTIONS ;
+
+transactionStatusList : transactionStatus ( ',' transactionStatus )* ;
+
+transactionStatus : RUNNING | COMMITTING | ABORTING ;
 
 terminateTransactions : TERMINATE TRANSACTIONS transactionIdList;
 
-loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
+terminateSessions : TERMINATE SESSIONS sessionIdList ;
+
+showSessions : SHOW SESSIONS ;
+
+loadCsv : LOAD CSV FROM csvFile
+         ( WITH CONFIG configsMap=configMap ) ?
+         ( WITH | NO ) HEADER
          ( IGNORE BAD ) ?
          ( DELIMITER delimiter ) ?
          ( QUOTE quote ) ?
          ( NULLIF nullif ) ?
          AS rowVar ;
 
-csvFile : literal ;
+loadParquet : LOAD PARQUET FROM parquetFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
+
+loadJsonl : LOAD JSONL FROM jsonlFile ( WITH CONFIG configsMap=configMap ) ? AS rowVar ;
+
+csvFile : literal | parameter ;
+
+parquetFile : literal | parameter ;
+
+jsonlFile : literal | parameter ;
 
 delimiter : literal ;
 
@@ -275,38 +505,84 @@ rowVar : variable ;
 
 userOrRoleName : symbolicName ;
 
-createRole : CREATE ROLE role=userOrRoleName ;
+userOrRole : ( USER | ROLE )? userOrRoleName ;
+
+createRole : CREATE ROLE ifNotExists? role=userOrRoleName ;
 
 dropRole : DROP ROLE role=userOrRoleName ;
 
 showRoles : SHOW ROLES ;
 
-createUser : CREATE USER user=userOrRoleName
+createUser : CREATE USER ifNotExists? user=userOrRoleName
              ( IDENTIFIED BY password=literal )? ;
+
+ifNotExists : IF NOT EXISTS ;
 
 setPassword : SET PASSWORD FOR user=userOrRoleName TO password=literal;
 
+changePassword : SET PASSWORD TO newPassword=literal REPLACE oldPassword=literal;
+
 dropUser : DROP USER user=userOrRoleName ;
+
+showCurrentUser : SHOW CURRENT USER ;
+
+showCurrentRole : SHOW CURRENT ( ROLE | ROLES ) ;
 
 showUsers : SHOW USERS ;
 
-setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
+setRole : SET ( ROLE | ROLES ) FOR USER? user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
-clearRole : CLEAR ROLE FOR user=userOrRoleName ;
+clearRole : CLEAR ( ROLE | ROLES ) FOR USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
+grantRole : GRANT ( ROLE | ROLES ) roles=listOfSymbolicNames TO USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
+revokeRole : REVOKE ( ROLE | ROLES ) roles=listOfSymbolicNames FROM USER? user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
 
-grantDatabaseToUser : GRANT DATABASE db=wildcardName TO user=symbolicName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) TO target=userOrRole ;
 
-revokeDatabaseFromUser : REVOKE DATABASE db=wildcardName FROM user=symbolicName ;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | systemPrivileges=privilegesList | entityPrivileges=entityPrivilegeList ) FROM target=userOrRole ;
 
-showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR user=symbolicName ;
+listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
 
-setMainDatabase : SET MAIN DATABASE db=symbolicName FOR user=symbolicName ;
+wildcardListOfSymbolicNames : '*' | listOfSymbolicNames ;
+
+grantImpersonateUser : GRANT IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
+
+denyImpersonateUser : DENY IMPERSONATE_USER targets=wildcardListOfSymbolicNames TO target=userOrRole ;
+
+propertyPermissionList : '{' ( ASTERISK | listOfSymbolicNames ) '}' ;
+
+propertyPermissionType : READ | SET PROPERTY ;
+
+propertyPermissionTypeList : propertyPermissionType ( ',' propertyPermissionType )* ;
+
+grantPropertyPermission : GRANT permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+
+denyPropertyPermission : DENY permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec TO target=userOrRole ;
+
+revokePropertyPermission : REVOKE permTypes=propertyPermissionTypeList propList=propertyPermissionList ON entityTypeSpec FROM target=userOrRole ;
+
+grantDatabaseToUserOrRole : GRANT DATABASE db=wildcardName TO target=userOrRole ;
+
+denyDatabaseFromUserOrRole : DENY DATABASE db=wildcardName FROM target=userOrRole ;
+
+revokeDatabaseFromUserOrRole : REVOKE DATABASE db=wildcardName FROM target=userOrRole ;
+
+showDatabasePrivileges : SHOW DATABASE PRIVILEGES FOR target=userOrRole ;
+
+setMainDatabase : SET MAIN DATABASE db=symbolicName FOR target=userOrRole ;
+
+setSessionTraceQuery : SET SESSION TRACE (ON | OFF) ;
+
+sessionSettingQuery : setSessionSetting
+                    | resetSessionSetting
+                    ;
+
+setSessionSetting : SET SESSION SETTING settingName TO settingValue ;
+
+resetSessionSetting : RESET SESSION SETTING settingName ;
 
 privilege : CREATE
           | DELETE
@@ -333,38 +609,47 @@ privilege : CREATE
           | STORAGE_MODE
           | MULTI_DATABASE_EDIT
           | MULTI_DATABASE_USE
-          | COORDINATOR
+          | IMPERSONATE_USER
+          | PROFILE_RESTRICTION
+          | PARALLEL_EXECUTION
+          | SERVER_SIDE_PARAMETERS
+          | RELOAD_TLS
+          | COORDINATOR_READ
+          | COORDINATOR_WRITE
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
+granularPrivilege : READ | UPDATE | SET LABEL | REMOVE LABEL | SET PROPERTY | CREATE | DELETE | DELETE EDGE | CREATE EDGE | ASTERISK ;
 
-entityType : LABELS | EDGE_TYPES ;
-
-privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
-
-grantPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
+granularPrivilegeList : granularPrivilege ( ',' granularPrivilege )* ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
-entityPrivilege : granularPrivilege ON entityType entities=entitiesList ;
+entityPrivilege : granularPrivilegeList ON entityTypeSpec ;
 
-privilegeOrEntities : privilege | entityType entities=entitiesList ;
+entityTypeSpec
+    : NODES CONTAINING LABELS labelEntities=labelEntitiesList matchingClause?
+    | EDGES OF_TOKEN TYPE edgeType=edgeTypeEntity
+    ;
 
-revokePrivilegesList : privilegeOrEntities ( ',' privilegeOrEntities )* ;
+labelEntitiesList : ASTERISK | listOfColonSymbolicNames ;
+
+edgeTypeEntity : ASTERISK | colonSymbolicName ;
+
+matchingClause
+    : MATCHING ( ANY | EXACTLY )
+    ;
 
 privilegesList : privilege ( ',' privilege )* ;
-
-entitiesList : ASTERISK | listOfColonSymbolicNames ;
 
 listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
 colonSymbolicName : COLON symbolicName ;
 
-showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
+showPrivileges : SHOW PRIVILEGES FOR target=userOrRole ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
+showRoleForUser : SHOW ( ROLE | ROLES ) FOR USER? user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
+showUsersForRole : SHOW USERS FOR ROLE? role=userOrRoleName ;
 
 dumpQuery : DUMP DATABASE ;
 
@@ -375,22 +660,49 @@ setReplicationRole : SET REPLICATION ROLE TO ( MAIN | REPLICA )
 
 showReplicationRole : SHOW REPLICATION ROLE ;
 
-showReplicationCluster : SHOW REPLICATION CLUSTER ;
+showInstance : SHOW INSTANCE ;
+showInstances : SHOW INSTANCES ;
 
 instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-coordinatorSocketAddress : literal ;
-
-registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC | STRICT_SYNC )
                 TO socketAddress ;
 
-registerReplicaCoordinatorServer: REGISTER REPLICA instanceName ( ASYNC | SYNC ) TO socketAddress WITH COORDINATOR SERVER ON coordinatorSocketAddress ;
+configKeyValuePair : literal ':' ( literal | parameter ) ;
 
-registerMainCoordinatorServer: REGISTER MAIN instanceName WITH COORDINATOR SERVER ON coordinatorSocketAddress ;
+configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
-registerCoordinatorServer : registerMainCoordinatorServer | registerReplicaCoordinatorServer ;
+configMapOrExpression : configMap | expression ;
+
+registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC | AS STRICT_SYNC ) ? WITH CONFIG configsMap=configMap ;
+
+unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
+
+forceResetClusterStateOnCoordinator : FORCE RESET CLUSTER STATE ;
+
+demoteInstanceOnCoordinator : DEMOTE INSTANCE instanceName ;
+
+setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
+
+yieldLeadership : YIELD LEADERSHIP ;
+
+setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
+
+showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
+
+showReplicationLag: SHOW REPLICATION LAG ;
+
+showRoutingTable: SHOW ROUTING TABLE ;
+
+coordinatorServerId : literal ;
+
+addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configsMap=configMap ;
+
+removeCoordinatorInstance : REMOVE COORDINATOR coordinatorServerId ;
+
+updateConfig : UPDATE CONFIG FOR ( INSTANCE instanceName | COORDINATOR coordinatorServerId ) configsMap=configMap ;
 
 dropReplica : DROP REPLICA instanceName ;
 
@@ -408,12 +720,12 @@ emptyVertex : '(' ')' ;
 
 emptyEdge : dash dash rightArrowHead ;
 
-createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
+createTrigger : CREATE TRIGGER triggerName ( SECURITY ( DEFINER | INVOKER ) ) ? ( ON ( emptyVertex | emptyEdge ) ? ( CREATE | UPDATE | DELETE ) ) ?
               ( AFTER | BEFORE ) COMMIT EXECUTE triggerStatement ;
 
 dropTrigger : DROP TRIGGER triggerName ;
 
-showTriggers : SHOW TRIGGERS ;
+showTriggers : SHOW TRIGGERS | SHOW TRIGGER INFO ;
 
 isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 
@@ -426,6 +738,12 @@ storageMode : IN_MEMORY_ANALYTICAL | IN_MEMORY_TRANSACTIONAL | ON_DISK_TRANSACTI
 storageModeQuery : STORAGE MODE storageMode ;
 
 createSnapshotQuery : CREATE SNAPSHOT ;
+
+recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( WITH CONFIG configsMap=configMap ) ? ( FORCE )? ;
+
+showSnapshotsQuery : SHOW SNAPSHOTS ;
+
+showNextSnapshotQuery : SHOW NEXT SNAPSHOT ;
 
 streamName : symbolicName ;
 
@@ -443,10 +761,6 @@ commonCreateStreamConfig : TRANSFORM transformationName=procedureName
                          ;
 
 createStream : kafkaCreateStream | pulsarCreateStream ;
-
-configKeyValuePair : literal ':' literal ;
-
-configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
 kafkaCreateStreamConfig : TOPICS topicNames
                         | CONSUMER_GROUP consumerGroup=symbolicNameWithDotsAndMinus
@@ -490,7 +804,21 @@ showSetting : SHOW DATABASE SETTING settingName ;
 
 showSettings : SHOW DATABASE SETTINGS ;
 
+parameterName : symbolicName ;
+
+parameterValue : parameter | literal | configMap ;
+
+setParameter : SET GLOBAL? PARAMETER parameterName '=' parameterValue ;
+
+unsetParameter : UNSET GLOBAL? PARAMETER parameterName ;
+
+showParameters : SHOW PARAMETERS ;
+
+deleteAllParameters : DELETE ALL PARAMETERS ;
+
 showConfigQuery : SHOW CONFIG ;
+
+showQueryCallableMappingsQuery : SHOW QUERY CALLABLE MAPPINGS ;
 
 versionQuery : SHOW VERSION ;
 
@@ -498,20 +826,260 @@ transactionIdList : transactionId ( ',' transactionId )* ;
 
 transactionId : literal ;
 
+sessionIdList : sessionId ( ',' sessionId )* ;
+
+sessionId : literal ;
+
 multiDatabaseQuery : createDatabase
-                   | useDatabase
                    | dropDatabase
-                   | showDatabase
+                   | renameDatabase
+                   | suspendDatabase
+                   | resumeDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
 
+dropDatabase: DROP DATABASE databaseName ( FORCE)?;
+
+renameDatabase : RENAME DATABASE databaseName TO databaseName ;
+
+suspendDatabase : SUSPEND DATABASE databaseName ;
+
+resumeDatabase : RESUME DATABASE databaseName ;
+
 useDatabase : USE DATABASE databaseName ;
 
-dropDatabase : DROP DATABASE databaseName ;
-
-showDatabase : SHOW DATABASE ;
+showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 
+showMemoryInfo : SHOW MEMORY INFO ;
+
 edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
+
+indexQuery : createIndex | dropIndex | createGlobalVertexIndex | dropGlobalVertexIndex;
+
+nestedPropertyKeyList : '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' ;
+
+alternativePropertyRef : variable '.' nestedPropertyKeyNames ;
+
+createIndex : CREATE INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )?
+            | CREATE RANGE? INDEX ( symbolicName )? ifNotExists? FOR '(' variable ':' labelName ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+            ;
+
+dropIndex : DROP INDEX ON ':' labelName nestedPropertyKeyList? ( WITH CONFIG configsMap=configMap )? ;
+
+createGlobalVertexIndex : CREATE GLOBAL INDEX ON ':' '(' propertyKeyName ')' ;
+
+dropGlobalVertexIndex : DROP GLOBAL INDEX ON ':' '(' propertyKeyName ')' ;
+
+propertyKeyList : '(' propertyKeyName ( ',' propertyKeyName )* ')' ;
+
+createEdgeIndex : CREATE EDGE INDEX ON ':' labelName nestedPropertyKeyList?;
+
+dropEdgeIndex : DROP EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
+
+createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
+
+dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
+
+createEdgeIndexAlternativeSyntax : CREATE RANGE? INDEX ( symbolicName )? ifNotExists? FOR '(' ')' dash '[' variable ':' labelName ']' dash '(' ')' ON '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')' ;
+
+edgeIndexQuery : createEdgeIndex
+               | dropEdgeIndex
+               | createGlobalEdgeIndex
+               | dropGlobalEdgeIndex
+               | createEdgeIndexAlternativeSyntax
+               ;
+
+indexName : symbolicName ;
+
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName propertyKeyList* ;
+
+dropTextIndex : DROP TEXT INDEX indexName ;
+
+textIndexQuery : createTextIndex | dropTextIndex;
+
+createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName propertyKeyList* ;
+
+createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
+
+dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
+
+pointIndexQuery : createPointIndex | dropPointIndex ;
+
+vectorIndexLabels
+    : '(' propertyKeyName ')'
+    | ':' labelName ( '|' ':'? labelName )* '(' propertyKeyName ')'
+    | ':' labelName ( '&' ':'? labelName )+ '(' propertyKeyName ')'
+    ;
+
+createVectorIndex : CREATE VECTOR INDEX indexName ON vectorIndexLabels WITH CONFIG configsMap=configMapOrExpression ;
+
+createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON vectorIndexLabels WITH CONFIG configsMap=configMapOrExpression ;
+
+dropVectorIndex : DROP VECTOR INDEX indexName ;
+
+vectorIndexQuery : createVectorIndex | dropVectorIndex ;
+
+dropAllIndexesQuery : DROP ALL INDEXES ;
+
+dropAllConstraintsQuery : DROP ALL CONSTRAINTS ;
+
+alternativePropertyRefList : alternativePropertyRef
+                             | '(' alternativePropertyRef ( ',' alternativePropertyRef )* ')'
+                             ;
+
+alternativeConstraintPattern : '(' variable ':' labelName ')'                                          # alternativeNodeConstraintPattern
+                       | '(' ')' dash '[' variable ':' labelName ']' dash '(' ')'               # alternativeEdgeConstraintPattern
+                       ;
+
+originalConstraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
+
+alternativeConstraintSyntax : CREATE CONSTRAINT ( symbolicName )? ifNotExists? FOR alternativeConstraintPattern REQUIRE
+                  ( alternativePropertyRefList IS UNIQUE
+                  | alternativePropertyRef IS NOT CYPHERNULL
+                  | alternativePropertyRef IS ':' ':' typeConstraintType
+                  ) ;
+
+constraintQuery : originalConstraintQuery
+                | alternativeConstraintSyntax
+                ;
+
+dropGraphQuery : DROP GRAPH ;
+
+enumName : symbolicName ;
+
+enumValue : symbolicName ;
+
+createEnumQuery : CREATE ENUM enumName VALUES '{' enumValue ( ',' enumValue )* '}' ;
+
+showEnumsQuery : SHOW ENUMS ;
+
+alterEnumAddValueQuery: ALTER ENUM enumName ADD VALUE enumValue ;
+
+alterEnumUpdateValueQuery: ALTER ENUM enumName UPDATE VALUE old_value=enumValue TO new_value=enumValue ;
+
+alterEnumRemoveValueQuery: ALTER ENUM enumName REMOVE VALUE removed_value=enumValue ;
+
+dropEnumQuery: DROP ENUM enumName ;
+
+showSchemaInfoQuery : SHOW SCHEMA INFO ;
+
+stopTtlQuery: ( DISABLE | STOP ) TTL ;
+
+startTtlQuery: ENABLE TTL ( ( EVERY period=literal ) ( AT time=literal )?
+                           | ( AT time=literal ) ( EVERY period=literal )? )? ;
+
+ttlQuery: stopTtlQuery
+        | startTtlQuery
+        ;
+
+reloadSSLQuery: RELOAD ( BOLT_SERVER | INTRA_CLUSTER ) TLS ;
+
+typeConstraintType : BOOLEAN
+             | STRING
+             | INTEGER
+             | FLOAT
+             | LIST
+             | MAP
+             | DATE
+             | LOCALTIME
+             | LOCALDATETIME
+             | ZONEDDATETIME
+             | DURATION
+             | ENUM
+             | POINT
+             ;
+
+
+memoryLimitValue : literal ( MB | KB ) ;
+
+limitValue : UNLIMITED | mem_limit=memoryLimitValue | quantity=literal ;
+
+limitKV : key=symbolicName val=limitValue ;
+
+listOfLimits : limitKV (',' limitKV )* ;
+
+createUserProfile : ( CREATE | UPDATE ) PROFILE profile=symbolicName ( LIMIT list=listOfLimits )? ;
+dropUserProfile : DROP PROFILE profile=symbolicName ;
+showUserProfiles : SHOW PROFILES ;
+showUserProfile : SHOW PROFILE profile=symbolicName ;
+showUserProfileForUser : SHOW PROFILE FOR user=userOrRoleName ;
+showUserProfileForProfile : SHOW ( USERS | ROLES ) FOR PROFILE profile=symbolicName ;
+setUserProfile : SET PROFILE FOR user=userOrRoleName TO profile=symbolicName ;
+clearUserProfile : CLEAR PROFILE FOR user=userOrRoleName ;
+showResourceConsumption : SHOW RESOURCE USAGE FOR user=userOrRoleName ;
+
+userProfileQuery : createUserProfile
+                 | dropUserProfile
+                 | showUserProfiles
+                 | showUserProfile
+                 | showUserProfileForUser
+                 | showUserProfileForProfile
+                 | setUserProfile
+                 | clearUserProfile
+                 | showResourceConsumption
+                 ;
+
+createTenantProfile : CREATE TENANT PROFILE profile=symbolicName LIMIT listOfLimits ;
+alterTenantProfile  : ALTER TENANT PROFILE profile=symbolicName SET listOfLimits ;
+dropTenantProfile   : DROP TENANT PROFILE profile=symbolicName ;
+showTenantProfiles  : SHOW TENANT PROFILES ;
+showTenantProfile   : SHOW TENANT PROFILE profile=symbolicName ;
+setTenantProfileOnDatabase    : SET TENANT PROFILE ON DATABASE db=symbolicName TO profile=symbolicName ;
+removeTenantProfileFromDatabase : REMOVE TENANT PROFILE FROM DATABASE db=symbolicName ;
+
+tenantProfileQuery : createTenantProfile
+                   | alterTenantProfile
+                   | dropTenantProfile
+                   | showTenantProfiles
+                   | showTenantProfile
+                   | setTenantProfileOnDatabase
+                   | removeTenantProfileFromDatabase
+                   ;
+
+descriptionQuery
+    : setDescription
+    | deleteDescription
+    | showDescriptions
+    ;
+
+setDescription
+    : SET DESCRIPTION ON descriptionTarget StringLiteral
+    ;
+
+deleteDescription
+    : DELETE DESCRIPTION ON descriptionTarget
+    ;
+
+showDescriptions
+    : SHOW DESCRIPTIONS
+    ;
+
+// Overrides Cypher.g4: storageInfo adds an optional 'ON DATABASE <name>' or 'ON CURRENT DATABASE' clause.
+// systemInfoQuery is re-listed so it dispatches to the overridden storageInfo above.
+fipsInfo : FIPS INFO ;
+
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo | fipsInfo ) ;
+storageInfo : STORAGE INFO ( ON ( DATABASE db=symbolicName | CURRENT DATABASE ) )? ;
+
+edgeTypePatternNode
+    : '(' ( ':' labelName )+ ')'
+    ;
+
+edgeTypePattern
+    : edgeTypePatternNode '-' '[' ':' labelName ']' '-' '>' edgeTypePatternNode
+    ;
+
+descriptionTarget
+    : LABEL ':' labelName ( ':' labelName )*
+    | EDGE TYPE PROPERTY edgeTypePattern propertyKeyList
+    | EDGE TYPE edgeTypePattern
+    | EDGE TYPE ':' labelName
+    | LABEL PROPERTY ':' labelName ( ':' labelName )* propertyKeyList
+    | EDGE TYPE PROPERTY ':' labelName propertyKeyList
+    | PROPERTY propertyKeyName VALUE literal
+    | PROPERTY propertyKeyName
+    | DATABASE symbolicName
+    ;

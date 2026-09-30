@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,11 @@
 
 #include "query/dump.hpp"
 
+#include <range/v3/all.hpp>
+#include "query/auth_checker.hpp"
+#include "query/common.hpp"
+
 #include <algorithm>
-#include <iomanip>
 #include <limits>
 #include <map>
 #include <optional>
@@ -23,17 +26,27 @@
 #include <fmt/format.h>
 
 #include "dbms/database.hpp"
-#include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
 #include "query/stream.hpp"
+#include "query/string_helpers.hpp"
+#include "query/trigger.hpp"
 #include "query/trigger_context.hpp"
+#include "query/trigger_privilege_context.hpp"
 #include "query/typed_value.hpp"
+#include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/description_store.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/temporal.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
+
+namespace r = ranges;
+namespace rv = ranges::views;
 
 namespace memgraph::query {
 
@@ -74,7 +87,7 @@ void DumpPreciseDouble(std::ostream *os, double value) {
 
 namespace {
 void DumpDate(std::ostream &os, const storage::TemporalData &value) {
-  utils::Date date(value.microseconds);
+  utils::Date const date(std::chrono::microseconds{value.microseconds});
   os << "DATE(\"" << date << "\")";
 }
 
@@ -91,6 +104,12 @@ void DumpLocalDateTime(std::ostream &os, const storage::TemporalData &value) {
 void DumpDuration(std::ostream &os, const storage::TemporalData &value) {
   utils::Duration dur(value.microseconds);
   os << "DURATION(\"" << dur << "\")";
+}
+
+void DumpEnum(std::ostream &os, const storage::Enum &value, query::DbAccessor *dba) {
+  auto const opt_str = dba->EnumToName(value);
+  if (!opt_str) throw query::QueryRuntimeException("Unexpected error when getting enum.");
+  os << *opt_str;
 }
 
 void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
@@ -113,9 +132,28 @@ void DumpTemporalData(std::ostream &os, const storage::TemporalData &value) {
     }
   }
 }
+
+void DumpZonedDateTime(std::ostream &os, const storage::ZonedTemporalData &value) {
+  const utils::ZonedDateTime zdt(value.microseconds, value.timezone);
+  os << "DATETIME(\"" << zdt << "\")";
+}
+
+void DumpZonedTemporalData(std::ostream &os, const storage::ZonedTemporalData &value) {
+  switch (value.type) {
+    case storage::ZonedTemporalType::ZonedDateTime: {
+      DumpZonedDateTime(os, value);
+      return;
+    }
+  }
+}
+
+void DumpPoint2d(std::ostream &os, const storage::Point2d &value) { os << query::CypherConstructionFor(value); }
+
+void DumpPoint3d(std::ostream &os, const storage::Point3d &value) { os << query::CypherConstructionFor(value); }
+
 }  // namespace
 
-void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
+void DumpPropertyValue(std::ostream *os, const storage::ExternalPropertyValue &value, query::DbAccessor *dba) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       *os << "Null";
@@ -135,22 +173,72 @@ void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value) {
     case storage::PropertyValue::Type::List: {
       *os << "[";
       const auto &list = value.ValueList();
-      utils::PrintIterable(*os, list, ", ", [](auto &os, const auto &item) { DumpPropertyValue(&os, item); });
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) { DumpPropertyValue(&os, item, dba); });
+      *os << "]";
+      return;
+    }
+    case storage::PropertyValue::Type::NumericList: {
+      *os << "[";
+      const auto &list = value.ValueNumericList();
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) {
+        if (std::holds_alternative<int>(item)) {
+          os << std::get<int>(item);
+        } else {
+          DumpPreciseDouble(&os, std::get<double>(item));
+        }
+      });
+      *os << "]";
+      return;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      *os << "[";
+      const auto &list = value.ValueIntList();
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) { os << item; });
+      *os << "]";
+      return;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      *os << "[";
+      const auto &list = value.ValueDoubleList();
+      utils::PrintIterable(*os, list, ", ", [&](auto &os, const auto &item) { DumpPreciseDouble(&os, item); });
       *os << "]";
       return;
     }
     case storage::PropertyValue::Type::Map: {
       *os << "{";
       const auto &map = value.ValueMap();
-      utils::PrintIterable(*os, map, ", ", [](auto &os, const auto &kv) {
+      utils::PrintIterable(*os, map, ", ", [&](auto &os, const auto &kv) {
         os << EscapeName(kv.first) << ": ";
-        DumpPropertyValue(&os, kv.second);
+        DumpPropertyValue(&os, kv.second, dba);
       });
       *os << "}";
       return;
     }
     case storage::PropertyValue::Type::TemporalData: {
       DumpTemporalData(*os, value.ValueTemporalData());
+      return;
+    }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      DumpZonedTemporalData(*os, value.ValueZonedTemporalData());
+      return;
+    }
+    case storage::PropertyValue::Type::Enum: {
+      DumpEnum(*os, value.ValueEnum(), dba);
+      return;
+    }
+    case storage::PropertyValue::Type::Point2d: {
+      DumpPoint2d(*os, value.ValuePoint2d());
+      return;
+    }
+    case storage::PropertyValue::Type::Point3d: {
+      DumpPoint3d(*os, value.ValuePoint3d());
+      return;
+    }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vector = value.ValueVectorIndexList();
+      *os << "[";
+      utils::PrintIterable(*os, vector, ", ", [](auto &os, const auto &item) { os << item; });
+      *os << "]";
       return;
     }
   }
@@ -166,34 +254,27 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   }
   utils::PrintIterable(*os, store, ", ", [&dba](auto &os, const auto &kv) {
     os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
-    DumpPropertyValue(&os, kv.second);
+    // Convert PropertyValue to ExternalPropertyValue to map keys from PropertyId to strings, preserving property order
+    // compatibility with previous database dumps.
+    DumpPropertyValue(
+        &os, storage::ToExternalPropertyValue(kv.second, dba->GetStorageAccessor()->GetNameIdMapper()), dba);
   });
   *os << "}";
 }
 
-void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor &vertex) {
+void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAccessor &vertex,
+                FineGrainedAuthChecker const *auth_checker) {
   *os << "CREATE (";
   *os << ":" << kInternalVertexLabel;
   auto maybe_labels = vertex.Labels(storage::View::OLD);
-  if (maybe_labels.HasError()) {
-    switch (maybe_labels.GetError()) {
-      case storage::Error::DELETED_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a deleted node.");
-      case storage::Error::NONEXISTENT_OBJECT:
-        throw query::QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
-      case storage::Error::SERIALIZATION_ERROR:
-      case storage::Error::VERTEX_HAS_EDGES:
-      case storage::Error::PROPERTIES_DISABLED:
-        throw query::QueryRuntimeException("Unexpected error when getting labels.");
-    }
-  }
+  if (!maybe_labels) ThrowVertexLabelsReadFailure(maybe_labels.error());
   for (const auto &label : *maybe_labels) {
     *os << ":" << EscapeName(dba->LabelToName(label));
   }
   *os << " ";
   auto maybe_props = vertex.Properties(storage::View::OLD);
-  if (maybe_props.HasError()) {
-    switch (maybe_props.GetError()) {
+  if (!maybe_props) {
+    switch (maybe_props.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -204,11 +285,27 @@ void DumpVertex(std::ostream *os, query::DbAccessor *dba, const query::VertexAcc
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
   }
+
+  // For VectorIndexId properties, fetch the actual vector from the index
+  for (auto &prop_value :
+       *maybe_props | std::views::values | std::views::filter([](const auto &pv) { return pv.IsVectorIndexId(); })) {
+    auto index_name = dba->GetStorageAccessor()->GetNameIdMapper()->IdToName(prop_value.ValueVectorIndexIds()[0]);
+    auto vector = dba->GetStorageAccessor()->GetVectorFromVectorIndex(vertex.impl_.vertex_, index_name);
+    prop_value.ValueVectorIndexList() = std::move(vector);
+  }
+
+  if (auth_checker) {
+    std::erase_if(*maybe_props, [&](auto const &kv) {
+      return !auth_checker->HasPropertyPermission(*maybe_labels, kv.first, AuthQuery::PropertyPermissionType::READ);
+    });
+  }
+
   DumpProperties(os, dba, *maybe_props, vertex.CypherId());
   *os << ");";
 }
 
-void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccessor &edge) {
+void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccessor &edge,
+              FineGrainedAuthChecker const *auth_checker) {
   *os << "MATCH ";
   *os << "(u:" << kInternalVertexLabel << "), ";
   *os << "(v:" << kInternalVertexLabel << ")";
@@ -219,8 +316,8 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
   *os << "CREATE (u)-[";
   *os << ":" << EscapeName(dba->EdgeTypeToName(edge.EdgeType()));
   auto maybe_props = edge.Properties(storage::View::OLD);
-  if (maybe_props.HasError()) {
-    switch (maybe_props.GetError()) {
+  if (!maybe_props) {
+    switch (maybe_props.error()) {
       case storage::Error::DELETED_OBJECT:
         throw query::QueryRuntimeException("Trying to get properties from a deleted object.");
       case storage::Error::NONEXISTENT_OBJECT:
@@ -230,6 +327,11 @@ void DumpEdge(std::ostream *os, query::DbAccessor *dba, const query::EdgeAccesso
       case storage::Error::PROPERTIES_DISABLED:
         throw query::QueryRuntimeException("Unexpected error when getting properties.");
     }
+  }
+  if (auth_checker) {
+    std::erase_if(*maybe_props, [&](auto const &kv) {
+      return !auth_checker->HasPropertyPermission(edge.EdgeType(), kv.first, AuthQuery::PropertyPermissionType::READ);
+    });
   }
   if (!maybe_props->empty()) {
     *os << " ";
@@ -242,10 +344,97 @@ void DumpLabelIndex(std::ostream *os, query::DbAccessor *dba, const storage::Lab
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << ";";
 }
 
-void DumpLabelPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                            storage::PropertyId property) {
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << EscapeName(dba->PropertyToName(property))
-      << ");";
+void DumpEdgeTypeIndex(std::ostream *os, query::DbAccessor *dba, const storage::EdgeTypeId edge_type) {
+  *os << "CREATE EDGE INDEX ON :" << EscapeName(dba->EdgeTypeToName(edge_type)) << ";";
+}
+
+void DumpEdgeTypePropertyIndex(std::ostream *os, query::DbAccessor *dba, const storage::EdgeTypeId edge_type,
+                               storage::PropertyId property) {
+  *os << "CREATE EDGE INDEX ON :" << EscapeName(dba->EdgeTypeToName(edge_type)) << "("
+      << EscapeName(dba->PropertyToName(property)) << ");";
+}
+
+void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::PropertyId property) {
+  *os << "CREATE GLOBAL EDGE INDEX ON :(" << EscapeName(dba->PropertyToName(property)) << ");";
+}
+
+void DumpVertexPropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::PropertyId property) {
+  *os << "CREATE GLOBAL INDEX ON :(" << EscapeName(dba->PropertyToName(property)) << ");";
+}
+
+void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
+                              std::span<storage::PropertyPath const> properties,
+                              storage::IndexOrder order = storage::IndexOrder::ASC) {
+  using namespace std::literals::string_view_literals;
+  auto const concat_nested_props = [&](auto &&path) {
+    return path | rv::transform([&](auto &&property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+           rv::join("."sv) | r::to<std::string>();
+  };
+
+  auto prop_names = properties | rv::transform(concat_nested_props) | rv::join(", "sv) | r::to<std::string>();
+
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ")";
+  if (order == storage::IndexOrder::DESC) {
+    *os << R"( WITH CONFIG {"order": "DESC"})";
+  }
+  *os << ";";
+}
+
+void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextIndexSpec &text_index) {
+  *os << "CREATE TEXT INDEX " << EscapeName(text_index.index_name)
+      << " ON :" << EscapeName(dba->LabelToName(text_index.label));
+
+  if (!text_index.properties.empty()) {
+    auto prop_names = text_index.properties |
+                      rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+                      rv::join(", "sv) | r::to<std::string>();
+    *os << "(" << prop_names << ")";
+  }
+  *os << ";";
+}
+
+void DumpTextEdgeIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextEdgeIndexSpec &text_edge_index) {
+  *os << "CREATE TEXT EDGE INDEX " << EscapeName(text_edge_index.index_name)
+      << " ON :" << EscapeName(dba->EdgeTypeToName(text_edge_index.edge_type));
+
+  if (!text_edge_index.properties.empty()) {
+    auto prop_names = text_edge_index.properties |
+                      rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+                      rv::join(", "sv) | r::to<std::string>();
+    *os << "(" << prop_names << ")";
+  }
+  *os << ";";
+}
+
+void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label, storage::PropertyId property) {
+  *os << "CREATE POINT INDEX ON :" << EscapeName(dba->LabelToName(label)) << "("
+      << EscapeName(dba->PropertyToName(property)) << ");";
+}
+
+void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorIndexSpec &spec) {
+  const auto label_str = spec.label_filter.mode == storage::VectorMatchMode::WILDCARD
+                             ? std::string{}
+                             : spec.label_filter.Format([&](auto id) { return EscapeName(dba->LabelToName(id)); });
+  *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON " << label_str << "("
+      << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
+      << "\"dimension\": " << spec.dimension << ", "
+      << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
+      << "\"capacity\": " << spec.capacity << ", "
+      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
+      << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
+}
+
+void DumpVectorEdgeIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorEdgeIndexSpec &spec) {
+  const auto et_str = spec.edge_type_filter.mode == storage::VectorMatchMode::WILDCARD
+                          ? std::string{}
+                          : spec.edge_type_filter.Format([&](auto id) { return EscapeName(dba->EdgeTypeToName(id)); });
+  *os << "CREATE VECTOR EDGE INDEX " << EscapeName(spec.index_name) << " ON " << et_str << "("
+      << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
+      << "\"dimension\": " << spec.dimension << ", "
+      << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
+      << "\"capacity\": " << spec.capacity << ", "
+      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
+      << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
 }
 
 void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
@@ -263,6 +452,12 @@ void DumpUniqueConstraint(std::ostream *os, query::DbAccessor *dba, storage::Lab
   *os << " IS UNIQUE;";
 }
 
+void DumpTypeConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label, storage::PropertyId property,
+                        storage::TypeConstraintKind type) {
+  *os << "CREATE CONSTRAINT ON (u:" << EscapeName(dba->LabelToName(label)) << ") ASSERT u."
+      << EscapeName(dba->PropertyToName(property)) << " IS TYPED " << storage::TypeConstraintKindToString(type) << ";";
+}
+
 const char *triggerPhaseToString(TriggerPhase phase) {
   switch (phase) {
     case TriggerPhase::BEFORE_COMMIT:
@@ -274,28 +469,74 @@ const char *triggerPhaseToString(TriggerPhase phase) {
 
 }  // namespace
 
-PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
+PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc, FineGrainedAuthChecker const *auth_checker)
     : dba_(dba),
-      db_acc_(db_acc),
+      auth_checker_(auth_checker),
+      db_acc_(std::move(db_acc)),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
-      pull_chunks_{// Dump all label indices
-                   CreateLabelIndicesPullChunk(),
-                   // Dump all label property indices
-                   CreateLabelPropertyIndicesPullChunk(),
-                   // Dump all existence constraints
-                   CreateExistenceConstraintsPullChunk(),
-                   // Dump all unique constraints
-                   CreateUniqueConstraintsPullChunk(),
-                   // Create internal index for faster edge creation
-                   CreateInternalIndexPullChunk(),
+      pull_chunks_{/*
+                    * IMPORTANT: the order here must reflex the order in `src/storage/v2/durability/snapshot.cpp`
+                    * this is so that we have a stable order
+                    */
+
+                   /// User defined Datatype Info
+                   // Dump all enums
+                   CreateEnumsPullChunk(),
+
+                   /// Vertices
                    // Dump all vertices
                    CreateVertexPullChunk(),
+
+                   /// Edges
+                   // Create internal index for faster edge creation
+                   CreateInternalIndexPullChunk(),
                    // Dump all edges
                    CreateEdgePullChunk(),
                    // Drop the internal index
                    CreateDropInternalIndexPullChunk(),
                    // Internal index cleanup
                    CreateInternalIndexCleanupPullChunk(),
+
+                   /// Indices and constraints (Vertex)
+                   // Dump all label indices
+                   CreateLabelIndicesPullChunk(),
+                   // Dump all label property indices
+                   CreateLabelPropertiesIndicesPullChunk(),
+                   // Dump all text indices
+                   CreateTextIndicesPullChunk(),
+                   // Dump all point indices
+                   CreatePointIndicesPullChunk(),
+                   // Dump all vector indices
+                   CreateVectorIndicesPullChunk(),
+                   // Dump all vector edge indices
+                   CreateVectorEdgeIndicesPullChunk(),
+                   // Dump all global vertex property indices
+                   CreateVertexPropertyIndicesPullChunk(),
+                   // Dump all existence constraints
+                   CreateExistenceConstraintsPullChunk(),
+                   // Dump all unique constraints
+                   CreateUniqueConstraintsPullChunk(),
+                   // Dump all type constraints
+                   CreateTypeConstraintsPullChunk(),
+
+                   /// Indices and constraints (Edge)
+                   // Dump all edge-type indices
+                   CreateEdgeTypeIndicesPullChunk(),
+                   // Dump all edge-type property indices
+                   CreateEdgeTypePropertyIndicesPullChunk(),
+                   // Dump all global edge property indices
+                   CreateEdgePropertyIndicesPullChunk(),
+                   // Dump all text edge indices
+                   CreateTextEdgeIndicesPullChunk(),
+
+                   // Dump all TTL configuration
+                   CreateTTLConfigPullChunk(),
+
+                   // Dump all descriptions
+                   CreateDescriptionsPullChunk(),
+
+                   // IMPORTANT NOTE: After this point stuff is restored from their owne KVStore not from our snapshot
+
                    // Dump all triggers
                    CreateTriggersPullChunk()} {}
 
@@ -325,6 +566,34 @@ bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   return current_chunk_index_ == pull_chunks_.size();
 }
 
+PullPlanDump::PullChunk PullPlanDump::CreateEnumsPullChunk() {
+  auto enums = dba_->ShowEnums();
+  auto to_create = [](auto &&p) {
+    // rv::c_str is required! https://github.com/ericniebler/range-v3/issues/1699
+    return fmt::format(
+        "CREATE ENUM {} VALUES {{ {} }};", p.first, p.second | rv::join(rv::c_str(", ")) | r::to<std::string>);
+  };
+  auto results = enums | rv::transform(to_create) | r::to_vector;
+
+  // Dump all enums
+  return [global_index = 0U, results = std::move(results)](
+             AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    size_t local_counter = 0;
+    while (global_index < results.size() && (!n || local_counter < *n)) {
+      stream->Result({TypedValue(results[global_index])});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == results.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
 PullPlanDump::PullChunk PullPlanDump::CreateLabelIndicesPullChunk() {
   // Dump all label indices
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
@@ -352,19 +621,156 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelIndicesPullChunk() {
   };
 }
 
-PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
+PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypeIndicesPullChunk() {
+  // Dump all edge type indices
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
     if (!indices_info_) {
       indices_info_.emplace(dba_->ListAllIndices());
     }
-    const auto &label_property = indices_info_->label_property;
+    const auto &edge_type = indices_info_->edge_type;
+
+    size_t local_counter = 0;
+    while (global_index < edge_type.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      DumpEdgeTypeIndex(&os, dba_, edge_type[global_index]);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == edge_type.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateEdgeTypePropertyIndicesPullChunk() {
+  // Dump all edge type property indices
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &edge_type_property = indices_info_->edge_type_property;
+
+    size_t local_counter = 0;
+    while (global_index < edge_type_property.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      const auto edge_type_property_index = edge_type_property[global_index];
+      DumpEdgeTypePropertyIndex(&os, dba_, edge_type_property_index.first, edge_type_property_index.second);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == edge_type_property.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
+  // Dump all global edge property indices
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &edge_property = indices_info_->edge_property;
+
+    size_t local_counter = 0;
+    while (global_index < edge_property.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      const auto edge_property_index = edge_property[global_index];
+      DumpEdgePropertyIndex(&os, dba_, edge_property_index);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == edge_property.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateVertexPropertyIndicesPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &vertex_property = indices_info_->vertex_property;
+
+    size_t local_counter = 0;
+    while (global_index < vertex_property.size() && (!n || std::cmp_less(local_counter, *n))) {
+      std::ostringstream os;
+      DumpVertexPropertyIndex(&os, dba_, vertex_property[global_index]);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == vertex_property.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateTTLConfigPullChunk() {
+  // Dump all TTL config if enabled
+  // NOLINTNEXTLINE(clang-diagnostic-unused-lambda-capture)
+  return [this](AnyStream *stream, std::optional<int> /*n*/) mutable -> std::optional<size_t> {
+#ifdef MG_ENTERPRISE
+    auto const &ttl = dba_->GetTtlConfig();
+    if (!ttl) {
+      return 0;
+    }
+
+    std::ostringstream os;
+    os << "ENABLE TTL";
+    if (ttl.period) {
+      os << " EVERY \"" << std::chrono::duration_cast<std::chrono::seconds>(*ttl.period).count() << "s\"";
+    }
+    if (ttl.start_time) {
+      // Use TtlInfo::StringifyStartTime to ensure consistent timezone handling
+      os << " AT \"" << storage::ttl::TtlInfo::StringifyStartTime(*ttl.start_time) << "\"";
+    }
+    os << ";";
+    stream->Result({TypedValue(os.str())});
+    return 1;
+#else
+    (void)stream;
+    return 0;
+#endif
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertiesIndicesPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &label_property = indices_info_->label_properties;
 
     size_t local_counter = 0;
     while (global_index < label_property.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
-      const auto &label_property_index = label_property[global_index];
-      DumpLabelPropertyIndex(&os, dba_, label_property_index.first, label_property_index.second);
+      const auto &[label, properties, order] = label_property[global_index];
+      DumpLabelPropertiesIndex(&os, dba_, label, properties, order);
       stream->Result({TypedValue(os.str())});
 
       ++global_index;
@@ -372,6 +778,141 @@ PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertyIndicesPullChunk() {
     }
 
     if (global_index == label_property.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateTextIndicesPullChunk() {
+  // Dump all text indices
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &text = indices_info_->text_indices;
+
+    size_t local_counter = 0;
+    while (global_index < text.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      const auto &text_index = text[global_index];
+      DumpTextIndex(&os, dba_, text_index);
+      stream->Result({TypedValue(os.str())});
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == text.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateTextEdgeIndicesPullChunk() {
+  // Dump all text edge indices
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &text = indices_info_->text_edge_indices;
+
+    size_t local_counter = 0;
+    while (global_index < text.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      const auto &text_index = text[global_index];
+      DumpTextEdgeIndex(&os, dba_, text_index);
+      stream->Result({TypedValue(os.str())});
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == text.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreatePointIndicesPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &point_label_properties = indices_info_->point_label_property;
+
+    size_t local_counter = 0;
+    while (global_index < point_label_properties.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      const auto &point_index = point_label_properties[global_index];
+      DumpPointIndex(&os, dba_, point_index.first, point_index.second);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == point_label_properties.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateVectorIndicesPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &vector = indices_info_->vector_indices_spec;
+
+    size_t local_counter = 0;
+    while (global_index < vector.size() && (!n || local_counter < *n)) {
+      const auto &index = vector[global_index];
+      std::ostringstream os;
+      DumpVectorIndex(&os, dba_, index);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == vector.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateVectorEdgeIndicesPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &vector_edge = indices_info_->vector_edge_indices_spec;
+
+    size_t local_counter = 0;
+    while (global_index < vector_edge.size() && (!n || local_counter < *n)) {
+      const auto &index = vector_edge[global_index];
+      std::ostringstream os;
+      DumpVectorEdgeIndex(&os, dba_, index);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == vector_edge.size()) {
       return local_counter;
     }
 
@@ -433,6 +974,33 @@ PullPlanDump::PullChunk PullPlanDump::CreateUniqueConstraintsPullChunk() {
   };
 }
 
+PullPlanDump::PullChunk PullPlanDump::CreateTypeConstraintsPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of constraint vectors
+    if (!constraints_info_) {
+      constraints_info_.emplace(dba_->ListAllConstraints());
+    }
+
+    const auto &type = constraints_info_->type;
+    size_t local_counter = 0;
+    while (global_index < type.size() && (!n || local_counter < *n)) {
+      const auto &[label, property, data_type] = type[global_index];
+      std::ostringstream os;
+      DumpTypeConstraint(&os, dba_, label, property, data_type);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == type.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
 PullPlanDump::PullChunk PullPlanDump::CreateInternalIndexPullChunk() {
   return [this](AnyStream *stream, std::optional<int>) mutable -> std::optional<size_t> {
     if (vertices_iterable_.begin() != vertices_iterable_.end()) {
@@ -462,7 +1030,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateVertexPullChunk() {
     size_t local_counter = 0;
     while (current_iter != vertices_iterable_.end() && (!n || local_counter < *n)) {
       std::ostringstream os;
-      DumpVertex(&os, dba_, *current_iter);
+      DumpVertex(&os, dba_, *current_iter, auth_checker_);
       stream->Result({TypedValue(os.str())});
       ++local_counter;
       ++current_iter;
@@ -476,7 +1044,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateVertexPullChunk() {
 }
 
 PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
-  return [this, maybe_current_vertex_iter = std::optional<VertexAccessorIterableIterator>{},
+  return [this,
+          maybe_current_vertex_iter = std::optional<VertexAccessorIterableIterator>{},
           // we need to save the iterable which contains list of accessor so
           // our saved iterator is valid in the next run
           maybe_edge_iterable = std::shared_ptr<EdgeAccessorIterable>{nullptr},
@@ -500,11 +1069,11 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePullChunk() {
         maybe_edge_iterable = std::make_shared<EdgeAccessorIterable>(vertex.OutEdges(storage::View::OLD));
       }
       auto &maybe_edges = *maybe_edge_iterable;
-      MG_ASSERT(maybe_edges.HasValue(), "Invalid database state!");
+      MG_ASSERT(maybe_edges.has_value(), "Invalid database state!");
       auto current_edge_iter = maybe_current_edge_iter ? *maybe_current_edge_iter : maybe_edges->edges.begin();
       for (; current_edge_iter != maybe_edges->edges.end() && (!n || local_counter < *n); ++current_edge_iter) {
         std::ostringstream os;
-        DumpEdge(&os, dba_, *current_edge_iter);
+        DumpEdge(&os, dba_, *current_edge_iter, auth_checker_);
         stream->Result({TypedValue(os.str())});
 
         ++local_counter;
@@ -557,17 +1126,117 @@ PullPlanDump::PullChunk PullPlanDump::CreateTriggersPullChunk() {
     for (const auto &trigger : triggers) {
       std::ostringstream os;
       auto trigger_statement_copy = trigger.statement;
-      std::replace(trigger_statement_copy.begin(), trigger_statement_copy.end(), '\n', ' ');
-      os << "CREATE TRIGGER " << trigger.name << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type)
-         << " " << triggerPhaseToString(trigger.phase) << " " << trigger_statement_copy << ";";
+      std::ranges::replace(trigger_statement_copy, '\n', ' ');
+      os << "CREATE TRIGGER " << trigger.name;
+      if (trigger.privilege_context == TriggerPrivilegeContext::INVOKER) {
+        os << " SECURITY INVOKER";
+      } else {
+        os << " SECURITY DEFINER";
+      }
+      if (trigger.event_type != TriggerEventType::ANY) {
+        os << " ON " << memgraph::query::TriggerEventTypeToString(trigger.event_type);
+      }
+      os << " " << triggerPhaseToString(trigger.phase) << " " << trigger_statement_copy << ";";
       stream->Result({TypedValue(os.str())});
     }
     return 0;
   };
 }
 
-void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc) {
-  PullPlanDump(dba, db_acc).Pull(stream, {});
+PullPlanDump::PullChunk PullPlanDump::CreateDescriptionsPullChunk() {
+  auto entries = dba_->GetAllDescriptions();
+  auto db_name = db_acc_->name();
+
+  std::vector<std::string> queries;
+  queries.reserve(entries.size());
+
+  for (auto const &entry : entries) {
+    std::ostringstream os;
+    os << "SET DESCRIPTION ON ";
+
+    switch (entry.kind) {
+      case storage::DescriptionTargetKind::DATABASE:
+        os << "DATABASE " << EscapeName(db_name);
+        break;
+      case storage::DescriptionTargetKind::LABEL: {
+        os << "LABEL";
+        for (auto const &label : entry.labels) {
+          os << " :" << EscapeName(dba_->LabelToName(label));
+        }
+        break;
+      }
+      case storage::DescriptionTargetKind::EDGE_TYPE:
+        os << "EDGE TYPE :" << EscapeName(dba_->EdgeTypeToName(entry.edge_type));
+        break;
+      case storage::DescriptionTargetKind::LABEL_PROPERTY: {
+        os << "LABEL PROPERTY";
+        for (auto const &label : entry.labels) {
+          os << " :" << EscapeName(dba_->LabelToName(label));
+        }
+        os << "(" << EscapeName(dba_->PropertyToName(entry.property)) << ")";
+        break;
+      }
+      case storage::DescriptionTargetKind::EDGE_TYPE_PROPERTY:
+        os << "EDGE TYPE PROPERTY :" << EscapeName(dba_->EdgeTypeToName(entry.edge_type)) << "("
+           << EscapeName(dba_->PropertyToName(entry.property)) << ")";
+        break;
+      case storage::DescriptionTargetKind::PROPERTY:
+        os << "PROPERTY " << EscapeName(dba_->PropertyToName(entry.property));
+        break;
+      case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN: {
+        os << "EDGE TYPE (";
+        for (auto const &label : entry.from_labels) {
+          os << ":" << EscapeName(dba_->LabelToName(label));
+        }
+        os << ")-[:" << EscapeName(dba_->EdgeTypeToName(entry.edge_type)) << "]->(";
+        for (auto const &label : entry.to_labels) {
+          os << ":" << EscapeName(dba_->LabelToName(label));
+        }
+        os << ")";
+        break;
+      }
+      case storage::DescriptionTargetKind::EDGE_TYPE_PATTERN_PROPERTY: {
+        os << "EDGE TYPE PROPERTY (";
+        for (auto const &label : entry.from_labels) {
+          os << ":" << EscapeName(dba_->LabelToName(label));
+        }
+        os << ")-[:" << EscapeName(dba_->EdgeTypeToName(entry.edge_type)) << "]->(";
+        for (auto const &label : entry.to_labels) {
+          os << ":" << EscapeName(dba_->LabelToName(label));
+        }
+        os << ")(" << EscapeName(dba_->PropertyToName(entry.property)) << ")";
+        break;
+      }
+      case storage::DescriptionTargetKind::PROPERTY_VALUE:
+        os << "PROPERTY " << EscapeName(dba_->PropertyToName(entry.property)) << " VALUE ";
+        DumpPropertyValue(&os, entry.value, dba_);
+        break;
+    }
+
+    os << " " << utils::Escape(entry.description) << ";";
+    queries.push_back(os.str());
+  }
+
+  return [global_index = 0U, results = std::move(queries)](
+             AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    size_t local_counter = 0;
+    while (global_index < results.size() && (!n || std::cmp_less(local_counter, *n))) {
+      stream->Result({TypedValue(results[global_index])});
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == results.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+void DumpDatabaseToCypherQueries(query::DbAccessor *dba, AnyStream *stream, dbms::DatabaseAccess db_acc,
+                                 FineGrainedAuthChecker const *auth_checker) {
+  PullPlanDump(dba, std::move(db_acc), auth_checker).Pull(stream, {});
 }
 
 }  // namespace memgraph::query

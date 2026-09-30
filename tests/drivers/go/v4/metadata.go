@@ -47,9 +47,12 @@ func check_tx(driver neo4j.Driver) {
     log.Fatal("An error occurred while creating a session: %s", err)
   }
 
-  defer session.Close()
 
   result, err := session.Run("SHOW TRANSACTIONS", nil)
+  if err != nil {
+    log.Fatal("An error occurred while running a query: %s", err)
+  }
+  defer session.Close()
   check_md(result, err)
 }
 
@@ -83,7 +86,7 @@ func main() {
     handle_error(err)
   }
   tx.Run("MATCH (n) RETURN n LIMIT 1", map[string]interface{}{})
-  go check_tx(driver)
+  check_tx(driver)
   tx.Commit()
 
   fmt.Println("All ok!")

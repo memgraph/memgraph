@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,14 +22,10 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/states/handlers.hpp"
 #include "communication/bolt/v1/value.hpp"
-#include "utils/event_counter.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
-
-namespace memgraph::metrics {
-extern const Event BoltMessages;
-}  // namespace memgraph::metrics
 
 namespace memgraph::communication::bolt {
 
@@ -45,7 +41,7 @@ State RunHandlerV1(Signature signature, TSession &session, State state, Marker m
     case Signature::Reset:
       return HandleReset<TSession>(session, marker);
     default:
-      spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+      spdlog::trace("Unrecognized signature received (0x{:02X})!", std::to_underlying(signature));
       return State::Close;
   }
 }
@@ -66,7 +62,7 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
     case Signature::Commit:
       return HandleCommit<TSession>(session, state, marker);
     case Signature::Goodbye:
-      return HandleGoodbye<TSession>();
+      return HandleGoodbye<TSession>(session);
     case Signature::Rollback:
       return HandleRollback<TSession>(session, state, marker);
     case Signature::Noop: {
@@ -79,14 +75,14 @@ State RunHandlerV4(Signature signature, TSession &session, State state, Marker m
     }
     case Signature::Route: {
       if constexpr (bolt_minor >= 3) {
-        if (signature == Signature::Route) return HandleRoute<TSession>(session, marker);
+        return HandleRoute<TSession, 4, bolt_minor>(session, marker);
       } else {
-        spdlog::trace("Supported only in bolt v4.3");
+        spdlog::trace("Route message supported only in bolt versions >= 4.3");
         return State::Close;
       }
     }
     default:
-      spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+      spdlog::trace("Unrecognized signature received (0x{:02X})!", std::to_underlying(signature));
       return State::Close;
   }
 }
@@ -107,17 +103,17 @@ State RunHandlerV5(Signature signature, TSession &session, State state, Marker m
     case Signature::Commit:
       return HandleCommit<TSession>(session, state, marker);
     case Signature::Goodbye:
-      return HandleGoodbye<TSession>();
+      return HandleGoodbye<TSession>(session);
     case Signature::Rollback:
       return HandleRollback<TSession>(session, state, marker);
     case Signature::Noop:
       return HandleNoop<TSession>(state);
     case Signature::Route:
-      return HandleRoute<TSession>(session, marker);
+      return HandleRoute<TSession, 5>(session, marker);
     case Signature::LogOff:
-      return HandleLogOff<TSession>();
+      return HandleLogOff<TSession>(session);
     default:
-      spdlog::trace("Unrecognized signature received (0x{:02X})!", utils::UnderlyingCast(signature));
+      spdlog::trace("Unrecognized signature received (0x{:02X})!", std::to_underlying(signature));
       return State::Close;
   }
 }
@@ -139,11 +135,14 @@ State StateExecutingRun(TSession &session, State state) {
 
   switch (session.version_.major) {
     case 1:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::BoltMessages);
+      memgraph::metrics::Metrics().global.bolt_messages->Increment();
       return RunHandlerV1(signature, session, state, marker);
     case 4: {
-      memgraph::metrics::IncrementCounter(memgraph::metrics::BoltMessages);
-      if (session.version_.minor >= 3) {
+      memgraph::metrics::Metrics().global.bolt_messages->Increment();
+      if (session.version_.minor == 4) {
+        return RunHandlerV4<TSession, 4>(signature, session, state, marker);
+      }
+      if (session.version_.minor == 3) {
         return RunHandlerV4<TSession, 3>(signature, session, state, marker);
       }
       if (session.version_.minor >= 1) {
@@ -152,7 +151,7 @@ State StateExecutingRun(TSession &session, State state) {
       return RunHandlerV4<TSession>(signature, session, state, marker);
     }
     case 5:
-      memgraph::metrics::IncrementCounter(memgraph::metrics::BoltMessages);
+      memgraph::metrics::Metrics().global.bolt_messages->Increment();
       return RunHandlerV5<TSession>(signature, session, state, marker);
     default:
       spdlog::trace("Unsupported bolt version:{}.{})!", session.version_.major, session.version_.minor);

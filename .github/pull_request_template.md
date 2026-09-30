@@ -1,14 +1,25 @@
-[master < Epic] PR
-- [ ] Check, and update documentation if necessary
-- [ ] Write E2E tests
-- [ ] Compare the [benchmarking results](https://bench-graph.memgraph.com/) between the master branch and the Epic branch
-- [ ] Provide the full content or a guide for the final git message
+Git commit description, explain the changes you made here
 
-[master < Task] PR
-- [ ] Check, and update documentation if necessary
-- [ ] Provide the full content or a guide for the final git message
+---
+__*Leave above in PR description, copy the below into a comment*__
+___
 
+### Tracking
+- [ ] **[Link to Epic/Issue]**
 
-To keep docs changelog up to date, one more thing to do:
-- [ ] Write a release note here, including added/changed clauses
-- [ ] Tag someone from docs team in the comments
+### Standard development
+- [ ] Update unit/E2E tests
+- [ ] Compare the [benchmarking results](https://bench-graph.memgraph.com/) between the master branch this branch
+
+### CI Testing Labels
+- [ ] Select the appropriate CI test labels _(CI -build=**build-name** -test=**test-suite**)_
+
+### Documentation checklist
+- [ ] Add the documentation label
+- [ ] Add the bug / feature label
+- [ ] Add the milestone for which this feature is intended
+    - If not known, set for a later milestone
+- [ ] Write a release note, including added/changed clauses
+    - What has changed? What does it mean for a user? What should a user do with it? [#{{PR_number}}]({{link to the PR}})
+- [ ] **[ Documentation PR link memgraph/documentation#XXXX ]**
+    - [ ] Is back linked to this development PR

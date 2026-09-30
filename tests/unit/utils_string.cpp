@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
 #include "utils/exceptions.hpp"
@@ -54,11 +53,109 @@ TEST(String, ToUpperCase) {
   EXPECT_EQ(ToUpperCase("\u0161memgraph"), "\u0161MEMGRAPH");
 }
 
+TEST(String, ReverseUtf8) {
+  // Escapes rather than typed characters: an accented character may reach the
+  // compiler precomposed or decomposed, and the two have different answers here.
+  EXPECT_EQ(ReverseUtf8(""), "");
+  EXPECT_EQ(ReverseUtf8("abc"), "cba");
+
+  // A multi-byte sequence moves as a unit. Reversing the underlying bytes would
+  // put a continuation byte ahead of its lead byte, which is not valid UTF-8.
+  EXPECT_EQ(ReverseUtf8("caf\u00E9"), "\u00E9fac");
+  EXPECT_EQ(ReverseUtf8("a\u4E2Db"), "b\u4E2Da");
+  EXPECT_EQ(ReverseUtf8("\u00E9"), "\u00E9");
+  EXPECT_EQ(ReverseUtf8("ab\u0107"), "\u0107ba");
+
+  // A combining mark is a code point in its own right, so it leads the result
+  // rather than staying attached to the character it followed.
+  EXPECT_EQ(ReverseUtf8("abc\u0301"), "\u0301cba");
+
+  EXPECT_EQ(ReverseUtf8(ReverseUtf8("a\u4E2Db\u00E9")), "a\u4E2Db\u00E9");
+}
+
+TEST(String, ReverseUtf8CountsCodePointsNotBytes) {
+  // The result holds as many code points as the input, each intact. Byte-wise
+  // reversal preserves the byte count too, so length alone proves nothing.
+  const std::string input = "a\u00E9\u4E2D";
+  const std::string reversed = ReverseUtf8(input);
+  ASSERT_EQ(reversed.size(), input.size());
+
+  auto const lead_bytes = [](std::string_view s) {
+    return std::ranges::count_if(s, [](char c) { return (static_cast<unsigned char>(c) & 0xC0U) != 0x80U; });
+  };
+  EXPECT_EQ(lead_bytes(reversed), 3);
+  EXPECT_EQ(lead_bytes(reversed), lead_bytes(input));
+  EXPECT_EQ(reversed, "\u4E2D\u00E9a");
+}
+
+TEST(String, CountUtf8CodePoints) {
+  EXPECT_EQ(CountUtf8CodePoints(""), 0);
+  EXPECT_EQ(CountUtf8CodePoints("abc"), 3);
+
+  // One code point however many bytes encode it.
+  EXPECT_EQ(CountUtf8CodePoints("\u00E9"), 1);
+  EXPECT_EQ(CountUtf8CodePoints("\u4E2D"), 1);
+  EXPECT_EQ(CountUtf8CodePoints("\U0001F600"), 1);
+  EXPECT_EQ(CountUtf8CodePoints("a\u00E9b"), 3);
+
+  // The count is not the buffer size.
+  EXPECT_EQ(std::string_view("a\u00E9b").size(), 4);
+  EXPECT_EQ(CountUtf8CodePoints("a\u00E9b"), 3);
+
+  // A combining mark is a code point of its own, so a decomposed character
+  // counts as two. This is code points, not grapheme clusters.
+  EXPECT_EQ(CountUtf8CodePoints("e\u0301"), 2);
+}
+
+TEST(String, SubstrUtf8) {
+  // Positions and lengths are in code points, so a multi-byte character is
+  // never split.
+  EXPECT_EQ(SubstrUtf8("abc", 1), "bc");
+  EXPECT_EQ(SubstrUtf8("abc", 1, 1), "b");
+
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 1, 1), "\u4E2D");
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 1), "\u4E2Db");
+  EXPECT_EQ(SubstrUtf8("\u00E9\u4E2D\U0001F600", 1, 1), "\u4E2D");
+  EXPECT_EQ(SubstrUtf8("\U0001F600\U0001F600", 0, 1), "\U0001F600");
+  EXPECT_EQ(SubstrUtf8("\U0001F600\U0001F600", 1, 1), "\U0001F600");
+
+  // Out of range clamps rather than throwing.
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 9), "");
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 1, 99), "\u4E2Db");
+  EXPECT_EQ(SubstrUtf8("a\u4E2Db", 0, 0), "");
+  EXPECT_EQ(SubstrUtf8("", 0, 3), "");
+}
+
+TEST(String, Utf8OffsetOfCodePoint) {
+  // Offsets are in bytes, indices in code points; the two only coincide while
+  // the text stays in ASCII.
+  EXPECT_EQ(Utf8OffsetOfCodePoint("abc", 0), 0);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("abc", 2), 2);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 1), 1);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 2), 4);
+  // Past the end yields the size, which makes a clamped substring empty.
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 3), 5);
+  EXPECT_EQ(Utf8OffsetOfCodePoint("a\u4E2Db", 99), 5);
+}
+
+TEST(String, Utf8OffsetOfLastCodePoints) {
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("abc", 1), 2);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 2), 1);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("\U0001F600\U0001F600", 1), 4);
+
+  // Nothing requested is the empty tail; more than there is, is all of it.
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 0), 5);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 3), 0);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("a\u4E2Db", 99), 0);
+  EXPECT_EQ(Utf8OffsetOfLastCodePoints("", 3), 0);
+}
+
 TEST(String, Join) {
-  EXPECT_EQ(Join({}, " "), "");
-  EXPECT_EQ(Join({"mem", "gra", "ph"}, ""), "memgraph");
-  EXPECT_EQ(Join({"mirko", "slavko", "pero"}, ", "), "mirko, slavko, pero");
-  EXPECT_EQ(Join({"", "abc", "", "def", ""}, " "), " abc  def ");
+  using namespace std::string_literals;
+  EXPECT_EQ(Join(std::array<std::string, 0>{}, " "), "");
+  EXPECT_EQ(Join(std::array{"mem"s, "gra"s, "ph"s}, ""), "memgraph");
+  EXPECT_EQ(Join(std::array{"mirko"s, "slavko"s, "pero"s}, ", "), "mirko, slavko, pero");
+  EXPECT_EQ(Join(std::array{""s, "abc"s, ""s, "def"s, ""s}, " "), " abc  def ");
 }
 
 TEST(String, Replace) {
@@ -67,6 +164,12 @@ TEST(String, Replace) {
   EXPECT_EQ(Replace("ababccab.", "ab", ""), "cc.");
   EXPECT_EQ(Replace("aabb", "ab", ""), "ab");
   EXPECT_EQ(Replace("ababcab.", "ab", "abab"), "ababababcabab.");
+  // Empty match inserts the replacement at every byte boundary (like std::regex_replace).
+  EXPECT_EQ(Replace("abc", "", "-"), "-a-b-c-");
+  EXPECT_EQ(Replace("A", "", "B"), "BAB");
+  EXPECT_EQ(Replace("", "", "a"), "a");
+  EXPECT_EQ(Replace("abc", "", ""), "abc");
+  EXPECT_EQ(Replace("", "", ""), "");
 }
 
 TEST(String, SplitNoLimit) {
@@ -162,7 +265,7 @@ TEST(String, Substr) {
   const std::string string("memgraph");
   EXPECT_EQ(Substr(string), string.substr());
   EXPECT_EQ(Substr(string, string.size()), string.substr(string.size()));
-  EXPECT_THROW(string.substr(string.size() + 1), std::out_of_range);
+  EXPECT_THROW((void)string.substr(string.size() + 1), std::out_of_range);
   EXPECT_TRUE(Substr(string, string.size() + 1).empty());
   EXPECT_EQ(Substr(string, 1, string.size()), string.substr(1, string.size()));
   EXPECT_EQ(Substr(string, 0, string.size()), string.substr(0, string.size()));
@@ -175,8 +278,8 @@ TEST(String, Substr) {
 TEST(String, DoubleToString) {
   EXPECT_EQ(DoubleToString(0), "0");
   EXPECT_EQ(DoubleToString(1), "1");
-  EXPECT_EQ(DoubleToString(1234567890123456), "1234567890123456");
-  EXPECT_EQ(DoubleToString(static_cast<double>(12345678901234567)), "12345678901234568");
+  EXPECT_EQ(DoubleToString(1'234'567'890'123'456), "1234567890123456");
+  EXPECT_EQ(DoubleToString(static_cast<double>(12'345'678'901'234'567)), "12345678901234568");
   EXPECT_EQ(DoubleToString(0.5), "0.5");
   EXPECT_EQ(DoubleToString(1.0), "1");
   EXPECT_EQ(DoubleToString(5.8), "5.8");
@@ -189,4 +292,27 @@ TEST(String, DoubleToString) {
   EXPECT_EQ(DoubleToString(0.00000000000001), "0.00000000000001");
   EXPECT_EQ(DoubleToString(0.000000000000001), "0.000000000000001");
   EXPECT_EQ(DoubleToString(0.0000000000000001), "0");
+}
+
+TEST(String, StringToUint64) {
+  EXPECT_EQ(1, ParseStringToUint<uint64_t>("1"));
+  EXPECT_EQ(0, ParseStringToUint<uint64_t>("0"));
+  EXPECT_THROW(ParseStringToUint<uint64_t>("-10"), ParseException);
+  // Trailing garbage after a valid prefix must be rejected, not silently accepted as the prefix.
+  EXPECT_THROW(ParseStringToUint<uint64_t>("10-0"), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint64_t>("0-0"), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint64_t>("10abc"), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint64_t>("10 "), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint64_t>(""), ParseException);
+}
+
+TEST(String, StringToUint32) {
+  EXPECT_EQ(1, ParseStringToUint<uint32_t>("1"));
+  EXPECT_EQ(0, ParseStringToUint<uint32_t>("0"));
+  EXPECT_THROW(ParseStringToUint<uint32_t>("-10"), ParseException);
+  // Trailing garbage after a valid prefix must be rejected, not silently accepted as the prefix.
+  EXPECT_THROW(ParseStringToUint<uint32_t>("10-0"), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint32_t>("10abc"), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint32_t>("10 "), ParseException);
+  EXPECT_THROW(ParseStringToUint<uint32_t>(""), ParseException);
 }

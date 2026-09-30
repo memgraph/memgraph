@@ -1,0 +1,7 @@
+query: >
+    MATCH (d:Depot)
+    CALL vrp.route(d) YIELD from_vertex, to_vertex
+    RETURN from_vertex, to_vertex
+
+exception: >
+    No longitude specified

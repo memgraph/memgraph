@@ -1,0 +1,42 @@
+# denylistNodes: B is neither returned nor expanded through, so C is only reached via D.
+query: >
+  MATCH (b:B)
+  WITH collect(b) AS deny
+  MATCH (a:A)
+  CALL path.subgraph_all(a, {denylistNodes: deny, maxHops: 5})
+  YIELD nodes, rels
+  UNWIND nodes AS node
+  WITH rels, node ORDER BY node.name
+  WITH collect(node) AS nodes, rels
+  UNWIND rels AS rel
+  WITH nodes, rel ORDER BY rel.seq
+  RETURN nodes, collect(rel) AS rels;
+
+output:
+  - nodes:
+      - labels:
+          - A
+        properties:
+          name: A
+      - labels:
+          - C
+        properties:
+          name: C
+      - labels:
+          - D
+        properties:
+          name: D
+      - labels:
+          - E
+        properties:
+          name: E
+    rels:
+      - label: R
+        properties:
+          seq: 3
+      - label: R
+        properties:
+          seq: 4
+      - label: R
+        properties:
+          seq: 5

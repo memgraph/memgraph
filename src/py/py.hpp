@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -23,25 +23,117 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 
-#if PY_MAJOR_VERSION != 3 || PY_MINOR_VERSION < 5
-#error "Minimum supported Python API is 3.5"
+#if !defined(Py_LIMITED_API) || Py_LIMITED_API < 0x030a0000
+#error "py/py.hpp expects Py_LIMITED_API >= 0x030a0000 (Python 3.10 stable ABI floor)"
 #endif
 
+// abi3 portability: force the `Py_RETURN_*` singleton helpers to take a real
+// reference at runtime.
+//
+// When compiled against Python >= 3.12 headers these macros expand to a bare
+// `return Py_<singleton>` with NO incref, because None/True/False/NotImplemented
+// are immortal there and refcounting them is a no-op. That decision is baked
+// into the binary. Since an abi3 build runs against ANY libpython >= the 3.10
+// floor, a 3.12-built binary executed against a 3.10/3.11 libpython — where the
+// singletons are still mortal — hands out a "new reference" without taking one
+// on every call. The caller still decrefs it, so the singleton's refcount
+// drifts to zero and the interpreter aborts (e.g. "Fatal Python error:
+// none_dealloc: deallocating None").
+//
+// `Py_NewRef` always emits a runtime incref (a no-op on versions where the
+// object is immortal, a real increment where it is mortal), so the new-reference
+// contract holds on every supported runtime. Defined here, after <Python.h>, so
+// every translation unit that talks to Python through this header is covered.
+#undef Py_RETURN_NONE
+#define Py_RETURN_NONE return Py_NewRef(Py_None)
+#undef Py_RETURN_TRUE
+#define Py_RETURN_TRUE return Py_NewRef(Py_True)
+#undef Py_RETURN_FALSE
+#define Py_RETURN_FALSE return Py_NewRef(Py_False)
+#undef Py_RETURN_NOTIMPLEMENTED
+#define Py_RETURN_NOTIMPLEMENTED return Py_NewRef(Py_NotImplemented)
+
+#include <atomic>
+
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
+
+// These Python C API functions are part of the stable ABI per the official
+// docs, but the limited-API headers (as of Python 3.14) only declare them in
+// `cpython/` subdirectories that are excluded when `Py_LIMITED_API` is set.
+// Forward-declare them at file scope, with C linkage, so call sites can keep
+// using the documented names — libpython exports the symbols, so the linker
+// resolves them against any conforming libpython at runtime.
+//
+// Declared OUTSIDE the `memgraph::py` namespace: `extern "C"` only controls
+// linkage; name lookup still respects the surrounding namespace.
+//
+//   - PyUnicode_AsUTF8    : stable since 3.10
+//   - PyGILState_Check    : stable since 3.4
+//   - PyRun_String        : stable since 3.2
+extern "C" const char *PyUnicode_AsUTF8(PyObject *unicode);
+extern "C" int PyGILState_Check(void);
+extern "C" PyObject *PyRun_String(const char *str, int start, PyObject *globals, PyObject *locals);
 
 namespace memgraph::py {
+
+// Replacement for `Py_IsFinalizing()` for floor < 3.13.
+//
+// The real `Py_IsFinalizing` only entered the stable ABI in Python 3.13; the
+// pre-3.13 fallback `_Py_IsFinalizing` is a private symbol that is not exposed
+// under `Py_LIMITED_API`. We approximate the semantics by registering a
+// `Py_AtExit` handler that flips a flag at the start of finalization — any
+// destructor that checks `IsPythonFinalizing()` after that point will skip
+// Python C API calls, just like the original code did.
+//
+// `EnsurePythonFinalizingHook()` must be called once after `Py_InitializeEx`
+// (it is called from `PyInitMgpModule` during module-table registration).
+inline std::atomic<bool> &PythonFinalizingFlag() noexcept {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  static std::atomic<bool> flag{false};
+  return flag;
+}
+
+inline bool IsPythonFinalizing() noexcept { return PythonFinalizingFlag().load(std::memory_order_acquire); }
+
+extern "C" inline void PythonFinalizingAtExitHook() { PythonFinalizingFlag().store(true, std::memory_order_release); }
+
+inline void EnsurePythonFinalizingHook() noexcept {
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+  static const int registered = Py_AtExit(&PythonFinalizingAtExitHook);
+  (void)registered;  // result intentionally ignored; nothing useful to do if it fails
+}
+
+// `Py_Is` is provided by Python.h as a function for floor >= 3.10. The local
+// shim is no longer needed.
+#define MG_PY_IS_FINALIZING() ::memgraph::py::IsPythonFinalizing()
 
 /// Ensure the current thread is ready to call Python C API.
 ///
 /// You must *not* try to ensure the GIL when the runtime is finalizing, as
-/// that will terminate the thread. You may use `_Py_IsFinalizing` or
+/// that will terminate the thread. You may use `Py_IsFinalizing` or
 /// `sys.is_finalizing()` to check for such a case.
 class EnsureGIL final {
   PyGILState_STATE gil_state_;
 
  public:
-  EnsureGIL() noexcept : gil_state_(PyGILState_Ensure()) {}
+  EnsureGIL() noexcept {
+    // Acquiring the GIL can make the interpreter allocate (e.g. Python 3.14
+    // (re)creates a thread state inside `PyGILState_Ensure`). When this happens
+    // on a worker thread running under an active `QUERY MEMORY LIMIT`, the
+    // thread-local MemoryTracker would charge that allocation to the query and
+    // can reject it once the limit is hit. CPython treats a failed thread-state
+    // creation as fatal (`Py_FatalError`), which kills the whole server instead
+    // of just failing the query. Exempt the interpreter's own GIL-acquisition
+    // allocations from the query limit; the blocker is released the moment
+    // `PyGILState_Ensure` returns, so the procedure's actual work stays subject
+    // to the limit.
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
+    gil_state_ = PyGILState_Ensure();
+  }
+
   ~EnsureGIL() noexcept { PyGILState_Release(gil_state_); }
+
   EnsureGIL(const EnsureGIL &) = delete;
   EnsureGIL(EnsureGIL &&) = delete;
   EnsureGIL &operator=(const EnsureGIL &) = delete;
@@ -54,33 +146,56 @@ class [[nodiscard]] Object final {
 
  public:
   Object() = default;
+
   Object(std::nullptr_t) {}
+
   /// Construct by taking the ownership of `PyObject *`.
   explicit Object(PyObject *ptr) noexcept : ptr_(ptr) {}
 
   /// Construct from a borrowed `PyObject *`, i.e. non-owned pointer.
   static Object FromBorrow(PyObject *ptr) noexcept {
-    Py_XINCREF(ptr);
+    if (ptr && !MG_PY_IS_FINALIZING()) {
+      EnsureGIL gil;
+      Py_INCREF(ptr);
+    }
     return Object(ptr);
   }
 
-  ~Object() noexcept { Py_XDECREF(ptr_); }
+  ~Object() noexcept {
+    if (ptr_ && !MG_PY_IS_FINALIZING()) {
+      EnsureGIL gil;
+      Py_XDECREF(ptr_);
+    }
+  }
 
-  Object(const Object &other) noexcept : ptr_(other.ptr_) { Py_XINCREF(ptr_); }
+  Object(const Object &other) noexcept : ptr_(other.ptr_) {
+    if (ptr_ && !MG_PY_IS_FINALIZING()) {
+      EnsureGIL gil;
+      Py_INCREF(ptr_);
+    }
+  }
 
   Object(Object &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; }
 
   Object &operator=(const Object &other) noexcept {
     if (this == &other) return *this;
-    Py_XDECREF(ptr_);
-    ptr_ = other.ptr_;
-    Py_XINCREF(ptr_);
+    if (!MG_PY_IS_FINALIZING()) {
+      EnsureGIL gil;
+      Py_XDECREF(ptr_);
+      ptr_ = other.ptr_;
+      Py_XINCREF(ptr_);
+    } else {
+      ptr_ = other.ptr_;
+    }
     return *this;
   }
 
   Object &operator=(Object &&other) noexcept {
     if (this == &other) return *this;
-    Py_XDECREF(ptr_);
+    if (ptr_ && !MG_PY_IS_FINALIZING()) {
+      EnsureGIL gil;
+      Py_XDECREF(ptr_);
+    }
     ptr_ = other.ptr_;
     other.ptr_ = nullptr;
     return *this;
@@ -138,7 +253,10 @@ class [[nodiscard]] Object final {
 
   /// Equivalent to `this.attr_name = v` in Python.
   ///
-  /// False is returned if an error occurred.
+  /// False is returned if an error occurred. On failure the Python error
+  /// indicator is set; callers must call either FetchError() (to retrieve and
+  /// clear it) or PyErr_Clear() (to discard it) before making further Python
+  /// API calls.
   /// @sa FetchError
   [[nodiscard]] bool SetAttr(const char *attr_name, PyObject *v) {
     return PyObject_SetAttrString(ptr_, attr_name, v) == 0;
@@ -146,7 +264,10 @@ class [[nodiscard]] Object final {
 
   /// Equivalent to `this.attr_name = v` in Python.
   ///
-  /// False is returned if an error occurred.
+  /// False is returned if an error occurred. On failure the Python error
+  /// indicator is set; callers must call either FetchError() (to retrieve and
+  /// clear it) or PyErr_Clear() (to discard it) before making further Python
+  /// API calls.
   /// @sa FetchError
   [[nodiscard]] bool SetAttr(PyObject *attr_name, PyObject *v) { return PyObject_SetAttr(ptr_, attr_name, v) == 0; }
 
@@ -171,6 +292,7 @@ class [[nodiscard]] Object final {
   /// @sa FetchError
   Object CallMethod(std::string_view meth_name) const {
     Object name(PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
+    if (!name) return Object(nullptr);
     return Object(PyObject_CallMethodObjArgs(ptr_, name.Ptr(), nullptr));
   }
 
@@ -181,6 +303,7 @@ class [[nodiscard]] Object final {
   template <class... TArgs>
   Object CallMethod(std::string_view meth_name, const TArgs &...args) const {
     Object name(PyUnicode_FromStringAndSize(meth_name.data(), meth_name.size()));
+    if (!name) return Object(nullptr);
     return Object(PyObject_CallMethodObjArgs(ptr_, name.Ptr(), static_cast<PyObject *>(args)..., nullptr));
   }
 };
@@ -188,7 +311,12 @@ class [[nodiscard]] Object final {
 /// Write Object to stream as if `str(o)` was called in Python.
 inline std::ostream &operator<<(std::ostream &os, const Object &py_object) {
   auto py_str = py_object.Str();
-  os << PyUnicode_AsUTF8(py_str.Ptr());
+  if (!py_str) {
+    PyErr_Clear();
+    return os;
+  }
+  const char *utf8 = PyUnicode_AsUTF8(py_str.Ptr());
+  if (utf8) os << utf8;
   return os;
 }
 
@@ -210,21 +338,36 @@ struct [[nodiscard]] ExceptionInfo final {
 [[nodiscard]] inline std::string FormatException(const ExceptionInfo &exc_info, bool skip_first_line = false) {
   if (!exc_info.type) return "";
   Object traceback_mod(PyImport_ImportModule("traceback"));
-  MG_ASSERT(traceback_mod);
+  if (!traceback_mod) {
+    PyErr_Clear();
+    return "(Python exception details unavailable)";
+  }
   Object format_exception_fn(traceback_mod.GetAttr("format_exception"));
-  MG_ASSERT(format_exception_fn);
+  if (!format_exception_fn) {
+    PyErr_Clear();
+    return "(Python exception details unavailable)";
+  }
   Object traceback_root(exc_info.traceback);
   if (skip_first_line && traceback_root) {
     traceback_root = traceback_root.GetAttr("tb_next");
+    if (!traceback_root) PyErr_Clear();
   }
-  auto list = format_exception_fn.Call(exc_info.type, exc_info.value ? exc_info.value.Ptr() : Py_None,
-                                       traceback_root ? traceback_root.Ptr() : Py_None);
-  MG_ASSERT(list);
+  auto list = format_exception_fn.Call(
+      exc_info.type, exc_info.value ? exc_info.value.Ptr() : Py_None, traceback_root ? traceback_root.Ptr() : Py_None);
+  if (!list) {
+    PyErr_Clear();
+    return "(Python exception details unavailable)";
+  }
   std::stringstream ss;
-  auto len = PyList_GET_SIZE(list.Ptr());
+  auto len = PyList_Size(list.Ptr());
   for (Py_ssize_t i = 0; i < len; ++i) {
-    auto *py_str = PyList_GET_ITEM(list.Ptr(), i);
-    ss << PyUnicode_AsUTF8(py_str);
+    auto *py_str = PyList_GetItem(list.Ptr(), i);
+    if (py_str == nullptr) {
+      PyErr_Clear();
+      continue;
+    }
+    const char *utf8 = PyUnicode_AsUTF8(py_str);
+    if (utf8) ss << utf8;
   }
   return ss.str();
 }
@@ -274,3 +417,8 @@ inline void RestoreError(ExceptionInfo exc_info) {
 }
 
 }  // namespace memgraph::py
+
+#if FMT_VERSION > 90000
+template <>
+class fmt::formatter<memgraph::py::ExceptionInfo> : public fmt::ostream_formatter {};
+#endif

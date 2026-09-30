@@ -1,0 +1,5 @@
+query: >
+    RETURN collections.sum([1, 2, 'a']) AS sum
+
+exception: >
+    One of the list elements is not a number.

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,15 @@
 // licenses/APL.txt.
 
 #include "utils/sysinfo/memory.hpp"
+
+#include <sys/sysinfo.h>
+
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <fstream>
+#include <limits>
+#include <string>
+#include <string_view>
 
 namespace memgraph::utils::sysinfo {
 
@@ -35,10 +44,17 @@ std::optional<uint64_t> ExtractAmountFromMemInfo(const std::string_view header_n
 
 }  // namespace
 
+// MemAvailable is a kernel estimate with no syscall equivalent, so it still comes from /proc/meminfo.
 std::optional<uint64_t> AvailableMemory() { return ExtractAmountFromMemInfo("MemAvailable"); }
 
-std::optional<uint64_t> TotalMemory() { return ExtractAmountFromMemInfo("MemTotal"); }
-
-std::optional<uint64_t> SwapTotalMemory() { return ExtractAmountFromMemInfo("SwapTotal"); }
+std::optional<MemoryCapacity> InstalledMemory() {
+  struct ::sysinfo info{};
+  if (::sysinfo(&info) != 0) {
+    SPDLOG_WARN("sysinfo() failed");
+    return std::nullopt;
+  }
+  const uint64_t mem_unit = info.mem_unit;
+  return MemoryCapacity{.ram_kib = info.totalram * mem_unit / 1024, .swap_kib = info.totalswap * mem_unit / 1024};
+}
 
 }  // namespace memgraph::utils::sysinfo

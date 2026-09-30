@@ -1,0 +1,18 @@
+query: >
+    MATCH (c:C)
+    CALL collections.split([2, 4, "0", 0, c.id, 9, 0, 5], 0) YIELD splitted
+    RETURN splitted
+
+output:
+    - splitted: [
+   2,
+   4,
+   "0"
+]
+    - splitted: [
+   3,
+   9
+]
+    - splitted: [
+   5
+]

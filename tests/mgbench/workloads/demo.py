@@ -11,6 +11,7 @@
 
 import random
 
+from constants import GraphVendors
 from workloads.base import Workload
 
 
@@ -50,7 +51,15 @@ class Demo(Workload):
         return queries
 
     def benchmark__test__get_nodes(self):
-        return ("MATCH (n) RETURN n;", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return ("MATCH (n) RETURN n;", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__test__get_node_by_id(self):
-        return ("MATCH (n:NodeA{id: $id}) RETURN n;", {"id": random.randint(0, 9999)})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return ("MATCH (n:NodeA{id: $id}) RETURN n;", {"id": random.randint(0, 9999)})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")

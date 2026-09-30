@@ -1,0 +1,119 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "query/plan/used_index_checker.hpp"
+
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define PRE_VISIT(TOp) \
+  bool UsedIndexChecker::PreVisit(TOp &) { return true; }
+
+namespace memgraph::query::plan {
+
+PRE_VISIT(CreateNode)
+PRE_VISIT(CreateExpand)
+PRE_VISIT(Delete)
+
+PRE_VISIT(SetProperty)
+PRE_VISIT(SetProperties)
+PRE_VISIT(SetLabels)
+
+PRE_VISIT(RemoveProperty)
+PRE_VISIT(RemoveLabels)
+
+PRE_VISIT(ScanAll)
+
+bool UsedIndexChecker::PreVisit(ScanAllByLabel &op) {
+  required_indices_.label_.emplace_back(op.label_);
+  return true;
+}
+
+bool UsedIndexChecker::PreVisit(ScanAllByLabelProperties &op) {
+  required_indices_.label_properties_.emplace_back(op.label_, op.properties_);
+  return true;
+}
+
+bool UsedIndexChecker::PreVisit(ScanAllByEdgeType &op) {
+  required_indices_.edge_type_.emplace_back(op.common_.edge_types[0]);
+  return true;
+}
+
+bool UsedIndexChecker::PreVisit(ScanAllByEdgeProperty &op) {
+  required_indices_.edge_property_.emplace_back(op.property_);
+  return true;
+}
+
+bool UsedIndexChecker::PreVisit(ScanAllByVertexProperty &op) {
+  required_indices_.vertex_property_.emplace_back(op.property_);
+  return true;
+}
+
+bool UsedIndexChecker::PreVisit(ScanAllByEdgeTypeProperty &op) {
+  required_indices_.edge_type_properties_.emplace_back(op.common_.edge_types[0], op.property_);
+  return true;
+}
+
+PRE_VISIT(ScanAllById)
+PRE_VISIT(ScanAllByEdge)
+
+PRE_VISIT(ScanAllByEdgeId)
+
+PRE_VISIT(Expand)
+PRE_VISIT(ExpandVariable)
+
+PRE_VISIT(ConstructNamedPath)
+
+PRE_VISIT(Filter)
+PRE_VISIT(EdgeUniquenessFilter)
+
+PRE_VISIT(Merge)
+PRE_VISIT(Optional)
+
+// NOTE: For composite operators we intentionally return `true` WITHOUT
+// traversing children here. The operator's own `Accept` already descends into
+// every branch when `PreVisit` returns true. Traversing manually AND returning
+// true makes `Accept` re-traverse, which doubles the work at each binary node
+// and becomes exponential (2^N) over deeply nested operators such as the
+// Union/Distinct chain produced by a label disjunction over indexed labels.
+PRE_VISIT(Cartesian)
+
+PRE_VISIT(EmptyResult)
+PRE_VISIT(Produce)
+PRE_VISIT(Accumulate)
+PRE_VISIT(Aggregate)
+PRE_VISIT(Skip)
+PRE_VISIT(Limit)
+PRE_VISIT(OrderBy)
+PRE_VISIT(Distinct)
+PRE_VISIT(PeriodicCommit)
+
+PRE_VISIT(Union)
+
+PRE_VISIT(Unwind)
+
+bool UsedIndexChecker::PreVisit(CallProcedure & /*unused*/) { return true; }
+
+bool UsedIndexChecker::PreVisit([[maybe_unused]] Foreach &op) { return true; }
+
+PRE_VISIT(Apply)
+
+PRE_VISIT(IndexedJoin)
+
+PRE_VISIT(HashJoin)
+
+PRE_VISIT(PeriodicSubquery)
+
+PRE_VISIT(RollUpApply)
+
+#undef PRE_VISIT
+
+bool UsedIndexChecker::Visit(Once &) { return true; }  // NOLINT(hicpp-named-parameter)
+
+}  // namespace memgraph::query::plan

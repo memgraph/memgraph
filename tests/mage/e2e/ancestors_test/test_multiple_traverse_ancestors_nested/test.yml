@@ -1,0 +1,10 @@
+query: >
+    MATCH (c:C)
+    CALL graph_util.ancestors(c) YIELD ancestors
+    UNWIND ancestors as ancestor
+    RETURN ancestor.id AS id
+
+output:
+    - id: 2
+    - id: 1
+    - id: 4

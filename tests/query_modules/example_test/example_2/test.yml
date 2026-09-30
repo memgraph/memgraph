@@ -1,0 +1,6 @@
+query: >
+  CALL mgps.components() YIELD name RETURN name;
+
+output:
+  - name: Memgraph
+  - name: Neo4j Kernel

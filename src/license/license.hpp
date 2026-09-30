@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,15 @@
 
 #pragma once
 
+#include <atomic>
 #include <cstdint>
+#include <expected>
+#include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 
-#include "utils/result.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/settings.hpp"
 #include "utils/spin_lock.hpp"
@@ -23,23 +27,51 @@
 
 namespace memgraph::license {
 
-enum class LicenseType : uint8_t { ENTERPRISE, OEM };
+enum class LicenseType : uint8_t {
+  ENTERPRISE = 0,
+  OEM = 1,
+  AI_PLATFORM = 2,
+  OEM_COMMUNITY = 3,
+  MEMGQL = 4,
+};
+
+constexpr bool IsEnterpriseTier(LicenseType type) noexcept {
+  return type == LicenseType::ENTERPRISE || type == LicenseType::AI_PLATFORM || type == LicenseType::OEM;
+}
+
+// Validity and tier are published together as one atomic value, so a reader always observes a pair
+// that was actually stored together, never a mix of an old type with a new validity (or vice versa).
+struct LicenseState {
+  bool valid{false};
+  LicenseType type{LicenseType::ENTERPRISE};
+  bool operator==(const LicenseState &) const = default;
+};
 
 std::string LicenseTypeToString(LicenseType license_type);
+
+inline constexpr std::string_view kLicenseTypeEnterprise = "enterprise";
+inline constexpr std::string_view kLicenseTypeOem = "oem";
+inline constexpr std::string_view kLicenseTypeOemCommunity = "oem_community";
+inline constexpr std::string_view kLicenseTypeAiPlatform = "ai_platform";
+inline constexpr std::string_view kLicenseTypeMemgql = "memgql";
 
 struct License {
   License() = default;
 
-  License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type)
+  License(std::string organization_name, int64_t valid_until, int64_t memory_limit, LicenseType license_type,
+          int64_t core_limit = 0)
       : organization_name{std::move(organization_name)},
         valid_until{valid_until},
         memory_limit{memory_limit},
-        type{license_type} {}
+        type{license_type},
+        core_limit{core_limit} {}
 
   std::string organization_name;
   int64_t valid_until;
   int64_t memory_limit;
   LicenseType type;
+  // a core_limit of 0 means unlimited — legacy keys decode to 0.
+  int64_t core_limit{0};
 
   bool operator==(const License &) const = default;
 };
@@ -54,6 +86,16 @@ struct LicenseInfo {
   License license;
 };
 
+struct DetailedLicenseInfo {
+  std::string organization_name;
+  std::string license_key;
+  bool is_valid{false};
+  std::string license_type;
+  std::string valid_until;
+  int64_t memory_limit{0};
+  std::string status;
+};
+
 inline constexpr std::string_view kEnterpriseLicenseSettingKey = "enterprise.license";
 inline constexpr std::string_view kOrganizationNameSettingKey = "organization.name";
 
@@ -66,7 +108,7 @@ enum class LicenseCheckError : uint8_t {
 
 std::string LicenseCheckErrorToString(LicenseCheckError error, std::string_view feature);
 
-using LicenseCheckResult = utils::BasicResult<LicenseCheckError, void>;
+using LicenseCheckResult = std::expected<void, LicenseCheckError>;
 
 struct LicenseChecker {
  public:
@@ -78,29 +120,36 @@ struct LicenseChecker {
   LicenseChecker(LicenseChecker &&) = delete;
   LicenseChecker operator=(LicenseChecker &&) = delete;
 
-  void CheckEnvLicense();
-  void SetLicenseInfoOverride(std::string license_key, std::string organization_name);
+  void CheckEnvLicense(utils::Settings &settings);
+  void SetCliLicense(std::string license_key, std::string organization_name, utils::Settings &settings);
   void EnableTesting(LicenseType license_type = LicenseType::ENTERPRISE);
+  void DisableTesting();
   // Checks if license is valid and if enterprise is enabled
+  LicenseCheckResult IsEnterpriseValid(std::string_view license_key, std::string_view organization_name) const;
   LicenseCheckResult IsEnterpriseValid(const utils::Settings &settings) const;
+  LicenseCheckResult IsEnterpriseValid() const;
   bool IsEnterpriseValidFast() const;
 
-  void StartBackgroundLicenseChecker(const utils::Settings &settings);
+  void StartBackgroundLicenseChecker(std::weak_ptr<utils::Settings> settings);
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &GetLicenseInfo();
+  DetailedLicenseInfo GetDetailedLicenseInfo();
 
   void Finalize() { scheduler_.Stop(); }
 
  private:
-  std::pair<std::string, std::string> ExtractLicenseInfo(const utils::Settings &settings) const;
-  void RevalidateLicense(const utils::Settings &settings);
-  void RevalidateLicense(const std::string &license_key, const std::string &organization_name);
+  void RevalidateLicense(utils::Settings &settings);
 
-  std::optional<std::pair<std::string, std::string>> license_info_override_;
-  utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
+  // Written once at startup (SetCliLicense/CheckEnvLicense on the main thread) before the background
+  // scheduler and the Bolt server exist; thread creation publishes them to every later reader. This
+  // startup-only invariant is what makes these non-atomic fields safe -- a runtime writer would need
+  // explicit serialisation (they are not trivially copyable, so unlike state_ they cannot be atomics).
+  std::optional<std::pair<std::string, std::string>> cli_license_info_;
+  std::optional<std::pair<std::string, std::string>> env_license_info_;
+  mutable utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> previous_license_info_{std::nullopt};
   bool enterprise_enabled_{false};
-  std::atomic<bool> is_valid_{false};
-  LicenseType license_type_;
+  std::atomic<LicenseState> state_{};
+  static_assert(std::atomic<LicenseState>::is_always_lock_free);
   utils::Scheduler scheduler_;
 
   friend void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &settings);

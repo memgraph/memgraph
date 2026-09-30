@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,7 @@
 #include <filesystem>
 
 #include "disk_test_utils.hpp"
-#include "storage/v2/disk/storage.hpp"
+#include "storage/v2/storage.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -23,7 +23,7 @@ using testing::Types;
 using testing::UnorderedElementsAre;
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define ASSERT_NO_ERROR(result) ASSERT_FALSE((result).HasError())
+#define ASSERT_NO_ERROR(result) ASSERT_TRUE((result).has_value())
 
 class ShowStorageInfoTest : public testing::Test {
  public:
@@ -31,7 +31,7 @@ class ShowStorageInfoTest : public testing::Test {
 
   ShowStorageInfoTest() {
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    storage = std::make_unique<memgraph::storage::DiskStorage>(config_);
+    storage = disk_test_utils::CreateDiskStorage(config_);
   }
 
   void TearDown() override {
@@ -44,11 +44,11 @@ class ShowStorageInfoTest : public testing::Test {
 };
 
 TEST_F(ShowStorageInfoTest, CountOnAbort) {
-  auto acc = this->storage->Access(memgraph::replication::ReplicationRole::MAIN);
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
   auto src_vertex = acc->CreateVertex();
   auto dest_vertex = acc->CreateVertex();
   auto et = acc->NameToEdgeType("et5");
-  auto edge = acc->CreateEdge(&src_vertex, &dest_vertex, et).GetValue();
+  auto edge = acc->CreateEdge(&src_vertex, &dest_vertex, et).value();
   ASSERT_EQ(edge.EdgeType(), et);
   ASSERT_EQ(edge.FromVertex(), src_vertex);
   ASSERT_EQ(edge.ToVertex(), dest_vertex);

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,38 +11,32 @@
 
 #include "utils/memory_tracker.hpp"
 
+#include <fmt/format.h>
+#include <spdlog/spdlog.h>
+#include <algorithm>
 #include <atomic>
-#include <exception>
-#include <stdexcept>
+#include <functional>
+#include <type_traits>
 
-#include "utils/likely.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
-#include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
 
 namespace memgraph::utils {
 
-namespace {
+constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::counter_
+    [[gnu::tls_model("initial-exec")]] = 0;
+constinit thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_
+    [[gnu::tls_model("initial-exec")]] = 0;
 
-// Prevent memory tracker for throwing during the stack unwinding
-bool MemoryTrackerCanThrow() {
-  return !std::uncaught_exceptions() && MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow() &&
-         !MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked();
-}
+constinit thread_local bool MemoryTracker::refusal_handled_ [[gnu::tls_model("initial-exec")]] = false;
 
-}  // namespace
-
-thread_local uint64_t MemoryTracker::OutOfMemoryExceptionEnabler::counter_ = 0;
-MemoryTracker::OutOfMemoryExceptionEnabler::OutOfMemoryExceptionEnabler() { ++counter_; }
-MemoryTracker::OutOfMemoryExceptionEnabler::~OutOfMemoryExceptionEnabler() { --counter_; }
-bool MemoryTracker::OutOfMemoryExceptionEnabler::CanThrow() { return counter_ > 0; }
-
-thread_local uint64_t MemoryTracker::OutOfMemoryExceptionBlocker::counter_ = 0;
-MemoryTracker::OutOfMemoryExceptionBlocker::OutOfMemoryExceptionBlocker() { ++counter_; }
-MemoryTracker::OutOfMemoryExceptionBlocker::~OutOfMemoryExceptionBlocker() { --counter_; }
-bool MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked() { return counter_ > 0; }
-
-MemoryTracker total_memory_tracker;
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+constinit MemoryTracker total_memory_tracker{};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+constinit MemoryTracker graph_memory_tracker{&total_memory_tracker};
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+constinit MemoryTracker vector_index_memory_tracker{&total_memory_tracker};
 
 // TODO (antonio2368): Define how should the peak memory be logged.
 // Logging every time the peak changes is too much so some kind of distribution
@@ -71,28 +65,35 @@ void MemoryTracker::SetHardLimit(const int64_t limit) {
     return limit == 0 ? maximum_hard_limit_ : std::min(maximum_hard_limit_, limit);
   });
 
-  if (next_limit <= 0) {
-    spdlog::warn("Invalid memory limit.");
+  if (next_limit < 0) {
+    spdlog::warn("Invalid memory limit (negative value).");
     return;
   }
 
   const auto previous_limit = hard_limit_.exchange(next_limit, std::memory_order_relaxed);
   if (previous_limit != next_limit) {
-    // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
-    spdlog::info("Memory limit set to {}", utils::GetReadableSize(next_limit));
+    if (next_limit == 0) {
+      spdlog::info("Memory limit cleared");
+    } else {
+      // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
+      spdlog::info("Memory limit set to {}", utils::GetReadableSize(next_limit));
+    }
   }
 }
 
 void MemoryTracker::TryRaiseHardLimit(const int64_t limit) {
-  int64_t old_limit = hard_limit_.load(std::memory_order_relaxed);
-  while (old_limit < limit && !hard_limit_.compare_exchange_weak(old_limit, limit))
-    ;
+  atomic_fetch_max_explicit(&hard_limit_, limit, std::memory_order_acq_rel);
 }
 
 void MemoryTracker::ResetTrackings() {
   hard_limit_.store(0, std::memory_order_relaxed);
   peak_.store(0, std::memory_order_relaxed);
   amount_.store(0, std::memory_order_relaxed);
+  maximum_hard_limit_ = 0;
+}
+
+void MemoryTracker::ResetLimit() {
+  hard_limit_.store(0, std::memory_order_relaxed);
   maximum_hard_limit_ = 0;
 }
 
@@ -104,26 +105,44 @@ void MemoryTracker::SetMaximumHardLimit(const int64_t limit) {
   maximum_hard_limit_ = limit;
 }
 
-void MemoryTracker::Alloc(const int64_t size) {
+bool MemoryTracker::Alloc(int64_t const size) {
   MG_ASSERT(size >= 0, "Negative size passed to the MemoryTracker.");
 
   const int64_t will_be = size + amount_.fetch_add(size, std::memory_order_relaxed);
 
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
 
-  if (current_hard_limit && will_be > current_hard_limit && MemoryTrackerCanThrow()) [[unlikely]] {
+  if (current_hard_limit && will_be > current_hard_limit && MayRefuseAllocation()) [[unlikely]] {
     MemoryTracker::OutOfMemoryExceptionBlocker exception_blocker;
 
     amount_.fetch_sub(size, std::memory_order_relaxed);
 
-    throw OutOfMemoryException(
-        fmt::format("Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
-                    "use to {}, while the maximum allowed size for allocation is set to {}.",
-                    GetReadableSize(size), GetReadableSize(will_be), GetReadableSize(current_hard_limit)));
+    // register our error data, we will pick this up on the other side of jemalloc
+    MemoryErrorStatus().set({size, will_be, current_hard_limit});
+
+    return false;
   }
+
+  if (parent1_) [[likely]] {
+    if (!parent1_->Alloc(size)) [[unlikely]] {
+      amount_.fetch_sub(size, std::memory_order_relaxed);
+      return false;
+    }
+    if (parent2_) [[unlikely]] {
+      if (!parent2_->Alloc(size)) [[unlikely]] {
+        parent1_->Free(size);
+        amount_.fetch_sub(size, std::memory_order_relaxed);
+        return false;
+      }
+    }
+  }
+
   UpdatePeak(will_be);
+  return true;
 }
 
+// Throws at a point its caller chose rather than refusing an allocation in flight, so it asks only
+// whether throwing is safe: there is no allocation for a refusal scope to have been declared around.
 void MemoryTracker::DoCheck() {
   const auto current_hard_limit = hard_limit_.load(std::memory_order_relaxed);
   const auto current_amount = amount_.load(std::memory_order_relaxed);
@@ -135,8 +154,52 @@ void MemoryTracker::DoCheck() {
                     GetReadableSize(static_cast<double>(current_amount)),
                     GetReadableSize(static_cast<double>(current_hard_limit))));
   }
+
+  if (parent1_) parent1_->DoCheck();
+  if (parent2_) parent2_->DoCheck();
 }
 
-void MemoryTracker::Free(const int64_t size) { amount_.fetch_sub(size, std::memory_order_relaxed); }
+void MemoryTracker::Free(const int64_t size) {
+  amount_.fetch_sub(size, std::memory_order_relaxed);
+  if (parent1_) parent1_->Free(size);
+  if (parent2_) parent2_->Free(size);
+}
+
+// DEVNOTE: important that this is allocated at thread construction time
+//          otherwise subtle bug where jemalloc will try to lock an non-recursive mutex
+//          that it already owns
+namespace {
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+constinit thread_local MemoryTrackerStatus status [[gnu::tls_model("initial-exec")]]{};
+static_assert(std::is_trivially_destructible_v<MemoryTrackerStatus>,
+              "TLS variable in malloc hook must be trivially destructible to avoid atexit allocations");
+}  // namespace
+
+auto MemoryErrorStatus() -> MemoryTrackerStatus & { return status; }
+
+auto MemoryTrackerStatus::msg() -> std::optional<std::string> {
+  if (!has_data_) return std::nullopt;
+
+  const auto [size, will_be, hard_limit, type] = data_;
+  has_data_ = false;
+
+  switch (type) {
+    case kQuery:
+    case kGlobal:
+      return fmt::format(
+          "Memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
+          "use to {}, while the maximum allowed size for allocation is set to {}.",
+          GetReadableSize(static_cast<double>(size)),
+          GetReadableSize(static_cast<double>(will_be)),
+          GetReadableSize(static_cast<double>(hard_limit)));
+    case kUser:
+      return fmt::format(
+          "User memory limit exceeded! Attempting to allocate a chunk of {} which would put the current "
+          "use to {}, while the maximum allowed size for allocation is set to {}.",
+          GetReadableSize(static_cast<double>(size)),
+          GetReadableSize(static_cast<double>(will_be)),
+          GetReadableSize(static_cast<double>(hard_limit)));
+  }
+}
 
 }  // namespace memgraph::utils

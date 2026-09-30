@@ -1,3 +1,11 @@
 {
+    /*
+     * Symbols to export to the dynamic symbol table for dlopen'd procedure modules.
+     *
+     * Only mgp_* needs to be listed here. Memory allocation symbols (malloc/free,
+     * operator new/delete) are exported automatically:
+     * - malloc/free/etc: Auto-exported by the linker as libc interposition symbols
+     * - operator new/delete: Exported via visibility("default") in new_delete.cpp
+     */
     mgp_*;
 };

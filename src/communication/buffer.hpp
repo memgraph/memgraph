@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
 #include <vector>
 
 #include "io/network/stream_buffer.hpp"
@@ -34,7 +36,7 @@ namespace memgraph::communication {
 class Buffer final {
  private:
   // Initial capacity of the internal buffer.
-  const size_t kBufferInitialSize = 65536;
+  static constexpr size_t kBufferInitialSize = 65'536;
 
  public:
   Buffer();
@@ -69,6 +71,8 @@ class Buffer final {
 
     void Clear();
 
+    void ShrinkBuffer(size_t size);
+
    private:
     Buffer *buffer_;
   };
@@ -87,7 +91,7 @@ class Buffer final {
     WriteEnd &operator=(WriteEnd &&) = delete;
     ~WriteEnd() = default;
 
-    io::network::StreamBuffer Allocate();
+    io::network::StreamBuffer GetBuffer();
 
     void Written(size_t len);
 
@@ -104,12 +108,14 @@ class Buffer final {
    * buffer.
    */
   ReadEnd *read_end();
+  const ReadEnd *read_end() const;
 
   /**
    * This function returns a pointer to the associated WriteEnd object for
    * this buffer.
    */
   WriteEnd *write_end();
+  const WriteEnd *write_end() const;
 
  private:
   /**
@@ -138,7 +144,7 @@ class Buffer final {
    * location in the internal buffer. Also, it returns the size of the
    * available memory.
    */
-  io::network::StreamBuffer Allocate();
+  io::network::StreamBuffer GetBuffer();
 
   /**
    * This method is used to notify the buffer that the data has been written.
@@ -168,6 +174,12 @@ class Buffer final {
    * space.
    */
   void Clear();
+
+  /**
+   * This method resizes the internal data buffer.
+   * It can only shrink the buffer to the larger of size and len
+   */
+  void ShrinkBuffer(size_t new_size);
 
   std::vector<uint8_t> data_;
   size_t have_{0};

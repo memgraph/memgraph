@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,27 +11,38 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
+#include <algorithm>
+#include <array>
 #include <atomic>
+#include <boost/container/container_fwd.hpp>
 #include <cmath>
+#include <compare>
+#include <cstddef>
 #include <cstdint>
-#include <cstdlib>
+#include <cstring>
+#include <functional>
 #include <limits>
+#include <memory>
 #include <mutex>
+#include <new>
 #include <optional>
 #include <random>
 #include <utility>
+#include <vector>
 
-#include "spdlog/spdlog.h"
 #include "utils/bound.hpp"
+#include "utils/counter.hpp"
+#include "utils/db_aware_allocator.hpp"
 #include "utils/linux.hpp"
 #include "utils/logging.hpp"
+#include "utils/math.hpp"
 #include "utils/memory.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/readable_size.hpp"
+#include "utils/rw_spin_lock.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
-#include "utils/stat.hpp"
 
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:
@@ -41,12 +52,21 @@
 
 namespace memgraph::utils {
 
+enum class GCPolicy : uint8_t { Random, DoNotRun };
+
 /// This is the maximum height of the list. This value shouldn't be changed from
 /// this value because it isn't practical to have skip lists that have larger
 /// heights than 32. The probability of heights larger than 32 gets extremely
 /// small. Also, the internal implementation can handle a maximum height of 32
 /// primarily becase of the height generator (see the `gen_height` function).
 constexpr uint64_t kSkipListMaxHeight = 32;
+
+/// Bitmask controlling how often `clear()` reports progress: one call per 2^12 destroyed nodes. Sized for the worst
+/// case rather than the typical one -- node teardown cost varies with what the node owns and with allocator pressure,
+/// and a caller reporting liveness to a peer needs the guarantee to hold under load, not just on a good day. Lowering
+/// it does not change the per-node cost, which is an increment, a mask and a predicted-not-taken branch either way;
+/// it only makes the (already amortised) callback fire more often.
+constexpr uint64_t kClearProgressMask = (1UL << 12) - 1;
 
 /// This is the height that a node that is accessed from the list has to have in
 /// order for garbage collection to be triggered. This causes the garbage
@@ -68,9 +88,22 @@ constexpr int kSkipListCountEstimateDefaultLayer = 10;
 /// optimized to have block sizes that are a whole multiple of the memory page
 /// size.
 constexpr uint64_t kSkipListGcBlockSize = 8189;
-constexpr uint64_t kSkipListGcStackSize = 8191;
+constexpr uint64_t kSkipListGcStackSize = 8190;
 
 namespace detail {
+
+bool &SkipListGcRunning();
+bool IsSkipListGcRunning();
+
+class SkipListGcMarker {
+ public:
+  SkipListGcMarker() { SkipListGcRunning() = true; }
+
+  ~SkipListGcMarker() { SkipListGcRunning() = false; }
+};
+
+auto thread_local_mt19937() -> std::mt19937 &;
+
 struct SkipListNode_base {
   // This function generates a binomial distribution using the same technique
   // described here: http://ticki.github.io/blog/skip-lists-done-right/ under
@@ -78,20 +111,37 @@ struct SkipListNode_base {
   // the special case of 0 is handled correctly. When 0 is passed to `ffs` it
   // returns 0 which is an invalid height. To make the distribution binomial
   // this value is then mapped to `kSkipListMaxSize`.
-  static uint32_t gen_height() {
-    thread_local std::mt19937 gen{std::random_device{}()};
+  static uint8_t gen_height() {
     static_assert(kSkipListMaxHeight <= 32,
                   "utils::SkipList::gen_height is implemented only for heights "
                   "up to 32!");
-    uint32_t value = gen();
-    if (value == 0) return kSkipListMaxHeight;
+    uint32_t value = thread_local_mt19937()();
+    if (value < 1UL << (32 - kSkipListMaxHeight)) return kSkipListMaxHeight;
     // The value should have exactly `kSkipListMaxHeight` bits.
     value >>= (32 - kSkipListMaxHeight);
     // ffs = find first set
     //       ^    ^     ^
-    return __builtin_ffs(value);
+    return static_cast<uint8_t>(__builtin_ffs(value));
   }
 };
+
+template <typename Alloc>
+void *allocate_bytes(Alloc &alloc, size_t size, size_t align) {
+  if constexpr (requires { alloc.allocate_bytes(size, align); }) {
+    return alloc.allocate_bytes(size, align);
+  } else {
+    return alloc.resource()->allocate(size, align);
+  }
+}
+
+template <typename Alloc>
+void deallocate_bytes(Alloc &alloc, void *ptr, size_t size, size_t align) {
+  if constexpr (requires { alloc.deallocate_bytes(ptr, size, align); }) {
+    alloc.deallocate_bytes(ptr, size, align);
+  } else {
+    alloc.resource()->deallocate(ptr, size, align);
+  }
+}
 }  // namespace detail
 
 /// This is the Node object that represents each element stored in the list. The
@@ -118,13 +168,13 @@ struct SkipListNode {
   // The items here are carefully placed to minimize padding gaps.
 
   TObj obj;
-  SpinLock lock;
-  std::atomic<bool> marked;
-  std::atomic<bool> fully_linked;
+  SpinLock lock{};
+  std::atomic<bool> marked{false};
+  std::atomic<bool> fully_linked{false};
   static_assert(std::numeric_limits<uint8_t>::max() >= kSkipListMaxHeight, "Maximum height doesn't fit in uint8_t");
   uint8_t height;
   // uint8_t PAD;
-  std::atomic<SkipListNode<TObj> *> nexts[0];
+  std::atomic<SkipListNode *> nexts[0];
 };
 
 /// Maximum size of a single SkipListNode instance.
@@ -133,6 +183,11 @@ struct SkipListNode {
 template <typename TObj>
 constexpr size_t MaxSkipListNodeSize() {
   return sizeof(SkipListNode<TObj>) + kSkipListMaxHeight * sizeof(std::atomic<SkipListNode<TObj> *>);
+}
+
+template <typename TObj>
+constexpr size_t SkipListNodeAlign() {
+  return std::max(alignof(SkipListNode<TObj>), alignof(std::atomic<SkipListNode<TObj> *>));
 }
 
 /// Get the size in bytes of the given SkipListNode instance.
@@ -158,51 +213,60 @@ size_t SkipListNodeSize(const SkipListNode<TObj> &node) {
 /// For N small enough (arbitrarily chosen to be 500), we will just use the
 /// lowest layer to get the exact numbers. Mostly because this makes writing
 /// tests easier.
-constexpr uint64_t SkipListLayerForCountEstimation(const uint64_t N) {
+constexpr uint8_t SkipListLayerForCountEstimation(const uint64_t N) {
   if (N <= 500) return 1;
-  return std::min(1 + (utils::Log2(N) + 1) / 2, utils::kSkipListMaxHeight);
+  return static_cast<uint8_t>(std::min(1 + (utils::Log2(N) + 1) / 2, utils::kSkipListMaxHeight));
 }
 
 /// This function is written with the same intent as the function above except
 /// that it uses slightly higher layers for estimation because the
 /// `average_number_of_equals` estimate has a larger time complexity than the
 /// `*count` estimates.
-constexpr uint64_t SkipListLayerForAverageEqualsEstimation(const uint64_t N) {
+constexpr uint8_t SkipListLayerForAverageEqualsEstimation(const uint64_t N) {
   if (N <= 500) return 1;
-  return std::min(1 + ((utils::Log2(N) * 2) / 3 + 1), utils::kSkipListMaxHeight);
+  return static_cast<uint8_t>(std::min(1 + ((utils::Log2(N) * 2) / 3 + 1), utils::kSkipListMaxHeight));
+}
+
+/// Returns the expected number of elements at the k-th layer of a skip list.
+/// The formula is N * (1/2)^(k-1), where N is the total number of elements
+/// and k is the layer (1-indexed, where layer 1 is the bottom layer).
+///
+/// @param N Total number of elements in the skip list
+/// @param k Layer number (1-indexed, where 1 is the bottom layer)
+/// @return Expected number of elements at the k-th layer
+constexpr uint64_t ExpectedSizeAtLayer(const uint64_t N, const uint8_t k) {
+  if (k <= 1) return N;  // Bottom layer contains all elements
+  if (N == 0) return 0;  // Empty skip list
+
+  // Calculate (1/2)^(k-1) using bit shifting for efficiency
+  // (1/2)^(k-1) = 1 / (2^(k-1))
+  const uint8_t power = k - 1;
+  if (power >= 64) return 0;  // Result would be too small to represent
+
+  return N >> power;
 }
 
 /// The skip list doesn't have built-in reclamation of removed nodes (objects).
 /// This class handles all operations necessary to remove the nodes safely.
 ///
-/// The principal of operation is as follows:
-/// Each accessor to the skip list is given an ID. When nodes are garbage
-/// collected the ID of the currently newest living accessor is recorded. When
-/// that accessor is destroyed the node can be safely destroyed.
-/// This is correct because when the skip list removes the node it immediately
-/// unlinks it from the structure so no new accessors can reach it. The last
-/// possible accessor that can still have a reference to the removed object is
-/// the currently living accessor that has the largest ID.
+/// Each accessor is given a monotonically increasing ID. When a node is
+/// collected (after the skip list has already unlinked it so no new accessor
+/// can reach it) the ID of the newest currently-alive accessor is recorded.
+/// The node can be freed once that accessor has been destroyed; older ones
+/// must have been destroyed too (ReleaseId records a strict prefix of dead ids).
 ///
-/// To enable fast operations this GC stores accessor IDs in a specially crafted
-/// structure. It consists of a doubly-linked list of Blocks. Each Block holds
-/// the information (alive/dead) for about 500k accessors. When an accessor is
-/// destroyed the corresponding bit for the accessor is found in the list and is
-/// set. When garbage collection occurs it finds the largest prefix of dead
-/// accessors and destroys all nodes that have the largest living accessor ID
-/// corresponding to them less than the largest currently found dead accessor.
-///
-/// Insertion into the dead accessor list is fast because the blocks are large
-/// and the corresponding bit can be set atomically. The only times when the
-/// collection is blocking is when the structure of the doubly-linked list has
-/// to be changed (eg. a new Block has to be allocated and linked into the
-/// structure).
-template <typename TObj>
+/// Released IDs are stored in a doubly-linked list of Blocks, each holding
+/// alive/dead bits for ~500k accessors. ReleaseId is lock-free (atomic
+/// fetch_or). GC walks the blocks to find `live_horizon` (one past the last
+/// released id) and frees every pending node whose tag is < live_horizon.
+/// Fully-dead interior blocks are destroyed in the same pass; the most recent
+/// block is kept so the head pointer stays valid for concurrent ReleaseId.
+template <typename TObj, typename Alloc = utils::Allocator<char>>
 class SkipListGc final {
  private:
   using TNode = SkipListNode<TObj>;
   using TDeleted = std::pair<uint64_t, TNode *>;
-  using TStack = Stack<TDeleted, kSkipListGcStackSize>;
+  using TLocalStack = Stack<TDeleted, kSkipListGcStackSize>;
 
   static constexpr uint64_t kIdsInField = sizeof(uint64_t) * 8;
   static constexpr uint64_t kIdsInBlock = kSkipListGcBlockSize * kIdsInField;
@@ -214,40 +278,47 @@ class SkipListGc final {
     std::atomic<uint64_t> field[kSkipListGcBlockSize];
   };
 
-  Block *AllocateBlock(Block *head) {
-    std::lock_guard<SpinLock> guard(lock_);
+  // Allocate a new head block if the caller's snapshot of head_ still matches.
+  // Otherwise another thread already extended the chain; return that new head.
+  Block *AllocateBlock(Block *expected_head) noexcept {
+    // Suppress the tracked-OOM path here: ReleaseId runs from noexcept Accessor
+    // destructors / move-assignment, and a tracked OutOfMemoryException escaping a
+    // destructor would std::terminate. (A genuine system bad_alloc still terminates
+    // via the noexcept boundary; this only guards the Memgraph memory-tracker path.)
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+    auto guard = std::lock_guard{lock_};
     Block *curr_head = head_.load(std::memory_order_acquire);
-    if (curr_head == head) {
-      // Construct through allocator so it propagates if needed.
-      Allocator<Block> block_allocator(memory_);
-      Block *block = block_allocator.allocate(1);
-      // `calloc` would be faster, but the API has no such call.
-      memset(block, 0, sizeof(Block));
-      // Block constructor should not throw.
-      block_allocator.construct(block);
-      block->prev.store(curr_head, std::memory_order_release);
-      block->succ.store(nullptr, std::memory_order_release);
-      block->first_id = last_id_;
-      last_id_ += kIdsInBlock;
-      if (curr_head == nullptr) {
-        tail_.store(block, std::memory_order_release);
-      } else {
-        curr_head->succ.store(block, std::memory_order_release);
-      }
-      head_.store(block, std::memory_order_release);
-      return block;
+    if (curr_head != expected_head) return curr_head;
+
+    using BlockAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Block>;
+    BlockAlloc block_allocator(alloc_);
+    Block *block = block_allocator.allocate(1);
+    // `calloc` would be faster, but the API has no such call.
+    memset(block, 0, sizeof(Block));
+    // Block constructor should not throw.
+    new (block) Block{};
+    block->prev.store(curr_head, std::memory_order_release);
+    block->succ.store(nullptr, std::memory_order_release);
+    block->first_id = last_id_;
+    last_id_ += kIdsInBlock;
+    if (curr_head == nullptr) {
+      tail_.store(block, std::memory_order_release);
     } else {
-      return curr_head;
+      curr_head->succ.store(block, std::memory_order_release);
     }
+    head_.store(block, std::memory_order_release);
+    return block;
   }
 
  public:
-  explicit SkipListGc(MemoryResource *memory) : memory_(memory) {
+  explicit SkipListGc(Alloc alloc = Alloc{}) noexcept : alloc_(alloc) {
     static_assert(sizeof(Block) % kLinuxPageSize == 0,
                   "It is recommended that you set the kSkipListGcBlockSize "
                   "constant so that the size of SkipListGc::Block is a "
                   "multiple of the page size.");
   }
+
+  Alloc get_allocator() const noexcept { return alloc_; }
 
   SkipListGc(const SkipListGc &) = delete;
   SkipListGc &operator=(const SkipListGc &) = delete;
@@ -256,6 +327,10 @@ class SkipListGc final {
 
   ~SkipListGc() { Clear(); }
 
+#ifndef NDEBUG
+  uint64_t AliveAccessors() const { return alive_accessors_.load(std::memory_order_acquire); }
+#endif
+
   uint64_t AllocateId() {
 #ifndef NDEBUG
     alive_accessors_.fetch_add(1, std::memory_order_acq_rel);
@@ -263,7 +338,7 @@ class SkipListGc final {
     return accessor_id_.fetch_add(1, std::memory_order_acq_rel);
   }
 
-  void ReleaseId(uint64_t id) {
+  void ReleaseId(uint64_t id) noexcept {
     // This function only needs to acquire a lock when allocating a new block
     // (in the `AllocateBlock` function), but otherwise doesn't need to acquire
     // a lock because it iterates over the linked list and atomically sets its
@@ -271,23 +346,23 @@ class SkipListGc final {
     // accessed without a lock because all of the pointers in the list are
     // atomic and their modification is done so that the access is always
     // correct.
-    Block *head = head_.load(std::memory_order_acquire);
-    if (head == nullptr) {
-      head = AllocateBlock(head);
+    Block *block = head_.load(std::memory_order_acquire);
+    if (block == nullptr) {
+      block = AllocateBlock(block);
     }
     while (true) {
-      MG_ASSERT(head != nullptr, "Missing SkipListGc block!");
-      if (id < head->first_id) {
-        head = head->prev.load(std::memory_order_acquire);
-      } else if (id >= head->first_id + kIdsInBlock) {
-        head = AllocateBlock(head);
+      MG_ASSERT(block != nullptr, "Missing SkipListGc block!");
+      if (id < block->first_id) {
+        block = block->prev.load(std::memory_order_acquire);
+      } else if (id >= block->first_id + kIdsInBlock) {
+        block = AllocateBlock(block);
       } else {
-        id -= head->first_id;
+        id -= block->first_id;
         uint64_t field = id / kIdsInField;
         uint64_t bit = id % kIdsInField;
         uint64_t value = 1;
         value <<= bit;
-        auto ret = head->field[field].fetch_or(value, std::memory_order_acq_rel);
+        auto ret = block->field[field].fetch_or(value, std::memory_order_acq_rel);
         MG_ASSERT(!(ret & value), "A SkipList Accessor was released twice!");
         break;
       }
@@ -299,18 +374,24 @@ class SkipListGc final {
 
   void Collect(TNode *node) {
     std::unique_lock guard(lock_);
-    deleted_.Push({accessor_id_.load(std::memory_order_acquire), node});
+    // Tag with the newest alive accessor id. accessor_id_ is the next-to-
+    // allocate id; Collect is only called from an Accessor so load() >= 1.
+    deleted_.Push({accessor_id_.load(std::memory_order_acquire) - 1, node});
   }
 
   void Run() {
+    detail::SkipListGcMarker marker;  // mark when gc is running
     // This method can be called after any skip list method, including the add method
     // which could have OOMException enabled in its thread so to ensure no exception
     // is thrown while cleaning the skip list, we add the blocker.
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-    if (!lock_.try_lock()) return;
-    OnScopeExit cleanup([&] { lock_.unlock(); });
+    auto guard = std::unique_lock{lock_, std::defer_lock};
+    if (!guard.try_lock()) return;
     Block *tail = tail_.load(std::memory_order_acquire);
-    uint64_t last_dead = 0;
+    // Smallest still-alive accessor id: dead set = [0, live_horizon),
+    // alive set = [live_horizon, inf). Nodes tagged with id < live_horizon
+    // are safe to free (their owning accessor has been released).
+    uint64_t live_horizon = 0;
     bool remove_block = true;
     while (tail != nullptr && remove_block) {
       for (uint64_t pos = 0; pos < kSkipListGcBlockSize; ++pos) {
@@ -319,20 +400,18 @@ class SkipListGc final {
           if (field != 0) {
             // Here we find the position of the least significant zero bit
             // (using a inverted value and the `ffs` function to find the
-            // position of the first set bit). We find this position because we
-            // know that all bits that are of less significance are then all
-            // ones. That means that the `where_alive` will be the first ID that
-            // is still alive. That means that we have a prefix of all dead
-            // accessors that have IDs less than `where_alive`.
+            // position of the first set bit). That position is `where_alive`,
+            // i.e., the first ID that is still alive. The dead prefix ends
+            // exclusively at that ID.
             int where_alive = __builtin_ffsl(~field) - 1;
             if (where_alive > 0) {
-              last_dead = tail->first_id + pos * kIdsInField + where_alive - 1;
+              live_horizon = tail->first_id + pos * kIdsInField + where_alive;
             }
           }
           remove_block = false;
           break;
         } else {
-          last_dead = tail->first_id + (pos + 1) * kIdsInField - 1;
+          live_horizon = tail->first_id + (pos + 1) * kIdsInField;
         }
       }
       Block *next = tail->succ.load(std::memory_order_acquire);
@@ -343,7 +422,8 @@ class SkipListGc final {
       // thread doesn't have a pointer to the block that it got from reading
       // `head_`. We bail out here, this block will be freed next time.
       if (remove_block && next != nullptr) {
-        Allocator<Block> block_allocator(memory_);
+        using BlockAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Block>;
+        BlockAlloc block_allocator(alloc_);
         MG_ASSERT(tail == tail_.load(std::memory_order_acquire),
                   "Can't remove SkipListGc block that is in the middle!");
         next->prev.store(nullptr, std::memory_order_release);
@@ -354,31 +434,24 @@ class SkipListGc final {
       }
       tail = next;
     }
-    TStack leftover;
-    std::optional<TDeleted> item;
-    while ((item = deleted_.Pop())) {
-      if (item->first < last_dead) {
-        size_t bytes = SkipListNodeSize(*item->second);
-        item->second->~TNode();
-        memory_->Deallocate(item->second, bytes);
-      } else {
-        leftover.Push(*item);
-      }
-    }
-    deleted_ = std::move(leftover);
+    deleted_.EraseIf([live_horizon](const TDeleted &item) { return item.first < live_horizon; },
+                     [this](const TDeleted &item) {
+                       size_t bytes = SkipListNodeSize(*item.second);
+                       item.second->~TNode();
+                       detail::deallocate_bytes(alloc_, item.second, bytes, SkipListNodeAlign<TObj>());
+                     });
   }
 
-  MemoryResource *GetMemoryResource() const { return memory_; }
-
   void Clear() {
+    using BlockAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<Block>;
     // Delete all allocated blocks.
-    Block *head = head_.load(std::memory_order_acquire);
-    while (head != nullptr) {
-      Allocator<Block> block_allocator(memory_);
-      Block *prev = head->prev.load(std::memory_order_acquire);
-      head->~Block();
-      block_allocator.deallocate(head, 1);
-      head = prev;
+    Block *block = head_.load(std::memory_order_acquire);
+    while (block != nullptr) {
+      BlockAlloc block_allocator(alloc_);
+      Block *prev = block->prev.load(std::memory_order_acquire);
+      block->~Block();
+      block_allocator.deallocate(block, 1);
+      block = prev;
     }
 
     // Delete all items that have to be garbage collected.
@@ -388,7 +461,7 @@ class SkipListGc final {
       while ((item = deleted_.Pop())) {
         size_t bytes = SkipListNodeSize(*item->second);
         item->second->~TNode();
-        memory_->Deallocate(item->second, bytes);
+        detail::deallocate_bytes(alloc_, item->second, bytes, SkipListNodeAlign<TObj>());
       }
     }
 
@@ -400,13 +473,13 @@ class SkipListGc final {
   }
 
  private:
-  MemoryResource *memory_;
-  SpinLock lock_;
+  [[no_unique_address]] Alloc alloc_;
+  RWSpinLock lock_;
   std::atomic<uint64_t> accessor_id_{0};
   std::atomic<Block *> head_{nullptr};
   std::atomic<Block *> tail_{nullptr};
   uint64_t last_id_{0};
-  TStack deleted_;
+  TLocalStack deleted_;
 #ifndef NDEBUG
   std::atomic<uint64_t> alive_accessors_{0};
 #endif
@@ -573,14 +646,14 @@ class SkipListGc final {
 /// change must be implemented thread-safe inside the object.
 ///
 /// @tparam TObj object type that is stored in the list
-template <typename TObj>
+template <typename TObj, typename Alloc = utils::Allocator<char>>
 class SkipList final : detail::SkipListNode_base {
  private:
   using TNode = SkipListNode<TObj>;
 
  public:
   /// Allocator type so that STL containers are aware that we need one.
-  using allocator_type = Allocator<TNode>;
+  using allocator_type = Alloc;
 
   class ConstIterator;
 
@@ -589,7 +662,7 @@ class SkipList final : detail::SkipListNode_base {
     friend class SkipList;
     friend class ConstIterator;
 
-    Iterator(TNode *node) : node_(node) {}
+    explicit Iterator(TNode *node) : node_(node) {}
 
    public:
     using value_type = TObj;
@@ -608,11 +681,13 @@ class SkipList final : detail::SkipListNode_base {
     friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.node_ == rhs.node_; }
 
     Iterator &operator++() {
+      auto current = node_;
       while (true) {
-        node_ = node_->nexts[0].load(std::memory_order_acquire);
-        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) {
+        current = current->nexts[0].load(std::memory_order_acquire);
+        if (current != nullptr && current->marked.load(std::memory_order_acquire)) [[unlikely]] {
           continue;
         } else {
+          node_ = current;
           return *this;
         }
       }
@@ -632,7 +707,7 @@ class SkipList final : detail::SkipListNode_base {
    private:
     friend class SkipList;
 
-    ConstIterator(TNode *node) : node_(node) {}
+    explicit ConstIterator(TNode *node) : node_(node) {}
 
    public:
     using value_type = TObj const;
@@ -655,7 +730,7 @@ class SkipList final : detail::SkipListNode_base {
     ConstIterator &operator++() {
       while (true) {
         node_ = node_->nexts[0].load(std::memory_order_acquire);
-        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) {
+        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) [[unlikely]] {
           continue;
         } else {
           return *this;
@@ -670,7 +745,141 @@ class SkipList final : detail::SkipListNode_base {
     }
 
    private:
-    TNode *node_;
+    TNode *node_{};
+  };
+
+  class ChunkedIterator final {
+   private:
+    friend class SkipList;
+
+    ChunkedIterator(TNode *node) : node_(node) {}
+
+   public:
+    using value_type = TObj;
+    using difference_type = std::ptrdiff_t;
+
+    ChunkedIterator() = default;
+
+    value_type &operator*() const { return node_->obj; }
+
+    value_type *operator->() const { return &node_->obj; }
+
+    // Chunked version needs to use the order of nodes to avoid skipping nodes that are marked or not fully linked.
+    ChunkedIterator &operator++() {
+      if (node_ == nullptr) {
+        return *this;  // Already at end
+      }
+
+      TNode *next = node_->nexts[0].load(std::memory_order_acquire);
+      while (true) {
+        if (next == nullptr) [[unlikely]] {
+          node_ = nullptr;
+          return *this;
+        }
+
+        // Node is inside the chunk and valid
+        if (!next->marked.load(std::memory_order_acquire)) [[likely]] {
+          node_ = next;
+          return *this;
+        }
+
+        // Skip invalid nodes
+        next = next->nexts[0].load(std::memory_order_acquire);
+      }
+    }
+
+    ChunkedIterator operator++(int) {
+      ChunkedIterator old = *this;
+      ++(*this);
+      return old;
+    }
+
+    // More complex because the end node can be removed from the skiplist, we check the order and stop if past end node
+    bool operator!=(const ChunkedIterator &other) const {
+      if (!node_) return false;       // end of skiplist (stop)
+      if (!other.node_) return true;  // continue till the end of the skiplist
+      return node_ != other.node_ &&
+             (node_->obj < other.node_->obj);  // run until we hit the other node OR our node is greater than the other
+    }
+
+    bool operator==(const ChunkedIterator &other) const { return !(*this != other); }
+
+   private:
+    TNode *node_{nullptr};
+  };
+
+  class Chunk {
+    ChunkedIterator begin_;
+    ChunkedIterator end_;
+
+   public:
+    Chunk(TNode *begin, TNode *end) : begin_{begin}, end_{end} {}
+
+    Chunk(ChunkedIterator begin, ChunkedIterator end) : begin_{begin}, end_{end} {}
+
+    ChunkedIterator begin() { return begin_; }
+
+    ChunkedIterator end() { return end_; }
+  };
+
+  /// Collection of chunks for parallel processing.
+  /// Provides access to all chunks and allows iteration over them.
+  using ChunkCollection = std::vector<Chunk>;
+
+  class SamplingIterator final {
+   private:
+    friend class SkipList;
+
+    explicit SamplingIterator(TNode *node, uint32_t level) : node_{node}, level_{level} {}
+
+   public:
+    using value_type = TObj const;
+    using difference_type = std::ptrdiff_t;
+
+    SamplingIterator() = default;
+    SamplingIterator(SamplingIterator const &) = default;
+    SamplingIterator(SamplingIterator &&) = default;
+    SamplingIterator &operator=(SamplingIterator const &) = default;
+    SamplingIterator &operator=(SamplingIterator &&) = default;
+
+    value_type &operator*() const { return node_->obj; }
+
+    value_type *operator->() const { return &node_->obj; }
+
+    friend bool operator==(SamplingIterator const &lhs, SamplingIterator const &rhs) { return lhs.node_ == rhs.node_; }
+
+    SamplingIterator &operator++() {
+      while (true) {
+        node_ = node_->nexts[level_].load(std::memory_order_acquire);
+        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) [[unlikely]] {
+          continue;
+        } else {
+          return *this;
+        }
+      }
+    }
+
+    SamplingIterator operator++(int) {
+      SamplingIterator old = *this;
+      ++(*this);
+      return old;
+    }
+
+   private:
+    TNode *node_{};
+    uint32_t level_{};
+  };
+
+  struct SamplingRange {
+    SamplingRange(SamplingIterator begin, SamplingIterator end) : begin_(begin), end_(end) {}
+
+    auto begin() const -> SamplingIterator { return begin_; }
+
+    auto end() const -> SamplingIterator { return end_; }
+
+   private:
+    SamplingIterator begin_;
+    SamplingIterator end_;
   };
 
   class Accessor final {
@@ -685,31 +894,76 @@ class SkipList final : detail::SkipListNode_base {
     using const_iterator = ConstIterator;
 
     ~Accessor() {
-      if (skiplist_ != nullptr) skiplist_->gc_.ReleaseId(id_);
+      if (skiplist_ != nullptr) {
+        skiplist_->gc_.ReleaseId(id_);
+        thread_local auto gc_run_interval = utils::ResettableCounter(1024);
+        if (gc_run_interval()) {
+          skiplist_->run_gc();
+        }
+      }
     }
 
     Accessor(const Accessor &) = delete;
     Accessor &operator=(const Accessor &) = delete;
 
     Accessor(Accessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) { other.skiplist_ = nullptr; }
+
     Accessor &operator=(Accessor &&other) noexcept {
-      skiplist_ = other.skiplist_;
-      id_ = other.id_;
-      other.skiplist_ = nullptr;
+      if (this != &other) {
+        if (skiplist_ != nullptr) {
+          skiplist_->gc_.ReleaseId(id_);
+        }
+        skiplist_ = other.skiplist_;
+        id_ = other.id_;
+        other.skiplist_ = nullptr;
+      }
       return *this;
     }
 
     /// Functions that return an Iterator (or ConstIterator) to the beginning of
     /// the list.
     Iterator begin() { return Iterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+
     ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+
     ConstIterator cbegin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
 
     /// Functions that return an Iterator (or ConstIterator) to the end of the
     /// list.
     Iterator end() { return Iterator{nullptr}; }
+
     ConstIterator end() const { return ConstIterator{nullptr}; }
+
     ConstIterator cend() const { return ConstIterator{nullptr}; }
+
+    auto sampling_range() const {
+      auto const level = static_cast<uint8_t>(SkipListLayerForCountEstimation(size()) - 1);
+      auto const b = SamplingIterator{skiplist_->head_->nexts[level].load(std::memory_order_acquire), level};
+      auto const e = SamplingIterator{};
+      return SamplingRange{b, e};
+    };
+
+    /// Creates chunks for parallel processing of the skip list.
+    /// Each chunk contains approximately equal number of elements.
+    /// This method is thread-safe and can be called concurrently.
+    ///
+    /// @param num_chunks The number of chunks to create
+    /// @return ChunkCollection containing the chunks
+    ChunkCollection create_chunks(size_t num_chunks) const { return skiplist_->create_chunks(num_chunks); }
+
+    /// Creates chunks for parallel processing of the skip list within a specified range.
+    /// Each chunk contains approximately equal number of elements within the range.
+    /// This method is thread-safe and can be called concurrently.
+    ///
+    /// @param num_chunks The number of chunks to create
+    /// @param lower_bound Optional lower bound for the range
+    /// @param upper_bound Optional upper bound for the range
+    /// @return ChunkCollection containing the chunks
+    template <typename TKey>
+    ChunkCollection create_chunks(size_t num_chunks, const std::optional<TKey> &lower_bound,
+                                  const std::optional<TKey> &upper_bound) const {
+      return skiplist_->create_chunks(num_chunks, lower_bound, upper_bound);
+    }
 
     std::pair<Iterator, bool> insert(const TObj &object) { return skiplist_->insert(object); }
 
@@ -765,6 +1019,18 @@ class SkipList final : detail::SkipListNode_base {
     template <typename TKey>
     ConstIterator find_equal_or_greater(const TKey &key) const {
       return skiplist_->find_equal_or_greater(key);
+    }
+
+    /// Finds the first key strictly greater than the given key.
+    template <typename TKey>
+    Iterator find_greater(const TKey &key) {
+      return skiplist_->find_greater(key);
+    }
+
+    /// Finds the first key strictly greater than the given key.
+    template <typename TKey>
+    ConstIterator find_greater(const TKey &key) const {
+      return skiplist_->find_greater(key);
     }
 
     /// Estimates the number of items that are contained in the list that are
@@ -851,18 +1117,55 @@ class SkipList final : detail::SkipListNode_base {
     ConstAccessor(ConstAccessor &&other) noexcept : skiplist_(other.skiplist_), id_(other.id_) {
       other.skiplist_ = nullptr;
     }
+
     ConstAccessor &operator=(ConstAccessor &&other) noexcept {
-      skiplist_ = other.skiplist_;
-      id_ = other.id_;
-      other.skiplist_ = nullptr;
+      if (this != &other) {
+        if (skiplist_ != nullptr) {
+          skiplist_->gc_.ReleaseId(id_);
+        }
+        skiplist_ = other.skiplist_;
+        id_ = other.id_;
+        other.skiplist_ = nullptr;
+      }
       return *this;
     }
 
     ConstIterator begin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
+
     ConstIterator cbegin() const { return ConstIterator{skiplist_->head_->nexts[0].load(std::memory_order_acquire)}; }
 
     ConstIterator end() const { return ConstIterator{nullptr}; }
+
     ConstIterator cend() const { return ConstIterator{nullptr}; }
+
+    auto sampling_range() const {
+      auto const level = static_cast<uint8_t>(SkipListLayerForCountEstimation(size()) - 1);
+      auto const b = SamplingIterator{skiplist_->head_->nexts[level].load(std::memory_order_acquire), level};
+      auto const e = SamplingIterator{};
+      return SamplingRange{b, e};
+    };
+
+    /// Creates chunks for parallel processing of the skip list.
+    /// Each chunk contains approximately equal number of elements.
+    /// This method is thread-safe and can be called concurrently.
+    ///
+    /// @param num_chunks The number of chunks to create
+    /// @return ChunkCollection containing the chunks
+    ChunkCollection create_chunks(size_t num_chunks) const { return skiplist_->create_chunks(num_chunks); }
+
+    /// Creates chunks for parallel processing of the skip list within a specified range.
+    /// Each chunk contains approximately equal number of elements within the range.
+    /// This method is thread-safe and can be called concurrently.
+    ///
+    /// @param num_chunks The number of chunks to create
+    /// @param lower_bound Optional lower bound for the range
+    /// @param upper_bound Optional upper bound for the range
+    /// @return ChunkCollection containing the chunks
+    template <typename TKey>
+    ChunkCollection create_chunks(size_t num_chunks, const std::optional<TKey> &lower_bound,
+                                  const std::optional<TKey> &upper_bound) const {
+      return skiplist_->create_chunks(num_chunks, lower_bound, upper_bound);
+    }
 
     template <typename TKey>
     bool contains(const TKey &key) const {
@@ -877,6 +1180,11 @@ class SkipList final : detail::SkipListNode_base {
     template <typename TKey>
     ConstIterator find_equal_or_greater(const TKey &key) const {
       return skiplist_->find_equal_or_greater(key);
+    }
+
+    template <typename TKey>
+    ConstIterator find_greater(const TKey &key) const {
+      return skiplist_->find_greater(key);
     }
 
     template <typename TKey>
@@ -904,9 +1212,11 @@ class SkipList final : detail::SkipListNode_base {
     uint64_t id_{0};
   };
 
-  explicit SkipList(MemoryResource *memory = NewDeleteResource()) : gc_(memory) {
+  SkipList() : SkipList(Alloc{}) {}
+
+  explicit SkipList(Alloc alloc) : gc_(alloc) {
     static_assert(kSkipListMaxHeight <= 32, "The SkipList height must be less or equal to 32!");
-    void *ptr = memory->Allocate(MaxSkipListNodeSize<TObj>());
+    void *ptr = detail::allocate_bytes(alloc, MaxSkipListNodeSize<TObj>(), SkipListNodeAlign<TObj>());
     // `calloc` would be faster, but the API has no such call.
     memset(ptr, 0, MaxSkipListNodeSize<TObj>());
     // Here we don't call the `SkipListNode` constructor so that the `TObj`
@@ -915,24 +1225,23 @@ class SkipList final : detail::SkipListNode_base {
     // NOTE: The `head_` node doesn't have a valid `TObj` (because we didn't
     // call the constructor), so you mustn't perform any comparisons using its
     // value.
-    head_ = static_cast<TNode *>(ptr);
+    head_ = reinterpret_cast<TNode *>(ptr);
     head_->height = kSkipListMaxHeight;
     new (&head_->lock) utils::SpinLock();
   }
 
-  SkipList(SkipList &&other) noexcept : head_(other.head_), gc_(other.GetMemoryResource()), size_(other.size_.load()) {
+  SkipList(SkipList &&other) noexcept : head_(other.head_), gc_(other.gc_.get_allocator()), size_(other.size_.load()) {
     other.head_ = nullptr;
   }
 
   SkipList &operator=(SkipList &&other) noexcept {
-    MG_ASSERT(other.GetMemoryResource() == GetMemoryResource(),
-              "Move assignment with different MemoryResource is not supported");
+    auto alloc = gc_.get_allocator();
     TNode *head = head_;
     while (head != nullptr) {
       TNode *succ = head->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*head);
       head->~TNode();
-      GetMemoryResource()->Deallocate(head, bytes);
+      detail::deallocate_bytes(alloc, head, bytes, SkipListNodeAlign<TObj>());
       head = succ;
     }
     head_ = other.head_;
@@ -953,32 +1262,45 @@ class SkipList final : detail::SkipListNode_base {
       // constructor (see the note in the `SkipList` constructor). We mustn't
       // call the `TObj` destructor because we didn't call its constructor.
       head_->lock.~SpinLock();
-      GetMemoryResource()->Deallocate(head_, SkipListNodeSize(*head_));
+      auto alloc = gc_.get_allocator();
+      detail::deallocate_bytes(alloc, head_, SkipListNodeSize(*head_), SkipListNodeAlign<TObj>());
     }
   }
 
   /// Functions that return an accessor to the list. All operations on the list
   /// must be done through the Accessor (or ConstAccessor) proxy object.
   Accessor access() { return Accessor{this}; }
+
   ConstAccessor access() const { return ConstAccessor{this}; }
 
   /// The size of the list can be read directly from the list because it is an
   /// atomic operation.
   uint64_t size() const { return size_.load(std::memory_order_acquire); }
 
-  MemoryResource *GetMemoryResource() const { return gc_.GetMemoryResource(); }
+  Alloc get_allocator() const noexcept { return gc_.get_allocator(); }
 
   /// This function removes all elements from the list.
   /// NOTE: The function *isn't* thread-safe. It must be called only if there are
   /// no more active accessors using the list.
-  void clear() {
+  /// `on_progress`, when set, is invoked every kClearProgressMask+1 nodes. Tearing down a large list takes minutes
+  /// and reports nothing on its own -- `size_` is only reset once the walk below completes -- so a caller that owes
+  /// liveness to somebody else has no other way to observe that this is still advancing.
+  void clear(std::function<void()> const &on_progress = {}) {
+#ifndef NDEBUG
+    auto const alive = gc_.AliveAccessors();
+    DMG_ASSERT(alive == 0, "SkipList::clear() called with {} live accessor(s)", alive);
+#endif
+    auto alloc = gc_.get_allocator();
     TNode *curr = head_->nexts[0].load(std::memory_order_acquire);
+    uint64_t destroyed = 0;
     while (curr != nullptr) {
       TNode *succ = curr->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*curr);
       curr->~TNode();
-      GetMemoryResource()->Deallocate(curr, bytes);
+      detail::deallocate_bytes(alloc, curr, bytes, SkipListNodeAlign<TObj>());
       curr = succ;
+      // Mask first so the common path is an increment and a predicted-not-taken branch.
+      if (((++destroyed & kClearProgressMask) == 0) && on_progress) on_progress();
     }
     for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
       head_->nexts[layer] = nullptr;
@@ -990,40 +1312,62 @@ class SkipList final : detail::SkipListNode_base {
   void run_gc() { gc_.Run(); }
 
  private:
-  template <typename TKey>
-  int find_node(const TKey &key, TNode *preds[], TNode *succs[]) const {
+  template <GCPolicy policy = GCPolicy::Random, typename TKey>
+  int find_node(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
+                std::array<TNode *, kSkipListMaxHeight> &succs) const {
     int layer_found = -1;
     TNode *pred = head_;
     for (int layer = kSkipListMaxHeight - 1; layer >= 0; --layer) {
       TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
       // Existence test is missing in the paper.
-      while (curr != nullptr && curr->obj < key) {
-        pred = curr;
-        curr = pred->nexts[layer].load(std::memory_order_acquire);
-      }
-      // Existence test is missing in the paper.
-      if (layer_found == -1 && curr && curr->obj == key) {
-        layer_found = layer;
+
+      if constexpr (std::three_way_comparable_with<TObj, TKey>) {
+        while (curr != nullptr) {
+          auto cmp_res = curr->obj <=> key;
+          if (cmp_res == std::weak_ordering::less) {
+            pred = curr;
+            curr = pred->nexts[layer].load(std::memory_order_acquire);
+          } else if (cmp_res == std::weak_ordering::equivalent) {
+            // Existence test is missing in the paper.
+            if (layer_found == -1) {
+              layer_found = layer;
+            }
+            break;
+          } else if (cmp_res == std::weak_ordering::greater) {
+            break;
+          }
+        }
+      } else {
+        while (curr != nullptr && curr->obj < key) {
+          pred = curr;
+          curr = pred->nexts[layer].load(std::memory_order_acquire);
+        }
+        // Existence test is missing in the paper.
+        if (layer_found == -1 && curr && curr->obj == key) {
+          layer_found = layer;
+        }
       }
       preds[layer] = pred;
       succs[layer] = curr;
     }
-    if (layer_found + 1 >= kSkipListGcHeightTrigger) gc_.Run();
+    if constexpr (policy == GCPolicy::Random) {
+      if (layer_found + 1 >= kSkipListGcHeightTrigger) gc_.Run();
+    }
     return layer_found;
   }
 
   template <typename TObjUniv>
   std::pair<Iterator, bool> insert(TObjUniv &&object) {
     int top_layer = gen_height();
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     if (top_layer >= kSkipListGcHeightTrigger) gc_.Run();
     while (true) {
       int layer_found = find_node(object, preds, succs);
       if (layer_found != -1) {
         TNode *node_found = succs[layer_found];
         if (!node_found->marked.load(std::memory_order_acquire)) {
-          while (!node_found->fully_linked.load(std::memory_order_acquire))
-            ;
+          while (!node_found->fully_linked.load(std::memory_order_acquire));
           return {Iterator{node_found}, false};
         }
         continue;
@@ -1031,17 +1375,27 @@ class SkipList final : detail::SkipListNode_base {
 
       TNode *new_node;
       {
-        TNode *prev_pred = nullptr;
+        TNode *previous_locked = nullptr;
         bool valid = true;
-        std::unique_lock<SpinLock> guards[kSkipListMaxHeight];
+
+        auto locked_count = 0;
+        TNode *locked[kSkipListMaxHeight];
+        auto guard = OnScopeExit{[&] {
+          for (auto i = 0; i != locked_count; ++i) {
+            locked[i]->lock.unlock();
+          }
+        }};
+
         // The paper has a wrong condition here. In the paper it states that this
         // loop should have `(layer <= top_layer)`, but that isn't correct.
         for (int layer = 0; valid && (layer < top_layer); ++layer) {
           TNode *pred = preds[layer];
           TNode *succ = succs[layer];
-          if (pred != prev_pred) {
-            guards[layer] = std::unique_lock<SpinLock>(pred->lock);
-            prev_pred = pred;
+          if (pred != previous_locked) {
+            pred->lock.lock();
+            locked[locked_count] = pred;
+            ++locked_count;
+            previous_locked = pred;
           }
           // Existence test is missing in the paper.
           valid = !pred->marked.load(std::memory_order_acquire) &&
@@ -1052,21 +1406,22 @@ class SkipList final : detail::SkipListNode_base {
         if (!valid) continue;
 
         size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
+        auto alloc = gc_.get_allocator();
+        void *raw = detail::allocate_bytes(alloc, node_bytes, SkipListNodeAlign<TObj>());
+        new_node = reinterpret_cast<TNode *>(raw);
 
-        MemoryResource *memoryResource = GetMemoryResource();
-        void *ptr = memoryResource->Allocate(node_bytes);
-        // `calloc` would be faster, but the API has no such call.
-        memset(ptr, 0, node_bytes);
-        new_node = static_cast<TNode *>(ptr);
-
-        // Construct through allocator so it propagates if needed.
-        Allocator<TNode> allocator(memoryResource);
-        allocator.construct(new_node, top_layer, std::forward<TObjUniv>(object));
+        // Construct through allocator traits so it propagates if needed.
+        using TNodeAlloc = typename std::allocator_traits<Alloc>::template rebind_alloc<TNode>;
+        TNodeAlloc node_allocator(alloc);
+        std::allocator_traits<TNodeAlloc>::construct(
+            node_allocator, new_node, top_layer, std::forward<TObjUniv>(object));
 
         // The paper is also wrong here. It states that the loop should go up to
         // `top_layer` which is wrong.
         for (int layer = 0; layer < top_layer; ++layer) {
           new_node->nexts[layer].store(succs[layer], std::memory_order_release);
+        }
+        for (int layer = 0; layer < top_layer; ++layer) {
           preds[layer]->nexts[layer].store(new_node, std::memory_order_release);
         }
       }
@@ -1079,13 +1434,21 @@ class SkipList final : detail::SkipListNode_base {
 
   template <typename TKey>
   SkipListNode<TObj> *find_(const TKey &key) const {
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
-    int layer_found = find_node(key, preds, succs);
-    if (layer_found != -1 && succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
-        !succs[layer_found]->marked.load(std::memory_order_acquire)) {
-      return succs[layer_found];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
+    while (true) {
+      int layer_found = find_node(key, preds, succs);
+      if (layer_found == -1) [[unlikely]] {
+        // not found
+        return nullptr;
+      }
+      bool valid = succs[layer_found]->fully_linked.load(std::memory_order_acquire) &&
+                   !succs[layer_found]->marked.load(std::memory_order_acquire);
+      if (valid) {
+        return succs[layer_found];
+      }
+      // found entry no longer valid, try again
     }
-    return nullptr;
   }
 
   template <typename TKey>
@@ -1095,33 +1458,87 @@ class SkipList final : detail::SkipListNode_base {
 
   template <typename TKey>
   Iterator find(const TKey &key) {
-    return {find_(key)};
+    return Iterator{find_(key)};
   }
 
   template <typename TKey>
   ConstIterator find(const TKey &key) const {
-    return {find_(key)};
+    return ConstIterator{find_(key)};
+  }
+
+  template <typename TKey>
+  void find_node_strict_greater(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
+                                std::array<TNode *, kSkipListMaxHeight> &succs) const {
+    TNode *pred = head_;
+    for (int layer = kSkipListMaxHeight - 1; layer >= 0; --layer) {
+      TNode *curr = pred->nexts[layer].load(std::memory_order_acquire);
+      while (curr != nullptr && curr->obj <= key) {
+        pred = curr;
+        curr = pred->nexts[layer].load(std::memory_order_acquire);
+      }
+      preds[layer] = pred;
+      succs[layer] = curr;
+    }
+  }
+
+  template <typename TKey>
+  Iterator find_greater_(const TKey &key) const {
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
+    find_node_strict_greater(key, preds, succs);
+    while (true) {
+      if (!succs[0]) return Iterator{nullptr};
+      auto valid =
+          succs[0]->fully_linked.load(std::memory_order_acquire) && !succs[0]->marked.load(std::memory_order_acquire);
+      if (valid) return Iterator{succs[0]};
+      // Entry was marked/not fully linked; advance linearly to the next valid node
+      succs[0] = succs[0]->nexts[0].load(std::memory_order_acquire);
+    }
+  }
+
+  template <typename TKey>
+  Iterator find_equal_or_greater_(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
+                                  std::array<TNode *, kSkipListMaxHeight> &succs) const {
+    while (true) {
+      find_node(key, preds, succs);
+      if (!succs[0]) {
+        // not found
+        return Iterator{nullptr};
+      }
+      auto valid =
+          succs[0]->fully_linked.load(std::memory_order_acquire) && !succs[0]->marked.load(std::memory_order_acquire);
+      if (valid) {
+        return Iterator{succs[0]};
+      }
+      // found entry no longer valid, try again
+    }
   }
 
   template <typename TKey>
   Iterator find_equal_or_greater_(const TKey &key) const {
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
-    find_node(key, preds, succs);
-    if (succs[0] && succs[0]->fully_linked.load(std::memory_order_acquire) &&
-        !succs[0]->marked.load(std::memory_order_acquire)) {
-      return Iterator{succs[0]};
-    }
-    return Iterator{nullptr};
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
+    return find_equal_or_greater_(key, preds, succs);
   }
 
   template <typename TKey>
   Iterator find_equal_or_greater(const TKey &key) {
-    return {find_equal_or_greater_(key)};
+    return Iterator{find_equal_or_greater_(key)};
   }
 
   template <typename TKey>
   ConstIterator find_equal_or_greater(const TKey &key) const {
-    return {find_equal_or_greater_(key)};
+    return ConstIterator{find_equal_or_greater_(key)};
+  }
+
+  template <typename TKey>
+  Iterator find_greater(const TKey &key) {
+    return Iterator{find_greater_(key)};
+  }
+
+  template <typename TKey>
+  ConstIterator find_greater(const TKey &key) const {
+    return ConstIterator{find_greater_(key)};
   }
 
   template <typename TKey>
@@ -1129,7 +1546,8 @@ class SkipList final : detail::SkipListNode_base {
     MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     int layer_found = find_node(key, preds, succs);
     if (layer_found == -1) {
       return 0;
@@ -1163,18 +1581,23 @@ class SkipList final : detail::SkipListNode_base {
     MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     int layer_found = -1;
     if (lower) {
+      // find_node reports the layer holding the key, or -1 when the list has no such key. It fills
+      // the predecessors either way, and those -- the last node before the bound at each layer --
+      // are all the walk below needs. A range is described by where its bounds fall between the
+      // keys, so a bound matching no element still has elements above it to count.
       layer_found = find_node(lower->value(), preds, succs);
+      if (layer_found == -1) {
+        layer_found = kSkipListMaxHeight - 1;
+      }
     } else {
       for (auto &pred : preds) {
         pred = head_;
       }
       layer_found = kSkipListMaxHeight - 1;
-    }
-    if (layer_found == -1) {
-      return 0;
     }
 
     uint64_t count = 0;
@@ -1308,15 +1731,16 @@ class SkipList final : detail::SkipListNode_base {
     TNode *node_to_delete = nullptr;
     bool is_marked = false;
     int top_layer = -1;
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     std::unique_lock<SpinLock> node_guard;
     while (true) {
-      int layer_found = find_node(key, preds, succs);
+      int layer_found = find_node<GCPolicy::DoNotRun>(key, preds, succs);
       if (is_marked || (layer_found != -1 && ok_to_delete(succs[layer_found], layer_found))) {
         if (!is_marked) {
           node_to_delete = succs[layer_found];
           top_layer = node_to_delete->height;
-          node_guard = std::unique_lock<SpinLock>(node_to_delete->lock);
+          node_guard = std::unique_lock{node_to_delete->lock};
           if (node_to_delete->marked.load(std::memory_order_acquire)) {
             return false;
           }
@@ -1333,7 +1757,7 @@ class SkipList final : detail::SkipListNode_base {
           pred = preds[layer];
           succ = succs[layer];
           if (pred != prev_pred) {
-            guards[layer] = std::unique_lock<SpinLock>(pred->lock);
+            guards[layer] = std::unique_lock{pred->lock};
             prev_pred = pred;
           }
           valid = !pred->marked.load(std::memory_order_acquire) &&
@@ -1357,12 +1781,149 @@ class SkipList final : detail::SkipListNode_base {
     }
   }
 
+  /// Creates chunks for parallel processing of the skip list.
+  /// Uses the maximum layer for efficient chunking, splitting based on max-height elements.
+  /// Ensures complete coverage by making first chunk start from beginning and last chunk end at end.
+  /// This method is thread-safe and can be called concurrently.
+  ///
+  /// @param num_chunks The number of chunks to create
+  /// @return ChunkCollection containing the chunks
+  ChunkCollection create_chunks(size_t num_chunks) const {
+    if (head_ == nullptr) {
+      // Return one empty chunk for empty list
+      return {{Chunk{nullptr, nullptr}}};
+    }
+
+    std::array<TNode *, kSkipListMaxHeight> start{};
+    std::array<TNode *, kSkipListMaxHeight> end{};
+    for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
+      start[layer] = head_->nexts[layer].load(std::memory_order_acquire);
+    }
+    return create_chunks_(num_chunks, start, end);
+  }
+
+  template <typename TKey>
+  ChunkCollection create_chunks(size_t num_chunks, const std::optional<TKey> &lower_bound,
+                                const std::optional<TKey> &upper_bound) const {
+    if (head_ == nullptr) {
+      // Return one empty chunk for empty list
+      return {{Chunk{nullptr, nullptr}}};
+    }
+
+    if (lower_bound && upper_bound && lower_bound.value() > upper_bound.value()) {
+      // Invalid range
+      return {{Chunk{nullptr, nullptr}}};
+    }
+
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
+    std::array<TNode *, kSkipListMaxHeight> start{};
+    std::array<TNode *, kSkipListMaxHeight> end{};
+
+    if (lower_bound) {
+      auto found_layer = find_node<GCPolicy::DoNotRun>(lower_bound.value(), preds, start);
+      // Lower bound not found
+      if (found_layer == -1 && start[0] == nullptr) {
+        return {{Chunk{nullptr, nullptr}}};
+      }
+    } else {
+      for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
+        start[layer] = head_->nexts[layer].load(std::memory_order_acquire);
+      }
+    }
+
+    if (upper_bound) {
+      find_node<GCPolicy::DoNotRun>(upper_bound.value(), end, succs);
+      for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
+        // end is preds which are defaulted to head_, but head_ is not a valid node, so we must use nexts
+        auto *current = end[layer] == head_ ? head_->nexts[layer].load(std::memory_order_acquire) : end[layer];
+        // Find the first element over the bound
+        while (current != nullptr && current->obj <= upper_bound.value()) {
+          if (!current->marked.load(std::memory_order_acquire)) {
+            while (!current->fully_linked.load(std::memory_order_acquire));
+          }
+          current = current->nexts[layer].load(std::memory_order_acquire);
+        }
+        end[layer] = current;
+      }
+    }
+
+    return create_chunks_(num_chunks, start, end);
+  }
+
+  /// Creates chunks for parallel processing of the skip list.
+  ChunkCollection create_chunks_(size_t num_chunks, std::array<TNode *, kSkipListMaxHeight> &start,
+                                 std::array<TNode *, kSkipListMaxHeight> &end) const {
+    if (num_chunks == 0) {
+      return ChunkCollection{};
+    }
+
+    // Find the highest layer with enough elements for chunking
+    std::vector<TNode *> cached_layer_nodes;
+    int layer = SkipListLayerForCountEstimation(size()) - 1;
+    for (; layer >= 0; --layer) {
+      cached_layer_nodes.clear();
+      cached_layer_nodes.reserve(ExpectedSizeAtLayer(size(), layer + 1));
+      // Count max-height elements (elements that appear at this layer)
+      TNode *current = start[layer];
+      TNode *layer_end = end[layer];
+      while (current != layer_end) {
+        // Only count nodes that are both fully_linked and not marked
+        if (!current->marked.load(std::memory_order_acquire)) {
+          cached_layer_nodes.push_back(current);
+          while (!current->fully_linked.load(std::memory_order_acquire));
+        }
+        current = current->nexts[layer].load(std::memory_order_acquire);
+      }
+
+      if (cached_layer_nodes.size() >= num_chunks) {
+        break;  // Found the layer with enough elements
+      }
+    }
+
+    if (cached_layer_nodes.empty()) {
+      // If there are no max-height elements, return the complete list as one chunk
+      return {{Chunk{start[0], end[0]}}};
+    }
+
+    // If we have fewer max-height elements than chunks, adjust
+    if (cached_layer_nodes.size() < num_chunks) {
+      layer = 0;  // We got to the bottom layer
+      num_chunks = cached_layer_nodes.size();
+    }
+
+    std::vector<Chunk> chunks(num_chunks, Chunk{nullptr, nullptr});
+
+    uint64_t elements_per_chunk = cached_layer_nodes.size() / num_chunks;
+    uint64_t remainder = cached_layer_nodes.size() % num_chunks;
+
+    // First chunk starts from the very beginning of the list (head_->nexts[0])
+    // This ensures we capture any newly inserted elements at the beginning
+    TNode *current_start = start[0];
+    for (size_t i = 0; i < num_chunks; ++i) {
+      TNode *range_end = end[0];
+      const auto next_pos = (i + 1);
+      const auto end_pos = next_pos * elements_per_chunk + (next_pos < remainder ? next_pos : remainder);
+      if (end_pos < cached_layer_nodes.size()) {
+        range_end = cached_layer_nodes[end_pos];
+      }
+      chunks[i] = Chunk{current_start, range_end};
+      current_start = range_end;
+    }
+
+    return ChunkCollection{std::move(chunks)};
+  }
+
  private:
   TNode *head_{nullptr};
-  // gc_ also stores the only copy of `MemoryResource *`, to save space.
-  mutable SkipListGc<TObj> gc_;
+  mutable SkipListGc<TObj, Alloc> gc_;
 
   std::atomic<uint64_t> size_{0};
 };
 
+template <typename TObj>
+using SkipListDb = SkipList<TObj, memory::DbAwareAllocator<char>>;
+
+template <typename TObj>
+using SkipListGcDb = SkipListGc<TObj, memory::DbAwareAllocator<char>>;
 }  // namespace memgraph::utils

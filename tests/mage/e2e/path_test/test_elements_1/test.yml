@@ -1,0 +1,37 @@
+query: >
+  MATCH path = (:Node {id: 1})-[:CONNECTED*4]->(:Node {id: 5}) RETURN
+  path.elements(path) AS result;
+output:
+  - result:
+      - labels:
+          - Node
+        properties:
+          id: 1
+      - label: CONNECTED
+        properties:
+          id: 1
+      - labels:
+          - Node
+        properties:
+          id: 2
+      - label: CONNECTED
+        properties:
+          id: 2
+      - labels:
+          - Node
+        properties:
+          id: 3
+      - label: CONNECTED
+        properties:
+          id: 3
+      - labels:
+          - Node
+        properties:
+          id: 4
+      - label: CONNECTED
+        properties:
+          id: 4
+      - labels:
+          - Node
+        properties:
+          id: 5

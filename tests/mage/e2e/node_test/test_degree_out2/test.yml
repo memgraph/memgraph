@@ -1,0 +1,5 @@
+query: >
+  MATCH (d:Dog) RETURN node.degree_out(d) AS result;
+
+output:
+  - result: 2

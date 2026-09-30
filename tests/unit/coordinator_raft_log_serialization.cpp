@@ -1,0 +1,168 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_state_machine.hpp"
+#include "io/network/endpoint.hpp"
+#include "utils/uuid.hpp"
+
+#include <gflags/gflags.h>
+#include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
+
+using memgraph::coordination::CoordinatorClusterStateDelta;
+using memgraph::coordination::CoordinatorInstanceContext;
+using memgraph::coordination::CoordinatorRole;
+using memgraph::coordination::CoordinatorStateMachine;
+using memgraph::coordination::DataInstanceConfig;
+using memgraph::coordination::DataInstanceContext;
+using memgraph::coordination::ReplicationClientInfo;
+using memgraph::io::network::Endpoint;
+using memgraph::replication_coordination_glue::ReplicationMode;
+using memgraph::replication_coordination_glue::ReplicationRole;
+using memgraph::utils::UUID;
+
+// No networking communication in this test.
+class RaftLogSerialization : public ::testing::Test {
+ protected:
+  void SetUp() override {}
+
+  void TearDown() override {}
+
+  std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_raft_log_serialization"};
+};
+
+TEST_F(RaftLogSerialization, ReplClientInfo) {
+  ReplicationClientInfo info{.instance_name = "instance_name",
+                             .replication_mode = ReplicationMode::SYNC,
+                             .replication_server = Endpoint{"127.0.0.1", 10'111}};
+
+  nlohmann::json j = info;
+  ReplicationClientInfo info2 = j.get<memgraph::coordination::ReplicationClientInfo>();
+
+  ASSERT_EQ(info, info2);
+}
+
+TEST_F(RaftLogSerialization, DataInstanceConfig) {
+  DataInstanceConfig config{.instance_name = "instance3",
+                            .mgt_server = Endpoint{"127.0.0.1", 10'112},
+                            .replication_client_info = {.instance_name = "instance_name",
+                                                        .replication_mode = ReplicationMode::ASYNC,
+                                                        .replication_server = Endpoint{"127.0.0.1", 10'001}}};
+
+  nlohmann::json j = config;
+  DataInstanceConfig config2 = j.get<memgraph::coordination::DataInstanceConfig>();
+
+  ASSERT_EQ(config, config2);
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterState) {
+  DataInstanceConfig config{.instance_name = "instance3",
+                            .mgt_server = Endpoint{"127.0.0.1", 10'112},
+                            .replication_client_info = {.instance_name = "instance_name",
+                                                        .replication_mode = ReplicationMode::ASYNC,
+                                                        .replication_server = Endpoint{"127.0.0.1", 10'001}}};
+
+  std::vector<DataInstanceContext> data_instances;
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
+
+  std::vector<CoordinatorInstanceContext> coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances,
+                                                 .coordinator_instances_ = coord_instances,
+                                                 .current_main_uuid_ = UUID{},
+                                                 .enabled_reads_on_main_ = false};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithInstanceSettings) {
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.instance_down_timeout_sec_ = 15,
+                                                 .instance_health_check_frequency_sec_ = 5};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_EQ(decoded_log_state.instance_down_timeout_sec_, 15);
+  ASSERT_EQ(decoded_log_state.instance_health_check_frequency_sec_, 5);
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateAllSettings) {
+  DataInstanceConfig config{.instance_name = "instance3",
+                            .mgt_server = Endpoint{"127.0.0.1", 10'112},
+                            .replication_client_info = {.instance_name = "instance_name",
+                                                        .replication_mode = ReplicationMode::ASYNC,
+                                                        .replication_server = Endpoint{"127.0.0.1", 10'001}}};
+
+  std::vector<DataInstanceContext> data_instances;
+  data_instances.emplace_back(config, ReplicationRole::REPLICA, UUID{});
+
+  std::vector<CoordinatorInstanceContext> coord_instances{
+      CoordinatorInstanceContext{.id = 1, .bolt_server = "127.0.0.1:7690"},
+      CoordinatorInstanceContext{.id = 2, .bolt_server = "127.0.0.1:7691"},
+  };
+
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.data_instances_ = data_instances,
+                                                 .coordinator_instances_ = coord_instances,
+                                                 .current_main_uuid_ = UUID{},
+                                                 .enabled_reads_on_main_ = true,
+                                                 .sync_failover_only_ = false,
+                                                 .max_failover_replica_lag_ = 100,
+                                                 .max_replica_read_lag_ = 50,
+                                                 .deltas_batch_progress_size_ = 25'000,
+                                                 .instance_down_timeout_sec_ = 10,
+                                                 .instance_health_check_frequency_sec_ = 3,
+                                                 .global_read_only_ = true};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithRoles) {
+  // The per-log delta must roundtrip each role's name AND its privilege mask.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{
+      .roles_ =
+          std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}, {.name = "readonly", .permissions = 1}}};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_EQ(
+      decoded_log_state.roles_,
+      (std::vector<CoordinatorRole>{{.name = "admin", .permissions = 3}, {.name = "readonly", .permissions = 1}}));
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithEmptyRoles) {
+  // An empty (but set) roles vector must roundtrip as an empty vector, not as an unset optional.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.roles_ = std::vector<CoordinatorRole>{}};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_TRUE(decoded_log_state.roles_.has_value());
+  ASSERT_TRUE(decoded_log_state.roles_->empty());
+}
+
+TEST_F(RaftLogSerialization, SerializeUpdateClusterStateWithoutRoles) {
+  // A delta that doesn't set roles (older log) must decode with roles_ left unset, so DoAction leaves roles untouched.
+  // NOLINTNEXTLINE
+  CoordinatorClusterStateDelta const delta_state{.enabled_reads_on_main_ = true};
+  auto const buffer = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
+  auto const decoded_log_state = CoordinatorStateMachine::DecodeLog(*buffer);
+  ASSERT_EQ(delta_state, decoded_log_state);
+  ASSERT_FALSE(decoded_log_state.roles_.has_value());
+}

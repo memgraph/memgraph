@@ -1,0 +1,44 @@
+- query: >-
+    MATCH (n) RETURN count(n) AS count_after_export;
+  output:
+    - count_after_export: 5
+- query: >-
+    MATCH (n) RETURN count(n) AS count;
+  output:
+    - count: 0
+- query: >-
+    MATCH (n) RETURN count(n) AS count_after_import;
+  output:
+    - count_after_import: 5
+- query: >-
+    MATCH (n:User) WITH n.cars AS cars UNWIND cars AS my_cars RETURN count(my_cars) AS count;
+  output:
+    - count: 3
+- query: >-
+    MATCH (n:List) RETURN keys(n)[0] AS key;
+  output:
+    - key: "listKey"
+- query: >-
+    MATCH (n:List) UNWIND n.listKey as list RETURN list.inner AS inner;
+  output:
+    - inner: "Map1"
+    - inner: "Map2"
+- query: >-
+    MATCH (:Person {name: "Anna"})-[r:IS_FRIENDS_WITH]->(:Person {name: "John"}) RETURN r.from_date.year AS year, r.from_date.month AS month, r.from_date.day AS day;
+  output:
+    - year: 1995
+      month: 4
+      day: 28
+- query: >-
+    MATCH (p:Person {name: "Anna"}) RETURN p.birth_datetime.year AS year, p.birth_datetime.month AS month, p.birth_datetime.day AS day, p.birth_datetime.hour AS hour, p.birth_datetime.minute AS minute;
+  output:
+    - year: 1999
+      month: 10
+      day: 5
+      hour: 14
+      minute: 15
+- query: >-
+    MATCH (n:User {name: "Jimmy"}) RETURN n.clock.hour AS hour, n.clock.minute AS minute;
+  output:
+    - hour: 9
+      minute: 15

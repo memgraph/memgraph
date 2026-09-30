@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,28 +12,37 @@
 #pragma once
 
 #include "replication/config.hpp"
+#include "rpc/progress_heartbeat.hpp"
 #include "rpc/server.hpp"
-#include "slk/streams.hpp"
 
 namespace memgraph::replication {
 
 class ReplicationServer {
  public:
-  explicit ReplicationServer(const memgraph::replication::ReplicationServerConfig &config);
+  explicit ReplicationServer(const ReplicationServerConfig &config);
   ReplicationServer(const ReplicationServer &) = delete;
   ReplicationServer(ReplicationServer &&) = delete;
   ReplicationServer &operator=(const ReplicationServer &) = delete;
   ReplicationServer &operator=(ReplicationServer &&) = delete;
 
-  virtual ~ReplicationServer();
+  ~ReplicationServer();
 
   bool Start();
+  // const because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires constness
+  // of functions being invoked
+  bool Shutdown() const;
 
  protected:
   communication::ServerContext rpc_server_context_;
 
  public:
-  rpc::Server rpc_server_;  // TODO: Interface or something
+  // mutable because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires
+  // constness of functions being invoked
+  mutable rpc::Server rpc_server_;  // TODO: Interface or something
+  // The server runs a single RPC worker, so its data/recovery handlers never overlap and can share one persistent
+  // heartbeat worker instead of creating and joining a thread per request. The destructor drains rpc_server_ before
+  // any member is destroyed, so no handler can still hold a reference here.
+  rpc::ProgressHeartbeat progress_heartbeat_;
 };
 
 }  // namespace memgraph::replication

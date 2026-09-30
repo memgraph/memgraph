@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,8 +13,8 @@
 
 #include "utils/skip_list.hpp"
 
-DEFINE_int32(max_element, 20000, "Maximum element in the intial list");
-DEFINE_int32(max_range, 2000000, "Maximum range used for the test");
+DEFINE_int32(max_element, 20'000, "Maximum element in the intial list");
+DEFINE_int32(max_range, 2'000'000, "Maximum range used for the test");
 
 int main(int argc, char **argv) {
   gflags::ParseCommandLineFlags(&argc, &argv, true);

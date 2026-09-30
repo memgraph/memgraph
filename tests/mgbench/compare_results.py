@@ -42,7 +42,7 @@ def compare_results(results_from, results_to, fields, ignored, different_vendors
             continue
         for variant, groups in variants.items():
             for group, scenarios in groups.items():
-                if group == "__import__":
+                if group == "__import__" or group == "empty_db" or group == "imported_data":
                     continue
                 for scenario, summary_to in scenarios.items():
                     if scenario in ignored:

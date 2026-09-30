@@ -1,0 +1,10 @@
+# The same two start nodes listed the other way round return the other path, which is what pins the
+# behaviour to the list order rather than to anything about the nodes themselves.
+query: >
+  MATCH (a:Node {name: "A"}), (b:Node {name: "B"})
+  CALL path.expand_config([b, a], {relationshipFilter: 'R>', minHops: 1, maxHops: 1, limit: 1})
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["B", "Y"]

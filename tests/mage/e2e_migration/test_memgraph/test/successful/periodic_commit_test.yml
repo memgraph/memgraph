@@ -1,0 +1,12 @@
+query: |
+  USING PERIODIC COMMIT 30
+  CALL cross_database.bolt(
+      'UNWIND range(0, 199) AS n RETURN n',
+      {host: 'localhost', port: 7687}
+  )
+  YIELD row
+  MERGE (v:PCTestNode {n: row.n})
+  RETURN count(row) AS cnt
+
+output:
+  - cnt: 200

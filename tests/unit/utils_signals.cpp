@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,6 @@
 #include <iostream>
 #include <string>
 #include <thread>
-#include <utility>
 
 #include <gtest/gtest.h>
 
@@ -28,8 +27,13 @@
 TEST(Signals, Handler) {
   ASSERT_TRUE(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::SegmentationFault, []() {
     std::cout << "Segmentation Fault" << std::endl;
+#if !defined(__SANITIZE_THREAD__) && !__has_feature(thread_sanitizer)
+    // Creating a stack-trace is not async signal safe, and TSAN
+    // complains about it. For tests with TSAN enabled, the cout output
+    // above suffices to confirm the test is successful.
     memgraph::utils::Stacktrace stacktrace;
     std::cout << stacktrace.dump() << std::endl;
+#endif
   }));
 
   std::raise(SIGSEGV);

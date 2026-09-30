@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,28 +9,64 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <optional>
 #include <vector>
 
 #include <fmt/format.h>
 #include <gtest/gtest.h>
 
-#include "utils/math.hpp"
 #include "utils/skip_list.hpp"
 #include "utils/timer.hpp"
 
 #include <iterator>
 
 template <typename It, typename ConstIt>
-concept CompatibleIterators = std::forward_iterator<It> && std::forward_iterator<ConstIt> &&
-    requires(It it, ConstIt cit) {
-  { it == cit } -> std::same_as<bool>;
-  { it != cit } -> std::same_as<bool>;
-  { cit == it } -> std::same_as<bool>;
-  { cit != it } -> std::same_as<bool>;
-};
+concept CompatibleIterators =
+    std::forward_iterator<It> && std::forward_iterator<ConstIt> && requires(It it, ConstIt cit) {
+      { it == cit } -> std::same_as<bool>;
+      { it != cit } -> std::same_as<bool>;
+      { cit == it } -> std::same_as<bool>;
+      { cit != it } -> std::same_as<bool>;
+    };
 
 using sut_t = memgraph::utils::SkipList<int64_t>::Accessor;
 static_assert(CompatibleIterators<sut_t::iterator, sut_t::const_iterator>);
+
+struct CompositeKey {
+  CompositeKey(uint32_t a, uint32_t b) : a(a), b(b) {}
+
+  CompositeKey(CompositeKey const &) = default;
+  CompositeKey(CompositeKey &&) = default;
+  CompositeKey &operator=(CompositeKey const &) = default;
+  CompositeKey &operator=(CompositeKey &&) = default;
+
+  friend bool operator==(CompositeKey const &, CompositeKey const &) = default;
+
+  friend bool operator<(CompositeKey const &lhs, CompositeKey const &rhs) {
+    return std::tie(lhs.a, lhs.b) < std::tie(rhs.a, rhs.b);
+  }
+
+  friend bool operator==(CompositeKey const &lhs, uint32_t prefix) { return lhs.a == prefix; };
+
+  friend bool operator<(CompositeKey const &lhs, uint32_t prefix) { return lhs.a < prefix; };
+
+  uint32_t a, b;
+};
+
+TEST(SkipList, FindEqualOrGreaterPrefix) {
+  memgraph::utils::SkipList<CompositeKey> list;
+  {
+    auto acc = list.access();
+    for (uint32_t i : {100, 10, 5, 9, 15, 80}) {
+      auto res = acc.insert(CompositeKey{42, i});
+      ASSERT_EQ(*res.first, CompositeKey(42, i));
+      ASSERT_TRUE(res.second);
+    }
+    auto it = acc.find_equal_or_greater(uint32_t{42});
+    ASSERT_EQ(it->a, 42);
+    ASSERT_EQ(it->b, 5);
+  }
+}
 
 TEST(SkipList, Int) {
   memgraph::utils::SkipList<int64_t> list;
@@ -223,10 +259,12 @@ struct OnlyCopyable {
   OnlyCopyable &operator=(const OnlyCopyable &) = default;
 
   OnlyCopyable(const uint64_t val) : value{val} {}
+
   uint64_t value;
 };
 
 bool operator==(const OnlyCopyable &a, const OnlyCopyable &b) { return a.value == b.value; }
+
 bool operator<(const OnlyCopyable &a, const OnlyCopyable &b) { return a.value < b.value; }
 
 TEST(SkipList, OnlyCopyable) {
@@ -241,7 +279,9 @@ TEST(SkipList, OnlyCopyable) {
 
 struct OnlyMoveable {
   OnlyMoveable() = default;
+
   OnlyMoveable(uint64_t val) : value(val) {}
+
   OnlyMoveable(OnlyMoveable &&) = default;
   OnlyMoveable(const OnlyMoveable &) = delete;
   OnlyMoveable &operator=(OnlyMoveable &&) = default;
@@ -250,6 +290,7 @@ struct OnlyMoveable {
 };
 
 bool operator==(const OnlyMoveable &a, const OnlyMoveable &b) { return a.value == b.value; }
+
 bool operator<(const OnlyMoveable &a, const OnlyMoveable &b) { return a.value < b.value; }
 
 TEST(SkipList, OnlyMoveable) {
@@ -283,9 +324,11 @@ struct MapObject {
 };
 
 bool operator==(const MapObject &a, const MapObject &b) { return a.key == b.key; }
+
 bool operator<(const MapObject &a, const MapObject &b) { return a.key < b.key; }
 
 bool operator==(const MapObject &a, const uint64_t &b) { return a.key == b; }
+
 bool operator<(const MapObject &a, const uint64_t &b) { return a.key < b; }
 
 TEST(SkipList, MapExample) {
@@ -360,6 +403,48 @@ TEST(SkipList, Move) {
   }
 }
 
+// clear() is what frees a large storage during a replica force-reset, and it reports nothing on its own -- size_ is
+// only zeroed once the walk finishes. An RPC handler waiting on that teardown relies on this callback to tell its peer
+// it is still alive, so a silent clear() is a peer timeout.
+TEST(SkipList, ClearReportsProgress) {
+  memgraph::utils::SkipList<int64_t> list;
+  constexpr uint64_t kInterval = memgraph::utils::kClearProgressMask + 1;
+  constexpr int64_t kElements = 3 * kInterval;
+
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < kElements; ++i) {
+      ASSERT_TRUE(acc.insert(i).second);
+    }
+  }
+
+  uint64_t reports = 0;
+  list.clear([&reports] { ++reports; });
+
+  EXPECT_EQ(reports, 3) << "expected one report per " << kInterval << " destroyed nodes";
+  {
+    auto acc = list.access();
+    EXPECT_EQ(acc.size(), 0);
+  }
+}
+
+// A clear() with no callback must still work: that is how every caller outside the recovery paths uses it, including
+// ~SkipList.
+TEST(SkipList, ClearWithoutProgressCallback) {
+  memgraph::utils::SkipList<int64_t> list;
+  {
+    auto acc = list.access();
+    for (int64_t i = 0; i < 100; ++i) {
+      ASSERT_TRUE(acc.insert(i).second);
+    }
+  }
+
+  list.clear();
+
+  auto acc = list.access();
+  EXPECT_EQ(acc.size(), 0);
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST(SkipList, Clear) {
   memgraph::utils::SkipList<int64_t> list;
@@ -419,9 +504,13 @@ struct Inception {
   uint64_t id;
   memgraph::utils::SkipList<uint64_t> data;
 };
+
 bool operator==(const Inception &a, const Inception &b) { return a.id == b.id; }
+
 bool operator<(const Inception &a, const Inception &b) { return a.id < b.id; }
+
 bool operator==(const Inception &a, const uint64_t &b) { return a.id == b; }
+
 bool operator<(const Inception &a, const uint64_t &b) { return a.id < b; }
 
 TEST(SkipList, Inception) {
@@ -498,11 +587,14 @@ struct Counter {
 };
 
 bool operator==(const Counter &a, const Counter &b) { return a.key == b.key && a.value == b.value; }
+
 bool operator<(const Counter &a, const Counter &b) {
   if (a.key == b.key) return a.value < b.value;
   return a.key < b.key;
 }
+
 bool operator==(const Counter &a, int64_t b) { return a.key == b; }
+
 bool operator<(const Counter &a, int64_t b) { return a.key < b; }
 
 TEST(SkipList, EstimateCount) {
@@ -556,31 +648,31 @@ TEST(SkipList, EstimateCount) {
   }
 }
 
-#define MAKE_RANGE_BOTH_DEFINED_TEST(lower, upper)                                                       \
-  {                                                                                                      \
-    for (int64_t i = 0; i < 10; ++i) {                                                                   \
-      for (int64_t j = 0; j < 10; ++j) {                                                                 \
-        auto acc = list.access();                                                                        \
-        uint64_t blocks = 0;                                                                             \
-        if (memgraph::utils::BoundType::lower == memgraph::utils::BoundType::EXCLUSIVE &&                \
-            memgraph::utils::BoundType::upper == memgraph::utils::BoundType::EXCLUSIVE) {                \
-          if (j > i) {                                                                                   \
-            blocks = j - i - 1;                                                                          \
-          }                                                                                              \
-        } else {                                                                                         \
-          if (j >= i) {                                                                                  \
-            blocks = j - i;                                                                              \
-            if (memgraph::utils::BoundType::lower == memgraph::utils::BoundType::INCLUSIVE &&            \
-                memgraph::utils::BoundType::upper == memgraph::utils::BoundType::INCLUSIVE) {            \
-              ++blocks;                                                                                  \
-            }                                                                                            \
-          }                                                                                              \
-        }                                                                                                \
-        uint64_t count = acc.estimate_range_count<int64_t>({{i, memgraph::utils::BoundType::lower}},     \
-                                                           {{j, memgraph::utils::BoundType::upper}}, 1); \
-        ASSERT_EQ(count, kElementMembers *blocks);                                                       \
-      }                                                                                                  \
-    }                                                                                                    \
+#define MAKE_RANGE_BOTH_DEFINED_TEST(lower, upper)                                                  \
+  {                                                                                                 \
+    for (int64_t i = 0; i < 10; ++i) {                                                              \
+      for (int64_t j = 0; j < 10; ++j) {                                                            \
+        auto acc = list.access();                                                                   \
+        uint64_t blocks = 0;                                                                        \
+        if (memgraph::utils::BoundType::lower == memgraph::utils::BoundType::EXCLUSIVE &&           \
+            memgraph::utils::BoundType::upper == memgraph::utils::BoundType::EXCLUSIVE) {           \
+          if (j > i) {                                                                              \
+            blocks = j - i - 1;                                                                     \
+          }                                                                                         \
+        } else {                                                                                    \
+          if (j >= i) {                                                                             \
+            blocks = j - i;                                                                         \
+            if (memgraph::utils::BoundType::lower == memgraph::utils::BoundType::INCLUSIVE &&       \
+                memgraph::utils::BoundType::upper == memgraph::utils::BoundType::INCLUSIVE) {       \
+              ++blocks;                                                                             \
+            }                                                                                       \
+          }                                                                                         \
+        }                                                                                           \
+        uint64_t count = acc.estimate_range_count<int64_t>(                                         \
+            {{i, memgraph::utils::BoundType::lower}}, {{j, memgraph::utils::BoundType::upper}}, 1); \
+        ASSERT_EQ(count, kElementMembers * blocks);                                                 \
+      }                                                                                             \
+    }                                                                                               \
   }
 
 #define MAKE_RANGE_LOWER_INFINITY_TEST(upper_value, upper_type, blocks)                                              \
@@ -588,7 +680,7 @@ TEST(SkipList, EstimateCount) {
     auto acc = list.access();                                                                                        \
     uint64_t count =                                                                                                 \
         acc.estimate_range_count<int64_t>(std::nullopt, {{upper_value, memgraph::utils::BoundType::upper_type}}, 1); \
-    ASSERT_EQ(count, kElementMembers *blocks);                                                                       \
+    ASSERT_EQ(count, kElementMembers * blocks);                                                                      \
   }
 
 #define MAKE_RANGE_UPPER_INFINITY_TEST(lower_value, lower_type, blocks)                                              \
@@ -596,7 +688,7 @@ TEST(SkipList, EstimateCount) {
     auto acc = list.access();                                                                                        \
     uint64_t count =                                                                                                 \
         acc.estimate_range_count<int64_t>({{lower_value, memgraph::utils::BoundType::lower_type}}, std::nullopt, 1); \
-    ASSERT_EQ(count, kElementMembers *blocks);                                                                       \
+    ASSERT_EQ(count, kElementMembers * blocks);                                                                      \
   }
 
 TEST(SkipList, EstimateRangeCount) {
@@ -668,6 +760,36 @@ TEST(SkipList, EstimateRangeCount) {
   }
 }
 
+TEST(SkipList, EstimateRangeCountLowerBoundNeedNotBeInTheList) {
+  // A range is described by where its bounds fall between the keys, not by the keys themselves, so
+  // a bound that no element matches has to count the same elements as the next key above it.
+  memgraph::utils::SkipList<Counter> list;
+  const int64_t kKeys = 100;
+  const int64_t kMembers = 10;
+  {
+    auto acc = list.access();
+    for (int64_t key = 0; key < kKeys; ++key) {
+      for (int64_t member = 0; member < kMembers; ++member) {
+        ASSERT_TRUE(acc.insert({key * 2, member}).second);
+      }
+    }
+  }
+
+  auto acc = list.access();
+  using memgraph::utils::BoundType;
+  for (int64_t absent : {1, 51, 197}) {
+    auto const from_absent = acc.estimate_range_count<int64_t>({{absent, BoundType::INCLUSIVE}}, std::nullopt, 1);
+    auto const from_next_key = acc.estimate_range_count<int64_t>({{absent + 1, BoundType::INCLUSIVE}}, std::nullopt, 1);
+    EXPECT_GT(from_next_key, 0);
+    EXPECT_EQ(from_absent, from_next_key);
+  }
+
+  // An absent bound inside a bounded range behaves the same way.
+  auto const bounded_from_absent =
+      acc.estimate_range_count<int64_t>({{51, BoundType::INCLUSIVE}}, {{59, BoundType::INCLUSIVE}}, 1);
+  EXPECT_EQ(bounded_from_absent, 4 * kMembers);  // keys 52, 54, 56, 58
+}
+
 template <typename TElem, typename TCmp>
 void BenchmarkEstimateAverageNumberOfEquals(memgraph::utils::SkipList<TElem> *list, const TCmp &cmp) {
   std::cout << "List size: " << list->size() << std::endl;
@@ -726,7 +848,7 @@ TEST(SkipList, EstimateAverageNumberOfEquals2) {
   memgraph::utils::SkipList<Counter> list;
 
   // 100k elements will yield an expected maximum height of 17.
-  const int kMaxElements = 100000;
+  const int kMaxElements = 100'000;
   const int kElementMembers = 1;
 
   // Create a list that has `kMaxElements` sets of `kElementMembers` items that
@@ -800,7 +922,7 @@ TEST(SkipList, EstimateAverageNumberOfEquals4) {
   memgraph::utils::SkipList<Counter> list;
 
   // ~300k elements will yield an expected maximum height of 18.
-  const int kMaxElements = 100000;
+  const int kMaxElements = 100'000;
 
   // Create a list that has `kMaxElements` sets of 1 or 3 items that have same
   // keys. The bias is 70% for a set that has 3 items, and 30% for a set that
@@ -840,7 +962,7 @@ TEST(SkipList, EstimateAverageNumberOfEquals5) {
   memgraph::utils::SkipList<Counter> list;
 
   // ~500k elements will yield an expected maximum height of 19.
-  const int kMaxElements = 1000000;
+  const int kMaxElements = 1'000'000;
 
   // Create a list that has `kMaxElements` items that have same keys.
   {
@@ -867,4 +989,90 @@ TEST(SkipList, EstimateAverageNumberOfEquals5) {
         acc.estimate_average_number_of_equals([](const auto &a, const auto &b) { return a.key == b.key; }, 1);
     ASSERT_EQ(count, kMaxElements);
   }
+}
+
+namespace {
+
+class CountingResource : public memgraph::utils::MemoryResource {
+ public:
+  std::atomic<std::size_t> bytes_in_use{0};
+  std::atomic<std::size_t> allocs{0};
+  std::atomic<std::size_t> deallocs{0};
+
+ private:
+  void *do_allocate(std::size_t n, std::size_t align) override {
+    bytes_in_use.fetch_add(n, std::memory_order_relaxed);
+    allocs.fetch_add(1, std::memory_order_relaxed);
+    return memgraph::utils::NewDeleteResource()->allocate(n, align);
+  }
+
+  void do_deallocate(void *p, std::size_t n, std::size_t align) override {
+    bytes_in_use.fetch_sub(n, std::memory_order_relaxed);
+    deallocs.fetch_add(1, std::memory_order_relaxed);
+    memgraph::utils::NewDeleteResource()->deallocate(p, n, align);
+  }
+
+  bool do_is_equal(const memgraph::utils::MemoryResource &o) const noexcept override { return this == &o; }
+};
+
+}  // namespace
+
+// Releasing the removing accessor must unblock reclamation on the next run_gc.
+// Guards against re-regressing the tag/live_horizon off-by-one.
+TEST(SkipListGc, ReclaimHappensOnRunGcAfterAccessorRelease) {
+  CountingResource r;
+  memgraph::utils::SkipList<int> list{&r};
+
+  {
+    auto acc = list.access();
+    acc.insert(42);
+  }
+
+  {
+    auto acc = list.access();
+    ASSERT_TRUE(acc.remove(42));
+  }
+  // Logical size is 0 but the node is on the GC's deleted list.
+  ASSERT_EQ(list.size(), 0U);
+  ASSERT_EQ(r.deallocs.load(), 0U);
+
+  list.run_gc();
+  EXPECT_GT(r.deallocs.load(), 0U) << "run_gc() after the removing accessor released should free the node "
+                                      "immediately; if this fails, the SkipListGc off-by-one has regressed.";
+}
+
+// Safety invariant: a removed node must not be reclaimed while an accessor
+// alive at remove time is still alive (its iterators could still reference it).
+TEST(SkipListGc, ReclaimBlockedByAccessorAliveAtRemoveTime) {
+  CountingResource r;
+  memgraph::utils::SkipList<int> list{&r};
+
+  {
+    auto acc = list.access();
+    acc.insert(42);
+  }
+  ASSERT_EQ(r.deallocs.load(), 0U);
+
+  auto reader = std::make_optional(list.access());  // predates the remove
+
+  {
+    auto writer = list.access();
+    ASSERT_TRUE(writer.remove(42));
+  }
+  ASSERT_EQ(list.size(), 0U);
+
+  // Reader still alive: GC must not free the node across run_gc + cycles.
+  for (int i = 0; i < 5; ++i) {
+    {
+      auto tmp = list.access();
+    }
+    list.run_gc();
+  }
+  EXPECT_EQ(r.deallocs.load(), 0U) << "GC freed a node while an accessor alive at remove time was still alive: UAF.";
+
+  // After the reader releases, the next run_gc must reclaim.
+  reader.reset();
+  list.run_gc();
+  EXPECT_GT(r.deallocs.load(), 0U)
+      << "Releasing the last blocking accessor should unblock reclamation on the next run_gc.";
 }

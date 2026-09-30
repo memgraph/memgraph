@@ -1,12 +1,48 @@
-add_library(mg-flags STATIC audit.cpp
-                            bolt.cpp
-                            general.cpp
-                            isolation_level.cpp
-                            log_level.cpp
-                            memory_limit.cpp
-                            run_time_configurable.cpp
-                            storage_mode.cpp
-                            query.cpp
-                            replication.cpp)
-target_include_directories(mg-flags PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(mg-flags PUBLIC spdlog::spdlog mg-settings mg-utils)
+add_library(mg-flags STATIC)
+add_library(mg::flags ALIAS mg-flags)
+target_sources(mg-flags
+        PUBLIC
+        FILE_SET HEADERS
+        BASE_DIRS ..
+        FILES
+        all.hpp
+        audit.hpp
+        auth.hpp
+        bolt.hpp
+        coord_flag_env_handler.hpp
+        coordination.hpp
+        experimental.hpp
+        general.hpp
+        isolation_level.hpp
+        logging.hpp
+        memory_limit.hpp
+        replication.hpp
+        run_time_configurable.hpp
+        storage_mode.hpp
+        scheduler.hpp
+
+        PRIVATE
+        audit.cpp
+        auth.cpp
+        bolt.cpp
+        coord_flag_env_handler.cpp
+        coordination.cpp
+        experimental.cpp
+        general.cpp
+        isolation_level.cpp
+        logging.cpp
+        memory_limit.cpp
+        replication.cpp
+        run_time_configurable.cpp
+        storage_mode.cpp
+        scheduler.cpp
+)
+
+find_package(spdlog REQUIRED)
+find_package(croncpp REQUIRED)
+find_package(range-v3 REQUIRED)
+
+
+target_link_libraries(mg-flags
+        PUBLIC spdlog::spdlog mg-settings mg-utils gflags
+        PRIVATE range-v3::range-v3 croncpp::croncpp mg-license)

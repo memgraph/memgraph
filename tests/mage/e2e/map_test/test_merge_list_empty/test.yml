@@ -1,0 +1,5 @@
+query: >
+  RETURN map.merge_list([]) AS result;
+
+output:
+  - result: {}

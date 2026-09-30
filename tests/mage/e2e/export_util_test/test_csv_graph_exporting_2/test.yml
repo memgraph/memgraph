@@ -1,0 +1,18 @@
+query: >
+  MATCH (d:Dog)-[l]->(h:Human)
+  MATCH (p:Plane)-[f]->(de:destination)
+  CALL export_util.csv_graph([d,h,p,de], [l,f], "", {stream: true, quotes: "none", separateHeader: true, delimiter : '|' }) YIELD data
+  WITH split(data, "\n") as results_list
+  UNWIND(results_list) as result
+  WITH trim(result) as trimmed_result
+  WHERE trimmed_result!=""
+  WITH split(trimmed_result, "|") AS row
+  RETURN row[1] + " " + row[7] AS type
+
+output:
+  - type: ':Dog '
+  - type: ':Human '
+  - type: ':Plane '
+  - type: ':destination '
+  - type: ' LOVES'
+  - type: ' FLIES'

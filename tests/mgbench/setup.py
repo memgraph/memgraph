@@ -18,6 +18,8 @@ from benchmark_context import BenchmarkContext
 
 
 def check_requirements(benchmark_context: BenchmarkContext):
+    if benchmark_context.vendor_name is None:
+        return True
     if "docker" in benchmark_context.vendor_name:
         log.info("Checking requirements ... ")
         command = ["docker", "info"]

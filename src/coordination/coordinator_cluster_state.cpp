@@ -1,0 +1,444 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#ifdef MG_ENTERPRISE
+
+#include "coordination/coordinator_cluster_state.hpp"
+
+#include <spdlog/spdlog.h>
+#include <algorithm>
+#include <libnuraft/buffer.hxx>
+#include <libnuraft/buffer_serializer.hxx>
+#include <nlohmann/json.hpp>
+#include <ranges>
+#include <shared_mutex>
+#include <utility>
+
+#include "coordination/constants.hpp"
+#include "coordination/coordinator_communication_config.hpp"
+#include "replication_coordination_glue/common.hpp"
+#include "replication_coordination_glue/role.hpp"
+
+namespace memgraph::coordination {
+
+namespace {
+// Older versions allowed re-adding an already existing coordinator id, so persisted state can contain duplicate
+// entries. All id-based lookups and updates always operated on the first occurrence, so keep it and drop the rest.
+auto DedupCoordinatorInstances(std::vector<CoordinatorInstanceContext> instances)
+    -> std::vector<CoordinatorInstanceContext> {
+  std::vector<CoordinatorInstanceContext> result;
+  result.reserve(instances.size());
+  for (auto &instance : instances) {
+    if (!std::ranges::contains(result, instance.id, &CoordinatorInstanceContext::id)) {
+      result.push_back(std::move(instance));
+    }
+  }
+  return result;
+}
+
+// Older versions accepted instance_health_check_frequency_sec = 0, so persisted state can contain a value the read
+// side treats as fatal: StartStateCheck() MG_ASSERTs on it, aborting every coordinator that recovers it, on every
+// restart. Clamping on the way in is a deterministic function of the log, so all coordinators running this version
+// still agree, and it lets a cluster that is already crash-looping come back up. An unpatched peer derives 0 instead
+// and keeps aborting — but that is what it does today regardless, so there is no divergence this creates.
+auto ClampInstanceHealthCheckFreqSec(uint32_t const check_freq_sec) -> uint32_t {
+  if (check_freq_sec >= kMinInstanceHealthCheckFreqSec) {
+    return check_freq_sec;
+  }
+  spdlog::warn(
+      "Recovered {}={}, which is below the supported minimum; using {} instead. Persist a valid value with "
+      "SET COORDINATOR SETTING '{}' TO '<value>'.",
+      kInstanceHealthCheckFreqSec,
+      check_freq_sec,
+      kMinInstanceHealthCheckFreqSec,
+      kInstanceHealthCheckFreqSec);
+  return kMinInstanceHealthCheckFreqSec;
+}
+}  // namespace
+
+CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other) {
+  auto lock = std::lock_guard{other.app_lock_};
+  // NOLINTBEGIN
+  data_instances_ = other.data_instances_;
+  coordinator_instances_ = other.coordinator_instances_;
+  current_main_uuid_ = other.current_main_uuid_;
+  enabled_reads_on_main_ = other.enabled_reads_on_main_;
+  sync_failover_only_ = other.sync_failover_only_;
+  max_failover_replica_lag_ = other.max_failover_replica_lag_;
+  max_replica_read_lag_ = other.max_replica_read_lag_;
+  deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
+  instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
+  instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
+  global_read_only_ = other.global_read_only_;
+  roles_ = other.roles_;
+  // NOLINTEND
+}
+
+CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState const &other) {
+  if (this == &other) {
+    return *this;
+  }
+  std::scoped_lock const lock{app_lock_, other.app_lock_};
+
+  data_instances_ = other.data_instances_;
+  coordinator_instances_ = other.coordinator_instances_;
+  current_main_uuid_ = other.current_main_uuid_;
+  enabled_reads_on_main_ = other.enabled_reads_on_main_;
+  sync_failover_only_ = other.sync_failover_only_;
+  max_failover_replica_lag_ = other.max_failover_replica_lag_;
+  max_replica_read_lag_ = other.max_replica_read_lag_;
+  deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
+  instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
+  instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
+  global_read_only_ = other.global_read_only_;
+  roles_ = other.roles_;
+  return *this;
+}
+
+CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other) noexcept
+    : data_instances_{std::move(other.data_instances_)},
+      coordinator_instances_{std::move(other.coordinator_instances_)},
+      current_main_uuid_{other.current_main_uuid_},
+      enabled_reads_on_main_{other.enabled_reads_on_main_},
+      sync_failover_only_{other.sync_failover_only_},
+      max_failover_replica_lag_(other.max_failover_replica_lag_),
+      max_replica_read_lag_(other.max_replica_read_lag_),
+      deltas_batch_progress_size_(other.deltas_batch_progress_size_),
+      instance_down_timeout_sec_(other.instance_down_timeout_sec_),
+      instance_health_check_frequency_sec_(other.instance_health_check_frequency_sec_),
+      global_read_only_(other.global_read_only_),
+      roles_(std::move(other.roles_)) {}
+
+CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
+  if (this == &other) {
+    return *this;
+  }
+
+  auto lock = std::lock_guard{app_lock_};
+
+  data_instances_ = std::move(other.data_instances_);
+  coordinator_instances_ = std::move(other.coordinator_instances_);
+  current_main_uuid_ = other.current_main_uuid_;
+  enabled_reads_on_main_ = other.enabled_reads_on_main_;
+  sync_failover_only_ = other.sync_failover_only_;
+  max_failover_replica_lag_ = other.max_failover_replica_lag_;
+  max_replica_read_lag_ = other.max_replica_read_lag_;
+  deltas_batch_progress_size_ = other.deltas_batch_progress_size_;
+  instance_down_timeout_sec_ = other.instance_down_timeout_sec_;
+  instance_health_check_frequency_sec_ = other.instance_health_check_frequency_sec_;
+  global_read_only_ = other.global_read_only_;
+  roles_ = std::move(other.roles_);
+  return *this;
+}
+
+auto CoordinatorClusterState::MainExists() const -> bool {
+  auto lock = std::shared_lock{app_lock_};
+  return std::ranges::any_of(data_instances_,
+                             [](auto const &data_instance) { return data_instance.status == ReplicationRole::MAIN; });
+}
+
+// Ideally, we delete this.
+auto CoordinatorClusterState::HasMainState(std::string_view instance_name) const -> bool {
+  auto lock = std::shared_lock{app_lock_};
+  auto const it = std::ranges::find_if(data_instances_, [instance_name](auto const &data_instance) {
+    return data_instance.config.instance_name == instance_name;
+  });
+
+  return it != data_instances_.end() && it->status == ReplicationRole::MAIN;
+}
+
+auto CoordinatorClusterState::IsCurrentMain(std::string_view instance_name) const -> bool {
+  auto lock = std::shared_lock{app_lock_};
+  auto const it = std::ranges::find_if(data_instances_, [instance_name](auto const &data_instance) {
+    return data_instance.config.instance_name == instance_name;
+  });
+  return it != data_instances_.end() && it->status == ReplicationRole::MAIN && it->instance_uuid == current_main_uuid_;
+}
+
+auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state) -> void {
+  auto lock = std::lock_guard{app_lock_};
+  if (delta_state.data_instances_.has_value()) {
+    data_instances_ = std::move(*delta_state.data_instances_);
+  }
+  if (delta_state.coordinator_instances_.has_value()) {
+    coordinator_instances_ = DedupCoordinatorInstances(std::move(*delta_state.coordinator_instances_));
+  }
+  if (delta_state.current_main_uuid_.has_value()) {
+    current_main_uuid_ = *delta_state.current_main_uuid_;
+  }
+  if (delta_state.enabled_reads_on_main_.has_value()) {
+    enabled_reads_on_main_ = *delta_state.enabled_reads_on_main_;
+  }
+  if (delta_state.sync_failover_only_.has_value()) {
+    sync_failover_only_ = *delta_state.sync_failover_only_;
+  }
+
+  if (delta_state.max_failover_replica_lag_.has_value()) {
+    max_failover_replica_lag_ = *delta_state.max_failover_replica_lag_;
+  }
+
+  if (delta_state.max_replica_read_lag_.has_value()) {
+    max_replica_read_lag_ = *delta_state.max_replica_read_lag_;
+  }
+
+  if (delta_state.deltas_batch_progress_size_.has_value()) {
+    deltas_batch_progress_size_ = *delta_state.deltas_batch_progress_size_;
+  }
+
+  if (delta_state.instance_down_timeout_sec_.has_value()) {
+    instance_down_timeout_sec_ = *delta_state.instance_down_timeout_sec_;
+  }
+
+  if (delta_state.instance_health_check_frequency_sec_.has_value()) {
+    instance_health_check_frequency_sec_ =
+        ClampInstanceHealthCheckFreqSec(*delta_state.instance_health_check_frequency_sec_);
+  }
+
+  if (delta_state.global_read_only_.has_value()) {
+    global_read_only_ = *delta_state.global_read_only_;
+  }
+
+  if (delta_state.roles_.has_value()) {
+    roles_ = std::move(*delta_state.roles_);
+  }
+}
+
+auto CoordinatorClusterState::Serialize(ptr<buffer> &data) const -> void {
+  auto lock = std::shared_lock{app_lock_};
+  nlohmann::json json;
+  to_json(json, *this);
+  auto const log = json.dump();
+  data = buffer::alloc(sizeof(uint32_t) + log.size());
+  buffer_serializer bs(data);
+  bs.put_str(log);
+}
+
+auto CoordinatorClusterState::Deserialize(buffer &data) -> CoordinatorClusterState {
+  buffer_serializer bs(data);
+  auto const j = nlohmann::json::parse(bs.get_str());
+
+  CoordinatorClusterState cluster_state;
+  j.get_to(cluster_state);
+  return cluster_state;
+}
+
+auto CoordinatorClusterState::GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext> {
+  auto lock = std::shared_lock{app_lock_};
+  return coordinator_instances_;
+}
+
+auto CoordinatorClusterState::GetDataInstancesContext() const -> std::vector<DataInstanceContext> {
+  auto lock = std::shared_lock{app_lock_};
+  return data_instances_;
+}
+
+auto CoordinatorClusterState::TryGetCurrentMainName() const -> std::optional<std::string> {
+  auto lock = std::shared_lock{app_lock_};
+
+  const auto curr_main = std::ranges::find_if(data_instances_, [this](auto &&data_instance) {
+    return data_instance.status == ReplicationRole::MAIN && data_instance.instance_uuid == current_main_uuid_;
+  });
+  return curr_main == data_instances_.end() ? std::nullopt : std::make_optional(curr_main->config.instance_name);
+}
+
+auto CoordinatorClusterState::GetCurrentMainUUID() const -> utils::UUID {
+  auto lock = std::shared_lock{app_lock_};
+  return current_main_uuid_;
+}
+
+auto CoordinatorClusterState::GetEnabledReadsOnMain() const -> bool {
+  auto lock = std::shared_lock{app_lock_};
+  return enabled_reads_on_main_;
+}
+
+auto CoordinatorClusterState::GetSyncFailoverOnly() const -> bool {
+  auto lock = std::shared_lock{app_lock_};
+  return sync_failover_only_;
+}
+
+auto CoordinatorClusterState::GetMaxFailoverReplicaLag() const -> uint64_t {
+  auto lock = std::shared_lock{app_lock_};
+  return max_failover_replica_lag_;
+}
+
+auto CoordinatorClusterState::GetMaxReplicaReadLag() const -> uint64_t {
+  auto lock = std::shared_lock{app_lock_};
+  return max_replica_read_lag_;
+}
+
+auto CoordinatorClusterState::GetDeltasBatchProgressSize() const -> uint64_t {
+  auto lock = std::shared_lock{app_lock_};
+  return deltas_batch_progress_size_;
+}
+
+auto CoordinatorClusterState::GetInstanceDownTimeoutSec() const -> uint32_t {
+  auto lock = std::shared_lock{app_lock_};
+  return instance_down_timeout_sec_;
+}
+
+auto CoordinatorClusterState::GetInstanceHealthCheckFrequencySec() const -> std::chrono::seconds {
+  auto lock = std::shared_lock{app_lock_};
+  return std::chrono::seconds{instance_health_check_frequency_sec_};
+}
+
+auto CoordinatorClusterState::GetGlobalReadOnly() const -> bool {
+  auto lock = std::shared_lock{app_lock_};
+  return global_read_only_;
+}
+
+auto CoordinatorClusterState::GetRoles() const -> std::vector<CoordinatorRole> {
+  auto lock = std::shared_lock{app_lock_};
+  return roles_;
+}
+
+void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
+  auto lock = std::lock_guard{app_lock_};
+  coordinator_instances_ = DedupCoordinatorInstances(std::move(coordinator_instances));
+}
+
+void CoordinatorClusterState::SetDataInstances(std::vector<DataInstanceContext> data_instances) {
+  auto lock = std::lock_guard{app_lock_};
+  data_instances_ = std::move(data_instances);
+}
+
+void CoordinatorClusterState::SetCurrentMainUUID(utils::UUID current_main_uuid) {
+  auto lock = std::lock_guard{app_lock_};
+  current_main_uuid_ = current_main_uuid;
+}
+
+void CoordinatorClusterState::SetEnabledReadsOnMain(bool const enabled_reads_on_main) {
+  auto lock = std::lock_guard{app_lock_};
+  enabled_reads_on_main_ = enabled_reads_on_main;
+}
+
+void CoordinatorClusterState::SetSyncFailoverOnly(bool const sync_failover_only) {
+  auto lock = std::lock_guard{app_lock_};
+  sync_failover_only_ = sync_failover_only;
+}
+
+void CoordinatorClusterState::SetMaxFailoverLagOnReplica(uint64_t const max_failover_replica_lag) {
+  auto lock = std::lock_guard{app_lock_};
+  max_failover_replica_lag_ = max_failover_replica_lag;
+}
+
+void CoordinatorClusterState::SetMaxReplicaReadLag(uint64_t const max_replica_read_lag) {
+  auto lock = std::lock_guard{app_lock_};
+  max_replica_read_lag_ = max_replica_read_lag;
+}
+
+void CoordinatorClusterState::SetDeltasBatchProgressSize(uint64_t const deltas_batch_progress_size) {
+  auto lock = std::lock_guard{app_lock_};
+  deltas_batch_progress_size_ = deltas_batch_progress_size;
+}
+
+void CoordinatorClusterState::SetInstanceDownTimeoutSec(uint32_t const timeout_sec) {
+  auto lock = std::lock_guard{app_lock_};
+  instance_down_timeout_sec_ = timeout_sec;
+}
+
+void CoordinatorClusterState::SetInstanceHealthCheckFreqSec(uint32_t const check_freq_sec) {
+  auto lock = std::lock_guard{app_lock_};
+  instance_health_check_frequency_sec_ = ClampInstanceHealthCheckFreqSec(check_freq_sec);
+}
+
+void CoordinatorClusterState::SetGlobalReadOnly(bool const global_read_only) {
+  auto lock = std::lock_guard{app_lock_};
+  global_read_only_ = global_read_only;
+}
+
+void CoordinatorClusterState::SetRoles(std::vector<CoordinatorRole> roles) {
+  auto lock = std::lock_guard{app_lock_};
+  roles_ = std::move(roles);
+}
+
+void to_json(nlohmann::json &j, CoordinatorRole const &role) {
+  j = nlohmann::json{{kRoleName.data(), role.name}, {kRolePermissions.data(), role.permissions}};
+}
+
+void from_json(nlohmann::json const &j, CoordinatorRole &role) {
+  j.at(kRoleName.data()).get_to(role.name);
+  role.permissions = j.value(kRolePermissions.data(), uint64_t{0});
+}
+
+void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
+  j = nlohmann::json{{kDataInstances.data(), state.GetDataInstancesContext()},
+                     {kMainUUID.data(), state.GetCurrentMainUUID()},
+                     {kCoordinatorInstances.data(), state.GetCoordinatorInstancesContext()},
+                     {kEnabledReadsOnMain.data(), state.GetEnabledReadsOnMain()},
+                     {kSyncFailoverOnly.data(), state.GetSyncFailoverOnly()},
+                     // Added in 3.6.0 version
+                     {kMaxFailoverLagOnReplica.data(), state.GetMaxFailoverReplicaLag()},
+                     // Added in 3.6.0 version
+                     {kMaxReplicaReadLag.data(), state.GetMaxReplicaReadLag()},
+                     {kDeltasBatchProgressSize.data(), state.GetDeltasBatchProgressSize()},
+                     // Added in 3.10.0 version
+                     {kInstanceDownTimeoutSec.data(), state.GetInstanceDownTimeoutSec()},
+                     {kInstanceHealthCheckFreqSec.data(), state.GetInstanceHealthCheckFrequencySec().count()},
+                     {kGlobalReadOnly.data(), state.GetGlobalReadOnly()},
+                     // Coordinator role list, added for SSO on coordinators
+                     {kRoles.data(), state.GetRoles()}};
+}
+
+void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
+  // <= memgraph/memgraph:3.2.1 && >  = memgraph/memgraph:3.4
+  if (j.contains(kDataInstances.data())) {
+    instance_state.SetDataInstances(j.at(kDataInstances.data()).get<std::vector<DataInstanceContext>>());
+  } else {
+    // memgraph/memgraph:3.3
+    instance_state.SetDataInstances(j.at(kClusterState.data()).get<std::vector<DataInstanceContext>>());
+  }
+
+  instance_state.SetCurrentMainUUID(j.at(kMainUUID.data()).get<utils::UUID>());
+  instance_state.SetCoordinatorInstances(
+      j.at(kCoordinatorInstances.data()).get<std::vector<CoordinatorInstanceContext>>());
+
+  bool const enabled_reads_on_main = j.value(kEnabledReadsOnMain.data(), false);
+  instance_state.SetEnabledReadsOnMain(enabled_reads_on_main);
+
+  bool const sync_failover_only = j.value(kSyncFailoverOnly.data(), true);
+  instance_state.SetSyncFailoverOnly(sync_failover_only);
+
+  // Max lag on replica is supported from the version 3.6.0 above
+  uint64_t const max_failover_replica_lag =
+      j.value(kMaxFailoverLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
+  instance_state.SetMaxFailoverLagOnReplica(max_failover_replica_lag);
+
+  uint64_t const max_replica_read_lag = j.value(kMaxReplicaReadLag.data(), std::numeric_limits<uint64_t>::max());
+  instance_state.SetMaxReplicaReadLag(max_replica_read_lag);
+
+  uint64_t const deltas_batch_progress_size =
+      j.value(kDeltasBatchProgressSize.data(), replication_coordination_glue::kDefaultDeltasBatchProgressSize);
+  instance_state.SetDeltasBatchProgressSize(deltas_batch_progress_size);
+
+  // From 3.10 on
+  {
+    uint32_t const instance_down_timeout_sec = j.value(kInstanceDownTimeoutSec.data(), 5);
+    instance_state.SetInstanceDownTimeoutSec(instance_down_timeout_sec);
+  }
+
+  {
+    // The default covers a snapshot serialized before this key existed; an explicit out-of-range value is clamped by
+    // the setter, not by this default.
+    uint32_t const check_freq_sec = j.value(kInstanceHealthCheckFreqSec.data(), kMinInstanceHealthCheckFreqSec);
+    instance_state.SetInstanceHealthCheckFreqSec(check_freq_sec);
+  }
+
+  // global_read_only defaults to false for clusters serialized before this feature
+  bool const global_read_only = j.value(kGlobalReadOnly.data(), false);
+  instance_state.SetGlobalReadOnly(global_read_only);
+
+  // roles defaults to an empty list for clusters serialized before coordinator SSO. An older coordinator ignores the
+  // unknown key; a newer coordinator reading an older snapshot sees an empty role set.
+  instance_state.SetRoles(j.value(kRoles.data(), std::vector<CoordinatorRole>{}));
+}
+
+}  // namespace memgraph::coordination
+#endif

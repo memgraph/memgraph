@@ -13,8 +13,10 @@ import atexit
 import json
 import os
 import re
+import shutil
 import socket
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -23,6 +25,7 @@ from pathlib import Path
 
 import log
 from benchmark_context import BenchmarkContext
+from constants import PASSWORD, USERNAME, BenchmarkInstallationType, GraphVendors
 
 DOCKER_NETWORK_NAME = "mgbench_network"
 
@@ -90,25 +93,114 @@ def _get_docker_container_ip(container_name):
     return subprocess.run(command, check=True, capture_output=True, text=True).stdout.strip()
 
 
+def run_command(command):
+    ret = subprocess.run(command, capture_output=True, check=True, text=True)
+    time.sleep(0.2)
+    return ret
+
+
+def get_docker_cpu_usage(container_name):
+    command = ["docker", "stats", container_name, "--no-stream", "--format", "{{.CPUPerc}}"]
+    ret = run_command(command)
+    if not ret:
+        return 0
+
+    cpu_perc = float(ret[0].strip("%")) / 100
+    return cpu_perc
+
+
+def get_docker_memory_usage(container_name):
+    command = [
+        "docker",
+        "stats",
+        "--no-stream",
+        "--format",
+        "{{.MemUsage}}",
+        container_name,
+    ]
+    ret = run_command(command)
+
+    # Example of ret.stdout = "79.52MiB / 58.56GiB"
+    memory_usage = ret.stdout.split(" / ")
+
+    if len(memory_usage) == 2:
+        used_memory = memory_usage[0].strip()  # e.g., "79.52MiB"
+        used_memory_value, used_memory_unit = re.findall(r"(\d+\.?\d*)([A-Za-z]+)", used_memory)[0]
+
+        # Convert memory to bytes for consistency
+        if used_memory_unit == "B":
+            return int(float(used_memory_value))  # Bytes
+        elif used_memory_unit == "KiB":
+            return int(float(used_memory_value) * 1024)  # KiB to Bytes
+        elif used_memory_unit == "MiB":
+            return int(float(used_memory_value) * 1024 * 1024)  # MiB to Bytes
+        elif used_memory_unit == "GiB":
+            return int(float(used_memory_value) * 1024 * 1024 * 1024)  # GiB to Bytes
+        elif used_memory_unit == "TiB":
+            return int(float(used_memory_value) * 1024 * 1024 * 1024 * 1024)  # TiB to Bytes
+        else:
+            raise Exception(f"Unrecognized used memory: {used_memory}")
+    else:
+        raise Exception(f"Unrecognized memory usage: {memory_usage}")
+
+
 class BaseClient(ABC):
     @abstractmethod
     def __init__(self, benchmark_context: BenchmarkContext):
         self.benchmark_context = benchmark_context
+        self._vendor = benchmark_context.vendor_name
 
     @abstractmethod
     def execute(self):
         pass
 
+    def get_warmup_to_hot_queries(self) -> list:
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                return [
+                    ("CREATE ();", {}),
+                    ("CREATE ()-[:TempEdge]->();", {}),
+                    ("MATCH (n) RETURN count(n.prop) LIMIT 1;", {}),
+                ]
+            case GraphVendors.POSTGRESQL:
+                return []
+            case _:
+                raise Exception(f"Unknown vendor name {self._vendor} for warmup queries!")
+
+    def get_check_db_query(self) -> str:
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                return "RETURN 0;"
+            case GraphVendors.POSTGRESQL:
+                return "SELECT 1 AS result;"
+            case _:
+                raise Exception(f"Unknown vendor name {self._vendor} for sanity check query!")
+
 
 class BoltClient(BaseClient):
-    def __init__(self, benchmark_context: BenchmarkContext):
+    def __init__(self, benchmark_context: BenchmarkContext, runner=None):
+        super().__init__(benchmark_context=benchmark_context)
         self._client_binary = benchmark_context.client_binary
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
-        self._bolt_port = (
+        self._configured_bolt_port = (
             benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
+        self._runner = runner
+        self._bolt_address = benchmark_context.client_bolt_address
+        self._databases = benchmark_context.databases
+
+    @property
+    def _bolt_port(self):
+        """
+        Resolved on every execution rather than cached, because the HA runner's main can move to a
+        different instance, and so a different port, across the cluster restarts between phases.
+        Without a runner this is the configured port, which is what every other vendor uses.
+        """
+        if self._runner is not None:
+            return self._runner.get_database_port()
+        return self._configured_bolt_port
 
     def _get_args(self, **kwargs):
         return _convert_args_to_flags(self._client_binary, **kwargs)
@@ -122,17 +214,18 @@ class BoltClient(BaseClient):
         queries=None,
         file_path=None,
         num_workers=1,
-        max_retries: int = 10000,
+        max_retries: int = 50,
         validation: bool = False,
         time_dependent_execution: int = 0,
+        log_args: bool = False,
     ):
         check_db_query = Path(self._directory.name) / "check_db_query.json"
         with open(check_db_query, "w") as f:
-            query = ["RETURN 0;", {}]
+            query = [self.get_check_db_query(), {}]
             json.dump(query, f)
             f.write("\n")
 
-        check_db_args = self._get_args(
+        client_args = self._get_args(
             input=check_db_query,
             num_workers=1,
             max_retries=max_retries,
@@ -140,13 +233,15 @@ class BoltClient(BaseClient):
             username=self._username,
             password=self._password,
             port=self._bolt_port,
+            address=self._bolt_address,
             validation=False,
             time_dependent_execution=time_dependent_execution,
+            databases=self._databases,
         )
 
         while True:
             try:
-                subprocess.run(check_db_args, capture_output=True, text=True, check=True)
+                subprocess.run(client_args, capture_output=True, text=True, check=True)
                 break
             except subprocess.CalledProcessError as e:
                 log.log("Checking if database is up and running failed...")
@@ -175,9 +270,14 @@ class BoltClient(BaseClient):
             username=self._username,
             password=self._password,
             port=self._bolt_port,
+            address=self._bolt_address,
             validation=validation,
             time_dependent_execution=time_dependent_execution,
+            databases=self._databases,
         )
+
+        if log_args:
+            log.info("Client args: {}".format(args))
 
         ret = None
         try:
@@ -196,7 +296,7 @@ class BoltClient(BaseClient):
 
 class BoltClientDocker(BaseClient):
     def __init__(self, benchmark_context: BenchmarkContext):
-        self._client_binary = benchmark_context.client_binary
+        super().__init__(benchmark_context=benchmark_context)
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._username = ""
         self._password = ""
@@ -204,13 +304,11 @@ class BoltClientDocker(BaseClient):
             benchmark_context.vendor_args["bolt-port"] if "bolt-port" in benchmark_context.vendor_args.keys() else 7687
         )
         self._container_name = "mgbench-bolt-client"
-        self._target_db_container = (
-            "memgraph_benchmark" if "memgraph" in benchmark_context.vendor_name else "neo4j_benchmark"
-        )
+        self._target_db_container = f"{benchmark_context.vendor_name}_benchmark"
 
     def _remove_container(self):
         command = ["docker", "rm", "-f", self._container_name]
-        self._run_command(command)
+        run_command(command)
 
     def _create_container(self, *args):
         command = [
@@ -223,7 +321,7 @@ class BoltClientDocker(BaseClient):
             "memgraph/mgbench-client",
             *args,
         ]
-        self._run_command(command)
+        run_command(command)
 
     def _get_logs(self):
         command = [
@@ -231,7 +329,7 @@ class BoltClientDocker(BaseClient):
             "logs",
             self._container_name,
         ]
-        ret = self._run_command(command)
+        ret = run_command(command)
         return ret
 
     def _get_args(self, **kwargs):
@@ -245,6 +343,7 @@ class BoltClientDocker(BaseClient):
         max_retries: int = 50,
         validation: bool = False,
         time_dependent_execution: int = 0,
+        log_args: bool = False,
     ):
         if (queries is None and file_path is None) or (queries is not None and file_path is not None):
             raise ValueError("Either queries or input_path must be specified!")
@@ -270,7 +369,7 @@ class BoltClientDocker(BaseClient):
 
         check_file = Path(self._directory.name) / "check.json"
         with open(check_file, "w") as f:
-            query = ["RETURN 0;", {}]
+            query = [self.get_check_db_query(), {}]
             json.dump(query, f)
             f.write("\n")
 
@@ -280,7 +379,7 @@ class BoltClientDocker(BaseClient):
             check_file.resolve().as_posix(),
             self._container_name + ":/bin/" + check_file.name,
         ]
-        self._run_command(command)
+        run_command(command)
 
         command = [
             "docker",
@@ -288,9 +387,13 @@ class BoltClientDocker(BaseClient):
             "-i",
             self._container_name,
         ]
+
+        # Wait until the container is started
+        time.sleep(2)
+
         while True:
             try:
-                self._run_command(command)
+                run_command(command)
                 break
             except subprocess.CalledProcessError as e:
                 log.log("Checking if database is up and running failed!")
@@ -298,6 +401,7 @@ class BoltClientDocker(BaseClient):
                 log.warning("Error: {}".format(e.stderr))
                 log.warning("Database is not up yet, waiting 3 second")
                 time.sleep(3)
+                log.warning("Continuing execution...")
 
         self._remove_container()
 
@@ -337,7 +441,7 @@ class BoltClientDocker(BaseClient):
             file.resolve().as_posix(),
             self._container_name + ":/bin/" + file.name,
         ]
-        self._run_command(command)
+        run_command(command)
         log.log("Starting query execution...")
         try:
             command = [
@@ -346,7 +450,7 @@ class BoltClientDocker(BaseClient):
                 "-i",
                 self._container_name,
             ]
-            self._run_command(command)
+            run_command(command)
         except subprocess.CalledProcessError as e:
             log.warning("Reported errors from client:")
             log.warning("Error: {}".format(e.stderr))
@@ -360,10 +464,111 @@ class BoltClientDocker(BaseClient):
         data = [x for x in data if not x.startswith("[")]
         return list(map(json.loads, data))
 
-    def _run_command(self, command):
-        ret = subprocess.run(command, capture_output=True, check=True, text=True)
-        time.sleep(0.2)
-        return ret
+
+class PythonClient(BaseClient):
+    def __init__(self, benchmark_context: BenchmarkContext, database_port: int, runner=None):
+        super().__init__(benchmark_context=benchmark_context)
+        self._client_binary = os.path.join(os.path.dirname(os.path.abspath(__file__)), "python_client.py")
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._username = ""
+        self._password = ""
+        self._configured_database_port = database_port
+        self._runner = runner
+
+    @property
+    def _database_port(self):
+        """
+        Same reason as BoltClient: the port is only stable for vendors whose database cannot move.
+        """
+        if self._runner is not None:
+            return self._runner.get_database_port()
+        return self._configured_database_port
+
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags("python3", self._client_binary, **kwargs)
+
+    def set_credentials(self, username: str, password: str):
+        self._username = username
+        self._password = password
+
+    def execute(
+        self,
+        queries=None,
+        file_path=None,
+        num_workers=1,
+        max_retries: int = 50,
+        validation: bool = False,
+        time_dependent_execution: int = 0,
+        log_args: bool = False,
+    ):
+        check_db_query = Path(self._directory.name) / "check_db_query.json"
+        with open(check_db_query, "w") as f:
+            query = [self.get_check_db_query(), {}]
+            json.dump(query, f)
+            f.write("\n")
+
+        check_db_args = self._get_args(
+            vendor=self._vendor,
+            input=check_db_query,
+            num_workers=1,
+            max_retries=max_retries,
+            queries_json=True,
+            username=self._username,
+            password=self._password,
+            port=self._database_port,
+            validation=False,
+            time_dependent_execution=time_dependent_execution,
+        )
+
+        while True:
+            try:
+                subprocess.run(check_db_args, capture_output=True, text=True, check=True)
+                break
+            except subprocess.CalledProcessError as e:
+                log.log("Checking if database is up and running failed...")
+                log.warning("Reported errors from client:")
+                log.warning("Error: {}".format(e.stderr))
+                log.warning("Database is not up yet, waiting 3 seconds...")
+                time.sleep(3)
+
+        if (queries is None and file_path is None) or (queries is not None and file_path is not None):
+            raise ValueError("Either queries or input_path must be specified!")
+
+        queries_and_args_json = False
+        if queries is not None:
+            queries_and_args_json = True
+            file_path = os.path.join(self._directory.name, "queries_and_args_json.json")
+            with open(file_path, "w") as f:
+                for query in queries:
+                    json.dump(query, f)
+                    f.write("\n")
+
+        args = self._get_args(
+            vendor=self._vendor,
+            input=file_path,
+            num_workers=num_workers,
+            max_retries=max_retries,
+            queries_json=queries_and_args_json,
+            username=self._username,
+            password=self._password,
+            port=self._database_port,
+            validation=validation,
+            time_dependent_execution=time_dependent_execution,
+        )
+
+        ret = None
+        try:
+            ret = subprocess.run(args, capture_output=True)
+        finally:
+            error = ret.stderr.decode("utf-8").strip().split("\n")
+            data = ret.stdout.decode("utf-8").strip().split("\n")
+            if error and error[0] != "":
+                log.warning("Reported errors from client:")
+                log.warning("There is a possibility that query from: {} is not executed properly".format(file_path))
+                log.error(error)
+                log.error("Results for this query or benchmark run are probably invalid!")
+            data = [x for x in data if not x.startswith("[")]
+            return list(map(json.loads, data))
 
 
 class BaseRunner(ABC):
@@ -376,39 +581,80 @@ class BaseRunner(ABC):
 
     @classmethod
     def create(cls, benchmark_context: BenchmarkContext):
-        if benchmark_context.vendor_name not in cls.subclasses:
+        if benchmark_context.installation_type == BenchmarkInstallationType.EXTERNAL:
+            return ExternalVendor(benchmark_context=benchmark_context)
+
+        subclass_name = (
+            benchmark_context.vendor_name
+            if benchmark_context.installation_type == BenchmarkInstallationType.NATIVE
+            else f"{benchmark_context.vendor_name}{benchmark_context.installation_type}"
+        )
+
+        if subclass_name not in cls.subclasses:
             raise ValueError("Missing runner with name: {}".format(benchmark_context.vendor_name))
 
-        return cls.subclasses[benchmark_context.vendor_name](
+        return cls.subclasses[subclass_name](
             benchmark_context=benchmark_context,
         )
 
     @abstractmethod
     def __init__(self, benchmark_context: BenchmarkContext):
         self.benchmark_context = benchmark_context
+        self._bolt_port = 7687
 
     @abstractmethod
-    def start_db_init(self):
+    def start_db_init(self, arg):
         pass
 
     @abstractmethod
-    def stop_db_init(self):
+    def stop_db_init(self, arg):
         pass
 
     @abstractmethod
-    def start_db(self):
+    def start_db(self, arg):
         pass
 
     @abstractmethod
-    def stop_db(self):
+    def stop_db(self, arg):
         pass
 
     @abstractmethod
     def clean_db(self):
         pass
 
-    @abstractmethod
-    def fetch_client(self) -> BaseClient:
+    def get_database_port(self):
+        return self._bolt_port
+
+    def supports_snapshot_recovery(self):
+        """
+        Whether recover_snapshot can load a dataset on this runner. Off by default, and a runner
+        that says yes changes what its import phase means: loading a snapshot is one query, so the
+        import stops being measurable and stops being comparable with a run that replays the
+        dataset's import queries.
+        """
+        return False
+
+    def recover_snapshot(self, path, expected_size):
+        raise NotImplementedError("{} cannot recover a snapshot".format(type(self).__name__))
+
+
+class ExternalVendor(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+
+    def start_db_init(self, arg):
+        pass
+
+    def stop_db_init(self, arg):
+        pass
+
+    def start_db(self, arg):
+        pass
+
+    def stop_db(self, arg):
+        pass
+
+    def clean_db(self):
         pass
 
 
@@ -416,6 +662,8 @@ class Memgraph(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
         super().__init__(benchmark_context=benchmark_context)
         self._memgraph_binary = benchmark_context.vendor_binary
+        # Use database_workers instead of num_workers_for_benchmark to allow separation
+        self._bolt_num_workers = benchmark_context.database_workers
         self._performance_tracking = benchmark_context.performance_tracking
         self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
         self._vendor_args = benchmark_context.vendor_args
@@ -440,6 +688,7 @@ class Memgraph(BaseRunner):
         kwargs["bolt_port"] = self._bolt_port
         kwargs["data_directory"] = data_directory
         kwargs["storage_properties_on_edges"] = True
+        kwargs["bolt_num_workers"] = self._bolt_num_workers
         for key, value in self._vendor_args.items():
             kwargs[key] = value
         return _convert_args_to_flags(self._memgraph_binary, **kwargs)
@@ -486,7 +735,7 @@ class Memgraph(BaseRunner):
             self._stop_event.clear()
             self._rss.clear()
             p.start()
-        self._start(storage_recover_on_startup=True, **self._vendor_args)
+        self._start(data_recovery_on_startup=True, **self._vendor_args)
 
     def stop_db(self, workload):
         if self._performance_tracking:
@@ -527,8 +776,461 @@ class Memgraph(BaseRunner):
                 f.write("\n")
             f.close()
 
-    def fetch_client(self) -> BoltClient:
-        return BoltClient(benchmark_context=self.benchmark_context)
+
+_E2E_DIRECTORY = os.path.join(os.path.dirname(os.path.dirname(os.path.realpath(__file__))), "e2e")
+
+
+def _import_interactive_mg_runner():
+    """
+    tests/e2e is not a package, so it has to be on the path before interactive_mg_runner and the
+    memgraph module it star-imports can be found. Imported lazily so a standalone mgbench run does
+    not need the e2e dependencies.
+    """
+    if _E2E_DIRECTORY not in sys.path:
+        sys.path.insert(0, _E2E_DIRECTORY)
+    try:
+        import interactive_mg_runner
+    except ImportError as error:
+        # The runner star-imports the e2e memgraph module, which imports mgclient, so the failure
+        # surfaces several imports deep with nothing pointing at the cause.
+        raise Exception(
+            f"Could not import the cluster runner from {_E2E_DIRECTORY}: {error}. It needs the packages in "
+            "tests/requirements.txt, so run this from the tests/ve3 virtualenv that tests/../init-test builds, as the "
+            "e2e and stress suites do."
+        ) from error
+
+    return interactive_mg_runner
+
+
+def _assert_enterprise_license():
+    missing = [
+        variable
+        for variable in ("MEMGRAPH_ENTERPRISE_LICENSE", "MEMGRAPH_ORGANIZATION_NAME")
+        if not os.environ.get(variable)
+    ]
+    if missing:
+        raise Exception(
+            "High availability is an enterprise feature, so the HA benchmark needs {} in the "
+            "environment.".format(" and ".join(missing))
+        )
+
+
+def _is_coordinator(instance):
+    return any(argument.startswith("--coordinator-id") for argument in instance["args"])
+
+
+class MemgraphHA(BaseRunner):
+    """
+    Runs the benchmark against a coordinator-managed HA cluster described by a YAML file: three
+    coordinators, one main and one SYNC replica, driven through tests/e2e/interactive_mg_runner.py.
+
+    Every phase of a benchmark run restarts the whole cluster. Coordinators keep their Raft state
+    across those restarts, so instances are registered exactly once and the repeated setup queries
+    are expected to fail and are ignored.
+    """
+
+    DEFAULT_CLUSTER_YAML = "ha_cluster.yaml"
+    CLUSTER_YAML_ARG = "ha-cluster-yaml"
+    LOG_DIRECTORY = "ha_logs"
+    READY_TIMEOUT_SEC = 120
+    READY_POLL_SEC = 0.5
+    READY_REPORT_SEC = 10
+    CATCHUP_TIMEOUT_SEC = 600
+    WRITE_PROBE_QUERY = "CREATE (n:__mgbench_ha_probe) DELETE n;"
+    SNAPSHOT_TIMEOUT_SEC = 900
+    # Slower than the readiness poll: every SHOW STORAGE INFO walks the instance's storage directory
+    # to total its disk usage, and the directory holds the dataset being waited for.
+    SNAPSHOT_POLL_SEC = 2.0
+
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+        # Set before anything that can raise, so a failed construction does not turn into an
+        # attribute error while cleaning up.
+        self._mg_runner = None
+        self._main_name = None
+        _assert_enterprise_license()
+        self._mg_runner = _import_interactive_mg_runner()
+        if benchmark_context.vendor_binary is not None:
+            # interactive_mg_runner starts every instance from this module-level path.
+            self._mg_runner.MEMGRAPH_BINARY = benchmark_context.vendor_binary
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._description = self._load_description()
+        self._coordinators = [name for name, instance in self._description.items() if _is_coordinator(instance)]
+        self._data_instances = [name for name in self._description if name not in self._coordinators]
+        if not self._coordinators or len(self._data_instances) < 2:
+            raise Exception(
+                "The cluster description needs at least one coordinator and two data instances, got "
+                "coordinators {} and data instances {}.".format(self._coordinators, self._data_instances)
+            )
+        self._bolt_ports = {
+            name: self._mg_runner.extract_bolt_port(instance["args"]) for name, instance in self._description.items()
+        }
+        # Until the cluster is up there is no main to ask about, so the client falls back to the
+        # first data instance, which is the one the description elects.
+        self._bolt_port = self._bolt_ports[self._data_instances[0]]
+        atexit.register(self._cleanup)
+
+    def __del__(self):
+        self._cleanup()
+        atexit.unregister(self._cleanup)
+
+    def _load_description(self):
+        import yaml
+
+        # A relative path resolves against this directory rather than the working directory, so a
+        # caller can name a description by filename without knowing where it was invoked from.
+        path = self.benchmark_context.vendor_args.get(self.CLUSTER_YAML_ARG, self.DEFAULT_CLUSTER_YAML)
+        if not os.path.isabs(path):
+            path = os.path.join(os.path.dirname(os.path.realpath(__file__)), path)
+        with open(path, "r") as description_file:
+            description = yaml.safe_load(description_file)
+        if not isinstance(description, dict) or not description:
+            raise Exception("{} does not describe any instances!".format(path))
+        # Absolute paths, because interactive_mg_runner otherwise resolves both of these under the
+        # build directory, which a benchmark run has no reason to depend on.
+        log_directory = os.path.join(os.path.dirname(os.path.realpath(__file__)), self.LOG_DIRECTORY)
+        os.makedirs(log_directory, exist_ok=True)
+        for name, instance in description.items():
+            # Pinned for the whole run so the dataset survives the phase restarts, and under a
+            # fresh temporary directory so the next run does not benchmark this run's data.
+            instance["data_directory"] = os.path.join(self._directory.name, name)
+            instance["log_file"] = os.path.join(log_directory, os.path.basename(instance["log_file"]))
+            # A run restarts every instance once per measurement, and each start writes a banner, a
+            # flag deprecation notice and a query module import note to the console. The instances
+            # keep logging to their log files. A description can opt back in per instance.
+            instance.setdefault("silence_output", True)
+        return description
+
+    def _fetch(self, instance_name, query):
+        """
+        Runs one query against an instance, connecting with whatever credentials that instance
+        currently accepts. Two sets are tried, because the cluster's answer changes during a run:
+        the instance's own, from the cluster description, which is what it accepts while no user
+        exists; and the benchmark's, once the fine-grained authorization pass has created its user
+        and anonymous connections start being refused. Only a failure to connect falls through to
+        the next set — a query that fails once connected is the caller's business.
+        """
+        instance = self._mg_runner.MEMGRAPH_INSTANCES[instance_name]
+        candidates = [(instance.username or "", instance.password or "")]
+        if (USERNAME, PASSWORD) not in candidates:
+            candidates.append((USERNAME, PASSWORD))
+
+        connect_error = None
+        for username, password in candidates:
+            try:
+                connection = instance.get_connection(username, password)
+            except Exception as error:
+                connect_error = error
+                continue
+            try:
+                cursor = connection.cursor()
+                cursor.execute(query)
+                return cursor.fetchall()
+            finally:
+                connection.close()
+        raise connect_error
+
+    def _cluster_state(self):
+        """
+        Returns (main_name, problem). The main name is set only once the cluster is fully usable:
+        a coordinator leader exists, every data instance is registered and up, exactly one of them
+        is main, every replica is ready on that main, and it accepts a write.
+        """
+        rows = None
+        problem = "no coordinator answered SHOW INSTANCES"
+        for coordinator in self._coordinators:
+            try:
+                # The last column is the elapsed time since the last response, which is dropped so
+                # that the role and health are the final two, as the e2e helpers also assume.
+                rows = [row[:-1] for row in self._fetch(coordinator, "SHOW INSTANCES;")]
+                break
+            except Exception as error:
+                problem = "no coordinator answered SHOW INSTANCES ({})".format(error)
+        if rows is None:
+            return None, problem
+
+        if not any(row[-1] == "leader" for row in rows):
+            return None, "no coordinator leader yet"
+
+        instances = {row[0]: row for row in rows if row[0] in self._data_instances}
+        unregistered = [name for name in self._data_instances if name not in instances]
+        if unregistered:
+            return None, "data instances not registered yet: {}".format(unregistered)
+        down = [name for name, row in instances.items() if row[-2] != "up"]
+        if down:
+            return None, "data instances not up yet: {}".format(down)
+
+        mains = [name for name, row in instances.items() if row[-1] == "main"]
+        if len(mains) != 1:
+            return None, "expected exactly one main, saw {}".format(mains)
+        main_name = mains[0]
+
+        try:
+            replicas = self._fetch(main_name, "SHOW REPLICAS;")
+        except Exception as error:
+            return None, "main {} is not answering SHOW REPLICAS ({})".format(main_name, error)
+        expected_replicas = len(self._data_instances) - 1
+        if len(replicas) != expected_replicas:
+            return None, "main {} reports {} replicas, expected {}".format(main_name, len(replicas), expected_replicas)
+        for row in replicas:
+            statuses = [field["status"] for field in row if isinstance(field, dict) and "status" in field]
+            if not statuses or any(status != "ready" for status in statuses):
+                return None, "replica {} is not ready yet: {}".format(row[0], row)
+
+        try:
+            self._fetch(main_name, self.WRITE_PROBE_QUERY)
+        except Exception as error:
+            return None, "main {} is not writeable yet ({})".format(main_name, error)
+
+        return main_name, ""
+
+    def _start_cluster(self):
+        started_at = time.time()
+        log.info(
+            "Starting the HA cluster: {} coordinators and {} data instances.".format(
+                len(self._coordinators), len(self._data_instances)
+            )
+        )
+        # The cluster setup queries are applied once and fail on every later restart, by design, so
+        # their failures are not worth a warning per restart per query.
+        self._mg_runner.start_all(
+            self._description,
+            keep_directories=True,
+            ignore_setup_failures=True,
+            log_ignored_setup_failures=False,
+        )
+        log.info(
+            "Instances are up after {:.1f}s, waiting for the cluster to converge.".format(time.time() - started_at)
+        )
+
+        deadline = started_at + self.READY_TIMEOUT_SEC
+        problem = ""
+        reported_at = 0.0
+        while time.time() < deadline:
+            main_name, problem = self._cluster_state()
+            if main_name is not None:
+                self._main_name = main_name
+                log.info(
+                    "HA cluster is ready after {:.1f}s, main is {} on bolt port {}.".format(
+                        time.time() - started_at, main_name, self.get_database_port()
+                    )
+                )
+                return
+            # Convergence can take tens of seconds, and a silent wait is indistinguishable from a
+            # hang, so say what is still missing rather than only reporting it on timeout.
+            if time.time() - reported_at >= self.READY_REPORT_SEC:
+                reported_at = time.time()
+                log.info("Waiting for the cluster ({:.0f}s): {}".format(time.time() - started_at, problem))
+            time.sleep(self.READY_POLL_SEC)
+        raise Exception(
+            "The HA cluster did not become ready in {}s, last seen: {}".format(self.READY_TIMEOUT_SEC, problem)
+        )
+
+    def _replication_lag(self):
+        """
+        Transactions each instance is behind main, from a coordinator's SHOW REPLICATION LAG, as
+        {instance: behind} summed over its databases. None when no coordinator can be reached.
+        """
+        for coordinator in self._coordinators:
+            try:
+                rows = self._fetch(coordinator, "SHOW REPLICATION LAG;")
+            except Exception:
+                continue
+            return {
+                instance: sum(db.get("num_txns_behind_main", 0) for db in databases.values())
+                for instance, databases in rows
+            }
+        return None
+
+    def _wait_for_replicas_to_catch_up(self):
+        """
+        Blocks until no instance is behind main. This runs after the measurement, so the wait is not
+        part of the throughput the client reported -- that number was computed and returned before we
+        got here -- but it is part of the run's wall clock, and it is reported so the cost is visible.
+
+        It matters most for ASYNC, where main does not wait at commit and the replica can still be
+        applying a backlog long after the client has finished. Without this the workload would be
+        called done while replication was still outstanding, and the next phase would start from an
+        unconverged cluster. For SYNC and STRICT_SYNC the replicas are already caught up at commit, so
+        this costs one query.
+        """
+        if self._main_name is None:
+            return
+
+        started_at = time.time()
+        deadline = started_at + self.CATCHUP_TIMEOUT_SEC
+        reported_at = 0.0
+        behind = self._replication_lag()
+        if behind is None:
+            log.warning("Could not read replication lag from any coordinator, not waiting for catch-up.")
+            return
+
+        while any(behind.values()):
+            if time.time() > deadline:
+                raise Exception(
+                    "Replicas were still behind main after {}s, by this many transactions: {}".format(
+                        self.CATCHUP_TIMEOUT_SEC, {k: v for k, v in behind.items() if v}
+                    )
+                )
+            if time.time() - reported_at >= self.READY_REPORT_SEC:
+                reported_at = time.time()
+                log.info(
+                    "Waiting for replicas to catch up ({:.0f}s): {}".format(
+                        time.time() - started_at, {k: v for k, v in behind.items() if v}
+                    )
+                )
+            time.sleep(self.READY_POLL_SEC)
+            behind = self._replication_lag() or behind
+
+        elapsed = time.time() - started_at
+        if elapsed >= 1.0:
+            log.info("Replicas caught up in {:.1f}s, which is not counted in the throughput.".format(elapsed))
+
+    def _storage_counts(self, instance_name):
+        """(vertices, edges) an instance holds in its own storage. Both are exact counts."""
+        rows = self._fetch(instance_name, "SHOW STORAGE INFO ON CURRENT DATABASE;")
+        info = {row[0]: row[1] for row in rows}
+        return info["vertex_count"], info["edge_count"]
+
+    def _wait_for_replicas_to_hold(self, expected):
+        """
+        Blocks until every replica's own storage holds `expected` (vertices, edges).
+
+        Nothing has to prompt the transfer: recovering a snapshot force-recovers every replication
+        client from scratch, so by the time the query returns each replica is already being sent the
+        new dataset. What is left is knowing when it arrived, and the counts answer that about the
+        data itself rather than about a counter that tracks it.
+        """
+        replicas = [name for name in self._data_instances if name != self._main_name]
+        started_at = time.time()
+        deadline = started_at + self.SNAPSHOT_TIMEOUT_SEC
+        reported_at = 0.0
+        while True:
+            behind = {}
+            for name in replicas:
+                try:
+                    counts = self._storage_counts(name)
+                except Exception as error:
+                    behind[name] = "not answering ({})".format(error)
+                    continue
+                if counts != expected:
+                    behind[name] = "{} vertices, {} edges".format(*counts)
+            if not behind:
+                log.info("Replicas hold the snapshot after {:.1f}s.".format(time.time() - started_at))
+                return
+
+            if time.time() > deadline:
+                raise Exception(
+                    "Replicas did not receive the snapshot within {}s. Expected {} vertices and {} "
+                    "edges, but: {}".format(self.SNAPSHOT_TIMEOUT_SEC, expected[0], expected[1], behind)
+                )
+            if time.time() - reported_at >= self.READY_REPORT_SEC:
+                reported_at = time.time()
+                log.info("Waiting for replicas ({:.0f}s): {}".format(time.time() - started_at, behind))
+            time.sleep(self.SNAPSHOT_POLL_SEC)
+
+    def supports_snapshot_recovery(self):
+        return True
+
+    def recover_snapshot(self, path, expected_size):
+        """
+        Loads the dataset on main from a durability snapshot and blocks until every replica holds it
+        too, in place of replaying the dataset's import queries -- which on a cluster costs one
+        replicated transaction each.
+
+        FORCE because the recovery is refused on a storage that already holds data, and a phase can
+        start from a populated cluster. It is only accepted on main, which force-recovers every
+        replica as part of the same query; the wait below is for those transfers to land, so that
+        none of them overlaps a measurement.
+        """
+        if self._main_name is None:
+            raise Exception("The HA cluster is not running, cannot recover a snapshot!")
+        if "'" in path:
+            raise Exception("The snapshot path cannot contain a quote: {}".format(path))
+
+        started_at = time.time()
+        log.info("Recovering the dataset on main {} from {}.".format(self._main_name, path))
+        self._fetch(self._main_name, "RECOVER SNAPSHOT '{}' FORCE;".format(path))
+        log.info("Main loaded the snapshot in {:.1f}s.".format(time.time() - started_at))
+
+        # Checked before anything is written, so the counts are the snapshot's own. A snapshot of
+        # some other dataset would otherwise be benchmarked as though it were this one.
+        expected = (expected_size["vertices"], expected_size["edges"])
+        on_main = self._storage_counts(self._main_name)
+        if on_main != expected:
+            raise Exception(
+                "Main {} holds {} vertices and {} edges after loading {}, but the workload expects "
+                "{} and {}.".format(self._main_name, on_main[0], on_main[1], path, expected[0], expected[1])
+            )
+        # The snapshot carries its own indexes, and a query benchmark run against a dataset missing
+        # them measures something else entirely, so the count is logged rather than left implicit.
+        indexes = len(self._fetch(self._main_name, "SHOW INDEX INFO;"))
+        log.info("Main holds {} vertices, {} edges and {} indexes.".format(on_main[0], on_main[1], indexes))
+
+        self._wait_for_replicas_to_hold(expected)
+        log.info("The cluster loaded the dataset from a snapshot in {:.1f}s.".format(time.time() - started_at))
+        return True
+
+    def _stop_cluster(self):
+        # Read the usage first, so main's peak memory covers the measured run rather than the
+        # catch-up that follows it.
+        usage = self._main_usage()
+        self._wait_for_replicas_to_catch_up()
+        stopped_at = time.time()
+        self._mg_runner.stop_all(keep_directories=True)
+        self._main_name = None
+        log.info("Stopped the HA cluster in {:.1f}s.".format(time.time() - stopped_at))
+        return usage
+
+    def _main_usage(self):
+        if self._main_name is None:
+            return {"cpu": 0, "memory": 0}
+        instance = self._mg_runner.MEMGRAPH_INSTANCES.get(self._main_name)
+        if instance is None or instance.proc_mg is None:
+            return {"cpu": 0, "memory": 0}
+        return _get_usage(instance.proc_mg.pid)
+
+    def _cleanup(self):
+        if self._mg_runner is None:
+            return
+        self._mg_runner.stop_all(keep_directories=True)
+        self._main_name = None
+
+    def start_db_init(self, workload):
+        self._start_cluster()
+
+    def stop_db_init(self, workload):
+        return self._stop_cluster()
+
+    def start_db(self, workload):
+        self._start_cluster()
+
+    def stop_db(self, workload):
+        return self._stop_cluster()
+
+    def clean_db(self):
+        """
+        Clears the data instances' durability only. Coordinator state is what makes registration
+        durable across the phase restarts, so wiping it would force instances to be registered a
+        second time on an instance that already holds data.
+        """
+        if self._mg_runner.MEMGRAPH_INSTANCES:
+            raise Exception("The HA cluster is still running, cannot clear its data!")
+        for name in self._data_instances:
+            databases = os.path.join(self._description[name]["data_directory"], "databases")
+            if not os.path.isdir(databases):
+                continue
+            for tenant in os.listdir(databases):
+                for durability in ("snapshots", "wal"):
+                    path = os.path.join(databases, tenant, durability)
+                    if os.path.isdir(path):
+                        shutil.rmtree(path, ignore_errors=True)
+                        os.makedirs(path, exist_ok=True)
+
+    def get_database_port(self):
+        if self._main_name is not None:
+            return self._bolt_ports[self._main_name]
+        return self._bolt_port
 
 
 class Neo4j(BaseRunner):
@@ -632,7 +1334,7 @@ class Neo4j(BaseRunner):
             exit_proc = subprocess.run(args=[self._neo4j_binary, "stop"], capture_output=True, check=True)
             return exit_proc.returncode, usage
         else:
-            return 0
+            return 0, 0
 
     def start_db_init(self, workload):
         if self._performance_tracking:
@@ -779,9 +1481,6 @@ class Neo4j(BaseRunner):
                 f.write(memory_usage.stdout)
                 f.close()
 
-    def fetch_client(self) -> BoltClient:
-        return BoltClient(benchmark_context=self.benchmark_context)
-
 
 class MemgraphDocker(BaseRunner):
     def __init__(self, benchmark_context: BenchmarkContext):
@@ -790,11 +1489,13 @@ class MemgraphDocker(BaseRunner):
         self._vendor_args = benchmark_context.vendor_args
         self._bolt_port = self._vendor_args["bolt-port"] if "bolt-port" in self._vendor_args.keys() else "7687"
         self._container_name = "memgraph_benchmark"
+        self._image_name = "memgraph/memgraph"
+        self._image_version = "3.2.1"
         self._container_ip = None
         self._config_file = None
         _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
 
-    def _set_args(self, **kwargs):
+    def _get_args(self, **kwargs):
         return _convert_args_to_flags(**kwargs)
 
     def start_db_init(self, message):
@@ -811,14 +1512,13 @@ class MemgraphDocker(BaseRunner):
                 "-it",
                 "-p",
                 self._bolt_port + ":" + self._bolt_port,
-                "memgraph/memgraph:2.7.0",
+                f"{self._image_name}:{self._image_version}",
                 "--storage_wal_enabled=false",
-                "--storage_recover_on_startup=true",
-                "--storage_snapshot_interval_sec",
-                "0",
+                "--data_recovery_on_startup=true",
+                "--storage_snapshot_interval_sec=0",
             ]
-            command.extend(self._set_args(**self._vendor_args))
-            ret = self._run_command(command)
+            command.extend(self._get_args(**self._vendor_args))
+            run_command(command)
         except subprocess.CalledProcessError as e:
             log.error("Failed to start Memgraph docker container.")
             log.error(
@@ -832,7 +1532,7 @@ class MemgraphDocker(BaseRunner):
             self._container_name + ":/etc/memgraph/memgraph.conf",
             self._directory.name + "/memgraph.conf",
         ]
-        self._run_command(command)
+        run_command(command)
         self._config_file = Path(self._directory.name + "/memgraph.conf")
         _wait_for_server_socket(self._bolt_port, delay=0.5)
         log.log("Database started.")
@@ -843,7 +1543,7 @@ class MemgraphDocker(BaseRunner):
 
         # Stop to save the snapshot
         command = ["docker", "stop", self._container_name]
-        self._run_command(command)
+        run_command(command)
 
         # Change config back to default
         argument = "--storage-snapshot-on-exit=false"
@@ -854,15 +1554,14 @@ class MemgraphDocker(BaseRunner):
             self._config_file.resolve(),
             self._container_name + ":/etc/memgraph/memgraph.conf",
         ]
-        self._run_command(command)
+        run_command(command)
         log.log("Database stopped.")
         return usage
 
     def start_db(self, message):
         log.init("Starting database for benchmark...")
         command = ["docker", "start", self._container_name]
-        self._run_command(command)
-        ip_address = _get_docker_container_ip(self._container_name)
+        run_command(command)
         _wait_for_server_socket(self._bolt_port, delay=0.5)
         log.log("Database started.")
 
@@ -870,19 +1569,16 @@ class MemgraphDocker(BaseRunner):
         log.init("Stopping database...")
         usage = self._get_cpu_memory_usage()
         command = ["docker", "stop", self._container_name]
-        self._run_command(command)
+        run_command(command)
         log.log("Database stopped.")
         return usage
 
     def clean_db(self):
         self.remove_container(self._container_name)
 
-    def fetch_client(self) -> BaseClient:
-        return BoltClientDocker(benchmark_context=self.benchmark_context)
-
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
-        self._run_command(command)
+        run_command(command)
 
     def _replace_config_args(self, argument):
         config_lines = []
@@ -914,7 +1610,7 @@ class MemgraphDocker(BaseRunner):
             "grep ^VmPeak /proc/1/status",
         ]
         usage = {"cpu": 0, "memory": 0}
-        ret = self._run_command(command)
+        ret = run_command(command)
         memory = ret.stdout.split()
         usage["memory"] = int(memory[1]) * 1024
 
@@ -927,7 +1623,7 @@ class MemgraphDocker(BaseRunner):
             "-c",
             "cat /proc/1/stat",
         ]
-        stat = self._run_command(command).stdout.strip("\n")
+        stat = run_command(command).stdout.strip("\n")
 
         command = [
             "docker",
@@ -938,14 +1634,14 @@ class MemgraphDocker(BaseRunner):
             "-c",
             "getconf CLK_TCK",
         ]
-        CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
+        CLK_TCK = int(run_command(command).stdout.strip("\n"))
 
         cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
         usage["cpu"] = cpu_time
 
         return usage
 
-    def _run_command(self, command):
+    def run_command(self, command):
         ret = subprocess.run(command, check=True, capture_output=True, text=True)
 
         time.sleep(0.2)
@@ -963,7 +1659,7 @@ class Neo4jDocker(BaseRunner):
         self._config_file = None
         _setup_docker_benchmark_network(DOCKER_NETWORK_NAME)
 
-    def _set_args(self, **kwargs):
+    def _get_args(self, **kwargs):
         return _convert_args_to_flags(**kwargs)
 
     def start_db_init(self, message):
@@ -982,10 +1678,12 @@ class Neo4jDocker(BaseRunner):
                 self._bolt_port + ":" + self._bolt_port,
                 "--env",
                 "NEO4J_AUTH=none",
-                "neo4j:5.6.0",
+                "--env",
+                "NEO4J_ACCEPT_LICENSE_AGREEMENT=yes",
+                "neo4j:5.26-enterprise",
             ]
-            command.extend(self._set_args(**self._vendor_args))
-            ret = self._run_command(command)
+            command.extend(self._get_args(**self._vendor_args))
+            ret = run_command(command)
         except subprocess.CalledProcessError as e:
             log.error("There was an error starting the Neo4j container!")
             log.error(
@@ -1000,7 +1698,7 @@ class Neo4jDocker(BaseRunner):
         usage = self._get_cpu_memory_usage()
 
         command = ["docker", "stop", self._container_name]
-        self._run_command(command)
+        run_command(command)
         log.log("Database stopped.")
 
         return usage
@@ -1008,7 +1706,7 @@ class Neo4jDocker(BaseRunner):
     def start_db(self, message):
         log.init("Starting database...")
         command = ["docker", "start", self._container_name]
-        self._run_command(command)
+        run_command(command)
         _wait_for_server_socket(self._bolt_port, delay=5)
         log.log("Database started.")
 
@@ -1017,19 +1715,16 @@ class Neo4jDocker(BaseRunner):
         usage = self._get_cpu_memory_usage()
 
         command = ["docker", "stop", self._container_name]
-        self._run_command(command)
+        run_command(command)
         log.log("Database stopped.")
         return usage
 
     def clean_db(self):
         self.remove_container(self._container_name)
 
-    def fetch_client(self) -> BaseClient:
-        return BoltClientDocker(benchmark_context=self.benchmark_context)
-
     def remove_container(self, containerName):
         command = ["docker", "rm", "-f", containerName]
-        self._run_command(command)
+        run_command(command)
 
     def _get_cpu_memory_usage(self):
         command = [
@@ -1041,7 +1736,7 @@ class Neo4jDocker(BaseRunner):
             "-c",
             "cat /var/lib/neo4j/run/neo4j.pid",
         ]
-        ret = self._run_command(command)
+        ret = run_command(command)
         pid = ret.stdout.split()[0]
 
         command = [
@@ -1054,7 +1749,7 @@ class Neo4jDocker(BaseRunner):
             "grep ^VmPeak /proc/{}/status".format(pid),
         ]
         usage = {"cpu": 0, "memory": 0}
-        ret = self._run_command(command)
+        ret = run_command(command)
         memory = ret.stdout.split()
         usage["memory"] = int(memory[1]) * 1024
 
@@ -1067,7 +1762,7 @@ class Neo4jDocker(BaseRunner):
             "-c",
             "cat /proc/{}/stat".format(pid),
         ]
-        stat = self._run_command(command).stdout.strip("\n")
+        stat = run_command(command).stdout.strip("\n")
 
         command = [
             "docker",
@@ -1078,14 +1773,212 @@ class Neo4jDocker(BaseRunner):
             "-c",
             "getconf CLK_TCK",
         ]
-        CLK_TCK = int(self._run_command(command).stdout.strip("\n"))
+        CLK_TCK = int(run_command(command).stdout.strip("\n"))
 
         cpu_time = sum(map(int, stat.split(")")[1].split()[11:15])) / CLK_TCK
         usage["cpu"] = cpu_time
 
         return usage
 
-    def _run_command(self, command):
+    def run_command(self, command):
         ret = subprocess.run(command, capture_output=True, check=True, text=True)
         time.sleep(0.2)
         return ret
+
+
+class FalkorDBDocker(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context=benchmark_context)
+        self._directory = tempfile.TemporaryDirectory(dir=benchmark_context.temporary_directory)
+        self._vendor_args = benchmark_context.vendor_args
+        self._falkordb_port = 6379
+        self._bolt_port = 7687
+        self._container_name = "falkordb_benchmark"
+        self._image_name = "falkordb/falkordb"
+        self._image_version = "v4.8.5"
+        self._container_ip = None
+        self._config_file = None
+        _setup_docker_benchmark_network(network_name=DOCKER_NETWORK_NAME)
+
+    def start_db_init(self, message):
+        log.init("Starting FalkorDB for import (init)...")
+        try:
+            command = [
+                "docker",
+                "run",
+                "--detach",
+                "--network",
+                DOCKER_NETWORK_NAME,
+                "--name",
+                self._container_name,
+                "-it",
+                "-p",
+                f"{self._falkordb_port}:{self._falkordb_port}",
+                "-p",
+                f"{self._bolt_port}:{self._bolt_port}",
+                f"{self._image_name}:{self._image_version}",
+            ]
+            command.extend(self._get_args(**self._vendor_args))
+            run_command(command)
+        except subprocess.CalledProcessError as e:
+            log.error("Failed to start FalkorDB docker container.")
+            log.error(
+                "There is probably a database running on that port, please stop the running container and try again."
+            )
+            raise e
+
+        _wait_for_server_socket(self._bolt_port, delay=0.5)
+        log.log("Database started.")
+
+    def start_db(self, message):
+        log.init("Starting FalkorDB for benchmark...")
+        command = ["docker", "start", self._container_name]
+        run_command(command)
+        _wait_for_server_socket(self._falkordb_port, delay=0.5)
+        log.log("Database started.")
+
+    def stop_db_init(self, message):
+        log.init("Stopping database (init)...")
+        usage = self._get_cpu_memory_usage()
+        run_command(["docker", "exec", self._container_name, "redis-cli", "BGSAVE"])
+
+        command = ["docker", "stop", self._container_name]
+        run_command(command)
+        log.log("Database stopped.")
+        return usage
+
+    def stop_db(self, message):
+        log.init("Stopping database...")
+        usage = self._get_cpu_memory_usage()
+        run_command(["docker", "exec", self._container_name, "redis-cli", "BGSAVE"])
+
+        command = ["docker", "stop", self._container_name]
+        run_command(command)
+        log.log("Database stopped.")
+        return usage
+
+    def clean_db(self):
+        self.remove_container(self._container_name)
+
+    def remove_container(self, container_name):
+        command = ["docker", "rm", "-f", container_name]
+        run_command(command)
+
+    def get_database_port(self):
+        return self._falkordb_port
+
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
+    def _get_cpu_memory_usage(self):
+        return {
+            "cpu": get_docker_cpu_usage(self._container_name),
+            "memory": get_docker_memory_usage(self._container_name),
+        }
+
+    def run_command(self, command):
+        ret = subprocess.run(command, check=True, capture_output=True, text=True)
+        time.sleep(3)
+        return ret
+
+
+class PostgreSQLDocker(BaseRunner):
+    def __init__(self, benchmark_context: BenchmarkContext):
+        super().__init__(benchmark_context)
+        self._container_name = f"{benchmark_context.vendor_name}_benchmark"
+        self._port = benchmark_context.vendor_args.get("port", 5432)
+        self._user = benchmark_context.vendor_args.get("user", "postgres")
+        self._password = benchmark_context.vendor_args.get("password", "postgres")
+        self._database = benchmark_context.vendor_args.get("database", "postgres")
+        self._image = "postgres:15"
+        _setup_docker_benchmark_network(DOCKER_NETWORK_NAME)
+
+    def start_db_init(self, message):
+        command = [
+            "docker",
+            "run",
+            "-d",
+            "--name",
+            self._container_name,
+            "--network",
+            DOCKER_NETWORK_NAME,
+            "-e",
+            f"POSTGRES_USER={self._user}",
+            "-e",
+            f"POSTGRES_PASSWORD={self._password}",
+            "-e",
+            f"POSTGRES_DB={self._database}",
+            "-p",
+            f"{self._port}:{self._port}/tcp",
+            self._image,
+        ]
+        run_command(command)
+        _wait_for_server_socket(self._port)
+        self._wait_for_postgres_ready("127.0.0.1", self._port, self._user, self._password, self._database)
+
+    def start_db(self, message):
+        log.init("Starting database for benchmark...")
+        command = ["docker", "start", self._container_name]
+        run_command(command)
+        _wait_for_server_socket(self._port)
+        self._wait_for_postgres_ready("127.0.0.1", self._port, self._user, self._password, self._database)
+
+        log.log("Database started.")
+
+    def stop_db_init(self, message):
+        log.init("Stopping database (init)...")
+        usage = self._get_cpu_memory_usage()
+        command = ["docker", "stop", self._container_name]
+        run_command(command)
+        log.log("Database stopped.")
+
+        return usage
+
+    def stop_db(self, message):
+        log.init("Stopping database...")
+        usage = self._get_cpu_memory_usage()
+        command = ["docker", "stop", self._container_name]
+        run_command(command)
+        log.log("Database stopped.")
+
+        return usage
+
+    def clean_db(self):
+        self.remove_container(self._container_name)
+
+    def get_database_port(self):
+        return self._port
+
+    def remove_container(self, container_name):
+        command = ["docker", "rm", "-f", container_name]
+        run_command(command)
+
+    def _get_args(self, **kwargs):
+        return _convert_args_to_flags(**kwargs)
+
+    def _get_cpu_memory_usage(self):
+        return {
+            "cpu": get_docker_cpu_usage(self._container_name),
+            "memory": get_docker_memory_usage(self._container_name),
+        }
+
+    def run_command(self, command):
+        ret = subprocess.run(command, capture_output=True, text=True)
+        if ret.returncode != 0:
+            return None
+        return ret.stdout.strip().split("\n")
+
+    def _wait_for_postgres_ready(self, host, port, user, password, database, timeout=30):
+        import psycopg2
+
+        start_time = time.time()
+        while time.time() - start_time < timeout:
+            try:
+                conn = psycopg2.connect(host=host, port=port, user=user, password=password, database=database)
+                conn.close()
+                return
+            except psycopg2.OperationalError as e:
+                if "authentication failed" in str(e):
+                    raise e  # Credentials are actually wrong
+                time.sleep(0.5)
+        raise TimeoutError("PostgreSQL did not become ready in time.")

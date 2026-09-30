@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <utility>
 
 extern "C" {
 #include <dlfcn.h>
@@ -22,22 +23,36 @@ extern "C" {
 #include <fmt/format.h>
 #include <unistd.h>
 
+#include "license/license.hpp"
+#ifdef MG_PYTHON_SUPPORT
 #include "py/py.hpp"
+#endif
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_helpers.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
+#ifdef MG_PYTHON_SUPPORT
 #include "query/procedure/py_module.hpp"
+#endif
+#include "utils/case_insensitve_set.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory.hpp"
 #include "utils/message.hpp"
-#include "utils/pmr/vector.hpp"
-#include "utils/string.hpp"
+
+#include <mutex>
+#include <shared_mutex>
+
+namespace memgraph::query {
+auto ReservedBuiltInModuleNames() -> ::memgraph::utils::CaseInsensitiveSet const &;
+}  // namespace memgraph::query
 
 namespace memgraph::query::procedure {
 
+#ifdef MG_PYTHON_SUPPORT
 constexpr const char *func_code =
     "import ast\n\n"
-    "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph']\n"
+    "no_removals = ['collections', 'abc', 'sys', 'torch', 'torch_geometric', 'igraph', 'dgl', 'numpy', 'mgp', "
+    "'_mgp']\n"
     "modules = set()\n\n"
     "def visit_Import(node):\n"
     "  for name in node.names:\n"
@@ -56,11 +71,15 @@ constexpr const char *func_code =
 
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
                              PyObject *sys_mod_ref);
+#endif
 
 ModuleRegistry gModuleRegistry;
 
 Module::~Module() {}
 
+// Every procedure registered here ignores its `mgp_graph *`. `GraphAccess::None` is declared per
+// procedure rather than for the module because declaring it is also what opts one into running with no
+// transaction, which is only worth doing for those callers actually issue that way.
 class BuiltinModule final : public Module {
  public:
   BuiltinModule();
@@ -102,6 +121,7 @@ const std::map<std::string, mgp_proc, std::less<>> *BuiltinModule::Procedures() 
 const std::map<std::string, mgp_trans, std::less<>> *BuiltinModule::Transformations() const {
   return &transformations_;
 }
+
 const std::map<std::string, mgp_func, std::less<>> *BuiltinModule::Functions() const { return &functions_; }
 
 void BuiltinModule::AddProcedure(std::string_view name, mgp_proc proc) { procedures_.emplace(name, std::move(proc)); }
@@ -112,13 +132,7 @@ void BuiltinModule::AddTransformation(std::string_view name, mgp_trans trans) {
 
 namespace {
 
-auto WithUpgradedLock(auto *lock, const auto &function) {
-  lock->unlock_shared();
-  utils::OnScopeExit shared_lock{[&] { lock->lock_shared(); }};
-  function();
-};
-
-void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
+void RegisterMgLoad(ModuleRegistry *module_registry, BuiltinModule *module) {
   // Loading relies on the fact that regular procedure invocation through
   // CallProcedureCursor::Pull takes ModuleRegistry::lock_ with READ access. To
   // load modules we have to upgrade our READ access to WRITE access,
@@ -131,26 +145,24 @@ void RegisterMgLoad(ModuleRegistry *module_registry, utils::RWLock *lock, Builti
   // single thread may only take either a READ or a WRITE lock, it's not
   // possible for a thread to hold both. If a thread tries to do that, it will
   // deadlock immediately (no other thread needs to do anything).
-  auto load_all_cb = [module_registry, lock](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/,
-                                             mgp_memory * /*memory*/) {
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+  auto load_all_cb = [module_registry](
+                         mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/) {
+    module_registry->UnloadAndLoadModulesFromDirectories();
   };
   mgp_proc load_all("load_all", load_all_cb, utils::NewDeleteResource());
   module->AddProcedure("load_all", std::move(load_all));
-  auto load_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result,
-                                         mgp_memory * /*memory*/) {
+  auto load_cb = [module_registry](mgp_list *args, mgp_graph * /*graph*/, mgp_result *result, mgp_memory * /*memory*/) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
+    const char *arg_as_string{nullptr};
+    const auto err = mgp_value_get_string(arg, &arg_as_string);
     bool succ = false;
-    WithUpgradedLock(lock, [&]() {
-      const char *arg_as_string{nullptr};
-      if (const auto err = mgp_value_get_string(arg, &arg_as_string); err != mgp_error::MGP_ERROR_NO_ERROR) {
-        succ = false;
-      } else {
-        succ = module_registry->LoadOrReloadModuleFromName(arg_as_string);
-      }
-    });
+    if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+      succ = false;
+    } else {
+      succ = module_registry->LoadOrReloadModuleFromName(arg_as_string);
+    }
     if (!succ) {
       MG_ASSERT(mgp_result_set_error_msg(result, "Failed to (re)load the module.") == mgp_error::MGP_ERROR_NO_ERROR);
     }
@@ -174,15 +186,13 @@ std::string GetPathString(const std::optional<std::filesystem::path> &path) {
 }
 }  // namespace
 
-void RegisterMgProcedures(
-    // We expect modules to be sorted by name.
-    const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto procedures_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
-                                     mgp_memory *memory) {
-    // Iterating over all_modules assumes that the standard mechanism of custom
-    // procedure invocations takes the ModuleRegistry::lock_ with READ access.
+void RegisterMgProcedures(std::map<std::string, std::shared_ptr<Module>, std::less<>> const *all_modules,
+                          utils::RWLock *lock, BuiltinModule *builtin_module) {
+  auto procedures_cb = [all_modules, lock](
+                           mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
     // For details on how the invocation is done, take a look at the
     // CallProcedureCursor::Pull implementation.
+    auto guard = std::unique_lock{*lock};
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by procedure.
       static_assert(
@@ -230,7 +240,10 @@ void RegisterMgProcedures(
         MgpUniquePtr<mgp_value> is_write_value{nullptr, mgp_value_destroy};
         if (!TryOrSetError(
                 [&, &proc = proc] {
-                  return CreateMgpObject(is_write_value, mgp_value_make_bool, proc.info.is_write ? 1 : 0, memory);
+                  return CreateMgpObject(is_write_value,
+                                         mgp_value_make_bool,
+                                         proc.info.graph_access == GraphAccess::Write ? 1 : 0,
+                                         memory);
                 },
                 result)) {
           return;
@@ -258,7 +271,7 @@ void RegisterMgProcedures(
       }
     }
   };
-  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource());
+  mgp_proc procedures("procedures", procedures_cb, utils::NewDeleteResource(), {.graph_access = GraphAccess::None});
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "signature", Call<mgp_type *>(mgp_type_string)) ==
@@ -269,13 +282,14 @@ void RegisterMgProcedures(
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
-  module->AddProcedure("procedures", std::move(procedures));
+  builtin_module->AddProcedure("procedures", std::move(procedures));
 }
 
-void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules,
-                               BuiltinModule *module) {
-  auto transformations_cb = [all_modules](mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result,
-                                          mgp_memory *memory) {
+void RegisterMgTransformations(std::map<std::string, std::shared_ptr<Module>, std::less<>> const *all_modules,
+                               utils::RWLock *lock, BuiltinModule *builtin_module) {
+  auto transformations_cb = [all_modules, lock](
+                                mgp_list * /*unused*/, mgp_graph * /*unused*/, mgp_result *result, mgp_memory *memory) {
+    auto guard = std::unique_lock{*lock};
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by transformation.
       static_assert(
@@ -326,23 +340,22 @@ void RegisterMgTransformations(const std::map<std::string, std::unique_ptr<Modul
       }
     }
   };
-  mgp_proc procedures("transformations", transformations_cb, utils::NewDeleteResource());
+  mgp_proc procedures(
+      "transformations", transformations_cb, utils::NewDeleteResource(), {.graph_access = GraphAccess::None});
   MG_ASSERT(mgp_proc_add_result(&procedures, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "path", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&procedures, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
-  module->AddProcedure("transformations", std::move(procedures));
+  builtin_module->AddProcedure("transformations", std::move(procedures));
 }
 
-void RegisterMgFunctions(
-    // We expect modules to be sorted by name.
-    const std::map<std::string, std::unique_ptr<Module>, std::less<>> *all_modules, BuiltinModule *module) {
-  auto functions_cb = [all_modules](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result,
-                                    mgp_memory *memory) {
-    // Iterating over all_modules assumes that the standard mechanism of magic
-    // functions invocations takes the ModuleRegistry::lock_ with READ access.
+void RegisterMgFunctions(std::map<std::string, std::shared_ptr<Module>, std::less<>> const *all_modules,
+                         utils::RWLock *lock, BuiltinModule *builtin_module) {
+  auto functions_cb = [all_modules, lock](
+                          mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *memory) {
+    auto guard = std::unique_lock{*lock};
     for (const auto &[module_name, module] : *all_modules) {
       // Return the results in sorted order by module and by function_name.
       static_assert(std::is_same_v<decltype(module->Functions()), const std::map<std::string, mgp_func, std::less<>> *>,
@@ -405,7 +418,7 @@ void RegisterMgFunctions(
       }
     }
   };
-  mgp_proc functions("functions", functions_cb, utils::NewDeleteResource());
+  mgp_proc functions("functions", functions_cb, utils::NewDeleteResource(), {.graph_access = GraphAccess::None});
   MG_ASSERT(mgp_proc_add_result(&functions, "name", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&functions, "signature", Call<mgp_type *>(mgp_type_string)) ==
@@ -414,13 +427,14 @@ void RegisterMgFunctions(
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&functions, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
-  module->AddProcedure("functions", std::move(functions));
+  builtin_module->AddProcedure("functions", std::move(functions));
 }
+
 namespace {
 bool IsAllowedExtension(const auto &extension) {
   static constexpr std::array<std::string_view, 1> allowed_extensions{".py"};
-  return std::any_of(allowed_extensions.begin(), allowed_extensions.end(),
-                     [&](const auto allowed_extension) { return allowed_extension == extension; });
+  return std::ranges::any_of(allowed_extensions,
+                             [&](const auto allowed_extension) { return allowed_extension == extension; });
 }
 
 bool IsSubPath(const auto &base, const auto &destination) {
@@ -441,8 +455,8 @@ std::optional<std::string> ReadFile(const auto &path) {
 }
 
 // Return the module directory that contains the `path`
-utils::BasicResult<const char *, std::filesystem::path> ParentModuleDirectory(const ModuleRegistry &module_registry,
-                                                                              const std::filesystem::path &path) {
+std::expected<std::filesystem::path, const char *> ParentModuleDirectory(const ModuleRegistry &module_registry,
+                                                                         const std::filesystem::path &path) {
   const auto &module_directories = module_registry.GetModulesDirectory();
 
   auto longest_parent_directory = module_directories.end();
@@ -458,7 +472,7 @@ utils::BasicResult<const char *, std::filesystem::path> ParentModuleDirectory(co
   }
 
   if (longest_parent_directory == module_directories.end()) {
-    return "The specified file isn't contained in any of the module directories.";
+    return std::unexpected("The specified file isn't contained in any of the module directories.");
   }
 
   return *longest_parent_directory;
@@ -466,8 +480,8 @@ utils::BasicResult<const char *, std::filesystem::path> ParentModuleDirectory(co
 }  // namespace
 
 void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *module) {
-  auto get_module_files_cb = [module_registry](mgp_list * /*args*/, mgp_graph * /*unused*/, mgp_result *result,
-                                               mgp_memory *memory) {
+  auto get_module_files_cb = [module_registry](
+                                 mgp_list * /*args*/, mgp_graph * /*unused*/, mgp_result *result, mgp_memory *memory) {
     for (const auto &module_directory : module_registry->GetModulesDirectory()) {
       for (const auto &dir_entry : std::filesystem::recursive_directory_iterator(module_directory)) {
         if (dir_entry.is_regular_file() && IsAllowedExtension(dir_entry.path().extension())) {
@@ -503,8 +517,11 @@ void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *mo
     }
   };
 
-  mgp_proc get_module_files("get_module_files", get_module_files_cb, utils::NewDeleteResource(),
-                            {.required_privilege = AuthQuery::Privilege::MODULE_READ});
+  mgp_proc get_module_files(
+      "get_module_files",
+      get_module_files_cb,
+      utils::NewDeleteResource(),
+      {.graph_access = GraphAccess::None, .required_privilege = AuthQuery::Privilege::MODULE_READ});
   MG_ASSERT(mgp_proc_add_result(&get_module_files, "path", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
   MG_ASSERT(mgp_proc_add_result(&get_module_files, "is_editable", Call<mgp_type *>(mgp_type_bool)) ==
@@ -513,8 +530,8 @@ void RegisterMgGetModuleFiles(ModuleRegistry *module_registry, BuiltinModule *mo
 }
 
 void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
-  auto get_module_file_cb = [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                              mgp_memory *memory) {
+  auto get_module_file_cb = [module_registry](
+                                mgp_list *args, mgp_graph * /*unused*/, mgp_result *result, mgp_memory *memory) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
     auto *arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, arg), "Should have been type checked already");
@@ -540,8 +557,8 @@ void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *mod
       return;
     }
 
-    if (auto maybe_error_msg = ParentModuleDirectory(*module_registry, path); maybe_error_msg.HasError()) {
-      static_cast<void>(mgp_result_set_error_msg(result, maybe_error_msg.GetError()));
+    if (auto maybe_error_msg = ParentModuleDirectory(*module_registry, path); !maybe_error_msg.has_value()) {
+      static_cast<void>(mgp_result_set_error_msg(result, maybe_error_msg.error()));
       return;
     }
 
@@ -565,7 +582,9 @@ void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *mod
       return;
     }
   };
-  mgp_proc get_module_file("get_module_file", std::move(get_module_file_cb), utils::NewDeleteResource(),
+  mgp_proc get_module_file("get_module_file",
+                           std::move(get_module_file_cb),
+                           utils::NewDeleteResource(),
                            {.required_privilege = AuthQuery::Privilege::MODULE_READ});
   MG_ASSERT(mgp_proc_add_arg(&get_module_file, "path", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
@@ -575,10 +594,10 @@ void RegisterMgGetModuleFile(ModuleRegistry *module_registry, BuiltinModule *mod
 }
 
 namespace {
-utils::BasicResult<std::string> WriteToFile(const std::filesystem::path &file, const std::string_view content) {
+std::expected<void, std::string> WriteToFile(const std::filesystem::path &file, const std::string_view content) {
   std::ofstream output_file{file};
   if (!output_file.is_open()) {
-    return fmt::format("Failed to open the file at location {}", file);
+    return std::unexpected(fmt::format("Failed to open the file at location {}", file));
   }
   output_file.write(content.data(), static_cast<std::streamsize>(content.size()));
   output_file.flush();
@@ -586,9 +605,9 @@ utils::BasicResult<std::string> WriteToFile(const std::filesystem::path &file, c
 }
 }  // namespace
 
-void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto create_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                       mgp_memory *memory) {
+void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto create_module_file_cb = [module_registry](
+                                   mgp_list *args, mgp_graph * /*unused*/, mgp_result *result, mgp_memory *memory) {
     MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
     auto *filename_arg = Call<mgp_value *>(mgp_list_at, args, 0);
     MG_ASSERT(CallBool(mgp_value_is_string, filename_arg), "Should have been type checked already");
@@ -625,8 +644,8 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
       return;
     }
 
-    if (auto maybe_error = WriteToFile(file_path, {content_str, std::strlen(content_str)}); maybe_error.HasError()) {
-      static_cast<void>(mgp_result_set_error_msg(result, maybe_error.GetError().c_str()));
+    if (auto maybe_error = WriteToFile(file_path, {content_str, std::strlen(content_str)}); !maybe_error.has_value()) {
+      static_cast<void>(mgp_result_set_error_msg(result, maybe_error.error().c_str()));
       return;
     }
 
@@ -644,9 +663,11 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
       return;
     }
 
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
+    module_registry->UnloadAndLoadModulesFromDirectories();
   };
-  mgp_proc create_module_file("create_module_file", std::move(create_module_file_cb), utils::NewDeleteResource(),
+  mgp_proc create_module_file("create_module_file",
+                              std::move(create_module_file_cb),
+                              utils::NewDeleteResource(),
                               {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
   MG_ASSERT(mgp_proc_add_arg(&create_module_file, "filename", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
@@ -657,54 +678,56 @@ void RegisterMgCreateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
   module->AddProcedure("create_module_file", std::move(create_module_file));
 }
 
-void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto update_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                       mgp_memory * /*memory*/) {
-    MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
-    auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
-    MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
-    const char *path_str{nullptr};
-    if (!TryOrSetError([&] { return mgp_value_get_string(path_arg, &path_str); }, result)) {
-      return;
-    }
+void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto update_module_file_cb =
+      [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result, mgp_memory * /*memory*/) {
+        MG_ASSERT(Call<size_t>(mgp_list_size, args) == 2U, "Should have been type checked already");
+        auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
+        MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
+        const char *path_str{nullptr};
+        if (!TryOrSetError([&] { return mgp_value_get_string(path_arg, &path_str); }, result)) {
+          return;
+        }
 
-    const std::filesystem::path path{path_str};
+        const std::filesystem::path path{path_str};
 
-    if (!path.is_absolute()) {
-      static_cast<void>(mgp_result_set_error_msg(result, "The path should be an absolute path."));
-      return;
-    }
+        if (!path.is_absolute()) {
+          static_cast<void>(mgp_result_set_error_msg(result, "The path should be an absolute path."));
+          return;
+        }
 
-    if (!IsAllowedExtension(path.extension())) {
-      static_cast<void>(mgp_result_set_error_msg(result, "The specified file isn't in the supported format."));
-      return;
-    }
+        if (!IsAllowedExtension(path.extension())) {
+          static_cast<void>(mgp_result_set_error_msg(result, "The specified file isn't in the supported format."));
+          return;
+        }
 
-    if (!std::filesystem::exists(path)) {
-      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
-      return;
-    }
+        if (!std::filesystem::exists(path)) {
+          static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
+          return;
+        }
 
-    if (auto maybe_error_msg = ParentModuleDirectory(*module_registry, path); maybe_error_msg.HasError()) {
-      static_cast<void>(mgp_result_set_error_msg(result, maybe_error_msg.GetError()));
-      return;
-    }
+        if (auto maybe_error_msg = ParentModuleDirectory(*module_registry, path); !maybe_error_msg.has_value()) {
+          static_cast<void>(mgp_result_set_error_msg(result, maybe_error_msg.error()));
+          return;
+        }
 
-    auto *content_arg = Call<mgp_value *>(mgp_list_at, args, 1);
-    MG_ASSERT(CallBool(mgp_value_is_string, content_arg), "Should have been type checked already");
-    const char *content_str{nullptr};
-    if (!TryOrSetError([&] { return mgp_value_get_string(content_arg, &content_str); }, result)) {
-      return;
-    }
+        auto *content_arg = Call<mgp_value *>(mgp_list_at, args, 1);
+        MG_ASSERT(CallBool(mgp_value_is_string, content_arg), "Should have been type checked already");
+        const char *content_str{nullptr};
+        if (!TryOrSetError([&] { return mgp_value_get_string(content_arg, &content_str); }, result)) {
+          return;
+        }
 
-    if (auto maybe_error = WriteToFile(path, {content_str, std::strlen(content_str)}); maybe_error.HasError()) {
-      static_cast<void>(mgp_result_set_error_msg(result, maybe_error.GetError().c_str()));
-      return;
-    }
+        if (auto maybe_error = WriteToFile(path, {content_str, std::strlen(content_str)}); !maybe_error.has_value()) {
+          static_cast<void>(mgp_result_set_error_msg(result, maybe_error.error().c_str()));
+          return;
+        }
 
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
-  };
-  mgp_proc update_module_file("update_module_file", std::move(update_module_file_cb), utils::NewDeleteResource(),
+        module_registry->UnloadAndLoadModulesFromDirectories();
+      };
+  mgp_proc update_module_file("update_module_file",
+                              std::move(update_module_file_cb),
+                              utils::NewDeleteResource(),
                               {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
   MG_ASSERT(mgp_proc_add_arg(&update_module_file, "path", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
@@ -713,57 +736,59 @@ void RegisterMgUpdateModuleFile(ModuleRegistry *module_registry, utils::RWLock *
   module->AddProcedure("update_module_file", std::move(update_module_file));
 }
 
-void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, utils::RWLock *lock, BuiltinModule *module) {
-  auto delete_module_file_cb = [module_registry, lock](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result,
-                                                       mgp_memory * /*memory*/) {
-    MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
-    auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
-    MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
-    const char *path_str{nullptr};
-    if (!TryOrSetError([&] { return mgp_value_get_string(path_arg, &path_str); }, result)) {
-      return;
-    }
+void RegisterMgDeleteModuleFile(ModuleRegistry *module_registry, BuiltinModule *module) {
+  auto delete_module_file_cb =
+      [module_registry](mgp_list *args, mgp_graph * /*unused*/, mgp_result *result, mgp_memory * /*memory*/) {
+        MG_ASSERT(Call<size_t>(mgp_list_size, args) == 1U, "Should have been type checked already");
+        auto *path_arg = Call<mgp_value *>(mgp_list_at, args, 0);
+        MG_ASSERT(CallBool(mgp_value_is_string, path_arg), "Should have been type checked already");
+        const char *path_str{nullptr};
+        if (!TryOrSetError([&] { return mgp_value_get_string(path_arg, &path_str); }, result)) {
+          return;
+        }
 
-    const std::filesystem::path path{path_str};
+        const std::filesystem::path path{path_str};
 
-    if (!path.is_absolute()) {
-      static_cast<void>(mgp_result_set_error_msg(result, "The path should be an absolute path."));
-      return;
-    }
+        if (!path.is_absolute()) {
+          static_cast<void>(mgp_result_set_error_msg(result, "The path should be an absolute path."));
+          return;
+        }
 
-    if (!IsAllowedExtension(path.extension())) {
-      static_cast<void>(mgp_result_set_error_msg(result, "The specified file isn't in the supported format."));
-      return;
-    }
+        if (!IsAllowedExtension(path.extension())) {
+          static_cast<void>(mgp_result_set_error_msg(result, "The specified file isn't in the supported format."));
+          return;
+        }
 
-    if (!std::filesystem::exists(path)) {
-      static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
-      return;
-    }
+        if (!std::filesystem::exists(path)) {
+          static_cast<void>(mgp_result_set_error_msg(result, "The specified file doesn't exist."));
+          return;
+        }
 
-    const auto parent_module_directory = ParentModuleDirectory(*module_registry, path);
-    if (parent_module_directory.HasError()) {
-      static_cast<void>(mgp_result_set_error_msg(result, parent_module_directory.GetError()));
-      return;
-    }
+        const auto parent_module_directory = ParentModuleDirectory(*module_registry, path);
+        if (!parent_module_directory) {
+          static_cast<void>(mgp_result_set_error_msg(result, parent_module_directory.error()));
+          return;
+        }
 
-    std::error_code ec;
-    if (!std::filesystem::remove(path, ec)) {
-      static_cast<void>(
-          mgp_result_set_error_msg(result, fmt::format("Failed to delete the module: {}", ec.message()).c_str()));
-      return;
-    }
+        std::error_code ec;
+        if (!std::filesystem::remove(path, ec)) {
+          static_cast<void>(
+              mgp_result_set_error_msg(result, fmt::format("Failed to delete the module: {}", ec.message()).c_str()));
+          return;
+        }
 
-    auto parent_path = path.parent_path();
-    while (!std::filesystem::is_symlink(parent_path) && std::filesystem::is_empty(parent_path) &&
-           !std::filesystem::equivalent(*parent_module_directory, parent_path)) {
-      std::filesystem::remove(parent_path);
-      parent_path = parent_path.parent_path();
-    }
+        auto parent_path = path.parent_path();
+        while (!std::filesystem::is_symlink(parent_path) && std::filesystem::is_empty(parent_path) &&
+               !std::filesystem::equivalent(*parent_module_directory, parent_path)) {
+          std::filesystem::remove(parent_path);
+          parent_path = parent_path.parent_path();
+        }
 
-    WithUpgradedLock(lock, [&]() { module_registry->UnloadAndLoadModulesFromDirectories(); });
-  };
-  mgp_proc delete_module_file("delete_module_file", std::move(delete_module_file_cb), utils::NewDeleteResource(),
+        module_registry->UnloadAndLoadModulesFromDirectories();
+      };
+  mgp_proc delete_module_file("delete_module_file",
+                              std::move(delete_module_file_cb),
+                              utils::NewDeleteResource(),
                               {.required_privilege = AuthQuery::Privilege::MODULE_WRITE});
   MG_ASSERT(mgp_proc_add_arg(&delete_module_file, "path", Call<mgp_type *>(mgp_type_string)) ==
             mgp_error::MGP_ERROR_NO_ERROR);
@@ -847,7 +872,7 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
   file_path_ = file_path;
   dlerror();  // Clear any existing error.
   // NOLINTNEXTLINE(hicpp-signed-bitwise)
-  handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL | RTLD_DEEPBIND);
+  handle_ = dlopen(file_path.c_str(), RTLD_NOW | RTLD_LOCAL);
   if (!handle_) {
     spdlog::error(
         utils::MessageWithLink("Unable to load module {}; {}.", file_path, dlerror(), "https://memgr.ph/modules"));
@@ -883,6 +908,14 @@ bool SharedLibraryModule::Load(const std::filesystem::path &file_path) {
         const auto error =
             fmt::format("Unable to add result to transformation in module {}; add result failed", file_path);
         return with_error(error);
+      }
+    }
+    for (const auto &[proc_name, proc] : module_def->procedures) {
+      if (proc.info.is_batched && proc.results.empty()) {
+        return with_error(fmt::format(
+            "Unable to load module {}; void procedures cannot be batched (procedure '{}' declares no result fields).",
+            file_path,
+            proc_name));
       }
     }
     return true;
@@ -940,6 +973,7 @@ const std::map<std::string, mgp_func, std::less<>> *SharedLibraryModule::Functio
   return &functions_;
 }
 
+#ifdef MG_PYTHON_SUPPORT
 class PythonModule final : public Module {
  public:
   PythonModule();
@@ -956,6 +990,7 @@ class PythonModule final : public Module {
   const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override;
   const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override;
   const std::map<std::string, mgp_func, std::less<>> *Functions() const override;
+
   std::optional<std::filesystem::path> Path() const override { return file_path_; }
 
  private:
@@ -969,7 +1004,11 @@ class PythonModule final : public Module {
 PythonModule::PythonModule() {}
 
 PythonModule::~PythonModule() {
-  if (py_module_) Close();
+  try {
+    if (py_module_) Close();
+  } catch (std::exception const &e) {
+    spdlog::error("Exception during PythonModule cleanup for {}, {}", file_path_.string(), e.what());
+  }
 }
 
 bool PythonModule::Load(const std::filesystem::path &file_path) {
@@ -984,6 +1023,7 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     return false;
   }
   bool succ = true;
+  std::string batched_void_proc_name;
   auto module_cb = [&](auto *module_def, auto * /*memory*/) {
     auto result = ImportPyModule(file_path.stem().c_str(), module_def);
     for (auto &trans : module_def->transformations) {
@@ -992,6 +1032,13 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
         return result;
       }
     };
+    for (const auto &[proc_name, proc] : module_def->procedures) {
+      if (proc.info.is_batched && proc.results.empty()) {
+        succ = false;
+        batched_void_proc_name = proc_name;
+        return result;
+      }
+    }
     return result;
   };
   py_module_ = WithModuleRegistration(&procedures_, &transformations_, &functions_, module_cb);
@@ -999,7 +1046,14 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
     spdlog::info("Loaded module {}", file_path);
 
     if (!succ) {
-      spdlog::error("Unable to add result to transformation");
+      if (!batched_void_proc_name.empty()) {
+        spdlog::error(
+            "Unable to load module {}; void procedures cannot be batched (procedure '{}' declares no result fields).",
+            file_path,
+            batched_void_proc_name);
+      } else {
+        spdlog::error("Unable to add result to transformation");
+      }
       return false;
     }
     return true;
@@ -1013,16 +1067,33 @@ bool PythonModule::Load(const std::filesystem::path &file_path) {
 bool PythonModule::Close() {
   MG_ASSERT(py_module_, "Attempting to close a module that has not been loaded...");
   spdlog::info("Closing module {}...", file_path_);
-  // The procedures and transformations are closures which hold references to the Python callbacks.
-  // Releasing these references might result in deallocations so we need to take the GIL.
+
+  // If the Python interpreter is finalizing, we should avoid complex cleanup
+  // that involves running scripts, as it might fail or cause crashes.
+  // We must check this *before* acquiring the GIL, as EnsureGIL will terminate
+  // the thread if called during finalization.
+  if (MG_PY_IS_FINALIZING()) {
+    procedures_.clear();
+    transformations_.clear();
+    functions_.clear();
+    py_module_ = py::Object(nullptr);
+    return true;
+  }
+
   auto gil = py::EnsureGIL();
+
   procedures_.clear();
   transformations_.clear();
   functions_.clear();
 
-  // Get the reference to sys.modules dictionary
-  py::Object sys(PyImport_ImportModule("sys"));
-  PyObject *sys_mod_ref = sys.GetAttr("modules").Ptr();
+  // Get the reference to sys.modules dictionary. PyImport_GetModuleDict()
+  // returns a borrowed reference to the internal modules dictionary.
+  PyObject *sys_mod_ref = PyImport_GetModuleDict();
+  if (!sys_mod_ref) {
+    spdlog::warn("Failed to get sys.modules dictionary");
+    py_module_ = py::Object(nullptr);
+    return false;
+  }
 
   std::string stem = file_path_.stem().string();
 
@@ -1031,33 +1102,54 @@ bool PythonModule::Close() {
   std::vector<std::filesystem::path> submodules;
 
   for (auto it = std::filesystem::recursive_directory_iterator(file_path_.parent_path());
-       it != std::filesystem::recursive_directory_iterator(); ++it) {
+       it != std::filesystem::recursive_directory_iterator();
+       ++it) {
     std::string dir_entry_stem = it->path().stem().string();
     if (it->is_regular_file() || dir_entry_stem == "__pycache__") continue;
-    if (dir_entry_stem.find(stem) != std::string_view::npos) {
+    if (dir_entry_stem.contains(stem)) {
       it.disable_recursion_pending();
       submodules.emplace_back(it->path());
     }
   }
 
   for (const auto &submodule : submodules) {
-    if (std::filesystem::exists(submodule)) {
-      std::filesystem::remove_all(submodule / "__pycache__");
-      for (auto const &rec_dir_entry : std::filesystem::recursive_directory_iterator(submodule)) {
-        std::string rec_dir_entry_stem = rec_dir_entry.path().stem().string();
-        if (rec_dir_entry.is_directory() && rec_dir_entry_stem != "__pycache__") {
-          std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__");
-        }
-        std::string rec_dir_entry_ext = rec_dir_entry.path().extension().string();
-        if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext != ".py") continue;
-        ProcessFileDependencies(rec_dir_entry.path().c_str(), file_path_.stem().c_str(), func_code, sys_mod_ref);
+    if (!std::filesystem::exists(submodule)) {
+      continue;
+    }
+    std::error_code ec;
+    std::filesystem::remove_all(submodule / "__pycache__", ec);
+    if (ec) {
+      spdlog::warn("Failed to remove __pycache__ in {}: {}", submodule.string(), ec.message());
+    }
+    auto rec_it = std::filesystem::recursive_directory_iterator(submodule, ec);
+    if (ec) {
+      spdlog::warn("Failed to iterate submodule {}: {}", submodule.string(), ec.message());
+      continue;
+    }
+    for (; rec_it != std::filesystem::recursive_directory_iterator(); rec_it.increment(ec)) {
+      if (ec) {
+        spdlog::warn("Failed to iterate in {}: {}", submodule.string(), ec.message());
+        break;
       }
+      auto const &rec_dir_entry = *rec_it;
+      std::string const rec_dir_entry_stem = rec_dir_entry.path().stem().string();
+      if (rec_dir_entry.is_directory() && rec_dir_entry_stem != "__pycache__") {
+        ec.clear();
+        std::filesystem::remove_all(rec_dir_entry.path() / "__pycache__", ec);
+        if (ec) {
+          spdlog::warn("Failed to remove __pycache__ in {}: {}", rec_dir_entry.path().string(), ec.message());
+        }
+      }
+      std::string const rec_dir_entry_ext = rec_dir_entry.path().extension().string();
+      if (!rec_dir_entry.is_regular_file() || rec_dir_entry_ext != ".py") continue;
+      ProcessFileDependencies(rec_dir_entry.path().c_str(), file_path_.stem().c_str(), func_code, sys_mod_ref);
     }
   }
 
   // first throw out of cache file
   if (PyDict_DelItemString(sys_mod_ref, file_path_.stem().c_str()) != 0) {
     spdlog::warn("Failed to remove the module {} from sys.modules", file_path_.stem().c_str());
+    PyErr_Clear();
     py_module_ = py::Object(nullptr);
     return false;
   }
@@ -1069,48 +1161,119 @@ bool PythonModule::Close() {
   return true;
 }
 
+// Must be called with GIL taken because of Py_DECREF
 void ProcessFileDependencies(std::filesystem::path file_path_, const char *module_path, const char *func_code,
                              PyObject *sys_mod_ref) {
-  const auto maybe_content =
-      ReadFile(file_path_);  // this is already done at Load so it can somehow be optimized but not sure how yet
+  MG_ASSERT(PyGILState_Check(), "ProcessFileDependencies requires the GIL to be held");
+  std::optional<std::string> maybe_content;
+  {
+    Py_BEGIN_ALLOW_THREADS maybe_content = ReadFile(file_path_);
+    Py_END_ALLOW_THREADS
+  }
 
-  if (maybe_content) {
+  if (maybe_content && !maybe_content->empty()) {
     const char *content_value = maybe_content->c_str();
-    if (content_value) {
-      PyObject *py_main = PyImport_ImportModule("__main__");
-      PyObject *py_global_dict = PyModule_GetDict(py_main);
 
-      PyDict_SetItemString(py_global_dict, "code", PyUnicode_FromString(content_value));
-      PyRun_String(func_code, Py_file_input, py_global_dict, py_global_dict);
-      PyObject *py_res = PyDict_GetItemString(py_global_dict, "modules");
+    const py::Object py_main(PyImport_ImportModule("__main__"));
+    if (!py_main) {
+      PyErr_Clear();
+      return;
+    }
 
-      PyObject *iterator = PyObject_GetIter(py_res);
-      PyObject *module = nullptr;
+    PyObject *py_global_dict = PyModule_GetDict(py_main.Ptr());
+    if (!py_global_dict) {
+      PyErr_Clear();
+      return;
+    }
 
-      if (iterator != nullptr) {
-        while ((module = PyIter_Next(iterator))) {
-          const char *module_name = PyUnicode_AsUTF8(module);
-          auto module_name_str = std::string(module_name);
-          PyObject *sys_iterator = PyObject_GetIter(PyDict_Keys(sys_mod_ref));
-          if (sys_iterator == nullptr) {
-            spdlog::warn("Cannot get reference to the sys.modules.keys()");
-            break;
-          }
-          PyObject *sys_mod_key = nullptr;
-          while ((sys_mod_key = PyIter_Next(sys_iterator))) {
-            const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key);
-            auto sys_mod_key_name_str = std::string(sys_mod_key_name);
-            if (sys_mod_key_name_str.rfind(module_name_str, 0) == 0 && sys_mod_key_name_str.compare(module_path) != 0) {
-              PyDict_DelItemString(sys_mod_ref, sys_mod_key_name);  // don't test output
-            }
-            Py_DECREF(sys_mod_key);
-          }
-          Py_DECREF(sys_iterator);
-          Py_DECREF(module);
+    const py::Object py_code_content(PyUnicode_FromString(content_value));
+    if (!py_code_content) {
+      PyErr_Clear();
+      return;
+    }
+
+    // Run the dependency scanner in a sandbox dict copied from __main__ so that
+    // the scanner script cannot corrupt __main__'s global namespace.
+    const py::Object sandbox_dict(PyDict_Copy(py_global_dict));
+    if (!sandbox_dict) {
+      PyErr_Clear();
+      return;
+    }
+
+    if (PyDict_SetItemString(sandbox_dict.Ptr(), "code", py_code_content.Ptr()) != 0) {
+      PyErr_Clear();
+      return;
+    }
+
+    const py::Object py_run_res(PyRun_String(func_code, Py_file_input, sandbox_dict.Ptr(), sandbox_dict.Ptr()));
+    if (!py_run_res) {
+      if (auto exc = py::FetchError()) {
+        spdlog::warn("Python dependency scan failed for {}: {}", file_path_.string(), py::FormatException(*exc));
+      }
+      return;
+    }
+
+    const py::Object py_res(py::Object::FromBorrow(PyDict_GetItemString(sandbox_dict.Ptr(), "modules")));
+    if (!py_res) {
+      // PyDict_GetItemString does not set an exception if the key is not found,
+      // but it might have failed for other reasons.
+      PyErr_Clear();
+      return;
+    }
+
+    const py::Object iterator(PyObject_GetIter(py_res.Ptr()));
+    if (!iterator) {
+      PyErr_Clear();
+      return;
+    }
+
+    PyObject *module_ptr = nullptr;
+    while ((module_ptr = PyIter_Next(iterator.Ptr()))) {
+      const py::Object module(module_ptr);
+      const char *module_name = PyUnicode_AsUTF8(module.Ptr());
+      if (!module_name) {
+        PyErr_Clear();
+        continue;
+      }
+
+      const std::string_view module_name_str(module_name);
+
+      const py::Object sys_keys(PyDict_Keys(sys_mod_ref));
+      if (!sys_keys) {
+        PyErr_Clear();
+        break;
+      }
+
+      const py::Object sys_iterator(PyObject_GetIter(sys_keys.Ptr()));
+      if (!sys_iterator) {
+        PyErr_Clear();
+        break;
+      }
+
+      PyObject *sys_mod_key_ptr = nullptr;
+      while ((sys_mod_key_ptr = PyIter_Next(sys_iterator.Ptr()))) {
+        const py::Object sys_mod_key(sys_mod_key_ptr);
+        const char *sys_mod_key_name = PyUnicode_AsUTF8(sys_mod_key.Ptr());
+        if (!sys_mod_key_name) {
+          PyErr_Clear();
+          continue;
         }
-        Py_DECREF(iterator);
+
+        const std::string_view sys_mod_key_name_str(sys_mod_key_name);
+        if (sys_mod_key_name_str.starts_with(module_name_str) && sys_mod_key_name_str != module_path) {
+          if (PyDict_DelItemString(sys_mod_ref, sys_mod_key_name) != 0) {
+            spdlog::warn("Failed to remove stale sys.modules entry '{}' during module cleanup", sys_mod_key_name);
+            PyErr_Clear();
+          }
+        }
+      }
+      if (PyErr_Occurred()) {
+        PyErr_Clear();
       }
     }
+  }
+  if (PyErr_Occurred()) {
+    PyErr_Clear();
   }
 }
 
@@ -1134,7 +1297,20 @@ const std::map<std::string, mgp_func, std::less<>> *PythonModule::Functions() co
             "not been loaded...");
   return &functions_;
 }
+#endif  // MG_PYTHON_SUPPORT
+
 namespace {
+
+#ifdef MG_ENTERPRISE
+constexpr std::array<const char *, 6> kEnterpriseModuleList = {
+    "betweenness_centrality_online",
+    "community_detection_online",
+    "cross_database",
+    "katz_centrality_online",
+    "node2vec_online",
+    "pagerank_online",
+};
+#endif
 
 std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
   const auto &ext = path.extension();
@@ -1142,53 +1318,107 @@ std::unique_ptr<Module> LoadModuleFromFile(const std::filesystem::path &path) {
     spdlog::warn(utils::MessageWithLink("Unknown query module file {}.", path, "https://memgr.ph/modules"));
     return nullptr;
   }
+#ifdef MG_ENTERPRISE
+  const auto name = path.stem().string();
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() &&
+      std::ranges::contains(kEnterpriseModuleList, name)) {
+    spdlog::warn(fmt::format("Failed to load query module {} because it requires a valid enterprise license.", path));
+    return nullptr;
+  }
+#endif
   std::unique_ptr<Module> module;
   if (path.extension() == ".so") {
     auto lib_module = std::make_unique<SharedLibraryModule>();
     if (!lib_module->Load(path)) return nullptr;
     module = std::move(lib_module);
   } else if (path.extension() == ".py") {
+#ifdef MG_PYTHON_SUPPORT
     auto py_module = std::make_unique<PythonModule>();
     if (!py_module->Load(path)) return nullptr;
     module = std::move(py_module);
+#else
+    spdlog::warn(utils::MessageWithLink(
+        "Unable to load module {}; this Memgraph was built without Python support.", path, "https://memgr.ph/modules"));
+    return nullptr;
+#endif
   }
   return module;
 }
 
 }  // namespace
 
+bool ModuleRegistry::TryEraseModule(std::string_view name) {
+  auto it = modules_.find(name);
+  if (it == modules_.end()) {
+    return false;
+  }
+
+  auto &module = it->second;
+  if (module.use_count() != 1) {
+    return false;
+  }
+
+  modules_.erase(it);
+  ++generation_;
+  return true;
+}
+
+bool ModuleRegistry::TryEraseAllModules() {
+  auto const any_used =
+      ranges::any_of(modules_ | ranges::views::values, [](auto const &module) { return module.use_count() != 1; });
+  if (any_used) {
+    spdlog::warn("At least one module was still in use");
+    return false;
+  }
+
+  modules_.clear();
+  ++generation_;
+  return true;
+}
+
 bool ModuleRegistry::RegisterModule(const std::string_view name, std::unique_ptr<Module> module) {
   MG_ASSERT(!name.empty(), "Module name cannot be empty");
   MG_ASSERT(module, "Tried to register an invalid module");
-  if (modules_.find(name) != modules_.end()) {
+  if (ReservedBuiltInModuleNames().contains(name)) {
+    spdlog::error(utils::MessageWithLink("Unable to overwrite a builtin module {}.", name, "https://memgr.ph/modules"));
+    return false;
+  }
+  if (modules_.contains(name)) {
     spdlog::error(
         utils::MessageWithLink("Unable to overwrite an already loaded module {}.", name, "https://memgr.ph/modules"));
     return false;
   }
-  modules_.emplace(name, std::move(module));
+
+  modules_.emplace(std::string(name), std::move(module));
+  ++generation_;
   return true;
 }
 
 void ModuleRegistry::DoUnloadAllModules() {
-  MG_ASSERT(modules_.find("mg") != modules_.end(), "Expected the builtin \"mg\" module to be present.");
+  auto mg_it = modules_.find("mg");
+  MG_ASSERT(mg_it != modules_.end(), "Expected the builtin \"mg\" module to be present.");
   // This is correct because the destructor will close each module. However,
   // we don't want to unload the builtin "mg" module.
-  auto module = std::move(modules_["mg"]);
-  modules_.clear();
-  modules_.emplace("mg", std::move(module));
+
+  auto mg_preserved = mg_it->second;
+
+  modules_.erase(mg_it);
+  auto on_exit = utils::OnScopeExit{[&] { modules_.emplace("mg", std::move(mg_preserved)); }};
+
+  if (!TryEraseAllModules()) throw query::QueryException("Unable to unload modules, they are currently being used.");
 }
 
 ModuleRegistry::ModuleRegistry() {
   auto module = std::make_unique<BuiltinModule>();
-  RegisterMgProcedures(&modules_, module.get());
-  RegisterMgTransformations(&modules_, module.get());
-  RegisterMgFunctions(&modules_, module.get());
-  RegisterMgLoad(this, &lock_, module.get());
+  RegisterMgProcedures(&modules_, &lock_, module.get());
+  RegisterMgTransformations(&modules_, &lock_, module.get());
+  RegisterMgFunctions(&modules_, &lock_, module.get());
+  RegisterMgLoad(this, module.get());
   RegisterMgGetModuleFiles(this, module.get());
   RegisterMgGetModuleFile(this, module.get());
-  RegisterMgCreateModuleFile(this, &lock_, module.get());
-  RegisterMgUpdateModuleFile(this, &lock_, module.get());
-  RegisterMgDeleteModuleFile(this, &lock_, module.get());
+  RegisterMgCreateModuleFile(this, module.get());
+  RegisterMgUpdateModuleFile(this, module.get());
+  RegisterMgDeleteModuleFile(this, module.get());
   modules_.emplace("mg", std::move(module));
 }
 
@@ -1222,14 +1452,14 @@ bool ModuleRegistry::LoadModuleIfFound(const std::filesystem::path &modules_dir,
 bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
   if (modules_dirs_.empty()) return false;
   if (name.empty()) return false;
-  std::unique_lock<utils::RWLock> guard(lock_);
-  auto found_it = modules_.find(name);
-  if (found_it != modules_.end()) {
-    if (!found_it->second->Close()) {
-      spdlog::warn("Failed to close module {}", found_it->first);
-    }
-    modules_.erase(found_it);
-  }
+  auto guard = std::unique_lock{lock_};
+
+  if (!TryEraseModule(name))
+    throw query::QueryException(
+        "Unable to unload module '{}', either it doesn't exist, or it is currently being used. In order to check "
+        "whether the module exists, please use CALL mg.procedures() YIELD * for custom query procedures, or CALL "
+        "mg.functions() YIELD * for custom query functions.",
+        name);
 
   for (const auto &module_dir : modules_dirs_) {
     if (LoadModuleIfFound(module_dir, name)) {
@@ -1240,6 +1470,7 @@ bool ModuleRegistry::LoadOrReloadModuleFromName(const std::string_view name) {
 }
 
 void ModuleRegistry::LoadModulesFromDirectory(const std::filesystem::path &modules_dir) {
+  // all modules except mg are deleted before this
   if (modules_dir.empty()) return;
   if (!utils::DirExists(modules_dir)) {
     spdlog::error(
@@ -1259,31 +1490,35 @@ void ModuleRegistry::LoadModulesFromDirectory(const std::filesystem::path &modul
 }
 
 void ModuleRegistry::UnloadAndLoadModulesFromDirectories() {
-  std::unique_lock<utils::RWLock> guard(lock_);
+  auto guard = std::unique_lock{lock_};
   DoUnloadAllModules();
   for (const auto &module_dir : modules_dirs_) {
     LoadModulesFromDirectory(module_dir);
   }
 }
 
-ModulePtr ModuleRegistry::GetModuleNamed(const std::string_view name) const {
-  std::shared_lock<utils::RWLock> guard(lock_);
-  auto found_it = modules_.find(name);
-  if (found_it == modules_.end()) return ModulePtr{nullptr};
-  return ModulePtr(found_it->second.get(), std::move(guard));
+/// Takes a read lock.
+auto ModuleRegistry::GetModuleNamed(const std::string_view name) const -> std::shared_ptr<Module> {
+  auto guard = std::shared_lock{lock_};
+  auto it = modules_.find(name);
+
+  if (it == modules_.end()) {
+    return {};
+  }
+  return it->second;
 }
 
 void ModuleRegistry::UnloadAllModules() {
-  std::unique_lock<utils::RWLock> guard(lock_);
+  auto guard = std::unique_lock{lock_};
   DoUnloadAllModules();
 }
 
 utils::MemoryResource &ModuleRegistry::GetSharedMemoryResource() noexcept { return *shared_; }
 
 bool ModuleRegistry::RegisterMgProcedure(const std::string_view name, mgp_proc proc) {
-  std::unique_lock<utils::RWLock> guard(lock_);
-  if (auto module = modules_.find("mg"); module != modules_.end()) {
-    auto *builtin_module = dynamic_cast<BuiltinModule *>(module->second.get());
+  auto guard = std::unique_lock{lock_};
+  if (auto module_it = modules_.find("mg"); module_it != modules_.end()) {
+    auto *builtin_module = dynamic_cast<BuiltinModule *>(module_it->second.get());
     builtin_module->AddProcedure(name, std::move(proc));
     return true;
   }
@@ -1298,26 +1533,21 @@ namespace {
 //      ModuleName | Prop
 /// 1. <ModuleName,  ProcedureName>
 /// 2. <ModuleName,  TransformationName>
-std::optional<std::pair<std::string_view, std::string_view>> FindModuleNameAndProp(
-    const ModuleRegistry &module_registry, std::string_view fully_qualified_name, utils::MemoryResource *memory) {
-  utils::pmr::vector<std::string_view> name_parts(memory);
-  utils::Split(&name_parts, fully_qualified_name, ".");
-  if (name_parts.size() == 1U) return std::nullopt;
+auto FindModuleNameAndProp(std::string_view fully_qualified_name)
+    -> std::optional<std::pair<std::string_view, std::string_view>> {
   auto last_dot_pos = fully_qualified_name.find_last_of('.');
-  MG_ASSERT(last_dot_pos != std::string_view::npos);
-
-  const auto &module_name = fully_qualified_name.substr(0, last_dot_pos);
-  const auto &name = name_parts.back();
-  return std::make_pair(module_name, name);
+  if (last_dot_pos == std::string_view::npos) return std::nullopt;
+  auto module_name = fully_qualified_name.substr(0, last_dot_pos);
+  auto name = fully_qualified_name.substr(last_dot_pos + 1);
+  return std::pair{module_name, name};
 }
 
 template <typename T>
 concept ModuleProperties = utils::SameAsAnyOf<T, mgp_proc, mgp_trans, mgp_func>;
 
 template <ModuleProperties T>
-std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleRegistry &module_registry,
-                                                                   std::string_view fully_qualified_name,
-                                                                   utils::MemoryResource *memory) {
+auto MakePairIfPropFound(const ModuleRegistry &module_registry, std::string_view fully_qualified_name)
+    -> find_result<T> {
   auto prop_fun = [](auto &module) {
     if constexpr (std::is_same_v<T, mgp_proc>) {
       return module->Procedures();
@@ -1327,18 +1557,20 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
       return module->Functions();
     }
   };
-  auto result = FindModuleNameAndProp(module_registry, fully_qualified_name, memory);
+  auto result = FindModuleNameAndProp(fully_qualified_name);
   if (!result) {
     return std::nullopt;
   }
   auto [module_name, module_prop_name] = *result;
   auto module = module_registry.GetModuleNamed(module_name);
-  auto prop_name = std::string(module_prop_name);
-  if (!module) {
+  std::string prop_name;
+  if (module) {
+    prop_name = std::string(module_prop_name);
+  } else {
     // Check for possible callable aliases.
-    const auto maybe_valid_alias = gCallableAliasMapper.FindAlias(std::string(fully_qualified_name));
+    const auto maybe_valid_alias = gCallableAliasMapper.FindAlias(fully_qualified_name);
     if (maybe_valid_alias) {
-      result = FindModuleNameAndProp(module_registry, *maybe_valid_alias, memory);
+      result = FindModuleNameAndProp(*maybe_valid_alias);
       auto [module_name, module_prop_name] = *result;
       module = module_registry.GetModuleNamed(module_name);
       prop_name = std::string(module_prop_name);
@@ -1357,22 +1589,57 @@ std::optional<std::pair<ModulePtr, const T *>> MakePairIfPropFound(const ModuleR
 
 }  // namespace
 
-std::optional<std::pair<ModulePtr, const mgp_proc *>> FindProcedure(const ModuleRegistry &module_registry,
-                                                                    std::string_view fully_qualified_procedure_name,
-                                                                    utils::MemoryResource *memory) {
-  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name, memory);
+auto FindProcedure(const ModuleRegistry &module_registry, std::string_view fully_qualified_procedure_name)
+    -> find_result<mgp_proc> {
+  return MakePairIfPropFound<mgp_proc>(module_registry, fully_qualified_procedure_name);
 }
 
-std::optional<std::pair<ModulePtr, const mgp_trans *>> FindTransformation(
-    const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name,
-    utils::MemoryResource *memory) {
-  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name, memory);
+auto FindTransformation(const ModuleRegistry &module_registry, std::string_view fully_qualified_transformation_name)
+    -> find_result<mgp_trans> {
+  return MakePairIfPropFound<mgp_trans>(module_registry, fully_qualified_transformation_name);
 }
 
-std::optional<std::pair<ModulePtr, const mgp_func *>> FindFunction(const ModuleRegistry &module_registry,
-                                                                   std::string_view fully_qualified_function_name,
-                                                                   utils::MemoryResource *memory) {
-  return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name, memory);
+auto FindFunction(const ModuleRegistry &module_registry, std::string_view fully_qualified_function_name)
+    -> find_result<mgp_func> {
+  return MakePairIfPropFound<mgp_func>(module_registry, fully_qualified_function_name);
+}
+
+void ConstructArguments(std::span<TypedValue const> args, mgp_func const &callable, mgp_list &args_list,
+                        mgp_graph &graph) {
+  const auto n_args = args.size();
+  const auto c_args_sz = callable.args.size();
+  const auto c_opt_args_sz = callable.opt_args.size();
+
+  args_list.elems.reserve(c_args_sz + c_opt_args_sz);
+
+  // Copy provided args
+  for (size_t i = 0; i < n_args; ++i) {
+    args_list.elems.emplace_back(args[i], &graph);
+  }
+  // Fill missing optional arguments with their default values.
+  const size_t passed_in_opt_args = n_args - c_args_sz;
+  for (size_t i = passed_in_opt_args; i < c_opt_args_sz; ++i) {
+    args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), &graph);
+  }
+}
+
+void ConstructArguments(std::span<TypedValue const> args, mgp_proc const &callable, mgp_list &args_list,
+                        mgp_graph &graph) {
+  const auto n_args = args.size();
+  const auto c_args_sz = callable.args.size();
+  const auto c_opt_args_sz = callable.opt_args.size();
+
+  args_list.elems.reserve(c_args_sz + c_opt_args_sz);
+
+  // Copy provided args
+  for (size_t i = 0; i < n_args; ++i) {
+    args_list.elems.emplace_back(args[i], &graph);
+  }
+  // Fill missing optional arguments with their default values.
+  const size_t passed_in_opt_args = n_args - c_args_sz;
+  for (size_t i = passed_in_opt_args; i < c_opt_args_sz; ++i) {
+    args_list.elems.emplace_back(std::get<2>(callable.opt_args[i]), &graph);
+  }
 }
 
 }  // namespace memgraph::query::procedure

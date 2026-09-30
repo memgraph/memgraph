@@ -1,0 +1,43 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "coordination/coordinator_instance_management_server.hpp"
+
+#ifdef MG_ENTERPRISE
+
+namespace {
+// NOTE: The coordinator server doesn't need more than 1 processing thread - it's not a bottleneck
+constexpr auto kCoordInstanceManagementServerThreads = 1;
+
+}  // namespace
+
+namespace memgraph::coordination {
+
+CoordinatorInstanceManagementServer::CoordinatorInstanceManagementServer(
+    const ManagementServerConfig &config, std::optional<utils::TlsConfig> const &tls_config)
+    : rpc_server_context_{communication::CreateServerContext(tls_config)},
+      rpc_server_{config.endpoint, &rpc_server_context_, kCoordInstanceManagementServerThreads} {}
+
+CoordinatorInstanceManagementServer::~CoordinatorInstanceManagementServer() {
+  if (rpc_server_.Shutdown()) {
+    try {
+      spdlog::info("Closing CoordinatorInstanceManagementServer");
+      // NOLINTNEXTLINE(bugprone-empty-catch)
+    } catch (std::exception const &e) {
+    }
+    rpc_server_.AwaitShutdown();
+  }
+}
+
+bool CoordinatorInstanceManagementServer::Start() { return rpc_server_.Start(); }
+
+}  // namespace memgraph::coordination
+#endif

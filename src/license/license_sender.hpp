@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,14 +11,16 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <nlohmann/json_fwd.hpp>
+#include <optional>
 #include <string>
-
-#include <json/json.hpp>
 
 #include "license/license.hpp"
 #include "utils/scheduler.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/timer.hpp"
 
 namespace memgraph::license {
@@ -27,13 +29,19 @@ class LicenseInfoSender final {
  public:
   LicenseInfoSender(std::string url, std::string uuid, std::string machine_id, int64_t memory_limit,
                     utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info,
-                    std::chrono::seconds request_frequency = std::chrono::seconds(8 * 60 * 60));
+                    std::chrono::seconds request_interval = std::chrono::seconds(8 * 60 * 60));
 
   LicenseInfoSender(const LicenseInfoSender &) = delete;
   LicenseInfoSender(LicenseInfoSender &&) noexcept = delete;
   LicenseInfoSender &operator=(const LicenseInfoSender &) = delete;
   LicenseInfoSender &operator=(LicenseInfoSender &&) noexcept = delete;
   ~LicenseInfoSender();
+
+  /**
+   * Signal the license sender to stop immediately.
+   * Call this during shutdown to prevent blocking.
+   */
+  void Stop();
 
  private:
   void SendData();
@@ -45,6 +53,8 @@ class LicenseInfoSender final {
 
   utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info_;
   utils::Scheduler scheduler_;
+
+  std::atomic<bool> abort_{false};
 };
 
 }  // namespace memgraph::license

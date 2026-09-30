@@ -132,3 +132,48 @@ def cleanup_batching_vertices():
 
 # Register batched
 mgp.add_batch_read_proc(batch_vertices, init_batching_vertices, cleanup_batching_vertices)
+
+
+# Teardown probe: `cleanup_ran` is false from the initializer onwards, so it is true afterwards only
+# if the plan shut this cursor down.
+teardown_probe = {"cleanup_ran": False, "remaining": 0, "inits": 0, "cleanups": 0}
+
+
+def init_teardown_probe(ctx: mgp.ProcCtx):
+    teardown_probe["cleanup_ran"] = False
+    teardown_probe["remaining"] = 10
+    teardown_probe["inits"] += 1
+
+
+def teardown_probe_rows(ctx: mgp.ProcCtx) -> mgp.Record(num=int):
+    if teardown_probe["remaining"] == 0:
+        return []
+    teardown_probe["remaining"] -= 1
+    return mgp.Record(num=teardown_probe["remaining"])
+
+
+def cleanup_teardown_probe():
+    teardown_probe["cleanup_ran"] = True
+    teardown_probe["remaining"] = 0
+    teardown_probe["cleanups"] += 1
+
+
+# Register batched
+mgp.add_batch_read_proc(teardown_probe_rows, init_teardown_probe, cleanup_teardown_probe)
+
+
+@mgp.read_proc
+def teardown_probe_cleanup_ran(ctx: mgp.ProcCtx) -> mgp.Record(cleanup_ran=bool):
+    return mgp.Record(cleanup_ran=teardown_probe["cleanup_ran"])
+
+
+@mgp.read_proc
+def teardown_probe_counts(ctx: mgp.ProcCtx) -> mgp.Record(inits=int, cleanups=int):
+    return mgp.Record(inits=teardown_probe["inits"], cleanups=teardown_probe["cleanups"])
+
+
+@mgp.read_proc
+def teardown_probe_reset_counts(ctx: mgp.ProcCtx) -> mgp.Record(ok=bool):
+    teardown_probe["inits"] = 0
+    teardown_probe["cleanups"] = 0
+    return mgp.Record(ok=True)

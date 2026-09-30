@@ -1,0 +1,9 @@
+query: >
+  RETURN map.set_key(
+    {name:"Zdravko",country:"Croatia"},
+    "surname",
+    "Mamac"
+  ) AS map;
+
+output:
+  - map: {"country": "Croatia","name": "Zdravko", "surname": "Mamac"}

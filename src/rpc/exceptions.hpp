@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,7 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "io/network/endpoint.hpp"
+#pragma once
+
+#include <fmt/format.h>
+
 #include "utils/exceptions.hpp"
 
 namespace memgraph::rpc {
@@ -21,21 +24,36 @@ namespace memgraph::rpc {
 /// This exception always requires explicit handling.
 class RpcFailedException : public utils::BasicException {
  public:
-  explicit RpcFailedException(std::string_view msg) : utils::BasicException(msg) {}
+  explicit RpcFailedException(std::string_view const msg) : utils::BasicException(msg) {}
+
   SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
 };
 
-class VersionMismatchRpcFailedException : public RpcFailedException {
+class RpcFailedToConnectException final : public RpcFailedException {
  public:
-  VersionMismatchRpcFailedException()
-      : RpcFailedException(
-            "Couldn't communicate with the cluster! There was a version mismatch. "
-            "Please contact your database administrator.") {}
+  RpcFailedToConnectException() : RpcFailedException("Failed to establish socket connection") {}
 
-  SPECIALIZE_GET_EXCEPTION_NAME(VersionMismatchRpcFailedException);
+  SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedToConnectException);
 };
 
-class GenericRpcFailedException : public RpcFailedException {
+class RpcTimeoutException final : public RpcFailedException {
+ public:
+  RpcTimeoutException() : RpcFailedException("Timeout occurred during RPC calls") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(RpcTimeoutException);
+};
+
+class UnsupportedRpcVersionException final : public RpcFailedException {
+ public:
+  UnsupportedRpcVersionException()
+      : RpcFailedException(
+            "Couldn't communicate with the cluster! RPC protocol version not supported. "
+            "Please contact your database administrator.") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(UnsupportedRpcVersionException);
+};
+
+class GenericRpcFailedException final : public RpcFailedException {
  public:
   GenericRpcFailedException()
       : RpcFailedException(
@@ -45,12 +63,20 @@ class GenericRpcFailedException : public RpcFailedException {
   SPECIALIZE_GET_EXCEPTION_NAME(GenericRpcFailedException);
 };
 
-class SlkRpcFailedException : public RpcFailedException {
+class SlkRpcFailedException final : public RpcFailedException {
  public:
   SlkRpcFailedException()
-      : RpcFailedException("Received malformed message from cluster. Please raise an issue on Memgraph GitHub issues.") {}
+      : RpcFailedException(
+            "Received malformed message from cluster. Please raise an issue on Memgraph GitHub issues.") {}
 
   SPECIALIZE_GET_EXCEPTION_NAME(SlkRpcFailedException);
+};
+
+class FailedToGetRpcStreamException final : public RpcFailedException {
+ public:
+  FailedToGetRpcStreamException() : RpcFailedException("Failed to get RPC stream by try-locking.") {}
+
+  SPECIALIZE_GET_EXCEPTION_NAME(FailedToGetRpcStreamException);
 };
 
 }  // namespace memgraph::rpc

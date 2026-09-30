@@ -1,0 +1,30 @@
+query: >
+  MATCH (n:Intern) WITH collect(n) as interns CALL
+  nodes.relationship_types(interns) YIELD relationship_types RETURN
+  relationship_types;
+output:
+  - relationship_types:
+      - node:
+          labels:
+            - Intern
+          properties:
+            name: Ivan
+        types:
+          - KNOWS
+          - SEES
+      - node:
+          labels:
+            - Intern
+          properties:
+            name: Idora
+        types:
+          - HEARS
+          - KNOWS
+      - node:
+          labels:
+            - Intern
+          properties:
+            name: Matija
+        types:
+          - SEES
+          - HEARS

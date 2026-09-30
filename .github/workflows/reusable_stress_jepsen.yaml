@@ -1,0 +1,261 @@
+name: "Jepsen HA Stress Tests"
+
+on:
+  workflow_call:
+    inputs:
+      name:
+        type: string
+        description: "Test name"
+        required: true
+      mt:
+        type: boolean
+        description: "Run MT test"
+        required: true
+      mode:
+        type: string
+        description: "Cluster mode (sync, sync_mixed, strict_sync, strict_sync_mixed)"
+        required: true
+      time-limit:
+        type: string
+        description: "Duration of Jepsen test (in seconds)"
+        required: true
+        default: "7200"
+      num-tenants:
+        type: string
+        description: "Number of tenants used in the HA Jepsen test"
+        required: true
+        default: "5"
+      concurrency:
+        type: string
+        description: "The number of worker threads. If not set, number of nodes will be used instead."
+        default: ""
+      storage-backup-dir-enabled:
+        description: "If enabled, .old dir will be used."
+        type: boolean
+        default: true
+      shutdown-signal:
+        description: "Signal to use for terminating instances (KILL (SIGKILL), TERM (SIGTERM))"
+        type: string
+        default: "KILL"
+      intra-cluster-tls:
+        description: "If true, start each Memgraph instance with intra-cluster mTLS flags."
+        type: boolean
+        default: false
+
+
+env:
+  ARCH: 'amd'
+  BUILD_TYPE: 'RelWithDebInfo'
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+  MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+  MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+  MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+  CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+  CLUSTER_ENV: "ci-stress-jepsen"
+  OS: 'ubuntu-24.04'
+  TOOLCHAIN: 'v8'
+  NODES_NO: 6
+  CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+  CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+  CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
+  GITHUB_TOKEN: ${{ github.token }}
+
+jobs:
+  ha-test:
+    name: "Run Jepsen HA Tests"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
+    timeout-minutes: 720
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
+      - name: Log in to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set Cluster File
+        run: |
+            case "${{ inputs.mode }}" in
+              sync)
+                echo "CLUSTER=sync_cluster.edn" >> $GITHUB_ENV
+                ;;
+              sync_mixed)
+                echo "CLUSTER=sync_mixed_cluster.edn" >> $GITHUB_ENV
+                ;;
+              strict_sync)
+                echo "CLUSTER=strict_sync_cluster.edn" >> $GITHUB_ENV
+                ;;
+              strict_sync_mixed)
+              echo "CLUSTER=strict_sync_mixed_cluster.edn" >> $GITHUB_ENV
+              ;;
+              *)
+                echo "Unsupported mode: ${{ inputs.mode }}"
+                exit 1
+                ;;
+            esac
+
+      - name: Refresh Jepsen Cluster
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh --nodes-no $NODES_NO
+
+      - name: Spin up mgbuild container
+        run: |
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH run
+
+      - name: Check core dump support
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          check-core-dumps
+
+      - name: Build release binary
+        run: |
+          ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            build-memgraph \
+            --conan-remote $CONAN_REMOTE \
+            --conan-username $CONAN_USERNAME \
+            --conan-password $CONAN_PASSWORD
+
+      - name: Copy memgraph binary
+        run: |
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --binary --use-make-install --dest-dir build
+
+      - name: Run unit tests for Jepsen code
+        run: |
+          cd tests/jepsen
+          ./run.sh unit-tests --binary ../../build/memgraph
+
+      - name: Start Jepsen monitoring (workload)
+        if: ${{ env.MONITORING_HOST != '' }}
+        run: |
+          if [[ "${{ inputs.mt }}" == "true" ]]; then
+            SERVICE_NAME="jepsen-ha-mt"
+            COMPOSE_SUFFIX="ha-mt"
+          else
+            SERVICE_NAME="jepsen-hacreate"
+            COMPOSE_SUFFIX="hacreate"
+          fi
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-${COMPOSE_SUFFIX}" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          MONITORING_SERVER_HOST="$MONITORING_HOST" \
+          MONITORING_USERNAME="$MONITORING_USERNAME" \
+          MONITORING_PASSWORD="$MONITORING_PASSWORD" \
+          CLUSTER_ID="$CLUSTER_ID" \
+          CLUSTER_ENV="$CLUSTER_ENV" \
+          SERVICE_NAME="$SERVICE_NAME" \
+          ./tools/ci/monitoring/start_jepsen_monitoring.sh
+
+      - name: Run Jepsen workload
+        env:
+            INPUT_CONCURRENCY: ${{ inputs.concurrency }}
+        run: |
+          cd tests/jepsen
+
+          ./clean_old_directories.sh --nodes-no $NODES_NO > cleanup.log 2>&1 &
+          CLEANUP_PID=$!
+          trap "kill $CLEANUP_PID" EXIT
+
+          if [ -z "$INPUT_CONCURRENCY" ]; then
+            MIN=$NODES_NO
+            MAX=10
+            CONCURRENCY=$((MIN + RANDOM % (MAX - MIN + 1)))
+            echo "Generated random concurrency: $CONCURRENCY (range: $MIN-$MAX)"
+          else
+            CONCURRENCY=$INPUT_CONCURRENCY
+            echo "Using provided concurrency: $CONCURRENCY"
+          fi
+
+          if [[ "${{ inputs.mt }}" == "true" ]]; then
+            NEMESIS_SLEEP_SEC=$((180 * ${{ inputs.num-tenants }}))
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --num-tenants ${{ inputs.num-tenants }} --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --shutdown-signal ${{ inputs.shutdown-signal }} --intra-cluster-tls ${{ inputs.intra-cluster-tls }} --recovery-time 600 --nemesis-start-sleep $NEMESIS_SLEEP_SEC"
+          else
+            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $CONCURRENCY --storage-backup-dir-enabled ${{ inputs.storage-backup-dir-enabled }} --shutdown-signal ${{ inputs.shutdown-signal }} --intra-cluster-tls ${{ inputs.intra-cluster-tls }} --recovery-time 600 --nemesis-start-sleep 25"
+          fi
+
+          ./run.sh test \
+            --binary ../../build/memgraph \
+            --run-args "$ARGS" \
+            --ignore-run-stdout-logs \
+            --ignore-run-stderr-logs \
+            --nodes-no $NODES_NO \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            --intra-cluster-tls ${{ inputs.intra-cluster-tls }}
+
+      - name: Process Jepsen results
+        if: always()
+        continue-on-error: true
+        run: |
+          cd tests/jepsen
+          ./run.sh process-results
+
+      - name: Analyze Jepsen core dumps
+        if: always()
+        continue-on-error: true
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+        run: |
+          ./tools/ci/core-dumps/collect_jepsen_cores.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --run-id "${{ github.run_id }}" \
+          --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
+      - name: Save Jepsen report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f  # v7.0.0
+        with:
+          name: "Jepsen Report-${{ inputs.name }}"
+          path: tests/jepsen/Jepsen.tar.gz
+
+      - name: Refresh Jepsen Cluster
+        if: always()
+        continue-on-error: true
+        run: |
+          cd tests/jepsen
+          ./run.sh cluster-refresh --nodes-no $NODES_NO
+
+      - name: Stop Jepsen monitoring (workload)
+        if: ${{ always() && env.MONITORING_HOST != '' }}
+        continue-on-error: true
+        run: |
+          if [[ "${{ inputs.mt }}" == "true" ]]; then
+            COMPOSE_SUFFIX="ha-mt"
+          else
+            COMPOSE_SUFFIX="hacreate"
+          fi
+          cd tools/ci/monitoring
+          COMPOSE_PROJECT_NAME="jepsen-monitoring-${{ github.run_id }}-${{ github.run_attempt }}-${COMPOSE_SUFFIX}" \
+          TARGET_DOCKER_NETWORK="jepsen_jepsen" \
+          ./down.sh
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh

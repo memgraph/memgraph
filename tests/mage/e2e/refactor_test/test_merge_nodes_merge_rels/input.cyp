@@ -1,0 +1,1 @@
+CREATE (n1:Person {name: 'Alice', age: 30, city: 'New York'}) CREATE (n2:Person {name: 'Bob', age: 25, country: 'USA'}) CREATE (n3:Person {name: 'Charlie', age: 35, city: 'London'}) CREATE (n1)-[:KNOWS {since: 2020}]->(n2) CREATE (n2)-[:WORKS_WITH {project: 'Project X'}]->(n3) CREATE (n3)-[:FRIENDS_WITH {since: 2019}]->(n1);

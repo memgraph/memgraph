@@ -1,0 +1,14 @@
+- query: >-
+        CALL node_classification.train(5) YIELD epoch RETURN epoch;
+  output:
+        - epoch: 5
+
+- query: >-
+        CALL node_classification.save_model() YIELD *;
+  output:
+        - status: "Model has been successfully saved."
+
+- query: >-
+        CALL node_classification.load_model() YIELD *;
+  output:
+        - status: "Model has been successfully loaded."

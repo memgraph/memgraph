@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -8,32 +8,27 @@
 
 #include "auth/module.hpp"
 
+#include <fcntl.h>
+#include <poll.h>
+#include <sched.h>
+#include <seccomp.h>
+#include <spdlog/spdlog.h>
+#include <sys/resource.h>
+#include <sys/syscall.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#include <array>
 #include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <mutex>
+#include <nlohmann/json.hpp>
+#include <string>
 #include <thread>
-
-#include <fcntl.h>
-#include <libgen.h>
-#include <linux/limits.h>
-#include <poll.h>
-#include <pwd.h>
-#include <sched.h>
-#include <seccomp.h>
-#include <sys/resource.h>
-#include <sys/syscall.h>
-#include <sys/time.h>
-#include <sys/types.h>
-#include <sys/wait.h>
-#include <unistd.h>
-
-#include <fmt/format.h>
-#include <gflags/gflags.h>
-
-#include "utils/logging.hpp"
+#include <vector>
 
 namespace {
 
@@ -57,7 +52,7 @@ const int kCharppMaxElements = 4096;
 
 class CharPP final {
  public:
-  CharPP() { memset(data_, 0, sizeof(char *) * kCharppMaxElements); }
+  CharPP() { data_.fill(nullptr); }
 
   ~CharPP() {
     for (size_t i = 0; i < size_; ++i) {
@@ -82,10 +77,10 @@ class CharPP final {
 
   void Add(const std::string &value) { Add(value.c_str()); }
 
-  char **Get() { return data_; }
+  char **Get() { return data_.data(); }
 
  private:
-  char *data_[kCharppMaxElements];
+  std::array<char *, kCharppMaxElements> data_;
   size_t size_{0};
 };
 
@@ -295,6 +290,8 @@ nlohmann::json GetData(int fd, int timeout_millisec) {
       return {};
     }
     char ch;
+    // Because of the poll call above, this is not a blocking read.
+    // NOLINTNEXTLINE(clang-analyzer-unix.BlockInCriticalSection)
     int ret = read(fd, &ch, 1);
     if (ret > 0) {
       data += ch;
@@ -329,13 +326,13 @@ bool Module::Startup() {
   Shutdown();
 
   // Setup communication pipes.
-  if (pipe2(pipe_to_module_, O_CLOEXEC) != 0) {
+  if (pipe2(pipe_to_module_.data(), O_CLOEXEC) != 0) {
     spdlog::error(
         "Couldn't create communication pipe from the database to "
         "the auth module!");
     return false;
   }
-  if (pipe2(pipe_from_module_, O_CLOEXEC) != 0) {
+  if (pipe2(pipe_from_module_.data(), O_CLOEXEC) != 0) {
     spdlog::error(
         "Couldn't create communication pipe from the auth module to "
         "the database!");
@@ -376,13 +373,17 @@ bool Module::Startup() {
   return true;
 }
 
-nlohmann::json Module::Call(const nlohmann::json &params, int timeout_millisec) {
-  std::lock_guard<std::mutex> guard(lock_);
+nlohmann::json Module::Call(nlohmann::json params, int timeout_millisec) {
+  auto guard = std::lock_guard{lock_};
 
   if (!params.is_object()) return {};
 
   // Ensure that the module is up and running.
   if (!Startup()) return {};
+
+  static constexpr auto kMemgraphCallIdKey = "memgraph_call_id";
+  const auto call_id = ++call_id_;
+  params[kMemgraphCallIdKey] = call_id;
 
   // Put the request to the module process.
   if (!PutData(pipe_to_module_[kPipeWriteEnd], params, timeout_millisec)) {
@@ -390,20 +391,28 @@ nlohmann::json Module::Call(const nlohmann::json &params, int timeout_millisec) 
     return {};
   }
 
-  // Get the response from the module process.
-  auto ret = GetData(pipe_from_module_[kPipeReadEnd], timeout_millisec);
-  if (ret.is_null()) {
-    spdlog::error("Couldn't receive data from the auth module process!");
-    return {};
+  // Read responses until we get one with matching memgraph_call_id (skip stale).
+  const int kMaxResponses = 1000;
+  for (int i = 0; i < kMaxResponses; ++i) {
+    auto ret = GetData(pipe_from_module_[kPipeReadEnd], timeout_millisec);
+    if (ret.is_null()) {
+      spdlog::error("Couldn't receive data from the auth module process!");
+      return {};
+    }
+    if (!ret.is_object()) {
+      spdlog::error("Data received from the auth module is of wrong type!");
+      continue;
+    }
+    if (ret.contains(kMemgraphCallIdKey) && ret[kMemgraphCallIdKey].is_number_integer() &&
+        ret[kMemgraphCallIdKey].get<uint64_t>() == call_id) {
+      return ret;
+    }
+    // Stale or wrong call_id, skip and read next response
+    spdlog::trace("Auth module response had wrong memgraph_call_id, reading next.");
   }
-  if (!ret.is_object()) {
-    spdlog::error("Data received from the auth module is of wrong type!");
-    return {};
-  }
-  return ret;
+  spdlog::error("Auth module did not return response with matching memgraph_call_id after {} attempts.", kMaxResponses);
+  return {};
 }
-
-bool Module::IsUsed() { return !module_executable_path_.empty(); }
 
 void Module::Shutdown() {
   if (pid_ == -1) return;

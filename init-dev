@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+set -e
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
+
+function print_help () {
+    echo "Usage: $0 [OPTION]"
+    echo -e "Setup development environment for Memgraph.\n"
+    echo "Optional arguments:"
+    echo -e "  -h\tdisplay this help and exit"
+    echo -e "  --ci\tscript is being run inside ci"
+}
+
+ci=false
+if [[ $# -eq 1 && "$1" == "-h" ]]; then
+    print_help
+    exit 0
+else
+    while (($#)); do
+        case "$1" in
+          --ci)
+              shift
+              ci=true
+          ;;
+          *)
+              echo "Invalid argument provided: $1"
+              print_help
+              exit 1
+          ;;
+        esac
+    done
+fi
+
+echo "Linking git hooks OR skip if .git folder is not there"
+if [ -d "$DIR/.git" ]; then
+  for hookpath in $(find "$DIR/.githooks" -type f); do
+    hook="$(basename "$hookpath")"
+    ln -s -f "$DIR/.githooks/$hook" "$DIR/.git/hooks/$hook"
+    echo "Added $hook hook"
+  done
+else
+  echo "WARNING: .git folder not present, skip adding hooks"
+fi
+
+# Install pre-commit hooks only outside CI.
+if [[ "$ci" == "false" ]]; then
+  echo "Installing pre-commit hooks"
+  # Python >= 3.10 required; resolve_python honors $MG_PYTHON (exported by
+  # build.sh) and falls back to versioned binaries on distros whose default
+  # python3 is older (e.g. centos-9).
+  source "$DIR/environment/util.sh"
+  PYTHON="$(resolve_python)"
+  export PIP_BREAK_SYSTEM_PACKAGES=1
+  # Upgrading pip is best-effort: a Homebrew/distro-managed pip can't uninstall
+  # itself (no RECORD file), so don't let a failed upgrade abort the script.
+  "$PYTHON" -m pip install --upgrade pip || true
+  "$PYTHON" -m pip install pre-commit black==26.5.0 isort==5.12.*
+  "$PYTHON" -m pre_commit install
+fi

@@ -1,0 +1,5 @@
+memgraph_query: >
+  CALL merge.node([],{},{},{graph:"this_one"}) YIELD node RETURN node;
+
+neo4j_query: >
+  MERGE (n) ON CREATE SET n += {} ON MATCH SET n += {graph:"this_one"} RETURN n;

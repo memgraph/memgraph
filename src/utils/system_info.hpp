@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,11 +12,17 @@
 #pragma once
 
 #include <cstdint>
+#include <nlohmann/json_fwd.hpp>
 #include <string>
-
-#include <json/json.hpp>
+#include <unordered_set>
+#include <vector>
 
 namespace memgraph::utils {
+
+// This is a bit imprecise but it is important that we can be certain about whether we are running in K8s or not
+// For Docker, .dockerenv file apparently doesn't exist always so it could lead us into wrong direction that people
+// aren't actually using that much Docker while in fact they do
+enum class RuntimeEnv : uint8_t { KUBERNETES, NO_KUBERNETES };
 
 struct MemoryInfo {
   uint64_t memory;
@@ -26,13 +32,37 @@ struct MemoryInfo {
 struct CPUInfo {
   std::string cpu_model;
   uint64_t cpu_count;
+  uint8_t microarch_level;
 };
 
 std::string GetMachineId();
 
 MemoryInfo GetMemoryInfo();
 
-CPUInfo GetCPUInfo();
+CPUInfo GetCPUInfo(const std::string &machine);
+
+uint8_t DetectX86LevelFromFlags(const std::unordered_set<std::string> &flags);
+
+uint8_t DetectArmArchitectureLevel(const std::vector<std::string> &cpu_data);
+
+bool HasCPUFlag(const std::unordered_set<std::string> &flags, const std::string &flag);
+
+std::unordered_set<std::string> ExtractCPUFlags(const std::vector<std::string> &cpu_data);
+
+std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data);
+
+RuntimeEnv DetectRuntimeEnv();
+
+/**
+ * Returns the number of hardware threads available, with a guaranteed
+ * non-zero result. Tries std::thread::hardware_concurrency() first,
+ * falls back to parsing /proc/cpuinfo, and finally uses the numeric
+ * fallback if neither source succeeds.
+ *
+ * @param fallback Value to use as a last resort (default: 2).
+ * @return Number of hardware threads, always > 0.
+ */
+unsigned GetSafeHardwareConcurrency(unsigned fallback = 2);
 
 /**
  * This function return a dictionary containing some basic system information

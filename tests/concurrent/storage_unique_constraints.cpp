@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,12 +15,11 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
-using memgraph::replication::ReplicationRole;
+constexpr int kNumThreads = 8;
 
-const int kNumThreads = 8;
-
-#define ASSERT_OK(x) ASSERT_FALSE((x).HasError())
+#define ASSERT_OK(x) ASSERT_TRUE((x).has_value())
 
 using memgraph::storage::LabelId;
 using memgraph::storage::PropertyId;
@@ -36,13 +35,13 @@ class StorageUniqueConstraints : public ::testing::Test {
 
   void SetUp() override {
     // Create initial vertices.
-    auto acc = storage->Access(ReplicationRole::MAIN);
+    auto acc = storage->Access(memgraph::storage::WRITE);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->CreateVertex();
       gids[i] = vertex.Gid();
     }
-    ASSERT_OK(acc->Commit());
+    ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   std::unique_ptr<memgraph::storage::Storage> storage{new memgraph::storage::InMemoryStorage()};
@@ -57,7 +56,7 @@ void SetProperties(memgraph::storage::Storage *storage, memgraph::storage::Gid g
                    const std::vector<PropertyId> &properties, const std::vector<PropertyValue> &values,
                    bool *commit_status) {
   ASSERT_EQ(properties.size(), values.size());
-  auto acc = storage->Access(ReplicationRole::MAIN);
+  auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   int value = 0;
@@ -69,11 +68,11 @@ void SetProperties(memgraph::storage::Storage *storage, memgraph::storage::Gid g
   for (size_t i = 0; i < properties.size(); ++i) {
     ASSERT_OK(vertex->SetProperty(properties[i], values[i]));
   }
-  *commit_status = !acc->Commit().HasError();
+  *commit_status = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
 }
 
 void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, LabelId label, bool *commit_status) {
-  auto acc = storage->Access(ReplicationRole::MAIN);
+  auto acc = storage->Access(memgraph::storage::WRITE);
   auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
   ASSERT_TRUE(vertex);
   for (int iter = 0; iter < 40000; ++iter) {
@@ -81,27 +80,66 @@ void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, L
     ASSERT_OK(vertex->RemoveLabel(label));
   }
   ASSERT_OK(vertex->AddLabel(label));
-  *commit_status = !acc->Commit().HasError();
+  *commit_status = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+}
+
+TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
+  std::random_device rd;
+  std::mt19937 gen(rd());
+  std::bernoulli_distribution bernoulli(0.5);
+  std::uniform_int_distribution<> uniform(1, 20);  // Range: [1, 100]
+
+  {
+    auto read_only_access = storage->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(label, {prop1});
+    ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    spdlog::trace("Created UC");
+  }
+
+  auto const thread_func = [&]() {
+    for (int j = 0; j < 100; j++) {
+      spdlog::trace("iteration {}", j);
+      auto acc = storage->Access(memgraph::storage::WRITE);
+      for (int i = 0; i < 5000; i++) {
+        auto vertex = acc->CreateVertex();
+        ASSERT_OK(vertex.AddLabel(label));
+        ASSERT_OK(vertex.SetProperty(prop1, PropertyValue(i)));
+      }
+
+      if (bernoulli(gen)) {
+        auto res = !acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value();
+        spdlog::trace("Res: {}", res);
+      } else {
+        acc->Abort();
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(uniform(gen)));
+    }
+  };
+
+  std::vector<std::jthread> threads;
+  for (int i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back(thread_func);
+  }
 }
 
 TEST_F(StorageUniqueConstraints, ChangeProperties) {
   {
-    auto unique_acc = storage->UniqueAccess(ReplicationRole::MAIN);
-    auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
-    ASSERT_TRUE(res.HasValue());
-    ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_access = storage->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(label, {prop1, prop2, prop3});
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   {
-    auto acc = storage->Access(ReplicationRole::MAIN);
+    auto acc = storage->Access(memgraph::storage::WRITE);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
       ASSERT_TRUE(vertex);
       ASSERT_OK(vertex->AddLabel(label));
     }
-    ASSERT_OK(acc->Commit());
+    ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   std::vector<PropertyId> properties{prop1, prop2, prop3};
@@ -170,11 +208,11 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
 
 TEST_F(StorageUniqueConstraints, ChangeLabels) {
   {
-    auto unique_acc = storage->UniqueAccess(ReplicationRole::MAIN);
-    auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
-    ASSERT_TRUE(res.HasValue());
-    ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    auto read_only_access = storage->ReadOnlyAccess();
+    auto res = read_only_access->CreateUniqueConstraint(label, {prop1, prop2, prop3});
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_TRUE(read_only_access->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   // In the first part of the test, each transaction tries to add the same label
@@ -183,7 +221,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   // succeed, as the others should result with constraint violation.
 
   {
-    auto acc = storage->Access(ReplicationRole::MAIN);
+    auto acc = storage->Access(memgraph::storage::WRITE);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
@@ -192,20 +230,20 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
       ASSERT_OK(vertex->SetProperty(prop2, PropertyValue(2)));
       ASSERT_OK(vertex->SetProperty(prop3, PropertyValue(3)));
     }
-    ASSERT_OK(acc->Commit());
+    ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   for (int iter = 0; iter < 20; ++iter) {
     // Clear labels.
     {
-      auto acc = storage->Access(ReplicationRole::MAIN);
+      auto acc = storage->Access(memgraph::storage::WRITE);
       // NOLINTNEXTLINE(modernize-loop-convert)
       for (int i = 0; i < kNumThreads; ++i) {
         auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex);
         ASSERT_OK(vertex->RemoveLabel(label));
       }
-      ASSERT_OK(acc->Commit());
+      ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     bool status[kNumThreads];
@@ -229,7 +267,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
   // should succeed.
 
   {
-    auto acc = storage->Access(ReplicationRole::MAIN);
+    auto acc = storage->Access(memgraph::storage::WRITE);
     // NOLINTNEXTLINE(modernize-loop-convert)
     for (int i = 0; i < kNumThreads; ++i) {
       auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
@@ -238,20 +276,20 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
       ASSERT_OK(vertex->SetProperty(prop2, PropertyValue(3 * i + 1)));
       ASSERT_OK(vertex->SetProperty(prop3, PropertyValue(3 * i + 2)));
     }
-    ASSERT_OK(acc->Commit());
+    ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   for (int iter = 0; iter < 20; ++iter) {
     // Clear labels.
     {
-      auto acc = storage->Access(ReplicationRole::MAIN);
+      auto acc = storage->Access(memgraph::storage::WRITE);
       // NOLINTNEXTLINE(modernize-loop-convert)
       for (int i = 0; i < kNumThreads; ++i) {
         auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
         ASSERT_TRUE(vertex);
         ASSERT_OK(vertex->RemoveLabel(label));
       }
-      ASSERT_OK(acc->Commit());
+      ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     bool status[kNumThreads];

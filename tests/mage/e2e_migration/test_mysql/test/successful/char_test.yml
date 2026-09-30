@@ -1,0 +1,14 @@
+query: |
+  CALL migrate.mysql('SELECT char_col FROM dummy_table', {
+      host: 'mysql_test',
+      port: 3306,
+      user: 'memgraph',
+      password: 'memgraph_password',
+      database: 'test_db'
+  })
+  YIELD row
+  RETURN valueType(row.char_col) AS char_col_type, row.char_col AS char_col
+
+output:
+  - char_col_type: 'STRING'
+    char_col: 'Hello'

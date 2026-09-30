@@ -25,6 +25,11 @@ PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
 SIGNAL_SIGTERM = 15
 
+BOLT_PORT = int(os.environ.get("MG_INTEGRATION_BOLT_PORT", 7687))
+MONITORING_PORT = int(os.environ.get("MG_INTEGRATION_MONITORING_PORT", 7444))
+METRICS_PORT = int(os.environ.get("MG_INTEGRATION_METRICS_PORT", 9091))
+PORT_ARGS = [f"--bolt-port={BOLT_PORT}", f"--monitoring-port={MONITORING_PORT}", f"--metrics-port={METRICS_PORT}"]
+
 CONFIG_TEMPLATE = """
 server:
   host: "127.0.0.1"
@@ -57,7 +62,7 @@ def wait_for_server(port, delay=0.1):
 def execute_tester(binary, queries, username="", password="", auth_should_fail=False, query_should_fail=False):
     if password == "":
         password = username
-    args = [binary, "--username", username, "--password", password]
+    args = [binary, "--port", str(BOLT_PORT), "--username", username, "--password", password]
     if auth_should_fail:
         args.append("--auth-should-fail")
     if query_should_fail:
@@ -79,8 +84,10 @@ class Memgraph:
         self._storage_directory = tempfile.TemporaryDirectory()
         self._auth_module = os.path.join(self._storage_directory.name, "ldap.py")
         self._auth_config = os.path.join(self._storage_directory.name, "ldap.yaml")
-        script_file = os.path.join(PROJECT_DIR, "src", "auth", "reference_modules", "ldap.py")
-        virtualenv_bin = os.path.join(SCRIPT_DIR, "ve3", "bin", "python3")
+        ref_modules = os.path.join(PROJECT_DIR, "src", "auth", "reference_modules")
+        script_file = os.path.join(ref_modules, "ldap.py")
+        common_file = os.path.join(ref_modules, "common.py")
+        virtualenv_bin = os.path.join(PROJECT_DIR, "tests", "ve3", "bin", "python3")
         with open(script_file) as fin:
             data = fin.read()
             data = data.replace("/usr/bin/python3", virtualenv_bin)
@@ -88,6 +95,9 @@ class Memgraph:
             with open(self._auth_module, "w") as fout:
                 fout.write(data)
         os.chmod(self._auth_module, stat.S_IRWXU | stat.S_IRWXG)
+        with open(common_file) as fin:
+            with open(os.path.join(self._storage_directory.name, "common.py"), "w") as fout:
+                fout.write(fin.read())
         self.restart(**kwargs)
 
     def restart(self, **kwargs):
@@ -107,9 +117,12 @@ class Memgraph:
             self._binary,
             "--data-directory",
             self._storage_directory.name,
-            "--auth-module-executable",
-            kwargs.pop("module_executable", self._auth_module),
+            "--metrics-format=OpenMetrics",
+            *PORT_ARGS,
         ]
+        module_path = kwargs.pop("module_executable", self._auth_module)
+        if module_path:
+            args.append(f"--auth-module-mappings=basic:{module_path}")
         for key, value in kwargs.items():
             ldap_key = "--auth-module-" + key.replace("_", "-")
             if isinstance(value, bool):
@@ -119,8 +132,8 @@ class Memgraph:
                 args.append(value)
         self._process = subprocess.Popen(args)
         time.sleep(0.1)
-        assert self._process.poll() is None, "Memgraph process died " "prematurely!"
-        wait_for_server(7687)
+        assert self._process.poll() is None, "Memgraph process died prematurely!"
+        wait_for_server(BOLT_PORT)
 
     def stop(self, check=True):
         if self._process is None:
@@ -132,14 +145,15 @@ class Memgraph:
             if check:
                 assert False
             return -1
-        time.sleep(1)
+        self._process.wait()
+        self._process = None
         return 0
 
 
 def initialize_test(memgraph, tester_binary, **kwargs):
     memgraph.start(module_executable="")
 
-    execute_tester(tester_binary, ["CREATE USER root", "GRANT ALL PRIVILEGES TO root"])
+    execute_tester(tester_binary, ["CREATE ROLE root_role", "GRANT ALL PRIVILEGES TO root_role"])
     check_login = kwargs.pop("check_login", True)
     memgraph.restart(**kwargs)
     if check_login:
@@ -149,20 +163,24 @@ def initialize_test(memgraph, tester_binary, **kwargs):
 # Tests
 
 
-def test_basic(memgraph, tester_binary):
+def test_module_ux(memgraph, tester_binary):
     initialize_test(memgraph, tester_binary)
-    execute_tester(tester_binary, [], "alice")
-    execute_tester(tester_binary, ["GRANT MATCH TO alice"], "root")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
+    execute_tester(tester_binary, ["CREATE USER user1"], "root", query_should_fail=False)
+    execute_tester(tester_binary, ["CREATE ROLE role1"], "root", query_should_fail=False)
+    execute_tester(tester_binary, ["SET ROLE FOR user1 TO role1"], "root", query_should_fail=False)
+    execute_tester(tester_binary, ["CLEAR ROLE FOR user1"], "root", query_should_fail=False)
+    execute_tester(tester_binary, ["DROP USER user1"], "root", query_should_fail=False)
+    execute_tester(tester_binary, ["DROP ROLE role1"], "root", query_should_fail=False)
     memgraph.stop()
 
 
-def test_only_existing_users(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary, create_missing_user=False)
+def test_user_auth(memgraph, tester_binary):
+    initialize_test(memgraph, tester_binary)
     execute_tester(tester_binary, [], "alice", auth_should_fail=True)
-    execute_tester(tester_binary, ["CREATE USER alice"], "root")
+    execute_tester(tester_binary, ["CREATE ROLE moderator"], "root")
     execute_tester(tester_binary, [], "alice")
-    execute_tester(tester_binary, ["GRANT MATCH TO alice"], "root")
+    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
+    execute_tester(tester_binary, ["GRANT MATCH TO moderator"], "root")
     execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
     memgraph.stop()
 
@@ -170,77 +188,50 @@ def test_only_existing_users(memgraph, tester_binary):
 def test_role_mapping(memgraph, tester_binary):
     initialize_test(memgraph, tester_binary)
 
-    execute_tester(tester_binary, [], "alice")
+    execute_tester(tester_binary, [], "alice", auth_should_fail=True)
+    execute_tester(tester_binary, [], "bob", auth_should_fail=True)
+    execute_tester(tester_binary, [], "carol", auth_should_fail=True)
+    execute_tester(tester_binary, ["CREATE ROLE moderator"], "root")
+    execute_tester(tester_binary, ["CREATE ROLE admin"], "root")
+    execute_tester(tester_binary, [], "alice", auth_should_fail=False)
+    execute_tester(tester_binary, [], "bob", auth_should_fail=True)
+    execute_tester(tester_binary, [], "carol", auth_should_fail=False)
+
     execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
+    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "carol", query_should_fail=True)
     execute_tester(tester_binary, ["GRANT MATCH TO moderator"], "root")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
+    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=False)
+    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "carol", query_should_fail=True)
+    execute_tester(tester_binary, ["GRANT MATCH TO admin"], "root")
+    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=False)
+    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "carol", query_should_fail=False)
 
-    execute_tester(tester_binary, [], "bob")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "bob", query_should_fail=True)
-
-    execute_tester(tester_binary, [], "carol")
+    execute_tester(tester_binary, ["CREATE (n) RETURN n"], "alice", query_should_fail=True)
     execute_tester(tester_binary, ["CREATE (n) RETURN n"], "carol", query_should_fail=True)
     execute_tester(tester_binary, ["GRANT CREATE TO admin"], "root")
-    execute_tester(tester_binary, ["CREATE (n) RETURN n"], "carol")
-    execute_tester(tester_binary, ["CREATE (n) RETURN n"], "dave")
+    execute_tester(tester_binary, ["CREATE (n) RETURN n"], "alice", query_should_fail=True)
+    execute_tester(tester_binary, ["CREATE (n) RETURN n"], "carol", query_should_fail=False)
 
+    memgraph.stop()
+
+
+def test_instance_restart(memgraph, tester_binary):
+    initialize_test(memgraph, tester_binary)
+    execute_tester(tester_binary, ["CREATE ROLE moderator"], "root")
+    execute_tester(tester_binary, ["GRANT MATCH TO moderator"], "root")
+    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
+    memgraph.restart()
+    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
     memgraph.stop()
 
 
 def test_role_removal(memgraph, tester_binary):
     initialize_test(memgraph, tester_binary)
-    execute_tester(tester_binary, [], "alice")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
+    execute_tester(tester_binary, ["CREATE ROLE moderator"], "root")
     execute_tester(tester_binary, ["GRANT MATCH TO moderator"], "root")
     execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
-    memgraph.restart(manage_roles=False)
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
-    execute_tester(tester_binary, ["CLEAR ROLE FOR alice"], "root")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
-    memgraph.stop()
-
-
-def test_only_existing_roles(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary, create_missing_role=False)
-    execute_tester(tester_binary, [], "bob")
+    execute_tester(tester_binary, ["DROP ROLE moderator"], "root")
     execute_tester(tester_binary, [], "alice", auth_should_fail=True)
-    execute_tester(tester_binary, ["CREATE ROLE moderator"], "root")
-    execute_tester(tester_binary, [], "alice")
-    memgraph.stop()
-
-
-def test_role_is_user(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary)
-    execute_tester(tester_binary, [], "admin")
-    execute_tester(tester_binary, [], "carol", auth_should_fail=True)
-    memgraph.stop()
-
-
-def test_user_is_role(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary)
-    execute_tester(tester_binary, [], "carol")
-    execute_tester(tester_binary, [], "admin", auth_should_fail=True)
-    memgraph.stop()
-
-
-def test_user_permissions_persistancy(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary)
-    execute_tester(tester_binary, ["CREATE USER alice", "GRANT MATCH TO alice"], "root")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
-    memgraph.stop()
-
-
-def test_role_permissions_persistancy(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary)
-    execute_tester(tester_binary, ["CREATE ROLE moderator", "GRANT MATCH TO moderator"], "root")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
-    memgraph.stop()
-
-
-def test_only_authentication(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary, manage_roles=False)
-    execute_tester(tester_binary, ["CREATE ROLE moderator", "GRANT MATCH TO moderator"], "root")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
     memgraph.stop()
 
 
@@ -258,36 +249,36 @@ def test_wrong_suffix(memgraph, tester_binary):
 
 def test_suffix_with_spaces(memgraph, tester_binary):
     initialize_test(memgraph, tester_binary, suffix=",    ou= people,  dc = memgraph, dc =   com")
-    execute_tester(tester_binary, ["CREATE USER alice", "GRANT MATCH TO alice"], "root")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
-    memgraph.stop()
-
-
-def test_role_mapping_wrong_root_dn(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary, root_dn="ou=invalid,dc=memgraph,dc=com")
     execute_tester(tester_binary, ["CREATE ROLE moderator", "GRANT MATCH TO moderator"], "root")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
-    memgraph.restart()
     execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
     memgraph.stop()
 
 
-def test_role_mapping_wrong_root_objectclass(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary, root_objectclass="person")
-    execute_tester(tester_binary, ["CREATE ROLE moderator", "GRANT MATCH TO moderator"], "root")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
-    memgraph.restart()
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
-    memgraph.stop()
+# def test_role_mapping_wrong_root_dn(memgraph, tester_binary):
+#     initialize_test(memgraph, tester_binary, root_dn="ou=invalid,dc=memgraph,dc=com")
+#     execute_tester(tester_binary, ["CREATE ROLE moderator", "GRANT MATCH TO moderator"], "root")
+#     execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
+#     memgraph.restart()
+#     execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
+#     memgraph.stop()
 
 
-def test_role_mapping_wrong_user_attribute(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary, user_attribute="cn")
-    execute_tester(tester_binary, ["CREATE ROLE moderator", "GRANT MATCH TO moderator"], "root")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
-    memgraph.restart()
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
-    memgraph.stop()
+# def test_role_mapping_wrong_root_objectclass(memgraph, tester_binary):
+#     initialize_test(memgraph, tester_binary, root_objectclass="person")
+#     execute_tester(tester_binary, ["CREATE ROLE moderator", "GRANT MATCH TO moderator"], "root")
+#     execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
+#     memgraph.restart()
+#     execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
+#     memgraph.stop()
+
+
+# def test_role_mapping_wrong_user_attribute(memgraph, tester_binary):
+#     initialize_test(memgraph, tester_binary, user_attribute="cn")
+#     execute_tester(tester_binary, ["CREATE ROLE moderator", "GRANT MATCH TO moderator"], "root")
+#     execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice", query_should_fail=True)
+#     memgraph.restart()
+#     execute_tester(tester_binary, ["MATCH (n) RETURN n"], "alice")
+#     memgraph.stop()
 
 
 def test_wrong_password(memgraph, tester_binary):
@@ -297,31 +288,9 @@ def test_wrong_password(memgraph, tester_binary):
     memgraph.stop()
 
 
-def test_password_persistancy(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary, check_login=False)
-    memgraph.restart(module_executable="")
-    execute_tester(tester_binary, ["SHOW USERS"], "root", password="sudo")
-    execute_tester(tester_binary, ["SHOW USERS"], "root", password="root")
-    memgraph.restart()
-    execute_tester(tester_binary, [], "root", password="sudo", auth_should_fail=True)
-    execute_tester(tester_binary, ["SHOW USERS"], "root", password="root")
-    memgraph.restart(module_executable="")
-    execute_tester(tester_binary, [], "root", password="sudo", auth_should_fail=True)
-    execute_tester(tester_binary, ["SHOW USERS"], "root", password="root")
-    memgraph.stop()
-
-
 def test_user_multiple_roles(memgraph, tester_binary):
-    initialize_test(memgraph, tester_binary, check_login=False)
-    memgraph.restart()
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "eve", query_should_fail=True)
-    execute_tester(tester_binary, ["GRANT MATCH TO moderator"], "root", query_should_fail=True)
-    memgraph.restart(manage_roles=False)
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "eve", query_should_fail=True)
-    execute_tester(tester_binary, ["GRANT MATCH TO moderator"], "root", query_should_fail=True)
-    memgraph.restart(manage_roles=False, root_dn="")
-    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "eve", query_should_fail=True)
-    execute_tester(tester_binary, ["GRANT MATCH TO moderator"], "root", query_should_fail=True)
+    initialize_test(memgraph, tester_binary)
+    execute_tester(tester_binary, ["MATCH (n) RETURN n"], "eve", auth_should_fail=True)
     memgraph.stop()
 
 

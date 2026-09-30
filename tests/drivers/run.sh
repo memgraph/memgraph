@@ -1,11 +1,10 @@
 #!/bin/bash
-
-# Old v1 tests
-run_v1.sh
-
-# New tests
+DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+cd "$DIR"
 pushd () { command pushd "$@" > /dev/null; }
 popd () { command popd "$@" > /dev/null; }
+# https://stackoverflow.com/questions/59119904/process-terminated-couldnt-find-a-valid-icu-package-installed-on-the-system-in
+export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
 
 function wait_for_server {
     port=$1
@@ -15,9 +14,6 @@ function wait_for_server {
     sleep 1
 }
 
-DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-cd "$DIR"
-
 # Create a temporary directory.
 tmpdir=/tmp/memgraph_drivers
 if [ -d $tmpdir ]; then
@@ -26,25 +22,33 @@ fi
 mkdir -p $tmpdir
 
 # Find memgraph binaries.
-binary_dir="$DIR/../../build"
+mg_binary_dir="$DIR/../../build"
 
 # Start memgraph.
-$binary_dir/memgraph \
+$mg_binary_dir/memgraph \
+    --metrics-format=OpenMetrics \
     --cartesian-product-enabled=false \
     --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \
-    --bolt-session-inactivity-timeout=10 \
-    --bolt-cert-file="" \
-    --log-file=$tmpdir/logs/memgarph.log \
+    --storage-access-timeout-sec=1 \
+    --log-file=$tmpdir/logs/memgraph.log \
     --also-log-to-stderr \
+    --telemetry-enabled=false \
     --log-level ERROR &
 pid=$!
 wait_for_server 7687
 
 # Run all available tests
+DISABLE_NODE=${DISABLE_NODE:-false}
 code_test=0
 for i in *; do
     if [ ! -d $i ]; then continue; fi
+
+    if [[ ("$i" = "node" || "$i" = "javascript") && "$DISABLE_NODE" = "true" ]]; then
+        echo "Skipping Node.js driver tests in CI"
+        continue
+    fi
+
     pushd $i
     echo "Running: $i"
     # run all versions
@@ -69,11 +73,6 @@ done
 kill $pid
 wait $pid
 code_mg=$?
-
-# Temporary directory cleanup.
-if [ -d $tmpdir ]; then
-    rm -rf $tmpdir
-fi
 
 # Check memgraph exit code.
 if [ $code_mg -ne 0 ]; then

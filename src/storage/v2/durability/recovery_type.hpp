@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,9 +15,14 @@
 #include <vector>
 #include "storage/v2/id_types.hpp"
 
+namespace memgraph::memory {
+class ArenaPool;
+}  // namespace memgraph::memory
+
 namespace memgraph::storage::durability {
 struct ParallelizedSchemaCreationInfo {
   std::vector<std::pair<Gid, uint64_t>> vertex_recovery_info;
   uint64_t thread_count;
+  memory::ArenaPool *arena_pool = nullptr;
 };
 }  // namespace memgraph::storage::durability

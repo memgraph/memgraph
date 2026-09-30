@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 
 #include "mg_procedure.h"
 
+#include <memory>
 #include <optional>
 #include <ostream>
 
@@ -23,9 +24,12 @@
 #include "integrations/pulsar/consumer.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
-#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/ast/query/graph_access.hpp"
 #include "query/procedure/cypher_type_ptr.hpp"
 #include "query/typed_value.hpp"
+#include "query/virtual_graph.hpp"
+#include "storage/v2/point.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/map.hpp"
@@ -33,6 +37,7 @@
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
+
 /// Wraps memory resource used in custom procedures.
 ///
 /// This should have been `using mgp_memory = memgraph::utils::MemoryResource`, but that's
@@ -50,51 +55,55 @@ struct mgp_value {
   using allocator_type = memgraph::utils::Allocator<mgp_value>;
 
   // Construct MGP_VALUE_TYPE_NULL.
-  explicit mgp_value(memgraph::utils::MemoryResource *) noexcept;
+  explicit mgp_value(allocator_type) noexcept;
 
-  mgp_value(bool, memgraph::utils::MemoryResource *) noexcept;
-  mgp_value(int64_t, memgraph::utils::MemoryResource *) noexcept;
-  mgp_value(double, memgraph::utils::MemoryResource *) noexcept;
+  mgp_value(bool, allocator_type) noexcept;
+  mgp_value(int64_t, allocator_type) noexcept;
+  mgp_value(double, allocator_type) noexcept;
   /// @throw std::bad_alloc
-  mgp_value(const char *, memgraph::utils::MemoryResource *);
+  mgp_value(const char *, allocator_type);
   /// Take ownership of the mgp_list, MemoryResource must match.
-  mgp_value(mgp_list *, memgraph::utils::MemoryResource *) noexcept;
+  mgp_value(mgp_list *, allocator_type) noexcept;
   /// Take ownership of the mgp_map, MemoryResource must match.
-  mgp_value(mgp_map *, memgraph::utils::MemoryResource *) noexcept;
+  mgp_value(mgp_map *, allocator_type) noexcept;
   /// Take ownership of the mgp_vertex, MemoryResource must match.
-  mgp_value(mgp_vertex *, memgraph::utils::MemoryResource *) noexcept;
+  mgp_value(mgp_vertex *, allocator_type) noexcept;
   /// Take ownership of the mgp_edge, MemoryResource must match.
-  mgp_value(mgp_edge *, memgraph::utils::MemoryResource *) noexcept;
+  mgp_value(mgp_edge *, allocator_type) noexcept;
   /// Take ownership of the mgp_path, MemoryResource must match.
-  mgp_value(mgp_path *, memgraph::utils::MemoryResource *) noexcept;
+  mgp_value(mgp_path *, allocator_type) noexcept;
 
-  mgp_value(mgp_date *, memgraph::utils::MemoryResource *) noexcept;
-  mgp_value(mgp_local_time *, memgraph::utils::MemoryResource *) noexcept;
-  mgp_value(mgp_local_date_time *, memgraph::utils::MemoryResource *) noexcept;
-  mgp_value(mgp_duration *, memgraph::utils::MemoryResource *) noexcept;
+  mgp_value(mgp_date *, allocator_type) noexcept;
+  mgp_value(mgp_local_time *, allocator_type) noexcept;
+  mgp_value(mgp_local_date_time *, allocator_type) noexcept;
+  mgp_value(mgp_duration *, allocator_type) noexcept;
+  mgp_value(mgp_zoned_date_time *, allocator_type) noexcept;
+  mgp_value(mgp_point_2d *, allocator_type) noexcept;
+  mgp_value(mgp_point_3d *, allocator_type) noexcept;
+  mgp_value(mgp_enum *, allocator_type) noexcept;
 
   /// Construct by copying memgraph::query::TypedValue using memgraph::utils::MemoryResource.
   /// mgp_graph is needed to construct mgp_vertex and mgp_edge.
   /// @throw std::bad_alloc
-  mgp_value(const memgraph::query::TypedValue &, mgp_graph *, memgraph::utils::MemoryResource *);
+  mgp_value(const memgraph::query::TypedValue &, mgp_graph *, allocator_type);
 
   /// Construct by copying memgraph::storage::PropertyValue using memgraph::utils::MemoryResource.
   /// @throw std::bad_alloc
-  mgp_value(const memgraph::storage::PropertyValue &, memgraph::utils::MemoryResource *);
+  mgp_value(const memgraph::storage::PropertyValue &, memgraph::storage::NameIdMapper *, allocator_type);
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_value(const mgp_value &) = delete;
 
   /// Copy construct using given memgraph::utils::MemoryResource.
   /// @throw std::bad_alloc
-  mgp_value(const mgp_value &, memgraph::utils::MemoryResource *);
+  mgp_value(const mgp_value &, allocator_type);
 
   /// Move construct using given memgraph::utils::MemoryResource.
   /// @throw std::bad_alloc if MemoryResource is different, so we cannot move.
-  mgp_value(mgp_value &&, memgraph::utils::MemoryResource *);
+  mgp_value(mgp_value &&, allocator_type);
 
   /// Move construct, memgraph::utils::MemoryResource is inherited.
-  mgp_value(mgp_value &&other) noexcept : mgp_value(other, other.memory) {}
+  mgp_value(mgp_value &&other) noexcept : mgp_value(other, other.alloc) {}
 
   /// Copy-assignment is not allowed to preserve immutability.
   mgp_value &operator=(const mgp_value &) = delete;
@@ -104,10 +113,10 @@ struct mgp_value {
 
   ~mgp_value() noexcept;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
   mgp_value_type type;
-  memgraph::utils::MemoryResource *memory;
+  allocator_type alloc;
 
   union {
     bool bool_v;
@@ -126,6 +135,10 @@ struct mgp_value {
     mgp_local_time *local_time_v;
     mgp_local_date_time *local_date_time_v;
     mgp_duration *duration_v;
+    mgp_zoned_date_time *zoned_date_time_v;
+    mgp_point_2d *point_2d_v;
+    mgp_point_3d *point_3d_v;
+    mgp_enum *enum_v;
   };
 };
 
@@ -143,24 +156,22 @@ struct mgp_date {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<memgraph::utils::Date>);
 
-  mgp_date(const memgraph::utils::Date &date, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), date(date) {}
+  mgp_date(const memgraph::utils::Date &date, allocator_type alloc) noexcept : alloc(alloc), date(date) {}
 
-  mgp_date(const std::string_view string, memgraph::utils::MemoryResource *memory)
-      : memory(memory), date(memgraph::utils::ParseDateParameters(string).first) {}
+  mgp_date(const std::string_view string, allocator_type alloc)
+      : alloc(alloc), date(memgraph::utils::ParseDateParameters(string).first) {}
 
-  mgp_date(const mgp_date_parameters *parameters, memgraph::utils::MemoryResource *memory)
-      : memory(memory), date(MapDateParameters(parameters)) {}
+  mgp_date(const mgp_date_parameters *parameters, allocator_type alloc)
+      : alloc(alloc), date(MapDateParameters(parameters)) {}
 
-  mgp_date(const int64_t microseconds, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), date(microseconds) {}
+  mgp_date(const int64_t microseconds, allocator_type alloc) noexcept
+      : alloc(alloc), date(std::chrono::microseconds{microseconds}) {}
 
-  mgp_date(const mgp_date &other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), date(other.date) {}
+  mgp_date(const mgp_date &other, allocator_type alloc) noexcept : alloc(alloc), date(other.date) {}
 
-  mgp_date(mgp_date &&other, memgraph::utils::MemoryResource *memory) noexcept : memory(memory), date(other.date) {}
+  mgp_date(mgp_date &&other, allocator_type alloc) noexcept : alloc(alloc), date(other.date) {}
 
-  mgp_date(mgp_date &&other) noexcept : memory(other.memory), date(other.date) {}
+  mgp_date(mgp_date &&other) noexcept : alloc(other.alloc), date(other.date) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_date(const mgp_date &) = delete;
@@ -170,9 +181,9 @@ struct mgp_date {
 
   ~mgp_date() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
-  memgraph::utils::MemoryResource *memory;
+  allocator_type alloc;
   memgraph::utils::Date date;
 };
 
@@ -194,25 +205,23 @@ struct mgp_local_time {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<memgraph::utils::LocalTime>);
 
-  mgp_local_time(const std::string_view string, memgraph::utils::MemoryResource *memory)
-      : memory(memory), local_time(memgraph::utils::ParseLocalTimeParameters(string).first) {}
+  mgp_local_time(const std::string_view string, allocator_type alloc)
+      : alloc(alloc), local_time(memgraph::utils::ParseLocalTimeParameters(string).first) {}
 
-  mgp_local_time(const mgp_local_time_parameters *parameters, memgraph::utils::MemoryResource *memory)
-      : memory(memory), local_time(MapLocalTimeParameters(parameters)) {}
+  mgp_local_time(const mgp_local_time_parameters *parameters, allocator_type alloc)
+      : alloc(alloc), local_time(MapLocalTimeParameters(parameters)) {}
 
-  mgp_local_time(const memgraph::utils::LocalTime &local_time, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), local_time(local_time) {}
+  mgp_local_time(const memgraph::utils::LocalTime &local_time, allocator_type alloc) noexcept
+      : alloc(alloc), local_time(local_time) {}
 
-  mgp_local_time(const int64_t microseconds, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), local_time(microseconds) {}
+  mgp_local_time(const int64_t microseconds, allocator_type alloc) noexcept : alloc(alloc), local_time(microseconds) {}
 
-  mgp_local_time(const mgp_local_time &other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), local_time(other.local_time) {}
+  mgp_local_time(const mgp_local_time &other, allocator_type alloc) noexcept
+      : alloc(alloc), local_time(other.local_time) {}
 
-  mgp_local_time(mgp_local_time &&other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), local_time(other.local_time) {}
+  mgp_local_time(mgp_local_time &&other, allocator_type alloc) noexcept : alloc(alloc), local_time(other.local_time) {}
 
-  mgp_local_time(mgp_local_time &&other) noexcept : memory(other.memory), local_time(other.local_time) {}
+  mgp_local_time(mgp_local_time &&other) noexcept : alloc(other.alloc), local_time(other.local_time) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_local_time(const mgp_local_time &) = delete;
@@ -222,9 +231,9 @@ struct mgp_local_time {
 
   ~mgp_local_time() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
-  memgraph::utils::MemoryResource *memory;
+  allocator_type alloc;
   memgraph::utils::LocalTime local_time;
 };
 
@@ -243,29 +252,28 @@ struct mgp_local_date_time {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<memgraph::utils::LocalDateTime>);
 
-  mgp_local_date_time(const memgraph::utils::LocalDateTime &local_date_time,
-                      memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), local_date_time(local_date_time) {}
+  mgp_local_date_time(const memgraph::utils::LocalDateTime &local_date_time, allocator_type alloc) noexcept
+      : alloc(alloc), local_date_time(local_date_time) {}
 
-  mgp_local_date_time(const std::string_view string, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), local_date_time(CreateLocalDateTimeFromString(string)) {}
+  mgp_local_date_time(const std::string_view string, allocator_type alloc) noexcept
+      : alloc(alloc), local_date_time(CreateLocalDateTimeFromString(string)) {}
 
-  mgp_local_date_time(const mgp_local_date_time_parameters *parameters, memgraph::utils::MemoryResource *memory)
-      : memory(memory),
+  mgp_local_date_time(const mgp_local_date_time_parameters *parameters, allocator_type alloc)
+      : alloc(alloc),
         local_date_time(MapDateParameters(parameters->date_parameters),
                         MapLocalTimeParameters(parameters->local_time_parameters)) {}
 
-  mgp_local_date_time(const int64_t microseconds, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), local_date_time(microseconds) {}
+  mgp_local_date_time(const int64_t microseconds, allocator_type alloc) noexcept
+      : alloc(alloc), local_date_time(microseconds) {}
 
-  mgp_local_date_time(const mgp_local_date_time &other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), local_date_time(other.local_date_time) {}
+  mgp_local_date_time(const mgp_local_date_time &other, allocator_type alloc) noexcept
+      : alloc(alloc), local_date_time(other.local_date_time) {}
 
-  mgp_local_date_time(mgp_local_date_time &&other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), local_date_time(other.local_date_time) {}
+  mgp_local_date_time(mgp_local_date_time &&other, allocator_type alloc) noexcept
+      : alloc(alloc), local_date_time(other.local_date_time) {}
 
   mgp_local_date_time(mgp_local_date_time &&other) noexcept
-      : memory(other.memory), local_date_time(other.local_date_time) {}
+      : alloc(other.alloc), local_date_time(other.local_date_time) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_local_date_time(const mgp_local_date_time &) = delete;
@@ -275,10 +283,65 @@ struct mgp_local_date_time {
 
   ~mgp_local_date_time() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
-  memgraph::utils::MemoryResource *memory;
+  allocator_type alloc;
   memgraph::utils::LocalDateTime local_date_time;
+};
+
+inline memgraph::utils::ZonedDateTime CreateZonedDateTimeFromString(const std::string_view string) {
+  const auto &[date_parameters, zoned_time_parameters, timezone] =
+      memgraph::utils::ParseZonedDateTimeParameters(string);
+  return memgraph::utils::ZonedDateTime{date_parameters, zoned_time_parameters, timezone};
+}
+
+struct mgp_zoned_date_time {
+  /// Allocator type so that STL containers are aware that we need one.
+  /// We don't actually need this, but it simplifies the C API, because we store
+  /// the allocator which was used to allocate `this`.
+  using allocator_type = memgraph::utils::Allocator<mgp_zoned_date_time>;
+
+  // Hopefully memgraph::utils::ZonedDateTime copy constructor remains noexcept, so that we can
+  // have everything noexcept here.
+  static_assert(std::is_nothrow_copy_constructible_v<memgraph::utils::ZonedDateTime>);
+
+  mgp_zoned_date_time(const memgraph::utils::ZonedDateTime &zoned_date_time, allocator_type alloc) noexcept
+      : alloc(alloc), zoned_date_time(zoned_date_time) {}
+
+  mgp_zoned_date_time(const std::string_view string, allocator_type alloc) noexcept
+      : alloc(alloc), zoned_date_time(CreateZonedDateTimeFromString(string)) {}
+
+  mgp_zoned_date_time(const mgp_zoned_date_time_parameters *parameters, allocator_type alloc)
+      : alloc(alloc),
+        zoned_date_time(memgraph::utils::ZonedDateTimeParameters{
+            MapDateParameters(parameters->date_parameters),
+            MapLocalTimeParameters(parameters->local_time_parameters),
+            parameters->is_named_timezone
+                ? memgraph::utils::ParseTimezoneFromUserString(
+                      std::string_view{parameters->timezone_info.timezone_name})
+                : memgraph::utils::Timezone{std::chrono::minutes{parameters->timezone_info.offset_in_minutes}}}) {}
+
+  mgp_zoned_date_time(const mgp_zoned_date_time &other, allocator_type alloc) noexcept
+      : alloc(alloc), zoned_date_time(other.zoned_date_time) {}
+
+  mgp_zoned_date_time(mgp_zoned_date_time &&other, allocator_type alloc) noexcept
+      : alloc(alloc), zoned_date_time(other.zoned_date_time) {}
+
+  mgp_zoned_date_time(mgp_zoned_date_time &&other) noexcept
+      : alloc(other.alloc), zoned_date_time(other.zoned_date_time) {}
+
+  /// Copy construction without memgraph::utils::MemoryResource is not allowed.
+  mgp_zoned_date_time(const mgp_zoned_date_time &) = delete;
+
+  mgp_zoned_date_time &operator=(const mgp_zoned_date_time &) = delete;
+  mgp_zoned_date_time &operator=(mgp_zoned_date_time &&) = delete;
+
+  ~mgp_zoned_date_time() = default;
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
+
+  allocator_type alloc;
+  memgraph::utils::ZonedDateTime zoned_date_time;
 };
 
 inline memgraph::utils::DurationParameters MapDurationParameters(const mgp_duration_parameters *parameters) {
@@ -300,25 +363,22 @@ struct mgp_duration {
   // have everything noexcept here.
   static_assert(std::is_nothrow_copy_constructible_v<memgraph::utils::Duration>);
 
-  mgp_duration(const std::string_view string, memgraph::utils::MemoryResource *memory)
-      : memory(memory), duration(memgraph::utils::ParseDurationParameters(string)) {}
+  mgp_duration(const std::string_view string, allocator_type alloc)
+      : alloc(alloc), duration(memgraph::utils::ParseDurationParameters(string)) {}
 
-  mgp_duration(const mgp_duration_parameters *parameters, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), duration(MapDurationParameters(parameters)) {}
+  mgp_duration(const mgp_duration_parameters *parameters, allocator_type alloc) noexcept
+      : alloc(alloc), duration(MapDurationParameters(parameters)) {}
 
-  mgp_duration(const memgraph::utils::Duration &duration, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), duration(duration) {}
+  mgp_duration(const memgraph::utils::Duration &duration, allocator_type alloc) noexcept
+      : alloc(alloc), duration(duration) {}
 
-  mgp_duration(const int64_t microseconds, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), duration(microseconds) {}
+  mgp_duration(const int64_t microseconds, allocator_type alloc) noexcept : alloc(alloc), duration(microseconds) {}
 
-  mgp_duration(const mgp_duration &other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), duration(other.duration) {}
+  mgp_duration(const mgp_duration &other, allocator_type alloc) noexcept : alloc(alloc), duration(other.duration) {}
 
-  mgp_duration(mgp_duration &&other, memgraph::utils::MemoryResource *memory) noexcept
-      : memory(memory), duration(other.duration) {}
+  mgp_duration(mgp_duration &&other, allocator_type alloc) noexcept : alloc(alloc), duration(other.duration) {}
 
-  mgp_duration(mgp_duration &&other) noexcept : memory(other.memory), duration(other.duration) {}
+  mgp_duration(mgp_duration &&other) noexcept : alloc(other.alloc), duration(other.duration) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_duration(const mgp_duration &) = delete;
@@ -328,24 +388,100 @@ struct mgp_duration {
 
   ~mgp_duration() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
-  memgraph::utils::MemoryResource *memory;
+  allocator_type alloc;
   memgraph::utils::Duration duration;
+};
+
+struct mgp_point_2d {
+  using allocator_type = memgraph::utils::Allocator<mgp_point_2d>;
+
+  static_assert(std::is_nothrow_copy_constructible_v<memgraph::storage::Point2d>);
+
+  mgp_point_2d(const memgraph::storage::Point2d &point, allocator_type alloc) noexcept : alloc(alloc), point(point) {}
+
+  mgp_point_2d(const mgp_point_2d &other, allocator_type alloc) noexcept : alloc(alloc), point(other.point) {}
+
+  mgp_point_2d(mgp_point_2d &&other, allocator_type alloc) noexcept : alloc(alloc), point(other.point) {}
+
+  mgp_point_2d(mgp_point_2d &&other) noexcept : alloc(other.alloc), point(other.point) {}
+
+  mgp_point_2d(const mgp_point_2d &) = delete;
+  mgp_point_2d &operator=(const mgp_point_2d &) = delete;
+  mgp_point_2d &operator=(mgp_point_2d &&) = delete;
+  ~mgp_point_2d() = default;
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
+
+  allocator_type alloc;
+  memgraph::storage::Point2d point;
+};
+
+struct mgp_point_3d {
+  using allocator_type = memgraph::utils::Allocator<mgp_point_3d>;
+
+  static_assert(std::is_nothrow_copy_constructible_v<memgraph::storage::Point3d>);
+
+  mgp_point_3d(const memgraph::storage::Point3d &point, allocator_type alloc) noexcept : alloc(alloc), point(point) {}
+
+  mgp_point_3d(const mgp_point_3d &other, allocator_type alloc) noexcept : alloc(alloc), point(other.point) {}
+
+  mgp_point_3d(mgp_point_3d &&other, allocator_type alloc) noexcept : alloc(alloc), point(other.point) {}
+
+  mgp_point_3d(mgp_point_3d &&other) noexcept : alloc(other.alloc), point(other.point) {}
+
+  mgp_point_3d(const mgp_point_3d &) = delete;
+  mgp_point_3d &operator=(const mgp_point_3d &) = delete;
+  mgp_point_3d &operator=(mgp_point_3d &&) = delete;
+  ~mgp_point_3d() = default;
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
+
+  allocator_type alloc;
+  memgraph::storage::Point3d point;
+};
+
+struct mgp_enum {
+  using allocator_type = memgraph::utils::Allocator<mgp_enum>;
+
+  mgp_enum(std::string_view type_name, std::string_view value_name, allocator_type alloc)
+      : alloc(alloc), type_name(type_name, alloc.resource()), value_name(value_name, alloc.resource()) {}
+
+  mgp_enum(const mgp_enum &other, allocator_type alloc)
+      : alloc(alloc), type_name(other.type_name, alloc.resource()), value_name(other.value_name, alloc.resource()) {}
+
+  mgp_enum(mgp_enum &&other, allocator_type alloc)
+      : alloc(alloc),
+        type_name(std::move(other.type_name), alloc.resource()),
+        value_name(std::move(other.value_name), alloc.resource()) {}
+
+  mgp_enum(mgp_enum &&other) noexcept
+      : alloc(other.alloc), type_name(std::move(other.type_name)), value_name(std::move(other.value_name)) {}
+
+  mgp_enum(const mgp_enum &) = delete;
+  mgp_enum &operator=(const mgp_enum &) = delete;
+  mgp_enum &operator=(mgp_enum &&) = delete;
+  ~mgp_enum() = default;
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
+
+  allocator_type alloc;
+  memgraph::utils::pmr::string type_name;
+  memgraph::utils::pmr::string value_name;
 };
 
 struct mgp_list {
   /// Allocator type so that STL containers are aware that we need one.
   using allocator_type = memgraph::utils::Allocator<mgp_list>;
 
-  explicit mgp_list(memgraph::utils::MemoryResource *memory) : elems(memory) {}
+  explicit mgp_list(allocator_type alloc) : elems(alloc) {}
 
-  mgp_list(memgraph::utils::pmr::vector<mgp_value> &&elems, memgraph::utils::MemoryResource *memory)
-      : elems(std::move(elems), memory) {}
+  mgp_list(memgraph::utils::pmr::vector<mgp_value> &&elems, allocator_type alloc) : elems(std::move(elems), alloc) {}
 
-  mgp_list(const mgp_list &other, memgraph::utils::MemoryResource *memory) : elems(other.elems, memory) {}
+  mgp_list(const mgp_list &other, allocator_type alloc) : elems(other.elems, alloc) {}
 
-  mgp_list(mgp_list &&other, memgraph::utils::MemoryResource *memory) : elems(std::move(other.elems), memory) {}
+  mgp_list(mgp_list &&other, allocator_type alloc) : elems(std::move(other.elems), alloc) {}
 
   mgp_list(mgp_list &&other) noexcept : elems(std::move(other.elems)) {}
 
@@ -357,9 +493,7 @@ struct mgp_list {
 
   ~mgp_list() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept {
-    return elems.get_allocator().GetMemoryResource();
-  }
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return elems.get_allocator().resource(); }
 
   // C++17 vector can work with incomplete type.
   memgraph::utils::pmr::vector<mgp_value> elems;
@@ -369,16 +503,90 @@ struct mgp_map {
   /// Allocator type so that STL containers are aware that we need one.
   using allocator_type = memgraph::utils::Allocator<mgp_map>;
 
-  explicit mgp_map(memgraph::utils::MemoryResource *memory) : items(memory) {}
+  // Transparent comparator for pmr::map
+  struct transparent_string_less {
+    using is_transparent = void;
 
-  mgp_map(memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> &&items,
-          memgraph::utils::MemoryResource *memory)
-      : items(std::move(items), memory) {}
+    template <class LHS, class RHS>
+    bool operator()(const LHS &lhs, const RHS &rhs) const noexcept {
+      return std::less<>()(std::string_view(lhs), std::string_view(rhs));
+    }
+  };
 
-  mgp_map(const mgp_map &other, memgraph::utils::MemoryResource *memory) : items(other.items, memory) {}
+  // Transparent hasher and equality for pmr::unordered_map
+  struct transparent_string_hash {
+    using is_transparent = void;
 
-  mgp_map(mgp_map &&other, memgraph::utils::MemoryResource *memory) : items(std::move(other.items), memory) {}
+    template <class T>
+    std::size_t operator()(const T &value) const noexcept {
+      return std::hash<std::string_view>{}(std::string_view(value));
+    }
+  };
 
+  struct transparent_string_equal {
+    using is_transparent = void;
+
+    template <class LHS, class RHS>
+    bool operator()(const LHS &lhs, const RHS &rhs) const noexcept {
+      return std::string_view(lhs) == rhs;
+    }
+  };
+
+  using map_type = memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value, transparent_string_less>;
+  using unordered_map_type = memgraph::utils::pmr::unordered_map<memgraph::utils::pmr::string, mgp_value,
+                                                                 transparent_string_hash, transparent_string_equal>;
+
+  static constexpr struct MapTag {
+  } map_tag_t;
+
+  static constexpr struct UnorderedMapTag {
+  } unordered_map_tag_t;
+
+  // Default to map type
+  explicit mgp_map(allocator_type alloc) : items(std::in_place_type<map_type>, alloc) {}
+
+  mgp_map(MapTag /*unused*/, allocator_type alloc) : items(std::in_place_type<map_type>, alloc) {}
+
+  mgp_map(UnorderedMapTag /*unused*/, allocator_type alloc) : items(std::in_place_type<unordered_map_type>, alloc) {}
+
+  mgp_map(map_type &&items, allocator_type alloc) : items(std::in_place_type<map_type>, std::move(items), alloc) {}
+
+  mgp_map(unordered_map_type &&items, allocator_type alloc)
+      : items(std::in_place_type<unordered_map_type>, std::move(items), alloc) {}
+
+  mgp_map(const mgp_map &other, allocator_type alloc) {
+    std::visit(
+        [&](const auto &arg) {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, map_type>) {
+            // Reconstruct with allocator
+            items.emplace<map_type>(arg, alloc);
+          } else if constexpr (std::is_same_v<T, unordered_map_type>) {
+            items.emplace<unordered_map_type>(arg, alloc);
+          } else {
+            LOG_FATAL("Invalid map type");
+          }
+        },
+        other.items);
+  }
+
+  mgp_map(mgp_map &&other, allocator_type alloc) {
+    std::visit(
+        [&](auto &&arg) mutable {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, map_type>) {
+            // Reconstruct with allocator
+            items.emplace<map_type>(std::forward<map_type>(arg), alloc);
+          } else if constexpr (std::is_same_v<T, unordered_map_type>) {
+            items.emplace<unordered_map_type>(std::forward<unordered_map_type>(arg), alloc);
+          } else {
+            LOG_FATAL("Invalid map type");
+          }
+        },
+        std::move(other.items));
+  }
+
+  // TODO Should this be allowed
   mgp_map(mgp_map &&other) noexcept : items(std::move(other.items)) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
@@ -390,12 +598,13 @@ struct mgp_map {
   ~mgp_map() = default;
 
   memgraph::utils::MemoryResource *GetMemoryResource() const noexcept {
-    return items.get_allocator().GetMemoryResource();
+    return std::visit(memgraph::utils::Overloaded{[](const auto &arg) { return arg.get_allocator().resource(); }},
+                      items);
   }
 
   // Unfortunately using incomplete type with map is undefined, so mgp_map
   // needs to be defined after mgp_value.
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items;
+  std::variant<map_type, unordered_map_type> items;
 };
 
 struct mgp_map_item {
@@ -406,12 +615,16 @@ struct mgp_map_item {
 struct mgp_map_items_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_map_items_iterator>;
 
-  mgp_map_items_iterator(mgp_map *map, memgraph::utils::MemoryResource *memory)
-      : memory(memory), map(map), current_it(map->items.begin()) {
-    if (current_it != map->items.end()) {
-      current.key = current_it->first.c_str();
-      current.value = &current_it->second;
-    }
+  mgp_map_items_iterator(mgp_map *map, allocator_type alloc) : alloc(alloc), map(map) {
+    // Initialize current item
+    std::visit(
+        [this](auto &items) {
+          auto itr = items.begin();
+          current.key = itr->first.c_str();
+          current.value = &itr->second;
+          current_it = itr;
+        },
+        map->items);
   }
 
   mgp_map_items_iterator(const mgp_map_items_iterator &) = delete;
@@ -421,40 +634,77 @@ struct mgp_map_items_iterator {
 
   ~mgp_map_items_iterator() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const { return memory; }
+  memgraph::utils::MemoryResource *GetMemoryResource() const { return alloc.resource(); }
 
-  memgraph::utils::MemoryResource *memory;
+  bool IsEnd() const {
+    return std::visit(memgraph::utils::Overloaded{[this](const mgp_map::map_type::const_iterator &itr) {
+                                                    return itr == std::get<mgp_map::map_type>(map->items).end();
+                                                  },
+                                                  [this](const mgp_map::unordered_map_type::const_iterator &itr) {
+                                                    return itr ==
+                                                           std::get<mgp_map::unordered_map_type>(map->items).end();
+                                                  }},
+                      current_it);
+  }
+
+  allocator_type alloc;
   mgp_map *map;
-  decltype(map->items.begin()) current_it;
+  std::variant<typename mgp_map::map_type::const_iterator, typename mgp_map::unordered_map_type::const_iterator>
+      current_it;
   mgp_map_item current;
 };
 
 struct mgp_vertex {
-  /// Allocator type so that STL containers are aware that we need one.
-  /// We don't actually need this, but it simplifies the C API, because we store
-  /// the allocator which was used to allocate `this`.
   using allocator_type = memgraph::utils::Allocator<mgp_vertex>;
+  using VertexImpl = std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor,
+                                  memgraph::query::VirtualNode>;
 
-  mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-      : memory(memory), impl(v), graph(graph) {}
+  // dispatches on graph->CheckedImpl(): real arms use VertexAccessor / SubgraphVertexAccessor,
+  // virtual arm wraps tv.ValueVirtualNode().
+  static mgp_vertex *FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc);
 
-  mgp_vertex(memgraph::query::SubgraphVertexAccessor v, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-      : memory(memory), impl(v), graph(graph) {}
+  mgp_vertex(memgraph::query::VertexAccessor v, mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), impl(v), graph(graph) {}
 
-  mgp_vertex(const mgp_vertex &other, memgraph::utils::MemoryResource *memory)
-      : memory(memory), impl(other.impl), graph(other.graph) {}
+  mgp_vertex(memgraph::query::SubgraphVertexAccessor v, mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), impl(v), graph(graph) {}
 
-  mgp_vertex(mgp_vertex &&other, memgraph::utils::MemoryResource *memory)
-      : memory(memory), impl(other.impl), graph(other.graph) {}
+  mgp_vertex(memgraph::query::VirtualNode v, mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), impl(std::move(v)), graph(graph) {}
+
+  mgp_vertex(const mgp_vertex &other, allocator_type alloc) : alloc(alloc), impl(other.impl), graph(other.graph) {}
+
+  mgp_vertex(mgp_vertex &&other, allocator_type alloc)
+      : alloc(alloc), impl(std::move(other.impl)), graph(other.graph) {}
 
   // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
-  mgp_vertex(mgp_vertex &&other) : memory(other.memory), impl(other.impl), graph(other.graph) {}
+  mgp_vertex(mgp_vertex &&other) : alloc(other.alloc), impl(std::move(other.impl)), graph(other.graph) {}
 
   memgraph::query::VertexAccessor getImpl() const {
-    return std::visit(
-        memgraph::utils::Overloaded{[](const memgraph::query::VertexAccessor &impl) { return impl; },
-                                    [](memgraph::query::SubgraphVertexAccessor impl) { return impl.impl_; }},
-        this->impl);
+    DMG_ASSERT(!IsVirtual(), "getImpl() is not available for VirtualNode");
+    if (const auto *va = std::get_if<memgraph::query::VertexAccessor>(&impl)) return *va;
+    return std::get<memgraph::query::SubgraphVertexAccessor>(impl).impl_;
+  }
+
+  bool IsVirtual() const noexcept { return std::holds_alternative<memgraph::query::VirtualNode>(impl); }
+
+  const memgraph::query::VirtualNode &GetVirtualNode() const { return std::get<memgraph::query::VirtualNode>(impl); }
+
+  memgraph::query::VirtualNode &GetVirtualNode() { return std::get<memgraph::query::VirtualNode>(impl); }
+
+  // Visit only the two real-vertex alternatives; caller must guard IsVirtual() first.
+  template <typename F>
+  auto VisitReal(F &&fn) const {
+    DMG_ASSERT(!IsVirtual(), "VisitReal called on VirtualNode");
+    if (const auto *va = std::get_if<memgraph::query::VertexAccessor>(&impl)) return fn(*va);
+    return fn(std::get<memgraph::query::SubgraphVertexAccessor>(impl));
+  }
+
+  template <typename F>
+  auto VisitReal(F &&fn) {
+    DMG_ASSERT(!IsVirtual(), "VisitReal called on VirtualNode");
+    if (auto *va = std::get_if<memgraph::query::VertexAccessor>(&impl)) return fn(*va);
+    return fn(std::get<memgraph::query::SubgraphVertexAccessor>(impl));
   }
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
@@ -463,48 +713,76 @@ struct mgp_vertex {
   mgp_vertex &operator=(const mgp_vertex &) = delete;
   mgp_vertex &operator=(mgp_vertex &&) = delete;
 
-  bool operator==(const mgp_vertex &other) const noexcept { return other.getImpl() == this->getImpl(); }
+  // Identity via Gid: real Gids count up from 0, synthetic count down from UINT64_MAX,
+  // so mixed real/virtual naturally compares false without a special case.
+  bool operator==(const mgp_vertex &other) const noexcept {
+    return std::visit([](const auto &a, const auto &b) { return a.Gid() == b.Gid(); }, impl, other.impl);
+  }
 
   bool operator!=(const mgp_vertex &other) const noexcept { return !(*this == other); };
 
   ~mgp_vertex() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
-  memgraph::utils::MemoryResource *memory;
-  std::variant<memgraph::query::VertexAccessor, memgraph::query::SubgraphVertexAccessor> impl;
+  allocator_type alloc;
+  VertexImpl impl;
   mgp_graph *graph;
 };
+
+inline constexpr size_t kMaxMgpVertexSize = 64;
+static_assert(sizeof(mgp_vertex) <= kMaxMgpVertexSize, "mgp_vertex grew beyond the expected size budget");
 
 struct mgp_edge {
   /// Allocator type so that STL containers are aware that we need one.
   /// We don't actually need this, but it simplifies the C API, because we store
   /// the allocator which was used to allocate `this`.
   using allocator_type = memgraph::utils::Allocator<mgp_edge>;
+  using EdgeImpl = std::variant<memgraph::query::EdgeAccessor, memgraph::query::VirtualEdge>;
 
   static mgp_edge *Copy(const mgp_edge &edge, mgp_memory &memory);
 
-  mgp_edge(const memgraph::query::EdgeAccessor &impl, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-      : memory(memory), impl(impl), from(impl.From(), graph, memory), to(impl.To(), graph, memory) {}
+  // Counterpart to mgp_vertex::FromTypedValue for edges.
+  static mgp_edge *FromTypedValue(const memgraph::query::TypedValue &tv, mgp_graph *graph, allocator_type alloc);
+
+  mgp_edge(const memgraph::query::EdgeAccessor &impl, mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), impl(impl), from(impl.From(), graph, alloc), to(impl.To(), graph, alloc) {}
 
   mgp_edge(const memgraph::query::EdgeAccessor &impl, const memgraph::query::VertexAccessor &from_v,
-           const memgraph::query::VertexAccessor &to_v, mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-      : memory(memory), impl(impl), from(from_v, graph, memory), to(to_v, graph, memory) {}
+           const memgraph::query::VertexAccessor &to_v, mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), impl(impl), from(from_v, graph, alloc), to(to_v, graph, alloc) {}
 
   mgp_edge(const memgraph::query::EdgeAccessor &impl, const memgraph::query::SubgraphVertexAccessor &from_v,
-           const memgraph::query::SubgraphVertexAccessor &to_v, mgp_graph *graph,
-           memgraph::utils::MemoryResource *memory)
-      : memory(memory), impl(impl), from(from_v, graph, memory), to(to_v, graph, memory) {}
+           const memgraph::query::SubgraphVertexAccessor &to_v, mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), impl(impl), from(from_v, graph, alloc), to(to_v, graph, alloc) {}
 
-  mgp_edge(const mgp_edge &other, memgraph::utils::MemoryResource *memory)
-      : memory(memory), impl(other.impl), from(other.from, memory), to(other.to, memory) {}
+  mgp_edge(const memgraph::query::VirtualEdge &ve, mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), impl(ve), from(ve.From(), graph, alloc), to(ve.To(), graph, alloc) {}
 
-  mgp_edge(mgp_edge &&other, memgraph::utils::MemoryResource *memory)
-      : memory(other.memory), impl(other.impl), from(std::move(other.from), memory), to(std::move(other.to), memory) {}
+  mgp_edge(const mgp_edge &other, allocator_type alloc)
+      : alloc(alloc), impl(other.impl), from(other.from, alloc), to(other.to, alloc) {}
+
+  mgp_edge(mgp_edge &&other, allocator_type alloc)
+      : alloc(other.alloc),
+        impl(std::move(other.impl)),
+        from(std::move(other.from), alloc),
+        to(std::move(other.to), alloc) {}
 
   // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
   mgp_edge(mgp_edge &&other)
-      : memory(other.memory), impl(other.impl), from(std::move(other.from)), to(std::move(other.to)) {}
+      : alloc(other.alloc), impl(std::move(other.impl)), from(std::move(other.from)), to(std::move(other.to)) {}
+
+  bool IsVirtual() const noexcept { return std::holds_alternative<memgraph::query::VirtualEdge>(impl); }
+
+  // Identity via Gid: as with mgp_vertex, real/synthetic gid spaces are disjoint so
+  // mixed real/virtual naturally compares false.
+  bool operator==(const mgp_edge &other) const noexcept {
+    return std::visit([](const auto &a, const auto &b) { return a.Gid() == b.Gid(); }, impl, other.impl);
+  }
+
+  bool operator!=(const mgp_edge &other) const noexcept { return !(*this == other); };
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
   mgp_edge(const mgp_edge &) = delete;
@@ -513,28 +791,25 @@ struct mgp_edge {
   mgp_edge &operator=(mgp_edge &&) = delete;
   ~mgp_edge() = default;
 
-  bool operator==(const mgp_edge &other) const noexcept { return this->impl == other.impl; }
-  bool operator!=(const mgp_edge &other) const noexcept { return !(*this == other); };
-
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return memory; }
-
-  memgraph::utils::MemoryResource *memory;
-  memgraph::query::EdgeAccessor impl;
+  allocator_type alloc;
+  EdgeImpl impl;
   mgp_vertex from;
   mgp_vertex to;
 };
+
+inline constexpr size_t kMaxMgpEdgeSize = 192;
+static_assert(sizeof(mgp_edge) <= kMaxMgpEdgeSize, "mgp_edge grew beyond the expected size budget");
 
 struct mgp_path {
   /// Allocator type so that STL containers are aware that we need one.
   using allocator_type = memgraph::utils::Allocator<mgp_path>;
 
-  explicit mgp_path(memgraph::utils::MemoryResource *memory) : vertices(memory), edges(memory) {}
+  explicit mgp_path(allocator_type alloc) : vertices(alloc), edges(alloc) {}
 
-  mgp_path(const mgp_path &other, memgraph::utils::MemoryResource *memory)
-      : vertices(other.vertices, memory), edges(other.edges, memory) {}
+  mgp_path(const mgp_path &other, allocator_type alloc) : vertices(other.vertices, alloc), edges(other.edges, alloc) {}
 
-  mgp_path(mgp_path &&other, memgraph::utils::MemoryResource *memory)
-      : vertices(std::move(other.vertices), memory), edges(std::move(other.edges), memory) {}
+  mgp_path(mgp_path &&other, allocator_type alloc)
+      : vertices(std::move(other.vertices), alloc), edges(std::move(other.edges), alloc) {}
 
   mgp_path(mgp_path &&other) noexcept : vertices(std::move(other.vertices)), edges(std::move(other.edges)) {}
 
@@ -546,21 +821,58 @@ struct mgp_path {
 
   ~mgp_path() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept {
-    return vertices.get_allocator().GetMemoryResource();
-  }
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return vertices.get_allocator().resource(); }
 
   memgraph::utils::pmr::vector<mgp_vertex> vertices;
   memgraph::utils::pmr::vector<mgp_edge> edges;
 };
 
 struct mgp_graph {
-  std::variant<memgraph::query::DbAccessor *, memgraph::query::SubgraphDbAccessor *> impl;
+  std::variant<memgraph::query::DbAccessor *, memgraph::query::SubgraphDbAccessor *,
+               memgraph::query::VirtualGraphDbAccessor *>
+      impl;
   memgraph::storage::View view;
   // TODO: Merge `mgp_graph` and `mgp_memory` into a single `mgp_context`. The
   // `ctx` field is out of place here.
   memgraph::query::ExecutionContext *ctx;
   memgraph::storage::StorageMode storage_mode;
+
+  /// Null for the graph handed to a procedure that declared it needs none.
+  [[nodiscard]] memgraph::query::DbAccessor *TryGetImpl() const {
+    return std::visit(
+        memgraph::utils::Overloaded{[](memgraph::query::DbAccessor *impl) { return impl; },
+                                    [](memgraph::query::SubgraphDbAccessor *impl) { return impl->GetAccessor(); },
+                                    [](memgraph::query::VirtualGraphDbAccessor *impl) { return impl->GetAccessor(); }},
+        this->impl);
+  }
+
+  /// The variant itself, once there is known to be an accessor behind it. Reading `impl` directly skips
+  /// that check, and most of the C API reads it directly to tell the three accessor kinds apart.
+  [[nodiscard]] auto const &CheckedImpl() const {
+    RequireGraph();
+    return impl;
+  }
+
+  [[nodiscard]] memgraph::query::DbAccessor *getImpl() const {
+    RequireGraph();
+    return TryGetImpl();
+  }
+
+  void RequireGraph() const {
+    if (TryGetImpl() == nullptr) [[unlikely]] {
+      throw std::logic_error{"Procedure reached for the graph, but it declared that it needs none."};
+    }
+  }
+
+  /// A stand-in for the graph a procedure declared it does not need, so that one can run with no storage
+  /// transaction open. It is a workaround, not the shape this should have: a procedure needing no graph
+  /// should not be handed one at all, which means changing what its callback is passed and so breaking
+  /// the module ABI. Until that happens the argument is present but empty, and reaching through it
+  /// reports a logic error rather than reading through nothing.
+  static mgp_graph GraphlessGraph(memgraph::storage::View view, memgraph::query::ExecutionContext &ctx,
+                                  memgraph::storage::StorageMode storage_mode) {
+    return mgp_graph{static_cast<memgraph::query::DbAccessor *>(nullptr), view, &ctx, storage_mode};
+  }
 
   static mgp_graph WritableGraph(memgraph::query::DbAccessor &acc, memgraph::storage::View view,
                                  memgraph::query::ExecutionContext &ctx) {
@@ -581,25 +893,24 @@ struct mgp_graph {
   }
 };
 
+struct ResultsMetadata {
+  const memgraph::query::procedure::CypherType *type;
+  bool is_deprecated;
+  uint32_t field_id;
+};
+
 struct mgp_result_record {
-  /// Result record signature as defined for mgp_proc.
-  const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                                  std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string, memgraph::query::TypedValue> values;
+  const memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> *signature;
+  memgraph::utils::pmr::vector<memgraph::query::TypedValue> values;
   bool ignore_deleted_values = false;
   bool has_deleted_values = false;
 };
 
 struct mgp_result {
-  explicit mgp_result(
-      const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                                      std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature,
-      memgraph::utils::MemoryResource *mem)
-      : signature(signature), rows(mem) {}
+  explicit mgp_result(memgraph::utils::MemoryResource *mem) : signature(mem), rows(mem) {}
 
-  /// Result record signature as defined for mgp_proc.
-  const memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                                  std::pair<const memgraph::query::procedure::CypherType *, bool>> *signature;
+  /// Store all needed metadata so everything is searchable using one find
+  memgraph::utils::pmr::map<memgraph::utils::pmr::string, ResultsMetadata> signature;
   memgraph::utils::pmr::vector<mgp_result_record> rows;
   std::optional<memgraph::utils::pmr::string> error_msg;
   bool is_transactional = true;
@@ -607,6 +918,7 @@ struct mgp_result {
 
 struct mgp_func_result {
   mgp_func_result() {}
+
   /// Return Magic function result. If user forgets it, the error is raised
   std::optional<memgraph::query::TypedValue> value;
   /// Return Magic function result with potential error
@@ -625,7 +937,7 @@ struct mgp_properties_iterator {
   // Define members at the start because we use decltype a lot here, so members
   // need to be visible in method definitions.
 
-  memgraph::utils::MemoryResource *memory;
+  allocator_type alloc;
   mgp_graph *graph;
   std::remove_reference_t<decltype(*std::declval<memgraph::query::VertexAccessor>().Properties(graph->view))> pvs;
   decltype(pvs.begin()) current_it;
@@ -633,25 +945,26 @@ struct mgp_properties_iterator {
   mgp_property property{nullptr, nullptr};
 
   // Construct with no properties.
-  explicit mgp_properties_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory)
-      : memory(memory), graph(graph), current_it(pvs.begin()) {}
+  explicit mgp_properties_iterator(mgp_graph *graph, allocator_type alloc)
+      : alloc(alloc), graph(graph), current_it(pvs.begin()) {}
 
   // May throw who the #$@! knows what because PropertyValueStore doesn't
   // document what it throws, and it may surely throw some piece of !@#$
   // exception because it's built on top of STL and other libraries.
-  mgp_properties_iterator(mgp_graph *graph, decltype(pvs) pvs, memgraph::utils::MemoryResource *memory)
-      : memory(memory), graph(graph), pvs(std::move(pvs)), current_it(this->pvs.begin()) {
-    if (current_it != this->pvs.end()) {
-      auto value = std::visit(
-          [this, memory](const auto *impl) {
-            return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), memory);
-          },
-          graph->impl);
+  mgp_properties_iterator(mgp_graph *graph, decltype(pvs) pvs, allocator_type alloc)
+      : alloc(alloc), graph(graph), pvs(std::move(pvs)), current_it(this->pvs.begin()) {
+    PopulateCurrent();
+  }
 
-      current.emplace(value, mgp_value(current_it->second, memory));
-      property.name = current->first.c_str();
-      property.value = &current->second;
-    }
+  // Populate pvs directly from a range of (PropertyId, PropertyValue) pairs
+  mgp_properties_iterator(
+      mgp_graph *graph,
+      const memgraph::utils::pmr::unordered_map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> &src,
+      allocator_type alloc)
+      : alloc(alloc), graph(graph) {
+    pvs.insert(src.begin(), src.end());
+    current_it = pvs.begin();
+    PopulateCurrent();
   }
 
   mgp_properties_iterator(const mgp_properties_iterator &) = delete;
@@ -662,61 +975,96 @@ struct mgp_properties_iterator {
 
   ~mgp_properties_iterator() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const { return memory; }
+  memgraph::utils::MemoryResource *GetMemoryResource() const { return alloc.resource(); }
+
+ private:
+  void PopulateCurrent() {
+    if (current_it != pvs.end()) {
+      auto value = std::visit(
+          [this](const auto *impl) {
+            return memgraph::utils::pmr::string(impl->PropertyToName(current_it->first), alloc);
+          },
+          graph->CheckedImpl());
+
+      current.emplace(value,
+                      mgp_value(current_it->second, graph->getImpl()->GetStorageAccessor()->GetNameIdMapper(), alloc));
+      property.name = current->first.c_str();
+      property.value = &current->second;
+    }
+  }
 };
 
 struct mgp_edges_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_edges_iterator>;
 
-  mgp_edges_iterator(const mgp_vertex &v, memgraph::utils::MemoryResource *memory)
-      : memory(memory), source_vertex(v, memory) {}
+  // single-valued cursor; chosen once at iterator setup based on whether the source vertex is real or virtual.
+  // monostate is the default; real construction assigns one of the two live arms.
+  struct RealCursor {
+    std::vector<memgraph::query::EdgeAccessor> edges;
+    std::vector<memgraph::query::EdgeAccessor>::iterator it;
+    bool for_in{false};  // enterprise NextPermittedEdge needs to know the direction
 
-  // NOLINTNEXTLINE(hicpp-noexcept-move, performance-noexcept-move-constructor)
-  mgp_edges_iterator(mgp_edges_iterator &&other)
-      : memory(other.memory),
-        source_vertex(std::move(other.source_vertex)),
-        in(std::move(other.in)),
-        in_it(std::move(other.in_it)),
-        out(std::move(other.out)),
-        out_it(std::move(other.out_it)),
-        current_e(std::move(other.current_e)) {}
+    RealCursor(std::vector<memgraph::query::EdgeAccessor> edges, bool for_in)
+        : edges(std::move(edges)), it(this->edges.begin()), for_in(for_in) {}
+  };
 
+  struct VirtualCursor {
+    std::span<const memgraph::query::VirtualEdge *const> edges;
+    std::span<const memgraph::query::VirtualEdge *const>::iterator it;
+
+    explicit VirtualCursor(std::span<const memgraph::query::VirtualEdge *const> edges)
+        : edges(edges), it(this->edges.begin()) {}
+  };
+
+  using Cursor = std::variant<std::monostate, RealCursor, VirtualCursor>;
+
+  mgp_edges_iterator(const mgp_vertex &v, allocator_type alloc) : alloc(alloc), source_vertex(v, alloc) {}
+
+  mgp_edges_iterator(mgp_edges_iterator &&) = default;
   mgp_edges_iterator(const mgp_edges_iterator &) = delete;
   mgp_edges_iterator &operator=(const mgp_edges_iterator &) = delete;
   mgp_edges_iterator &operator=(mgp_edges_iterator &&) = delete;
 
   ~mgp_edges_iterator() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const { return memory; }
+  memgraph::utils::MemoryResource *GetMemoryResource() const { return alloc.resource(); }
 
-  memgraph::utils::MemoryResource *memory;
+  allocator_type alloc;
   mgp_vertex source_vertex;
-
-  std::optional<std::remove_reference_t<decltype(std::get<memgraph::query::VertexAccessor>(source_vertex.impl)
-                                                     .InEdges(source_vertex.graph->view)
-                                                     ->edges)>>
-      in;
-  std::optional<decltype(in->begin())> in_it;
-  std::optional<std::remove_reference_t<decltype(std::get<memgraph::query::VertexAccessor>(source_vertex.impl)
-                                                     .OutEdges(source_vertex.graph->view)
-                                                     ->edges)>>
-      out;
-  std::optional<decltype(out->begin())> out_it;
+  Cursor cursor;
   std::optional<mgp_edge> current_e;
 };
 
 struct mgp_vertices_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_vertices_iterator>;
+  using virtual_node_map_t =
+      memgraph::utils::pmr::unordered_map<memgraph::storage::Gid, std::shared_ptr<const memgraph::query::VirtualNode>>;
+
+  // single-valued cursor; chosen once at ctor based on graph->CheckedImpl()'s variant arm.
+  // monostate is the default; the ctor assigns one of the two live arms.
+  struct RealCursor {
+    memgraph::query::VerticesIterable vertices;
+    memgraph::query::VerticesIterable::Iterator it;
+
+    explicit RealCursor(memgraph::query::VerticesIterable vertices)
+        : vertices(std::move(vertices)), it(this->vertices.begin()) {}
+  };
+
+  struct VirtualCursor {
+    virtual_node_map_t::const_iterator it;
+    virtual_node_map_t::const_iterator end;
+  };
+
+  using Cursor = std::variant<std::monostate, RealCursor, VirtualCursor>;
 
   /// @throw anything VerticesIterable may throw
-  mgp_vertices_iterator(mgp_graph *graph, memgraph::utils::MemoryResource *memory);
+  mgp_vertices_iterator(mgp_graph *graph, allocator_type alloc);
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const { return memory; }
+  memgraph::utils::MemoryResource *GetMemoryResource() const { return alloc.resource(); }
 
-  memgraph::utils::MemoryResource *memory;
+  allocator_type alloc;
   mgp_graph *graph;
-  memgraph::query::VerticesIterable vertices;
-  decltype(vertices.begin()) current_it;
+  Cursor cursor;
   std::optional<mgp_vertex> current_v;
 };
 
@@ -725,78 +1073,79 @@ struct mgp_type {
 };
 
 struct ProcedureInfo {
-  bool is_write{false};
+  memgraph::query::GraphAccess graph_access{memgraph::query::GraphAccess::Read};
   bool is_batched{false};
   std::optional<memgraph::query::AuthQuery::Privilege> required_privilege = std::nullopt;
 };
 
 struct mgp_proc {
   using allocator_type = memgraph::utils::Allocator<mgp_proc>;
+  using string_t = memgraph::utils::pmr::string;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_proc(const char *name, mgp_proc_cb cb, memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
+  mgp_proc(const char *name, mgp_proc_cb cb, allocator_type alloc, const ProcedureInfo &info = {})
+      : name(name, alloc), cb(cb), args(alloc), opt_args(alloc), results(alloc), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const char *name, mgp_proc_cb cb, mgp_proc_initializer initializer, mgp_proc_cleanup cleanup,
-           memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
-      : name(name, memory),
+           allocator_type alloc, const ProcedureInfo &info = {})
+      : name(name, alloc),
         cb(cb),
         initializer(initializer),
         cleanup(cleanup),
-        args(memory),
-        opt_args(memory),
-        results(memory),
+        args(alloc),
+        opt_args(alloc),
+        results(alloc),
         info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
            std::function<void(mgp_list *, mgp_graph *, mgp_memory *)> initializer, std::function<void()> cleanup,
-           memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
-      : name(name, memory),
+           allocator_type alloc, const ProcedureInfo &info = {})
+      : name(name, alloc),
         cb(cb),
         initializer(initializer),
         cleanup(cleanup),
-        args(memory),
-        opt_args(memory),
-        results(memory),
+        args(alloc),
+        opt_args(alloc),
+        results(alloc),
         info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const char *name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
-           memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
+           allocator_type alloc, const ProcedureInfo &info = {})
+      : name(name, alloc), cb(cb), args(alloc), opt_args(alloc), results(alloc), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_proc(const std::string_view name, std::function<void(mgp_list *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
-           memgraph::utils::MemoryResource *memory, const ProcedureInfo &info = {})
-      : name(name, memory), cb(cb), args(memory), opt_args(memory), results(memory), info(info) {}
+           allocator_type alloc, const ProcedureInfo &info = {})
+      : name(name, alloc), cb(cb), args(alloc), opt_args(alloc), results(alloc), info(info) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_proc(const mgp_proc &other, memgraph::utils::MemoryResource *memory)
-      : name(other.name, memory),
+  mgp_proc(const mgp_proc &other, allocator_type alloc)
+      : name(other.name, alloc),
         cb(other.cb),
         initializer(other.initializer),
         cleanup(other.cleanup),
-        args(other.args, memory),
-        opt_args(other.opt_args, memory),
-        results(other.results, memory),
+        args(other.args, alloc),
+        opt_args(other.opt_args, alloc),
+        results(other.results, alloc),
         info(other.info) {}
 
-  mgp_proc(mgp_proc &&other, memgraph::utils::MemoryResource *memory)
-      : name(std::move(other.name), memory),
+  mgp_proc(mgp_proc &&other, allocator_type alloc)
+      : name(std::move(other.name), alloc),
         cb(std::move(other.cb)),
         initializer(other.initializer),
         cleanup(other.cleanup),
-        args(std::move(other.args), memory),
-        opt_args(std::move(other.opt_args), memory),
-        results(std::move(other.results), memory),
+        args(std::move(other.args), alloc),
+        opt_args(std::move(other.opt_args), alloc),
+        results(std::move(other.results), alloc),
         info(other.info) {}
 
   mgp_proc(const mgp_proc &other) = default;
@@ -819,40 +1168,37 @@ struct mgp_proc {
   std::optional<std::function<void()>> cleanup;
 
   /// Required, positional arguments as a (name, type) pair.
-  memgraph::utils::pmr::vector<std::pair<memgraph::utils::pmr::string, const memgraph::query::procedure::CypherType *>>
-      args;
+  memgraph::utils::pmr::vector<std::pair<string_t, const memgraph::query::procedure::CypherType *>> args;
   /// Optional positional arguments as a (name, type, default_value) tuple.
-  memgraph::utils::pmr::vector<std::tuple<memgraph::utils::pmr::string, const memgraph::query::procedure::CypherType *,
-                                          memgraph::query::TypedValue>>
+  memgraph::utils::pmr::vector<
+      std::tuple<string_t, const memgraph::query::procedure::CypherType *, memgraph::query::TypedValue>>
       opt_args;
   /// Fields this procedure returns, as a (name -> (type, is_deprecated)) map.
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                            std::pair<const memgraph::query::procedure::CypherType *, bool>>
-      results;
+  memgraph::utils::pmr::map<string_t, std::pair<const memgraph::query::procedure::CypherType *, bool>> results;
   ProcedureInfo info;
 };
 
 struct mgp_trans {
   using allocator_type = memgraph::utils::Allocator<mgp_trans>;
+  using string_t = memgraph::utils::pmr::string;
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const char *name, mgp_trans_cb cb, memgraph::utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), results(memory) {}
+  mgp_trans(const char *name, mgp_trans_cb cb, allocator_type alloc) : name(name, alloc), cb(cb), results(alloc) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_trans(const char *name, std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb,
-            memgraph::utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), results(memory) {}
+            allocator_type alloc)
+      : name(name, alloc), cb(cb), results(alloc) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_trans(const mgp_trans &other, memgraph::utils::MemoryResource *memory)
-      : name(other.name, memory), cb(other.cb), results(other.results) {}
+  mgp_trans(const mgp_trans &other, allocator_type alloc)
+      : name(other.name, alloc), cb(other.cb), results(other.results) {}
 
-  mgp_trans(mgp_trans &&other, memgraph::utils::MemoryResource *memory)
-      : name(std::move(other.name), memory), cb(std::move(other.cb)), results(std::move(other.results)) {}
+  mgp_trans(mgp_trans &&other, allocator_type alloc)
+      : name(std::move(other.name), alloc), cb(std::move(other.cb)), results(std::move(other.results)) {}
 
   mgp_trans(const mgp_trans &other) = default;
   mgp_trans(mgp_trans &&other) = default;
@@ -867,9 +1213,7 @@ struct mgp_trans {
   /// Entry-point for the transformation.
   std::function<void(mgp_messages *, mgp_graph *, mgp_result *, mgp_memory *)> cb;
   /// Fields this transformation returns.
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string,
-                            std::pair<const memgraph::query::procedure::CypherType *, bool>>
-      results;
+  memgraph::utils::pmr::map<string_t, std::pair<const memgraph::query::procedure::CypherType *, bool>> results;
 };
 
 struct mgp_func {
@@ -877,25 +1221,25 @@ struct mgp_func {
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_func(const char *name, mgp_func_cb cb, memgraph::utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), args(memory), opt_args(memory) {}
+  mgp_func(const char *name, mgp_func_cb cb, allocator_type alloc)
+      : name(name, alloc), cb(cb), args(alloc), opt_args(alloc) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
   mgp_func(const char *name, std::function<void(mgp_list *, mgp_func_context *, mgp_func_result *, mgp_memory *)> cb,
-           memgraph::utils::MemoryResource *memory)
-      : name(name, memory), cb(cb), args(memory), opt_args(memory) {}
+           allocator_type alloc)
+      : name(name, alloc), cb(cb), args(alloc), opt_args(alloc) {}
 
   /// @throw std::bad_alloc
   /// @throw std::length_error
-  mgp_func(const mgp_func &other, memgraph::utils::MemoryResource *memory)
-      : name(other.name, memory), cb(other.cb), args(other.args, memory), opt_args(other.opt_args, memory) {}
+  mgp_func(const mgp_func &other, allocator_type alloc)
+      : name(other.name, alloc), cb(other.cb), args(other.args, alloc), opt_args(other.opt_args, alloc) {}
 
-  mgp_func(mgp_func &&other, memgraph::utils::MemoryResource *memory)
-      : name(std::move(other.name), memory),
+  mgp_func(mgp_func &&other, allocator_type alloc)
+      : name(std::move(other.name), alloc),
         cb(std::move(other.cb)),
-        args(std::move(other.args), memory),
-        opt_args(std::move(other.opt_args), memory) {}
+        args(std::move(other.args), alloc),
+        opt_args(std::move(other.opt_args), alloc) {}
 
   mgp_func(const mgp_func &other) = default;
   mgp_func(mgp_func &&other) = default;
@@ -923,18 +1267,17 @@ mgp_error MgpTransAddFixedResult(mgp_trans *trans) noexcept;
 struct mgp_module {
   using allocator_type = memgraph::utils::Allocator<mgp_module>;
 
-  explicit mgp_module(memgraph::utils::MemoryResource *memory)
-      : procedures(memory), transformations(memory), functions(memory) {}
+  explicit mgp_module(allocator_type alloc) : procedures(alloc), transformations(alloc), functions(alloc) {}
 
-  mgp_module(const mgp_module &other, memgraph::utils::MemoryResource *memory)
-      : procedures(other.procedures, memory),
-        transformations(other.transformations, memory),
-        functions(other.functions, memory) {}
+  mgp_module(const mgp_module &other, allocator_type alloc)
+      : procedures(other.procedures, alloc),
+        transformations(other.transformations, alloc),
+        functions(other.functions, alloc) {}
 
-  mgp_module(mgp_module &&other, memgraph::utils::MemoryResource *memory)
-      : procedures(std::move(other.procedures), memory),
-        transformations(std::move(other.transformations), memory),
-        functions(std::move(other.functions), memory) {}
+  mgp_module(mgp_module &&other, allocator_type alloc)
+      : procedures(std::move(other.procedures), alloc),
+        transformations(std::move(other.transformations), alloc),
+        functions(std::move(other.functions), alloc) {}
 
   mgp_module(const mgp_module &) = default;
   mgp_module(mgp_module &&) = default;
@@ -967,6 +1310,7 @@ bool IsValidIdentifierName(const char *name);
 
 struct mgp_message {
   explicit mgp_message(const memgraph::integrations::kafka::Message &message) : msg{&message} {}
+
   explicit mgp_message(const memgraph::integrations::pulsar::Message &message) : msg{message} {}
 
   using KafkaMessage = const memgraph::integrations::kafka::Message *;
@@ -977,6 +1321,7 @@ struct mgp_message {
 struct mgp_messages {
   using allocator_type = memgraph::utils::Allocator<mgp_messages>;
   using storage_type = memgraph::utils::pmr::vector<mgp_message>;
+
   explicit mgp_messages(storage_type &&storage) : messages(std::move(storage)) {}
 
   mgp_messages(const mgp_messages &) = delete;
@@ -992,4 +1337,34 @@ struct mgp_messages {
 
 bool ContainsDeleted(const mgp_value *val);
 
-memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::MemoryResource *memory);
+memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::Allocator<mgp_value> alloc);
+
+struct mgp_execution_headers {
+  using allocator_type = memgraph::utils::Allocator<mgp_execution_headers>;
+  using storage_type = memgraph::utils::pmr::vector<memgraph::utils::pmr::string>;
+  explicit mgp_execution_headers(storage_type &&storage);
+
+  ~mgp_execution_headers() = default;
+
+  storage_type headers;
+};
+
+struct mgp_execution_rows {
+  explicit mgp_execution_rows(
+      memgraph::utils::pmr::vector<memgraph::utils::pmr::vector<memgraph::query::TypedValue>> &&tv_rows);
+  ~mgp_execution_rows() = default;
+
+  memgraph::utils::pmr::vector<memgraph::utils::pmr::vector<memgraph::query::TypedValue>> rows;
+};
+
+struct mgp_execution_result {
+  using allocator_type = memgraph::utils::Allocator<mgp_execution_result>;
+  explicit mgp_execution_result(mgp_graph *graph, allocator_type alloc);
+  ~mgp_execution_result();
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
+
+  struct pImplMgpExecutionResult;
+  std::unique_ptr<pImplMgpExecutionResult> pImpl;
+  allocator_type alloc;
+};

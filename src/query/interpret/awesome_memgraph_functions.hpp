@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,22 +12,29 @@
 #pragma once
 
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
+#include <variant>
+#include <vector>
 
+#include "query/procedure/module_fwd.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/memory.hpp"
 
 namespace memgraph::query {
 
 class DbAccessor;
+class FineGrainedAuthChecker;
 class TypedValue;
+struct QueryUserOrRole;
 
 namespace {
 const char kStartsWith[] = "STARTSWITH";
 const char kEndsWith[] = "ENDSWITH";
 const char kContains[] = "CONTAINS";
 const char kId[] = "ID";
+const char kElementId[] = "ELEMENTID";
 }  // namespace
 
 struct FunctionContext {
@@ -36,7 +43,29 @@ struct FunctionContext {
   int64_t timestamp;
   std::unordered_map<std::string, int64_t> *counters;
   storage::View view;
+  int64_t hops_counter{0};
+  const QueryUserOrRole *user_or_role{nullptr};
+  const QueryUserOrRole *triggering_user{nullptr};
+  FineGrainedAuthChecker const *auth_checker{nullptr};
 };
+
+using func_impl =
+    std::function<TypedValue(const TypedValue *arguments, int64_t num_arguments, const FunctionContext &context)>;
+
+struct func_info {
+  func_impl func_;
+  bool is_pure_;  // if true we can cache the result becasue result wouldn't change on 2nd evaluation
+};
+
+using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
+
+struct ResolvedUserFunctions {
+  std::vector<user_func> functions;
+};
+
+auto ResolveUserFunctions(const std::vector<std::string> &names) -> std::shared_ptr<ResolvedUserFunctions>;
+
+auto ResolveUserFunction(const std::string &name) -> user_func;
 
 /// Return the function implementation with the given name.
 ///
@@ -44,7 +73,24 @@ struct FunctionContext {
 /// having an array stored anywhere the caller likes, as long as it is
 /// contiguous in memory. Since most functions don't take many arguments, it's
 /// convenient to have them stored in the calling stack frame.
-std::function<TypedValue(const TypedValue *arguments, int64_t num_arguments, const FunctionContext &context)>
-NameToFunction(const std::string &function_name);
+///
+/// Error, will return std::monostate if function can not be found
+auto NameToFunction(const std::string &function_name) -> std::variant<std::monostate, func_impl, user_func>;
+
+/// Check if a function is pure (i.e., deterministic with no side effects).
+///
+/// A pure function can be safely cached because the result won't change on
+/// subsequent evaluations with the same arguments.
+///
+/// Note: Currently, user-provided functions are considered not pure. This may
+/// change in the future when a mechanism for marking user-provided functions
+/// as pure is implemented.
+///
+/// @param function_name The name of the function to check
+/// @return true if the function is a pure builtin function, false otherwise
+bool IsFunctionPure(std::string_view function_name);
+
+// Returns the current hops counter if set, otherwise null.
+TypedValue GetHopsCounter(const TypedValue *args, int64_t nargs, const FunctionContext &ctx);
 
 }  // namespace memgraph::query

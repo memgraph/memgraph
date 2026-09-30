@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,9 +10,14 @@
 // licenses/APL.txt.
 
 #include <rocksdb/db.h>
+#include <rocksdb/iterator.h>
 #include <rocksdb/options.h>
+#include <rocksdb/slice.h>
+#include <rocksdb/status.h>
+#include <rocksdb/write_batch.h>
 
 #include "kvstore/kvstore.hpp"
+#include "kvstore/rocksdb_options.hpp"
 #include "utils/file.hpp"
 
 namespace memgraph::kvstore {
@@ -24,24 +29,23 @@ struct KVStore::impl {
 };
 
 KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>()) {
-  pimpl_->storage = storage;
+  pimpl_->storage = std::move(storage);
   if (!utils::EnsureDir(pimpl_->storage))
     throw KVStoreError("Folder for the key-value store " + pimpl_->storage.string() + " couldn't be initialized!");
+  ApplyRocksDBLogConfig(pimpl_->options);
   pimpl_->options.create_if_missing = true;
   rocksdb::DB *db = nullptr;
-  auto s = rocksdb::DB::Open(pimpl_->options, storage.c_str(), &db);
+  auto s = rocksdb::DB::Open(pimpl_->options, pimpl_->storage.c_str(), &db);
   if (!s.ok())
-    throw KVStoreError("RocksDB couldn't be initialized inside " + storage.string() + " -- " +
+    throw KVStoreError("RocksDB couldn't be initialized inside " + pimpl_->storage.string() + " -- " +
                        std::string(s.ToString()));
   pimpl_->db.reset(db);
 }
 
 KVStore::~KVStore() {
-  spdlog::debug("Destroying KVStore at {}", pimpl_->storage.string());
-  const auto sync = pimpl_->db->SyncWAL();
-  if (!sync.ok()) spdlog::error("KVStore sync failed!");
-  const auto close = pimpl_->db->Close();
-  if (!close.ok()) spdlog::error("KVStore close failed!");
+  if (pimpl_ == nullptr) return;
+  (void)pimpl_->db->SyncWAL();
+  (void)pimpl_->db->Close();
 }
 
 KVStore::KVStore(KVStore &&other) { pimpl_ = std::move(other.pimpl_); }
@@ -87,12 +91,20 @@ bool KVStore::DeleteMultiple(const std::vector<std::string> &keys) {
 }
 
 bool KVStore::DeletePrefix(const std::string &prefix) {
-  std::unique_ptr<rocksdb::Iterator> iter =
-      std::unique_ptr<rocksdb::Iterator>(pimpl_->db->NewIterator(rocksdb::ReadOptions()));
+  rocksdb::WriteBatch batch;
+  std::unique_ptr<rocksdb::Iterator> iter(pimpl_->db->NewIterator(rocksdb::ReadOptions()));
   for (iter->Seek(prefix); iter->Valid() && iter->key().starts_with(prefix); iter->Next()) {
-    if (!pimpl_->db->Delete(rocksdb::WriteOptions(), iter->key()).ok()) return false;
+    batch.Delete(iter->key());
   }
-  return true;
+  auto s = pimpl_->db->Write(rocksdb::WriteOptions(), &batch);
+  return s.ok();
+}
+
+bool KVStore::SyncWal() {
+  if (!pimpl_) {
+    return true;
+  }
+  return pimpl_->db->SyncWAL().ok();
 }
 
 bool KVStore::PutAndDeleteMultiple(const std::map<std::string, std::string> &items,

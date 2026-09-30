@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,18 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/disk//edge_import_mode_cache.hpp"
+#include "storage/v2/disk/edge_import_mode_cache.hpp"
 
-#include <algorithm>
-
-#include "storage/v2/disk/label_property_index.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
-#include "storage/v2/mvcc.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
-#include "utils/algorithm.hpp"
-#include "utils/disk_utils.hpp"
 
 namespace memgraph::storage {
 
@@ -29,18 +24,18 @@ EdgeImportModeCache::EdgeImportModeCache(const Config &config)
 
 InMemoryLabelIndex::Iterable EdgeImportModeCache::Vertices(LabelId label, View view, Storage *storage,
                                                            Transaction *transaction) const {
-  auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
-  return mem_label_index->Vertices(label, vertices_.access(), view, storage, transaction);
+  auto index = in_memory_indices_.label_index_->GetActiveIndices();
+  return static_cast<InMemoryLabelIndex::ActiveIndices *>(index.get())
+      ->Vertices(label, vertices_.access(), view, storage, transaction);
 }
 
-InMemoryLabelPropertyIndex::Iterable EdgeImportModeCache::Vertices(
-    LabelId label, PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+InMemoryLabelPropertyIndex::Iterable<InMemoryLabelPropertyIndex::Entry<1>> EdgeImportModeCache::Vertices(
+    LabelId label, PropertyId property, PropertyValueRange const &range, View view, Storage *storage,
     Transaction *transaction) const {
-  auto *mem_label_property_index =
-      static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  return mem_label_property_index->Vertices(label, property, vertices_.access(), lower_bound, upper_bound, view,
-                                            storage, transaction);
+  auto index = in_memory_indices_.label_property_index_->GetActiveIndices();
+  return static_cast<InMemoryLabelPropertyIndex::ActiveIndices *>(index.get())
+      ->Vertices<InMemoryLabelPropertyIndex::Entry<1>>(
+          label, std::array{PropertyPath{property}}, std::array{range}, vertices_.access(), view, storage, transaction);
 }
 
 bool EdgeImportModeCache::CreateIndex(
@@ -48,36 +43,37 @@ bool EdgeImportModeCache::CreateIndex(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_property_index =
       static_cast<InMemoryLabelPropertyIndex *>(in_memory_indices_.label_property_index_.get());
-  bool res = mem_label_property_index->CreateIndex(label, property, vertices_.access(), parallel_exec_info);
-  if (res) {
-    scanned_label_properties_.insert({label, property});
-  }
-  return res;
+  auto updater = in_memory_indices_.MakeUpdater();
+  bool const res = mem_label_property_index->CreateIndexOnePass(
+      label, {{property}}, vertices_.access(), parallel_exec_info, updater);
+  if (!res) return false;
+  scanned_label_properties_.insert({label, property});
+  return true;
 }
 
 bool EdgeImportModeCache::CreateIndex(
     LabelId label, const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory_indices_.label_index_.get());
-  bool res = mem_label_index->CreateIndex(label, vertices_.access(), parallel_exec_info);
-  if (res) {
-    scanned_labels_.insert(label);
-  }
-  return res;
+  auto updater = in_memory_indices_.MakeUpdater();
+  const bool res = mem_label_index->CreateIndexOnePass(label, vertices_.access(), parallel_exec_info, updater);
+  if (!res) return false;
+  scanned_labels_.insert(label);
+  return true;
 }
 
 bool EdgeImportModeCache::VerticesWithLabelPropertyScanned(LabelId label, PropertyId property) const {
-  return VerticesWithLabelScanned(label) || utils::Contains(scanned_label_properties_, std::make_pair(label, property));
+  return VerticesWithLabelScanned(label) || scanned_label_properties_.contains(std::make_pair(label, property));
 }
 
 bool EdgeImportModeCache::VerticesWithLabelScanned(LabelId label) const {
-  return AllVerticesScanned() || utils::Contains(scanned_labels_, label);
+  return AllVerticesScanned() || scanned_labels_.contains(label);
 }
 
 bool EdgeImportModeCache::AllVerticesScanned() const { return scanned_all_vertices_; }
 
-utils::SkipList<Vertex>::Accessor EdgeImportModeCache::AccessToVertices() { return vertices_.access(); }
+utils::SkipListDb<Vertex>::Accessor EdgeImportModeCache::AccessToVertices() { return vertices_.access(); }
 
-utils::SkipList<Edge>::Accessor EdgeImportModeCache::AccessToEdges() { return edges_.access(); }
+utils::SkipListDb<Edge>::Accessor EdgeImportModeCache::AccessToEdges() { return edges_.access(); }
 
 void EdgeImportModeCache::SetScannedAllVertices() { scanned_all_vertices_ = true; }
 

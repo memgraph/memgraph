@@ -1,0 +1,8 @@
+query: >
+    MATCH (a {id: 1})-[r1]->(b {id: 2})
+    MATCH (c {id: 3})-[r2]->(d {id: 4})
+    RETURN r1.prop AS p1, r2.prop as p2;
+
+output:
+    - p1: prop3
+      p2: prop3

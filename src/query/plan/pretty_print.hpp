@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,94 +12,121 @@
 /// @file
 #pragma once
 
-#include <iostream>
+#include <iosfwd>
 
-#include <json/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "query/plan/operator.hpp"
 
 namespace memgraph::query {
 class DbAccessor;
+struct Parameters;
 
 namespace plan {
-
 class LogicalOperator;
 
 /// Pretty print a `LogicalOperator` plan to a `std::ostream`.
 /// DbAccessor is needed for resolving label and property names.
 /// Note that `plan_root` isn't modified, but we can't take it as a const
 /// because we don't have support for visiting a const LogicalOperator.
-void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out);
+/// `parameters`, where an execution supplies them, let an operator whose shape
+/// is settled during execution name what it will do rather than what it may.
+void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out,
+                 Parameters const *parameters = nullptr);
 
-/// Overload of `PrettyPrint` which defaults the `std::ostream` to `std::cout`.
-inline void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root) {
-  PrettyPrint(dba, plan_root, &std::cout);
-}
+// Pointer overload tolerating a null accessor, for a plan that runs without one.
+void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out,
+                 Parameters const *parameters = nullptr);
 
 /// Convert a `LogicalOperator` plan to a JSON representation.
 /// DbAccessor is needed for resolving label and property names.
 nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root);
 
-class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
- public:
+struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  PlanPrinter(const DbAccessor *dba, std::ostream *out);
+  PlanPrinter(const DbAccessor *dba, std::ostream *out, Parameters const *parameters = nullptr);
 
   bool DefaultPreVisit() override;
 
-  bool PreVisit(CreateNode &) override;
-  bool PreVisit(CreateExpand &) override;
-  bool PreVisit(Delete &) override;
+  bool PreVisit(CreateNode & /*unused*/) override;
+  bool PreVisit(CreateExpand & /*unused*/) override;
+  bool PreVisit(Delete & /*unused*/) override;
 
-  bool PreVisit(SetProperty &) override;
-  bool PreVisit(SetProperties &) override;
-  bool PreVisit(SetLabels &) override;
+  bool PreVisit(SetProperty & /*unused*/) override;
+  bool PreVisit(SetProperties & /*unused*/) override;
+  bool PreVisit(SetLabels & /*unused*/) override;
 
-  bool PreVisit(RemoveProperty &) override;
-  bool PreVisit(RemoveLabels &) override;
+  bool PreVisit(RemoveProperty & /*unused*/) override;
+  bool PreVisit(RemoveLabels & /*unused*/) override;
 
-  bool PreVisit(ScanAll &) override;
-  bool PreVisit(ScanAllByLabel &) override;
-  bool PreVisit(ScanAllByLabelPropertyValue &) override;
-  bool PreVisit(ScanAllByLabelPropertyRange &) override;
-  bool PreVisit(ScanAllByLabelProperty &) override;
-  bool PreVisit(ScanAllById &) override;
+  bool PreVisit(ScanAll & /*unused*/) override;
+  bool PreVisit(ScanAllByLabel & /*unused*/) override;
+  bool PreVisit(ScanAllByLabelProperties & /*unused*/) override;
+  bool PreVisit(ScanAllById & /*unused*/) override;
+  bool PreVisit(ScanAllByEdge & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeType & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeTypeProperty & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeProperty & /*unused*/) override;
+  bool PreVisit(ScanAllByPointDistance & /*unused*/) override;
+  bool PreVisit(ScanAllByPointWithinbbox & /*unused*/) override;
+  bool PreVisit(ScanAllByEdgeId & /*unused*/) override;
+  bool PreVisit(ScanAllByVertexProperty & /*unused*/) override;
+  bool PreVisit(ScanChunk & /*unused*/) override;
+  bool PreVisit(ScanChunkByEdge & /*unused*/) override;
+  bool PreVisit(ScanParallel & /*unused*/) override;
+  bool PreVisit(ScanParallelByLabel & /*unused*/) override;
+  bool PreVisit(ScanParallelByLabelProperties & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdge & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeType & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeTypeProperty & /*unused*/) override;
+  bool PreVisit(ScanParallelByEdgeProperty & /*unused*/) override;
+  bool PreVisit(ScanParallelByVertexProperty & /*unused*/) override;
+  bool PreVisit(ParallelMerge & /*unused*/) override;
 
-  bool PreVisit(Expand &) override;
-  bool PreVisit(ExpandVariable &) override;
+  bool PreVisit(Expand & /*unused*/) override;
+  bool PreVisit(ExpandVariable & /*unused*/) override;
 
-  bool PreVisit(ConstructNamedPath &) override;
+  bool PreVisit(ConstructNamedPath & /*unused*/) override;
 
-  bool PreVisit(Filter &) override;
+  bool PreVisit(Filter & /*unused*/) override;
   bool PreVisit(EvaluatePatternFilter & /*unused*/) override;
-  bool PreVisit(EdgeUniquenessFilter &) override;
+  bool PreVisit(EdgeUniquenessFilter & /*unused*/) override;
 
-  bool PreVisit(Merge &) override;
-  bool PreVisit(Optional &) override;
-  bool PreVisit(Cartesian &) override;
-  bool PreVisit(HashJoin &) override;
+  bool PreVisit(Merge & /*unused*/) override;
+  bool PreVisit(Optional & /*unused*/) override;
+  bool PreVisit(Cartesian & /*unused*/) override;
+  bool PreVisit(HashJoin & /*unused*/) override;
 
-  bool PreVisit(EmptyResult &) override;
-  bool PreVisit(Produce &) override;
-  bool PreVisit(Accumulate &) override;
-  bool PreVisit(Aggregate &) override;
-  bool PreVisit(Skip &) override;
-  bool PreVisit(Limit &) override;
-  bool PreVisit(OrderBy &) override;
-  bool PreVisit(Distinct &) override;
-  bool PreVisit(Union &) override;
+  bool PreVisit(EmptyResult & /*unused*/) override;
+  bool PreVisit(Produce & /*unused*/) override;
+  bool PreVisit(Accumulate & /*unused*/) override;
+  bool PreVisit(Aggregate & /*unused*/) override;
+  bool PreVisit(AggregateParallel & /*unused*/) override;
+  bool PreVisit(Skip & /*unused*/) override;
+  bool PreVisit(Limit & /*unused*/) override;
+  bool PreVisit(OrderBy & /*unused*/) override;
+  bool PreVisit(OrderByParallel & /*unused*/) override;
+  bool PreVisit(Distinct & /*unused*/) override;
+  bool PreVisit(Union & /*unused*/) override;
+  bool PreVisit(RollUpApply & /*unused*/) override;
+  bool PreVisit(PeriodicCommit & /*unused*/) override;
+  bool PreVisit(PeriodicSubquery & /*unused*/) override;
+  bool PreVisit(SetNestedProperty & /*unused*/) override;
+  bool PreVisit(RemoveNestedProperty & /*unused*/) override;
 
-  bool PreVisit(Unwind &) override;
-  bool PreVisit(CallProcedure &) override;
-  bool PreVisit(LoadCsv &) override;
-  bool PreVisit(Foreach &) override;
+  bool PreVisit(Unwind & /*unused*/) override;
+  bool PreVisit(CallProcedure & /*unused*/) override;
+  bool PreVisit(LoadCsv & /*unused*/) override;
+  bool PreVisit(LoadParquet &) override;
+  bool PreVisit(LoadJsonl &) override;
+  bool PreVisit(Foreach & /*unused*/) override;
   bool PreVisit(Apply & /*unused*/) override;
   bool PreVisit(IndexedJoin & /*unused*/) override;
 
-  bool Visit(Once &) override;
+  bool Visit(Once & /*unused*/) override;
 
   /// Call fun with output stream. The stream is prefixed with amount of spaces
   /// corresponding to the current depth_.
@@ -117,124 +144,14 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   /// and printing the branch name.
   void Branch(LogicalOperator &op, const std::string &branch_name = "");
 
+  char StartSymbol() const { return is_parallel_ ? 'P' : '*'; }
+
   int64_t depth_{0};
   const DbAccessor *dba_{nullptr};
   std::ostream *out_{nullptr};
+  Parameters const *parameters_{nullptr};
+  bool is_parallel_{false};
 };
-
-namespace impl {
-
-std::string ToString(EdgeAtom::Direction dir);
-
-std::string ToString(EdgeAtom::Type type);
-
-std::string ToString(Ordering ord);
-
-nlohmann::json ToJson(Expression *expression);
-
-nlohmann::json ToJson(const utils::Bound<Expression *> &bound);
-
-nlohmann::json ToJson(const Symbol &symbol);
-
-nlohmann::json ToJson(storage::EdgeTypeId edge_type, const DbAccessor &dba);
-
-nlohmann::json ToJson(storage::LabelId label, const DbAccessor &dba);
-
-nlohmann::json ToJson(storage::PropertyId property, const DbAccessor &dba);
-
-nlohmann::json ToJson(NamedExpression *nexpr);
-
-nlohmann::json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &properties,
-                      const DbAccessor &dba);
-
-nlohmann::json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba);
-
-nlohmann::json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba);
-
-nlohmann::json ToJson(const Aggregate::Element &elem);
-
-template <class T, class... Args>
-nlohmann::json ToJson(const std::vector<T> &items, Args &&...args) {
-  nlohmann::json json;
-  for (const auto &item : items) {
-    json.emplace_back(ToJson(item, std::forward<Args>(args)...));
-  }
-  return json;
-}
-
-class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
- public:
-  explicit PlanToJsonVisitor(const DbAccessor *dba) : dba_(dba) {}
-
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
-
-  bool PreVisit(CreateNode &) override;
-  bool PreVisit(CreateExpand &) override;
-  bool PreVisit(Delete &) override;
-
-  bool PreVisit(SetProperty &) override;
-  bool PreVisit(SetProperties &) override;
-  bool PreVisit(SetLabels &) override;
-
-  bool PreVisit(RemoveProperty &) override;
-  bool PreVisit(RemoveLabels &) override;
-
-  bool PreVisit(Expand &) override;
-  bool PreVisit(ExpandVariable &) override;
-
-  bool PreVisit(ConstructNamedPath &) override;
-
-  bool PreVisit(Merge &) override;
-  bool PreVisit(Optional &) override;
-
-  bool PreVisit(Filter &) override;
-  bool PreVisit(EvaluatePatternFilter & /*op*/) override;
-  bool PreVisit(EdgeUniquenessFilter &) override;
-  bool PreVisit(Cartesian &) override;
-  bool PreVisit(Apply & /*unused*/) override;
-  bool PreVisit(HashJoin &) override;
-  bool PreVisit(IndexedJoin & /*unused*/) override;
-
-  bool PreVisit(ScanAll &) override;
-  bool PreVisit(ScanAllByLabel &) override;
-  bool PreVisit(ScanAllByLabelPropertyRange &) override;
-  bool PreVisit(ScanAllByLabelPropertyValue &) override;
-  bool PreVisit(ScanAllByLabelProperty &) override;
-  bool PreVisit(ScanAllById &) override;
-
-  bool PreVisit(EmptyResult &) override;
-  bool PreVisit(Produce &) override;
-  bool PreVisit(Accumulate &) override;
-  bool PreVisit(Aggregate &) override;
-  bool PreVisit(Skip &) override;
-  bool PreVisit(Limit &) override;
-  bool PreVisit(OrderBy &) override;
-  bool PreVisit(Distinct &) override;
-  bool PreVisit(Union &) override;
-
-  bool PreVisit(Unwind &) override;
-  bool PreVisit(Foreach &) override;
-  bool PreVisit(CallProcedure &) override;
-  bool PreVisit(LoadCsv &) override;
-
-  bool Visit(Once &) override;
-
-  nlohmann::json output() { return output_; }
-
- protected:
-  nlohmann::json output_;
-  const DbAccessor *dba_;
-
-  nlohmann::json PopOutput() {
-    nlohmann::json tmp;
-    tmp.swap(output_);
-    return tmp;
-  }
-};
-
-}  // namespace impl
 
 }  // namespace plan
 }  // namespace memgraph::query

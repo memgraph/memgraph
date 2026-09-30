@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,7 @@
 #include <unordered_set>
 #include <vector>
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 #include <spdlog/common.h>
@@ -27,6 +27,8 @@
 #include <boost/beast/core/buffers_to_string.hpp>
 #include <boost/beast/websocket.hpp>
 
+#include <nlohmann/json.hpp>
+#include "auth/exceptions.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 
@@ -41,18 +43,20 @@ inline constexpr auto kResponseMessage{"message"};
 
 struct MockAuth : public memgraph::communication::websocket::AuthenticationInterface {
   bool Authenticate(const std::string & /*username*/, const std::string & /*password*/) const override {
+    if (authentication_throws) {
+      throw memgraph::auth::AuthException("mock hash cannot be verified");
+    }
     return authentication;
   }
 
-  bool HasUserPermission(const std::string & /*username*/, memgraph::auth::Permission /*permission*/) const override {
-    return authorization;
-  }
+  bool HasWebsocketPermission() const override { return authorization; }
 
-  bool HasAnyUsers() const override { return has_any_users; }
+  bool AccessControlled() const override { return has_any_users; }
 
   bool authentication{true};
   bool authorization{true};
   bool has_any_users{true};
+  bool authentication_throws{false};
 };
 
 class MonitoringServerTest : public ::testing::Test {
@@ -65,9 +69,15 @@ class MonitoringServerTest : public ::testing::Test {
     ASSERT_NO_THROW(monitoring_server.AwaitShutdown());
   }
 
-  std::string ServerPort() const { return std::to_string(monitoring_server.GetEndpoint().port()); }
+  std::string ServerPort() const {
+    const auto ep = monitoring_server.GetEndpoint();
+    return ep ? std::to_string(ep->port()) : "";
+  }
 
-  std::string ServerAddress() const { return monitoring_server.GetEndpoint().address().to_string(); }
+  std::string ServerAddress() const {
+    const auto ep = monitoring_server.GetEndpoint();
+    return ep ? monitoring_server.GetEndpoint()->address().to_string() : "";
+  }
 
   void StartLogging(std::vector<std::pair<spdlog::level::level_enum, std::string>> messages) {
     messages_ = std::move(messages);
@@ -144,7 +154,9 @@ TEST(MonitoringServer, MonitoringWorkflow) {
   MockAuth auth;
   memgraph::communication::ServerContext context;
   memgraph::communication::websocket::Server monitoring_server({"0.0.0.0", 0}, &context, auth);
-  const auto port = monitoring_server.GetEndpoint().port();
+  const auto ep = monitoring_server.GetEndpoint();
+  ASSERT_TRUE(ep);
+  const auto port = ep->port();
 
   SCOPED_TRACE(fmt::format("Checking port number different then 0: {}", port));
   EXPECT_NE(port, 0);
@@ -165,7 +177,9 @@ TEST(MonitoringServer, Connection) {
   ASSERT_NO_THROW(monitoring_server.Start());
   {
     Client client;
-    EXPECT_NO_THROW(client.Connect("0.0.0.0", std::to_string(monitoring_server.GetEndpoint().port())));
+    const auto ep = monitoring_server.GetEndpoint();
+    ASSERT_TRUE(ep);
+    EXPECT_NO_THROW(client.Connect("0.0.0.0", std::to_string(ep->port())));
   }
 
   ASSERT_NO_THROW(monitoring_server.Shutdown());
@@ -210,7 +224,8 @@ TEST_F(MonitoringServerTest, Logging) {
   for (const auto &[message_level, message_content] : messages) {
     EXPECT_TRUE(
         received_messages.contains(fmt::format("{{\"event\": \"log\", \"level\": \"{}\", \"message\": \"{}\"}}\n",
-                                               spdlog::level::to_string_view(message_level), message_content)));
+                                               spdlog::level::to_string_view(message_level),
+                                               message_content)));
   }
 }
 
@@ -320,6 +335,30 @@ TEST_F(MonitoringServerTest, AuthenticationFails) {
 
     const auto response = client.Read();
     EXPECT_EQ(response, auth_fail);
+  }
+}
+
+TEST_F(MonitoringServerTest, AuthenticationThrows) {
+  auth.authentication_throws = true;
+
+  {
+    Client client;
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
+    EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
+
+    const auto response = client.Read();
+    EXPECT_THAT(response, ::testing::HasSubstr(R"("success":false)"));
+    EXPECT_THAT(response, ::testing::Not(::testing::HasSubstr("mock hash cannot be verified")));
+    EXPECT_THAT(response, ::testing::HasSubstr("Authentication failed!"));
+  }
+
+  // The server is still serving: the throw took down one login, not the process.
+  auth.authentication_throws = false;
+  {
+    Client client;
+    EXPECT_NO_THROW(client.Connect(ServerAddress(), ServerPort()));
+    EXPECT_NO_THROW(client.Write(R"({"username": "user", "password": "123"})"));
+    EXPECT_THAT(client.Read(), ::testing::HasSubstr(R"("success":true)"));
   }
 }
 

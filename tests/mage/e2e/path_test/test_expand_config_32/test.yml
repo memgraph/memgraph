@@ -1,0 +1,11 @@
+# A limit stops the walk early, so which start node was walked first decides which path comes back.
+# The caller's list order is what settles that -- keeping the start nodes in a hash set made the answer
+# depend on the ids the graph happened to hold.
+query: >
+  MATCH (a:Node {name: "A"}), (b:Node {name: "B"})
+  CALL path.expand_config([a, b], {relationshipFilter: 'R>', minHops: 1, maxHops: 1, limit: 1})
+  YIELD result
+  RETURN [n IN nodes(result) | n.name] AS names;
+
+output:
+  - names: ["A", "X"]

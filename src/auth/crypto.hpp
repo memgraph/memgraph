@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -8,14 +8,106 @@
 
 #pragma once
 
+#include <cstddef>
+#include <cstdint>
+#include <nlohmann/json_fwd.hpp>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
 
 namespace memgraph::auth {
-enum class PasswordEncryptionAlgorithm : uint8_t { BCRYPT, SHA256, SHA256_MULTIPLE };
+/// Need to be stable, auth durability depends on this
+enum class PasswordHashAlgorithm : uint8_t { BCRYPT = 0, SHA256 = 1, SHA256_MULTIPLE = 2, PBKDF2_SHA256 = 3 };
 
-/// @throw AuthException if unable to encrypt the password.
-std::string EncryptPassword(const std::string &password);
+struct HashSize {
+  size_t unsalted;  //!< size defined by the algorithm
+  size_t salted;    //!< size after our salt has been added
+};
 
-/// @throw AuthException if unable to verify the password.
-bool VerifyPassword(const std::string &password, const std::string &hash);
+void SetHashAlgorithm(std::string_view algo);
+
+auto CurrentHashAlgorithm() -> PasswordHashAlgorithm;
+
+/**
+ * @brief Whether `hash_algo` may be used in FIPS 140-3 approved mode.
+ *
+ * bcrypt is Blowfish and can never be approved; the sha256 variants hash as
+ * SHA256(salt ‖ password×N), which is not an approved KDF under SP 800-132.
+ */
+[[nodiscard]] auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool;
+
+#ifdef MG_ENTERPRISE
+/**
+ * @brief Enable FIPS approved-mode password policy, or exit if the configured
+ * algorithm is not approved.
+ *
+ * Call once at startup when `--fips-mode=true`, after the logger is
+ * initialised. `communication::EnableFipsMode()` covers the OpenSSL module;
+ * this covers the password hashing that never goes through EVP and would
+ * otherwise keep working unnoticed.
+ *
+ * Reads and publishes `utils::FipsStatus`.
+ */
+void EnableFipsMode();
+
+/**
+ * @brief As above, but told whether `--password-encryption-algorithm` was left
+ * at its default rather than looking it up.
+ *
+ * `true` selects the approved algorithm; `false` means the operator chose one,
+ * so a non-approved choice is an error instead of being overridden. gflags only
+ * exposes that bit through a flag-name lookup, so taking it as an argument lets
+ * tests drive both branches without depending on process-wide flag state.
+ */
+void EnableFipsMode(bool algorithm_flag_is_default);
+#endif
+
+/**
+ * @brief Return algorithm name. Needs to be stable; auth queries depend on it.
+ *
+ * @param hash_algo
+ * @return std::string_view
+ */
+auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view;
+
+/**
+ * @brief Hash size (unsalted - as given by the algo; and salted - size after our salt is added)
+ *
+ * @param hash_algo
+ * @return struct HashSize
+ */
+auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize;
+
+struct HashedPassword {
+  HashedPassword() = default;
+
+  HashedPassword(PasswordHashAlgorithm hash_algo, std::string password_hash)
+      : hash_algo{hash_algo}, password_hash{std::move(password_hash)} {}
+
+  HashedPassword(HashedPassword const &) = default;
+  HashedPassword(HashedPassword &&) = default;
+  HashedPassword &operator=(HashedPassword const &) = default;
+  HashedPassword &operator=(HashedPassword &&) = default;
+
+  friend bool operator==(HashedPassword const &, HashedPassword const &) = default;
+
+  bool VerifyPassword(const std::string &password);
+
+  bool IsSalted() const;
+
+  auto HashAlgo() const -> PasswordHashAlgorithm { return hash_algo; }
+
+  friend void to_json(nlohmann::json &j, const HashedPassword &p);
+  friend void from_json(const nlohmann::json &j, HashedPassword &p);
+
+ private:
+  PasswordHashAlgorithm hash_algo{PasswordHashAlgorithm::BCRYPT};
+  std::string password_hash{};
+};
+
+/// @throw AuthException if unable to hash the password.
+HashedPassword HashPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo = {});
+
+std::optional<HashedPassword> UserDefinedHash(std::string_view password);
 }  // namespace memgraph::auth

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include <gflags/gflags.h>
 
 #include "common.hpp"
+#include "io/network/fmt.hpp"
 #include "utils/logging.hpp"
 #include "utils/thread.hpp"
 #include "utils/timer.hpp"
@@ -39,20 +40,47 @@ int main(int argc, char **argv) {
     client->DiscardAll();
     client->Execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.id IS UNIQUE;");
     client->DiscardAll();
+    client->Execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.id IS TYPED INTEGER;");
+    client->DiscardAll();
 
-    // Sleep a bit so the constraints get replicated.
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    // Poll until all replicas have the constraints (with 5s timeout for async replicas)
     for (const auto &database_endpoint : database_endpoints) {
-      auto client = mg::e2e::replication::Connect(database_endpoint);
-      client->Execute("SHOW CONSTRAINT INFO;");
-      if (const auto data = client->FetchAll()) {
-        const auto label_name = (*data)[0][1].ValueString();
-        const auto property_name = (*data)[0][2].ValueList()[0].ValueString();
-        if (label_name != "Node" || property_name != "id") {
-          LOG_FATAL("{} does NOT have a valid constraint created.", database_endpoint);
+      std::vector<std::vector<mg::Value>> constraints;
+      const bool success = mg::e2e::replication::WaitForCondition([&database_endpoint, &constraints]() {
+        auto client = mg::e2e::replication::Connect(database_endpoint);
+        client->Execute("SHOW CONSTRAINT INFO;");
+        if (auto maybe_constraints = client->FetchAll()) {
+          constraints = std::move(*maybe_constraints);
+          return constraints.size() == 2;
         }
-      } else {
-        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint);
+        return false;
+      });
+      if (!success) {
+        LOG_FATAL("Timed out waiting for 2 constraints on {} (got {})", database_endpoint.SocketAddress(),
+                  constraints.size());
+      }
+
+      // sort by constraint type
+      std::sort(constraints.begin(), constraints.end(),
+                [](auto const &lhs, auto const &rhs) { return lhs[0].ValueString() < rhs[0].ValueString(); });
+
+      {
+        const auto constraint_type = constraints[0][0].ValueString();
+        const auto label_name = constraints[0][1].ValueString();
+        const auto property_name = constraints[0][2].ValueString();
+        const auto type = constraints[0][3].ValueString();
+        if (constraint_type != "data_type" || label_name != "Node" || property_name != "id" || type != "INTEGER") {
+          LOG_FATAL("{} does NOT have a valid type constraint created.", database_endpoint.SocketAddress());
+        }
+      }
+      {
+        const auto constraint_type = constraints[1][0].ValueString();
+        const auto label_name = constraints[1][1].ValueString();
+        const auto property_name = constraints[1][2].ValueList()[0].ValueString();
+        const auto type = constraints[1][3].ValueString();
+        if (constraint_type != "unique" || label_name != "Node" || property_name != "id" || !type.empty()) {
+          LOG_FATAL("{} does NOT have a valid unique constraint created.", database_endpoint.SocketAddress());
+        }
       }
     }
     spdlog::info("All constraints are in-place.");
@@ -126,17 +154,23 @@ int main(int argc, char **argv) {
     auto client = mg::e2e::replication::Connect(database_endpoints[0]);
     client->Execute("DROP CONSTRAINT ON (n:Node) ASSERT n.id IS UNIQUE");
     client->DiscardAll();
-    // Sleep a bit so the drop constraints get replicated.
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    client->Execute("DROP CONSTRAINT ON (n:Node) ASSERT n.id IS TYPED INTEGER;");
+    client->DiscardAll();
+    // Poll until all replicas have dropped the constraints (with 5s timeout for async replicas)
     for (const auto &database_endpoint : database_endpoints) {
-      auto client = mg::e2e::replication::Connect(database_endpoint);
-      client->Execute("SHOW CONSTRAINT INFO;");
-      if (const auto data = client->FetchAll()) {
-        if (!(*data).empty()) {
-          LOG_FATAL("{} still have some constraints.", database_endpoint);
+      size_t remaining_constraints = 0;
+      const bool success = mg::e2e::replication::WaitForCondition([&database_endpoint, &remaining_constraints]() {
+        auto client = mg::e2e::replication::Connect(database_endpoint);
+        client->Execute("SHOW CONSTRAINT INFO;");
+        if (const auto data = client->FetchAll()) {
+          remaining_constraints = data->size();
+          return data->empty();
         }
-      } else {
-        LOG_FATAL("Unable to get CONSTRAINT INFO from {}", database_endpoint);
+        return false;
+      });
+      if (!success) {
+        LOG_FATAL("{} still has some constraints ({} remaining).", database_endpoint.SocketAddress(),
+                  remaining_constraints);
       }
     }
     spdlog::info("All constraints were deleted.");

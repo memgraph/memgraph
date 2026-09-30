@@ -264,3 +264,207 @@ Feature: With
             | id |
             | 0  |
             | 1  |
+
+    Scenario: With test 17:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: "node1"})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            CREATE (m:node.name)
+            """
+        When executing query:
+            """
+            MATCH (n:node1) RETURN n;
+            """
+        Then the result should be:
+            | n        |
+            | (:node1) |
+
+    Scenario: With test 18:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: "LabelToAdd"})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            SET node:node.name
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                                  |
+            | (:LabelToAdd {name: 'LabelToAdd'}) |
+
+    Scenario: With test 19:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:labelToRemove {name: 'labelToRemove'})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            REMOVE node:node.name
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                         |
+            | ({name: 'labelToRemove'}) |
+
+    Scenario: With test 20:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: 'label1'})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            SET node:node.name:label2
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                                 |
+            | (:label1:label2 {name: 'label1'}) |
+
+    Scenario: With test 21:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: 'label1'})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            SET node:label2:node.name
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                                 |
+            | (:label2:label1 {name: 'label1'}) |
+
+    Scenario: With test 22:
+        Given an empty graph
+        And having executed:
+            """
+            WITH {value: {label: "labelvalue"}} as label
+            CREATE (n:label.value.label);
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n             |
+            | (:labelvalue) |
+
+    Scenario: With test 23:
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: "node1"})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            CREATE ()-[:node.name]->()
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->() RETURN r;
+            """
+        Then the result should be:
+            | r        |
+            | [:node1] |
+
+    Scenario: With test 24 (dynamic not ):
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({name: "node1"})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n AS node
+            CREATE ()-[:node.name]->()
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->() RETURN r;
+            """
+        Then the result should be:
+            | r        |
+            | [:node1] |
+
+    Scenario: With test 25 (dynamic node labels not being able to pass match):
+        Given an empty graph
+        When executing query:
+            """
+            WITH {value: {labelz: "labelz"}} as labelz
+            MATCH (n:labelz.value.labelz) RETURN n;
+            """
+        Then an error should be raised
+
+    Scenario: With test 26 (dynamic node labels not being able to pass merge):
+        Given an empty graph
+        When executing query:
+            """
+            WITH {value: {labelz: "labelz"}} as labelz
+            MERGE (n:labelz.value.labelz);
+            """
+        Then an error should be raised
+
+    Scenario: With test 27 (dynamic edge type not able to pass match):
+        Given an empty graph
+        When executing query:
+            """
+            WITH {value: {edge_type: "edgetypevalue"}} as edge_type
+            MATCH ()-[r:edge_type.value.edge_type]->();
+            """
+        Then an error should be raised
+
+    Scenario: With test 28 (dynamic edge type not able to pass merge):
+        Given an empty graph
+        When executing query:
+            """
+            WITH {value: {edge_type: "edgetypevalue"}} as edge_type
+            MERGE ()-[r:edge_type.value.edge_type]->();
+            """
+        Then an error should be raised
+
+    Scenario: With test 29 (WHERE after ORDER BY reads a symbol the projection did not output):
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:Person {name: 'Zoe', age: 10})
+            CREATE (:Person {name: 'Regina', age: 20})
+            CREATE (:Person {name: 'Bob', age: 30})
+            """
+        When executing query:
+            """
+            MATCH (p:Person)
+            WITH p.name AS n
+            ORDER BY n
+            WHERE p.age > 25
+            RETURN n
+            """
+        Then the result should be:
+            | n     |
+            | 'Bob' |

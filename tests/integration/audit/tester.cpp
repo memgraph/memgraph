@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,11 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 
-#include <json/json.hpp>
+#include <nlohmann/json.hpp>
 
+#include "bolt/v1/value.hpp"
 #include "communication/bolt/client.hpp"
 #include "io/network/endpoint.hpp"
 #include "io/network/utils.hpp"
@@ -27,6 +28,7 @@ DEFINE_bool(use_ssl, false, "Set to true to connect with SSL to the server.");
 DEFINE_string(query, "", "Query to execute");
 DEFINE_string(params_json, "{}", "Params for the query");
 DEFINE_string(use_db, "memgraph", "Database to run the query against");
+DEFINE_string(imp_user, "", "User to impersonate. Empty to disable");
 
 memgraph::communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
   memgraph::communication::bolt::Value ret;
@@ -57,7 +59,7 @@ memgraph::communication::bolt::Value JsonToValue(const nlohmann::json &jv) {
       break;
     }
     case nlohmann::json::value_t::object: {
-      std::map<std::string, memgraph::communication::bolt::Value> map;
+      memgraph::communication::bolt::map_t map;
       for (auto it = jv.begin(); it != jv.end(); ++it) {
         auto tmp = JsonToValue(it.key());
         MG_ASSERT(tmp.type() == memgraph::communication::bolt::Value::Type::String,
@@ -91,8 +93,10 @@ int main(int argc, char **argv) {
   memgraph::communication::bolt::Client client(context);
 
   client.Connect(endpoint, FLAGS_username, FLAGS_password);
+  memgraph::communication::bolt::map_t extra;
+  if (!FLAGS_imp_user.empty()) extra.emplace("imp_user", FLAGS_imp_user);
   client.Execute(fmt::format("USE DATABASE {}", FLAGS_use_db), {});
-  client.Execute(FLAGS_query, JsonToValue(nlohmann::json::parse(FLAGS_params_json)).ValueMap());
+  client.Execute(FLAGS_query, JsonToValue(nlohmann::json::parse(FLAGS_params_json)).ValueMap(), extra);
 
   return 0;
 }

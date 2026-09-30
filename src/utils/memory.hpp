@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,14 +15,27 @@
 
 #pragma once
 
+#include <pthread.h>
+#include <array>
+#include <atomic>
+#include <climits>
 #include <cstddef>
+#include <cstdint>
+#include <forward_list>
+#include <iostream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <new>
+#include <optional>
+#include <string>
 #include <tuple>
-#include <type_traits>
 #include <utility>
 #include <vector>
+#include <version>
+
+#include "utils/concurrency_hint.hpp"
+
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
 // version, i.e. gcc 9.x.
@@ -32,10 +45,11 @@
 #include <memory_resource>
 #endif
 
+#include "boost/container/detail/pair.hpp"
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/spin_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
 
@@ -51,42 +65,9 @@ class BadAlloc final : public std::bad_alloc {
 };
 
 /// Abstract class for writing custom memory management, i.e. allocators.
-class MemoryResource {
- public:
-  virtual ~MemoryResource() = default;
+using MemoryResource = std::pmr::memory_resource;
 
-  /// Allocate storage with a size of at least `bytes` bytes.
-  ///
-  /// `bytes` must be greater than 0, while `alignment` must be a power of 2, if
-  /// they are not, `std::bad_alloc` is thrown.
-  ///
-  /// Some concrete implementations may have stricter requirements on `bytes`
-  /// and `alignment` values.
-  ///
-  /// @throw std::bad_alloc if the requested storage and alignment combination
-  ///     cannot be obtained.
-  void *Allocate(size_t bytes, size_t alignment = alignof(std::max_align_t)) {
-    if (bytes == 0U || !IsPow2(alignment)) throw BadAlloc("Invalid allocation request");
-    return DoAllocate(bytes, alignment);
-  }
-
-  void Deallocate(void *p, size_t bytes, size_t alignment = alignof(std::max_align_t)) {
-    return DoDeallocate(p, bytes, alignment);
-  }
-
-  bool IsEqual(const MemoryResource &other) const noexcept { return DoIsEqual(other); }
-
- private:
-  virtual void *DoAllocate(size_t bytes, size_t alignment) = 0;
-  virtual void DoDeallocate(void *p, size_t bytes, size_t alignment) = 0;
-  virtual bool DoIsEqual(const MemoryResource &other) const noexcept = 0;
-};
-
-inline bool operator==(const MemoryResource &a, const MemoryResource &b) noexcept { return &a == &b || a.IsEqual(b); }
-
-inline bool operator!=(const MemoryResource &a, const MemoryResource &b) noexcept { return !(a == b); }
-
-MemoryResource *NewDeleteResource() noexcept;
+std::pmr::memory_resource *NewDeleteResource() noexcept;
 
 /// Allocator for a concrete type T using the underlying MemoryResource
 ///
@@ -105,197 +86,20 @@ MemoryResource *NewDeleteResource() noexcept;
 /// implementations of MemoryResource.
 ///
 /// Classes which have a member allocator_type typedef to this allocator will
-/// receive an instance of `this->GetMemoryResource()` upon construction if the
+/// receive an instance of `this->get_allocator()` upon construction if the
 /// outer container also uses this allocator. For concrete behaviour on how this
 /// is done refer to `std::uses_allocator` in C++ reference.
 template <class T>
-class Allocator {
- public:
-  using value_type = T;
-  using propagate_on_container_copy_assignment = std::false_type;
-  using propagate_on_container_move_assignment = std::false_type;
-  using propagate_on_container_swap = std::false_type;
+using Allocator = std::pmr::polymorphic_allocator<T>;
 
-  /// Implicit conversion from MemoryResource.
-  /// This makes working with STL containers much easier.
-  Allocator(MemoryResource *memory) : memory_(memory) {}
-
-  template <class U>
-  Allocator(const Allocator<U> &other) noexcept : memory_(other.GetMemoryResource()) {}
-
-  template <class U>
-  Allocator &operator=(const Allocator<U> &) = delete;
-
-  MemoryResource *GetMemoryResource() const { return memory_; }
-
-  T *allocate(size_t count_elements) {
-    return static_cast<T *>(memory_->Allocate(count_elements * sizeof(T), alignof(T)));
-  }
-
-  void deallocate(T *p, size_t count_elements) { memory_->Deallocate(p, count_elements * sizeof(T), alignof(T)); }
-
-  /// Return default NewDeleteResource() allocator.
-  Allocator select_on_container_copy_construction() const { return utils::NewDeleteResource(); }
-
-  template <class U, class... TArgs>
-  void construct(U *ptr, TArgs &&...args) {
-    if constexpr (std::uses_allocator_v<U, Allocator>) {
-      if constexpr (std::is_constructible_v<U, std::allocator_arg_t, MemoryResource *, TArgs...>) {
-        ::new (ptr) U(std::allocator_arg, memory_, std::forward<TArgs>(args)...);
-      } else if constexpr (std::is_constructible_v<U, TArgs..., MemoryResource *>) {
-        ::new (ptr) U(std::forward<TArgs>(args)..., memory_);
-      } else {
-        static_assert(!std::uses_allocator_v<U, Allocator>,
-                      "Class declares std::uses_allocator but has no valid "
-                      "constructor overload. Refer to 'Uses-allocator "
-                      "construction' rules in C++ reference.");
-      }
-    } else {
-      ::new (ptr) U(std::forward<TArgs>(args)...);
-    }
-  }
-
-  // Overloads for constructing a std::pair. Needed until C++20, when allocator
-  // propagation to std::pair in std::map is resolved. These are all modeled
-  // after std::pmr::polymorphic_allocator<>::construct, documentation
-  // referenced here:
-  // https://en.cppreference.com/w/cpp/memory/polymorphic_allocator/construct
-
-  template <class T1, class T2, class... Args1, class... Args2>
-  void construct(std::pair<T1, T2> *p, std::piecewise_construct_t, std::tuple<Args1...> x, std::tuple<Args2...> y) {
-    auto xprime = MakePairElementArguments<T1>(&x);
-    auto yprime = MakePairElementArguments<T2>(&y);
-    ::new (p) std::pair<T1, T2>(std::piecewise_construct, std::move(xprime), std::move(yprime));
-  }
-
-  template <class T1, class T2>
-  void construct(std::pair<T1, T2> *p) {
-    construct(p, std::piecewise_construct, std::tuple<>(), std::tuple<>());
-  }
-
-  template <class T1, class T2, class U, class V>
-  void construct(std::pair<T1, T2> *p, U &&x, V &&y) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(std::forward<U>(x)),
-              std::forward_as_tuple(std::forward<V>(y)));
-  }
-
-  template <class T1, class T2, class U, class V>
-  void construct(std::pair<T1, T2> *p, const std::pair<U, V> &xy) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(xy.first), std::forward_as_tuple(xy.second));
-  }
-
-  template <class T1, class T2, class U, class V>
-  void construct(std::pair<T1, T2> *p, std::pair<U, V> &&xy) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(std::forward<U>(xy.first)),
-              std::forward_as_tuple(std::forward<V>(xy.second)));
-  }
-
-  template <class U>
-  void destroy(U *p) {
-    p->~U();
-  }
-
-  template <class U, class... TArgs>
-  U *new_object(TArgs &&...args) {
-    U *p = static_cast<U *>(memory_->Allocate(sizeof(U), alignof(U)));
-    try {
-      construct(p, std::forward<TArgs>(args)...);
-    } catch (...) {
-      memory_->Deallocate(p, sizeof(U), alignof(U));
-      throw;
-    }
-    return p;
-  }
-
-  template <class U>
-  void delete_object(U *p) {
-    destroy(p);
-    memory_->Deallocate(p, sizeof(U), alignof(U));
-  }
-
- private:
-  MemoryResource *memory_;
-
-  template <class TElem, class... TArgs>
-  auto MakePairElementArguments(std::tuple<TArgs...> *args) {
-    if constexpr (std::uses_allocator_v<TElem, Allocator>) {
-      if constexpr (std::is_constructible_v<TElem, std::allocator_arg_t, MemoryResource *, TArgs...>) {
-        return std::tuple_cat(std::make_tuple(std::allocator_arg, memory_), std::move(*args));
-      } else if constexpr (std::is_constructible_v<TElem, TArgs..., MemoryResource *>) {
-        return std::tuple_cat(std::move(*args), std::make_tuple(memory_));
-      } else {
-        static_assert(!std::uses_allocator_v<TElem, Allocator>,
-                      "Class declares std::uses_allocator but has no valid "
-                      "constructor overload. Refer to 'Uses-allocator "
-                      "construction' rules in C++ reference.");
-      }
-    } else {
-      // Explicitly do a move as we don't want a needless copy of `*args`.
-      // Previous return statements return a temporary, so the compiler should
-      // optimize that.
-      return std::move(*args);
-    }
-  }
-};
-
-template <class T, class U>
-bool operator==(const Allocator<T> &a, const Allocator<U> &b) {
-  return *a.GetMemoryResource() == *b.GetMemoryResource();
-}
-
-template <class T, class U>
-bool operator!=(const Allocator<T> &a, const Allocator<U> &b) {
-  return !(a == b);
-}
-
-/// Wraps std::pmr::memory_resource for use with out MemoryResource
-class StdMemoryResource final : public MemoryResource {
- public:
-#if _GLIBCXX_RELEASE < 9
-  StdMemoryResource(std::experimental::pmr::memory_resource *memory) : memory_(memory) {}
-#else
-  /// Implicitly convert std::pmr::memory_resource to StdMemoryResource
-  StdMemoryResource(std::pmr::memory_resource *memory) : memory_(memory) {}
-#endif
-
- private:
-  void *DoAllocate(size_t bytes, size_t alignment) override {
-    // In the current implementation of libstdc++-8.3, standard memory_resource
-    // implementations don't check alignment overflows. Below is the copied
-    // implementation of _S_aligned_size, but we throw if it overflows.
-    // Currently, this only concerns new_delete_resource as there are no other
-    // memory_resource implementations available. This issue appears to persist
-    // in newer implementations, additionally pool_resource does no alignment of
-    // allocated pointers whatsoever.
-    size_t aligned_size = ((bytes - 1) | (alignment - 1)) + 1;
-    if (aligned_size < bytes) throw BadAlloc("Allocation alignment overflow");
-    return memory_->allocate(bytes, alignment);
-  }
-
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
-    return memory_->deallocate(p, bytes, alignment);
-  }
-
-  bool DoIsEqual(const MemoryResource &other) const noexcept override {
-    const auto *other_std = dynamic_cast<const StdMemoryResource *>(&other);
-    if (!other_std) return false;
-    return *memory_ == *other_std->memory_;
-  }
-
-#if _GLIBCXX_RELEASE < 9
-  std::experimental::pmr::memory_resource *memory_;
-#else
-  std::pmr::memory_resource *memory_;
-#endif
-};
+auto NullMemoryResource() noexcept -> MemoryResource *;
 
 inline MemoryResource *NewDeleteResource() noexcept {
 #if _GLIBCXX_RELEASE < 9
-  static StdMemoryResource memory(std::experimental::pmr::new_delete_resource());
+  return std::experimental::pmr::new_delete_resource();
 #else
-  static StdMemoryResource memory(std::pmr::new_delete_resource());
+  return std::pmr::new_delete_resource();
 #endif
-  return &memory;
 }
 
 /// MemoryResource which releases the memory only when the resource is
@@ -371,46 +175,194 @@ class MonotonicBufferResource final : public MemoryResource {
   size_t next_buffer_size_{initial_size_};
   size_t allocated_{0U};
 
-  void *DoAllocate(size_t bytes, size_t alignment) override;
+  void *do_allocate(size_t bytes, size_t alignment) override;
 
-  void DoDeallocate(void *, size_t, size_t) override {}
+  void do_deallocate(void *, size_t, size_t) override {}
 
-  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
+  bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
+};
+
+/// Thread-safe version of MonotonicBufferResource using thread-local blocks.
+///
+/// This variant uses thread-local block pointers, where each thread has its own
+/// current block. Each block contains:
+/// - A pointer to the memory (constant)
+/// - The current allocation size (non-atomic, thread-local)
+/// - The total capacity (constant)
+/// - A pointer to the next block (for cleanup)
+///
+/// Allocation works by:
+/// 1. Getting the thread-local current block
+/// 2. Allocating from it (fast, non-atomic)
+/// 3. On failure, locking and allocating new block, then setting it as thread-local
+class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
+ public:
+  /// Construct with initial buffer and size
+  explicit ThreadSafeMonotonicBufferResource(void *buffer, size_t size, MemoryResource *memory = NewDeleteResource())
+      : memory_(memory), blocks_(memory), id_(resource_id_.fetch_add(1)) {
+    // Need to align to Block alignment
+    const size_t alignment = alignof(Block);
+    void *aligned_buffer = buffer;
+    size_t available = size;
+    if (!std::align(alignment, sizeof(Block), aligned_buffer, available)) {
+      throw BadAlloc("Buffer too small for initial block");
+    }
+
+    if (aligned_buffer != buffer) {
+      throw BadAlloc("Buffer not aligned");
+    }
+
+    // Create initial block at the beginning of the buffer
+    auto *initial_block = static_cast<Block *>(aligned_buffer);
+    initial_block->capacity = available;
+    initial_block->size = 0;
+    initial_block->alignment = alignment;
+
+    // Add to global list for cleanup
+    {
+      std::lock_guard<std::mutex> lock(blocks_mutex_);
+      blocks_.emplace_front(initial_block);
+    }
+
+    // Create pthread key for thread-local storage with destructor for cleanup when threads exit
+    if (pthread_key_create(&thread_local_block_key_, nullptr) != 0) {
+      throw BadAlloc("Failed to create pthread key for thread-local storage");
+    }
+    states_.reserve(utils::GetNumWorkers());
+  }
+
+  explicit ThreadSafeMonotonicBufferResource(size_t initial_size = 1024, MemoryResource *memory = NewDeleteResource())
+      : memory_(memory), initial_buffer_size_(initial_size), blocks_(memory), id_(resource_id_.fetch_add(1)) {
+    // Create pthread key for thread-local storage with destructor for cleanup when threads exit
+    if (pthread_key_create(&thread_local_block_key_, nullptr) != 0) {
+      throw BadAlloc("Failed to create pthread key for thread-local storage");
+    }
+    states_.reserve(utils::GetNumWorkers());
+  }
+
+  /// Destructor - releases all allocated memory
+  ~ThreadSafeMonotonicBufferResource() override {
+    // Release all blocks from the global list
+    const std::lock_guard<std::mutex> lock(blocks_mutex_);
+    for (auto *block : blocks_) {
+      memory_->deallocate(block, block->total_size(), block->alignment);
+    }
+    blocks_.clear();
+
+    for (auto *state : states_) {
+      delete state;
+    }
+    states_.clear();
+
+    pthread_key_delete(thread_local_block_key_);
+  }
+
+  // Non-copyable, non-movable
+  ThreadSafeMonotonicBufferResource(const ThreadSafeMonotonicBufferResource &) = delete;
+  ThreadSafeMonotonicBufferResource &operator=(const ThreadSafeMonotonicBufferResource &) = delete;
+  ThreadSafeMonotonicBufferResource(ThreadSafeMonotonicBufferResource &&other) noexcept = delete;
+  ThreadSafeMonotonicBufferResource &operator=(ThreadSafeMonotonicBufferResource &&other) noexcept = delete;
+
+  /// Get the upstream memory resource
+  MemoryResource *GetUpstreamResource() const { return memory_; }
+
+ private:
+  /// Memory block structure - stored at the beginning of allocated memory
+  struct Block {
+    size_t size{0};    // Current allocation size (non-atomic, thread-local)
+    size_t capacity;   // Total capacity (constant)
+    size_t alignment;  // Alignment of the block (for cleanup)
+
+    Block() = default;
+
+    Block(size_t initial_size, size_t block_capacity, size_t block_alignment)
+        : size(initial_size), capacity(block_capacity), alignment(block_alignment) {}
+
+    char *begin() { return reinterpret_cast<char *>(this) + sizeof(*this); }
+
+    char *data() { return begin() + size; }
+
+    size_t total_size() const { return sizeof(*this) + capacity; }
+  };
+
+  /// Thread-local storage structure
+  struct ThreadLocalState {
+    Block *current_block{nullptr};
+    size_t current_size{0};         // Track size separately for thread-local block
+    size_t next_buffer_size{1024};  // Track next buffer size for exponential growth (thread-local)
+  };
+
+  static thread_local ThreadLocalState *thread_local_cache_;
+  static thread_local uint64_t last_resource_id_;
+  static std::atomic<uint64_t> resource_id_;
+
+  mutable std::mutex blocks_mutex_;  // For managing global block list
+  MemoryResource *memory_{NewDeleteResource()};
+  const size_t initial_buffer_size_{1024};  // Initial buffer size for new threads
+  std::vector<ThreadLocalState *> states_;
+  std::forward_list<Block *, Allocator<Block *>> blocks_;  // Global list of all blocks for cleanup
+  // TODO: Move away from pthread specific implementation
+  pthread_key_t thread_local_block_key_;  // Instance-specific pthread key
+  uint64_t id_;
+
+  // Resource methods
+  void *do_allocate(size_t bytes, size_t alignment) override;
+
+  void do_deallocate(void *, size_t, size_t) override {}
+
+  bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
+
+  // Local methods
+  ThreadLocalState &thread_local_state();
+  Block *allocate_new_block(ThreadLocalState &state, size_t min_size, size_t alignment);
+
+ public:
+  static constexpr size_t block_size = sizeof(Block);
 };
 
 namespace impl {
 
 template <class T>
+using AList = std::forward_list<T, Allocator<T>>;
+
+template <class T>
 using AVector = std::vector<T, Allocator<T>>;
 
 /// Holds a number of Chunks each serving blocks of particular size. When a
-/// Chunk runs out of available blocks, a new Chunk is allocated. The naming is
-/// taken from `libstdc++` implementation, but the implementation details are
-/// more similar to `FixedAllocator` described in "Small Object Allocation" from
-/// "Modern C++ Design".
+/// Chunk runs out of available blocks, a new Chunk is allocated.
 class Pool final {
   /// Holds a pointer into a chunk of memory which consists of equal sized
-  /// blocks. Each Chunk can handle `std::numeric_limits<unsigned char>::max()`
-  /// number of blocks. Blocks form a "free-list", where each unused block has
-  /// an embedded index to the next unused block.
+  /// blocks. Blocks form a "free-list"
   struct Chunk {
-    unsigned char *data;
-    unsigned char first_available_block_ix;
-    unsigned char blocks_available;
+    // TODO: make blocks_per_chunk a per chunk thing (ie. allow chunk growth)
+    std::byte *raw_data;
+
+    explicit Chunk(std::byte *rawData) : raw_data(rawData) {}
+
+    std::byte *build_freelist(std::size_t block_size, std::size_t blocks_in_chunk) {
+      auto current = raw_data;
+      std::byte *prev = nullptr;
+      auto end = current + (blocks_in_chunk * block_size);
+      while (current != end) {
+        std::byte **list_entry = reinterpret_cast<std::byte **>(current);
+        *list_entry = std::exchange(prev, current);
+        current += block_size;
+      }
+      DMG_ASSERT(prev != nullptr);
+      return prev;
+    }
   };
 
-  unsigned char blocks_per_chunk_;
-  size_t block_size_;
-  AVector<Chunk> chunks_;
-  Chunk *last_alloc_chunk_{nullptr};
-  Chunk *last_dealloc_chunk_{nullptr};
+  std::byte *free_list_{nullptr};
+  uint8_t blocks_per_chunk_{};
+  std::size_t block_size_{};
+
+  AList<Chunk> chunks_;  // TODO: do ourself so we can do fast Release (detect monotonic, do nothing)
 
  public:
-  static constexpr auto MaxBlocksInChunk() {
-    return std::numeric_limits<decltype(Chunk::first_available_block_ix)>::max();
-  }
+  static constexpr auto MaxBlocksInChunk = std::numeric_limits<decltype(blocks_per_chunk_)>::max();
 
-  Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *memory);
+  Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *chunk_memory);
 
   Pool(const Pool &) = delete;
   Pool &operator=(const Pool &) = delete;
@@ -420,7 +372,7 @@ class Pool final {
   /// Destructor does not free blocks, you have to call `Release` before.
   ~Pool();
 
-  MemoryResource *GetUpstreamResource() const { return chunks_.get_allocator().GetMemoryResource(); }
+  auto GetUpstreamResource() const -> std::pmr::memory_resource * { return chunks_.get_allocator().resource(); }
 
   auto GetBlockSize() const { return block_size_; }
 
@@ -430,8 +382,204 @@ class Pool final {
   void *Allocate();
 
   void Deallocate(void *p);
+};
 
-  void Release();
+class ThreadSafePool {
+  struct Node {
+    Node *next;
+  };
+
+  // We need to store more state per thread now:
+  // 1. The free list (recycled nodes)
+  // 2. The bump pointer (for fresh, untouched memory)
+  struct ThreadLocalState {
+    Node *free_list_head = nullptr;
+    char *cursor = nullptr;  // Current position in the fresh chunk
+    char *end = nullptr;     // End of the fresh chunk
+  };
+
+  static thread_local ThreadLocalState *tls_cache_;  // Updated type
+  static thread_local uint64_t last_pool_;
+  static std::atomic<uint64_t> pool_id_;
+
+  mutable std::mutex mtx_;
+
+  const std::size_t block_size_;
+  const std::size_t blocks_per_chunk_;
+  const uint64_t id_;
+  MemoryResource *chunk_memory_;
+  pthread_key_t thread_local_key_;
+
+  std::vector<ThreadLocalState *> states_;
+  AList<void *> chunks_;
+
+  size_t chunk_size() const { return blocks_per_chunk_ * block_size_; }
+
+  size_t chunk_alignment() const { return Ceil2(block_size_); }
+
+  // Returns raw memory chunk, does NOT initialize linked list
+  void *carve_block();
+
+  // Helper to get the full state struct
+  ThreadLocalState *thread_state();
+
+ public:
+  explicit ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks = 1024,
+                          MemoryResource *chunk_memory = NewDeleteResource());
+
+  ~ThreadSafePool();
+
+  ThreadSafePool(ThreadSafePool &) = delete;
+  ThreadSafePool(ThreadSafePool &&) = delete;
+  ThreadSafePool operator=(ThreadSafePool &) = delete;
+  ThreadSafePool operator=(ThreadSafePool &&) = delete;
+
+  void *Allocate();
+
+  void Deallocate(void *p) noexcept;
+};
+
+// C++ overloads for clz
+constexpr auto clz(unsigned int x) { return __builtin_clz(x); }
+
+constexpr auto clz(unsigned long x) { return __builtin_clzl(x); }
+
+constexpr auto clz(unsigned long long x) { return __builtin_clzll(x); }
+
+template <typename T>
+constexpr auto bits_sizeof = sizeof(T) * CHAR_BIT;
+
+/// 0-based bit index of the most significant bit assumed that `n` != 0
+template <typename T>
+constexpr auto msb_index(T n) {
+  return bits_sizeof<T> - clz(n) - T(1);
+}
+
+/* This function will in O(1) time provide a bin index based on:
+ * B  - the number of most significant bits to be sensitive to
+ * LB - the value that should be considered below the consideration for bin index of 0 (LB is exclusive)
+ *
+ * lets say we were:
+ * - sensitive to two bits (B == 2)
+ * - lowest bin is for 8 (LB == 8)
+ *
+ * our bin indexes would look like:
+ *   0 - 0000'1100 12
+ *   1 - 0001'0000 16
+ *   2 - 0001'1000 24
+ *   3 - 0010'0000 32
+ *   4 - 0011'0000 48
+ *   5 - 0100'0000 64
+ *   6 - 0110'0000 96
+ *   7 - 1000'0000 128
+ *   8 - 1100'0000 192
+ *   ...
+ *
+ * Example:
+ * Given n == 70, we want to return the bin index to the first value which is
+ * larger than n.
+ * bin_index<2,8>(70) => 6, as 64 (index 5) < 70 and 70 <= 96 (index 6)
+ */
+template <std::size_t B = 2, std::size_t LB = 8>
+constexpr std::size_t bin_index(std::size_t n) {
+  static_assert(B >= 1U, "Needs to be sensitive to at least one bit");
+  static_assert(LB != 0U, "Lower bound need to be non-zero");
+  DMG_ASSERT(n > LB);
+
+  // We will alway be sensitive to at least the MSB
+  // exponent tells us how many bits we need to use to select within a level
+  constexpr auto kExponent = B - 1U;
+  // 2^exponent gives the size of each level
+  constexpr auto kSize = 1U << kExponent;
+  // offset help adjust results down to be inline with bin_index(LB) == 0
+  constexpr auto kOffset = msb_index(LB);
+
+  auto const msb_idx = msb_index(n);
+  DMG_ASSERT(msb_idx != 0);
+
+  auto const mask = (1u << msb_idx) - 1u;
+  auto const under = n & mask;
+  auto const selector = under >> (msb_idx - kExponent);
+
+  auto const rest = under & (mask >> kExponent);
+  auto const no_overflow = rest == 0U;
+
+  auto const msb_level = kSize * (msb_idx - kOffset);
+  return msb_level + selector - no_overflow;
+}
+
+// This is the inverse opperation for bin_index
+// bin_size(bin_index(X)-1) < X <= bin_size(bin_index(X))
+template <std::size_t B = 2, std::size_t LB = 8>
+std::size_t bin_size(std::size_t idx) {
+  constexpr auto kExponent = B - 1U;
+  constexpr auto kSize = 1U << kExponent;
+  constexpr auto kOffset = msb_index(LB);
+
+  // no need to optimise `/` or `%` compiler can see `kSize` is a power of 2
+  auto const level = (idx + 1) / kSize;
+  auto const sub_level = (idx + 1) % kSize;
+  return (1U << (level + kOffset)) | (sub_level << (level + kOffset - kExponent));
+}
+
+template <std::size_t Bits, std::size_t LB, std::size_t UB, typename P = impl::Pool>
+struct MultiPool {
+  static_assert(LB < UB, "lower bound must be less than upper bound");
+  static_assert(IsPow2(LB) && IsPow2(UB), "Design untested for non powers of 2");
+  static_assert((LB << Bits) % sizeof(void *) == 0, "Smallest pool must have space and alignment for freelist");
+
+  // upper bound is inclusive
+  static bool is_size_handled(std::size_t size) { return LB < size && size <= UB; }
+
+  static bool is_above_upper_bound(std::size_t size) { return UB < size; }
+
+  static constexpr auto n_bins = bin_index<Bits, LB>(UB) + 1U;
+
+  MultiPool(uint8_t blocks_per_chunk, std::pmr::memory_resource *memory, std::pmr::memory_resource *internal_memory)
+      : blocks_per_chunk_{blocks_per_chunk}, memory_{memory}, internal_memory_{internal_memory} {
+    initialise_pools();
+  }
+
+  ~MultiPool() {
+    if (pools_) {
+      auto pool_alloc = Allocator<P>(internal_memory_);
+      for (auto i = 0U; i != n_bins; ++i) {
+        std::allocator_traits<Allocator<P>>::destroy(pool_alloc, &pools_[i]);
+      }
+      pool_alloc.deallocate(pools_, n_bins);
+    }
+  }
+
+  void *allocate(std::size_t bytes) {
+    auto idx = bin_index<Bits, LB>(bytes);
+    return pools_[idx].Allocate();
+  }
+
+  void deallocate(void *ptr, std::size_t bytes) {
+    auto idx = bin_index<Bits, LB>(bytes);
+    pools_[idx].Deallocate(ptr);
+  }
+
+ private:
+  void initialise_pools() {
+    auto pool_alloc = Allocator<P>(internal_memory_);
+    auto pools = pool_alloc.allocate(n_bins);
+    try {
+      for (auto i = 0U; i != n_bins; ++i) {
+        auto block_size = bin_size<Bits, LB>(i);
+        pool_alloc.construct(&pools[i], block_size, blocks_per_chunk_, memory_);
+      }
+      pools_ = pools;
+    } catch (...) {
+      pool_alloc.deallocate(pools, n_bins);
+      throw;
+    }
+  }
+
+  P *pools_{};
+  uint8_t blocks_per_chunk_{};
+  std::pmr::memory_resource *memory_{};
+  std::pmr::memory_resource *internal_memory_{};
 };
 
 }  // namespace impl
@@ -442,8 +590,6 @@ class Pool final {
 ///
 /// This class has the following properties with regards to memory management.
 ///
-///   * All allocated memory will be freed upon destruction, even if Deallocate
-///     has not been called for some of the allocated blocks.
 ///   * It consists of a collection of impl::Pool instances, each serving
 ///     requests for different block sizes. Each impl::Pool manages a collection
 ///     of impl::Pool::Chunk instances which are divided into blocks of uniform
@@ -452,137 +598,145 @@ class Pool final {
 ///     arbitrary alignment requests. Each requested block size must be a
 ///     multiple of alignment or smaller than the alignment value.
 ///   * An allocation request within the limits of the maximum block size will
-///     find a Pool serving the requested size. If there's no Pool serving such
-///     a request, a new one is instantiated.
+///     find a Pool serving the requested size. Some requests will share a larger
+///     pool size.
 ///   * When a Pool exhausts its Chunk, a new one is allocated with the size for
 ///     the maximum number of blocks.
 ///   * Allocation requests which exceed the maximum block size will be
 ///     forwarded to upstream MemoryResource.
-///   * Maximum block size and maximum number of blocks per chunk can be tuned
-///     by passing the arguments to the constructor.
-class PoolResource final : public MemoryResource {
+///   * Maximum number of blocks per chunk can be tuned by passing the
+///     arguments to the constructor.
+
+template <typename P = impl::Pool>
+class PoolResource final : public std::pmr::memory_resource {
  public:
-  /// Construct with given max_blocks_per_chunk, max_block_size and upstream
-  /// memory.
-  ///
-  /// The implementation will use std::min(max_blocks_per_chunk,
-  /// impl::Pool::MaxBlocksInChunk()) as the real maximum number of blocks per
-  /// chunk. Allocation requests exceeding max_block_size are simply forwarded
-  /// to upstream memory.
-  PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, MemoryResource *memory_pools = NewDeleteResource(),
-               MemoryResource *memory_unpooled = NewDeleteResource());
+  PoolResource(uint8_t blocks_per_chunk, std::pmr::memory_resource *memory = NewDeleteResource(),
+                std::pmr::memory_resource *internal_memory = NewDeleteResource())
+      : mini_pools_{
+            P{8, blocks_per_chunk, memory},
+            P{16, blocks_per_chunk, memory},
+            P{24, blocks_per_chunk, memory},
+            P{32, blocks_per_chunk, memory},
+            P{40, blocks_per_chunk, memory},
+            P{48, blocks_per_chunk, memory},
+            P{56, blocks_per_chunk, memory},
+            P{64, blocks_per_chunk, memory},
+        },
+        pools_3bit_(blocks_per_chunk, memory, internal_memory),
+        pools_4bit_(blocks_per_chunk, memory, internal_memory),
+        pools_5bit_(blocks_per_chunk, memory, internal_memory),
+        unpooled_memory_{internal_memory} {}
 
-  PoolResource(const PoolResource &) = delete;
-  PoolResource &operator=(const PoolResource &) = delete;
+  ~PoolResource() override = default;
 
-  PoolResource(PoolResource &&) = default;
-  PoolResource &operator=(PoolResource &&) = default;
-
-  ~PoolResource() override { Release(); }
-
-  MemoryResource *GetUpstreamResource() const { return pools_.get_allocator().GetMemoryResource(); }
-  MemoryResource *GetUpstreamResourceBlocks() const { return unpooled_.get_allocator().GetMemoryResource(); }
-
-  /// Release all allocated memory.
-  void Release();
+ protected:
+  void *do_allocate(size_t bytes, size_t alignment) override;
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override;
+  bool do_is_equal(std::pmr::memory_resource const &other) const noexcept override;
 
  private:
-  // Big block larger than max_block_size_, doesn't go into a pool.
-  struct BigBlock {
-    size_t bytes;
-    size_t alignment;
-    void *data;
-  };
-
-  // TODO: Potential memory optimization is replacing `std::vector` with our
-  // custom vector implementation which doesn't store a `MemoryResource *`.
-  // Currently we have vectors for `pools_` and `unpooled_`, as well as each
-  // `impl::Pool` stores a `chunks_` vector.
-
-  // Pools are sorted by bound_size_, ascending.
-  impl::AVector<impl::Pool> pools_;
-  impl::Pool *last_alloc_pool_{nullptr};
-  impl::Pool *last_dealloc_pool_{nullptr};
-  // Unpooled BigBlocks are sorted by data pointer.
-  impl::AVector<BigBlock> unpooled_;
-  size_t max_blocks_per_chunk_;
-  size_t max_block_size_;
-
-  void *DoAllocate(size_t bytes, size_t alignment) override;
-
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override;
-
-  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
+  std::array<P, 8> mini_pools_;
+  impl::MultiPool<3, 64, 128, P> pools_3bit_;
+  impl::MultiPool<4, 128, 512, P> pools_4bit_;
+  impl::MultiPool<5, 512, 1024, P> pools_5bit_;
+  std::pmr::memory_resource *unpooled_memory_;
 };
 
-/// Like PoolResource but uses SpinLock for thread safe usage.
-class SynchronizedPoolResource final : public MemoryResource {
+// NOTE: Used only for procedure calls (single threaded)
+class MemoryTrackingResource final : public std::pmr::memory_resource {
  public:
-  SynchronizedPoolResource(size_t max_blocks_per_chunk, size_t max_block_size,
-                           MemoryResource *memory = NewDeleteResource())
-      : pool_memory_(max_blocks_per_chunk, max_block_size, memory) {}
-
- private:
-  PoolResource pool_memory_;
-  SpinLock lock_;
-
-  void *DoAllocate(size_t bytes, size_t alignment) override {
-    std::lock_guard<SpinLock> guard(lock_);
-    return pool_memory_.Allocate(bytes, alignment);
-  }
-
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
-    std::lock_guard<SpinLock> guard(lock_);
-    pool_memory_.Deallocate(p, bytes, alignment);
-  }
-
-  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
-};
-
-class MemoryTrackingResource final : public utils::MemoryResource {
- public:
-  explicit MemoryTrackingResource(utils::MemoryResource *memory, size_t max_allocated_bytes)
+  explicit MemoryTrackingResource(std::pmr::memory_resource *memory, size_t max_allocated_bytes)
       : memory_(memory), max_allocated_bytes_(max_allocated_bytes) {}
 
   size_t GetAllocatedBytes() const noexcept { return max_allocated_bytes_ - available_bytes_; }
 
  private:
-  utils::MemoryResource *memory_;
+  std::pmr::memory_resource *memory_;
   size_t max_allocated_bytes_;
   size_t available_bytes_{max_allocated_bytes_};
 
-  void *DoAllocate(size_t bytes, size_t alignment) override {
+  void *do_allocate(size_t bytes, size_t alignment) override {
     available_bytes_ -= bytes;
-    return memory_->Allocate(bytes, alignment);
+    return memory_->allocate(bytes, alignment);
   }
 
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
     available_bytes_ += bytes;
-    return memory_->Deallocate(p, bytes, alignment);
+    return memory_->deallocate(p, bytes, alignment);
   }
 
-  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
+  bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
 };
 
 // Allocate memory with the OutOfMemoryException enabled if the requested size
 // puts total allocated amount over the limit.
 class ResourceWithOutOfMemoryException : public MemoryResource {
  public:
-  explicit ResourceWithOutOfMemoryException(utils::MemoryResource *upstream = utils::NewDeleteResource())
+  explicit ResourceWithOutOfMemoryException(std::pmr::memory_resource *upstream = utils::NewDeleteResource())
       : upstream_{upstream} {}
 
-  utils::MemoryResource *GetUpstream() noexcept { return upstream_; }
+  auto GetUpstream() noexcept -> std::pmr::memory_resource * { return upstream_; }
 
  private:
-  void *DoAllocate(size_t bytes, size_t alignment) override {
+  void *do_allocate(size_t bytes, size_t alignment) override {
     utils::MemoryTracker::OutOfMemoryExceptionEnabler exception_enabler;
-    return upstream_->Allocate(bytes, alignment);
+    return upstream_->allocate(bytes, alignment);
   }
 
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override { upstream_->Deallocate(p, bytes, alignment); }
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override { upstream_->deallocate(p, bytes, alignment); }
 
-  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override { return upstream_->IsEqual(other); }
+  bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
+    return upstream_->is_equal(other);
+  }
 
   MemoryResource *upstream_{utils::NewDeleteResource()};
 };
+
+// Memory resource that reports allocations and frees to a MemoryTracker while
+// delegating storage to an upstream resource. This is useful when we want
+// ownership-based accounting for a subsystem without changing the global
+// allocator/thread arena state.
+class TrackingMemoryResource final : public MemoryResource {
+ public:
+  explicit TrackingMemoryResource(utils::MemoryTracker *tracker = nullptr,
+                                  std::pmr::memory_resource *upstream = utils::NewDeleteResource())
+      : tracker_{tracker}, upstream_{upstream} {}
+
+ private:
+  void *do_allocate(size_t bytes, size_t alignment) override {
+    if (!tracker_) return upstream_->allocate(bytes, alignment);
+
+    const bool tracked = [this, bytes] {
+      const MemoryTracker::RefusalHandledScope refusal_handled;
+      return tracker_->Alloc(static_cast<int64_t>(bytes));
+    }();
+    if (!tracked) {
+      [[maybe_unused]] auto blocker = MemoryTracker::OutOfMemoryExceptionBlocker{};
+      if (auto msg = MemoryErrorStatus().msg()) {
+        throw OutOfMemoryException{std::move(*msg)};
+      }
+      throw std::bad_alloc{};
+    }
+
+    try {
+      return upstream_->allocate(bytes, alignment);
+    } catch (...) {
+      tracker_->Free(static_cast<int64_t>(bytes));
+      throw;
+    }
+  }
+
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
+    if (tracker_) {
+      tracker_->Free(static_cast<int64_t>(bytes));
+    }
+    upstream_->deallocate(p, bytes, alignment);
+  }
+
+  bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override { return this == &other; }
+
+  utils::MemoryTracker *tracker_{nullptr};
+  MemoryResource *upstream_{utils::NewDeleteResource()};
+};
+
 }  // namespace memgraph::utils

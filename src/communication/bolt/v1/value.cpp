@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,10 @@
 
 #include "communication/bolt/v1/value.hpp"
 
+#include "query/string_helpers.hpp"
 #include "utils/algorithm.hpp"
 #include "utils/string.hpp"
+#include "utils/temporal.hpp"
 
 namespace memgraph::communication::bolt {
 
@@ -44,7 +46,6 @@ DEF_GETTER_BY_VAL(Double, double, double_v)
 
 DEF_GETTER_BY_REF(String, std::string, string_v)
 DEF_GETTER_BY_REF(List, std::vector<Value>, list_v)
-using map_t = std::map<std::string, Value>;
 DEF_GETTER_BY_REF(Map, map_t, map_v)
 DEF_GETTER_BY_REF(Vertex, Vertex, vertex_v)
 DEF_GETTER_BY_REF(Edge, Edge, edge_v)
@@ -54,6 +55,9 @@ DEF_GETTER_BY_REF(Date, utils::Date, date_v)
 DEF_GETTER_BY_REF(LocalTime, utils::LocalTime, local_time_v)
 DEF_GETTER_BY_REF(LocalDateTime, utils::LocalDateTime, local_date_time_v)
 DEF_GETTER_BY_REF(Duration, utils::Duration, duration_v)
+DEF_GETTER_BY_REF(ZonedDateTime, utils::ZonedDateTime, zoned_date_time_v)
+DEF_GETTER_BY_REF(Point2d, Point2d, point_2d_v);
+DEF_GETTER_BY_REF(Point3d, Point3d, point_3d_v);
 
 #undef DEF_GETTER_BY_REF
 
@@ -77,7 +81,7 @@ Value::Value(const Value &other) : type_(other.type_) {
       new (&list_v) std::vector<Value>(other.list_v);
       return;
     case Type::Map:
-      new (&map_v) std::map<std::string, Value>(other.map_v);
+      new (&map_v) map_t(other.map_v);
       return;
     case Type::Vertex:
       new (&vertex_v) Vertex(other.vertex_v);
@@ -102,6 +106,15 @@ Value::Value(const Value &other) : type_(other.type_) {
       return;
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
+      return;
+    case Type::ZonedDateTime:
+      new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+      return;
+    case Type::Point2d:
+      new (&point_2d_v) Point2d(other.point_2d_v);
+      return;
+    case Type::Point3d:
+      new (&point_3d_v) Point3d(other.point_3d_v);
       return;
   }
 }
@@ -131,7 +144,7 @@ Value &Value::operator=(const Value &other) {
         new (&list_v) std::vector<Value>(other.list_v);
         return *this;
       case Type::Map:
-        new (&map_v) std::map<std::string, Value>(other.map_v);
+        new (&map_v) map_t(other.map_v);
         return *this;
       case Type::Vertex:
         new (&vertex_v) Vertex(other.vertex_v);
@@ -156,6 +169,15 @@ Value &Value::operator=(const Value &other) {
         return *this;
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
+        return *this;
+      case Type::ZonedDateTime:
+        new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+        return *this;
+      case Type::Point2d:
+        new (&point_2d_v) Point2d(other.point_2d_v);
+        return *this;
+      case Type::Point3d:
+        new (&point_3d_v) Point3d(other.point_3d_v);
         return *this;
     }
   }
@@ -182,7 +204,7 @@ Value::Value(Value &&other) noexcept : type_(other.type_) {
       new (&list_v) std::vector<Value>(std::move(other.list_v));
       break;
     case Type::Map:
-      new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
+      new (&map_v) map_t(std::move(other.map_v));
       break;
     case Type::Vertex:
       new (&vertex_v) Vertex(std::move(other.vertex_v));
@@ -207,6 +229,15 @@ Value::Value(Value &&other) noexcept : type_(other.type_) {
       break;
     case Type::Duration:
       new (&duration_v) utils::Duration(other.duration_v);
+      break;
+    case Type::ZonedDateTime:
+      new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+      break;
+    case Type::Point2d:
+      new (&point_2d_v) Point2d(other.point_2d_v);
+      break;
+    case Type::Point3d:
+      new (&point_3d_v) Point3d(other.point_3d_v);
       break;
   }
 
@@ -240,7 +271,7 @@ Value &Value::operator=(Value &&other) noexcept {
         new (&list_v) std::vector<Value>(std::move(other.list_v));
         break;
       case Type::Map:
-        new (&map_v) std::map<std::string, Value>(std::move(other.map_v));
+        new (&map_v) map_t(std::move(other.map_v));
         break;
       case Type::Vertex:
         new (&vertex_v) Vertex(std::move(other.vertex_v));
@@ -265,6 +296,15 @@ Value &Value::operator=(Value &&other) noexcept {
         break;
       case Type::Duration:
         new (&duration_v) utils::Duration(other.duration_v);
+        break;
+      case Type::ZonedDateTime:
+        new (&zoned_date_time_v) utils::ZonedDateTime(other.zoned_date_time_v);
+        break;
+      case Type::Point2d:
+        new (&point_2d_v) Point2d(other.point_2d_v);
+        break;
+      case Type::Point3d:
+        new (&point_3d_v) Point3d(other.point_3d_v);
         break;
     }
 
@@ -298,7 +338,7 @@ Value::~Value() {
       return;
     case Type::Map:
       using namespace std;
-      map_v.~map<std::string, Value>();
+      map_v.~map_t();
       return;
     case Type::Vertex:
       vertex_v.~Vertex();
@@ -324,6 +364,15 @@ Value::~Value() {
     case Type::Duration:
       duration_v.~Duration();
       return;
+    case Type::ZonedDateTime:
+      zoned_date_time_v.~ZonedDateTime();
+      return;
+    case Type::Point2d:
+      point_2d_v.~Point2d();
+      return;
+    case Type::Point3d:
+      point_3d_v.~Point3d();
+      return;
   }
 }
 
@@ -338,8 +387,9 @@ std::ostream &operator<<(std::ostream &os, const Vertex &vertex) {
   }
   if (vertex.properties.size() > 0) {
     os << "{";
-    utils::PrintIterable(os, vertex.properties, ", ",
-                         [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
+    utils::PrintIterable(os, vertex.properties, ", ", [&](auto &stream, const auto &pair) {
+      stream << pair.first << ": " << pair.second;
+    });
     os << "}";
   }
   if (!vertex.element_id.empty()) {
@@ -352,8 +402,9 @@ std::ostream &operator<<(std::ostream &os, const Edge &edge) {
   os << "[" << edge.type;
   if (edge.properties.size() > 0) {
     os << " {";
-    utils::PrintIterable(os, edge.properties, ", ",
-                         [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
+    utils::PrintIterable(os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
+      stream << pair.first << ": " << pair.second;
+    });
     os << "}";
   }
   return os << "]";
@@ -363,8 +414,9 @@ std::ostream &operator<<(std::ostream &os, const UnboundedEdge &edge) {
   os << "[" << edge.type;
   if (edge.properties.size() > 0) {
     os << " {";
-    utils::PrintIterable(os, edge.properties, ", ",
-                         [&](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
+    utils::PrintIterable(os, edge.properties, ", ", [&](auto &stream, const auto &pair) {
+      stream << pair.first << ": " << pair.second;
+    });
     os << "}";
   }
   return os << "]";
@@ -408,8 +460,9 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
       return os << "]";
     case Value::Type::Map:
       os << "{";
-      utils::PrintIterable(os, value.ValueMap(), ", ",
-                           [](auto &stream, const auto &pair) { stream << pair.first << ": " << pair.second; });
+      utils::PrintIterable(os, value.ValueMap(), ", ", [](auto &stream, const auto &pair) {
+        stream << pair.first << ": " << pair.second;
+      });
       return os << "}";
     case Value::Type::Vertex:
       return os << value.ValueVertex();
@@ -427,6 +480,12 @@ std::ostream &operator<<(std::ostream &os, const Value &value) {
       return os << value.ValueLocalDateTime();
     case Value::Type::Duration:
       return os << value.ValueDuration();
+    case Value::Type::ZonedDateTime:
+      return os << value.ValueZonedDateTime();
+    case Value::Type::Point2d:
+      return os << query::CypherConstructionFor(value.ValuePoint2d());
+    case Value::Type::Point3d:
+      return os << query::CypherConstructionFor(value.ValuePoint3d());
   }
 }
 
@@ -462,6 +521,12 @@ std::ostream &operator<<(std::ostream &os, const Value::Type type) {
       return os << "local_date_time";
     case Value::Type::Duration:
       return os << "duration";
+    case Value::Type::ZonedDateTime:
+      return os << "zoned_date_time";
+    case Value::Type::Point2d:
+      return os << "point_2d";
+    case Value::Type::Point3d:
+      return os << "point_3d";
   }
 }
 }  // namespace memgraph::communication::bolt

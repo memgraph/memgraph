@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,24 +11,43 @@
 
 #pragma once
 
-#include <utility>
+#include <cstdint>
+#include <memory>
 
+#include "parameters/parameters.hpp"
+#include "plan/read_write_type_checker.hpp"
 #include "query/config.hpp"
-#include "query/frontend/semantic/required_privileges.hpp"
-#include "query/frontend/semantic/symbol_generator.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
 #include "query/frontend/stripped.hpp"
-#include "query/plan/planner.hpp"
-#include "utils/flag_validation.hpp"
+#include "query/parameters.hpp"
+#include "storage/v2/indices/active_indices.hpp"
+#include "storage/v2/property_value.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/timer.hpp"
+
+#include "gflags/gflags.h"
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(query_cost_planner);
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_int32(query_plan_cache_max_size);
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_int32(query_ast_cache_max_size);
 
 namespace memgraph::query {
+
+namespace plan {
+class LogicalOperator;
+
+namespace v2 {
+class QueryPlannerContext;
+}
+}  // namespace plan
+
+class SymbolTable;
+class Query;
 
 // TODO: Maybe this should move to query/plan/planner.
 /// Interface for accessing the root operator of a logical plan.
@@ -47,80 +66,112 @@ class LogicalPlan {
   virtual double GetCost() const = 0;
   virtual const SymbolTable &GetSymbolTable() const = 0;
   virtual const AstStorage &GetAstStorage() const = 0;
+  virtual plan::ReadWriteTypeChecker::RWType RWType() const = 0;
 };
+
+using UserParameters = storage::ExternalPropertyValue::map_t;
+
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters,
+                            parameters::Parameters const *server_parameters, std::string_view database_uuid)
+    -> Parameters;
 
 class PlanWrapper {
  public:
-  explicit PlanWrapper(std::unique_ptr<LogicalPlan> plan);
+  explicit PlanWrapper(std::unique_ptr<LogicalPlan> plan, uint64_t module_generation = 0);
 
-  const auto &plan() const { return plan_->GetRoot(); }
+  auto plan() const -> plan::LogicalOperator const & { return plan_->GetRoot(); }
+
   double cost() const { return plan_->GetCost(); }
+
   const auto &symbol_table() const { return plan_->GetSymbolTable(); }
+
   const auto &ast_storage() const { return plan_->GetAstStorage(); }
+
+  auto rw_type() const { return plan_->RWType(); }
+
+  uint64_t module_generation() const { return module_generation_; }
+
+  /// A pure function of the plan, so it is derived once at construction and reused for the
+  /// readiness check every time this plan is served.
+  auto required_indices() const -> storage::IndicesCollection const & { return required_indices_; }
 
  private:
   std::unique_ptr<LogicalPlan> plan_;
+  uint64_t module_generation_;
+  storage::IndicesCollection required_indices_;
 };
 
 struct CachedQuery {
   AstStorage ast_storage;
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
+  bool is_cypher_read{false};
+  bool using_schema_assert{false};
+  uint64_t module_generation{0};
 };
 
-struct QueryCacheEntry {
-  bool operator==(const QueryCacheEntry &other) const { return first == other.first; }
-  bool operator<(const QueryCacheEntry &other) const { return first < other.first; }
-  bool operator==(const uint64_t &other) const { return first == other; }
-  bool operator<(const uint64_t &other) const { return first < other; }
-
-  uint64_t first;
-  // TODO: Maybe store the query string here and use it as a key with the hash
-  // so that we eliminate the risk of hash collisions.
-  CachedQuery second;
-};
+// keyed by text, not hash, so a hash collision can't return another query's
+// AST. entries are shared_ptr so an LRU eviction can't free an AST mid-clone.
+using AstCache =
+    utils::Synchronized<utils::LRUCache<frontend::HashedString, std::shared_ptr<const CachedQuery>>, utils::RWSpinLock>;
 
 /**
  * A container for data related to the parsing of a query.
  */
 struct ParsedQuery {
   std::string query_string;
-  std::map<std::string, storage::PropertyValue> user_parameters;
-  Parameters parameters;
   frontend::StrippedQuery stripped_query;
   AstStorage ast_storage;
   Query *query;
   std::vector<AuthQuery::Privilege> required_privileges;
+  bool is_cypher_read{false};
+  bool using_schema_assert{false};
   bool is_cacheable{true};
+  uint64_t module_generation{0};
+  UserParameters user_parameters;
+  Parameters parameters;
 };
 
-ParsedQuery ParseQuery(const std::string &query_string, const std::map<std::string, storage::PropertyValue> &params,
-                       utils::SkipList<QueryCacheEntry> *cache, const InterpreterConfig::Query &query_config);
+ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &user_parameters, AstCache *cache,
+                       const InterpreterConfig::Query &query_config, std::string_view database_uuid,
+                       parameters::Parameters const *server_parameters);
 
 class SingleNodeLogicalPlan final : public LogicalPlan {
  public:
   SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost, AstStorage storage,
-                        SymbolTable symbol_table)
-      : root_(std::move(root)), cost_(cost), storage_(std::move(storage)), symbol_table_(std::move(symbol_table)) {}
+                        SymbolTable symbol_table, plan::ReadWriteTypeChecker::RWType rw_type);
 
   const plan::LogicalOperator &GetRoot() const override { return *root_; }
+
   double GetCost() const override { return cost_; }
-  const SymbolTable &GetSymbolTable() const override { return symbol_table_; }
+
+  const SymbolTable &GetSymbolTable() const override;
+
   const AstStorage &GetAstStorage() const override { return storage_; }
+
+  plan::ReadWriteTypeChecker::RWType RWType() const override { return rw_type_; }
 
  private:
   std::unique_ptr<plan::LogicalOperator> root_;
   double cost_;
   AstStorage storage_;
   SymbolTable symbol_table_;
+  plan::ReadWriteTypeChecker::RWType rw_type_;
 };
 
-using PlanCacheLRU =
-    utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::PlanWrapper>>, utils::RWSpinLock>;
+using PlanCache_t = utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>>;
+using PlanCacheLRU = utils::Synchronized<PlanCache_t, utils::RWSpinLock>;
 
-std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
-                                             DbAccessor *db_accessor,
-                                             const std::vector<Identifier *> &predefined_identifiers);
+struct LogicalPlanResult {
+  std::unique_ptr<LogicalPlan> plan;
+  /// Whether the plan is correct for every set of parameters the stripped query
+  /// may later be served with, and so may be stored in the plan cache.
+  bool is_cacheable;
+};
+
+auto MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters, DbAccessor *db_accessor,
+                     const std::vector<Identifier *> &predefined_identifiers,
+                     plan::v2::QueryPlannerContext &planner_context) -> LogicalPlanResult;
 
 /**
  * Return the parsed *Cypher* query's AST cached logical plan, or create and
@@ -130,9 +181,11 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
  * If an identifier is contained there, we inject it at that place and remove it,
  * because a predefined identifier can be used only in one scope.
  */
-std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                               const Parameters &parameters, PlanCacheLRU *plan_cache,
-                                               DbAccessor *db_accessor,
+std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
+                                               CypherQuery *query, const Parameters &parameters,
+                                               PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
+                                               plan::v2::QueryPlannerContext &planner_context,
+                                               uint64_t module_generation,
                                                const std::vector<Identifier *> &predefined_identifiers = {});
 
 }  // namespace memgraph::query

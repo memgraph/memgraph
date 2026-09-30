@@ -37,25 +37,34 @@ constraintQuery : ( CREATE | DROP ) CONSTRAINT ON constraint ;
 constraint : '(' nodeName=variable ':' labelName ')' ASSERT EXISTS '(' constraintPropertyList ')'
            | '(' nodeName=variable ':' labelName ')' ASSERT constraintPropertyList IS UNIQUE
            | '(' nodeName=variable ':' labelName ')' ASSERT '(' constraintPropertyList ')' IS NODE KEY
+           | '(' nodeName=variable ':' labelName ')' ASSERT variable propertyLookup IS TYPED typeConstraintType
            ;
 
 constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )* ;
 
 storageInfo : STORAGE INFO ;
 
-indexInfo : INDEX INFO ;
+activeUsersInfo : ACTIVE USERS INFO | ACTIVE USERS ;
 
-constraintInfo : CONSTRAINT INFO ;
+licenseInfo : LICENSE INFO ;
+
+indexInfo : INDEX INFO | INDEXES ;
+
+constraintInfo : CONSTRAINT INFO | CONSTRAINTS ;
 
 edgetypeInfo : EDGE_TYPES INFO ;
 
 nodelabelInfo : NODE_LABELS INFO ;
 
+metricsInfo : METRICS INFO | METRICS ;
+
+vectorIndexInfo : VECTOR INDEX INFO | VECTOR INDEXES ;
+
 buildInfo : BUILD INFO ;
 
-databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo ) ;
+databaseInfoQuery : SHOW ( indexInfo | constraintInfo | edgetypeInfo | nodelabelInfo | metricsInfo | vectorIndexInfo ) ;
 
-systemInfoQuery : SHOW ( storageInfo | buildInfo ) ;
+systemInfoQuery : SHOW ( storageInfo | buildInfo | activeUsersInfo | licenseInfo ) ;
 
 explainQuery : EXPLAIN cypherQuery ;
 
@@ -98,6 +107,7 @@ create : CREATE pattern ;
 set : SET setItem ( ',' setItem )* ;
 
 setItem : ( propertyExpression '=' expression )
+        | ( propertyExpression '+=' expression )
         | ( variable '=' expression )
         | ( variable '+=' expression )
         | ( variable nodeLabels )
@@ -115,11 +125,11 @@ with : WITH ( DISTINCT )? returnBody ( where )? ;
 
 cypherReturn : RETURN ( DISTINCT )? returnBody ;
 
-callProcedure : CALL procedureName '(' ( expression ( ',' expression )* )? ')' ( procedureMemoryLimit )? ( yieldProcedureResults )? ;
+callProcedure : OPTIONAL? CALL procedureName '(' ( expression ( ',' expression )* )? ')' ( procedureMemoryLimit )? ( yieldProcedureResults )? ;
 
 procedureName : symbolicName ( '.' symbolicName )* ;
 
-yieldProcedureResults : YIELD ( '*' | ( procedureResult ( ',' procedureResult )* ) ) ;
+yieldProcedureResults : YIELD ( '*' | ( procedureResult ( ',' procedureResult )* ) ) ( where )? ;
 
 memoryLimit : MEMORY ( UNLIMITED | LIMIT literal ( MB | KB ) ) ;
 
@@ -161,7 +171,7 @@ patternElement : ( nodePattern ( patternElementChain )* )
                | ( '(' patternElement ')' )
                ;
 
-nodePattern : '(' ( variable )? ( nodeLabels )? ( properties )? ')' ;
+nodePattern : '(' ( variable )? ( nodeLabels | labelExpression )? ( properties )? ')' ;
 
 patternElementChain : relationshipPattern nodePattern ;
 
@@ -181,7 +191,7 @@ relationshipDetail : '[' ( name=variable )? ( relationshipTypes )? ( variableExp
 
 relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable ( ',' accumulated_path=variable )? ( ',' accumulated_weight=variable )? '|' expression ')';
 
-variableExpansion : '*' (BFS | WSHORTEST | ALLSHORTEST)? ( expression )? ( '..' ( expression )? )? ;
+variableExpansion : '*' (BFS | WSHORTEST | ALLSHORTEST | KSHORTEST)? ( expression )? ( '..' ( expression )? )? ( '|' k=expression )? ;
 
 properties : mapLiteral
            | parameter
@@ -193,9 +203,17 @@ nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
 
-labelName : symbolicName | parameter;
+labelExpression: ':' symbolicName ( '|' symbolicName )+ ;
 
-relTypeName : symbolicName ;
+labelName : symbolicName
+          | parameter
+          | variable ( propertyLookup )+
+          ;
+
+relTypeName : symbolicName
+            | parameter
+            | variable ( propertyLookup )+
+            ;
 
 expression : expression12 ;
 
@@ -209,33 +227,38 @@ expression9 : ( NOT )* expression8 ;
 
 expression8 : expression7 ( partialComparisonExpression )* ;
 
-expression7 : expression6 ( ( '+' expression6 ) | ( '-' expression6 ) )* ;
+// String, list and null predicates (IS NULL, IN, STARTS WITH, ...) bind looser
+// than arithmetic but tighter than comparison: a predicate applies to the whole
+// arithmetic expression to its left, not just the right-most operand.
+expression7 : expression6 ( stringAndNullOperators )* ;
 
-expression6 : expression5 ( ( '*' expression5 ) | ( '/' expression5 ) | ( '%' expression5 ) )* ;
+expression6 : expression5 ( ( '+' expression5 ) | ( '-' expression5 ) )* ;
 
-expression5 : expression4 ( '^' expression4 )* ;
+expression5 : expression4 ( ( '*' expression4 ) | ( '/' expression4 ) | ( '%' expression4 ) )* ;
 
-expression4 : ( ( '+' | '-' ) )* expression3a ;
+expression4 : expression3 ( '^' expression3 )* ;
 
-expression3a : expression3b ( stringAndNullOperators )* ;
+expression3 : ( ( '+' | '-' ) )* expression2a ;
 
-stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression3b) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
+stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression6) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
 
-expression3b : expression2a ( listIndexingOrSlicing )* ;
+expression2a : expression2b ( nodeLabels )? ;
+
+expression2b : atom ( memberAccess )* ;
+
+memberAccess : propertyLookup
+             | listIndexingOrSlicing
+             ;
 
 listIndexingOrSlicing : ( '[' expression ']' )
                       | ( '[' lower_bound=expression? '..' upper_bound=expression? ']' )
                       ;
 
-expression2a : expression2b ( nodeLabels )? ;
-
-expression2b : atom ( propertyLookup )* ;
-
-atom : literal
+atom : listComprehension
+     | literal
      | parameter
      | caseExpression
      | ( COUNT '(' '*' ')' )
-     | listComprehension
      | patternComprehension
      | ( FILTER '(' filterExpression ')' )
      | ( EXTRACT '(' extractExpression ')' )
@@ -246,10 +269,14 @@ atom : literal
      | ( NONE '(' filterExpression ')' )
      | ( SINGLE '(' filterExpression ')' )
      | ( EXISTS '(' existsExpression ')' )
-     | relationshipsPattern
+     | ( EXISTS '{' subqueryBody '}' )
+     | ( COUNT '{' subqueryBody '}' )
+     | ( COLLECT '{' subqueryBody '}' )
+     | patternExpression
      | parenthesizedExpression
      | functionInvocation
      | variable
+     | enumValueAccess
      ;
 
 literal : numberLiteral
@@ -286,7 +313,17 @@ reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' 
 
 extractExpression : idInColl '|' expression ;
 
-existsExpression : patternPart ;
+existsExpression : forcePatternPart | .* ;
+
+subqueryBody : pattern where?
+             | cypherQuery
+             ;
+
+forcePatternPart : ( variable '=' relationshipsPattern )
+                 | relationshipsPattern
+                 ;
+
+patternExpression : forcePatternPart ;
 
 idInColl : variable IN expression ;
 
@@ -330,18 +367,23 @@ propertyKeyName : symbolicName ;
 
 propertyKeyValuePair : propertyKeyName ':' expression ;
 
+nestedPropertyKeyNames : propertyKeyName ( '.' propertyKeyName )* ;
+
 integerLiteral : DecimalLiteral
                | OctalLiteral
                | HexadecimalLiteral
                ;
 
-createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
+createIndex : CREATE INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ( WITH CONFIG configsMap=configMap )? ;
 
-dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ')' )? ;
+dropIndex : DROP INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ( WITH CONFIG configsMap=configMap )? ;
 
 doubleLiteral : FloatingLiteral ;
 
+enumValueAccess : symbolicName ':' ':' symbolicName ;
+
 cypherKeyword : ALL
+              | ALLSHORTEST
               | AND
               | ANY
               | AS
@@ -352,6 +394,8 @@ cypherKeyword : ALL
               | BY
               | CALL
               | CASE
+              | COALESCE
+              | COLLECT
               | CONSTRAINT
               | CONTAINS
               | COUNT
@@ -362,6 +406,7 @@ cypherKeyword : ALL
               | DESCENDING
               | DETACH
               | DISTINCT
+              | DROP
               | ELSE
               | END
               | ENDS
@@ -373,11 +418,15 @@ cypherKeyword : ALL
               | IN
               | INDEX
               | INFO
+              | INSTANCE
               | IS
+              | KB
               | KEY
-              | LIMIT
               | L_SKIP
+              | LIMIT
               | MATCH
+              | MB
+              | MEMORY
               | MERGE
               | NODE
               | NONE
@@ -390,6 +439,7 @@ cypherKeyword : ALL
               | PROFILE
               | QUERY
               | REDUCE
+              | REGISTER
               | REMOVE
               | RETURN
               | SET
@@ -399,14 +449,15 @@ cypherKeyword : ALL
               | STORAGE
               | THEN
               | TRUE
+              | TYPED
               | UNION
               | UNIQUE
+              | UNLIMITED
               | UNWIND
               | WHEN
               | WHERE
               | WITH
               | WSHORTEST
-              | ALLSHORTEST
               | XOR
               | YIELD
               ;

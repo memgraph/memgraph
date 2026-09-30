@@ -9,11 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-from workload_mode import (
-    BENCHMARK_MODE_ISOLATED,
-    BENCHMARK_MODE_MIXED,
-    BENCHMARK_MODE_REALISTIC,
-)
+from workload_mode import *
 
 
 class BenchmarkContext:
@@ -24,11 +20,16 @@ class BenchmarkContext:
     def __init__(
         self,
         benchmark_target_workload: str = None,  # Workload that needs to be executed (dataset/variant/group/query)
+        databases: str = "memgraph",
+        client_bolt_address: str = "127.0.0.1",
         vendor_binary: str = None,
         vendor_name: str = None,
+        installation_type: str = None,
         client_binary: str = None,
+        client_language: str = None,
         num_workers_for_import: int = None,
         num_workers_for_benchmark: int = None,
+        database_workers: int = None,
         single_threaded_runtime_sec: int = 0,
         query_count_lower_bound: int = 0,
         no_load_query_counts: bool = False,
@@ -36,22 +37,33 @@ class BenchmarkContext:
         export_results: str = None,
         export_results_in_memory_analytical: str = None,
         export_results_on_disk_txn: str = None,
+        export_results_ha: str = None,
+        ha_target_workload: str = None,
+        ha_authorization: bool = False,
+        run_ha_leg: bool = False,
         temporary_directory: str = None,
         workload_mixed: str = None,  # Default mode is isolated, mixed None
         workload_realistic: str = None,  # Default mode is isolated, realistic None
         time_dependent_execution: int = 0,
         warm_up: str = None,
         performance_tracking: bool = False,
-        no_authorization: bool = True,
+        authorization: bool = True,
         customer_workloads: str = None,
         vendor_args: dict = {},
+        use_parallel_execution: bool = False,
     ) -> None:
         self.benchmark_target_workload = benchmark_target_workload
+        self.databases = databases
+        self.client_bolt_address = client_bolt_address
         self.vendor_binary = vendor_binary
         self.vendor_name = vendor_name
+        self.installation_type = installation_type
         self.client_binary = client_binary
+        self.client_language = client_language
         self.num_workers_for_import = num_workers_for_import
         self.num_workers_for_benchmark = num_workers_for_benchmark
+        # If database_workers is not specified, use num_workers_for_benchmark for backward compatibility
+        self.database_workers = database_workers if database_workers is not None else num_workers_for_benchmark
         self.single_threaded_runtime_sec = single_threaded_runtime_sec
         self.query_count_lower_bound = query_count_lower_bound
         self.no_load_query_counts = no_load_query_counts
@@ -59,16 +71,20 @@ class BenchmarkContext:
         self.export_results = export_results
         self.export_results_in_memory_analytical = export_results_in_memory_analytical
         self.export_results_on_disk_txn = export_results_on_disk_txn
+        self.export_results_ha = export_results_ha
+        self.ha_target_workload = ha_target_workload
+        self.ha_authorization = ha_authorization
+        self.run_ha_leg = run_ha_leg
         self.temporary_directory = temporary_directory
 
         assert (
             workload_mixed is None or workload_realistic is None
         ), "Cannot run both mixed and realistic workload, please select one!"
 
-        if workload_mixed != None:
+        if workload_mixed is not None:
             self.mode = BENCHMARK_MODE_MIXED
             self.mode_config = workload_mixed
-        elif workload_realistic != None:
+        elif workload_realistic is not None:
             self.mode = BENCHMARK_MODE_REALISTIC
             self.mode_config = workload_realistic
         else:
@@ -78,9 +94,10 @@ class BenchmarkContext:
         self.time_dependent_execution = time_dependent_execution
         self.performance_tracking = performance_tracking
         self.warm_up = warm_up
-        self.no_authorization = no_authorization
+        self.authorization = authorization
         self.customer_workloads = customer_workloads
         self.vendor_args = vendor_args
+        self.use_parallel_execution = use_parallel_execution
         self.active_workload = None
         self.active_variant = None
 
@@ -95,3 +112,6 @@ class BenchmarkContext:
 
     def get_active_variant(self) -> str:
         return self.active_variant
+
+    def get_installation_type(self) -> str:
+        return self.installation_type

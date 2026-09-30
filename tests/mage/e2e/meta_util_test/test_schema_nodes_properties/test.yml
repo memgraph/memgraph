@@ -1,0 +1,19 @@
+query: >
+    CALL meta_util.schema(true) YIELD nodes, relationships UNWIND nodes AS node RETURN node.properties.count AS count, node.properties.properties_count.age AS age, node.properties.properties_count.name AS name, node.properties.properties_count.year AS year ORDER BY node.id DESC;
+output:
+  - count: 1
+    age:
+    name: 1
+    year:
+  - count: 2
+    age:
+    name: 2
+    year:
+  - count: 2
+    age: 2
+    name: 2
+    year: 1
+  - count: 1
+    age: 1
+    name: 1
+    year:

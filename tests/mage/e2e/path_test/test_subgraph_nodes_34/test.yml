@@ -1,0 +1,7 @@
+# A filter list holding a non-string is reported, rather than being read as a type no node carries.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.subgraph_nodes(a, {labelFilter: [42], maxHops: 3})
+  YIELD nodes RETURN nodes;
+exception_contains: >
+  Label filter entries need to be strings.

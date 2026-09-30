@@ -12,13 +12,11 @@
 import os
 import random
 import sys
-import tempfile
 
 import interactive_mg_runner
-import mgclient
 import pytest
-from common import execute_and_fetch_all
-from mg_utils import mg_sleep_and_assert
+from common import execute_and_fetch_all, get_data_path, get_logs_path
+from mg_utils import mg_sleep_and_assert, mg_sleep_and_assert_collection
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -26,104 +24,199 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 )
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
-
-MEMGRAPH_INSTANCES_DESCRIPTION = {
-    "replica_1": {
-        "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-        "log_file": "replica1.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-    },
-    "replica_2": {
-        "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-        "log_file": "replica2.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
-    },
-    "replica_3": {
-        "args": ["--bolt-port", "7690", "--log-level=TRACE"],
-        "log_file": "replica3.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10003;"],
-    },
-    "replica_4": {
-        "args": ["--bolt-port", "7691", "--log-level=TRACE"],
-        "log_file": "replica4.log",
-        "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10004;"],
-    },
-    "main": {
-        "args": ["--bolt-port", "7687", "--log-level=TRACE"],
-        "log_file": "main.log",
-        "setup_queries": [
-            "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';",
-            "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';",
-            "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';",
-            "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';",
-        ],
-    },
-}
+file = "show_while_creating_invalid_state"
 
 
-def test_show_replicas(connection):
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    # Clean up before test in case previous run left stale data
+    interactive_mg_runner.kill_all(keep_directories=False)
+    # Run the test
+    yield
+    # Stop + delete directories after running the test
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
+def get_instances_description(test_name: str):
+    return {
+        "replica_1": {
+            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "setup_queries": [],
+        },
+        "replica_2": {
+            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
+            "setup_queries": [],
+        },
+        "replica_3": {
+            "args": ["--bolt-port", "7690", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica3.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica3",
+            "setup_queries": [],
+        },
+        "replica_4": {
+            "args": ["--bolt-port", "7691", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica4.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica4",
+            "setup_queries": [],
+        },
+        "main": {
+            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [],
+        },
+    }
+
+
+def test_show_replicas(connection, test_name):
     # Goal of this test is to check the SHOW REPLICAS command.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
     # 2/ We drop one replica. It should not appear anymore in the SHOW REPLICAS command.
     # 3/ We kill another replica. It should become invalid in the SHOW REPLICAS command.
 
+    instances = get_instances_description(test_name)
+
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    replica1_cursor = connection(7688, "replica1").cursor()
+    execute_and_fetch_all(replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    replica2_cursor = connection(7689, "replica2").cursor()
+    execute_and_fetch_all(replica2_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;")
+
+    replica3_cursor = connection(7690, "replica3").cursor()
+    execute_and_fetch_all(replica3_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10003;")
+
+    replica4_cursor = connection(7691, "replica4").cursor()
+    execute_and_fetch_all(replica4_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10004;")
 
     cursor = connection(7687, "main").cursor()
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
 
     # 1/
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
     EXPECTED_COLUMN_NAMES = {
         "name",
         "socket_address",
         "sync_mode",
-        "current_timestamp_of_replica",
-        "number_of_timestamp_behind_master",
-        "state",
+        "system_info",
+        "data_info",
     }
 
     actual_column_names = {x.name for x in cursor.description}
     assert actual_column_names == EXPECTED_COLUMN_NAMES
 
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
-    }
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    assert all([x in actual_data for x in expected_data])
 
     # 2/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
-    }
-    assert actual_data == expected_data
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    assert all([x in actual_data for x in expected_data])
 
     # 3/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
+    interactive_mg_runner.kill(instances, "replica_1")
+    interactive_mg_runner.kill(instances, "replica_3")
+    interactive_mg_runner.stop(instances, "replica_4")
 
     # We leave some time for the main to realise the replicas are down.
     def retrieve_data():
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+        return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "invalid"),
-        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "invalid"),
-    }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+    ]
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
 
-def test_drop_replicas(connection):
+def test_drop_replicas(connection, test_name):
     # Goal of this test is to check the DROP REPLICAS command.
     # 0/ Manually start main and all replicas
     # 1/ Check status of the replicas
@@ -140,116 +233,278 @@ def test_drop_replicas(connection):
     # 12/ Drop all and check status
 
     def retrieve_data():
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+        return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+
+    instances = get_instances_description(test_name)
 
     # 0/
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+
+    # Don't use setup queries to avoid errors with data directory.
+    replica1_cursor = connection(7688, "replica1").cursor()
+    execute_and_fetch_all(replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    replica2_cursor = connection(7689, "replica2").cursor()
+    execute_and_fetch_all(replica2_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;")
+
+    replica3_cursor = connection(7690, "replica3").cursor()
+    execute_and_fetch_all(replica3_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10003;")
+
+    replica4_cursor = connection(7691, "replica4").cursor()
+    execute_and_fetch_all(replica4_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10004;")
 
     cursor = connection(7687, "main").cursor()
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
 
     # 1/
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    _ = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
     EXPECTED_COLUMN_NAMES = {
         "name",
         "socket_address",
         "sync_mode",
-        "current_timestamp_of_replica",
-        "number_of_timestamp_behind_master",
-        "state",
+        "system_info",
+        "data_info",
     }
 
     actual_column_names = {x.name for x in cursor.description}
     assert actual_column_names == EXPECTED_COLUMN_NAMES
 
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 2/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "invalid"),
-        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    interactive_mg_runner.kill(instances, "replica_3", keep_directories=True)
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 3/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_3")
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 4/
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "invalid"),
-    }
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    interactive_mg_runner.kill(instances, "replica_4", keep_directories=True)
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 5/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_4")
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 6/
-    interactive_mg_runner.kill(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    interactive_mg_runner.kill(instances, "replica_1", keep_directories=True)
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 7/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_1")
-    expected_data = {
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    expected_data = [
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 8/
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
-    expected_data = {
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "invalid"),
-    }
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    interactive_mg_runner.kill(instances, "replica_2", keep_directories=True)
+    expected_data = [
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 9/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2")
     expected_data = set()
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 10/
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_1")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_2")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_3")
-    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION, "replica_4")
+    interactive_mg_runner.start(instances, "replica_1")
+    interactive_mg_runner.start(instances, "replica_2")
+    interactive_mg_runner.start(instances, "replica_3")
+    interactive_mg_runner.start(instances, "replica_4")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_3 ASYNC TO '127.0.0.1:10003';")
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
 
     # 11/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
-    }
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
     # 12/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_1")
@@ -257,10 +512,17 @@ def test_drop_replicas(connection):
     execute_and_fetch_all(cursor, "DROP REPLICA replica_3")
     execute_and_fetch_all(cursor, "DROP REPLICA replica_4")
     expected_data = set()
-    mg_sleep_and_assert(expected_data, retrieve_data)
+    mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
 
-def test_basic_recovery(connection):
+@pytest.mark.parametrize(
+    "recover_data_on_startup",
+    [
+        "true",
+        "false",
+    ],
+)
+def test_basic_recovery(recover_data_on_startup, connection, test_name):
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
@@ -272,35 +534,64 @@ def test_basic_recovery(connection):
     # 7/ We check that all replicas but one have the expected data.
     # 8/ We kill another replica.
     # 9/ We add some data to main.
-    # 10/ We re-add the two replicas droped/killed and check the data.
+    # 10/ We re-add the two replicas dropped/killed and check the data.
     # 11/ We kill another replica.
-    # 12/ Add some more data to main. It must still still occured but exception is expected since one replica is down.
+    # 12/ Add some more data to main. It must still occur; the down replica is reported through a notification.
     # 13/ Restart the replica
     # 14/ Check the states of replicas.
     # 15/ Add some data again.
     # 16/ Check the data is added to all replicas.
 
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica_1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "setup_queries": [],
         },
         "replica_2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica2.log",
+            "args": [
+                "--bolt-port",
+                "7689",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "replica_3": {
-            "args": ["--bolt-port", "7690", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica3.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10003;"],
+            "args": [
+                "--bolt-port",
+                "7690",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup=true",
+                f"--data-recovery-on-startup={recover_data_on_startup}",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica3.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica3",
+            # We restart this replica so we set replication role manually,
+            # On restart we would set replication role again, we want to get it from data
+            "setup_queries": [],
         },
         "replica_4": {
-            "args": ["--bolt-port", "7691", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica4.log",
+            "args": [
+                "--bolt-port",
+                "7691",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica4.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica4",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10004;"],
         },
         "main": {
@@ -311,13 +602,20 @@ def test_basic_recovery(connection):
                 "--data-recovery-on-startup=true",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}",
         },
     }
 
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+
+    replica_1_cursor = connection(7688, "replica_1").cursor()
+    execute_and_fetch_all(replica_1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    replica_3_cursor = connection(7690, "replica_3").cursor()
+    execute_and_fetch_all(replica_3_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10003;")
+
     cursor = connection(7687, "main").cursor()
 
     # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
@@ -327,15 +625,39 @@ def test_basic_recovery(connection):
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_4 ASYNC TO '127.0.0.1:10004';")
 
     # 1/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 0, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 0, 0, "ready"),
-    }
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
-    assert actual_data == expected_data
+    assert all([x in actual_data for x in expected_data])
 
     def check_roles():
         assert "main" == interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICATION ROLE;")[0][0]
@@ -357,10 +679,10 @@ def test_basic_recovery(connection):
 
     # 4/
     def retrieve_data():
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+        return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 5/
     execute_and_fetch_all(cursor, "DROP REPLICA replica_2;")
@@ -379,13 +701,31 @@ def test_basic_recovery(connection):
     for index in (1, 3, 4):
         assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK)
 
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 2, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 2, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 2, 0, "ready"),
-    }
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+    assert all([x in actual_data for x in expected_data])
 
     # Replica_2 was dropped, we check it does not have the data from main.
     assert len(interactive_mg_runner.MEMGRAPH_INSTANCES["replica_2"].query(QUERY_TO_CHECK)) == 0
@@ -402,59 +742,154 @@ def test_basic_recovery(connection):
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
     interactive_mg_runner.start(CONFIGURATION, "replica_3")
 
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 6, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 6, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 6, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 6, 0, "ready"),
-    }
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+    ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
 
-    assert actual_data == expected_data
+    assert all([x in actual_data for x in expected_data])
     for index in (1, 2, 3, 4):
         assert interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK) == res_from_main
 
     # 11/
     interactive_mg_runner.kill(CONFIGURATION, "replica_1")
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("replica_2", "127.0.0.1:10002", "sync", 6, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 6, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 6, 0, "ready"),
-    }
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "invalid"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 6, "behind": 0, "status": "ready"}},
+        ),
+    ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 12/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
-            "CREATE (p1:Number {name:'Magic_again_again', value:44})"
-        )
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("replica_2", "127.0.0.1:10002", "sync", 9, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 9, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 9, 0, "ready"),
-    }
+    # replica_1 is down. The write still commits on the main and on the reachable replicas; the SYNC replica
+    # that could not be reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p1:Number {name:'Magic_again_again', value:44})")
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 6, "behind": -3, "status": "invalid"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+    ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 13/
     interactive_mg_runner.start(CONFIGURATION, "replica_1")
 
     # 14/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 9, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 9, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 9, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 9, 0, "ready"),
-    }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 9, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
     print("actual=", actual_data)
-    assert actual_data == expected_data
+    assert all([x in actual_data for x in expected_data])
 
     res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
     assert len(res_from_main) == 3
@@ -467,14 +902,39 @@ def test_basic_recovery(connection):
     )
 
     # 16/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 12, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 12, 0, "ready"),
-        ("replica_3", "127.0.0.1:10003", "async", 12, 0, "ready"),
-        ("replica_4", "127.0.0.1:10004", "async", 12, 0, "ready"),
-    }
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_3",
+            "127.0.0.1:10003",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_4",
+            "127.0.0.1:10004",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    print("actual=", actual_data)
+    assert all([x in actual_data for x in expected_data])
 
     res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
     assert len(res_from_main) == 4
@@ -482,83 +942,71 @@ def test_basic_recovery(connection):
         assert interactive_mg_runner.MEMGRAPH_INSTANCES[f"replica_{index}"].query(QUERY_TO_CHECK) == res_from_main
 
 
-def test_replication_role_recovery(connection):
+def test_replication_role_recovery(connection, test_name):
     # Goal of this test is to check the recovery of main and replica role.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
-    # 1/ We try to add a replica with reserved name which results in an exception <- Schema changed, there are no reserved names now
-    # 2/ We check that all replicas have the correct state: they should all be ready.
-    # 3/ We kill main.
-    # 4/ We re-start main. We check that main indeed has the role main and replicas still have the correct state.
-    # 5/ We kill the replica.
-    # 6/ We observed that the replica result is in invalid state.
-    # 7/ We start the replica again. We observe that indeed the replica has the replica state.
-    # 8/ We observe that main has the replica ready.
-    # 9/ We kill the replica again.
-    # 10/ We add data to main.
-    # 11/ We start the replica again. We observe that the replica has the same
+    # 1/ We check that all replicas have the correct state: they should all be ready.
+    # 2/ We kill main.
+    # 3/ We re-start main. We check that main indeed has the role main and replicas still have the correct state.
+    # 4/ We kill the replica.
+    # 5/ We observed that the replica result is in invalid state.
+    # 6/ We start the replica again. We observe that indeed the replica has the replica state.
+    # 7/ We observe that main has the replica ready.
+    # 8/ We kill the replica again.
+    # 9/ We add data to main.
+    # 10/ We start the replica again. We observe that the replica has the same
     #     data as main because it synced and added lost data.
 
     # 0/
-    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-            "data_directory": f"{data_directory.name}/replica",
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica",
         },
         "main": {
             "args": [
                 "--bolt-port",
                 "7687",
                 "--log-level=TRACE",
-                "--storage-recover-on-startup=true",
+                "--data-recovery-on-startup=true",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "main.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}/main",
         },
     }
 
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+
+    replica_cursor = connection(7688, "replica").cursor()
+    execute_and_fetch_all(replica_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
     cursor = connection(7687, "main").cursor()
 
     # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
     execute_and_fetch_all(cursor, "REGISTER REPLICA replica SYNC TO '127.0.0.1:10001';")
 
-    # When we restart the replica, it does not need this query anymore since it needs to remember state
-    CONFIGURATION = {
-        "replica": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica.log",
-            "setup_queries": [],
-            "data_directory": f"{data_directory.name}/replica",
-        },
-        "main": {
-            "args": [
-                "--bolt-port",
-                "7687",
-                "--log-level=TRACE",
-                "--storage-recover-on-startup=true",
-                "--replication-restore-state-on-startup=true",
-            ],
-            "log_file": "main.log",
-            "setup_queries": [],
-            "data_directory": f"{data_directory.name}/main",
-        },
-    }
-    # 1/ Obsolete, schema change, no longer a reserved name
-    # with pytest.raises(mgclient.DatabaseError):
-    #     execute_and_fetch_all(cursor, "REGISTER REPLICA __replication_role SYNC TO '127.0.0.1:10002';")
+    # 1/
+    expected_data = [
+        (
+            "replica",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
-    # 2/
-    expected_data = {
-        ("replica", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-    }
-    actual_data = set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
-
-    assert actual_data == expected_data
+    assert all([x in actual_data for x in expected_data])
 
     def check_roles():
         assert "main" == interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICATION ROLE;")[0][0]
@@ -566,59 +1014,79 @@ def test_replication_role_recovery(connection):
 
     check_roles()
 
-    # 3/
+    # 2/
     interactive_mg_runner.kill(CONFIGURATION, "main")
 
-    # 4/
+    # 3/
     interactive_mg_runner.start(CONFIGURATION, "main")
     cursor = connection(7687, "main").cursor()
     check_roles()
 
     def retrieve_data():
-        return set(execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+        return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
+
+    # 4/
+    interactive_mg_runner.kill(CONFIGURATION, "replica")
 
     # 5/
-    interactive_mg_runner.kill(CONFIGURATION, "replica")
+    expected_data = [
+        (
+            "replica",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+    ]
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+
+    assert all([x in actual_data for x in expected_data])
 
     # 6/
-    expected_data = {
-        ("replica", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-    }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-
-    assert actual_data == expected_data
+    interactive_mg_runner.start(CONFIGURATION, "replica")
+    check_roles()
 
     # 7/
-    interactive_mg_runner.start(CONFIGURATION, "replica")
-    check_roles()
+    expected_data = [
+        (
+            "replica",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 8/
-    expected_data = {
-        ("replica", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-    }
-
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
-
-    # 9/
     interactive_mg_runner.kill(CONFIGURATION, "replica")
 
-    # 10/
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "CREATE (n:First)")
+    # 9/
+    # The only SYNC replica is down, but the write still commits on the main; the unreachable replica is
+    # reported through a notification instead of an error.
+    execute_and_fetch_all(cursor, "CREATE (n:First)")
+    assert len(execute_and_fetch_all(cursor, "MATCH (node) RETURN node;")) == 1
 
-    # 11/
+    # 10/
     interactive_mg_runner.start(CONFIGURATION, "replica")
     check_roles()
 
-    expected_data = {
-        ("replica", "127.0.0.1:10001", "sync", 2, 0, "ready"),
-    }
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "replica",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     QUERY_TO_CHECK = "MATCH (node) return node;"
     res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)
@@ -626,28 +1094,26 @@ def test_replication_role_recovery(connection):
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["replica"].query(QUERY_TO_CHECK)
 
 
-def test_conflict_at_startup(connection):
+def test_conflict_at_startup(connection, test_name):
     # Goal of this test is to check starting up several instance with different replicas' configuration directory works as expected.
     # main_1 and main_2 have different directory.
 
-    data_directory1 = tempfile.TemporaryDirectory()
-    data_directory2 = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "main_1": {
             "args": ["--bolt-port", "7687", "--log-level=TRACE"],
-            "log_file": "main1.log",
             "setup_queries": [],
-            "data_directory": f"{data_directory1.name}",
+            "log_file": f"{get_logs_path(file, test_name)}/main1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main1",
         },
         "main_2": {
             "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "main2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/main2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main2",
             "setup_queries": [],
-            "data_directory": f"{data_directory2.name}",
         },
     }
 
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
     cursor_1 = connection(7687, "main_1").cursor()
     cursor_2 = connection(7688, "main_2").cursor()
 
@@ -655,7 +1121,7 @@ def test_conflict_at_startup(connection):
     assert execute_and_fetch_all(cursor_2, "SHOW REPLICATION ROLE;")[0][0] == "main"
 
 
-def test_basic_recovery_when_replica_is_kill_when_main_is_down():
+def test_basic_recovery_when_replica_is_kill_when_main_is_down(test_name):
     # Goal of this test is to check the recovery of main.
     # 0/ We start all replicas manually: we want to be able to kill them ourselves without relying on external tooling to kill processes.
     # 1/ We check that all replicas have the correct state: they should all be ready.
@@ -663,16 +1129,17 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
     # 3/ We re-start main: it should be able to restart.
     # 4/ Check status of replica: replica_2 is invalid.
 
-    data_directory = tempfile.TemporaryDirectory()
     CONFIGURATION = {
         "replica_1": {
             "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica1.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
         },
         "replica_2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
-            "log_file": "replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
@@ -680,29 +1147,41 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
                 "--bolt-port",
                 "7687",
                 "--log-level=TRACE",
-                "--storage-recover-on-startup=true",
+                "--data-recovery-on-startup=true",
                 "--replication-restore-state-on-startup=true",
             ],
-            "log_file": "main.log",
             "setup_queries": [],
-            "data_directory": f"{data_directory.name}",
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
         },
     }
 
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     # We want to execute manually and not via the configuration, otherwise re-starting main would also execute these registration.
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:10001';")
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-    }
-    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
 
-    assert actual_data == expected_data
+    assert all([x in actual_data for x in expected_data])
 
     def check_roles():
         assert "main" == interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICATION ROLE;")[0][0]
@@ -722,15 +1201,27 @@ def test_basic_recovery_when_replica_is_kill_when_main_is_down():
     interactive_mg_runner.start(CONFIGURATION, "main")
 
     # 4/
-    expected_data = {
-        ("replica_1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("replica_2", "127.0.0.1:10002", "sync", 0, 0, "invalid"),
-    }
-    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "invalid"}},
+        ),
+    ]
+    actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+    assert all([x in actual_data for x in expected_data])
 
 
-def test_async_replication_when_main_is_killed():
+def test_async_replication_when_main_is_killed(test_name):
     # Goal of the test is to check that when main is randomly killed:
     # -the ASYNC replica always contains a valid subset of data of main.
     # We run the test 20 times, it should never fail.
@@ -742,24 +1233,20 @@ def test_async_replication_when_main_is_killed():
 
     for test_repetition in range(20):
         # 0/
-        data_directory_main = tempfile.TemporaryDirectory()
-        data_directory_replica = tempfile.TemporaryDirectory()
         CONFIGURATION = {
             "async_replica": {
                 "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-                "log_file": "async_replica.log",
                 "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-                "data_directory": f"{data_directory_replica.name}",
+                "log_file": f"{get_logs_path(file, test_name)}/async_replica.log",
             },
             "main": {
-                "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-                "log_file": "main.log",
+                "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
                 "setup_queries": [],
-                "data_directory": f"{data_directory_main.name}",
+                "log_file": f"{get_logs_path(file, test_name)}/main.log",
             },
         }
-
-        interactive_mg_runner.start_all(CONFIGURATION)
+        interactive_mg_runner.kill_all(keep_directories=False)
+        interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
         # 1/
         interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
@@ -775,12 +1262,12 @@ def test_async_replication_when_main_is_killed():
         def retrieve_data():
             replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
             return [
-                (replica_name, ip, mode, status)
-                for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+                (replica_name, ip, mode, info["memgraph"]["status"])
+                for replica_name, ip, mode, sys_info, info in replicas
             ]
 
-        actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-        assert actual_data == expected_data
+        actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+        assert all([x in actual_data for x in expected_data])
 
         for index in range(5, 50):
             interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(f"CREATE (p:Number {{name:{index}}})")
@@ -809,11 +1296,8 @@ def test_async_replication_when_main_is_killed():
         expected_sum = len(res_from_async_replica) * (res_from_async_replica[0] + res_from_async_replica[-1]) / 2
         assert total_sum == expected_sum, main_killed
 
-        data_directory_main.cleanup()
-        data_directory_replica.cleanup()
 
-
-def test_sync_replication_when_main_is_killed():
+def test_sync_replication_when_main_is_killed(test_name):
     # Goal of the test is to check that when main is randomly killed:
     # -the SYNC replica always contains the exact data that was in main.
     # We run the test 20 times, it should never fail.
@@ -823,26 +1307,22 @@ def test_sync_replication_when_main_is_killed():
     # 2/ Insert data in main, and randomly kill it.
     # 3/ Check that the SYNC replica has exactly the same data than main.
 
-    for test_repetition in range(20):
+    for _ in range(20):
         # 0/
-        data_directory_main = tempfile.TemporaryDirectory()
-        data_directory_replica = tempfile.TemporaryDirectory()
         CONFIGURATION = {
             "sync_replica": {
                 "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-                "log_file": "sync_replica.log",
                 "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
-                "data_directory": f"{data_directory_replica.name}",
+                "log_file": f"{get_logs_path(file, test_name)}/sync_replica.log",
             },
             "main": {
-                "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-                "log_file": "main.log",
+                "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
                 "setup_queries": [],
-                "data_directory": f"{data_directory_main.name}",
+                "log_file": f"{get_logs_path(file, test_name)}/main.log",
             },
         }
-
-        interactive_mg_runner.start_all(CONFIGURATION)
+        interactive_mg_runner.kill_all(keep_directories=False)
+        interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
         # 1/
         interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(
@@ -864,9 +1344,6 @@ def test_sync_replication_when_main_is_killed():
         # The SYNC replica should have exactly the same data than main.
         res_from_sync_replica = interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica"].query(QUERY_TO_CHECK)[0][0]
         assert last_result_from_main == res_from_sync_replica, main_killed
-
-        data_directory_main.cleanup()
-        data_directory_replica.cleanup()
 
 
 def test_attempt_to_write_data_on_main_when_async_replica_is_down():
@@ -891,7 +1368,7 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
             "log_file": "main.log",
             "setup_queries": [
                 "REGISTER REPLICA async_replica1 ASYNC TO '127.0.0.1:10001';",
@@ -901,15 +1378,27 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
 
     # 1/
-    expected_data = {
-        ("async_replica1", "127.0.0.1:10001", "async", 0, 0, "ready"),
-        ("async_replica2", "127.0.0.1:10002", "async", 0, 0, "ready"),
-    }
-    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "async_replica1",
+            "127.0.0.1:10001",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "async_replica2",
+            "127.0.0.1:10002",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+    assert all([x in actual_data for x in expected_data])
 
     # 2/
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:1});")
@@ -917,8 +1406,12 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
     QUERY_TO_CHECK = "MATCH (node) return node;"
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 1
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+    mg_sleep_and_assert(
+        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
+    )
+    mg_sleep_and_assert(
+        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+    )
 
     # 3/
     interactive_mg_runner.kill(CONFIGURATION, "async_replica1")
@@ -928,28 +1421,30 @@ def test_attempt_to_write_data_on_main_when_async_replica_is_down():
 
     # 5/
     expected_data = [
-        ("async_replica1", "async", 0, "invalid"),
+        ("async_replica1", "async", -3, "invalid"),
         ("async_replica2", "async", 0, "ready"),
     ]
 
     def retrieve_data():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
-            (replica_name, mode, timestamp_behind_main, status)
-            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 6/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+    mg_sleep_and_assert(
+        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+    )
 
 
-def test_attempt_to_write_data_on_main_when_sync_replica_is_down():
-    # Goal of this test is to check that main cannot write new data if a sync replica is down.
+def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection, test_name):
+    # Goal of this test is to check that main can still write new data if a sync replica is down.
     # 0/ Start main and sync replicas.
     # 1/ Check status of replicas.
     # 2/ Add some nodes to main and check it is propagated to the sync_replicas.
@@ -960,35 +1455,66 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down():
 
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            # We restart this replica so we want to set role manually
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
-            "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+            "args": ["--bolt-port", "7689", "--log-level", "TRACE"],
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-            "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+            # need to do it manually
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1_cursor").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    sync_replica2_cursor = connection(7689, "sync_replica2_cursor").cursor()
+    execute_and_fetch_all(sync_replica2_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;")
+
+    main_cursor = connection(7687, "main").cursor()
+    execute_and_fetch_all(main_cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(main_cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-    }
-    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "sync_replica1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "sync_replica2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+    assert all([x in actual_data for x in expected_data])
 
     # 2/
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:1});")
@@ -1009,29 +1535,44 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down():
     def retrieve_data():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
-            (replica_name, mode, timestamp_behind_main, status)
-            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 4/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:2});")
+    # sync_replica1 is down. The write commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE (p:Number {name:2});")
 
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
     # 5/
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 5, 0, "ready"),
-    }
+    expected_data = [
+        (
+            "sync_replica1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 2, "behind": -3, "status": "invalid"}},
+        ),
+        (
+            "sync_replica2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 5, "behind": 0, "status": "ready"}},
+        ),
+    ]
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
-    assert actual_data == expected_data
+    actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+    assert all(
+        [x in actual_data for x in expected_data]
+    ), f"The expected data\n{expected_data}\nactual data\n{actual_data}"
 
     # 6/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
@@ -1039,15 +1580,15 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down():
         ("sync_replica1", "sync", 0, "ready"),
         ("sync_replica2", "sync", 0, "ready"),
     ]
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
+def test_attempt_to_create_indexes_on_main_when_async_replica_is_down(connection, test_name):
     # Goal of this test is to check that main can create new indexes/constraints if an async replica is down.
     # 0/ Start main and async replicas.
     # 1/ Check status of replicas.
@@ -1060,34 +1601,56 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
     CONFIGURATION = {
         "async_replica1": {
             "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "async_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "log_file": f"{get_logs_path(file, test_name)}/async_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/async_replica1",
+            "setup_queries": [],
         },
         "async_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "async_replica2.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+            "log_file": f"{get_logs_path(file, test_name)}/async_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/async_replica2",
+            "setup_queries": [],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-            "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA async_replica1 ASYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA async_replica2 ASYNC TO '127.0.0.1:10002';",
-            ],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [],
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+
+    replica1_cursor = connection(7688, "replica_1").cursor()
+    execute_and_fetch_all(replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    replica2_cursor = connection(7689, "replica_2").cursor()
+    execute_and_fetch_all(replica2_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10002;")
+
+    main_cursor = connection(7687, "main").cursor()
+    execute_and_fetch_all(main_cursor, "REGISTER REPLICA async_replica1 ASYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(main_cursor, "REGISTER REPLICA async_replica2 ASYNC TO '127.0.0.1:10002';")
 
     # 1/
-    expected_data = {
-        ("async_replica1", "127.0.0.1:10001", "async", 0, 0, "ready"),
-        ("async_replica2", "127.0.0.1:10002", "async", 0, 0, "ready"),
-    }
-    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "async_replica1",
+            "127.0.0.1:10001",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "async_replica2",
+            "127.0.0.1:10002",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+    assert all([x in actual_data for x in expected_data])
 
     # 2/
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE INDEX ON :Number(value);")
@@ -1095,8 +1658,12 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
     QUERY_TO_CHECK = "SHOW INDEX INFO;"
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 1
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+    mg_sleep_and_assert(
+        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
+    )
+    mg_sleep_and_assert(
+        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica1"].query(QUERY_TO_CHECK)
+    )
 
     # 3/
     interactive_mg_runner.kill(CONFIGURATION, "async_replica1")
@@ -1106,27 +1673,31 @@ def test_attempt_to_create_indexes_on_main_when_async_replica_is_down():
 
     # 5/
     expected_data = [
-        ("async_replica1", "async", 0, "invalid"),
+        ("async_replica1", "async", -2, "invalid"),
         ("async_replica2", "async", 0, "ready"),
     ]
 
     def retrieve_data():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
-            (replica_name, mode, timestamp_behind_main, status)
-            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all(
+        [x in actual_data for x in expected_data]
+    ), f"The expected data\n{expected_data}\nactual data\n{actual_data}"
 
     # 6/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+    mg_sleep_and_assert(
+        res_from_main, lambda: interactive_mg_runner.MEMGRAPH_INSTANCES["async_replica2"].query(QUERY_TO_CHECK)
+    )
 
 
-def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
+def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection, test_name):
     # Goal of this test is to check creation of new indexes/constraints when a sync replica is down.
     # 0/ Start main and sync replicas.
     # 1/ Check status of replicas.
@@ -1138,35 +1709,64 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
 
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-            "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            # Need to do it manually
+            "setup_queries": [],
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "ready"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 0, 0, "ready"),
-    }
-    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
-    assert actual_data == expected_data
+    expected_data = [
+        (
+            "sync_replica1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "sync_replica2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+    assert all([x in actual_data for x in expected_data])
 
     # 2/
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE INDEX ON :Number(value);")
@@ -1187,30 +1787,45 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
     def retrieve_data():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
-            (replica_name, mode, timestamp_behind_main, status)
-            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 4/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE INDEX ON :Number(value2);")
+    # sync_replica1 is down. The index is created on the main and on sync_replica2; the replica that could not
+    # be reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("CREATE INDEX ON :Number(value2);")
 
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
     # 5/
-    expected_data = {
-        ("sync_replica1", "127.0.0.1:10001", "sync", 0, 0, "invalid"),
-        ("sync_replica2", "127.0.0.1:10002", "sync", 6, 0, "ready"),
-    }
+    expected_data = [
+        (
+            "sync_replica1",
+            "127.0.0.1:10001",
+            "sync",
+            {"ts": 0, "behind": None, "status": "invalid"},
+            {"memgraph": {"ts": 2, "behind": -2, "status": "invalid"}},
+        ),
+        (
+            "sync_replica2",
+            "127.0.0.1:10002",
+            "sync",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 4, "behind": 0, "status": "ready"}},
+        ),
+    ]
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
-    actual_data = set(interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;"))
-    assert actual_data == expected_data
+    actual_data = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
+    assert all(
+        [x in actual_data for x in expected_data]
+    ), f"The expected data\n{expected_data}\nactual data\n{actual_data}"
 
     # 6/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
@@ -1218,15 +1833,15 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down():
         ("sync_replica1", "sync", 0, "ready"),
         ("sync_replica2", "sync", 0, "ready"),
     ]
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_create_before_commit_with_offline_sync_replica():
+def test_trigger_on_create_before_commit_with_offline_sync_replica(connection, test_name):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node. We expect two nodes created (our Not_Magic and the Magic created by trigger).
@@ -1239,27 +1854,46 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica():
 
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level",
+                "TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            # Need to do it manually since we kill this replica
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-            "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            # Need to do it manually since we kill replica
+            "setup_queries": [],
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     QUERY_CREATE_TRIGGER = """
@@ -1295,16 +1929,17 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica():
     def retrieve_data():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
-            (replica_name, mode, timestamp_behind_main, status)
-            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 6/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+    # sync_replica1 is down. The write commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
 
     # 7/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1317,15 +1952,15 @@ def test_trigger_on_create_before_commit_with_offline_sync_replica():
         ("sync_replica1", "sync", 0, "ready"),
         ("sync_replica2", "sync", 0, "ready"),
     ]
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_update_before_commit_with_offline_sync_replica():
+def test_trigger_on_update_before_commit_with_offline_sync_replica(connection, test_name):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1339,27 +1974,45 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica():
 
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            # Need to do it manually
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-            "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [],
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
+
     # 1/
     QUERY_CREATE_TRIGGER = """
         CREATE TRIGGER exampleTrigger
@@ -1399,16 +2052,17 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica():
     def retrieve_data():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
-            (replica_name, mode, timestamp_behind_main, status)
-            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 7/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_UPDATE)
+    # sync_replica1 is down. The update commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_UPDATE)
 
     # 8/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1421,15 +2075,15 @@ def test_trigger_on_update_before_commit_with_offline_sync_replica():
         ("sync_replica1", "sync", 0, "ready"),
         ("sync_replica2", "sync", 0, "ready"),
     ]
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 2
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_delete_before_commit_with_offline_sync_replica():
+def test_trigger_on_delete_before_commit_with_offline_sync_replica(connection, test_name):
     # 0/ Start all.
     # 1/ Create the trigger
     # 2/ Create a node.
@@ -1443,27 +2097,44 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
 
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            # we need to set it manually
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-            "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [],
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     QUERY_CREATE_TRIGGER = """
@@ -1473,7 +2144,7 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     """
     interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER)
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW TRIGGERS;")
-    assert len(res_from_main) == 1, f"Incorect result: {res_from_main}"
+    assert len(res_from_main) == 1, f"Incorrect result: {res_from_main}"
 
     # 2/
     QUERY_CREATE_NODE = "CREATE (p:Number {name:'Not_Magic', value:0})"
@@ -1486,7 +2157,7 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     # 4/
     QUERY_TO_CHECK = "MATCH (node) return node;"
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-    assert len(res_from_main) == 1, f"Incorect result: {res_from_main}"
+    assert len(res_from_main) == 1, f"Incorrect result: {res_from_main}"
     assert res_from_main[0][0].properties["name"] == "Node_created_by_trigger"
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
@@ -1507,16 +2178,17 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     def retrieve_data():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
-            (replica_name, mode, timestamp_behind_main, status)
-            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 7/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_DELETE)
+    # sync_replica1 is down. The delete commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_DELETE)
 
     # 8/
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
@@ -1530,8 +2202,8 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
         ("sync_replica1", "sync", 0, "ready"),
         ("sync_replica2", "sync", 0, "ready"),
     ]
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 1
     assert res_from_main[0][0].properties["name"] == "Node_created_by_trigger"
@@ -1539,7 +2211,7 @@ def test_trigger_on_delete_before_commit_with_offline_sync_replica():
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
 
 
-def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
+def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica(connection, test_name):
     # 0/ Start all.
     # 1/ Create the triggers
     # 2/ Create a node. We expect three nodes created (1 node created + the two created by triggers).
@@ -1552,27 +2224,45 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
 
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            # we need to set it manually
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-            "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    sync_replica2_cursor = connection(7689, "sync_replica2").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    main_cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(main_cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(main_cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     QUERY_CREATE_TRIGGER_BEFORE = """
@@ -1585,24 +2275,25 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
         ON CREATE AFTER COMMIT EXECUTE
         CREATE (p:Number {name:'Node_created_by_trigger_after'});
     """
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER_BEFORE)
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_TRIGGER_AFTER)
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW TRIGGERS;")
+
+    execute_and_fetch_all(main_cursor, QUERY_CREATE_TRIGGER_BEFORE)
+    execute_and_fetch_all(main_cursor, QUERY_CREATE_TRIGGER_AFTER)
+    res_from_main = execute_and_fetch_all(main_cursor, "SHOW TRIGGERS;")
     assert len(res_from_main) == 2, f"Incorect result: {res_from_main}"
 
     # 2/
     QUERY_CREATE_NODE = "CREATE (p:Number {name:'Not_Magic'})"
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+    execute_and_fetch_all(main_cursor, QUERY_CREATE_NODE)
 
     # 3/
     QUERY_TO_CHECK = "MATCH (node) return node;"
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-    assert len(res_from_main) == 3, f"Incorect result: {res_from_main}"
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+    mg_sleep_and_assert(3, lambda: len(execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)))
+
+    execute_and_fetch_all(sync_replica1_cursor, QUERY_TO_CHECK)
+    execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
 
     # 4/
-    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("MATCH (n) DETACH DELETE n;")
+    execute_and_fetch_all(main_cursor, "MATCH (n) DETACH DELETE n;")
 
     # 5/
     interactive_mg_runner.kill(CONFIGURATION, "sync_replica1")
@@ -1614,21 +2305,20 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
     def retrieve_data():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
-            (replica_name, mode, timestamp_behind_main, status)
-            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 6/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+    # sync_replica1 is down. The write commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    execute_and_fetch_all(main_cursor, QUERY_CREATE_NODE)
 
     # 7/
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
-    assert len(res_from_main) == 3
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+    mg_sleep_and_assert(3, lambda: len(execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)))
 
     # 8/
     interactive_mg_runner.start(CONFIGURATION, "sync_replica1")
@@ -1636,15 +2326,16 @@ def test_trigger_on_create_before_and_after_commit_with_offline_sync_replica():
         ("sync_replica1", "sync", 0, "ready"),
         ("sync_replica2", "sync", 0, "ready"),
     ]
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
-    res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
+    res_from_main = execute_and_fetch_all(main_cursor, QUERY_TO_CHECK)
     assert len(res_from_main) == 3
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
-    assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, QUERY_TO_CHECK)
+    execute_and_fetch_all(sync_replica2_cursor, QUERY_TO_CHECK)
 
 
-def test_triggers_on_create_before_commit_with_offline_sync_replica():
+def test_triggers_on_create_before_commit_with_offline_sync_replica(connection, test_name):
     # 0/ Start all.
     # 1/ Create the two triggers
     # 2/ Create a node. We expect three nodes.
@@ -1657,27 +2348,44 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica():
 
     CONFIGURATION = {
         "sync_replica1": {
-            "args": ["--bolt-port", "7688", "--log-level=TRACE"],
-            "log_file": "sync_replica1.log",
-            "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
+            "args": [
+                "--bolt-port",
+                "7688",
+                "--log-level=TRACE",
+                "--replication-restore-state-on-startup=true",
+                "--data-recovery-on-startup=false",
+            ],
+            # we need to set it manually
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica1",
         },
         "sync_replica2": {
             "args": ["--bolt-port", "7689", "--log-level=TRACE"],
-            "log_file": "sync_replica2.log",
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10002;"],
+            "log_file": f"{get_logs_path(file, test_name)}/sync_replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/sync_replica2",
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--storage-recover-on-startup=true"],
-            "log_file": "main.log",
-            "setup_queries": [
-                "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';",
-                "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';",
-            ],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--data-recovery-on-startup=true"],
+            "setup_queries": [],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
         },
     }
 
     # 0/
-    interactive_mg_runner.start_all(CONFIGURATION)
+    interactive_mg_runner.start_all(CONFIGURATION, keep_directories=False)
+
+    sync_replica1_cursor = connection(7688, "sync_replica1").cursor()
+    execute_and_fetch_all(sync_replica1_cursor, "SET REPLICATION ROLE TO REPLICA WITH PORT 10001;")
+
+    cursor = connection(7687, "main").cursor()
+
+    # We want to execute manually and not via the configuration, as we are setting replica manually because
+    # of restart. Restart on replica would set role again.
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica1 SYNC TO '127.0.0.1:10001';")
+    execute_and_fetch_all(cursor, "REGISTER REPLICA sync_replica2 SYNC TO '127.0.0.1:10002';")
 
     # 1/
     QUERY_CREATE_TRIGGER_FIRST = """
@@ -1719,16 +2427,17 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica():
     def retrieve_data():
         replicas = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query("SHOW REPLICAS;")
         return [
-            (replica_name, mode, timestamp_behind_main, status)
-            for replica_name, ip, mode, timestamp, timestamp_behind_main, status in replicas
+            (replica_name, mode, info["memgraph"]["behind"], info["memgraph"]["status"])
+            for replica_name, ip, mode, sys_info, info in replicas
         ]
 
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 6/
-    with pytest.raises(mgclient.DatabaseError):
-        interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
+    # sync_replica1 is down. The write commits on the main and on sync_replica2; the replica that could not be
+    # reached is reported through a notification instead of an error.
+    interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_CREATE_NODE)
 
     # 7/
     def get_number_of_nodes():
@@ -1746,25 +2455,12 @@ def test_triggers_on_create_before_commit_with_offline_sync_replica():
         ("sync_replica1", "sync", 0, "ready"),
         ("sync_replica2", "sync", 0, "ready"),
     ]
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
     res_from_main = interactive_mg_runner.MEMGRAPH_INSTANCES["main"].query(QUERY_TO_CHECK)
     assert len(res_from_main) == 3
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica1"].query(QUERY_TO_CHECK)
     assert res_from_main == interactive_mg_runner.MEMGRAPH_INSTANCES["sync_replica2"].query(QUERY_TO_CHECK)
-
-
-def test_replication_not_messed_up_by_CreateSnapshot(connection):
-    # Goal of this test is to check the replica can not run CreateSnapshot
-    # 1/ CREATE SNAPSHOT should raise a DatabaseError
-
-    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION)
-
-    cursor = connection(7688, "replica_1").cursor()
-
-    # 1/
-    with pytest.raises(mgclient.DatabaseError):
-        execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
 
 
 def test_replication_not_messed_up_by_ShowIndexInfo(connection):
@@ -1790,7 +2486,7 @@ def test_replication_not_messed_up_by_ShowIndexInfo(connection):
         },
     }
 
-    interactive_mg_runner.start_all(BASIC_MEMGRAPH_INSTANCES_DESCRIPTION)
+    interactive_mg_runner.start_all(BASIC_MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
 
     cursor = connection(7688, "replica_1").cursor()
 
@@ -1810,10 +2506,16 @@ def test_replication_not_messed_up_by_ShowIndexInfo(connection):
         return replicas
 
     expected_data = [
-        ("replica_1", "127.0.0.1:10001", "async", 2, 0, "ready"),
+        (
+            "replica_1",
+            "127.0.0.1:10001",
+            "async",
+            {"ts": 0, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 2, "behind": 0, "status": "ready"}},
+        ),
     ]
-    actual_data = mg_sleep_and_assert(expected_data, retrieve_data)
-    assert actual_data == expected_data
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    assert all([x in actual_data for x in expected_data])
 
     # 3/
     cursor = connection(7688, "replica_1").cursor()

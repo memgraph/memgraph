@@ -1,0 +1,37 @@
+query: >
+  CALL cugraph.betweenness_centrality.get(TRUE, TRUE)
+  YIELD node, betweenness_centrality
+  RETURN node.id AS node_id, betweenness_centrality
+  ORDER BY node_id;
+
+output:
+  - node_id: 0
+    betweenness_centrality: 0.1984
+  - node_id: 1
+    betweenness_centrality: 0.0246
+  - node_id: 2
+    betweenness_centrality: 0.0027
+  - node_id: 3
+    betweenness_centrality: 0.1387
+  - node_id: 4
+    betweenness_centrality: 0.1044
+  - node_id: 5
+    betweenness_centrality: 0.0252
+  - node_id: 6
+    betweenness_centrality: 0.0366
+  - node_id: 7
+    betweenness_centrality: 0.1319
+  - node_id: 8
+    betweenness_centrality: 0.0744
+  - node_id: 9
+    betweenness_centrality: 0.1447
+  - node_id: 10
+    betweenness_centrality: 0.0284
+  - node_id: 11
+    betweenness_centrality: 0.1318
+  - node_id: 12
+    betweenness_centrality: 0.0
+  - node_id: 13
+    betweenness_centrality: 0.0
+  - node_id: 14
+    betweenness_centrality: 0.1011

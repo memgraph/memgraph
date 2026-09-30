@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,17 +12,40 @@
 #pragma once
 
 #include <memory>
-#include <span>
+#include "metrics/metric_handles.hpp"
 
-#include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
+#include "storage/v2/indices/active_indices.hpp"
+#include "storage/v2/indices/active_indices_updater.hpp"
+#include "storage/v2/indices/edge_property_index.hpp"
+#include "storage/v2/indices/edge_type_index.hpp"
+#include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
+#include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/text_edge_index.hpp"
+#include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/indices/vertex_property_index.hpp"
 #include "storage/v2/storage_mode.hpp"
+
+namespace memgraph::utils {
+class MemoryTracker;
+}
 
 namespace memgraph::storage {
 
+class Storage;
+struct delta_container;
+
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode);
+  Indices(const Config &config, StorageMode storage_mode, utils::MemoryTracker *db_embedding_memory_tracker = nullptr,
+          metrics::GaugeHandle active_label_indices = {}, metrics::GaugeHandle active_label_property_indices = {},
+          metrics::GaugeHandle active_edge_type_indices = {},
+          metrics::GaugeHandle active_edge_type_property_indices = {},
+          metrics::GaugeHandle active_edge_property_indices = {},
+          metrics::GaugeHandle active_vertex_property_indices = {});
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;
@@ -30,24 +53,73 @@ struct Indices {
   Indices &operator=(Indices &&) = delete;
   ~Indices() = default;
 
-  /// This function should be called from garbage collection to clean-up the
-  /// index.
+  /// This function should be called from garbage collection to clean up the
+  /// vertex indices.
   /// TODO: unused in disk indices
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
+  /// Sweeps only the indexes `arming` names; returns how many that was. The text, vector and
+  /// point indexes hold no entries a sweep collects, so nothing arms them.
+  uint64_t RemoveObsoleteVertexEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                       IndexArming const &arming) const;
 
-  /// Surgical removal of entries that was inserted this transaction
+  /// This function should be called from garbage collection to clean up the
+  /// edge indices.
   /// TODO: unused in disk indices
-  void AbortEntries(LabelId labelId, std::span<Vertex *const> vertices, uint64_t exact_start_timestamp) const;
-  void AbortEntries(PropertyId property, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                    uint64_t exact_start_timestamp) const;
-  void AbortEntries(LabelId label, std::span<std::pair<PropertyValue, Vertex *> const> vertices,
-                    uint64_t exact_start_timestamp) const;
+  /// Returns how many individual indexes were swept.
+  uint64_t RemoveObsoleteEdgeEntries(Storage *storage, uint64_t oldest_active_start_timestamp, std::stop_token token,
+                                     IndexArming const &arming) const;
 
-  struct IndexStats {
-    std::vector<LabelId> label;
-    LabelPropertyIndex::IndexStats property_label;
+  void DropGraphClearIndices();
+
+  /// Removes vertices from all vector indices. Must be called before
+  /// the vertex is removed from the skip list (while the pointer is still valid).
+  void RemoveVerticesFromVectorIndices(std::vector<Vertex *> const &vertices_to_remove) const;
+
+  /// Removes edges from all vector edge indices. Must be called before
+  /// the edge is removed from the skip list (while the pointer is still valid).
+  void RemoveEdgesFromVectorEdgeIndices(std::span<Edge *const> edges_to_remove) const;
+
+  struct AbortProcessor {
+    LabelIndex::AbortProcessor label_;
+    LabelPropertyIndex::AbortProcessor label_properties_;
+    EdgeTypeIndex::AbortProcessor edge_type_;
+    EdgeTypePropertyIndex::AbortProcessor edge_type_property_;
+    EdgePropertyIndex::AbortProcessor edge_property_;
+    VertexPropertyIndex::AbortProcessor vertex_property_;
+    // TODO: point? Nothing to abort, it gets built in Commit
+    // TODO: text?
+    VectorIndex::AbortProcessor vector_;
+    VectorEdgeIndex::AbortProcessor vector_edge_;
+
+    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, EdgeRef edge);
+    void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
+    void CollectOnLabelAddition(LabelId labelId, Vertex *vertex);
+    void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
+    void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
+                                 Edge *edge);
+
+    /// Undo a property written on an edge, given the transaction's own deltas to find the edge by.
+    ///
+    /// An edge's type is not held on the edge: it is on the link its source vertex holds, so
+    /// undoing an entry means finding that link. A transaction that went on to delete the edge has
+    /// already taken the link out, and the deltas that would put it back are the only remaining
+    /// record. Callers therefore hand the deltas over rather than the type, because a caller that
+    /// had to find the type itself would silently do nothing in exactly that case.
+    void CollectOnEdgePropertyChange(PropertyId property, PropertyValue const &old_value, Vertex *from_vertex,
+                                     Edge *edge, delta_container const &deltas);
+
+    bool IsInterestingEdgeProperty(PropertyId property) const;
+
+    void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
+                 NameIdMapper *name_id_mapper);
+
+    /// Reached only for an edge whose link its source vertex no longer holds. The first few are
+    /// answered by scanning the deltas; past that the scanning is what costs, so they are indexed.
+    static constexpr auto kMissesBeforeIndexing = 8;
+    unsigned misses_{0};
+    std::optional<std::vector<std::tuple<Edge *, EdgeTypeId, Vertex *>>> out_edge_links_{};
   };
-  IndexStats Analysis() const;
+
+  auto GetAbortProcessor(ActiveIndices const &active_indices) const -> AbortProcessor;
 
   // Indices are updated whenever an update occurs, instead of only on commit or
   // advance command. This is necessary because we want indices to support `NEW`
@@ -55,17 +127,50 @@ struct Indices {
 
   /// This function should be called whenever a label is added to a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper);
 
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
+  /// This function should be called whenever a label is removed from a vertex.
+  /// @throw std::bad_alloc
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper);
 
   /// This function should be called whenever a property is modified on a vertex.
+  /// @param old_value The value prior to the write. Used in IN_MEMORY_ANALYTICAL to
+  ///                  eagerly reclaim the stale label+property skiplist entry, since
+  ///                  there is no MVCC reader that could still observe it.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) const;
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                           Vertex *vertex, Transaction &tx);
+
+  /// This function should be called whenever a property is modified on an edge.
+  /// @throw std::bad_alloc
+  void UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, Vertex *from_vertex,
+                           Vertex *to_vertex, Edge *edge, Transaction &tx);
+
+  static void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                                   const Transaction &tx);
 
   std::unique_ptr<LabelIndex> label_index_;
   std::unique_ptr<LabelPropertyIndex> label_property_index_;
+  std::unique_ptr<EdgeTypeIndex> edge_type_index_;
+  std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
+  std::unique_ptr<EdgePropertyIndex> edge_property_index_;
+  std::unique_ptr<VertexPropertyIndex> vertex_property_index_;
+  /// Centralized snapshot of active indices, shared by transactions via shared_ptr.
+  /// Lock ordering:
+  ///   - engine_lock_ → active_indices_.WithReadLock (in CreateTransaction)
+  ///   - individual index lock (e.g. index_.WithLock) → active_indices_.WithLock (in RegisterIndex/DropIndex)
+  /// The ActiveIndicesUpdater is always called from within an individual index lock
+  /// (exception: DiskStorage CreateIndex, which is serialized via UNIQUE access mode).
+  ActiveIndicesStore active_indices_;
+
+  /// Factory method to create an updater bound to this Indices' active_indices_ store.
+  ActiveIndicesUpdater MakeUpdater() { return ActiveIndicesUpdater{active_indices_}; }
+
+  TextIndex text_index_;
+  TextEdgeIndex text_edge_index_;
+  PointIndexStorage point_index_;
+  VectorIndex vector_index_;
+  VectorEdgeIndex vector_edge_index_;
 };
 
 }  // namespace memgraph::storage

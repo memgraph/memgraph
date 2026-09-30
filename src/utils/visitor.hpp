@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -51,12 +51,19 @@
 
 #pragma once
 
+#include <cstddef>
+
 namespace memgraph::utils {
 
 // Don't use anonymous namespace, because each translation unit will then get a
 // unique type. This may cause errors if one wants to check the type.
+
 namespace detail {
 
+// No need to dispatch virtual destructor to base classes because visitor is stateless
+// Virtual destructor moved to Visitor
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
 template <typename R, class... T>
 class VisitorBase;
 
@@ -73,12 +80,12 @@ class VisitorBase<R, T> {
  public:
   /// @brief ReturnType of the @c Visit method.
   using ReturnType = R;
-  virtual ~VisitorBase() = default;
 
   /// @brief Visit an instance of @c T.
   virtual ReturnType Visit(T &) = 0;
 };
 
+#pragma clang diagnostic pop
 template <class... T>
 class CompositeVisitorBase;
 
@@ -86,6 +93,7 @@ template <class Head, class... Tail>
 class CompositeVisitorBase<Head, Tail...> : public CompositeVisitorBase<Tail...> {
  public:
   virtual bool PreVisit(Head &) { return DefaultPreVisit(); }
+
   virtual bool PostVisit(Head &) { return DefaultPostVisit(); }
 
   using CompositeVisitorBase<Tail...>::PreVisit;
@@ -108,6 +116,7 @@ class CompositeVisitorBase<T> {
   ///
   /// @return bool indicating whether to continue visiting.
   virtual bool PreVisit(T &) { return DefaultPreVisit(); }
+
   /// @brief Finish visiting an instance of *composite* type @c TVisitable.
   ///
   /// This function should be used to control whether the visitor should be sent
@@ -118,8 +127,11 @@ class CompositeVisitorBase<T> {
   /// @return bool indicating whether to continue visiting.
   virtual bool PostVisit(T &) { return DefaultPostVisit(); }
 
+  virtual ~CompositeVisitorBase() = default;
+
  protected:
   virtual bool DefaultPreVisit() { return true; }
+
   virtual bool DefaultPostVisit() { return true; }
 };
 
@@ -160,8 +172,13 @@ class CompositeVisitorBase<T> {
 template <typename TReturn, class... TVisitable>
 class Visitor : public detail::VisitorBase<TReturn, TVisitable...> {
  public:
+  virtual ~Visitor() = default;
   using typename detail::VisitorBase<TReturn, TVisitable...>::ReturnType;
   using detail::VisitorBase<TReturn, TVisitable...>::Visit;
+
+  /// How many types this visitor covers. A test that walks every visitable type counts its own rows
+  /// against this, so adding a type to the list without adding a row fails rather than passing.
+  static constexpr std::size_t kVisitableCount = sizeof...(TVisitable);
 };
 
 /// @brief Inherit from this class if you want to visit *leaf* TVisitable types.
@@ -264,8 +281,17 @@ template <class TVisitor>
 class Visitable {
  public:
   virtual ~Visitable() = default;
+
   /// @brief Accept the @c TVisitor instance and call its @c Visit method.
   virtual typename TVisitor::ReturnType Accept(TVisitor &) = 0;
+
+ protected:
+  Visitable() = default;
+  Visitable(const Visitable &) = default;
+  Visitable(Visitable &&) noexcept = default;
+  Visitable &operator=(const Visitable &) = default;
+  Visitable &operator=(Visitable &&) noexcept = default;
+};
 
 /// Default implementation for @c utils::Visitable::Accept, which works for
 /// visitors of @c TVisitor type. This should be used to implement regular
@@ -275,6 +301,10 @@ class Visitable {
 /// @sa utils::Visitable
 #define DEFVISITABLE(TVisitor) \
   TVisitor::ReturnType Accept(TVisitor &visitor) override { return visitor.Visit(*this); }
-};
+
+#define DEFINE_VISITABLE(AST, TVisitor) \
+  TVisitor::ReturnType AST::Accept(TVisitor &visitor) { return visitor.Visit(*this); }
+
+#define DECLARE_VISITABLE(TVisitor) TVisitor::ReturnType Accept(TVisitor &visitor) override
 
 }  // namespace memgraph::utils

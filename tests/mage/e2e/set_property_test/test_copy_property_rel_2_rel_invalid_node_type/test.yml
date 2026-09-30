@@ -1,0 +1,12 @@
+query: >
+    MATCH (a {id: 1})-[r1]->(b {id: 2})
+    MATCH (c {id: 3})-[r2]->(d {id: 4})
+    CALL set_property.copyPropertyRel2Rel(1, ['prop'], r2, ['prop']) YIELD result
+    WITH result
+    MATCH (a {id: 1})-[r1]->(b {id: 2})
+    MATCH (c {id: 3})-[r2]->(d {id: 4})
+    RETURN result, r1.prop AS p1, r2.prop as p2;
+
+
+exception: >
+    CopyPropertyRel2Rel argument source entity is not a relationship!

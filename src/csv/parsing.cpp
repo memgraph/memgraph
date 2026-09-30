@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,64 +9,28 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "csv/parsing.hpp"
+module;
+
+#include "requests/requests.hpp"
+#include "utils/memory.hpp"
+#include "utils/on_scope_exit.hpp"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
+#include "utils/string.hpp"
 
 #include <string_view>
 
 #include <boost/iostreams/filter/bzip2.hpp>
 #include <boost/iostreams/filter/gzip.hpp>
 #include <boost/iostreams/filtering_stream.hpp>
-#include <ctre/ctre.hpp>
+#include <ctre.hpp>
 
-#include "requests/requests.hpp"
-#include "utils/file.hpp"
-#include "utils/on_scope_exit.hpp"
-#include "utils/string.hpp"
+module memgraph.csv.parsing;
+import memgraph.utils.aws;
 
 using PlainStream = boost::iostreams::filtering_istream;
 
-namespace memgraph::csv {
-
-using ParseError = Reader::ParseError;
-
-struct Reader::impl {
-  impl(CsvSource source, Reader::Config cfg, utils::MemoryResource *mem);
-
-  [[nodiscard]] bool HasHeader() const { return read_config_.with_header; }
-  [[nodiscard]] auto Header() const -> Header const & { return header_; }
-
-  auto GetNextRow(utils::MemoryResource *mem) -> std::optional<Reader::Row>;
-
- private:
-  void InitializeStream();
-
-  void TryInitializeHeader();
-
-  std::optional<utils::pmr::string> GetNextLine(utils::MemoryResource *mem);
-
-  ParsingResult ParseHeader();
-
-  ParsingResult ParseRow(utils::MemoryResource *mem);
-
-  utils::MemoryResource *memory_;
-  std::filesystem::path path_;
-  CsvSource source_;
-  PlainStream csv_stream_;
-  Config read_config_;
-  uint64_t line_count_{1};
-  uint16_t number_of_columns_{0};
-  Reader::Header header_{memory_};
-};
-
-Reader::impl::impl(CsvSource source, Reader::Config cfg, utils::MemoryResource *mem)
-    : memory_(mem), source_(std::move(source)) {
-  read_config_.with_header = cfg.with_header;
-  read_config_.ignore_bad = cfg.ignore_bad;
-  read_config_.delimiter = cfg.delimiter ? std::move(*cfg.delimiter) : utils::pmr::string{",", memory_};
-  read_config_.quote = cfg.quote ? std::move(*cfg.quote) : utils::pmr::string{"\"", memory_};
-  InitializeStream();
-  TryInitializeHeader();
-}
+namespace {
 
 enum class CompressionMethod : uint8_t {
   NONE,
@@ -77,7 +41,7 @@ enum class CompressionMethod : uint8_t {
 /// Detect compression based on magic sequences
 auto DetectCompressionMethod(std::istream &is) -> CompressionMethod {
   // Ensure stream is reset
-  auto const on_exit = utils::OnScopeExit{[&]() { is.seekg(std::ios::beg); }};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&]() { is.seekg(std::ios::beg); }};
 
   // Note we must use bytes for comparison, not char
   //
@@ -106,6 +70,59 @@ auto DetectCompressionMethod(std::istream &is) -> CompressionMethod {
   return CompressionMethod::NONE;
 }
 
+}  // namespace
+
+namespace memgraph::csv {
+
+using ParseError = Reader::ParseError;
+
+struct Reader::impl {
+  impl(CsvSource source, Reader::Config cfg, utils::MemoryResource *mem);
+
+  [[nodiscard]] bool HasHeader() const { return read_config_.with_header; }
+
+  [[nodiscard]] auto Header() const -> Header const & { return header_; }
+
+  void Reset() {
+    line_buffer_.clear();
+    line_buffer_.shrink_to_fit();
+  }
+
+  auto GetNextRow(utils::MemoryResource *mem) -> std::optional<Reader::Row>;
+
+ private:
+  void InitializeStream();
+
+  void TryInitializeHeader();
+
+  bool GetNextLine();
+
+  ParsingResult ParseHeader();
+
+  ParsingResult ParseRow(utils::MemoryResource *mem);
+
+  utils::MemoryResource *memory_;
+  std::filesystem::path path_;
+  CsvSource source_;
+  PlainStream csv_stream_;
+  Config read_config_;
+  uint64_t line_count_{1};
+  uint16_t number_of_columns_{0};
+  uint64_t estimated_number_of_columns_{0};
+  utils::pmr::string line_buffer_{memory_};
+  Reader::Header header_{memory_};
+};
+
+Reader::impl::impl(CsvSource source, Reader::Config cfg, utils::MemoryResource *mem)
+    : memory_(mem), source_(std::move(source)) {
+  read_config_.with_header = cfg.with_header;
+  read_config_.ignore_bad = cfg.ignore_bad;
+  read_config_.delimiter = cfg.delimiter ? std::move(*cfg.delimiter) : utils::pmr::string{",", memory_};
+  read_config_.quote = cfg.quote ? std::move(*cfg.quote) : utils::pmr::string{"\"", memory_};
+  InitializeStream();
+  TryInitializeHeader();
+}
+
 Reader::Reader(CsvSource source, Reader::Config cfg, utils::MemoryResource *mem)
     : pimpl{new impl{std::move(source), std::move(cfg), mem}, [](impl *p) { delete p; }} {}
 
@@ -129,17 +146,16 @@ void Reader::impl::InitializeStream() {
   MG_ASSERT(csv_stream_.is_complete(), "Should be 'complete' for correct operation");
 }
 
-std::optional<utils::pmr::string> Reader::impl::GetNextLine(utils::MemoryResource *mem) {
-  utils::pmr::string line(mem);
-  if (!std::getline(csv_stream_, line)) {
+bool Reader::impl::GetNextLine() {
+  if (!std::getline(csv_stream_, line_buffer_)) {
     // reached end of file or an I/0 error occurred
     if (!csv_stream_.good()) {
       csv_stream_.reset();  // this will close the file_stream_ and clear the chain
     }
-    return std::nullopt;
+    return false;
   }
   ++line_count_;
-  return std::move(line);
+  return true;
 }
 
 Reader::ParsingResult Reader::impl::ParseHeader() {
@@ -154,8 +170,8 @@ void Reader::impl::TryInitializeHeader() {
   }
 
   auto header = ParseHeader();
-  if (header.HasError()) {
-    throw CsvReadException("CSV reading : {}", header.GetError().message);
+  if (!header) {
+    throw CsvReadException("CSV reading : {}", header.error().message);
   }
 
   if (header->empty()) {
@@ -170,6 +186,8 @@ void Reader::impl::TryInitializeHeader() {
 
 const Reader::Header &Reader::GetHeader() const { return pimpl->Header(); }
 
+void Reader::Reset() { pimpl->Reset(); }
+
 namespace {
 enum class CsvParserState : uint8_t { INITIAL_FIELD, NEXT_FIELD, QUOTING, EXPECT_DELIMITER, DONE };
 
@@ -179,6 +197,8 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
   utils::pmr::vector<utils::pmr::string> row(mem);
   if (number_of_columns_ != 0) {
     row.reserve(number_of_columns_);
+  } else if (estimated_number_of_columns_ != 0) {
+    row.reserve(estimated_number_of_columns_);
   }
 
   utils::pmr::string column(memory_);
@@ -186,13 +206,12 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
   auto state = CsvParserState::INITIAL_FIELD;
 
   do {
-    const auto maybe_line = GetNextLine(mem);
-    if (!maybe_line) {
+    if (!GetNextLine()) {
       // The whole file was processed.
       break;
     }
 
-    std::string_view line_string_view = *maybe_line;
+    std::string_view line_string_view = line_buffer_;
 
     // remove '\r' from the end in case we have dos file format
     if (line_string_view.back() == '\r') {
@@ -209,8 +228,8 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
       }
       // Null bytes aren't allowed in CSVs.
       if (c == '\0') {
-        return ParseError(ParseError::ErrorCode::NULL_BYTE,
-                          fmt::format("CSV: Line {:d} contains NULL byte", line_count_ - 1));
+        return std::unexpected{ParseError(ParseError::ErrorCode::NULL_BYTE,
+                                          fmt::format("CSV: Line {:d} contains NULL byte", line_count_ - 1))};
       }
 
       switch (state) {
@@ -264,9 +283,13 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
             state = CsvParserState::NEXT_FIELD;
             line_string_view.remove_prefix(read_config_.delimiter->size());
           } else {
-            return ParseError(ParseError::ErrorCode::UNEXPECTED_TOKEN,
-                              fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}' at line {:d}",
-                                          *read_config_.delimiter, *read_config_.quote, c, line_count_ - 1));
+            return std::unexpected{
+                ParseError(ParseError::ErrorCode::UNEXPECTED_TOKEN,
+                           fmt::format("CSV Reader: Expected '{}' after '{}', but got '{}' at line {:d}",
+                                       *read_config_.delimiter,
+                                       *read_config_.quote,
+                                       c,
+                                       line_count_ - 1))};
           }
           break;
         }
@@ -286,9 +309,9 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
       row.emplace_back("");
       break;
     case CsvParserState::QUOTING: {
-      return ParseError(ParseError::ErrorCode::NO_CLOSING_QUOTE,
-                        "There is no more data left to load while inside a quoted string. "
-                        "Did you forget to close the quote?");
+      return std::unexpected{ParseError(ParseError::ErrorCode::NO_CLOSING_QUOTE,
+                                        "There is no more data left to load while inside a quoted string. "
+                                        "Did you forget to close the quote?")};
       break;
     }
   }
@@ -304,13 +327,19 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
   // Also, if we don't have a header, the 'number_of_columns_' will be 0, so no
   // need to check the number of columns.
   if (number_of_columns_ != 0 && row.size() != number_of_columns_) [[unlikely]] {
-    return ParseError(ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
-                      // ToDo(the-joksim):
-                      //    - 'line_count_ - 1' is the last line of a row (as a
-                      //      row may span several lines) ==> should have a row
-                      //      counter
-                      fmt::format("Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_,
-                                  line_count_ - 1, row.size()));
+    return std::unexpected{ParseError(
+        ParseError::ErrorCode::BAD_NUM_OF_COLUMNS,
+        // ToDo(the-joksim):
+        //    - 'line_count_ - 1' is the last line of a row (as a
+        //      row may span several lines) ==> should have a row
+        //      counter
+        fmt::format(
+            "Expected {:d} columns in row {:d}, but got {:d}", number_of_columns_, line_count_ - 1, row.size()))};
+  }
+  // To avoid unessisary dynamic growth of the row, remember the number of
+  // columns for future calls
+  if (number_of_columns_ == 0 && estimated_number_of_columns_ == 0) {
+    estimated_number_of_columns_ = row.size();
   }
 
   return std::move(row);
@@ -319,21 +348,21 @@ Reader::ParsingResult Reader::impl::ParseRow(utils::MemoryResource *mem) {
 std::optional<Reader::Row> Reader::impl::GetNextRow(utils::MemoryResource *mem) {
   auto row = ParseRow(mem);
 
-  if (row.HasError()) {
+  if (!row) [[unlikely]] {
     if (!read_config_.ignore_bad) {
-      throw CsvReadException("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.GetError().message);
+      throw CsvReadException("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.error().message);
     }
     // try to parse as many times as necessary to reach a valid row
     do {
-      spdlog::debug("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.GetError().message);
+      spdlog::debug("CSV Reader: Bad row at line {:d}: {}", line_count_ - 1, row.error().message);
       if (!csv_stream_.good()) {
         return std::nullopt;
       }
       row = ParseRow(mem);
-    } while (row.HasError());
+    } while (!row.has_value());
   }
 
-  if (row->empty()) {
+  if (row->empty()) [[unlikely]] {
     // reached end of file
     return std::nullopt;
   }
@@ -356,28 +385,50 @@ FileCsvSource::FileCsvSource(std::filesystem::path path) : path_(std::move(path)
     throw CsvReadException("CSV file {} couldn't be opened!", path_.string());
   }
 }
+
 std::istream &FileCsvSource::GetStream() { return stream_; }
+
+S3CsvSource::S3CsvSource(std::string uri, utils::S3Config const &s3_config) {
+  if (auto const res = s3_config.Validate(); res.has_value()) {
+    throw utils::BasicException(utils::AwsValidationErrorToStr(*res));
+  }
+
+  if (auto const res = utils::GetS3Object(std::move(uri), s3_config, stream_); !res.has_value()) {
+    throw utils::BasicException(res.error().message);
+  }
+}
+
+std::istream &S3CsvSource::GetStream() { return stream_; }
+
+UrlCsvSource::UrlCsvSource(std::string url) : StreamCsvSource{requests::UrlToStringStream(std::move(url))} {}
+
+StreamCsvSource::StreamCsvSource(std::stringstream stream) : stream_{std::move(stream)} {}
+
+std::istream &StreamCsvSource::GetStream() { return stream_; }
+
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::FileCsvSource);
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::UrlCsvSource);
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::StreamCsvSource);
+template memgraph::csv::CsvSource::CsvSource(memgraph::csv::S3CsvSource);
+
+auto CsvSource::Create(std::string csv_location, std::optional<utils::S3Config> s3_cfg) -> CsvSource {
+  constexpr auto url_matcher = ctre::starts_with<"(https?|ftp)://">;
+  constexpr auto s3_matcher = ctre::starts_with<"s3://">;
+
+  if (url_matcher(csv_location)) {
+    return CsvSource{csv::UrlCsvSource{std::move(csv_location)}};
+  }
+
+  if (s3_matcher(csv_location)) {
+    DMG_ASSERT(s3_cfg.has_value(), "S3Config doesn't have a value");
+    return CsvSource{S3CsvSource{std::move(csv_location), *s3_cfg}};
+  }
+
+  return CsvSource{csv::FileCsvSource{std::move(csv_location)}};
+}
 
 std::istream &CsvSource::GetStream() {
   return *std::visit([](auto &&source) { return std::addressof(source.GetStream()); }, source_);
 }
 
-auto CsvSource::Create(const utils::pmr::string &csv_location) -> CsvSource {
-  constexpr auto protocol_matcher = ctre::starts_with<"(https?|ftp)://">;
-  if (protocol_matcher(csv_location)) {
-    return csv::UrlCsvSource{csv_location.c_str()};
-  }
-  return csv::FileCsvSource{csv_location};
-}
-
-// Helper for UrlCsvSource
-auto urlToStringStream(const char *url) -> std::stringstream {
-  auto ss = std::stringstream{};
-  if (!requests::DownloadToStream(url, ss)) {
-    throw CsvReadException("CSV was unable to be fetched from {}", url);
-  }
-  return ss;
-};
-
-UrlCsvSource::UrlCsvSource(const char *url) : StreamCsvSource{urlToStringStream(url)} {}
 }  // namespace memgraph::csv

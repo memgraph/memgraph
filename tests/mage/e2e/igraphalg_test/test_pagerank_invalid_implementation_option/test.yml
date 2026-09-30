@@ -1,0 +1,7 @@
+query: >
+    CALL igraphalg.pagerank(0.85,NULL,True,"invalid") YIELD node, rank
+    RETURN node.id as node_id, rank
+    ORDER BY node_id ASC
+
+exception: >
+        Implementation argument value can be "prpack" or "arpack"

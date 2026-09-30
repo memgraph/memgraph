@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.remove_all(null, [1]) AS result;
+
+output:
+  - result: null

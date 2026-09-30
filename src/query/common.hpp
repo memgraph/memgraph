@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,10 +17,14 @@
 #include <string>
 #include <string_view>
 
-#include "query/db_accessor.hpp"
+#include <range/v3/view/zip.hpp>
+
+#include "metrics/metric_handles.hpp"
 #include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
+#include "query/fmt.hpp"
+#include "query/frontend/ast/ordering.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/relations/orderability.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
@@ -30,44 +34,50 @@
 
 namespace memgraph::query {
 
-namespace impl {
-bool TypedValueCompare(const TypedValue &a, const TypedValue &b);
-}  // namespace impl
+struct OrderedTypedValueCompare {
+  OrderedTypedValueCompare(Ordering ordering) : ordering_{ordering}, ascending{ordering == Ordering::ASC} {}
+
+  auto operator()(const TypedValue &lhs, const TypedValue &rhs) const -> std::partial_ordering {
+    return ascending ? relations::orderability::Compare(lhs, rhs) : relations::orderability::Compare(rhs, lhs);
+  }
+
+  auto ordering() const { return ordering_; }
+
+ private:
+  Ordering ordering_;
+  bool ascending = true;
+};
 
 /// Custom Comparator type for comparing vectors of TypedValues.
 ///
 /// Does lexicographical ordering of elements based on the above
-/// defined TypedValueCompare, and also accepts a vector of Orderings
+/// defined orderability relation, and also accepts a vector of Orderings
 /// the define how respective elements compare.
 class TypedValueVectorCompare final {
  public:
   TypedValueVectorCompare() = default;
-  explicit TypedValueVectorCompare(const std::vector<Ordering> &ordering) : ordering_(ordering) {}
 
-  template <class TAllocator>
-  bool operator()(const std::vector<TypedValue, TAllocator> &c1, const std::vector<TypedValue, TAllocator> &c2) const {
-    // ordering is invalid if there are more elements in the collections
-    // then there are in the ordering_ vector
-    MG_ASSERT(c1.size() <= ordering_.size() && c2.size() <= ordering_.size(),
-              "Collections contain more elements then there are orderings");
+  explicit TypedValueVectorCompare(std::vector<OrderedTypedValueCompare> orderings)
+      : orderings_{std::move(orderings)} {}
 
-    auto c1_it = c1.begin();
-    auto c2_it = c2.begin();
-    auto ordering_it = ordering_.begin();
-    for (; c1_it != c1.end() && c2_it != c2.end(); c1_it++, c2_it++, ordering_it++) {
-      if (impl::TypedValueCompare(*c1_it, *c2_it)) return *ordering_it == Ordering::ASC;
-      if (impl::TypedValueCompare(*c2_it, *c1_it)) return *ordering_it == Ordering::DESC;
-    }
+  const auto &orderings() const { return orderings_; }
 
-    // at least one collection is exhausted
-    // c1 is less then c2 iff c1 reached the end but c2 didn't
-    return (c1_it == c1.end()) && (c2_it != c2.end());
+  auto lex_cmp() const {
+    return [orderings = &orderings_]<typename TAllocator>(const std::vector<TypedValue, TAllocator> &lhs,
+                                                          const std::vector<TypedValue, TAllocator> &rhs) {
+      auto rng = ranges::views::zip(*orderings, lhs, rhs);
+      for (auto const &[cmp, l, r] : rng) {
+        auto res = cmp(l, r);
+        if (res == std::partial_ordering::less) return true;
+        if (res == std::partial_ordering::greater) return false;
+      }
+      DMG_ASSERT(orderings->size() == lhs.size() && lhs.size() == rhs.size());
+      return false;
+    };
   }
 
-  // TODO: Remove this, member is public
-  const auto &ordering() const { return ordering_; }
-
-  std::vector<Ordering> ordering_;
+ private:
+  std::vector<OrderedTypedValueCompare> orderings_;
 };
 
 /// Raise QueryRuntimeException if the value for symbol isn't of expected type.
@@ -77,9 +87,24 @@ inline void ExpectType(const Symbol &symbol, const TypedValue &value, TypedValue
   }
 }
 
-inline void ProcessError(const storage::Error error) {
+/// Map `storage::Error` from `VertexAccessor::Labels(...)` failures to `QueryRuntimeException`
+[[noreturn]] inline void ThrowVertexLabelsReadFailure(storage::Error error) {
+  switch (error) {
+    case storage::Error::DELETED_OBJECT:
+      throw QueryRuntimeException("Trying to get labels from a deleted node.");
+    case storage::Error::NONEXISTENT_OBJECT:
+      throw QueryRuntimeException("Trying to get labels from a node that doesn't exist.");
+    case storage::Error::SERIALIZATION_ERROR:
+    case storage::Error::VERTEX_HAS_EDGES:
+    case storage::Error::PROPERTIES_DISABLED:
+      throw QueryRuntimeException("Unexpected error when getting labels.");
+  }
+}
+
+inline void ProcessError(const storage::Error error, metrics::DatabaseMetricHandles &metric_handles) {
   switch (error) {
     case storage::Error::SERIALIZATION_ERROR:
+      metric_handles.write_write_conflicts.Increment();
       throw TransactionSerializationException();
     case storage::Error::DELETED_OBJECT:
       throw QueryRuntimeException("Trying to set properties on a deleted object.");
@@ -92,20 +117,22 @@ inline void ProcessError(const storage::Error error) {
 }
 
 template <typename T>
-concept AccessorWithSetProperty = requires(T accessor, const storage::PropertyId key,
-                                           const storage::PropertyValue new_value) {
-  { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
-};
+concept AccessorWithSetProperty =
+    requires(T accessor, const storage::PropertyId key, const storage::PropertyValue &new_value) {
+      { accessor.SetProperty(key, new_value) } -> std::same_as<storage::Result<storage::PropertyValue>>;
+    };
 
 /// Set a property `value` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithSetProperty T>
-storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value) {
+storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key, const TypedValue &value,
+                                       storage::NameIdMapper *name_id_mapper,
+                                       metrics::DatabaseMetricHandles &metric_handles) {
   try {
-    auto maybe_old_value = record->SetProperty(key, storage::PropertyValue(value));
-    if (maybe_old_value.HasError()) {
-      ProcessError(maybe_old_value.GetError());
+    auto maybe_old_value = record->SetProperty(key, value.ToPropertyValue(name_id_mapper));
+    if (!maybe_old_value) {
+      ProcessError(maybe_old_value.error(), metric_handles);
     }
     return std::move(*maybe_old_value);
   } catch (const TypedValueException &) {
@@ -114,20 +141,21 @@ storage::PropertyValue PropsSetChecked(T *record, const storage::PropertyId &key
 }
 
 template <typename T>
-concept AccessorWithInitProperties = requires(T accessor,
-                                              const std::map<storage::PropertyId, storage::PropertyValue> &properties) {
-  { accessor.InitProperties(properties) } -> std::same_as<storage::Result<bool>>;
-};
+concept AccessorWithInitProperties =
+    requires(T accessor, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+      { accessor.InitProperties(properties) } -> std::same_as<storage::Result<bool>>;
+    };
 
 /// Set property `values` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithInitProperties T>
-bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties) {
+bool MultiPropsInitChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                           metrics::DatabaseMetricHandles &metric_handles) {
   try {
     auto maybe_values = record->InitProperties(properties);
-    if (maybe_values.HasError()) {
-      ProcessError(maybe_values.GetError());
+    if (!maybe_values) {
+      ProcessError(maybe_values.error(), metric_handles);
     }
     return std::move(*maybe_values);
   } catch (const TypedValueException &) {
@@ -140,20 +168,21 @@ concept AccessorWithUpdateProperties = requires(T accessor,
                                                 std::map<storage::PropertyId, storage::PropertyValue> &properties) {
   {
     accessor.UpdateProperties(properties)
-    } -> std::same_as<
-        storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>>;
+  } -> std::same_as<
+      storage::Result<std::vector<std::tuple<storage::PropertyId, storage::PropertyValue, storage::PropertyValue>>>>;
 };
 
 /// Set property `values` mapped with given `key` on a `record`.
 ///
 /// @throw QueryRuntimeException if value cannot be set as a property value
 template <AccessorWithUpdateProperties T>
-auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties)
-    -> std::remove_reference_t<decltype(record->UpdateProperties(properties).GetValue())> {
+auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::PropertyValue> &properties,
+                             metrics::DatabaseMetricHandles &metric_handles)
+    -> std::remove_reference_t<decltype(record->UpdateProperties(properties).value())> {
   try {
     auto maybe_values = record->UpdateProperties(properties);
-    if (maybe_values.HasError()) {
-      ProcessError(maybe_values.GetError());
+    if (!maybe_values) {
+      ProcessError(maybe_values.error(), metric_handles);
     }
     return std::move(*maybe_values);
   } catch (const TypedValueException &) {
@@ -162,4 +191,7 @@ auto UpdatePropertiesChecked(T *record, std::map<storage::PropertyId, storage::P
 }
 
 int64_t QueryTimestamp();
+
+auto BuildRunTimeS3Config() -> std::map<std::string, std::string, std::less<>>;
+
 }  // namespace memgraph::query

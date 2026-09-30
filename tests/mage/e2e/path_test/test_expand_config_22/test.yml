@@ -1,0 +1,13 @@
+# A direction marker counts wherever it appears and '<' wins over '>', so '<R>' is an incoming
+# filter -- the same as '<R'. C has an incoming R from B and an outgoing R to D, so an any-direction
+# reading would return D as well.
+query: >
+  MATCH (c:Node {name: "C"})
+  CALL path.expand_config(c, {relationshipFilter: ['<R>'], maxHops: 1})
+  YIELD result
+  WITH [n IN nodes(result) | n.name] AS names ORDER BY size(names), names
+  RETURN names;
+
+output:
+  - names: ["C"]
+  - names: ["C", "B"]

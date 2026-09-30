@@ -1,0 +1,5 @@
+query: >
+  CALL cugraph.pagerank.get()
+  YIELD *;
+
+output: []

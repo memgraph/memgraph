@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,14 +10,26 @@
 // licenses/APL.txt.
 
 #include "general.hpp"
+#include "flags/query_modules_directory.hpp"
 
-#include "glue/auth_global.hpp"
+#include <gflags/gflags.h>
+#include <algorithm>
+#include <cstdint>
+#include <iostream>
+#include <iterator>
+#include <limits>
+#include <ranges>
+#include <string>
+#include <thread>
+
+#include <spdlog/spdlog.h>
+
 #include "storage/v2/config.hpp"
 #include "utils/file.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
 #include "utils/string.hpp"
-
-#include <thread>
+#include "utils/system_info.hpp"
 
 // Short help flag.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -37,6 +49,19 @@ DEFINE_VALIDATED_int32(monitoring_port, 7444,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_int32(metrics_port, 9091, "Port on which the Memgraph server for exposing metrics should listen.",
                        FLAG_IN_RANGE(0, std::numeric_limits<uint16_t>::max()));
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_VALIDATED_string(metrics_format, "OpenMetrics",
+                        "Format for the metrics endpoint. Supported values: OpenMetrics, JSON. JSON is deprecated.", {
+                          (void)flagname;
+                          if (value == "OpenMetrics") return true;
+                          if (value == "JSON") {
+                            spdlog::warn(
+                                "--metrics-format=JSON is deprecated and will be removed in a future release. Please "
+                                "use OpenMetrics instead.");
+                            return true;
+                          }
+                          return false;
+                        });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(init_file, "",
@@ -45,13 +70,18 @@ DEFINE_string(init_file, "",
 DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creating data after server starts.");
 
 // General purpose flags.
-// NOTE: The `data_directory` flag must be the same here and in
-// `mg_import_csv`. If you change it, make sure to change it there as well.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(strict_flag_check, true, "If true, error and exit when suspicious positional arguments are detected.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
 
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint32(data_dir_lock_acquisition_timeout_sec, 30,
+              "Timeout before the failure of acquiring file lock on data directory is considered a failure.");
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_bool(data_recovery_on_startup, false, "Controls whether the database recovers persisted data on startup.");
+DEFINE_bool(data_recovery_on_startup, true, "Controls whether the database recovers persisted data on startup.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(memory_warning_threshold, 1024,
@@ -62,6 +92,14 @@ DEFINE_uint64(memory_warning_threshold, 1024,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed in queries.");
 
+#ifdef MG_ENTERPRISE
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(fips_mode, false,
+            "Run Memgraph in FIPS 140-3 approved mode. Enterprise only. Requires the validated OpenSSL FIPS "
+            "provider to be available and restricts password hashing and TLS to FIPS-approved algorithms. "
+            "Experimental: existing users' passwords must be reset, as their hashes cannot be re-hashed.");
+#endif
+
 // Storage flags.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector interval (in seconds).",
@@ -69,27 +107,17 @@ DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector int
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_python_gc_cycle_sec, 180,
                         "Storage python full garbage collection interval (in seconds).", FLAG_IN_RANGE(1, 24UL * 3600));
-// NOTE: The `storage_properties_on_edges` flag must be the same here and in
-// `mg_import_csv`. If you change it, make sure to change it there as well.
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 
-// storage_recover_on_startup deprecated; use data_recovery_on_startup instead
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_HIDDEN_bool(storage_recover_on_startup, false,
-                   "Controls whether the storage recovers persisted data on startup.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
-                        "Storage snapshot creation interval (in seconds). Set "
-                        "to 0 to disable periodic snapshot creation.",
-                        FLAG_IN_RANGE(0, 7 * 24 * 3600));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_wal_enabled, false,
             "Controls whether the storage uses write-ahead-logging. To enable "
             "WAL periodic snapshots must be enabled.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_snapshot_retention_count, 3, "The number of snapshots that should always be kept.",
-                        FLAG_IN_RANGE(1, 1000000));
+                        FLAG_IN_RANGE(1, 1'000'000));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_wal_file_size_kib, memgraph::storage::Config::Durability().wal_file_size_kibibytes,
                         "Minimum file size of each WAL file.",
@@ -99,37 +127,96 @@ DEFINE_VALIDATED_uint64(storage_wal_file_flush_every_n_tx,
                         memgraph::storage::Config::Durability().wal_file_flush_every_n_tx,
                         "Issue a 'fsync' call after this amount of transactions are written to the "
                         "WAL file. Set to 1 for fully synchronous operation.",
-                        FLAG_IN_RANGE(1, 1000000));
+                        FLAG_IN_RANGE(1, 1'000'000));
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_snapshot_on_exit, false, "Controls whether the storage creates another snapshot on exit.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_allow_recovery_failure, false,
+            "If true, a database that fails to recover on startup comes up in a broken state instead of crashing the "
+            "process. Broken databases reject queries until recovered via RECOVER SNAPSHOT.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_items_per_batch, memgraph::storage::Config::Durability().items_per_batch,
               "The number of edges and vertices stored in a batch in a snapshot file.");
-
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables,misc-unused-parameters)
-DEFINE_VALIDATED_bool(
-    storage_parallel_index_recovery, false,
-    "Controls whether the index creation can be done in a multithreaded fashion.", {
-      spdlog::warn(
-          "storage_parallel_index_recovery flag is deprecated. Check storage_mode_parallel_schema_recovery for more "
-          "details.");
-      return true;
-    });
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_parallel_schema_recovery, false,
             "Controls whether the indices and constraints creation can be done in a multithreaded fashion.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_parallel_snapshot_creation, false,
+            "If true, snapshots will be created using --storage-snapshot-thread-count number of treads.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_snapshot_thread_count,
+              std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
+                       memgraph::storage::Config::Durability().snapshot_thread_count),
+              "The number of threads used to create snapshots.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_snapshot_writeback_window_mib,
+              memgraph::storage::Config::Durability().snapshot_writeback_window_mib,
+              "How much of a snapshot may build up in the operating system's file cache before it is written out "
+              "to disk and released, in MiB. Applies per snapshot thread. Set to 0 to leave this to the operating "
+              "system, which can let a large snapshot slow down queries and evict cached data.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_release_recovered_snapshot_page_cache,
+            memgraph::storage::Config::Durability().release_recovered_snapshot_page_cache,
+            "Release a snapshot from the operating system's file cache once recovery has loaded it, so it stops "
+            "holding memory the database could use. Set to false to leave it cached.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_release_sent_snapshot_page_cache,
+            memgraph::storage::Config::Durability().release_sent_snapshot_page_cache,
+            "Release a snapshot from the operating system's file cache once it has been sent to a replica. Off by "
+            "default, because any further replica syncing from the same snapshot then has to read it from disk "
+            "again. Set to true to free the memory sooner on an instance that syncs a replica once.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,
-              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+              std::max(static_cast<uint64_t>(memgraph::utils::GetSafeHardwareConcurrency()),
                        memgraph::storage::Config::Durability().recovery_thread_count),
               "The number of threads used to recover persisted data from disk.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_enable_schema_metadata, false,
             "Controls whether metadata should be collected about the resident labels and edge types.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_automatic_label_index_creation_enabled, false,
+            "Controls whether label indexes on vertices should be created automatically.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_automatic_edge_type_index_creation_enabled, false,
+            "Controls whether edge-type indexes on relationships should be created automatically.");
+DEFINE_bool(storage_enable_edges_metadata, false,
+            "Controls whether additional metadata should be stored about the edges in order to do faster traversals on "
+            "certain queries.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_light_edge, false,
+            "Controls whether edges are stored as lightweight objects in order to reduce memory footprint; implies "
+            "--storage-properties-on-edges.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_delta_on_identical_property_update, true,
+            "Controls whether updating a property with the same value should create a delta object.");
+
+DEFINE_bool(storage_backup_dir_enabled, true,
+            "Controls whether .old dir will be used to store latest snapshot and WAL files.");
+
+// RocksDB flags
+// The info log flags are defined in mg-kvstore (kvstore/rocksdb_options.hpp) because they apply to every RocksDB
+// instance, not just the disk storage one.
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_rocksdb_enable_thread_tracking, false,
+            "Enable RocksDB thread status tracking. Default is false for reduced syscall overhead. "
+            "Enable when debugging disk storage performance issues (provides GetThreadList API).");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(schema_info_enabled, false, "Set to true to enable run-time schema info tracking.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(telemetry_enabled, false,
@@ -164,8 +251,8 @@ DEFINE_VALIDATED_string(query_modules_directory, "",
                           const auto directories = memgraph::utils::Split(value, ",");
                           for (const auto &dir : directories) {
                             if (!memgraph::utils::DirExists(dir)) {
-                              std::cout << "Expected --" << flagname << " to point to directories." << std::endl;
-                              std::cout << dir << " is not a directory." << std::endl;
+                              std::cerr << "Expected --" << flagname << " to point to directories." << std::endl;
+                              std::cerr << dir << " is not a directory." << std::endl;
                               return false;
                             }
                           }
@@ -176,8 +263,7 @@ auto memgraph::flags::ParseQueryModulesDirectory() -> std::vector<std::filesyste
   const auto directories = memgraph::utils::Split(FLAGS_query_modules_directory, ",");
   std::vector<std::filesystem::path> query_modules_directories;
   query_modules_directories.reserve(directories.size());
-  std::transform(directories.begin(), directories.end(), std::back_inserter(query_modules_directories),
-                 [](const auto &dir) { return dir; });
+  std::ranges::copy(directories, std::back_inserter(query_modules_directories));
 
   return query_modules_directories;
 }
@@ -192,6 +278,48 @@ DEFINE_string(query_callable_mappings_path, "",
 DEFINE_HIDDEN_string(license_key, "", "License key for Memgraph Enterprise.");
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_HIDDEN_string(organization_name, "", "Organization name.");
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_string(auth_user_or_role_name_regex, memgraph::glue::kDefaultUserRoleRegex.data(),
-              "Set to the regular expression that each user or role name must fulfill.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(cluster_cert_file, "", "Certificate file used for intra-cluster TLS communication.");
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(cluster_key_file, "", "Key file used for intra-cluster TLS communication.");
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(cluster_ca_file, "",
+              "The file used for storing certificate of the Certificate Authority you trust for intra-cluster TLS "
+              "communication.");
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_string(ca_bundle_file, "",
+              "Path to a CA certificate bundle used to verify peers of outgoing HTTPS requests (e.g. LOAD CSV from "
+              "https URLs). When empty, well-known system trust-store locations are probed on the first outgoing "
+              "request and the result is cached for the lifetime of the process.");
+
+auto memgraph::flags::IsIntraClusterTLSEnabled() -> bool {
+  return !FLAGS_cluster_cert_file.empty() && !FLAGS_cluster_key_file.empty() && !FLAGS_cluster_ca_file.empty();
+}
+
+void memgraph::flags::ValidateIntraClusterTLSFlags() {
+  const int set_count = static_cast<int>(!FLAGS_cluster_cert_file.empty()) +
+                        static_cast<int>(!FLAGS_cluster_key_file.empty()) +
+                        static_cast<int>(!FLAGS_cluster_ca_file.empty());
+  if (set_count != 0 && set_count != 3) {
+    LOG_FATAL(
+        "Intra-cluster TLS requires --cluster-cert-file, --cluster-key-file, and --cluster-ca-file to be set "
+        "together (or all three to be empty). Refusing to start in a partially-configured TLS state. "
+        "cert_file=\"{}\" key_file=\"{}\" ca_file=\"{}\"",
+        FLAGS_cluster_cert_file,
+        FLAGS_cluster_key_file,
+        FLAGS_cluster_ca_file);
+  }
+  if (set_count == 3) {
+    spdlog::info("Intra-cluster TLS enabled (mTLS).");
+  }
+}
+
+auto memgraph::flags::TlsConfigFromClusterFlags() -> std::optional<utils::TlsConfig> {
+  if (IsIntraClusterTLSEnabled()) {
+    return utils::TlsConfig{
+        .key_file = FLAGS_cluster_key_file, .cert_file = FLAGS_cluster_cert_file, .ca_file = FLAGS_cluster_ca_file};
+  }
+  return std::nullopt;
+}

@@ -1,0 +1,59 @@
+diff --git a/include/jemalloc/internal/background_thread_structs.h b/include/jemalloc/internal/background_thread_structs.h
+--- a/include/jemalloc/internal/background_thread_structs.h
++++ b/include/jemalloc/internal/background_thread_structs.h
+@@ -14,7 +14,7 @@
+ typedef enum {
+ 	background_thread_stopped,
+ 	background_thread_started,
+-	/* Thread waits on the global lock when paused (for arena_reset). */
++	/* Thread waits on its condition variable when paused (arena_reset). */
+ 	background_thread_paused,
+ } background_thread_state_t;
+ 
+diff --git a/src/background_thread.c b/src/background_thread.c
+--- a/src/background_thread.c
++++ b/src/background_thread.c
+@@ -271,11 +271,11 @@
+ static bool
+ background_thread_pause_check(tsdn_t *tsdn, background_thread_info_t *info) {
+ 	if (unlikely(info->state == background_thread_paused)) {
+-		malloc_mutex_unlock(tsdn, &info->mtx);
+-		/* Wait on global lock to update status. */
+-		malloc_mutex_lock(tsdn, &background_thread_lock);
+-		malloc_mutex_unlock(tsdn, &background_thread_lock);
+-		malloc_mutex_lock(tsdn, &info->mtx);
++		while (info->state == background_thread_paused) {
++			int ret = pthread_cond_wait(&info->cond,
++			    &info->mtx.lock);
++			assert(ret == 0);
++		}
+ 		return true;
+ 	}
+ 
+diff --git a/src/ctl.c b/src/ctl.c
+--- a/src/ctl.c
++++ b/src/ctl.c
+@@ -2160,8 +2160,8 @@
+ 		if (background_thread_enabled()) {
+ 			background_thread_info_t *info =
+ 			    background_thread_info_get(arena_ind);
+-			assert(info->state == background_thread_started);
+ 			malloc_mutex_lock(tsd_tsdn(tsd), &info->mtx);
++			assert(info->state == background_thread_started);
+ 			info->state = background_thread_paused;
+ 			malloc_mutex_unlock(tsd_tsdn(tsd), &info->mtx);
+ 		}
+@@ -2174,9 +2174,12 @@
+ 		if (background_thread_enabled()) {
+ 			background_thread_info_t *info =
+ 			    background_thread_info_get(arena_ind);
+-			assert(info->state == background_thread_paused);
+ 			malloc_mutex_lock(tsd_tsdn(tsd), &info->mtx);
++			assert(info->state == background_thread_paused);
+ 			info->state = background_thread_started;
++#ifdef JEMALLOC_BACKGROUND_THREAD
++			pthread_cond_signal(&info->cond);
++#endif
+ 			malloc_mutex_unlock(tsd_tsdn(tsd), &info->mtx);
+ 		}
+ 		malloc_mutex_unlock(tsd_tsdn(tsd), &background_thread_lock);

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,13 +18,15 @@
 #include <cstdint>
 #include <cstring>
 #include <iomanip>
-#include <iostream>
 #include <iterator>
+#include <locale>
 #include <random>
-#include <regex>
+#include <ranges>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <system_error>
+#include <utility>
 #include <vector>
 
 #include "utils/exceptions.hpp"
@@ -43,7 +45,7 @@ inline std::string_view LTrim(const std::string_view s) {
 /** Remove characters found in `chars` from the start of a string. */
 inline std::string_view LTrim(const std::string_view s, const std::string_view chars) {
   size_t start = 0;
-  while (start < s.size() && chars.find(s[start]) != std::string::npos) {
+  while (start < s.size() && chars.contains(s[start])) {
     ++start;
   }
   return std::string_view(s.data() + start, s.size() - start);
@@ -61,7 +63,7 @@ inline std::string_view RTrim(const std::string_view s) {
 /** Remove characters found in `chars` from the end of a string. */
 inline std::string_view RTrim(const std::string_view s, const std::string_view chars) {
   size_t count = s.size();
-  while (count > static_cast<size_t>(0) && chars.find(s[count - 1]) != std::string::npos) {
+  while (count > 0UZ && chars.contains(s[count - 1])) {
     --count;
   }
   return std::string_view(s.data(), count);
@@ -84,10 +86,10 @@ inline std::string_view Trim(const std::string_view s) {
 inline std::string_view Trim(const std::string_view s, const std::string_view chars) {
   size_t start = 0;
   size_t count = s.size();
-  while (start < s.size() && chars.find(s[start]) != std::string::npos) {
+  while (start < s.size() && chars.contains(s[start])) {
     ++start;
   }
-  while (count > start && chars.find(s[count - 1]) != std::string::npos) {
+  while (count > start && chars.contains(s[count - 1])) {
     --count;
   }
   return std::string_view(s.data() + start, count - start);
@@ -117,6 +119,116 @@ inline std::string ToLowerCase(const std::string_view s) {
 }
 
 /**
+ * Whether `c` continues a UTF-8 sequence rather than starting one.
+ *
+ * Exactly one byte per code point is not a continuation, so code points can be
+ * counted and sought without decoding their values.
+ */
+constexpr bool IsUtf8Continuation(const char c) { return (static_cast<unsigned char>(c) & 0xC0U) == 0x80U; }
+
+/**
+ * Reverse the order of the UTF-8 code points of `s` and store the result in
+ * `out`.
+ *
+ * A combining mark is a code point of its own and does not travel with the
+ * character it follows. Bytes that do not introduce a well-formed sequence are
+ * carried across as they are, so malformed input is reordered, not rejected.
+ *
+ * `out` must not share storage with `s`.
+ *
+ * @return pointer to `out`.
+ */
+template <class TAllocator>
+std::basic_string<char, std::char_traits<char>, TAllocator> *ReverseUtf8(
+    std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view s) {
+  // Reading forwards while placing from the back keeps this to one pass over
+  // the input, with each output byte written exactly once.
+  out->resize_and_overwrite(s.size(), [s](char *buffer, const size_t size) {
+    auto *tail = buffer + size;
+    for (const auto *sequence = s.begin(); sequence != s.end();) {
+      const auto *const next = std::find_if_not(std::next(sequence), s.end(), IsUtf8Continuation);
+      tail -= std::distance(sequence, next);
+      std::copy(sequence, next, tail);
+      sequence = next;
+    }
+    return size;
+  });
+  return out;
+}
+
+/**
+ * Reverse the order of the UTF-8 code points of `s`.
+ */
+inline std::string ReverseUtf8(const std::string_view s) {
+  std::string res;
+  ReverseUtf8(&res, s);
+  return res;
+}
+
+/**
+ * Count the UTF-8 code points of `s`.
+ *
+ * A code point counts once however many bytes encode it. A combining mark is a
+ * code point of its own, so a decomposed character counts as more than one.
+ *
+ * Bytes that do not introduce a well-formed sequence each count once, so a
+ * malformed string still yields a length rather than an error.
+ */
+inline size_t CountUtf8CodePoints(const std::string_view s) {
+  return static_cast<size_t>(std::ranges::count_if(s, [](char c) { return !IsUtf8Continuation(c); }));
+}
+
+/**
+ * Byte offset at which the code point numbered `index` starts, or the size of
+ * `s` when it holds fewer than `index + 1` of them.
+ *
+ * Reaching the n-th code point means reading what precedes it, which a
+ * variable-width encoding leaves no way around.
+ */
+inline size_t Utf8OffsetOfCodePoint(const std::string_view s, const size_t index) {
+  size_t seen = 0;
+  for (size_t offset = 0; offset != s.size(); ++offset) {
+    if (IsUtf8Continuation(s[offset])) continue;
+    if (seen == index) return offset;
+    ++seen;
+  }
+  return s.size();
+}
+
+/**
+ * Byte offset at which the last `count` code points of `s` begin, or 0 when it
+ * holds no more than that many.
+ *
+ * Walking back from the end costs only what it returns, where counting the
+ * whole string and subtracting would cost its whole length.
+ */
+inline size_t Utf8OffsetOfLastCodePoints(const std::string_view s, const size_t count) {
+  if (count == 0) return s.size();
+  size_t seen = 0;
+  size_t offset = s.size();
+  while (offset != 0) {
+    --offset;
+    if (IsUtf8Continuation(s[offset])) continue;
+    if (++seen == count) return offset;
+  }
+  return 0;
+}
+
+/**
+ * Substring of `s` starting at code point `pos` and running for at most `count`
+ * code points, so a multi-byte character is never cut in half.
+ *
+ * Out-of-range positions and lengths clamp rather than throw.
+ */
+inline std::string_view SubstrUtf8(const std::string_view s, const size_t pos,
+                                   const size_t count = std::string_view::npos) {
+  const auto begin = Utf8OffsetOfCodePoint(s, pos);
+  if (count == std::string_view::npos) return s.substr(begin);
+  const auto rest = s.substr(begin);
+  return rest.substr(0, Utf8OffsetOfCodePoint(rest, count));
+}
+
+/**
  * Uppercase all characters of a string and store the result in `out`.
  * Transformation is locale independent.
  * @return pointer to `out`.
@@ -143,20 +255,24 @@ inline std::string ToUpperCase(const std::string_view s) {
  * Join the `strings` collection separated by a given separator into `out`.
  * @return pointer to `out`.
  */
-template <class TCollection, class TAllocator>
-std::basic_string<char, std::char_traits<char>, TAllocator> *Join(
-    std::basic_string<char, std::char_traits<char>, TAllocator> *out, const TCollection &strings,
-    const std::string_view separator) {
+template <class TAllocator, std::ranges::forward_range Range>
+auto Join(std::basic_string<char, std::char_traits<char>, TAllocator> *out, Range const &strings,
+          const std::string_view separator) -> std::basic_string<char, std::char_traits<char>, TAllocator> * {
   out->clear();
   if (strings.empty()) return out;
-  int64_t total_size = 0;
-  for (const auto &x : strings) {
-    total_size += x.size();
+
+  if constexpr (std::ranges::sized_range<Range>) {
+    // Initial pass to precompute total size
+    int64_t total_size = separator.size() * (static_cast<int64_t>(strings.size()) - 1);
+    for (const auto &x : strings) {
+      total_size += x.size();
+    }
+    out->reserve(total_size);
   }
-  total_size += separator.size() * (static_cast<int64_t>(strings.size()) - 1);
-  out->reserve(total_size);
-  *out += strings[0];
-  for (auto it = strings.begin() + 1; it != strings.end(); ++it) {
+
+  *out += *strings.begin();
+  auto const e = strings.end();
+  for (auto it = std::next(strings.begin()); it != e; ++it) {
     *out += separator;
     *out += *it;
   }
@@ -166,7 +282,7 @@ std::basic_string<char, std::char_traits<char>, TAllocator> *Join(
 /**
  * Join the `strings` collection separated by a given separator.
  */
-inline std::string Join(const std::vector<std::string> &strings, const std::string_view separator) {
+inline std::string Join(std::ranges::forward_range auto const &strings, const std::string_view separator) {
   std::string res;
   Join(&res, strings, separator);
   return res;
@@ -180,6 +296,16 @@ template <class TAllocator>
 std::basic_string<char, std::char_traits<char>, TAllocator> *Replace(
     std::basic_string<char, std::char_traits<char>, TAllocator> *out, const std::string_view src,
     const std::string_view match, const std::string_view replacement) {
+  if (match.empty()) {  // empty match inserts replacement at every byte boundary, matching std::regex_replace
+    out->clear();
+    out->reserve(src.size() + (src.size() + 1) * replacement.size());
+    out->append(replacement);
+    for (const char c : src) {
+      out->push_back(c);
+      out->append(replacement);
+    }
+    return out;
+  }
   // TODO: This could be implemented much more efficiently.
   *out = src;
   for (size_t pos = out->find(match); pos != std::string::npos; pos = out->find(match, pos + replacement.size())) {
@@ -209,8 +335,13 @@ std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out, c
   if (src.empty()) return out;
   size_t index = 0;
   while (splits < 0 || splits-- != 0) {
-    auto n = src.find(delimiter, index);
-    if (n == std::string::npos) break;
+    size_t n = 0;
+    if (delimiter.empty()) {  // Special case where we just return characters
+      n = index + 1;
+    } else {
+      n = src.find(delimiter, index);
+    }
+    if (n >= src.size()) break;
     out->emplace_back(src.substr(index, n - index));
     index = n + delimiter.size();
   }
@@ -229,28 +360,11 @@ inline std::vector<std::string> Split(const std::string_view src, const std::str
   return res;
 }
 
-/**
- * Split a string by whitespace into a vector.
- * Runs of consecutive whitespace are regarded as a single delimiter.
- * Additionally, the result will not contain empty strings at the start or end
- * as if the string was trimmed before splitting.
- * @return pointer to `out`.
- */
-template <class TString, class TAllocator>
-std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out, const std::string_view src) {
-  out->clear();
-  if (src.empty()) return out;
-  // TODO: Investigate how much regex allocate and perhaps replace with custom
-  // solution doing no allocations.
-  std::regex not_whitespace("[^\\s]+");
-  auto matches_begin = std::cregex_iterator(src.data(), src.data() + src.size(), not_whitespace);
-  auto matches_end = std::cregex_iterator();
-  out->reserve(std::distance(matches_begin, matches_end));
-  for (auto match = matches_begin; match != matches_end; ++match) {
-    std::string_view match_view(&src[match->position()], match->length());
-    out->emplace_back(match_view);
-  }
-  return out;
+inline std::vector<std::string_view> SplitView(const std::string_view src, const std::string_view delimiter,
+                                               int splits = -1) {
+  std::vector<std::string_view> res;
+  Split(&res, src, delimiter, splits);
+  return res;
 }
 
 /**
@@ -259,11 +373,7 @@ std::vector<TString, TAllocator> *Split(std::vector<TString, TAllocator> *out, c
  * Additionally, the result will not contain empty strings at the start or end
  * as if the string was trimmed before splitting.
  */
-inline std::vector<std::string> Split(const std::string_view src) {
-  std::vector<std::string> res;
-  Split(&res, src);
-  return res;
-}
+std::vector<std::string> Split(const std::string_view src);
 
 /**
  * Like `Split` but string is processed from right to left.
@@ -331,8 +441,14 @@ inline int64_t ParseInt(const std::string_view s) {
   return t;
 }
 
-inline uint64_t ParseStringToUint64(const std::string_view s) {
-  if (uint64_t value = 0; std::from_chars(s.data(), s.data() + s.size(), value).ec == std::errc{}) {
+template <typename TNum>
+  requires std::is_same_v<TNum, uint32_t> || std::is_same_v<TNum, uint64_t>
+inline TNum ParseStringToUint(const std::string_view s) {
+  // from_chars only parses a prefix; require the whole string be consumed so trailing garbage (e.g. "10-0")
+  // is rejected rather than silently returning the parsed prefix.
+  TNum value = 0;
+  auto const [ptr, ec] = std::from_chars(s.data(), s.data() + s.size(), value);
+  if (ec == std::errc{} && ptr == s.data() + s.size()) {
     return value;
   }
   throw utils::ParseException(s);
@@ -377,11 +493,7 @@ inline bool StartsWith(const std::string_view s, const std::string_view prefix) 
 
 /** Perform case-insensitive string equality test. */
 inline bool IEquals(const std::string_view lhs, const std::string_view rhs) {
-  if (lhs.size() != rhs.size()) return false;
-  for (size_t i = 0; i < lhs.size(); ++i) {
-    if (tolower(lhs[i]) != tolower(rhs[i])) return false;
-  }
-  return true;
+  return std::ranges::equal(lhs, rhs, [](char a, char b) { return tolower(a) == tolower(b); });
 }
 
 /**
@@ -398,7 +510,7 @@ std::basic_string<char, std::char_traits<char>, TAllocator> *RandomString(
   static thread_local std::mt19937 pseudo_rand_gen{std::random_device{}()};
   static thread_local std::uniform_int_distribution<size_t> rand_dist{0, strlen(charset) - 1};
   out->resize(length);
-  for (size_t i = 0; i < length; ++i) (*out)[i] = charset[rand_dist(pseudo_rand_gen)];
+  std::ranges::generate(*out, [] { return charset[rand_dist(pseudo_rand_gen)]; });
   return out;
 }
 
@@ -485,5 +597,28 @@ inline std::string DoubleToString(const double value) {
   }
   return std::string(sv);
 }
+
+// Avoids copies if possible
+struct NoCopyStr {
+  explicit NoCopyStr(std::string_view view_in) : sv{view_in} {}
+
+  NoCopyStr &operator=(std::string &&str_in) {
+    str = std::move(str_in);
+    sv = str;
+    return *this;
+  }
+
+  std::string_view view() const { return sv; }
+
+  ~NoCopyStr() = default;
+  NoCopyStr(NoCopyStr &) = delete;
+  NoCopyStr &operator=(NoCopyStr &) = delete;
+  NoCopyStr(NoCopyStr &&) = delete;
+  NoCopyStr &operator=(NoCopyStr &&) = delete;
+
+ private:
+  std::string str;
+  std::string_view sv;
+};
 
 }  // namespace memgraph::utils

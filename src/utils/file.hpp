@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,16 +17,26 @@
  */
 #pragma once
 
+#include <unistd.h>
+
+#include <array>
 #include <atomic>
+#include <cstdint>
+#include <cstdio>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
-#include "utils/rw_lock.hpp"
+#include "utils/crc_accumulator.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
+
+using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
 
 /// Get the path of the current executable.
 ///
@@ -53,6 +63,8 @@ bool DirExists(const std::filesystem::path &dir);
 /// Deletes everything from the given directory including the directory.
 bool DeleteDir(const std::filesystem::path &dir) noexcept;
 
+auto GetFilesFromDir(std::filesystem::path const &dir) -> std::vector<std::filesystem::path>;
+
 /// Deletes just the specified file. Symlinks are not followed.
 bool DeleteFile(const std::filesystem::path &file) noexcept;
 
@@ -71,7 +83,24 @@ bool HasReadAccess(const std::filesystem::path &path);
 /// `write` for each of our (very small) logical reads/writes. Because of that,
 /// `read` or `write` is only called when the buffer is full and/or needs
 /// emptying.
-inline constexpr size_t kFileBufferSize = 262144;
+inline constexpr size_t kFileBufferSize = 262'144;
+
+/// What should happen to a file's pages in the operating system's page cache once we are done with
+/// them.
+///
+/// `kDrop` suits output nothing will read again, which stops a large finished file competing for
+/// memory with the working set. `kKeep` suits a file about to be read back, where dropping only
+/// means fetching the same bytes off the device again; clean pages cost a reader nothing to
+/// reclaim, so keeping them does not recreate the memory pressure dropping exists to relieve.
+enum class PageCachePolicy : uint8_t { kKeep, kDrop };
+
+/// Drop `fd`'s pages from the page cache, best effort.
+///
+/// Only clean pages go: POSIX_FADV_DONTNEED silently skips dirty ones, so call this after a sync,
+/// and only when the file is not about to be read back. Advisory, and it reports a refusal by
+/// returning an error number rather than by setting errno; there is nothing to do about one beyond
+/// leaving the pages where they are.
+void DropCachedPages(int fd);
 
 /// This class implements a file handler that is used to read binary files. It
 /// was developed because the C++ standard library has an awful API and makes
@@ -81,7 +110,7 @@ inline constexpr size_t kFileBufferSize = 262144;
 /// level system calls used for file manipulation.
 class InputFile {
  public:
-  enum class Position {
+  enum class Position : uint8_t {
     SET,
     RELATIVE_TO_CURRENT,
     RELATIVE_TO_END,
@@ -118,7 +147,7 @@ class InputFile {
   bool Peek(uint8_t *data, size_t size);
 
   /// This method gets the size of the file.
-  size_t GetSize();
+  size_t GetSize() const;
 
   /// This method gets the current absolute position in the file.
   size_t GetPosition();
@@ -132,18 +161,38 @@ class InputFile {
   /// Closes the currently opened file. On failure it crashes the program.
   void Close() noexcept;
 
+  /// See `utils::DropCachedPages`. Reading leaves clean pages behind, so no sync is needed first.
+  void DropCachedPages() const;
+
+  /// Restarts CRC accumulation from the current position.
+  void ResetCrc();
+
+  /// Returns the CRC-32 of all bytes consumed via `Read` since the last `ResetCrc` (or `Open`). Bytes skipped over
+  /// with `SetPosition` are not included; bytes inspected with `Peek` enter the CRC only once they are `Read`.
+  /// Accumulation is folded lazily at internal buffer granularity, so this is much cheaper than folding every `Read`.
+  auto CrcValue() -> uint32_t;
+
  private:
   bool LoadBuffer();
+
+  // Folds the consumed-but-not-yet-folded byte range of the current buffer into the CRC. Must be called before the
+  // buffer is discarded (reload or seek), since the pending bytes are only available there.
+  void FoldPendingCrc();
 
   int fd_{-1};
   std::filesystem::path path_;
   size_t file_size_{0};
   size_t file_position_{0};
 
-  uint8_t buffer_[kFileBufferSize];
+  std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
   std::optional<size_t> buffer_start_;
   size_t buffer_size_{0};
   size_t buffer_position_{0};
+
+  CrcAccumulator crc_acc_;
+  // Absolute file offset up to which consumed bytes have been folded into `crc_acc_`. Invariant: it either equals the
+  // current position (nothing pending) or lies within the current buffer, at or before the current position.
+  size_t crc_fold_position_{0};
 };
 
 /// This class implements a file handler that is used for mission critical files
@@ -174,12 +223,12 @@ class InputFile {
 /// 'EnableFlushing' method!
 class OutputFile {
  public:
-  enum class Mode {
+  enum class Mode : uint8_t {
     OVERWRITE_EXISTING,
     APPEND_TO_EXISTING,
   };
 
-  enum class Position {
+  enum class Position : uint8_t {
     SET,
     RELATIVE_TO_CURRENT,
     RELATIVE_TO_END,
@@ -197,9 +246,127 @@ class OutputFile {
   /// This method opens a new file used for writing. If the file doesn't exist
   /// it is created. The `mode` flags controls whether data is appended to the
   /// file or the file is wiped on first write. Files are created with a
+  /// restrictive permission mask (0640). On failure and misuse it returns false.
+  bool Open(const std::filesystem::path &path, Mode mode);
+
+  /// Returns a boolean indicating whether a file is opened.
+  bool IsOpen() const;
+
+  /// Returns the path to the currently opened file. If a file isn't opened the
+  /// path is empty.
+  const std::filesystem::path &path() const;
+
+  /// Writes data to the currently opened file. On failure and misuse it crashes
+  /// the program.
+  void Write(const uint8_t *data, size_t size);
+  void Write(const char *data, size_t size);
+  void Write(std::string_view data);
+
+  /// This method gets the current absolute position in the file. On failure and
+  /// misuse it crashes the program.
+  size_t GetPosition();
+
+  /// This method sets the current position in the file and returns the absolute
+  /// set position in the file. The position is set to `offset` with the
+  /// starting point taken from `position`. On failure and misuse it crashes the
+  /// program.
+  size_t SetPosition(Position position, ssize_t offset);
+
+  /// This function tries to acquire a POSIX write lock on the file. The
+  /// acquired lock is valid during the whole lifetime of the process and can't
+  /// be acquired again. The function returns `true` if the lock was required
+  /// successfully, `false` is returned otherwise. On misuse it crashes the
+  /// program.
+  bool AcquireLock();
+
+  /// Does exactly the same as AcquireLock() function but additionally waits for maximum of
+  /// FLAGS_data_dir_lock_acquisition_timeout_sec before returning false. Used when it's possible
+  /// that some other process cannot immediately release the lock but will do in a brief time window so it
+  /// pays off for us to wait
+  auto AcquireLockWithTimeout(uint32_t data_dir_lock_acquisition_timeout_sec, uint16_t sleep_time_ms = 250) -> bool;
+
+  /// Syncs currently pending data to the currently opened file. On failure
+  /// and misuse it crashes the program.
+  void Sync();
+
+  /// See `utils::DropCachedPages`.
+  void DropCachedPages() const { utils::DropCachedPages(fd_); }
+
+  /// Closes the currently opened file. It doesn't perform a `Sync` on the
+  /// file. On failure and misuse it crashes the program.
+  void Close() noexcept;
+
+  /// Disable flushing of the internal buffer.
+  void DisableFlushing();
+
+  /// Enable flushing of the internal buffer.
+  /// Before the flushing is enabled, the internal buffer
+  /// is flushed.
+  void EnableFlushing();
+
+  /// Try flushing the internal buffer.
+  void TryFlushing();
+
+  /// Get the internal buffer with its current size.
+  std::pair<const uint8_t *, size_t> CurrentBuffer() const;
+
+  /// Get the size of the file.
+  size_t GetSize();
+
+  /// Get the POSIX file handle
+  auto fd() const { return fd_; }
+
+ private:
+  void FlushBuffer();
+  void FlushBufferInternal();
+  void FlushBufferInternal(size_t to_write);
+
+  // Runs without `flush_lock_`, unlike the flush path. Any per-file state touched by both would
+  // race, which is why writeback pacing is offered on `NonConcurrentOutputFile` and not here.
+  size_t SeekFile(Position position, ssize_t offset);
+
+  // put flush lock on its own cacheline
+  alignas(64) utils::RWSpinLock flush_lock_;
+
+  // ensure the rest start on a new cacheline
+  alignas(64) int fd_{-1};
+  std::atomic<size_t> buffer_position_{0};
+  size_t written_since_last_sync_{0};
+  std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
+
+  // Path should be cold data
+  std::filesystem::path path_;
+};
+
+// Like OutputFile but without concurrent access to its buffer
+class NonConcurrentOutputFile {
+ public:
+  enum class Mode : uint8_t {
+    OVERWRITE_EXISTING,
+    APPEND_TO_EXISTING,
+  };
+
+  enum class Position : uint8_t {
+    SET,
+    RELATIVE_TO_CURRENT,
+    RELATIVE_TO_END,
+  };
+
+  NonConcurrentOutputFile() = default;
+  ~NonConcurrentOutputFile();
+
+  NonConcurrentOutputFile(const NonConcurrentOutputFile &) = delete;
+  NonConcurrentOutputFile &operator=(const NonConcurrentOutputFile &) = delete;
+
+  NonConcurrentOutputFile(NonConcurrentOutputFile &&) = delete;
+  NonConcurrentOutputFile &operator=(NonConcurrentOutputFile &&) = delete;
+
+  /// This method opens a new file used for writing. If the file doesn't exist
+  /// it is created. The `mode` flags controls whether data is appended to the
+  /// file or the file is wiped on first write. Files are created with a
   /// restrictive permission mask (0640). On failure and misuse it crashes the
   /// program.
-  void Open(const std::filesystem::path &path, Mode mode);
+  bool Open(const std::filesystem::path &path, Mode mode);
 
   /// Returns a boolean indicating whether a file is opened.
   bool IsOpen() const;
@@ -235,20 +402,48 @@ class OutputFile {
   /// and misuse it crashes the program.
   void Sync();
 
+  /// Bound the dirty page cache this file is allowed to accumulate, in `window_bytes` at a time.
+  ///
+  /// A multi-gigabyte streaming write otherwise fills the page cache with its own dirty pages until
+  /// the kernel throttles *every* writer on the machine at `dirty_ratio`, and evicts the working
+  /// set on the way out. Each window is handed to writeback as it is produced and then treated
+  /// according to `completed_window`, so the dirty footprint stays at about two windows however
+  /// large the file grows.
+  ///
+  /// Opt-in, and `window_bytes == 0` opts back out, because it is the wrong trade for a small
+  /// latency-sensitive file: it gives up a little throughput here so this file stops disturbing
+  /// everything else. Enabling restarts pacing from offset 0, so a reused handle cannot carry a
+  /// stale offset into a new file.
+  void EnableWritebackPacing(size_t window_bytes, PageCachePolicy completed_window = PageCachePolicy::kDrop);
+
+  /// See `utils::DropCachedPages`. Independent of pacing, and honoured either way: bounding the
+  /// dirty footprint while writing and disposing of the finished file are separate decisions.
+  ///
+  /// On a paced file one call also collects what the windows could not: the final partial window,
+  /// the window whose drop was scheduled for a boundary that never came, the windows abandoned by
+  /// each seek, and the pages the writer went back to patch after their region had been dropped.
+  void DropCachedPages();
+
+  /// Appends up to `size` bytes from the start of `src_fd` to this file, copying within the kernel.
+  ///
+  /// Returns the number of bytes appended, which is short of `size` only if `src_fd` ends early,
+  /// or `nullopt` if the copy failed, with `errno` left for the caller to report against a path it
+  /// knows and this does not.
+  ///
+  /// Anything buffered is flushed first, so it lands in front of the copied bytes.
+  [[nodiscard]] std::optional<uint64_t> AppendFrom(int src_fd, uint64_t size);
+
+  /// Where writeback pacing believes the file position is. Test-only: pacing is advisory
+  /// throughout, so this is the only thing separating pacing that works from pacing that stopped.
+  size_t PacingOffset() const { return pacing_offset_; }
+
+  /// Windows handed to writeback since pacing was enabled. Test-only, for the same reason: what
+  /// the page cache holds afterwards is the kernel's decision, this is what pacing did.
+  size_t PacingWindowsCompleted() const { return pacing_windows_completed_; }
+
   /// Closes the currently opened file. It doesn't perform a `Sync` on the
   /// file. On failure and misuse it crashes the program.
   void Close() noexcept;
-
-  /// Disable flushing of the internal buffer.
-  void DisableFlushing();
-
-  /// Enable flushing of the internal buffer.
-  /// Before the flushing is enabled, the internal buffer
-  /// is flushed.
-  void EnableFlushing();
-
-  /// Try flushing the internal buffer.
-  void TryFlushing();
 
   /// Get the internal buffer with its current size.
   std::pair<const uint8_t *, size_t> CurrentBuffer() const;
@@ -257,19 +452,42 @@ class OutputFile {
   size_t GetSize();
 
  private:
-  void FlushBuffer(bool force_flush);
+  void FlushBuffer();
   void FlushBufferInternal();
+  void FlushBufferInternal(size_t to_write);
 
   size_t SeekFile(Position position, ssize_t offset);
 
-  int fd_{-1};
-  size_t written_since_last_sync_{0};
-  std::filesystem::path path_;
-  uint8_t buffer_[kFileBufferSize];
-  std::atomic<size_t> buffer_position_{0};
+  // Hand the window `bytes` just completed to writeback and dispose of the one before it. Call
+  // after every successful write to the descriptor, whatever route those bytes took.
+  void PaceWriteback(size_t bytes);
 
-  // Flushing buffer should be a higher priority
-  utils::RWLock flush_lock_{RWLock::Priority::WRITE};
+  // Abandon the windows in flight and treat `offset` as the current file position. Pacing knows
+  // where it is by counting bytes written, which is the file offset only while the file is
+  // append-only. The snapshot writer is not: it seeks back to patch batch sizes and the offset
+  // table, and without this the windows would silently address the wrong ranges from the first
+  // seek onwards. That is harmless to the data, since both syscalls are advisory, but pacing would
+  // stop doing anything useful. Leaves the configuration alone; only the progress is reset.
+  void RestartPacing(size_t offset);
+
+  int fd_{-1};
+  size_t buffer_position_{0};
+  size_t written_since_last_sync_{0};
+
+  // Writeback pacing; see `EnableWritebackPacing`. A zero window means pacing is off, whether
+  // because it was never enabled or because a `sync_file_range` failure turned it off.
+  size_t pacing_window_{0};
+  PageCachePolicy pacing_completed_window_{PageCachePolicy::kDrop};
+  size_t pacing_offset_{0};         // bytes written to the file so far
+  size_t pacing_pending_start_{0};  // start of the window not yet handed to writeback
+  size_t pacing_prev_start_{0};     // window handed to writeback, not yet disposed of
+  size_t pacing_prev_len_{0};
+  size_t pacing_windows_completed_{0};
+
+  std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
+
+  // Path should be cold data
+  std::filesystem::path path_;
 };
 
 }  // namespace memgraph::utils

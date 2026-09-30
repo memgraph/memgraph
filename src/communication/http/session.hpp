@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <deque>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -29,7 +28,7 @@
 #include <boost/beast/http.hpp>
 #include <boost/beast/ssl.hpp>
 #include <boost/beast/version.hpp>
-#include <json/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "communication/context.hpp"
 #include "utils/logging.hpp"
@@ -38,6 +37,7 @@
 namespace memgraph::communication::http {
 
 inline constexpr uint16_t kSSLExpirySeconds = 30;
+
 inline void LogError(boost::beast::error_code ec, const std::string_view what) {
   spdlog::warn("HTTP session failed on {}: {}", what, ec.message());
 }
@@ -79,7 +79,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
 
   std::variant<PlainSocket, SSLSocket> CreateSocket(tcp::socket &&socket, ServerContext &context) {
     if (context.use_ssl()) {
-      ssl_context_.emplace(context.context_clone());
+      ssl_context_ = context.context_clone();
       return Session::SSLSocket{std::move(socket), *ssl_context_};
     }
 
@@ -111,7 +111,9 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
       boost::beast::get_lowest_layer(stream).expires_after(std::chrono::seconds(kSSLExpirySeconds));
 
       boost::beast::http::async_read(
-          stream, buffer_, req_,
+          stream,
+          buffer_,
+          req_,
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
     });
   }
@@ -162,6 +164,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
                                  }},
                stream_);
   }
+
   void OnClose(boost::beast::error_code ec) {
     if (ec) {
       LogError(ec, "close");
@@ -179,7 +182,7 @@ class Session : public std::enable_shared_from_this<Session<TRequestHandler, TSe
     return std::visit(utils::Overloaded{std::forward<F>(fn)}, stream_);
   }
 
-  std::optional<std::reference_wrapper<boost::asio::ssl::context>> ssl_context_;
+  std::shared_ptr<boost::asio::ssl::context> ssl_context_;
   std::variant<PlainSocket, SSLSocket> stream_;
   boost::beast::flat_buffer buffer_;
 

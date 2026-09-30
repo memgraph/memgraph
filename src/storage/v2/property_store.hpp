@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,29 @@
 
 #pragma once
 
-#include <map>
-#include <set>
-
+#include "storage/v2/constraints/type_constraints_validator.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_store_types.hpp"
 #include "storage/v2/property_value.hpp"
 
+#include <gflags/gflags.h>
+#include <array>
+#include <cstdint>
+#include <map>
+#include <optional>
+#include <set>
+#include <span>
+
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(storage_property_store_compression_enabled);
+// NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_uint64(storage_floating_point_resolution_bits);
+
 namespace memgraph::storage {
+
+struct PropertyPath;
+template <typename T>
+struct IndexedPropertyDecoder;
 
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
@@ -45,6 +61,22 @@ class PropertyStore {
   /// @throw std::bad_alloc
   PropertyValue GetProperty(PropertyId property) const;
 
+  /// Returns the currently stored value for property `property`. If the
+  /// property doesn't exist a Null value is returned. The time complexity of
+  /// this function is O(n).
+  /// The property value is decoded and if it's stored somewhere else (e.g. vector index) it's decoded and returned.
+  /// (ATM only vector index is handled this way)
+  /// @throw std::bad_alloc
+  template <typename T>
+  PropertyValue GetProperty(PropertyId property, const IndexedPropertyDecoder<T> &decoder) const;
+
+  ExtendedPropertyType GetExtendedPropertyType(PropertyId property) const;
+
+  /// Returns the size of the encoded property in bytes.
+  /// Returns 0 if the property does not exist.
+  /// The time complexity of this function is O(n).
+  uint32_t PropertySize(PropertyId property) const;
+
   /// Checks whether the property `property` exists in the store. The time
   /// complexity of this function is O(n).
   bool HasProperty(PropertyId property) const;
@@ -58,8 +90,18 @@ class PropertyStore {
   bool HasAllPropertyValues(const std::vector<PropertyValue> &property_values) const;
 
   /// Extracts property values for all property ids in the set `properties`. The time
-  /// complexity of this function is O(n^2).
+  /// complexity of this function is O(n).
   std::optional<std::vector<PropertyValue>> ExtractPropertyValues(const std::set<PropertyId> &properties) const;
+
+  /// Extracts property values for all property ids in the span `ordered_properties`. Any missing properties will be
+  /// represented by Null. The time complexity of this function is O(n).
+  /// @param ordered_properties: a pre-sorted collection of `PropertyPath`
+  std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const;
+
+  /// As above, but writes into the caller-provided `out` (one slot per ordered property, same single pass), so a
+  /// fixed-size buffer can be filled without a heap allocation. `out.size()` must equal `ordered_properties.size()`.
+  void ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties,
+                                          std::span<PropertyValue> out) const;
 
   /// Checks whether the property `property` is equal to the specified value
   /// `value`. This function doesn't perform any memory allocations while
@@ -67,10 +109,41 @@ class PropertyStore {
   /// O(n).
   bool IsPropertyEqual(PropertyId property, const PropertyValue &value) const;
 
+  /// Checks whether the properties `ordered_properties` are equal to the
+  /// specified values `values`. This function doesn't perform any memory
+  /// allocations while performing the equality check. The time complexity of
+  /// this function is O(n). `position_lookup` is an ordering mapping of values
+  /// to match given property from `ordered_properties`, hence value for
+  /// `ordered_properties[0]` is `values[position_lookup[0]]`. The results
+  /// written to `result` correspond to `ordered_properties`.
+  ///
+  /// `result` is supplied by the caller, and its previous contents are discarded: the comparison
+  /// itself never allocated, a returned vector did, and both callers walk index entries in a loop.
+  void ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
+                          std::span<std::size_t const> position_lookup, std::vector<bool> &result) const;
+
   /// Returns all properties currently stored in the store. The time complexity
   /// of this function is O(n).
   /// @throw std::bad_alloc
   std::map<PropertyId, PropertyValue> Properties() const;
+
+  /// Returns all properties currently stored in the store, with values decoded
+  /// (e.g. vector index IDs resolved). The time complexity of this function is O(n).
+  /// @throw std::bad_alloc
+  template <typename T>
+  std::map<PropertyId, PropertyValue> Properties(const IndexedPropertyDecoder<T> &decoder) const;
+
+  std::vector<PropertyId> PropertiesOfTypes(std::span<PropertyStoreType const> types) const;
+
+  std::optional<PropertyValue> GetPropertyOfTypes(PropertyId property, std::span<PropertyStoreType const> types) const;
+
+  /// Returns types of properties currently stored.
+  /// @throw std::bad_alloc
+  std::map<PropertyId, ExtendedPropertyType> ExtendedPropertyTypes() const;
+
+  /// Returns property ids currently stored.
+  /// @throw std::bad_alloc
+  std::vector<PropertyId> ExtractPropertyIds() const;
 
   /// Set a property value and return `true` if insertion took place. `false` is
   /// returned if assignment took place. The time complexity of this function is
@@ -110,11 +183,17 @@ class PropertyStore {
   /// Sets buffer
   void SetBuffer(std::string_view buffer);
 
+  auto PropertiesMatchTypes(TypeConstraintsValidator const &constraint) const
+      -> std::optional<PropertyStoreConstraintViolation>;
+
  private:
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);
 
-  uint8_t buffer_[sizeof(uint64_t) + sizeof(uint8_t *)];
+  template <typename Func>
+  auto WithReader(Func &&func) const;
+
+  std::array<uint8_t, sizeof(uint32_t) + sizeof(uint8_t *)> buffer_{};
 };
 
 }  // namespace memgraph::storage

@@ -16,7 +16,7 @@ from common import connect, execute_and_fetch_all
 
 
 def check_storage_info(cursor, expected_values):
-    cursor.execute("SHOW STORAGE INFO")
+    cursor.execute("SHOW STORAGE INFO ON CURRENT DATABASE")
     config = cursor.fetchall()
 
     for conf in config:

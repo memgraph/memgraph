@@ -1,54 +1,76 @@
-# MemGraph CMake configuration
+cmake_minimum_required(VERSION 3.31)
 
-cmake_minimum_required(VERSION 3.12)
-cmake_policy(SET CMP0076 NEW)
+# Enable the built-in `codegen` target for add_custom_command(CODEGEN).
+cmake_policy(SET CMP0171 NEW)
+
+# Opt in to transitive LINK_LIBRARIES evaluation (CMake 4.1+).
+# Our CXX_MODULES targets are already structured to avoid cycles.
+if(POLICY CMP0189)
+  cmake_policy(SET CMP0189 NEW)
+endif()
 
 # !! IMPORTANT !! run ./project_root/init.sh before cmake command
 # to download dependencies
+project(memgraph LANGUAGES C CXX)
 
-if(NOT UNIX)
-  message(FATAL_ERROR "Unsupported operating system.")
+# Default component for any install(...) that doesn't specify COMPONENT.
+# With component-aware CPack (CPACK_DEB_COMPONENT_INSTALL=ON), only files in
+# components listed in CPACK_COMPONENTS_ALL (memgraph, debuginfo) are packaged.
+# An install rule without a COMPONENT would otherwise land in the implicit
+# "Unspecified" bucket and disappear. Subdirectories override this locally.
+set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
+
+# Enable ccache
+find_program(CCACHE_PROGRAM ccache)
+
+if(CCACHE_PROGRAM)
+    message(STATUS "Using ccache: ${CCACHE_PROGRAM}")
+    # Lets checkouts at different paths share entries. base_dir must be this checkout's root:
+    # a wider one rewrites the dependency paths they share. nohashdir needs -ffile-prefix-map.
+    find_program(ENV_PROGRAM env REQUIRED)
+    set(MG_CCACHE_LAUNCHER
+        ${ENV_PROGRAM}
+        CCACHE_BASEDIR=${PROJECT_SOURCE_DIR}
+        CCACHE_NOHASHDIR=true
+        ${CCACHE_PROGRAM})
+    set(CMAKE_C_COMPILER_LAUNCHER   ${MG_CCACHE_LAUNCHER} CACHE STRING "" FORCE)
+    set(CMAKE_CXX_COMPILER_LAUNCHER ${MG_CCACHE_LAUNCHER} CACHE STRING "" FORCE)
+
+    # A compiled module interface records the path of its source and of every
+    # file it read, and -ffile-prefix-map does not reach those. Sharing an entry
+    # between checkouts then hands one checkout an interface naming another's
+    # files, which a compile that has to quote the module's source reports as a
+    # missing file, or renders from the wrong checkout where that one still
+    # exists. Recording the paths relative to the working directory makes the
+    # interface mean the same thing in whichever checkout reads it. It takes
+    # effect because base_dir has already rewritten the source path given to the
+    # compiler, and so belongs with the sharing it protects.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+        add_compile_options(
+            "$<$<COMPILE_LANGUAGE:CXX>:SHELL:-Xclang -fmodule-file-home-is-cwd>")
+    endif()
 endif()
 
 # Set `make clean` to ignore outputs of add_custom_command. If generated files
 # need to be cleaned, set ADDITIONAL_MAKE_CLEAN_FILES property.
 set_directory_properties(PROPERTIES CLEAN_NO_CUSTOM TRUE)
 
-# ccache setup
-# ccache isn't enabled all the time because it makes some problem
-# during the code coverage process
-find_program(CCACHE_FOUND ccache)
-option(USE_CCACHE "ccache:" ON)
-if(CCACHE_FOUND AND USE_CCACHE)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
-  message(STATUS "CCache: Used")
-else ()
-  message(STATUS "CCache: Not used")
-endif(CCACHE_FOUND AND USE_CCACHE)
-
-# choose a compiler
-# NOTE: must be choosen before use of project() or enable_language()
-find_program(CLANG_FOUND clang)
-find_program(CLANGXX_FOUND clang++)
-if (CLANG_FOUND AND CLANGXX_FOUND)
-  set(CMAKE_C_COMPILER ${CLANG_FOUND})
-  set(CMAKE_CXX_COMPILER ${CLANGXX_FOUND})
-else()
-  message(FATAL_ERROR "Couldn't find clang and/or clang++!")
+if(NOT UNIX)
+    message(FATAL_ERROR "Unsupported operating system.")
 endif()
 
-# -----------------------------------------------------------------------------
+# setup CMake module path, defines path for include() and find_package()
+# https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
-project(memgraph LANGUAGES C CXX)
+include(MgToolchain)
 
-#TODO: upgrade to cmake 3.24 + CheckIPOSupported
-#cmake_policy(SET CMP0138 NEW)
-#include(CheckIPOSupported)
-#check_ipo_supported()
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
-#set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
-
+# this reduces issues in build folders from inside containers
+# which are different locations than the host
+set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_RUNTIME_DIR}")
+set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
+message(STATUS "CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
         DESTINATION share/doc/memgraph)
@@ -166,13 +188,69 @@ if (IS_DIRECTORY "${git_directory}")
   endif()
 endif()
 
-# -----------------------------------------------------------------------------
-
-# setup CMake module path, defines path for include() and find_package()
-# https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 # custom function definitions
 include(functions)
+
+include(BuildParallelism)
+
+# Build the Memgraph database itself. Turn OFF (together with
+# -DMG_BUILD_MAGE=ON) for a MAGE-only build — the Conan side of that mode is
+# the `mage_only` option in conanfile.py, which trims the dependency graph
+# to match and sets both CMake options via the toolchain (see
+# `./build.sh --mage only`).
+option(MG_BUILD_MEMGRAPH "Build the Memgraph database" ON)
+option(MG_BUILD_MAGE "Build all MAGE query modules (C++, Python, Rust)" OFF)
+
+if(NOT MG_BUILD_MEMGRAPH AND NOT MG_BUILD_MAGE)
+  message(FATAL_ERROR
+      "Nothing to build: MG_BUILD_MEMGRAPH=OFF requires MG_BUILD_MAGE=ON "
+      "(MAGE-only build).")
+endif()
+
+# Load conan dependencies in the correct order using explicit find_package calls
+# Load dependencies that don't depend on others first.
+# These are needed by every build mode (MAGE links fmt/Boost/GTest/nlohmann_json).
+find_package(GTest REQUIRED)
+find_package(fmt REQUIRED)
+find_package(Boost REQUIRED)
+find_package(nlohmann_json REQUIRED)
+find_package(libuuid REQUIRED)
+
+if(MG_BUILD_MEMGRAPH)
+    find_package(ApprovalTests REQUIRED)
+    find_package(benchmark REQUIRED)
+    find_package(rapidcheck REQUIRED)
+    find_package(spdlog REQUIRED)
+    find_package(gflags REQUIRED)
+    find_package(strong_type REQUIRED)
+    find_package(BZip2 REQUIRED)
+    find_package(antlr4-runtime REQUIRED)
+    find_package(cppitertools REQUIRED)
+    find_package(ctre REQUIRED)
+    find_package(absl REQUIRED)
+    find_package(croncpp REQUIRED)
+    find_package(range-v3 REQUIRED)
+    find_package(asio REQUIRED)
+    find_package(RocksDB REQUIRED CONFIG)
+    find_package(usearch CONFIG REQUIRED)
+    find_package(ZLIB REQUIRED)
+    find_package(RdKafka REQUIRED)
+    find_package(jemalloc REQUIRED)
+    find_package(libbcrypt REQUIRED)
+    find_package(librdtsc REQUIRED)
+    find_package(nuraft REQUIRED CONFIG)
+    find_package(pulsar-client-cpp REQUIRED CONFIG)
+    find_package(protobuf REQUIRED CONFIG)
+    find_package(Snappy REQUIRED)
+    find_package(Arrow REQUIRED)
+    find_package(AWSSDK REQUIRED CONFIG COMPONENTS s3)
+
+    # Now load mgclient which depends on OpenSSL
+    find_package(OpenSSL REQUIRED)
+    find_package(mgclient REQUIRED)
+    find_package(prometheus-cpp REQUIRED)
+endif()
+
 # -----------------------------------------------------------------------------
 
 # We want out of source builds, so that cmake generated files don't get mixed
@@ -189,35 +267,67 @@ add_custom_target(clean_all
 # is easier debugging of compilation and linker flags.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Enable C++23 module scanning for all targets
+# This allows any target to import C++23 modules from dependencies
+set(CMAKE_CXX_SCAN_FOR_MODULES ON)
+
+add_compile_definitions(BOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT)
+
 # c99-designator is disabled because of required mixture of designated and
 # non-designated initializers in Python Query Module code (`py_module.cpp`).
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall \
-    -Werror=switch -Werror=switch-bool -Werror=return-type \
-    -Werror=return-stack-address \
-    -Wno-c99-designator -Wmissing-field-initializers \
-    -DBOOST_ASIO_USE_TS_EXECUTOR_AS_DEFAULT")
+add_compile_options(
+        -Wall
+        -Werror=non-virtual-dtor
+        -Werror=unused-private-field
+        -Werror=switch
+        -Werror=switch-bool
+        -Werror=return-type
+        -Werror=return-stack-address
+        -Werror=dangling
+        -Werror=non-power-of-two-alignment
+        -Wno-missing-field-initializers # C++20 designated init, unspecified fields are zero-initialized
+        -Wno-c99-designator
+        -Werror=implicit-fallthrough
+        -Werror=deprecated
+        -Wno-error=deprecated-declarations
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-init-list>
+        # A member whose constructor starts a thread reading other members is initialized in
+        # declaration order, not the order the initializer list is written in.
+        $<$<CXX_COMPILER_ID:Clang>:-Werror=reorder-ctor>
+        $<$<CXX_COMPILER_ID:GNU>:-Werror=reorder>
+)
 
-# Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
+# Tree-relative source paths, so no object names the directory that built it. nvcc rejects it.
+add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-ffile-prefix-map=${PROJECT_SOURCE_DIR}=.>)
 
-# Statically link libgcc and libstdc++, the GCC allows this according to:
-# https://gcc.gnu.org/onlinedocs/gcc-10.2.0/libstdc++/manual/manual/license.html
-# https://www.gnu.org/licenses/gcc-exception-faq.html
-# Last checked for gcc-10.2 which we are using on the build machines.
-# ** If we change versions, recheck this! **
-# ** Static linking is allowed only for executables! **
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
+# Use lld linker to speedup build and use less memory.
+add_link_options(-fuse-ld=lld)
+add_link_options(LINKER:--build-id)
+if (MG_TOOLCHAIN_LINK_DIR)
+    link_directories("${MG_TOOLCHAIN_LINK_DIR}")
+endif ()
 
-# Use lld linker to speedup build
-add_link_options(-fuse-ld=lld) # TODO: use mold linker
+# After linker is set, check we can use link-time optimization
+include(CheckIPOSupported)
+message(STATUS "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: ${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+check_ipo_supported(RESULT ipo_supported OUTPUT output) # fatal error if IPO is not supported
+if (NOT ipo_supported)
+    message(SEND_ERROR "IPO test failed")
+    message(FATAL_ERROR "${output}")
+endif()
+
+
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
 
-SET(CMAKE_CXX_LINK_FLAGS "${CMAKE_CXX_LINK_FLAGS} -pthread")
+include(SplitDebug)
+include(CompressDebug)
 
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING
@@ -242,7 +352,12 @@ endif()
 message(STATUS "CMake build type: ${CMAKE_BUILD_TYPE}")
 # -----------------------------------------------------------------------------
 
-add_definitions( -DCMAKE_BUILD_TYPE_NAME="${CMAKE_BUILD_TYPE}")
+add_compile_definitions(
+    CMAKE_BUILD_TYPE_NAME="${CMAKE_BUILD_TYPE}"
+    # In Debug also check we have correct usage of libstdc++
+    $<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>
+)
+
 
 if (NOT MG_ARCH)
     set(MG_ARCH_DESCR "Host architecture to build Memgraph on. Supported values are x86_64, ARM64.")
@@ -268,39 +383,14 @@ if (USE_READLINE)
   endif()
 endif()
 
-set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
-add_subdirectory(libs EXCLUDE_FROM_ALL)
 
-option(MG_EXPERIMENTAL_HIGH_AVAILABILITY "Feature flag for experimental high availability" OFF)
-
-if (NOT MG_ENTERPRISE AND MG_EXPERIMENTAL_HIGH_AVAILABILITY)
-    set(MG_EXPERIMENTAL_HIGH_AVAILABILITY OFF)
-    message(FATAL_ERROR "MG_EXPERIMENTAL_HIGH_AVAILABILITY must be used with enterpise version of the code.")
-endif ()
-
-if (MG_EXPERIMENTAL_HIGH_AVAILABILITY)
-    add_compile_definitions(MG_EXPERIMENTAL_HIGH_AVAILABILITY)
-endif ()
-
-# Optional subproject configuration -------------------------------------------
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
-option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(UBSAN "Build with Undefined Behaviour Sanitizer" OFF)
 
 # Build feature flags
-option(MG_EXPERIMENTAL_REPLICATION_MULTITENANCY "Feature flag for experimental replicaition of multitenacy" OFF)
-
-if (NOT MG_ENTERPRISE AND MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
-    set(MG_EXPERIMENTAL_REPLICATION_MULTITENANCY OFF)
-    message(FATAL_ERROR "MG_EXPERIMENTAL_REPLICATION_MULTITENANCY with community edition build isn't possible")
-endif ()
-
-if (MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
-    add_compile_definitions(MG_EXPERIMENTAL_REPLICATION_MULTITENANCY)
-endif ()
 
 if (TEST_COVERAGE)
   string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
@@ -311,11 +401,49 @@ if (TEST_COVERAGE)
   set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
 endif()
 
+# -Og is the optimisation level meant to be debugged: it leaves assertions, and the code paths they
+# guard, exactly as they are, while costing a fraction of what unoptimised code does to run. A
+# coverage build is exempt because it compiles without a compilation cache, so it pays the optimiser
+# on every file on every build, which is more than its faster tests give back.
+if (NOT TEST_COVERAGE)
+    string(APPEND CMAKE_CXX_FLAGS_DEBUG " -Og")
+endif()
+
 if (MG_ENTERPRISE)
   add_definitions(-DMG_ENTERPRISE)
 endif()
 
+# Embedded Python interpreter (Python query modules). OFF builds a memgraph
+# with no libpython dependency; only .so query modules can be loaded.
+option(MG_PYTHON_SUPPORT "Embed the Python interpreter (enables Python query modules)" ON)
+if (MG_PYTHON_SUPPORT)
+  add_definitions(-DMG_PYTHON_SUPPORT)
+endif()
+message(STATUS "MG_PYTHON_SUPPORT: ${MG_PYTHON_SUPPORT}")
+
 option(ENABLE_JEMALLOC "Use jemalloc" ON)
+
+option(MG_MEMORY_PROFILE "If build should be setup for memory profiling" OFF)
+if (MG_MEMORY_PROFILE AND ENABLE_JEMALLOC)
+    message(STATUS "Jemalloc has been disabled because MG_MEMORY_PROFILE is enabled")
+    set(ENABLE_JEMALLOC OFF)
+endif ()
+if (MG_MEMORY_PROFILE AND ASAN)
+    message(STATUS "ASAN has been disabled because MG_MEMORY_PROFILE is enabled")
+    set(ASAN OFF)
+endif ()
+if (MG_MEMORY_PROFILE)
+    add_compile_definitions(MG_MEMORY_PROFILE)
+endif ()
+
+# Profiling build: keep frame pointers so `perf` can walk the stack without
+# unwind metadata, plus -fno-optimize-sibling-calls so tail calls stay as real
+# frames. Reserving a register costs throughput, so keep OFF for shipped builds.
+option(MG_PROFILE "Retain frame pointers for perf profiling" OFF)
+if (MG_PROFILE)
+    message(STATUS "MG_PROFILE=ON: retaining frame pointers for profiling")
+    add_compile_options(-fno-omit-frame-pointer -fno-optimize-sibling-calls)
+endif ()
 
 if (ASAN)
   message(WARNING "Disabling jemalloc as it doesn't work well with ASAN")
@@ -326,8 +454,8 @@ if (ASAN)
   # llvm-symbolizer version must match the version of ASan runtime library).
   # Just make sure llvm-symbolizer is in PATH before running the binary or
   # provide it in separate ASAN_SYMBOLIZER_PATH environment variable.
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -fno-omit-frame-pointer")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+  add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+  add_link_options(-fsanitize=address)
   # To detect Stack-use-after-return bugs set run-time flag:
   #   ASAN_OPTIONS=detect_stack_use_after_return=1
   # To check initialization order bugs set run-time flag:
@@ -341,6 +469,8 @@ if (ASAN)
 endif()
 
 if (TSAN)
+  message(WARNING "Disabling jemalloc as it doesn't work well with TSAN")
+  set(ENABLE_JEMALLOC OFF)
   # ThreadSanitizer generally requires all code to be compiled with -fsanitize=thread.
   # If some code (e.g. dynamic libraries) is not compiled with the flag, it can
   # lead to false positive race reports, false negative race reports and/or
@@ -356,7 +486,7 @@ if (TSAN)
   # By default ThreadSanitizer uses addr2line utility to symbolize reports.
   # llvm-symbolizer is faster, consumes less memory and produces much better
   # reports. To use it set runtime flag:
-  #   TSAN_OPTIONS="extern-symbolizer-path=~/llvm-symbolizer"
+  # TSAN_OPTIONS="extern-symbolizer-path=~/llvm-symbolizer"
   # For more runtime flags see: https://github.com/google/sanitizers/wiki/ThreadSanitizerFlags
 endif()
 
@@ -364,39 +494,106 @@ if (UBSAN)
   # Compile with UBSAN but disable vptr check. This is disabled because it
   # requires linking with clang++ to make sure C++ specific parts of the
   # runtime library and c++ standard libraries are present.
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=undefined -fno-sanitize=vptr")
+  # -fno-sanitize=function is needed because of https://github.com/openssl/openssl/issues/26210
+  add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr,function -fsanitize-ignorelist=${CMAKE_SOURCE_DIR}/tools/ubsan.ignore)
+  add_link_options(-fsanitize=undefined -fno-sanitize=vptr,function)
   # Run program with environment variable UBSAN_OPTIONS=print_stacktrace=1.
   # Make sure llvm-symbolizer binary is in path.
   # To make the program abort on undefined behavior, use UBSAN_OPTIONS=halt_on_error=1.
 endif()
 
+if(MG_BUILD_MEMGRAPH)
+  # absl library is sensitive to sanitisers, 3rd party libs need building with sanitizer options
+  add_library(rocksdb INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET rocksdb PROPERTY INTERFACE_LINK_LIBRARIES RocksDB::rocksdb)
+
+  add_library(usearch INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET usearch PROPERTY INTERFACE_LINK_LIBRARIES usearch::usearch)
+  # Suppress the guarded #warning in usearch/index_plugins.hpp.
+  target_compile_options(usearch INTERFACE [[-Wno-#warnings]])
+
+  add_library(nuraft INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET nuraft PROPERTY INTERFACE_LINK_LIBRARIES nuraft::nuraft)
+
+  add_library(protobuf INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET protobuf PROPERTY INTERFACE_LINK_LIBRARIES protobuf::libprotobuf)
+
+  add_library(pulsar INTERFACE IMPORTED GLOBAL)
+  set_property(TARGET pulsar PROPERTY INTERFACE_LINK_LIBRARIES pulsar-client-cpp::pulsar-client-cpp)
+
+  # Build mgconsole in isolation using the install script to avoid target
+  # conflicts with Memgraph's dependencies (e.g., gflags). Keep these placeholder
+  # targets available during the normal build graph.
+  if(NOT DEFINED MGCONSOLE_GIT_TAG)
+    # Default used by release/install_mgconsole.cmake.
+    set(MGCONSOLE_GIT_TAG "v1.6.0")
+  endif()
+  add_custom_target(mgconsole-proj)
+  add_custom_target(mgconsole)
+
+  set(SPDLOG_FMT_EXTERNAL ON)
+  set(ABSL_PROPAGATE_CXX_STD ON)
+
+  # Include mgcxx text search bridge as part of the main build.
+  set(ENABLE_TESTS OFF CACHE BOOL "Enable tests" FORCE)
+  add_subdirectory(${CMAKE_SOURCE_DIR}/mgcxx ${CMAKE_BINARY_DIR}/mgcxx EXCLUDE_FROM_ALL)
+  target_link_libraries(mgcxx_text_search ${CMAKE_DL_LIBS})
+  add_library(tantivy_text_search ALIAS mgcxx_text_search)
+endif()
+
+message(STATUS "MG_TOOLCHAIN_VERSION: ${MG_TOOLCHAIN_VERSION}")
+
 set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by the query modules")
 set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
-
-# Add subprojects
-include_directories(src)
-add_subdirectory(src)
-
-# Release configuration
-add_subdirectory(release)
 
 option(MG_ENABLE_TESTING "Set this to OFF to disable building test binaries" ON)
 message(STATUS "MG_ENABLE_TESTING: ${MG_ENABLE_TESTING}")
 
+# Common. enable_testing() stays unconditional so MAGE's unit tests register
+# with CTest in MAGE-only builds too; unit_tests.cmake only defines memgraph
+# test helpers.
 if (MG_ENABLE_TESTING)
   enable_testing()
-  add_subdirectory(tests)
+  if (MG_BUILD_MEMGRAPH)
+    include(cmake/unit_tests.cmake)
+  endif()
+endif ()
+
+if (MG_BUILD_MEMGRAPH)
+  # Add subprojects
+  include_directories(src)
+  add_subdirectory(src)
+
+  if (MG_ENABLE_TESTING)
+    add_subdirectory(tests)
+  endif()
+
+  if(QUERY_MODULES)
+    add_subdirectory(query_modules)
+  endif()
 endif()
 
-if(TOOLS)
-  add_subdirectory(tools)
+if(MG_BUILD_MAGE)
+  add_subdirectory(src/mage)
 endif()
 
-if(QUERY_MODULES)
-  add_subdirectory(query_modules)
-endif()
+# Release/packaging configuration (CPack). Always included — the component
+# set it packages follows MG_BUILD_MEMGRAPH / MG_BUILD_MAGE, so MAGE-only
+# builds can still produce the memgraph-mage packages.
+add_subdirectory(release)
 
-install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
-  PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-  TYPE BIN)
+if (MG_BUILD_MEMGRAPH)
+  # Legacy target: prefer `ninja codegen` (CMake 3.31+ built-in, uses CODEGEN flag).
+  # Kept for backwards compatibility with CI scripts.
+  add_custom_target(generated_code DEPENDS
+    generate_opencypher_parser
+    mgcxx_text_search
+  )
+
+  # Build mgconsole during install stage (before installing the file)
+  install(SCRIPT "${CMAKE_SOURCE_DIR}/release/install_mgconsole.cmake")
+
+  install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
+    PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+    TYPE BIN)
+endif()

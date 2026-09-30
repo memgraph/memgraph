@@ -1,0 +1,6 @@
+- query: >-
+    CALL betweenness_centrality_online.get(false)
+    YIELD node, betweenness_centrality
+    RETURN COUNT(node) AS count;
+  exception: >-
+    Graph has been modified and is thus inconsistent with cached betweenness centrality scores; to update them, please call set/reset!

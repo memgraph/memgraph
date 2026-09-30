@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,81 +10,220 @@
 // licenses/APL.txt.
 
 #include "storage/v2/constraints/existence_constraints.hpp"
-#include "storage/v2/constraints/constraints.hpp"
+#include <expected>
+#include "memory/db_arena_fwd.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/constraints/utils.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/mvcc.hpp"
+#include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
+
 namespace memgraph::storage {
 
-bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
-  return utils::Contains(constraints_, std::make_pair(label, property));
-}
-
-void ExistenceConstraints::InsertConstraint(LabelId label, PropertyId property) {
-  if (ConstraintExists(label, property)) {
-    return;
+namespace {
+[[nodiscard]] std::expected<void, ConstraintViolation> ValidateVertexOnConstraint(const Vertex &vertex,
+                                                                                  const LabelId &label,
+                                                                                  const PropertyId &property) {
+  if (!vertex.deleted() && std::ranges::contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
+    return std::unexpected{ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set{property}}};
   }
-  constraints_.emplace_back(label, property);
+  return {};
+}
+}  // namespace
+
+// --- IndividualConstraint implementation ---
+
+ExistenceConstraints::IndividualConstraint::~IndividualConstraint() = default;
+
+// --- ActiveConstraints implementation ---
+
+std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ActiveConstraints::ListConstraints(
+    uint64_t start_timestamp) const {
+  namespace r = std::ranges;
+  namespace rv = std::views;
+  auto result = *container_ |
+                rv::filter([start_timestamp](const auto &c) { return c.second->status.IsVisible(start_timestamp); }) |
+                rv::transform([](const auto &c) { return std::pair{c.first.label, c.first.property}; }) |
+                r::to<std::vector<std::pair<LabelId, PropertyId>>>();
+  std::ranges::sort(result);
+  return result;
 }
 
-bool ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
-  auto it = std::find(constraints_.begin(), constraints_.end(), std::make_pair(label, property));
-  if (it == constraints_.end()) {
+bool ExistenceConstraints::ActiveConstraints::empty() const { return container_->empty(); }
+
+ExistenceConstraints::ActiveConstraints::ActiveConstraints(ContainerPtr container) : container_{std::move(container)} {
+  auto gathered_properties = std::vector<PropertyId>{};
+  auto gathered_labels = std::vector<LabelId>{};
+  gathered_properties.reserve(container_->size());
+  gathered_labels.reserve(container_->size());
+  for (auto const &[key, constraint] : *container_) {
+    gathered_properties.push_back(key.property);
+    gathered_labels.push_back(key.label);
+  }
+  constrained_properties_ = SortedUniqueIds(std::move(gathered_properties));
+  constrained_labels_ = SortedUniqueIds(std::move(gathered_labels));
+}
+
+auto ExistenceConstraints::ActiveConstraints::ConstrainedProperties() const -> InterestingProperties {
+  return InterestingProperties::Only(constrained_properties_);
+}
+
+auto ExistenceConstraints::ActiveConstraints::ConstrainedLabels() const -> InterestingLabels {
+  return InterestingLabels::Only(constrained_labels_);
+}
+
+auto ExistenceConstraints::GetActiveConstraints() const -> std::shared_ptr<ActiveConstraints> {
+  return std::make_shared<ActiveConstraints>(constraints_.ReadCopy());
+}
+
+// --- ExistenceConstraints methods ---
+
+bool ExistenceConstraints::ConstraintExists(LabelId label, PropertyId property) const {
+  auto constraints = constraints_.ReadCopy();
+  return constraints->contains({label, property});
+}
+
+auto ExistenceConstraints::GetIndividualConstraint(LabelId label, PropertyId property) const
+    -> IndividualConstraintPtr {
+  return constraints_.WithReadLock([&](ContainerPtr const &constraints) -> IndividualConstraintPtr {
+    const auto it = constraints->find({label, property});
+    if (it == constraints->end()) [[unlikely]] {
+      return {};
+    }
+    return it->second;
+  });
+}
+
+bool ExistenceConstraints::InstallConstraint_(LabelId label, PropertyId property, IndividualConstraintPtr ptr) {
+  return constraints_.WithLock([&](ContainerPtr &constraints) {
+    if (constraints->contains({label, property})) return false;
+    auto new_constraints = std::make_shared<Container>(*constraints);
+    new_constraints->emplace(ConstraintKey{.label = label, .property = property}, std::move(ptr));
+    constraints = std::move(new_constraints);
+    return true;
+  });
+}
+
+bool ExistenceConstraints::RegisterConstraint(LabelId label, PropertyId property) {
+  // Starts in populating state; promoted to ready by PublishConstraint on commit.
+  return InstallConstraint_(label, property, std::make_shared<IndividualConstraint>());
+}
+
+bool ExistenceConstraints::PublishConstraint(LabelId label, PropertyId property, uint64_t commit_timestamp) const {
+  auto constraint = GetIndividualConstraint(label, property);
+  if (!constraint) [[unlikely]] {
+    DMG_ASSERT(false, "Existence constraint not found during publish");
     return false;
   }
-  constraints_.erase(it);
+  constraint->status.Commit(commit_timestamp);
+  constraint->gauge_ = metrics::ScopedGauge{gauge_.gauge};
   return true;
 }
 
-std::vector<std::pair<LabelId, PropertyId>> ExistenceConstraints::ListConstraints() const { return constraints_; }
+ExistenceConstraints::IndividualConstraintPtr ExistenceConstraints::DropConstraint(LabelId label, PropertyId property) {
+  return constraints_.WithLock([&](ContainerPtr &constraints) -> IndividualConstraintPtr {
+    auto it = constraints->find({label, property});
+    if (it == constraints->end()) return nullptr;
+    auto evicted = it->second;
 
-[[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::Validate(const Vertex &vertex) {
-  for (const auto &[label, property] : constraints_) {
-    if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
-      return violation;
+    auto new_constraints = std::make_shared<Container>(*constraints);
+    new_constraints->erase({label, property});
+    constraints = std::move(new_constraints);
+    return evicted;
+  });
+}
+
+void ExistenceConstraints::RestoreConstraint(LabelId label, PropertyId property, IndividualConstraintPtr evicted) {
+  if (!evicted) return;
+  // Concurrent CREATE under READ_ONLY may own the slot; discarding evicted is benign
+  // since the winning CREATE validated all existing rows.
+  (void)InstallConstraint_(label, property, std::move(evicted));
+}
+
+[[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::Validate(
+    const std::unordered_set<Vertex const *> &vertices_to_check) const {
+  auto constraints = constraints_.ReadCopy();
+  auto validate = [&](const Vertex &vertex) -> std::expected<void, ConstraintViolation> {
+    for (const auto &[key, constraint] : *constraints) {
+      DMG_ASSERT(constraint->status.IsReady(), "For a WRITE query, all constraints MUST already be ready");
+      if (auto validation_result = ValidateVertexOnConstraint(vertex, key.label, key.property);
+          !validation_result.has_value()) [[unlikely]] {
+        return validation_result;
+      }
+    }
+    return {};
+  };
+
+  for (auto const *vertex : vertices_to_check) {
+    // No need to take any locks here because we modified this vertex and no
+    // one else can touch it until we commit.
+    if (auto validation_result = validate(*vertex); !validation_result.has_value()) {
+      return validation_result;
     }
   }
-  return std::nullopt;
+  return {};
 }
 
+[[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::PerVertexValidate(
+    Vertex const &vertex) const {
+  auto constraints = constraints_.ReadCopy();
+  for (const auto &[key, constraint] : *constraints) {
+    // Only validate against ready (committed) constraints - with copy-on-write, dropped constraints are erased
+    if (!constraint->status.IsReady()) {
+      continue;
+    }
+    if (auto validation_result = ValidateVertexOnConstraint(vertex, key.label, key.property);
+        !validation_result.has_value()) [[unlikely]] {
+      return validation_result;
+    }
+  }
+  return {};
+}
+
+// only used for on disk
 void ExistenceConstraints::LoadExistenceConstraints(const std::vector<std::string> &keys) {
-  for (const auto &key : keys) {
-    const std::vector<std::string> parts = utils::Split(key, ",");
-    constraints_.emplace_back(LabelId::FromString(parts[0]), PropertyId::FromString(parts[1]));
-  }
-}
-
-[[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVertexOnConstraint(
-    const Vertex &vertex, const LabelId &label, const PropertyId &property) {
-  if (!vertex.deleted && utils::Contains(vertex.labels, label) && !vertex.properties.HasProperty(property)) {
-    return ConstraintViolation{ConstraintViolation::Type::EXISTENCE, label, std::set<PropertyId>{property}};
-  }
-  return std::nullopt;
+  constraints_.WithLock([&](ContainerPtr &constraints) {
+    auto new_constraints = std::make_shared<Container>(*constraints);
+    for (const auto &key : keys) {
+      const std::vector<std::string> parts = utils::Split(key, ",");
+      auto constraint_key =
+          ConstraintKey{.label = LabelId::FromString(parts[0]), .property = PropertyId::FromString(parts[1])};
+      auto [it, inserted] = new_constraints->emplace(constraint_key, std::make_shared<IndividualConstraint>());
+      if (inserted) {
+        // Immediately commit with timestamp 0 so constraint is visible to all transactions
+        it->second->status.Commit(kTimestampInitialId);
+      }
+    }
+    constraints = std::move(new_constraints);
+  });
 }
 
 std::variant<ExistenceConstraints::MultipleThreadsConstraintValidation,
              ExistenceConstraints::SingleThreadConstraintValidation>
 ExistenceConstraints::GetCreationFunction(
     const std::optional<durability::ParallelizedSchemaCreationInfo> &par_exec_info) {
-  if (par_exec_info.has_value()) {
+  if (par_exec_info) {
     return ExistenceConstraints::MultipleThreadsConstraintValidation{par_exec_info.value()};
   }
   return ExistenceConstraints::SingleThreadConstraintValidation{};
 }
 
-[[nodiscard]] std::optional<ConstraintViolation> ExistenceConstraints::ValidateVerticesOnConstraint(
-    utils::SkipList<Vertex>::Accessor vertices, LabelId label, PropertyId property,
-    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info) {
+[[nodiscard]] std::expected<void, ConstraintViolation> ExistenceConstraints::ValidateVerticesOnConstraint(
+    utils::SkipListDb<Vertex>::Accessor vertices, LabelId label, PropertyId property,
+    const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
+    ProgressCallback const &on_progress, CheckCancelFunction const &cancel_check) {
   auto calling_existence_validation_function = GetCreationFunction(parallel_exec_info);
   return std::visit(
-      [&vertices, &label, &property](auto &calling_object) { return calling_object(vertices, label, property); },
+      [&vertices, &label, &property, &on_progress, &cancel_check](auto &calling_object) {
+        return calling_object(vertices, label, property, on_progress, cancel_check);
+      },
       calling_existence_validation_function);
 }
 
-std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
+std::expected<void, ConstraintViolation> ExistenceConstraints::MultipleThreadsConstraintValidation::operator()(
+    const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    ProgressCallback const &on_progress, CheckCancelFunction const &cancel_check) const {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -94,32 +233,71 @@ std::optional<ConstraintViolation> ExistenceConstraints::MultipleThreadsConstrai
   const auto thread_count = std::min(parallel_exec_info.thread_count, vertex_batches.size());
 
   std::atomic<uint64_t> batch_counter = 0;
-  memgraph::utils::Synchronized<std::optional<ConstraintViolation>, utils::RWSpinLock> maybe_error{};
+  std::atomic<bool> cancelled = false;
+  utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> oom{};
+  utils::Synchronized<std::expected<void, ConstraintViolation>, utils::RWSpinLock> maybe_error{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&maybe_error, &vertex_batches, &batch_counter, &vertices, &label, &property]() {
-        do_per_thread_validation(maybe_error, ValidateVertexOnConstraint, vertex_batches, batch_counter, vertices,
-                                 label, property);
-      });
+      threads.emplace_back(parallel_exec_info.arena_pool,
+                           [&maybe_error,
+                            &vertex_batches,
+                            &batch_counter,
+                            &vertices,
+                            &label,
+                            &property,
+                            &on_progress,
+                            &cancel_check,
+                            &cancelled,
+                            &oom]() {
+                             do_per_thread_validation(maybe_error,
+                                                      ValidateVertexOnConstraint,
+                                                      vertex_batches,
+                                                      batch_counter,
+                                                      vertices,
+                                                      on_progress,
+                                                      cancel_check,
+                                                      cancelled,
+                                                      oom,
+                                                      label,
+                                                      property);
+                           });
     }
   }
-  if (maybe_error.Lock()->has_value()) {
-    return maybe_error->value();
+  // Out of memory first: unlike the other two it means the answer is unknown rather than known-and-negative.
+  if (auto failure = oom.Lock(); failure->has_value()) {
+    throw *std::move(*failure);
   }
-  return std::nullopt;
+  // A violation is a real answer about the data, so it outranks having been asked to stop.
+  auto result = *maybe_error.Lock();
+  if (!result.has_value()) {
+    return result;
+  }
+  if (cancelled.load(std::memory_order_relaxed)) {
+    throw PopulateCancel{};
+  }
+  return result;
 }
 
-std::optional<ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
-    const utils::SkipList<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property) {
+std::expected<void, ConstraintViolation> ExistenceConstraints::SingleThreadConstraintValidation::operator()(
+    const utils::SkipListDb<Vertex>::Accessor &vertices, const LabelId &label, const PropertyId &property,
+    ProgressCallback const &on_progress, CheckCancelFunction const &cancel_check) const {
   for (const Vertex &vertex : vertices) {
-    if (auto violation = ValidateVertexOnConstraint(vertex, label, property); violation.has_value()) {
-      return violation;
+    if (cancel_check()) {
+      throw PopulateCancel{};
     }
+    if (auto validation_result = ValidateVertexOnConstraint(vertex, label, property); !validation_result.has_value()) {
+      return validation_result;
+    }
+    if (on_progress) on_progress();
   }
-  return std::nullopt;
+  return {};
+}
+
+void ExistenceConstraints::DropGraphClearConstraints() {
+  constraints_.WithLock([](ContainerPtr &constraints) { constraints = std::make_shared<Container const>(); });
 }
 
 }  // namespace memgraph::storage

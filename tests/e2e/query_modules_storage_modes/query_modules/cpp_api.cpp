@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,8 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <chrono>
-#include <thread>
+#include <condition_variable>
 
 #include <mgp.hpp>
 
@@ -22,51 +21,117 @@ constexpr std::string_view kPassNodeWithIdArg = "node";
 constexpr std::string_view kPassNodeWithIdFieldNode = "node";
 constexpr std::string_view kPassNodeWithIdFieldId = "id";
 
-// While the query procedure/function sleeps for this amount of time, a parallel transaction will erase a graph element
-// (node or relationship) contained in the return value. Any operation in the parallel transaction should take far less
-// time than this value.
-const int64_t kSleep = 1;
+constexpr std::string_view kProcedureReset = "reset";
+constexpr std::string_view kProcedureDeleteVertex = "delete_vertex";
+constexpr std::string_view kProcedureDeleteEdge = "delete_edge";
 
-void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
-  try {
-    mgp::MemoryDispatcherGuard guard{memory};
-    const auto arguments = mgp::List(args);
-    auto result = mgp::Result(res);
+constexpr std::string_view kArgument = "arg";
 
-    const auto relationship = arguments[0].ValueRelationship();
+std::condition_variable condition;
+std::mutex lock;
 
-    std::this_thread::sleep_for(std::chrono::seconds(kSleep));
+namespace {
 
-    result.SetValue(relationship);
-  } catch (const std::exception &e) {
-    mgp::func_result_set_error_msg(res, e.what(), memory);
-    return;
+enum class State : uint8_t {
+  BEGIN = 0,
+  READER_READY = 1,
+  WRITER_READY = 2,
+  AT_LEAST_ONE_WRITE_DONE = 3,
+} global_state = State::BEGIN;
+
+void UpdateGlobalState() {
+  switch (global_state) {
+    case State::BEGIN:
+      global_state = State::READER_READY;
+      break;
+    case State::READER_READY:
+      global_state = State::WRITER_READY;
+      break;
+    case State::WRITER_READY:
+      global_state = State::AT_LEAST_ONE_WRITE_DONE;
+      break;
+    case State::AT_LEAST_ONE_WRITE_DONE:
+      break;
   }
 }
 
+void wait_turn(auto check_expected) {
+  std::unique_lock<std::mutex> guard(lock);
+  condition.wait(guard, [&check_expected] { return std::invoke(check_expected); });
+  UpdateGlobalState();
+  condition.notify_all();
+}
+}  // namespace
+
+void Reset(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  global_state = State::BEGIN;
+}
+
+void DeleteVertex(mgp_list *args, mgp_graph *memgraph_graph, mgp_result * /*result*/, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  const auto arguments = mgp::List(args);
+
+  auto vertex = arguments[0].ValueNode();
+  auto graph = mgp::Graph(memgraph_graph);
+
+  wait_turn([]() { return global_state == State::READER_READY; });
+  graph.DetachDeleteNode(vertex);
+  wait_turn([]() { return global_state == State::WRITER_READY; });
+}
+
+void DeleteEdge(mgp_list *args, mgp_graph *memgraph_graph, mgp_result * /*result*/, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  const auto arguments = mgp::List(args);
+
+  auto edge = arguments[0].ValueRelationship();
+  auto graph = mgp::Graph(memgraph_graph);
+
+  wait_turn([]() { return global_state == State::READER_READY; });
+  graph.DeleteRelationship(edge);
+  wait_turn([]() { return global_state == State::WRITER_READY; });
+}
+
+void PassRelationship(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto arguments = mgp::List(args);
+  auto result = mgp::Result(res);
+
+  const auto relationship = arguments[0].ValueRelationship();
+
+  auto check = []() { return global_state == State::BEGIN || global_state == State::AT_LEAST_ONE_WRITE_DONE; };
+  wait_turn(check);
+  wait_turn([]() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
+
+  result.SetValue(relationship);
+}
+
 void PassNodeWithId(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
-  try {
-    mgp::MemoryDispatcherGuard guard(memory);
-    const auto arguments = mgp::List(args);
-    const auto record_factory = mgp::RecordFactory(result);
+  mgp::MemoryDispatcherGuard guard(memory);
+  const auto arguments = mgp::List(args);
+  const auto record_factory = mgp::RecordFactory(result);
 
-    const auto node = arguments[0].ValueNode();
-    const auto node_id = node.Id().AsInt();
+  const auto node = arguments[0].ValueNode();
+  const auto node_id = node.Id().AsInt();
 
-    std::this_thread::sleep_for(std::chrono::seconds(kSleep));
+  auto check = []() { return global_state == State::BEGIN || global_state == State::AT_LEAST_ONE_WRITE_DONE; };
+  wait_turn(check);
+  wait_turn([]() { return global_state == State::AT_LEAST_ONE_WRITE_DONE; });
 
-    auto record = record_factory.NewRecord();
-    record.Insert(kPassNodeWithIdFieldNode.data(), node);
-    record.Insert(kPassNodeWithIdFieldId.data(), node_id);
-  } catch (const std::exception &e) {
-    mgp::result_set_error_msg(result, e.what());
-    return;
-  }
+  auto record = record_factory.NewRecord();
+  record.Insert(kPassNodeWithIdFieldNode.data(), node);
+  record.Insert(kPassNodeWithIdFieldId.data(), node_id);
 }
 
 extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard(memory);
+
+    mgp::AddProcedure(Reset, kProcedureReset, mgp::ProcedureType::Read, {}, {}, query_module, memory);
+    mgp::AddProcedure(DeleteVertex, kProcedureDeleteVertex, mgp::ProcedureType::Write,
+                      {mgp::Parameter(kArgument, mgp::Type::Node)}, {}, query_module, memory);
+    mgp::AddProcedure(DeleteEdge, kProcedureDeleteEdge, mgp::ProcedureType::Write,
+                      {mgp::Parameter(kArgument, mgp::Type::Relationship)}, {}, query_module, memory);
 
     mgp::AddFunction(PassRelationship, kFunctionPassRelationship,
                      {mgp::Parameter(kPassRelationshipArg, mgp::Type::Relationship)}, query_module, memory);

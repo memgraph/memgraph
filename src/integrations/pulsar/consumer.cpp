@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,20 +11,35 @@
 
 #include "integrations/pulsar/consumer.hpp"
 
-#include <algorithm>
-#include <chrono>
-#include <thread>
-
 #include <fmt/format.h>
 #include <pulsar/Client.h>
+#include <pulsar/ClientConfiguration.h>
+#include <pulsar/ConsumerConfiguration.h>
+#include <pulsar/ConsumerType.h>
 #include <pulsar/InitialPosition.h>
+#include <pulsar/Logger.h>
+#include <pulsar/Reader.h>
+#include <pulsar/ReaderConfiguration.h>
+#include <pulsar/Result.h>
+#include <spdlog/common.h>
+#include <spdlog/spdlog.h>
+#include <algorithm>
+
+#include <chrono>
+#include <compare>
+#include <concepts>
+#include <exception>
+#include <expected>
+#include <thread>
+#include <type_traits>
+#include <utility>
 
 #include "integrations/constants.hpp"
 #include "integrations/pulsar/exceptions.hpp"
+#include "integrations/pulsar/fmt.hpp"
 #include "utils/concepts.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
-#include "utils/result.hpp"
 #include "utils/thread.hpp"
 
 namespace memgraph::integrations::pulsar {
@@ -49,9 +64,9 @@ pulsar_client::Result ConsumeMessage(pulsar_client::Reader &reader, pulsar_clien
 }
 
 template <PulsarConsumer TConsumer>
-utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consumer, const ConsumerInfo &info,
-                                                               std::atomic<bool> &is_running,
-                                                               const pulsar_client::MessageId &last_message_id) {
+std::expected<std::vector<Message>, std::string> GetBatch(TConsumer &consumer, const ConsumerInfo &info,
+                                                          std::atomic<bool> &is_running,
+                                                          const pulsar_client::MessageId &last_message_id) {
   std::vector<Message> batch{};
 
   batch.reserve(info.batch_size);
@@ -71,9 +86,9 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
         }
         break;
       default:
-        spdlog::warn(fmt::format("Unexpected error while consuming message from consumer {}, error: {}",
-                                 info.consumer_name, result));
-        return {pulsar_client::strResult(result)};
+        spdlog::warn(fmt::format(
+            "Unexpected error while consuming message from consumer {}, error: {}", info.consumer_name, result));
+        return std::unexpected{pulsar_client::strResult(result)};
     }
 
     auto now = std::chrono::steady_clock::now();
@@ -82,7 +97,7 @@ utils::BasicResult<std::string, std::vector<Message>> GetBatch(TConsumer &consum
     start = now;
   }
 
-  return std::move(batch);
+  return batch;
 }
 
 class SpdlogLogger : public pulsar_client::Logger {
@@ -132,10 +147,17 @@ std::span<const char> Message::Payload() const {
 
 std::string_view Message::TopicName() const { return message_.getTopicName(); }
 
-Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
+namespace {
+ConsumerThreadFactory DefaultThreadFactory() {
+  return [](std::function<void()> task) { return std::thread(std::move(task)); };
+}
+}  // namespace
+
+Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function, ConsumerThreadFactory thread_factory)
     : info_{std::move(info)},
       client_{CreateClient(info_.service_url)},
-      consumer_function_{std::move(consumer_function)} {
+      consumer_function_{std::move(consumer_function)},
+      thread_factory_(thread_factory ? std::move(thread_factory) : DefaultThreadFactory()) {
   pulsar_client::ConsumerConfiguration config;
   config.setSubscriptionInitialPosition(pulsar_client::InitialPositionLatest);
   config.setConsumerType(pulsar_client::ConsumerType::ConsumerExclusive);
@@ -144,6 +166,7 @@ Consumer::Consumer(ConsumerInfo info, ConsumerFunction consumer_function)
     throw ConsumerFailedToInitializeException(info_.consumer_name, pulsar_client::strResult(result));
   }
 }
+
 Consumer::~Consumer() {
   StopIfRunning();
   consumer_.close();
@@ -153,6 +176,10 @@ Consumer::~Consumer() {
 bool Consumer::IsRunning() const { return is_running_; }
 
 const ConsumerInfo &Consumer::Info() const { return info_; }
+
+void Consumer::SetThreadFactory(ConsumerThreadFactory thread_factory) {
+  thread_factory_ = thread_factory ? std::move(thread_factory) : DefaultThreadFactory();
+}
 
 void Consumer::Start() {
   if (is_running_) {
@@ -244,11 +271,11 @@ void Consumer::Check(std::optional<std::chrono::milliseconds> timeout, std::opti
 
     auto maybe_batch = GetBatch(reader, info_, is_running_, last_message_id_);
 
-    if (maybe_batch.HasError()) {
-      throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.GetError());
+    if (!maybe_batch) {
+      throw ConsumerCheckFailedException(info_.consumer_name, maybe_batch.error());
     }
 
-    const auto &batch = maybe_batch.GetValue();
+    const auto &batch = maybe_batch.value();
 
     if (batch.empty()) {
       continue;
@@ -273,7 +300,7 @@ void Consumer::StartConsuming() {
 
   is_running_.store(true);
 
-  thread_ = std::thread([this] {
+  thread_ = thread_factory_([this] {
     static constexpr auto kMaxThreadNameSize = utils::GetMaxThreadNameSize();
     const auto full_thread_name = "Cons#" + info_.consumer_name;
 
@@ -282,11 +309,11 @@ void Consumer::StartConsuming() {
     while (is_running_) {
       auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
-      if (maybe_batch.HasError()) {
-        throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.GetError());
+      if (!maybe_batch) {
+        throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.error());
       }
 
-      const auto &batch = maybe_batch.GetValue();
+      const auto &batch = maybe_batch.value();
 
       if (batch.empty()) {
         continue;
@@ -295,7 +322,11 @@ void Consumer::StartConsuming() {
       spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
       try {
-        TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
+        TryToConsumeBatch(consumer_,
+                          info_,
+                          consumer_function_,
+                          last_message_id_,
+                          batch,
                           [&](const Message &message) -> const pulsar_client::Message & { return message.message_; });
       } catch (const std::exception &e) {
         spdlog::warn("Error happened in consumer {} while processing a batch: {}!", info_.consumer_name, e.what());
@@ -325,11 +356,11 @@ void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std
 
     const auto maybe_batch = GetBatch(consumer_, info_, is_running_, last_message_id_);
 
-    if (maybe_batch.HasError()) {
-      throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.GetError());
+    if (!maybe_batch) {
+      throw ConsumerReadMessagesFailedException(info_.consumer_name, maybe_batch.error());
     }
 
-    const auto &batch = maybe_batch.GetValue();
+    const auto &batch = maybe_batch.value();
 
     if (batch.empty()) {
       continue;
@@ -338,7 +369,11 @@ void Consumer::StartConsumingWithLimit(uint64_t limit_batches, std::optional<std
 
     spdlog::info("Pulsar consumer {} is processing a batch", info_.consumer_name);
 
-    TryToConsumeBatch(consumer_, info_, consumer_function_, last_message_id_, batch,
+    TryToConsumeBatch(consumer_,
+                      info_,
+                      consumer_function_,
+                      last_message_id_,
+                      batch,
                       [](const Message &message) -> const pulsar_client::Message & { return message.message_; });
 
     spdlog::info("Pulsar consumer {} finished processing", info_.consumer_name);

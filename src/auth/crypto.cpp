@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -7,25 +7,53 @@
 //
 #include "auth/crypto.hpp"
 
-#include <iomanip>
-#include <sstream>
-
+#include <bcrypt.h>
+#include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <libbcrypt/bcrypt.h>
+#include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
+#include <openssl/rand.h>
 #include <openssl/sha.h>
+#include <openssl/types.h>
+#include <algorithm>
+#include <array>
+#include <atomic>
+#include <cctype>
+#include <cstdint>
+#include <expected>
+#include <functional>
+#include <iomanip>
+#include <iostream>
+#include <limits>
+#include <nlohmann/json.hpp>
+#include <random>
+#include <span>
+#include <sstream>
+#include <string>
+#include <utility>
 
 #include "auth/exceptions.hpp"
 #include "utils/enum.hpp"
+#include "utils/exit_codes.hpp"
+#include "utils/fips.hpp"
 #include "utils/flag_validation.hpp"
+#include "utils/logging.hpp"
+#include "utils/startup_failure.hpp"
 
 namespace {
 using namespace std::literals;
-inline constexpr std::array password_encryption_mappings{
-    std::pair{"bcrypt"sv, memgraph::auth::PasswordEncryptionAlgorithm::BCRYPT},
-    std::pair{"sha256"sv, memgraph::auth::PasswordEncryptionAlgorithm::SHA256},
-    std::pair{"sha256-multiple"sv, memgraph::auth::PasswordEncryptionAlgorithm::SHA256_MULTIPLE}};
+
+constexpr auto kHashAlgo = "hash_algo";
+constexpr auto kPasswordHash = "password_hash";
+constexpr auto kPasswordEncryptionAlgorithmFlag = "password_encryption_algorithm";
+
+// Needs to be stable user queries depend on this
+inline constexpr std::array password_hash_mappings{
+    std::pair{"bcrypt"sv, memgraph::auth::PasswordHashAlgorithm::BCRYPT},
+    std::pair{"sha256"sv, memgraph::auth::PasswordHashAlgorithm::SHA256},
+    std::pair{"sha256-multiple"sv, memgraph::auth::PasswordHashAlgorithm::SHA256_MULTIPLE},
+    std::pair{"pbkdf2-sha256"sv, memgraph::auth::PasswordHashAlgorithm::PBKDF2_SHA256}};
 
 inline constexpr uint64_t ONE_SHA_ITERATION = 1;
 inline constexpr uint64_t MULTIPLE_SHA_ITERATIONS = 1024;
@@ -35,17 +63,17 @@ inline constexpr uint64_t MULTIPLE_SHA_ITERATIONS = 1024;
 DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
                         "The password encryption algorithm used for authentication.", {
                           if (const auto result =
-                                  memgraph::utils::IsValidEnumValueString(value, password_encryption_mappings);
-                              result.HasError()) {
-                            const auto error = result.GetError();
+                                  memgraph::utils::IsValidEnumValueString(value, password_hash_mappings);
+                              !result.has_value()) {
+                            const auto error = result.error();
                             switch (error) {
                               case memgraph::utils::ValidationError::EmptyValue: {
-                                std::cout << "Password encryption algorithm cannot be empty." << std::endl;
+                                std::cerr << "Password encryption algorithm cannot be empty." << std::endl;
                                 break;
                               }
                               case memgraph::utils::ValidationError::InvalidValue: {
-                                std::cout << "Invalid value for password encryption algorithm. Allowed values: "
-                                          << memgraph::utils::GetAllowedEnumValuesString(password_encryption_mappings)
+                                std::cerr << "Invalid value for password encryption algorithm. Allowed values: "
+                                          << memgraph::utils::GetAllowedEnumValuesString(password_hash_mappings)
                                           << std::endl;
                                 break;
                               }
@@ -57,8 +85,46 @@ DEFINE_VALIDATED_string(password_encryption_algorithm, "bcrypt",
                         });
 
 namespace memgraph::auth {
+
+namespace {
+constexpr auto kSha256DigestName = "SHA2-256";
+
+/// Salt from OpenSSL's DRBG, which SP 800-132 requires for an approved KDF.
+/// The legacy SHA algorithms still salt from `std::mt19937`; they are not
+/// FIPS-approvable regardless, so that path is deliberately left alone.
+template <std::size_t N>
+auto GenerateSalt() -> std::array<char, N> {
+  auto salt = std::array<char, N>{};
+  if (RAND_bytes_ex(nullptr, reinterpret_cast<unsigned char *>(salt.data()), N, 0) != 1) {
+    throw AuthException("Couldn't generate a password salt!");
+  }
+  return salt;
+}
+
+auto ToHex(std::span<const unsigned char> bytes) -> std::string {
+  auto stream = std::ostringstream{};
+  stream << std::hex << std::setfill('0');
+  for (auto const byte : bytes) {
+    stream << std::setw(2) << static_cast<unsigned int>(byte);
+  }
+  return stream.str();
+}
+
+auto AsBytes(std::string_view sv) -> std::span<const unsigned char> {
+  return {reinterpret_cast<const unsigned char *>(sv.data()), sv.size()};
+}
+
+void EnsureFipsApproved(PasswordHashAlgorithm hash_algo) {
+  if (utils::FipsEnabled() && !IsFipsApproved(hash_algo)) {
+    throw AuthException("The '{}' password hash algorithm is not permitted in FIPS mode; use '{}'.",
+                        AsString(hash_algo),
+                        AsString(PasswordHashAlgorithm::PBKDF2_SHA256));
+  }
+}
+}  // namespace
+
 namespace BCrypt {
-std::string EncryptPassword(const std::string &password) {
+std::string HashPassword(const std::string &password) {
   char salt[BCRYPT_HASHSIZE];
   char hash[BCRYPT_HASHSIZE];
 
@@ -86,16 +152,30 @@ bool VerifyPassword(const std::string &password, const std::string &hash) {
 }  // namespace BCrypt
 
 namespace SHA {
+
+namespace {
+
+constexpr auto SHA_LENGTH = 64U;
+constexpr auto SALT_SIZE = 16U;
+constexpr auto SALT_SIZE_DURABLE = SALT_SIZE * 2;
+
 #if OPENSSL_VERSION_MAJOR >= 3
-std::string EncryptPasswordOpenSSL3(const std::string &password, const uint64_t number_of_iterations) {
+std::string HashPasswordOpenSSL3(std::string_view password, const uint64_t number_of_iterations,
+                                 std::string_view salt) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
 
   EVP_MD_CTX *ctx = EVP_MD_CTX_new();
-  EVP_MD *md = EVP_MD_fetch(nullptr, "SHA2-256", nullptr);
+  EVP_MD *md = EVP_MD_fetch(nullptr, kSha256DigestName, nullptr);
 
   EVP_DigestInit_ex(ctx, md, nullptr);
+
+  if (!salt.empty()) {
+    DMG_ASSERT(salt.size() == SALT_SIZE);
+    EVP_DigestUpdate(ctx, salt.data(), salt.size());
+  }
+
   for (auto i = 0; i < number_of_iterations; i++) {
-    EVP_DigestUpdate(ctx, password.c_str(), password.size());
+    EVP_DigestUpdate(ctx, password.data(), password.size());
   }
   EVP_DigestFinal_ex(ctx, hash, nullptr);
 
@@ -103,6 +183,11 @@ std::string EncryptPasswordOpenSSL3(const std::string &password, const uint64_t 
   EVP_MD_CTX_free(ctx);
 
   std::stringstream result_stream;
+
+  for (unsigned char salt_char : salt) {
+    result_stream << std::hex << std::setw(2) << std::setfill('0') << (((unsigned int)salt_char) & 0xFFU);
+  }
+
   for (auto hash_char : hash) {
     result_stream << std::hex << std::setw(2) << std::setfill('0') << (int)hash_char;
   }
@@ -110,17 +195,27 @@ std::string EncryptPasswordOpenSSL3(const std::string &password, const uint64_t 
   return result_stream.str();
 }
 #else
-std::string EncryptPasswordOpenSSL1_1(const std::string &password, const uint64_t number_of_iterations) {
+std::string HashPasswordOpenSSL1_1(std::string_view password, const uint64_t number_of_iterations,
+                                   std::string_view salt) {
   unsigned char hash[SHA256_DIGEST_LENGTH];
 
   SHA256_CTX sha256;
   SHA256_Init(&sha256);
+
+  if (!salt.empty()) {
+    DMG_ASSERT(salt.size() == SALT_SIZE);
+    SHA256_Update(&sha256, salt.data(), salt.size());
+  }
+
   for (auto i = 0; i < number_of_iterations; i++) {
-    SHA256_Update(&sha256, password.c_str(), password.size());
+    SHA256_Update(&sha256, password.data(), password.size());
   }
   SHA256_Final(hash, &sha256);
 
   std::stringstream ss;
+  for (unsigned char salt_char : salt) {
+    ss << std::hex << std::setw(2) << std::setfill('0') << (((unsigned int)salt_char) & 0xFFU);
+  }
   for (auto hash_char : hash) {
     ss << std::hex << std::setw(2) << std::setfill('0') << (int)hash_char;
   }
@@ -129,55 +224,335 @@ std::string EncryptPasswordOpenSSL1_1(const std::string &password, const uint64_
 }
 #endif
 
-std::string EncryptPassword(const std::string &password, const uint64_t number_of_iterations) {
+std::string HashPassword(std::string_view password, const uint64_t number_of_iterations, std::string_view salt) {
 #if OPENSSL_VERSION_MAJOR >= 3
-  return EncryptPasswordOpenSSL3(password, number_of_iterations);
+  return HashPasswordOpenSSL3(password, number_of_iterations, salt);
 #else
-  return EncryptPasswordOpenSSL1_1(password, number_of_iterations);
+  return HashPasswordOpenSSL1_1(password, number_of_iterations, salt);
 #endif
 }
 
-bool VerifyPassword(const std::string &password, const std::string &hash, const uint64_t number_of_iterations) {
-  auto password_hash = EncryptPassword(password, number_of_iterations);
-  return password_hash == hash;
+auto ExtractSalt(std::string_view salt_durable) -> std::optional<std::array<char, SALT_SIZE>> {
+  static_assert(SALT_SIZE_DURABLE % 2 == 0);
+  static_assert(SALT_SIZE_DURABLE / 2 == SALT_SIZE);
+
+  if (salt_durable.size() != SALT_SIZE_DURABLE) {
+    return std::nullopt;
+  }
+
+  auto const toval = [](char a) -> std::optional<uint8_t> {
+    if ('0' <= a && a <= '9') {
+      return a - '0';
+    }
+    if ('a' <= a && a <= 'f') {
+      return 10 + (a - 'a');
+    }
+    return std::nullopt;
+  };
+
+  auto salt = std::array<char, SALT_SIZE>{};
+  for (auto i = std::size_t{0}; i < SALT_SIZE; ++i) {
+    auto const high = toval(salt_durable[i * 2]);
+    auto const low = toval(salt_durable[(i * 2) + 1]);
+    if (!high || !low) {
+      return std::nullopt;
+    }
+    salt[i] = static_cast<char>(static_cast<uint8_t>(*high << 4U) | *low);
+  }
+  return salt;
 }
+
+bool IsSalted(std::string_view hash) { return hash.size() == SHA_LENGTH + SALT_SIZE_DURABLE; }
+
+bool VerifyPassword(std::string_view password, std::string_view hash, const uint64_t number_of_iterations) {
+  if (hash.size() == SHA_LENGTH) [[unlikely]] {
+    // Just SHA256
+    return HashPassword(password, number_of_iterations, {}) == hash;
+  }
+
+  if (!IsSalted(hash)) {
+    return false;
+  }
+  auto const salt = ExtractSalt(hash.substr(0, SALT_SIZE_DURABLE));
+  if (!salt) {
+    return false;
+  }
+  return HashPassword(password, number_of_iterations, {salt->data(), salt->size()}) == hash;
+}
+
+}  // namespace
+
 }  // namespace SHA
 
-bool VerifyPassword(const std::string &password, const std::string &hash) {
-  const auto password_encryption_algorithm = utils::StringToEnum<PasswordEncryptionAlgorithm>(
-      FLAGS_password_encryption_algorithm, password_encryption_mappings);
+namespace PBKDF2 {
 
-  if (!password_encryption_algorithm.has_value()) {
-    throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
+namespace {
+
+// SP 800-132 floors, as OpenSSL enforces them: >= 1000 iterations,
+// >= 128-bit salt, >= 112-bit derived key.
+constexpr auto ITERATIONS = 600'000U;
+constexpr auto SALT_SIZE = 16U;         // 128-bit
+constexpr auto DERIVED_KEY_SIZE = 32U;  // 256-bit
+constexpr auto SALT_SIZE_DURABLE = SALT_SIZE * 2;
+constexpr auto HASH_LENGTH = DERIVED_KEY_SIZE * 2;
+
+// The iteration count is not stored in the hash, so it cannot be raised
+// without invalidating every existing one. If OWASP guidance moves past 600k,
+// add a new PasswordHashAlgorithm rather than editing ITERATIONS -- the same
+// way sha256 and sha256-multiple are separate algorithms.
+static_assert(ITERATIONS >= 1000);
+static_assert(SALT_SIZE * 8 >= 128);
+static_assert(DERIVED_KEY_SIZE * 8 >= 112);
+
+// Hex decoding is shared with the SHA path, which hardcodes its own salt size.
+static_assert(SALT_SIZE == SHA::SALT_SIZE);
+static_assert(SALT_SIZE_DURABLE == SHA::SALT_SIZE_DURABLE);
+
+auto Derive(std::string_view password, std::string_view salt) -> std::array<unsigned char, DERIVED_KEY_SIZE> {
+  // `PKCS5_PBKDF2_HMAC` sets pkcs5=1, which turns off the provider's SP 800-132
+  // salt-length check. The static_asserts cover the other two bounds, but this
+  // one is a runtime length, so it has to be checked here.
+  MG_ASSERT(salt.size() == SALT_SIZE);
+
+  // Copied so that `.data()` is never null, which an empty string_view allows
+  // but OpenSSL does not accept.
+  auto const password_buffer = std::string{password};
+  auto const salt_buffer = std::string{salt};
+
+  // Lengths are `int` here, and a negative one means "measure it with strlen",
+  // so an overflowing password must be refused rather than silently truncated.
+  if (password_buffer.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+    throw AuthException("Password is too long to hash!");
   }
+  static_assert(ITERATIONS <= std::numeric_limits<int>::max());
+  static_assert(DERIVED_KEY_SIZE <= std::numeric_limits<int>::max());
 
-  switch (password_encryption_algorithm.value()) {
-    case PasswordEncryptionAlgorithm::BCRYPT:
-      return BCrypt::VerifyPassword(password, hash);
-    case PasswordEncryptionAlgorithm::SHA256:
-      return SHA::VerifyPassword(password, hash, ONE_SHA_ITERATION);
-    case PasswordEncryptionAlgorithm::SHA256_MULTIPLE:
-      return SHA::VerifyPassword(password, hash, MULTIPLE_SHA_ITERATIONS);
+  auto derived = std::array<unsigned char, DERIVED_KEY_SIZE>{};
+  if (PKCS5_PBKDF2_HMAC(password_buffer.data(),
+                        static_cast<int>(password_buffer.size()),
+                        reinterpret_cast<const unsigned char *>(salt_buffer.data()),
+                        static_cast<int>(salt_buffer.size()),
+                        static_cast<int>(ITERATIONS),
+                        EVP_sha256(),
+                        static_cast<int>(DERIVED_KEY_SIZE),
+                        derived.data()) != 1) {
+    throw AuthException("Couldn't hash the password!");
   }
-
-  throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
+  return derived;
 }
 
-std::string EncryptPassword(const std::string &password) {
-  const auto password_encryption_algorithm = utils::StringToEnum<PasswordEncryptionAlgorithm>(
-      FLAGS_password_encryption_algorithm, password_encryption_mappings);
+/// Stored as hex(salt) || hex(derived key), matching the shape of the salted
+/// SHA hashes so the durable form stays fixed-width.
+std::string HashPassword(std::string_view password, std::string_view salt) {
+  MG_ASSERT(salt.size() == SALT_SIZE);
+  return fmt::format("{}{}", ToHex(AsBytes(salt)), ToHex(Derive(password, salt)));
+}
 
-  if (!password_encryption_algorithm.has_value()) {
-    throw AuthException("Invalid password encryption flag '{}'!", FLAGS_password_encryption_algorithm);
+bool VerifyPassword(std::string_view password, std::string_view hash) {
+  if (hash.size() != SALT_SIZE_DURABLE + HASH_LENGTH) {
+    return false;
+  }
+  auto const salt = SHA::ExtractSalt(hash.substr(0, SALT_SIZE_DURABLE));
+  if (!salt) {
+    return false;
+  }
+  auto const candidate = HashPassword(password, {salt->data(), salt->size()});
+  return candidate.size() == hash.size() && CRYPTO_memcmp(candidate.data(), hash.data(), hash.size()) == 0;
+}
+
+}  // namespace
+
+}  // namespace PBKDF2
+
+HashedPassword HashPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo) {
+  auto const hash_algo = override_algo.value_or(CurrentHashAlgorithm());
+  EnsureFipsApproved(hash_algo);
+  auto password_hash = std::invoke([&] {
+    switch (hash_algo) {
+      case PasswordHashAlgorithm::BCRYPT: {
+        return BCrypt::HashPassword(password);
+      }
+      case PasswordHashAlgorithm::SHA256:
+      case PasswordHashAlgorithm::SHA256_MULTIPLE: {
+        auto gen = std::mt19937(std::random_device{}());
+        auto salt = std::array<char, SHA::SALT_SIZE>{};
+        auto dis = std::uniform_int_distribution<unsigned char>(0, 255);
+        std::generate(salt.begin(), salt.end(), [&]() { return dis(gen); });
+        auto iterations = (hash_algo == PasswordHashAlgorithm::SHA256) ? ONE_SHA_ITERATION : MULTIPLE_SHA_ITERATIONS;
+        return SHA::HashPassword(password, iterations, {salt.data(), salt.size()});
+      }
+      case PasswordHashAlgorithm::PBKDF2_SHA256: {
+        auto const salt = GenerateSalt<PBKDF2::SALT_SIZE>();
+        return PBKDF2::HashPassword(password, {salt.data(), salt.size()});
+      }
+    }
+  });
+  return HashedPassword{hash_algo, std::move(password_hash)};
+};
+
+namespace {
+
+auto InternalParseHashAlgorithm(std::string_view algo) -> PasswordHashAlgorithm {
+  auto maybe_parsed = utils::StringToEnum<PasswordHashAlgorithm>(algo, password_hash_mappings);
+  if (!maybe_parsed) {
+    throw AuthException("Invalid password encryption '{}'!", algo);
+  }
+  return *maybe_parsed;
+}
+
+std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgorithm algo) {
+  // header = algo name + :
+  const auto header = std::string{AsString(algo)} + ":";
+  const auto hash_size = HashSize(algo).unsalted;  // Support only unsalted hashes
+  if (str.size() == header.size() + hash_size) {
+    int i = 0;
+    if (std::ranges::all_of(header, [&](const auto ch) { return tolower(ch) == str[i++]; })) {
+      return str.substr(header.size());
+    }
+  }
+  return {};
+}
+}  // namespace
+
+// NOTE: Deliberately no pbkdf2-sha256 branch. A user-supplied hash carries no
+// iteration count, so accepting one would mean assuming it was derived with
+// ITERATIONS when it may have used the SP 800-132 floor of 1000 -- we would
+// verify a far weaker hash as though it were strong. Set a pbkdf2 password
+// through the plaintext path instead.
+std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
+  for (auto const algo :
+       {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
+    if (const auto hash = UsesAlgo(password, algo)) {
+      EnsureFipsApproved(algo);
+      return HashedPassword{algo, std::string{*hash}};
+    }
+  }
+  return {};
+}
+
+// The `--password-encryption-algorithm` flag is the single source of truth. It is
+// set only at startup (gflags parse, or `EnableFipsMode`) before any session thread
+// exists, and read through the gflags lock here, so no data race is possible.
+auto CurrentHashAlgorithm() -> PasswordHashAlgorithm {
+  std::string configured;
+  gflags::GetCommandLineOption(kPasswordEncryptionAlgorithmFlag, &configured);
+  return InternalParseHashAlgorithm(configured);
+}
+
+auto IsFipsApproved(PasswordHashAlgorithm hash_algo) -> bool {
+  switch (hash_algo) {
+    case PasswordHashAlgorithm::BCRYPT:
+    case PasswordHashAlgorithm::SHA256:
+    case PasswordHashAlgorithm::SHA256_MULTIPLE:
+      return false;
+    case PasswordHashAlgorithm::PBKDF2_SHA256:
+      return true;
+  }
+  MG_ASSERT(false, "Unknown password hash algorithm: {}", std::to_underlying(hash_algo));
+  std::unreachable();
+}
+
+#ifdef MG_ENTERPRISE
+void EnableFipsMode(bool algorithm_flag_is_default) {
+  utils::SetFipsStatus({.enabled = true});
+
+  auto const approved = AsString(PasswordHashAlgorithm::PBKDF2_SHA256);
+
+  if (algorithm_flag_is_default) {
+    // No explicit choice: override the flag so the approved algorithm is what
+    // actually hashes passwords and what SHOW CONFIG / SHOW FIPS INFO report.
+    SetHashAlgorithm(approved);
+    spdlog::info("--fips-mode=true and no --password-encryption-algorithm given; selecting '{}'.", approved);
   }
 
-  switch (password_encryption_algorithm.value()) {
-    case PasswordEncryptionAlgorithm::BCRYPT:
-      return BCrypt::EncryptPassword(password);
-    case PasswordEncryptionAlgorithm::SHA256:
-      return SHA::EncryptPassword(password, ONE_SHA_ITERATION);
-    case PasswordEncryptionAlgorithm::SHA256_MULTIPLE:
-      return SHA::EncryptPassword(password, MULTIPLE_SHA_ITERATIONS);
+  auto const configured = CurrentHashAlgorithm();
+  if (!IsFipsApproved(configured)) {
+    utils::FailStartup(
+        utils::ExitCode::FipsModeUnsupportedPasswordAlgorithm,
+        fmt::format("--fips-mode=true is incompatible with --password-encryption-algorithm={}. Only '{}' is approved; "
+                    "omit the flag entirely and it will be selected automatically. Note that switching also locks out "
+                    "existing users: their passwords have to be reset, as re-hashing needs the plaintext.",
+                    AsString(configured),
+                    approved));
+  }
+
+  spdlog::warn(
+      "FIPS mode is experimental. Existing users whose passwords were hashed with an algorithm other than '{}' can no "
+      "longer authenticate; their passwords must be reset, as re-hashing needs the plaintext.",
+      AsString(PasswordHashAlgorithm::PBKDF2_SHA256));
+}
+
+void EnableFipsMode() {
+  EnableFipsMode(gflags::GetCommandLineFlagInfoOrDie(kPasswordEncryptionAlgorithmFlag).is_default);
+}
+#endif
+
+void SetHashAlgorithm(std::string_view algo) {
+  // Validate first so an unknown value throws instead of being written to the flag.
+  InternalParseHashAlgorithm(algo);
+  gflags::SetCommandLineOption(kPasswordEncryptionAlgorithmFlag, std::string{algo}.c_str());
+}
+
+auto AsString(PasswordHashAlgorithm hash_algo) -> std::string_view {
+  return *utils::EnumToString<PasswordHashAlgorithm>(hash_algo, password_hash_mappings);
+}
+
+auto HashSize(PasswordHashAlgorithm hash_algo) -> struct HashSize {
+  switch (hash_algo) {
+    case PasswordHashAlgorithm::BCRYPT:
+      // NOTE: BCRYPT_HASHSIZE is 64, but the result is actually 60B
+      return {.unsalted = 60, .salted = 60};
+    case PasswordHashAlgorithm::SHA256:
+    case PasswordHashAlgorithm::SHA256_MULTIPLE:
+      return {.unsalted = SHA::SHA_LENGTH, .salted = SHA::SHA_LENGTH + SHA::SALT_SIZE_DURABLE};
+    case PasswordHashAlgorithm::PBKDF2_SHA256:
+      return {.unsalted = PBKDF2::HASH_LENGTH, .salted = PBKDF2::HASH_LENGTH + PBKDF2::SALT_SIZE_DURABLE};
+  }
+
+}
+
+bool HashedPassword::VerifyPassword(const std::string &password) {
+  // Throws rather than returning false: a legacy hash under FIPS mode is a
+  // migration problem the operator has to see, not a wrong password.
+  EnsureFipsApproved(hash_algo);
+  switch (hash_algo) {
+    case PasswordHashAlgorithm::BCRYPT:
+      return BCrypt::VerifyPassword(password, password_hash);
+    case PasswordHashAlgorithm::SHA256:
+      return SHA::VerifyPassword(password, password_hash, ONE_SHA_ITERATION);
+    case PasswordHashAlgorithm::SHA256_MULTIPLE:
+      return SHA::VerifyPassword(password, password_hash, MULTIPLE_SHA_ITERATIONS);
+    case PasswordHashAlgorithm::PBKDF2_SHA256:
+      return PBKDF2::VerifyPassword(password, password_hash);
+  }
+}
+
+void to_json(nlohmann::json &j, const HashedPassword &p) {
+  j = nlohmann::json{{kHashAlgo, p.hash_algo}, {kPasswordHash, p.password_hash}};
+}
+
+void from_json(const nlohmann::json &j, HashedPassword &p) {
+  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
+  PasswordHashAlgorithm hash_algo;
+  j.at(kHashAlgo).get_to(hash_algo);
+  if (!utils::EnumToString<PasswordHashAlgorithm>(hash_algo, password_hash_mappings)) {
+    throw AuthException("Unknown password hash algorithm '{}' in stored user data. Allowed values: {}",
+                        std::to_underlying(hash_algo),
+                        utils::GetAllowedEnumValuesString(password_hash_mappings));
+  }
+  std::string password_hash = j.at(kPasswordHash);
+  p = HashedPassword{hash_algo, std::move(password_hash)};
+}
+
+bool HashedPassword::IsSalted() const {
+  switch (hash_algo) {
+    case PasswordHashAlgorithm::BCRYPT:
+      return true;
+    case PasswordHashAlgorithm::SHA256:
+    case PasswordHashAlgorithm::SHA256_MULTIPLE:
+      return SHA::IsSalted(password_hash);
+    case PasswordHashAlgorithm::PBKDF2_SHA256:
+      return true;
   }
 }
 

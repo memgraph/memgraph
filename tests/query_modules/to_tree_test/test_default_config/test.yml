@@ -1,0 +1,10 @@
+query: >
+  MATCH p = (a:Student {name: 'Ana'})-[:FRIEND]->(b:Student {name: 'Bob'})
+  WITH collect(p) AS paths
+  CALL convert_c.to_tree(paths) YIELD value
+  RETURN value._type AS type, value.name AS name, value.age AS age, size(value.friend) AS friend_count
+output:
+  - type: Student
+    name: Ana
+    age: 22
+    friend_count: 1

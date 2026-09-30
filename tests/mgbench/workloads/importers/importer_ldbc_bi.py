@@ -17,16 +17,24 @@ from pathlib import Path
 
 import helpers
 from benchmark_context import BenchmarkContext
-from runners import BaseRunner
+from constants import GraphVendors
+from runners import BaseClient, BaseRunner
+from workloads.importers.base import BaseImporter
 
 HEADERS_URL = "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/bi/headers.tar.gz"
 
 
-class ImporterLDBCBI:
+class ImporterLDBCBI(BaseImporter):
     def __init__(
-        self, benchmark_context: BenchmarkContext, dataset_name: str, variant: str, index_file: str, csv_dict: dict
+        self,
+        benchmark_context: BenchmarkContext,
+        client: BaseClient,
+        dataset_name: str,
+        variant: str,
+        index_file: str,
+        csv_dict: dict,
     ) -> None:
-        self._benchmark_context = benchmark_context
+        super().__init__(benchmark_context, client)
         self._dataset_name = dataset_name
         self._variant = variant
         self._index_file = index_file
@@ -36,9 +44,8 @@ class ImporterLDBCBI:
         vendor_runner = BaseRunner.create(
             benchmark_context=self._benchmark_context,
         )
-        client = vendor_runner.fetch_client()
 
-        if self._benchmark_context.vendor_name == "neo4j":
+        if self._benchmark_context.vendor_name == GraphVendors.NEO4J:
             data_dir = Path() / ".cache" / "datasets" / self._dataset_name / self._variant / "data_neo4j"
             data_dir.mkdir(parents=True, exist_ok=True)
             dir_name = self._csv_dict[self._variant].split("/")[-1:][0].replace(".tar.zst", "")
@@ -217,8 +224,7 @@ class ImporterLDBCBI:
 
             vendor_runner.start_db_init("Index preparation")
             print("Executing database index setup")
-            client.execute(file_path=self._index_file, num_workers=1)
-            vendor_runner.stop_db_init("Stop index preparation")
+            self._client.execute(file_path=self._index_file, num_workers=1)
             return True
         else:
             return False

@@ -1,0 +1,5 @@
+query: >
+  CALL search.node({Person: 'age'}, 'exact', '30') YIELD node
+  RETURN node;
+
+output: []

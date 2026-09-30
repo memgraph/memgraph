@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,11 +11,20 @@
 
 #include "flags/storage_mode.hpp"
 
+#include <fmt/format.h>
+#include <algorithm>
+#include <array>
+#include <expected>
+#include <iostream>
+#include <optional>
+#include <string>
+#include <utility>
+
+#include "gflags/gflags.h"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
-
-#include "gflags/gflags.h"
+#include "utils/logging.hpp"
 
 const std::string storage_mode_help_string =
     fmt::format("Default storage mode Memgraph uses. Allowed values: {}",
@@ -24,14 +33,14 @@ const std::string storage_mode_help_string =
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(storage_mode, "IN_MEMORY_TRANSACTIONAL", storage_mode_help_string.c_str(), {
   if (const auto result = memgraph::utils::IsValidEnumValueString(value, memgraph::storage::storage_mode_mappings);
-      result.HasError()) {
-    switch (result.GetError()) {
+      !result.has_value()) {
+    switch (result.error()) {
       case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Storage mode cannot be empty." << std::endl;
+        std::cerr << "Storage mode cannot be empty." << std::endl;
         break;
       }
       case memgraph::utils::ValidationError::InvalidValue: {
-        std::cout << "Invalid value for storage mode. Allowed values: "
+        std::cerr << "Invalid value for storage mode. Allowed values: "
                   << memgraph::utils::GetAllowedEnumValuesString(memgraph::storage::storage_mode_mappings) << std::endl;
         break;
       }

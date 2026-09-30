@@ -1,0 +1,295 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "replication_handler/system_replication.hpp"
+
+#include <spdlog/spdlog.h>
+
+#include "dbms/inmemory/replication_handlers.hpp"
+#include "dbms/replication_handlers.hpp"
+#include "parameters/parameters.hpp"
+#include "parameters/rpc.hpp"
+#include "replication_handler/auth_replication_handlers.hpp"
+#include "replication_handler/system_rpc.hpp"
+#include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+#include "system/rpc.hpp"
+
+namespace memgraph::rpc {
+class FileReplicationHandler;
+}  // namespace memgraph::rpc
+
+namespace memgraph::replication {
+
+namespace {
+
+void SetParameterHandler(system::ReplicaHandlerAccessToState &system_state_access,
+                         const std::optional<utils::UUID> &current_main_uuid, parameters::Parameters &parameters,
+                         uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using storage::replication::SetParameterRes;
+  SetParameterRes res(false);
+
+  storage::replication::SetParameterReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::SetParameterReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("SetParameterHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (parameters.SetParameter(req.parameter.name, req.parameter.value, req.parameter.scope_context) ==
+      parameters::SetParameterResult::Success) {
+    res = SetParameterRes(true);
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void UnsetParameterHandler(system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, parameters::Parameters &parameters,
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using storage::replication::UnsetParameterRes;
+  UnsetParameterRes res(false);
+
+  storage::replication::UnsetParameterReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::UnsetParameterReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("UnsetParameterHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (parameters.UnsetParameter(req.name, req.scope_context)) {
+    res = UnsetParameterRes(true);
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void DeleteAllParametersHandler(system::ReplicaHandlerAccessToState &system_state_access,
+                                const std::optional<utils::UUID> &current_main_uuid, parameters::Parameters &parameters,
+                                uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+  using storage::replication::DeleteAllParametersRes;
+  DeleteAllParametersRes res(false);
+
+  storage::replication::DeleteAllParametersReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::DeleteAllParametersReq::kType.name);
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::debug("DeleteAllParametersHandler: bad expected timestamp {},{}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    rpc::SendFinalResponse(res, request_version, res_builder);
+    return;
+  }
+
+  if (parameters.DeleteAllParameters()) {
+    res = DeleteAllParametersRes(true);
+  }
+
+  rpc::SendFinalResponse(res, request_version, res_builder);
+}
+
+void RegisterParameterHandlers(replication::RoleReplicaData const &data,
+                               system::ReplicaHandlerAccessToState system_state_access,
+                               parameters::Parameters &parameters) {
+  data.server->rpc_server_.Register<storage::replication::SetParameterRpc>(
+      [&data, system_state_access, &parameters](std::optional<rpc::FileReplicationHandler> const &,
+                                                uint64_t const request_version,
+                                                auto *req_reader,
+                                                auto *res_builder) mutable {
+        SetParameterHandler(system_state_access, data.uuid_, parameters, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::UnsetParameterRpc>(
+      [&data, system_state_access, &parameters](std::optional<rpc::FileReplicationHandler> const &,
+                                                uint64_t const request_version,
+                                                auto *req_reader,
+                                                auto *res_builder) mutable {
+        UnsetParameterHandler(system_state_access, data.uuid_, parameters, request_version, req_reader, res_builder);
+      });
+  data.server->rpc_server_.Register<storage::replication::DeleteAllParametersRpc>(
+      [&data, system_state_access, &parameters](std::optional<rpc::FileReplicationHandler> const &,
+                                                uint64_t const request_version,
+                                                auto *req_reader,
+                                                auto *res_builder) mutable {
+        DeleteAllParametersHandler(
+            system_state_access, data.uuid_, parameters, request_version, req_reader, res_builder);
+      });
+}
+
+}  // namespace
+
+#ifdef MG_ENTERPRISE
+void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
+                           auth::SynchedAuth &auth, parameters::Parameters &parameters, uint64_t const request_version,
+                           slk::Reader *req_reader, slk::Builder *res_builder) {
+#else
+void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, parameters::Parameters &parameters,
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
+#endif
+  using memgraph::replication::SystemRecoveryRes;
+  SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
+  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, request_version, res_builder); });
+
+  memgraph::replication::SystemRecoveryReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
+    return;
+  }
+
+#ifdef MG_ENTERPRISE
+  if (!dbms::SystemRecoveryHandler(dbms_handler, req.database_configs, req.cold_databases)) {
+    return;
+  }
+  if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles, req.profiles)) return;
+#endif
+  if (!parameters.ApplyRecovery(req.parameters)) return;
+
+  system_state_access.SetLastCommitedTS(req.forced_group_timestamp);
+  spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);
+  res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);
+}
+
+void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                             const std::optional<utils::UUID> &current_main_uuid, uint64_t const request_version,
+                             slk::Reader *req_reader, slk::Builder *res_builder) {
+  using memgraph::replication::FinalizeSystemTxRes;
+  FinalizeSystemTxRes res(false);
+
+  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, request_version, res_builder); });
+
+  memgraph::replication::FinalizeSystemTxReq req;
+  memgraph::slk::Load(&req, req_reader);
+
+  // validate MAIN
+  if (current_main_uuid != req.main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
+    return;
+  }
+
+  // validate delta
+  // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
+  //       of the set of databases. Hence no history exists to maintain regarding epoch change.
+  //       If MAIN has changed we need to check this new group_timestamp is consistent with
+  //       what we have so far.
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::error("Received system delta with expected ts: {} != last commited ts: {}",
+                  req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    return;
+  }
+
+  system_state_access.SetLastCommitedTS(req.new_group_timestamp);
+  spdlog::debug("FinalizeSystemTxHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+  res = FinalizeSystemTxRes(true);
+}
+
+#ifdef MG_ENTERPRISE
+void Register(replication::RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
+              auth::SynchedAuth &auth, parameters::Parameters &parameters) {
+#else
+void Register(replication::RoleReplicaData const &data, system::System &system, parameters::Parameters &parameters) {
+#endif
+  // NOTE: Register even without license as the user could add a license at run-time
+  auto system_state_access = system.CreateSystemStateAccess();
+
+// need to tell REPLICA the uuid to use for "memgraph" default database
+#ifdef MG_ENTERPRISE
+  data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
+      [&data, system_state_access, &dbms_handler, &auth, &parameters](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        SystemRecoveryHandler(
+            system_state_access, data.uuid_, dbms_handler, auth, parameters, request_version, req_reader, res_builder);
+      });
+#else
+  data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
+      [&data, system_state_access, &parameters](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) mutable {
+        SystemRecoveryHandler(system_state_access, data.uuid_, parameters, request_version, req_reader, res_builder);
+      });
+#endif
+
+  data.server->rpc_server_.Register<replication::FinalizeSystemTxRpc>(
+      [&data, system_state_access](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                   uint64_t const request_version,
+                                   auto *req_reader,
+                                   auto *res_builder) mutable {
+        FinalizeSystemTxHandler(system_state_access, data.uuid_, request_version, req_reader, res_builder);
+      });
+
+#ifdef MG_ENTERPRISE
+  dbms::Register(data, system_state_access, dbms_handler);
+  auth::Register(data, system_state_access, auth);
+#endif
+  RegisterParameterHandlers(data, system_state_access, parameters);
+}
+
+#ifdef MG_ENTERPRISE
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    replication::RoleReplicaData &data, auth::SynchedAuth &auth, system::System &system,
+    parameters::Parameters &parameters) {
+#else
+bool StartRpcServer(
+    dbms::DbmsHandler &dbms_handler,
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> &repl_state,
+    replication::RoleReplicaData &data, system::System &system, parameters::Parameters &parameters) {
+#endif
+  // Register storage handlers
+  dbms::InMemoryReplicationHandlers::Register(&dbms_handler, repl_state, data);
+#ifdef MG_ENTERPRISE
+  Register(data, system, dbms_handler, auth, parameters);
+#else
+  Register(data, system, parameters);
+#endif
+  // Start server
+  if (!data.server->Start()) {
+    spdlog::error("Unable to start the replication server.");
+    return false;
+  }
+  return true;
+}
+
+}  // namespace memgraph::replication

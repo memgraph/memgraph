@@ -1,0 +1,1 @@
+CREATE (n1:Node {id: 1}), (n2:Node {id: 2}), (n3:Node {id: 3}), (n4:Node {id: 4}), (n5:Node {id: 5}), (n6:Node {id: 6}) CREATE (n1)-[r1:CONNECTED {id: 1}]->(n2), (n2)-[r2:CONNECTED {id: 2}]->(n3), (n3)-[r3:CONNECTED {id: 3}]->(n4), (n4)-[r4:CONNECTED {id: 4}]->(n5), (n5)-[r5:CONNECTED {id: 5}]->(n6), (n1)-[r6:CONNECTED {id: 6}]->(n3), (n4)-[r7:CONNECTED {id: 7}]->(n6);

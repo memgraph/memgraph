@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,81 +13,99 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "coordination/coordinator_client.hpp"
-#include "coordination/coordinator_entity_info.hpp"
-#include "coordination/coordinator_server.hpp"
-#include "rpc/server.hpp"
-#include "utils/result.hpp"
-#include "utils/rw_spin_lock.hpp"
-#include "utils/synchronized.hpp"
-
-#include <list>
+#include <optional>
+#include <string_view>
 #include <variant>
+
+#include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_instance.hpp"
+#include "coordination/coordinator_ops_status.hpp"
+#include "coordination/data_instance_management_server.hpp"
+#include "coordination/instance_status.hpp"
+
+#include "nlohmann/json_fwd.hpp"
 
 namespace memgraph::coordination {
 
-enum class RegisterMainReplicaCoordinatorStatus : uint8_t {
-  NAME_EXISTS,
-  END_POINT_EXISTS,
-  COULD_NOT_BE_PERSISTED,
-  NOT_COORDINATOR,
-  SUCCESS
-};
-
-enum class DoFailoverStatus : uint8_t { SUCCESS, ALL_REPLICAS_DOWN, MAIN_ALIVE, CLUSTER_UNINITIALIZED };
-
 class CoordinatorState {
  public:
-  CoordinatorState();
+  explicit CoordinatorState(CoordinatorInstanceInitConfig const &config);
+  explicit CoordinatorState(ReplicationInstanceInitConfig const &config);
   ~CoordinatorState() = default;
 
-  CoordinatorState(const CoordinatorState &) = delete;
-  CoordinatorState &operator=(const CoordinatorState &) = delete;
+  CoordinatorState(CoordinatorState const &) = delete;
+  CoordinatorState &operator=(CoordinatorState const &) = delete;
 
-  CoordinatorState(CoordinatorState &&other) noexcept : data_(std::move(other.data_)) {}
+  CoordinatorState(CoordinatorState &&) noexcept = delete;
+  CoordinatorState &operator=(CoordinatorState &&) noexcept = delete;
 
-  CoordinatorState &operator=(CoordinatorState &&other) noexcept {
-    if (this == &other) {
-      return *this;
-    }
-    data_ = std::move(other.data_);
-    return *this;
-  }
+  [[nodiscard]] auto RegisterReplicationInstance(DataInstanceConfig const &config) -> RegisterInstanceCoordinatorStatus;
+  [[nodiscard]] auto UnregisterReplicationInstance(std::string_view instance_name)
+      -> UnregisterInstanceCoordinatorStatus;
 
-  auto RegisterReplica(const CoordinatorClientConfig &config)
-      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *>;
+  [[nodiscard]] auto DemoteInstanceToReplica(std::string_view instance_name) -> DemoteInstanceCoordinatorStatus;
 
-  auto RegisterMain(const CoordinatorClientConfig &config)
-      -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus, CoordinatorClient *>;
+  [[nodiscard]] auto ReconcileClusterState() -> ReconcileClusterStateStatus;
 
-  auto ShowReplicas() const -> std::vector<CoordinatorEntityInfo>;
+  [[nodiscard]] auto SetReplicationInstanceToMain(std::string_view instance_name) -> SetInstanceToMainCoordinatorStatus;
 
-  auto PingReplicas() const -> std::unordered_map<std::string_view, bool>;
+  [[nodiscard]] auto ShowInstance() const -> InstanceStatus;
 
-  auto ShowMain() const -> std::optional<CoordinatorEntityInfo>;
+  // nullopt if the leader couldn't be reached.
+  [[nodiscard]] auto ShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
 
-  auto PingMain() const -> std::optional<CoordinatorEntityHealthInfo>;
+  auto AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus;
 
-  // The client code must check that the server exists before calling this method.
-  auto GetCoordinatorServer() const -> CoordinatorServer &;
+  auto RemoveCoordinatorInstance(int32_t coordinator_id) const -> RemoveCoordinatorInstanceStatus;
 
-  auto DoFailover() -> DoFailoverStatus;
+  auto UpdateConfig(coordination::UpdateInstanceConfig const &config) -> coordination::UpdateConfigStatus;
+
+  auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
+      -> SetCoordinatorSettingStatus;
+
+  auto CreateRole(std::string_view role_name) const -> CreateRoleStatus;
+
+  auto DropRole(std::string_view role_name) const -> DropRoleStatus;
+
+  // Strong read served by the leader: nullopt when the leader is unreachable, never local replicated state, so
+  // consumers (SSO authentication, privilege checks, SHOW ROLES) fail closed instead of acting on stale roles.
+  auto GetRoles() const -> std::optional<std::vector<CoordinatorRole>>;
+
+  auto GrantPrivilege(std::string_view role_name, uint64_t privileges) const -> GrantPrivilegeStatus;
+
+  auto RevokePrivilege(std::string_view role_name, uint64_t privileges) const -> RevokePrivilegeStatus;
+
+  // Strong read served by the leader: nullopt when the leader is unreachable, never local replicated state; the
+  // returned pair is {role_found, mask}.
+  auto GetRolePrivileges(std::string_view role_name) const -> std::optional<std::pair<bool, uint64_t>>;
+
+  // Both return nullopt if the leader couldn't be reached.
+  auto ShowCoordinatorSettings() const -> std::optional<std::vector<std::pair<std::string, std::string>>>;
+
+  auto ShowReplicationLag() const -> std::optional<ReplicationLagResult>;
+
+  [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
+
+  auto YieldLeadership() const -> YieldLeadershipStatus;
+
+  // NOTE: The client code must check that the server exists before calling this method.
+  auto GetDataInstanceManagementServer() const -> DataInstanceManagementServer &;
+
+  auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
+
+  auto GetTelemetryJson() const -> nlohmann::json;
+
+  [[nodiscard]] auto IsCoordinator() const -> bool;
+  [[nodiscard]] auto IsDataInstance() const -> bool;
+
+  void ShutDownCoordinator();
 
  private:
-  // TODO: Data is not thread safe
-
-  // Coordinator stores registered replicas and main
-  struct CoordinatorData {
-    std::list<CoordinatorClient> registered_replicas_;
-    std::unique_ptr<CoordinatorClient> registered_main_;
-  };
-
-  // Data which each main and replica stores
   struct CoordinatorMainReplicaData {
-    std::unique_ptr<CoordinatorServer> coordinator_server_;
+    std::unique_ptr<DataInstanceManagementServer> data_instance_management_server_;
   };
 
-  std::variant<CoordinatorData, CoordinatorMainReplicaData> data_;
+  std::variant<CoordinatorMainReplicaData, CoordinatorInstance> data_;
 };
 
 }  // namespace memgraph::coordination

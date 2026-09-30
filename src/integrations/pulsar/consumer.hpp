@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,20 @@
 
 #pragma once
 
+#include <pulsar/Client.h>
+#include <pulsar/Consumer.h>
+#include <pulsar/Message.h>
+#include <pulsar/MessageId.h>
 #include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <functional>
 #include <optional>
 #include <span>
+#include <string>
+#include <string_view>
 #include <thread>
-
-#include <pulsar/Client.h>
+#include <vector>
 
 namespace memgraph::integrations::pulsar {
 
@@ -38,6 +46,7 @@ class Message final {
 };
 
 using ConsumerFunction = std::function<void(const std::vector<Message> &)>;
+using ConsumerThreadFactory = std::function<std::thread(std::function<void()>)>;
 
 struct ConsumerInfo {
   int64_t batch_size;
@@ -49,7 +58,7 @@ struct ConsumerInfo {
 
 class Consumer final {
  public:
-  Consumer(ConsumerInfo info, ConsumerFunction consumer_function);
+  Consumer(ConsumerInfo info, ConsumerFunction consumer_function, ConsumerThreadFactory thread_factory = {});
   ~Consumer();
 
   Consumer(const Consumer &) = delete;
@@ -68,6 +77,8 @@ class Consumer final {
 
   const ConsumerInfo &Info() const;
 
+  void SetThreadFactory(ConsumerThreadFactory thread_factory);
+
  private:
   void StartConsuming();
   void StartConsumingWithLimit(uint64_t limit_batches, std::optional<std::chrono::milliseconds> timeout) const;
@@ -77,6 +88,7 @@ class Consumer final {
   mutable pulsar_client::Client client_;
   mutable pulsar_client::Consumer consumer_;
   ConsumerFunction consumer_function_;
+  ConsumerThreadFactory thread_factory_;
 
   mutable std::atomic<bool> is_running_{false};
   mutable pulsar_client::MessageId last_message_id_{pulsar_client::MessageId::earliest()};  // Protected by is_running_

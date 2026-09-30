@@ -6,63 +6,154 @@ project(memgraph_query_modules)
 
 disallow_in_source_build()
 
-# Everything that is installed here, should be under the "query_modules" component.
-set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "query_modules")
+find_package(fmt REQUIRED)
+find_package(Boost REQUIRED CONFIG)
+
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
-add_library(example_c SHARED example.c)
-target_include_directories(example_c PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(example_c PRIVATE -Wall)
-target_link_libraries(example_c PRIVATE -static-libgcc -static-libstdc++)
-# Strip C example in release build.
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET example_c POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:example_c>
-                     COMMENT "Stripping symbols and sections from the C example module")
-endif()
-install(PROGRAMS $<TARGET_FILE:example_c>
-        DESTINATION lib/memgraph/query_modules
-        RENAME example_c.so)
-# Also install the source of the example, so user can read it.
-install(FILES example.c DESTINATION lib/memgraph/query_modules/src)
+function(add_post_build_strip_in_release target build_type_var)
+  string(TOLOWER "${${build_type_var}}" lower_build_type)
 
-add_library(example_cpp SHARED example.cpp)
-target_include_directories(example_cpp PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(example_cpp PRIVATE -Wall)
-target_link_libraries(example_cpp PRIVATE -static-libgcc -static-libstdc++)
-# Strip C++ example in release build.
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET example_cpp POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:example_cpp>
-                     COMMENT "Stripping symbols and sections from the C++ example module")
-endif()
-install(PROGRAMS $<TARGET_FILE:example_cpp>
-        DESTINATION lib/memgraph/query_modules
-        RENAME example_cpp.so)
-# Also install the source of the example, so user can read it.
-install(FILES example.cpp DESTINATION lib/memgraph/query_modules/src)
+  if (lower_build_type STREQUAL "release")
+    add_custom_command(
+      TARGET ${target} POST_BUILD
+      COMMAND ${CMAKE_STRIP} -s $<TARGET_FILE:${target}>
+      COMMENT "Stripping symbols and sections from the ${target} module"
+    )
+  endif()
+endfunction()
 
-add_library(schema SHARED schema.cpp)
-target_include_directories(schema PRIVATE ${CMAKE_SOURCE_DIR}/include)
-target_compile_options(schema PRIVATE -Wall)
-target_link_libraries(schema PRIVATE -static-libgcc -static-libstdc++)
-# Strip C++ example in release build.
-if (lower_build_type STREQUAL "release")
-  add_custom_command(TARGET schema POST_BUILD
-                     COMMAND strip -s $<TARGET_FILE:schema>
-                     COMMENT "Stripping symbols and sections from the C++ schema module")
-endif()
-install(PROGRAMS $<TARGET_FILE:schema>
-        DESTINATION lib/memgraph/query_modules
-        RENAME schema.so)
-# Also install the source of the example, so user can read it.
-install(FILES schema.cpp DESTINATION lib/memgraph/query_modules/src)
+function(add_custom_library NAME SRC)
+    set(optional_libs ${ARGN})
+
+    add_library(${NAME} SHARED ${SRC})
+    target_include_directories(${NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/libs)
+    target_compile_options(${NAME} PRIVATE -Wall)
+    target_link_libraries(${NAME} PRIVATE ${optional_libs})
+
+    # Apply post-build strip in release mode
+    add_post_build_strip_in_release(${NAME} CMAKE_BUILD_TYPE)
+    mg_split_debug(${NAME} INSTALL_DESTINATION lib/memgraph/query_modules)
+
+    set_target_properties(${NAME} PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "${NAME}"
+    )
+
+    # Also install the source of the example, so user can read it.
+    install(FILES ${SRC} DESTINATION lib/memgraph/query_modules/src)
+endfunction()
+
+add_custom_library(example_c example.c)
+add_custom_library(example_cpp example.cpp)
+add_custom_library(schema schema.cpp Boost::boost)
+add_custom_library(mgps_cpp mgps_cpp.cpp)
+add_custom_library(text_search text_search_module.cpp fmt::fmt)
+add_custom_library(vector_search vector_search_module.cpp fmt::fmt)
+add_custom_library(convert convert.cpp fmt::fmt nlohmann_json::nlohmann_json)
+add_custom_library(convert_c convert.c)
+
+
+set(QUERY_MODULES_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL "Build directory for QMs in folders")
+set(QUERY_MODULES_DIR lib/memgraph/query_modules)
+
+function(add_query_module target_name version src)
+  add_library(${target_name} SHARED ${src})
+  set_property(TARGET ${target_name} PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+  target_include_directories(${target_name} PRIVATE
+      ${CMAKE_SOURCE_DIR}/include
+      ${CMAKE_CURRENT_SOURCE_DIR}
+  )
+
+  target_compile_options(${target_name} PRIVATE -Wall)
+
+  add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
+  mg_split_debug(${target_name} INSTALL_DESTINATION lib/memgraph/query_modules)
+
+  set_target_properties(${target_name} PROPERTIES
+      PREFIX "" # remove "lib" prefix
+      OUTPUT_NAME "${target_name}"
+      LIBRARY_OUTPUT_DIRECTORY "${QUERY_MODULES_BUILD_DIR}" # needed because we want all .so in /build/query_modules
+  )
+endfunction()
+
+add_subdirectory(pagerank_module)
+add_subdirectory(katz_centrality_module)
+add_subdirectory(community_detection_module)
+
+# Copy python query modules into build/query_modules
+# This is to avoid doing make install during CI
+# C and C++ modules .so files will already be there
+# Skipped entirely when the embedded Python interpreter is disabled.
+#
+# NOTE: some of the files copied below come from src/mage/python; the MAGE build
+# (MG_BUILD_MAGE, src/mage/python/CMakeLists.txt) independently ships the full
+# src/mage/python set under the `mage` install component. The overlap is
+# intentional for now — the memgraph package legitimately carries these few
+# files on its own; dedup is a packaging-phase decision.
+file(MAKE_DIRECTORY ${QUERY_MODULES_BUILD_DIR})
+
+# node2vec gets copied inside subdirectory
+# TODO: make this consistent
+add_subdirectory(node2vec_online_module)
+
+if (MG_PYTHON_SUPPORT)
+set(PYTHON_QUERY_MODULES_FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/graph_analyzer.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/mgp_networkx.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/nxalg.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/wcc.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/mgps.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/date.py
+)
+file(GLOB MAGE_DATE_FILES "${CMAKE_SOURCE_DIR}/src/mage/python/mage/date/*")
+mg_add_stamped_custom_target(copy_python_query_modules ALL
+    STAMP_DIR ${QUERY_MODULES_BUILD_DIR}
+    COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage
+        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/src/mage/python/mage/__init__.py ${QUERY_MODULES_BUILD_DIR}/mage/__init__.py
+        COMMAND ${CMAKE_COMMAND} -E make_directory ${QUERY_MODULES_BUILD_DIR}/mage/date
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/src/mage/python/mage/date ${QUERY_MODULES_BUILD_DIR}/mage/date
+        COMMAND ${CMAKE_COMMAND} -E touch ${QUERY_MODULES_BUILD_DIR}/mage/date/__init__.py
+    DEPENDS
+        ${PYTHON_QUERY_MODULES_FILES}
+        ${CMAKE_SOURCE_DIR}/src/mage/python/mage/__init__.py
+        ${MAGE_DATE_FILES}
+    COMMENT "Copying Python query modules to build/query_modules"
+)
+
+file(GLOB MAGE_PYTHON_QUERY_MODULES "${CMAKE_SOURCE_DIR}/src/mage/python/*.py")
+mg_add_stamped_custom_target(copy_mage_python_query_modules ALL
+    STAMP_DIR ${QUERY_MODULES_BUILD_DIR}
+    COMMANDS
+        COMMAND ${CMAKE_COMMAND} -E copy ${MAGE_PYTHON_QUERY_MODULES} ${QUERY_MODULES_BUILD_DIR}
+    DEPENDS ${MAGE_PYTHON_QUERY_MODULES}
+    COMMENT "Copying MAGE Python query modules to build/query_modules"
+)
+endif() # MG_PYTHON_SUPPORT
+
+# Install C++ query modules
+install(TARGETS
+    convert convert_c example_c example_cpp schema mgps_cpp
+    text_search vector_search pagerank_online
+    community_detection_online katz_centrality_online node2vec_online
+    DESTINATION lib/memgraph/query_modules
+)
 
 # Install the Python example and modules
+if (MG_PYTHON_SUPPORT)
 install(FILES example.py DESTINATION lib/memgraph/query_modules RENAME py_example.py)
 install(FILES graph_analyzer.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
 install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
 install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgps.py DESTINATION lib/memgraph/query_modules)
-install(FILES convert.py DESTINATION lib/memgraph/query_modules)
+install(FILES date.py DESTINATION lib/memgraph/query_modules)
+
+install(FILES ${CMAKE_SOURCE_DIR}/src/mage/python/mage/__init__.py DESTINATION lib/memgraph/query_modules/mage)
+install(DIRECTORY ${CMAKE_SOURCE_DIR}/src/mage/python/mage/date DESTINATION lib/memgraph/query_modules/mage)
+install(FILES ${QUERY_MODULES_BUILD_DIR}/mage/date/__init__.py DESTINATION lib/memgraph/query_modules/mage/date)
+endif() # MG_PYTHON_SUPPORT
+
+# IMPORTANT: when adding enterprise module add its name to kEnterpriseModuleList in src/query/procedure/module.cpp

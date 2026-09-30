@@ -1,0 +1,124 @@
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30+01:00[Europe/Paris]', 'iso_zoned_date_time', 'iso_offset_date_time') AS output;
+  output:
+    - output: "2011-12-03T10:15:30+01:00"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30+01:00', 'iso_offset_date_time', 'iso_zoned_date_time') AS output;
+  output:
+    - output: "2011-12-03T10:15:30+01:00"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30.987654+01:00', 'iso_offset_date_time', 'iso_zoned_date_time') AS output;
+  output:
+    - output: "2011-12-03T10:15:30.987654+01:00"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30.987+01:00', 'iso_offset_date_time', 'iso_zoned_date_time') AS output;
+  output:
+    - output: "2011-12-03T10:15:30.987000+01:00"
+
+- query: >-
+    RETURN date.convert_format('20111203', 'basic_iso_date', 'iso_local_date') AS output;
+  output:
+    - output: "2011-12-03"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03', 'iso_local_date', 'basic_iso_date') AS output;
+  output:
+    - output: "20111203"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03+01:00', 'iso_offset_date', 'iso_local_date') AS output;
+  output:
+    - output: "2011-12-03"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03+01:00', 'iso_offset_date', 'basic_iso_date') AS output;
+  output:
+    - output: "20111203"
+
+- query: >-
+    RETURN date.convert_format('10:15:30+01:00', 'iso_offset_time', 'iso_local_time') AS output;
+  output:
+    - output: "10:15:30"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30', 'iso_local_date_time', 'iso_local_date') AS output;
+  output:
+    - output: "2011-12-03"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30', 'iso_local_date_time', 'iso_local_time') AS output;
+  output:
+    - output: "10:15:30"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30', 'iso_local_date_time', 'basic_iso_date') AS output;
+  output:
+    - output: "20111203"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30+01:00', 'iso_offset_date_time', 'iso_local_date_time') AS output;
+  output:
+    - output: "2011-12-03T10:15:30"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30+01:00', 'iso_offset_date_time', 'iso_offset_date') AS output;
+  output:
+    - output: "2011-12-03+01:00"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30+01:00', 'iso_offset_date_time', 'iso_offset_time') AS output;
+  output:
+    - output: "10:15:30+01:00"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30+01:00[Europe/Paris]', 'iso_zoned_date_time', 'iso_local_date') AS output;
+  output:
+    - output: "2011-12-03"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30+01:00[Europe/Paris]', 'iso_zoned_date_time', 'iso_local_date_time') AS output;
+  output:
+    - output: "2011-12-03T10:15:30"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30+01:00[Europe/Paris]', 'iso_zoned_date_time', 'basic_iso_date') AS output;
+  output:
+    - output: "20111203"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03', 'iso_date', 'basic_iso_date') AS output;
+  output:
+    - output: "20111203"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03+01:00', 'iso_date', 'iso_local_date') AS output;
+  output:
+    - output: "2011-12-03"
+
+- query: >-
+    RETURN date.convert_format('10:15:30+01:00', 'iso_time', 'iso_offset_time') AS output;
+  output:
+    - output: "10:15:30+01:00"
+
+- query: >-
+    RETURN date.convert_format('10:15:30', 'iso_local_time', 'iso_offset_time') AS output;
+  exception: >-
+    "missing timezone"
+
+- query: >-
+    RETURN date.convert_format('20111203', 'basic_iso_date', 'iso_offset_date') AS output;
+  exception: >-
+    "missing timezone"
+
+- query: >-
+    RETURN date.convert_format('2011-12-03T10:15:30', 'iso_local_date_time', 'iso_offset_date_time') AS output;
+  exception: >-
+    "missing timezone"
+
+- query: >-
+    RETURN date.convert_format(null, 'iso_time', 'iso_offset_time') AS output;
+  output:
+    - output: null

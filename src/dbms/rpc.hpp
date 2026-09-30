@@ -1,0 +1,327 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include <utility>
+
+#include "rpc/messages.hpp"
+#include "slk/streams.hpp"
+#include "storage/v2/config.hpp"
+#include "utils/typeinfo.hpp"
+#include "utils/uuid.hpp"
+
+#ifdef MG_ENTERPRISE
+#include "dbms/tenant_profiles.hpp"
+
+namespace memgraph::storage::replication {
+
+struct CreateDatabaseReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_REQ, .name = "CreateDatabaseReq"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
+  CreateDatabaseReq() = default;
+
+  CreateDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
+                    uint64_t const new_group_timestamp, SalientConfig config)
+      : main_uuid(main_uuid),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        config(std::move(config)) {}
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  storage::SalientConfig config;
+};
+
+struct CreateDatabaseRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_RES, .name = "CreateDatabaseRes"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(CreateDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const CreateDatabaseRes &self, memgraph::slk::Builder *builder);
+  CreateDatabaseRes() = default;
+
+  explicit CreateDatabaseRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using CreateDatabaseRpc = rpc::RequestResponse<CreateDatabaseReq, CreateDatabaseRes>;
+
+struct DropDatabaseReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_DROP_DATABASE_REQ, .name = "DropDatabaseReq"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(DropDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const DropDatabaseReq &self, memgraph::slk::Builder *builder);
+  DropDatabaseReq() = default;
+
+  DropDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
+                  uint64_t const new_group_timestamp, const utils::UUID &uuid)
+      : main_uuid(main_uuid),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        uuid(uuid) {}
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  utils::UUID uuid;
+};
+
+struct DropDatabaseRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_DROP_DATABASE_RES, .name = "DropDatabaseRes"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(DropDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const DropDatabaseRes &self, memgraph::slk::Builder *builder);
+  DropDatabaseRes() = default;
+
+  explicit DropDatabaseRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using DropDatabaseRpc = rpc::RequestResponse<DropDatabaseReq, DropDatabaseRes>;
+
+// Hot/cold SUSPEND replication: carries the tenant UUID exactly like DropDatabaseRpc. The replica
+// applies the suspend (tears down its own copy to a COLD shell) in system-timestamp order.
+struct SuspendDatabaseReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SUSPEND_DATABASE_REQ, .name = "SuspendDatabaseReq"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(SuspendDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const SuspendDatabaseReq &self, memgraph::slk::Builder *builder);
+  SuspendDatabaseReq() = default;
+
+  SuspendDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
+                     uint64_t const new_group_timestamp, const utils::UUID &uuid)
+      : main_uuid(main_uuid),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        uuid(uuid) {}
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  utils::UUID uuid;
+};
+
+struct SuspendDatabaseRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SUSPEND_DATABASE_RES, .name = "SuspendDatabaseRes"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(SuspendDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const SuspendDatabaseRes &self, memgraph::slk::Builder *builder);
+  SuspendDatabaseRes() = default;
+
+  explicit SuspendDatabaseRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using SuspendDatabaseRpc = rpc::RequestResponse<SuspendDatabaseReq, SuspendDatabaseRes>;
+
+// Hot/cold RESUME replication: the replica rebuilds its own copy (COLD -> HOT) from its on-disk
+// artifacts identified by UUID, in system-timestamp order.
+struct ResumeDatabaseReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RESUME_DATABASE_REQ, .name = "ResumeDatabaseReq"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(ResumeDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const ResumeDatabaseReq &self, memgraph::slk::Builder *builder);
+  ResumeDatabaseReq() = default;
+
+  ResumeDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
+                    uint64_t const new_group_timestamp, const utils::UUID &uuid)
+      : main_uuid(main_uuid),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        uuid(uuid) {}
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  utils::UUID uuid;
+};
+
+struct ResumeDatabaseRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RESUME_DATABASE_RES, .name = "ResumeDatabaseRes"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(ResumeDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const ResumeDatabaseRes &self, memgraph::slk::Builder *builder);
+  ResumeDatabaseRes() = default;
+
+  explicit ResumeDatabaseRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using ResumeDatabaseRpc = rpc::RequestResponse<ResumeDatabaseReq, ResumeDatabaseRes>;
+
+struct RenameDatabaseReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RENAME_DATABASE_REQ, .name = "RenameDatabaseReq"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(RenameDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const RenameDatabaseReq &self, memgraph::slk::Builder *builder);
+  RenameDatabaseReq() = default;
+
+  RenameDatabaseReq(const utils::UUID &main_uuid, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
+                    const utils::UUID &uuid, std::string old_name, std::string new_name)
+      : main_uuid(main_uuid),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        uuid(uuid),
+        old_name(std::move(old_name)),
+        new_name(std::move(new_name)) {}
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  utils::UUID uuid;
+  std::string old_name;
+  std::string new_name;
+};
+
+struct RenameDatabaseRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RENAME_DATABASE_RES, .name = "RenameDatabaseRes"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(RenameDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const RenameDatabaseRes &self, memgraph::slk::Builder *builder);
+  RenameDatabaseRes() = default;
+
+  explicit RenameDatabaseRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using RenameDatabaseRpc = rpc::RequestResponse<RenameDatabaseReq, RenameDatabaseRes>;
+
+// Tenant profile replication: a single RPC carries the action type + payload.
+struct TenantProfileReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_TENANT_PROFILE_REQ, .name = "TenantProfileReq"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Action : uint8_t { CREATE, ALTER, DROP, SET_ON_DATABASE, REMOVE_FROM_DATABASE };
+
+  static void Load(TenantProfileReq *self, memgraph::slk::Reader *reader);
+  static void Save(const TenantProfileReq &self, memgraph::slk::Builder *builder);
+  TenantProfileReq() = default;
+
+  TenantProfileReq(const utils::UUID &main_uuid, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
+                   Action action, dbms::TenantProfiles::Profile profile, std::string_view db_name)
+      : main_uuid(main_uuid),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        action(action),
+        profile(std::move(profile)),
+        db_name(db_name) {}
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp{0};
+  uint64_t new_group_timestamp{0};
+  Action action{Action::CREATE};
+  dbms::TenantProfiles::Profile profile;
+  std::string db_name;
+};
+
+struct TenantProfileRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_TENANT_PROFILE_RES, .name = "TenantProfileRes"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(TenantProfileRes *self, memgraph::slk::Reader *reader);
+  static void Save(const TenantProfileRes &self, memgraph::slk::Builder *builder);
+  TenantProfileRes() = default;
+
+  explicit TenantProfileRes(bool success) : success(success) {}
+
+  bool success{false};
+};
+
+using TenantProfileRpc = rpc::RequestResponse<TenantProfileReq, TenantProfileRes>;
+
+}  // namespace memgraph::storage::replication
+
+// SLK serialization declarations
+namespace memgraph::slk {
+
+void Save(const memgraph::storage::replication::CreateDatabaseReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::CreateDatabaseRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::DropDatabaseReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::DropDatabaseReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::SuspendDatabaseReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::SuspendDatabaseReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::SuspendDatabaseRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::SuspendDatabaseRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::ResumeDatabaseReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::ResumeDatabaseReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::ResumeDatabaseRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::ResumeDatabaseRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::RenameDatabaseReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::RenameDatabaseReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::RenameDatabaseRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::RenameDatabaseRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::dbms::TenantProfiles::Profile &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::dbms::TenantProfiles::Profile *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::TenantProfileReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::TenantProfileReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::TenantProfileRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::TenantProfileRes *self, memgraph::slk::Reader *reader);
+
+}  // namespace memgraph::slk
+
+#endif  // MG_ENTERPRISE

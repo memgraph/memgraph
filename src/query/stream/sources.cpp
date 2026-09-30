@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,29 @@
 
 #include "query/stream/sources.hpp"
 
-#include <json/json.hpp>
+#include <functional>
+#include <nlohmann/json.hpp>
+#include <thread>
+#include <utility>
 
-#include "integrations/constants.hpp"
+#include "memory/db_arena_fwd.hpp"
+#include "query/stream/common.hpp"
 
 namespace memgraph::query::stream {
+namespace {
+auto MakeDbAwareThreadFactory(memory::ArenaPool *arena_pool) {
+  return [arena_pool](std::function<void()> task) {
+    return std::thread([arena_pool, task = std::move(task)]() mutable {
+      const memory::DbArenaScope db_arena_scope{arena_pool};
+      task();
+    });
+  };
+}
+}  // namespace
+
 KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
-                         ConsumerFunction<integrations::kafka::Message> consumer_function) {
+                         ConsumerFunction<integrations::kafka::Message> consumer_function,
+                         memory::ArenaPool *arena_pool) {
   integrations::kafka::ConsumerInfo consumer_info{
       .consumer_name = std::move(stream_name),
       .topics = std::move(stream_info.topics),
@@ -28,7 +44,7 @@ KafkaStream::KafkaStream(std::string stream_name, StreamInfo stream_info,
       .public_configs = std::move(stream_info.configs),
       .private_configs = std::move(stream_info.credentials),
   };
-  consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
+  consumer_.emplace(std::move(consumer_info), std::move(consumer_function), MakeDbAwareThreadFactory(arena_pool));
 };
 
 KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const {
@@ -44,10 +60,13 @@ KafkaStream::StreamInfo KafkaStream::Info(std::string transformation_name) const
 }
 
 void KafkaStream::Start() { consumer_->Start(); }
+
 void KafkaStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
   consumer_->StartWithLimit(batch_limit, timeout);
 }
+
 void KafkaStream::Stop() { consumer_->Stop(); }
+
 bool KafkaStream::IsRunning() const { return consumer_->IsRunning(); }
 
 void KafkaStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
@@ -55,7 +74,7 @@ void KafkaStream::Check(std::optional<std::chrono::milliseconds> timeout, std::o
   consumer_->Check(timeout, batch_limit, std::move(consumer_function));
 }
 
-utils::BasicResult<std::string> KafkaStream::SetStreamOffset(const int64_t offset) {
+std::expected<void, std::string> KafkaStream::SetStreamOffset(const int64_t offset) {
   return consumer_->SetConsumerOffsets(offset);
 }
 
@@ -89,14 +108,15 @@ void from_json(const nlohmann::json &data, KafkaStream::StreamInfo &info) {
 }
 
 PulsarStream::PulsarStream(std::string stream_name, StreamInfo stream_info,
-                           ConsumerFunction<integrations::pulsar::Message> consumer_function) {
+                           ConsumerFunction<integrations::pulsar::Message> consumer_function,
+                           memory::ArenaPool *arena_pool) {
   integrations::pulsar::ConsumerInfo consumer_info{.batch_size = stream_info.common_info.batch_size,
                                                    .batch_interval = stream_info.common_info.batch_interval,
                                                    .topics = std::move(stream_info.topics),
                                                    .consumer_name = std::move(stream_name),
                                                    .service_url = std::move(stream_info.service_url)};
 
-  consumer_.emplace(std::move(consumer_info), std::move(consumer_function));
+  consumer_.emplace(std::move(consumer_info), std::move(consumer_function), MakeDbAwareThreadFactory(arena_pool));
 };
 
 PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) const {
@@ -109,11 +129,15 @@ PulsarStream::StreamInfo PulsarStream::Info(std::string transformation_name) con
 }
 
 void PulsarStream::Start() { consumer_->Start(); }
+
 void PulsarStream::StartWithLimit(uint64_t batch_limit, std::optional<std::chrono::milliseconds> timeout) const {
   consumer_->StartWithLimit(batch_limit, timeout);
 }
+
 void PulsarStream::Stop() { consumer_->Stop(); }
+
 bool PulsarStream::IsRunning() const { return consumer_->IsRunning(); }
+
 void PulsarStream::Check(std::optional<std::chrono::milliseconds> timeout, std::optional<uint64_t> batch_limit,
                          ConsumerFunction<Message> consumer_function) const {
   consumer_->Check(timeout, batch_limit, std::move(consumer_function));

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,13 +10,20 @@
 // licenses/APL.txt.
 #include "flags/isolation_level.hpp"
 
+#include <fmt/format.h>
+#include <gflags/gflags.h>
+#include <algorithm>
+#include <array>
+#include <expected>
+#include <iostream>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <utility>
+
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
-
-#include "gflags/gflags.h"
-
-#include <array>
-#include <string_view>
+#include "utils/logging.hpp"
 
 inline constexpr std::array isolation_level_mappings{
     std::pair{std::string_view{"SNAPSHOT_ISOLATION"}, memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION},
@@ -29,14 +36,15 @@ const std::string isolation_level_help_string =
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_string(isolation_level, "SNAPSHOT_ISOLATION", isolation_level_help_string.c_str(), {
-  if (const auto result = memgraph::utils::IsValidEnumValueString(value, isolation_level_mappings); result.HasError()) {
-    switch (result.GetError()) {
+  if (const auto result = memgraph::utils::IsValidEnumValueString(value, isolation_level_mappings);
+      !result.has_value()) {
+    switch (result.error()) {
       case memgraph::utils::ValidationError::EmptyValue: {
-        std::cout << "Isolation level cannot be empty." << std::endl;
+        std::cerr << "Isolation level cannot be empty." << std::endl;
         break;
       }
       case memgraph::utils::ValidationError::InvalidValue: {
-        std::cout << "Invalid value for isolation level. Allowed values: "
+        std::cerr << "Invalid value for isolation level. Allowed values: "
                   << memgraph::utils::GetAllowedEnumValuesString(isolation_level_mappings) << std::endl;
         break;
       }

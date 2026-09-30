@@ -1,0 +1,29 @@
+# Analytical Memory Stress Test
+#
+# Switches Memgraph to IN_MEMORY_ANALYTICAL mode, then repeatedly
+# creates 30M nodes and drops the graph. Logs memory after each
+# iteration to detect memory leaks in the analytical storage engine.
+
+memgraph:
+  deployment:
+    externally_managed: false
+  args:
+    - "--query-execution-timeout-sec=0"
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: analytical-memory-stress
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      script: standalone/native/workloads/analytical_memory/workload.py
+      timeout_min: 180

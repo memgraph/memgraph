@@ -1,0 +1,521 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include <concepts>
+#include <optional>
+#include "flags/bolt.hpp"
+#include "flags/general.hpp"
+#include "memory/db_arena_fwd.hpp"
+#include "range/v3/algorithm/remove.hpp"
+#include "storage/v2/exceptions.hpp"
+#include "storage/v2/indices/tracked_vector_allocator.hpp"
+#include "storage/v2/property_store.hpp"
+#include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex.hpp"
+#include "utils/memory_tracker.hpp"
+#include "utils/readable_size.hpp"
+#include "utils/resource_lock.hpp"
+#include "utils/spin_lock.hpp"
+#include "utils/synchronized.hpp"
+
+#include "usearch/index_dense.hpp"
+
+// Suppress usearch library warnings
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-W#warnings"
+#endif
+
+#include "usearch/index_plugins.hpp"
+
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+
+namespace memgraph::storage {
+
+using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t, TrackedVectorAllocator<64>,
+                                                        TrackedVectorAllocator<8>>;
+
+struct synchronized_mg_vector_index_t {
+  mg_vector_index_t index;
+  utils::ResourceLock mutex{};
+
+  explicit synchronized_mg_vector_index_t(mg_vector_index_t &&idx) : index(std::move(idx)) {}
+};
+
+/// @enum VectorIndexType
+/// @brief Represents the type of vector index.
+enum class VectorIndexType : uint8_t {
+  ON_NODES,
+  ON_EDGES,
+};
+
+/// @brief Converts a VectorIndexType to a string representation.
+/// @param type The VectorIndexType to convert.
+/// @return A string representation of the VectorIndexType.
+constexpr const char *VectorIndexTypeToString(VectorIndexType type) {
+  switch (type) {
+    case VectorIndexType::ON_NODES:
+      return "label+property_vector";
+    case VectorIndexType::ON_EDGES:
+      return "edge-type+property_vector";
+    default:
+      return "unsupported vector index type";
+  }
+}
+
+/// @struct VectorIndexConfigMap
+/// @brief Represents the configuration options for a vector index.
+///
+/// This structure includes the metric name, the dimension of the vectors in the index,
+/// the capacity of the index, and the resize coefficient for the index.
+struct VectorIndexConfigMap {
+  unum::usearch::metric_kind_t metric;
+  std::uint16_t dimension;
+  std::size_t capacity;
+  std::uint16_t resize_coefficient;
+  unum::usearch::scalar_kind_t scalar_kind;
+};
+
+/// @brief Converts a metric kind to its string representation.
+/// @param metric The metric kind to convert.
+/// @return A string representation of the metric kind.
+/// @throws VectorSearchException if the metric kind is unsupported.
+inline const char *NameFromMetric(unum::usearch::metric_kind_t metric) {
+  switch (metric) {
+    case unum::usearch::metric_kind_t::l2sq_k:
+      return "l2sq";
+    case unum::usearch::metric_kind_t::ip_k:
+      return "ip";
+    case unum::usearch::metric_kind_t::cos_k:
+      return "cos";
+    case unum::usearch::metric_kind_t::haversine_k:
+      return "haversine";
+    case unum::usearch::metric_kind_t::divergence_k:
+      return "divergence";
+    case unum::usearch::metric_kind_t::pearson_k:
+      return "pearson";
+    case unum::usearch::metric_kind_t::hamming_k:
+      return "hamming";
+    case unum::usearch::metric_kind_t::tanimoto_k:
+      return "tanimoto";
+    case unum::usearch::metric_kind_t::sorensen_k:
+      return "sorensen";
+    default:
+      throw VectorSearchException(
+          "Unsupported metric kind. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, hamming, "
+          "tanimoto, and sorensen.");
+  }
+}
+
+/// @brief Converts a metric name to its corresponding metric kind.
+/// @param name The name of the metric.
+/// @return The corresponding metric kind.
+/// @throws VectorSearchException if the metric name is unsupported.
+inline unum::usearch::metric_kind_t MetricFromName(std::string_view name) {
+  if (name == "l2sq" || name == "euclidean_sq") {
+    return unum::usearch::metric_kind_t::l2sq_k;
+  }
+  if (name == "ip" || name == "inner" || name == "dot") {
+    return unum::usearch::metric_kind_t::ip_k;
+  }
+  if (name == "cos" || name == "angular") {
+    return unum::usearch::metric_kind_t::cos_k;
+  }
+  if (name == "haversine") {
+    return unum::usearch::metric_kind_t::haversine_k;
+  }
+  if (name == "divergence") {
+    return unum::usearch::metric_kind_t::divergence_k;
+  }
+  if (name == "pearson") {
+    return unum::usearch::metric_kind_t::pearson_k;
+  }
+  if (name == "hamming") {
+    return unum::usearch::metric_kind_t::hamming_k;
+  }
+  if (name == "tanimoto") {
+    return unum::usearch::metric_kind_t::tanimoto_k;
+  }
+  if (name == "sorensen") {
+    return unum::usearch::metric_kind_t::sorensen_k;
+  }
+  throw VectorSearchException(
+      "Unsupported metric name: {}. Supported metrics are l2sq, ip, cos, haversine, divergence, pearson, "
+      "hamming, tanimoto, and sorensen.",
+      name);
+}
+
+/// @brief Converts a scalar kind to its string representation.
+/// @param scalar The scalar kind to convert.
+/// @return A string representation of the scalar kind.
+/// @throws VectorSearchException if the scalar kind is unsupported.
+inline const char *NameFromScalar(unum::usearch::scalar_kind_t scalar) {
+  switch (scalar) {
+    case unum::usearch::scalar_kind_t::b1x8_k:
+      return "b1x8";
+    case unum::usearch::scalar_kind_t::u40_k:
+      return "u40";
+    case unum::usearch::scalar_kind_t::uuid_k:
+      return "uuid";
+    case unum::usearch::scalar_kind_t::bf16_k:
+      return "bf16";
+    case unum::usearch::scalar_kind_t::f64_k:
+      return "f64";
+    case unum::usearch::scalar_kind_t::f32_k:
+      return "f32";
+    case unum::usearch::scalar_kind_t::f16_k:
+      return "f16";
+    case unum::usearch::scalar_kind_t::f8_k:
+      return "f8";
+    case unum::usearch::scalar_kind_t::u64_k:
+      return "u64";
+    case unum::usearch::scalar_kind_t::u32_k:
+      return "u32";
+    case unum::usearch::scalar_kind_t::u16_k:
+      return "u16";
+    case unum::usearch::scalar_kind_t::u8_k:
+      return "u8";
+    case unum::usearch::scalar_kind_t::i64_k:
+      return "i64";
+    case unum::usearch::scalar_kind_t::i32_k:
+      return "i32";
+    case unum::usearch::scalar_kind_t::i16_k:
+      return "i16";
+    case unum::usearch::scalar_kind_t::i8_k:
+      return "i8";
+    default:
+      throw VectorSearchException(
+          "Unsupported scalar kind. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
+          "u64, u32, u16, u8, i64, i32, i16, and i8.");
+  }
+}
+
+/// The scalar kind a vector index gets when its definition does not name one, which is also what recovering a
+/// snapshot written before the scalar kind was durable has to assume.
+inline constexpr std::string_view kDefaultScalarKind = "f32";
+
+/// @brief Converts a scalar name to its corresponding scalar kind.
+/// @param name The name of the scalar.
+/// @return The corresponding scalar kind.
+/// @throws VectorSearchException if the scalar name is unsupported.
+inline unum::usearch::scalar_kind_t ScalarFromName(std::string_view name) {
+  if (name == "b1x8" || name == "binary") {
+    return unum::usearch::scalar_kind_t::b1x8_k;
+  }
+  if (name == "u40") {
+    return unum::usearch::scalar_kind_t::u40_k;
+  }
+  if (name == "uuid") {
+    return unum::usearch::scalar_kind_t::uuid_k;
+  }
+  if (name == "bf16" || name == "bfloat16") {
+    return unum::usearch::scalar_kind_t::bf16_k;
+  }
+  if (name == "f64" || name == "float64" || name == "double") {
+    return unum::usearch::scalar_kind_t::f64_k;
+  }
+  if (name == "f32" || name == "float32" || name == "float") {
+    return unum::usearch::scalar_kind_t::f32_k;
+  }
+  if (name == "f16" || name == "float16") {
+    return unum::usearch::scalar_kind_t::f16_k;
+  }
+  if (name == "f8" || name == "float8") {
+    return unum::usearch::scalar_kind_t::f8_k;
+  }
+  if (name == "u64" || name == "uint64") {
+    return unum::usearch::scalar_kind_t::u64_k;
+  }
+  if (name == "u32" || name == "uint32") {
+    return unum::usearch::scalar_kind_t::u32_k;
+  }
+  if (name == "u16" || name == "uint16") {
+    return unum::usearch::scalar_kind_t::u16_k;
+  }
+  if (name == "u8" || name == "uint8") {
+    return unum::usearch::scalar_kind_t::u8_k;
+  }
+  if (name == "i64" || name == "int64") {
+    return unum::usearch::scalar_kind_t::i64_k;
+  }
+  if (name == "i32" || name == "int32") {
+    return unum::usearch::scalar_kind_t::i32_k;
+  }
+  if (name == "i16" || name == "int16") {
+    return unum::usearch::scalar_kind_t::i16_k;
+  }
+  if (name == "i8" || name == "int8") {
+    return unum::usearch::scalar_kind_t::i8_k;
+  }
+
+  throw VectorSearchException(
+      "Unsupported scalar name: {}. Supported scalars are b1x8, u40, uuid, bf16, f64, f32, f16, f8, "
+      "u64, u32, u16, u8, i64, i32, i16, and i8.",
+      name);
+}
+
+/// @brief Converts a distance to a similarity score based on the metric kind.
+/// @param metric The metric kind used for the distance.
+/// @param distance The distance value to convert.
+/// @return The similarity score corresponding to the distance.
+/// @throws VectorSearchException if the metric kind is unsupported.
+inline double SimilarityFromDistance(unum::usearch::metric_kind_t metric, double distance) {
+  switch (metric) {
+    case unum::usearch::metric_kind_t::ip_k:
+    case unum::usearch::metric_kind_t::cos_k:
+    case unum::usearch::metric_kind_t::pearson_k:
+    case unum::usearch::metric_kind_t::hamming_k:
+    case unum::usearch::metric_kind_t::tanimoto_k:
+    case unum::usearch::metric_kind_t::sorensen_k:
+    case unum::usearch::metric_kind_t::jaccard_k:
+      return 1.0 - distance;
+
+    case unum::usearch::metric_kind_t::l2sq_k:
+    case unum::usearch::metric_kind_t::haversine_k:
+    case unum::usearch::metric_kind_t::divergence_k:
+      return 1.0 / (1.0 + distance);
+
+    default:
+      throw VectorSearchException("Unsupported metric kind for similarity calculation: {}", NameFromMetric(metric));
+  }
+}
+
+/// @brief Non-throwing conversion of a PropertyValue list to a vector of floats.
+/// @return The float vector, or nullopt if the value is not a numeric list.
+inline std::optional<utils::small_vector<float>> TryListToVector(const PropertyValue &value) {
+  if (value.IsNull()) return utils::small_vector<float>{};
+  if (!value.IsAnyList()) return std::nullopt;
+
+  const auto list_size = value.ListSize();
+  utils::small_vector<float> vector;
+  vector.reserve(list_size);
+  for (std::size_t i = 0; i < list_size; i++) {
+    auto numeric_value = GetNumericValueAt(value, i);
+    if (!numeric_value) return std::nullopt;
+    vector.push_back(std::visit([](auto val) { return static_cast<float>(val); }, *numeric_value));
+  }
+  return vector;
+}
+
+/// @brief Converts a PropertyValue list to a vector of floats.
+/// @throws VectorSearchException if the value is not a list or contains non-numeric values.
+inline utils::small_vector<float> ListToVector(const PropertyValue &value) {
+  auto result = TryListToVector(value);
+  if (!result) {
+    throw VectorSearchException("Vector index property must be a list of floats or integers.");
+  }
+  return *std::move(result);
+}
+
+/// @brief Registers an index ID in the property, converting a raw list to VectorIndexId if needed.
+/// @return The float vector to insert into uSearch.
+inline utils::small_vector<float> RegisterIndexId(PropertyValue &property, uint64_t index_id) {
+  if (property.IsVectorIndexId()) {
+    auto &ids = property.ValueVectorIndexIds();
+    if (!std::ranges::contains(ids, index_id)) ids.push_back(index_id);
+    return property.ValueVectorIndexList();
+  }
+  auto vector = ListToVector(property);
+  property =
+      PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = vector});
+  return vector;
+}
+
+/// @brief Removes an index ID from a property's VectorIndexId list.
+/// Mutates property_value by erasing index_id from its ID list.
+/// @pre Caller must verify the entity exists in the uSearch index before calling —
+///      the early-exit for non-VectorIndexId properties assumes the caller will restore from uSearch.
+/// @return true if no index IDs remain (caller should restore the raw vector), false otherwise.
+inline bool UnregisterIndexId(PropertyValue &property_value, uint64_t index_id) {
+  if (!property_value.IsVectorIndexId()) {
+    return true;
+  }
+  auto &ids = property_value.ValueVectorIndexIds();
+  ids.erase(ranges::remove(ids, index_id), ids.end());
+  return ids.empty();
+}
+
+/// Inverse of UnregisterIndexId: appends index_id to an existing VectorIndexId list,
+/// or promotes a plain Vector property back into a VectorIndexIdData{id}.
+template <typename Entity>
+inline void ReinstallIndexIdInProperty(Entity *entity, PropertyId property, uint64_t index_id) {
+  auto property_value = entity->properties.GetProperty(property);
+  if (property_value.IsVectorIndexId()) {
+    property_value.ValueVectorIndexIds().push_back(index_id);
+  } else {
+    property_value =
+        PropertyValue(PropertyValue::VectorIndexIdData{.ids = utils::small_vector<uint64_t>{index_id}, .vector = {}});
+  }
+  entity->properties.SetProperty(property, property_value);
+}
+
+/// @brief Checks if dropping a vector index would exceed the total memory limit.
+/// When an index is dropped, indexed vectors are converted back to property values in the property store,
+/// which increases memory usage. This function estimates the cost and throws OutOfMemoryException
+/// if the limit would be exceeded.
+inline void CheckGraphMemoryForIndexDrop(std::string_view index_name, std::size_t num_vectors, std::size_t dimension) {
+  const auto total_limit = utils::total_memory_tracker.HardLimit();
+  if (total_limit <= 0) return;
+
+  const auto bytes_per_element = FLAGS_storage_floating_point_resolution_bits / 8;
+  const auto estimated_cost =
+      static_cast<int64_t>(num_vectors) * static_cast<int64_t>(dimension) * static_cast<int64_t>(bytes_per_element);
+  const auto current_usage = utils::total_memory_tracker.Amount();
+
+  if (current_usage + estimated_cost > total_limit) {
+    throw utils::OutOfMemoryException(
+        fmt::format("Dropping vector index '{}' would require approximately {} of additional memory, "
+                    "but only {} is available (current usage: {}, limit: {}).",
+                    index_name,
+                    utils::GetReadableSize(estimated_cost),
+                    utils::GetReadableSize(std::max(total_limit - current_usage, int64_t{0})),
+                    utils::GetReadableSize(current_usage),
+                    utils::GetReadableSize(total_limit)));
+  }
+}
+
+/// @brief Returns the maximum number of concurrent threads for vector index operations.
+inline std::size_t GetVectorIndexThreadCount() {
+  return std::max(static_cast<std::size_t>(FLAGS_bolt_num_workers),
+                  static_cast<std::size_t>(FLAGS_storage_recovery_thread_count));
+}
+
+/// @brief Updates an entry in the vector index: removes existing entry if present, then adds new vector.
+/// If vector is empty, only removes the entry (if it exists) and returns.
+/// Automatically resizes the index if full during add.
+///
+/// Memory tracking note: TrackedVectorAllocator captures its tracker_ pointer at construction time
+/// (inside SetupIndex, where TrackedVectorAllocatorMemoryTrackerScope is active). All allocations
+/// triggered by index.add() and try_reserve() here use that stored tracker — NOT the TLS. Therefore
+/// TrackedVectorAllocatorMemoryTrackerScope does NOT need to be active on the calling thread.
+/// @tparam Key The key type used in the index (e.g., Vertex*, EdgeIndexEntry).
+/// @tparam Spec The index specification type.
+/// @param mg_index The synchronized index wrapper.
+/// @param spec The index specification (will be updated if resize occurs).
+/// @param key The key to add/update in the index.
+/// @param vector The vector to insert into the index.
+/// @param thread_id Optional thread ID hint for usearch's internal thread-local optimizations.
+/// @throws VectorSearchException if dimension mismatch or add fails for reasons other than capacity.
+template <typename SyncIndex, typename Key, typename Spec>
+void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const utils::small_vector<float> &vector,
+                       std::optional<std::size_t> thread_id = std::nullopt) {
+  if (vector.empty()) {
+    // Setting empty vector on Abort
+    auto guard = std::lock_guard{mg_index.mutex};
+    if (mg_index.index.contains(key)) {  // check again freshly if index contains key
+      mg_index.index.remove(key);
+    }
+    return;
+  }
+
+  if (vector.size() != spec.dimension) {
+    throw VectorSearchException(
+        "Vector index property must have the same number of dimensions as specified in the index.");
+  }
+
+  auto thread_id_for_adding = thread_id.value_or(std::remove_reference_t<decltype(mg_index.index)>::any_thread());
+
+  // Happy path. Take WRITE lock to allow multiple concurrent writes
+  {
+    auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::WRITE);
+
+    auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+    if (!result.error) {
+      return;
+    }
+    result.error.release();
+  }
+
+  // Hard path
+  // We can come here either because index already contains key or because adding failed
+  // In either case, we need unique lock for removing and for resizing
+  auto guard = std::lock_guard{mg_index.mutex};
+  if (mg_index.index.contains(key)) {  // check again freshly if index contains key
+    mg_index.index.remove(key);
+  }
+
+  // Try to add without resizing (another thread may have already resized)
+  {
+    auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+    if (!result.error) {
+      return;
+    }
+    result.error.release();
+  }
+
+  // Try to add with resizing
+  const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * mg_index.index.capacity());
+  const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
+  if (!mg_index.index.try_reserve(new_limits)) {
+    throw VectorSearchException("Failed to resize vector index.");
+  }
+  spec.capacity = mg_index.index.capacity();
+
+  auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
+  if (!result.error) {
+    return;
+  }
+  result.error.release();
+  throw VectorSearchException("Failed to add entry to vector index.");
+}
+
+/// @brief Populates a vector index by iterating over vertices on a single thread.
+/// @tparam ProcessFunc Callable with signature void(Vertex&, std::optional<std::size_t> thread_id).
+/// @param vertices The vertices accessor to iterate over.
+/// @param process The function to call for each vertex (thread_id is std::nullopt).
+template <typename ProcessFunc>
+  requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
+void PopulateVectorIndexSingleThreaded(utils::SkipListDb<Vertex>::Accessor &vertices, ProcessFunc &&process) {
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  for (auto &vertex : vertices) {
+    std::forward<ProcessFunc>(process)(vertex, std::nullopt);
+  }
+}
+
+/// @brief Populates a vector index by iterating over vertices using multiple threads.
+/// @tparam ProcessFunc Callable with signature void(Vertex&, std::optional<std::size_t> thread_id).
+/// @param vertices The vertices accessor to iterate over.
+/// @param process The function to call for each vertex (thread_id is the chunk index).
+template <typename ProcessFunc>
+  requires std::invocable<ProcessFunc, Vertex &, std::optional<std::size_t>>
+void PopulateVectorIndexMultiThreaded(utils::SkipListDb<Vertex>::Accessor &vertices, ProcessFunc &&process) {
+  const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  auto vertices_chunks = vertices.create_chunks(FLAGS_storage_recovery_thread_count);
+  const auto actual_chunk_count = vertices_chunks.size();
+  utils::Synchronized<std::exception_ptr, utils::SpinLock> first_exception{};
+  {
+    std::vector<memory::DbAwareThread> threads;
+    threads.reserve(actual_chunk_count);
+    for (std::size_t i = 0; i < actual_chunk_count; ++i) {
+      threads.emplace_back([&vertices_chunks, &process, &first_exception, i]() {
+        try {
+          auto &chunk = vertices_chunks[i];
+          for (auto &vertex : chunk) {
+            std::forward<ProcessFunc>(process)(vertex, std::optional<std::size_t>(i));
+          }
+        } catch (...) {
+          first_exception.WithLock([captured = std::current_exception()](auto &ex) {
+            if (!ex) ex = captured;
+          });
+        }
+      });
+    }
+  }
+  first_exception.WithLock([](auto &ex) {
+    if (ex) std::rethrow_exception(ex);
+  });
+}
+
+}  // namespace memgraph::storage

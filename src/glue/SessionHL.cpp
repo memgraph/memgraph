@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,110 +9,213 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+#include <functional>
 #include <optional>
+#include <ranges>
 #include <utility>
-#include "gflags/gflags.h"
+
+#include <spdlog/spdlog.h>
 
 #include "audit/log.hpp"
+#include "auth/auth.hpp"
+#include "auth/exceptions.hpp"
+#ifdef MG_ENTERPRISE
+#include "coordination/coordinator_state.hpp"
+#endif
 #include "dbms/constants.hpp"
+#include "dbms/global.hpp"
+#include "flags/coord_flag_env_handler.hpp"
 #include "flags/run_time_configurable.hpp"
+#include "frontend/ast/ast.hpp"
 #include "glue/SessionHL.hpp"
 #include "glue/auth_checker.hpp"
+#ifdef MG_ENTERPRISE
+#include "glue/coordinator_sso_authenticator.hpp"
+#endif
 #include "glue/communication.hpp"
 #include "glue/run_id.hpp"
 #include "license/license.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/discard_value_stream.hpp"
+#include "query/exceptions.hpp"
+#include "query/frontend/semantic/graph_free.hpp"
 #include "query/interpreter_context.hpp"
+#include "query/query_user.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "utils/event_map.hpp"
-#include "utils/spin_lock.hpp"
+#include "utils/logging.hpp"
+#include "utils/priorities.hpp"
+#include "utils/resource_monitoring.hpp"
+#include "utils/typeinfo.hpp"
+#include "utils/variant_helpers.hpp"
 
-namespace memgraph::metrics {
-extern const Event ActiveBoltSessions;
-}  // namespace memgraph::metrics
+namespace {
 
-auto ToQueryExtras(const memgraph::communication::bolt::Value &extra) -> memgraph::query::QueryExtras {
+#ifdef MG_ENTERPRISE
+// Helper function to compare bolt_map_t objects
+inline bool operator==(const memgraph::glue::bolt_map_t &lhs, const memgraph::glue::bolt_map_t &rhs) {
+  if (lhs.size() != rhs.size()) return false;
+  return std::ranges::all_of(lhs, [&rhs](const auto &pair) {
+    auto it = rhs.find(pair.first);
+    if (it == rhs.end()) return false;
+    if (pair.second.type() != it->second.type()) return false;
+
+    if (pair.second.IsString()) return pair.second.ValueString() == it->second.ValueString();
+    if (pair.second.IsInt()) return pair.second.ValueInt() == it->second.ValueInt();
+    if (pair.second.IsBool()) return pair.second.ValueBool() == it->second.ValueBool();
+    if (pair.second.IsDouble()) return pair.second.ValueDouble() == it->second.ValueDouble();
+    return false;  // For other types, consider them different to be safe
+  });
+}
+#endif
+
+auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
+  auto metadata_pv = memgraph::storage::ExternalPropertyValue::map_t{};
   auto const &as_map = extra.ValueMap();
-
-  auto metadata_pv = std::map<std::string, memgraph::storage::PropertyValue>{};
-
+  // user-defined metadata
   if (auto const it = as_map.find("tx_metadata"); it != as_map.cend() && it->second.IsMap()) {
     for (const auto &[key, bolt_md] : it->second.ValueMap()) {
-      metadata_pv.emplace(key, memgraph::glue::ToPropertyValue(bolt_md));
+      metadata_pv.emplace(key, memgraph::glue::ToExternalPropertyValue(bolt_md, nullptr));
     }
   }
-
+  // timeout
   auto tx_timeout = std::optional<int64_t>{};
   if (auto const it = as_map.find("tx_timeout"); it != as_map.cend() && it->second.IsInt()) {
     tx_timeout = it->second.ValueInt();
   }
-
-  return memgraph::query::QueryExtras{std::move(metadata_pv), tx_timeout};
+  // rw type
+  bool is_read = false;
+  if (auto const it = as_map.find("mode"); it != as_map.cend() && it->second.IsString()) {
+    is_read = it->second.ValueString() == "r";
+  }
+  return memgraph::query::QueryExtras{std::move(metadata_pv), tx_timeout, is_read};
 }
-
-class TypedValueResultStreamBase {
- public:
-  explicit TypedValueResultStreamBase(memgraph::storage::Storage *storage);
-
-  std::vector<memgraph::communication::bolt::Value> DecodeValues(
-      const std::vector<memgraph::query::TypedValue> &values) const;
-
- protected:
-  // NOTE: Needed only for ToBoltValue conversions
-  memgraph::storage::Storage *storage_;
-};
 
 /// Wrapper around TEncoder which converts TypedValue to Value
 /// before forwarding the calls to original TEncoder.
 template <typename TEncoder>
-class TypedValueResultStream : public TypedValueResultStreamBase {
+class TypedValueResultStream {
  public:
-  TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage)
-      : TypedValueResultStreamBase{storage}, encoder_(encoder) {}
+  TypedValueResultStream(TEncoder *encoder, memgraph::storage::Storage *storage,
+                         memgraph::query::FineGrainedAuthChecker const *auth_checker)
+      : storage_{storage}, auth_checker_{auth_checker}, encoder_(encoder) {}
 
-  void Result(const std::vector<memgraph::query::TypedValue> &values) { encoder_->MessageRecord(DecodeValues(values)); }
+  void Result(const std::vector<memgraph::query::TypedValue> &values) {
+    // Splitting the MessageRecord allows us to skip vector insertion and just directly encode the value
+    encoder_->MessageRecordHeader(values.size());
+    for (const auto &v : values) {
+      auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW, auth_checker_);
+      if (!maybe_value) {
+        switch (maybe_value.error()) {
+          case memgraph::storage::Error::DELETED_OBJECT:
+            throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
+          case memgraph::storage::Error::NONEXISTENT_OBJECT:
+            throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
+          case memgraph::storage::Error::VERTEX_HAS_EDGES:
+          case memgraph::storage::Error::SERIALIZATION_ERROR:
+          case memgraph::storage::Error::PROPERTIES_DISABLED:
+            throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
+        }
+      }
+      encoder_->MessageRecordAppendValue(maybe_value.value());
+    }
+    if (!encoder_->MessageRecordFinalize()) {
+      throw memgraph::communication::bolt::ClientError("Failed to send result to client!");
+    }
+  }
 
  private:
+  // NOTE: Needed only for ToBoltValue conversions
+  memgraph::storage::Storage *storage_;
+  memgraph::query::FineGrainedAuthChecker const *auth_checker_;
   TEncoder *encoder_;
 };
 
-std::vector<memgraph::communication::bolt::Value> TypedValueResultStreamBase::DecodeValues(
-    const std::vector<memgraph::query::TypedValue> &values) const {
-  std::vector<memgraph::communication::bolt::Value> decoded_values;
-  decoded_values.reserve(values.size());
-  for (const auto &v : values) {
-    auto maybe_value = memgraph::glue::ToBoltValue(v, storage_, memgraph::storage::View::NEW);
-    if (maybe_value.HasError()) {
-      switch (maybe_value.GetError()) {
-        case memgraph::storage::Error::DELETED_OBJECT:
-          throw memgraph::communication::bolt::ClientError("Returning a deleted object as a result.");
-        case memgraph::storage::Error::NONEXISTENT_OBJECT:
-          throw memgraph::communication::bolt::ClientError("Returning a nonexistent object as a result.");
-        case memgraph::storage::Error::VERTEX_HAS_EDGES:
-        case memgraph::storage::Error::SERIALIZATION_ERROR:
-        case memgraph::storage::Error::PROPERTIES_DISABLED:
-          throw memgraph::communication::bolt::ClientError("Unexpected storage error when streaming results.");
-      }
-    }
-    decoded_values.emplace_back(std::move(*maybe_value));
-  }
-  return decoded_values;
-}
-TypedValueResultStreamBase::TypedValueResultStreamBase(memgraph::storage::Storage *storage) : storage_(storage) {}
-
-namespace memgraph::glue {
-
 #ifdef MG_ENTERPRISE
-inline static void MultiDatabaseAuth(const std::optional<auth::User> &user, std::string_view db) {
-  if (user && !AuthChecker::IsUserAuthorized(*user, {}, std::string(db))) {
+void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view db) {
+  if (user && !user->IsAuthorized({}, db, &memgraph::query::session_long_policy)) {
     throw memgraph::communication::bolt::ClientError(
         "You are not authorized on the database \"{}\"! Please contact your database administrator.", db);
   }
 }
-std::string SessionHL::GetDefaultDB() {
-  if (user_.has_value()) {
-    return user_->db_access().GetDefault();
+
+void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const std::string &impersonated_user,
+                         std::optional<std::string_view> target_db = std::nullopt) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    throw memgraph::communication::bolt::ClientError(memgraph::license::LicenseCheckErrorToString(
+        memgraph::license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "impersonate user"));
+  }
+  if (!user_or_role) {
+    throw memgraph::communication::bolt::ClientError(
+        "No session user. You must be logged-in in order to use the impersonate-user feature.");
+  }
+  if (!user_or_role->CanImpersonate(impersonated_user, &memgraph::query::session_long_policy, target_db)) {
+    throw memgraph::communication::bolt::ClientError(
+        "Failed to impersonate user '{}' on database '{}'. Make sure you have the right privileges and that the user "
+        "exists.",
+        impersonated_user,
+        target_db.value_or("default"));
+  }
+}
+
+std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
+    const memgraph::query::QueryUserOrRole &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
+  // Setup user-related resource monitoring
+  DMG_ASSERT(user_or_role, "Missing user or role");
+  return resource_monitoring->GetUser(*user_or_role.username());
+}
+
+#endif
+
+// Rewrap a query-layer QueryException as the right Bolt error class.  Most
+// QueryExceptions are client-fixable (bad syntax, undefined variable, ...) and
+// surface as ClientError so the driver does not retry.  A PlannerBug is an
+// internal invariant violation - retry will fail the same way, and there is
+// nothing the client can do; surface as DatabaseError so the driver does not
+// suggest retrying and the classification reflects "server-side problem".
+[[noreturn]] void RewrapQueryException(memgraph::query::QueryException const &e) {
+  memgraph::metrics::IncrementCounter(GetExceptionName(e));
+  if (dynamic_cast<memgraph::query::PlannerBug const *>(&e) != nullptr) {
+    throw memgraph::communication::bolt::VerboseError{
+        memgraph::communication::bolt::VerboseError::Classification::DATABASE_ERROR,
+        "Planner",
+        "InternalBug",
+        e.what()};
+  }
+  throw memgraph::communication::bolt::ClientError(e.what());
+}
+
+}  // namespace
+
+namespace memgraph::glue {
+
+#ifdef MG_ENTERPRISE
+std::optional<std::string> SessionHL::GetDefaultDB() const {
+  if (interpreter_.user_or_role_) {
+    try {
+      const auto &db_name = interpreter_.user_or_role_->GetDefaultDB();
+      return db_name.empty() ? std::nullopt : std::make_optional(db_name);
+    } catch (auth::AuthException &) {
+      // Support non-db connection
+      return std::nullopt;
+    }
   }
   return std::string{memgraph::dbms::kDefaultDB};
+}
+
+std::string SessionHL::GetCurrentUser() const {
+  if (interpreter_.user_or_role_) {
+    if (const auto &name = interpreter_.user_or_role_->username()) return *name;
+    if (const auto &names = interpreter_.user_or_role_->rolenames(); !names.empty()) {
+      // This is only used to figure out if the impersonated user is different from the main user. Since
+      // this is a role; it will always be different since roles cannot be impersonated.
+      std::string res;
+      std::ranges::for_each(names, [&res](const auto &name) { res += name + ","; });
+      return res.substr(0, res.size() - 1);
+    }
+  }
+  return "";
 }
 #endif
 
@@ -127,56 +230,287 @@ std::optional<std::string> SessionHL::GetServerNameForInit() {
   return name.empty() ? std::nullopt : std::make_optional(name);
 }
 
-bool SessionHL::Authenticate(const std::string &username, const std::string &password) {
-  bool res = true;
+utils::Priority SessionHL::ApproximateQueryPriority() const {
+  // Query has been parsed and a priority can be determined
+  if (parsed_res_ && state_ == memgraph::communication::bolt::State::Parsed) {
+    return std::visit(utils::Overloaded{
+                          [this](const query::Interpreter::TransactionQuery &tx_query) {
+                            // A write-free COMMIT is a near-noop (empty deltas -> no engine_lock/WAL/replication);
+                            // route it HIGH so read txns drain fast instead of queueing behind heavy LOW work
+                            // (which keeps them open and pins the GC horizon). BEGIN/ROLLBACK/write-COMMIT stay LOW.
+                            if (tx_query == query::Interpreter::TransactionQuery::COMMIT &&
+                                interpreter_.IsCurrentTransactionEmpty()) {
+                              return utils::Priority::HIGH;
+                            }
+                            return utils::Priority::LOW;
+                          },
+                          [](const query::Interpreter::ParseInfo &parse_info) {
+                            // Many variants of queries
+                            // Cypher -> low, except graph-free shapes (health-check pings) -> high
+                            // all others -> high
+                            const auto &query = parse_info.parsed_query.query;
+                            // Most often query type
+                            if (auto *cypher_query = utils::Downcast<query::CypherQuery>(query)) [[likely]]
+                              // Approximate on purpose: the privilege condition the Prepare dispatch also
+                              // applies is not known here, and a priority does not need it.
+                              return query::IsGraphFree(*cypher_query) ? utils::Priority::HIGH : utils::Priority::LOW;
+                            // For now return HIGH only for hand-picked queries (non-system and non-db queries)
+                            auto high_priority = utils::Downcast<query::ShowConfigQuery>(query) ||
+                                                 utils::Downcast<query::ShowQueryCallableMappingsQuery>(query) ||
+                                                 utils::Downcast<query::SettingQuery>(query) ||
+                                                 utils::Downcast<query::VersionQuery>(query) ||
+                                                 utils::Downcast<query::TransactionQueueQuery>(query) ||
+                                                 utils::Downcast<query::SessionQuery>(query) ||
+                                                 utils::Downcast<query::UseDatabaseQuery>(query) ||
+                                                 utils::Downcast<query::ShowDatabaseQuery>(query) ||
+                                                 utils::Downcast<query::ShowDatabasesQuery>(query) ||
+                                                 utils::Downcast<query::ReplicationInfoQuery>(query);
+                            return high_priority ? utils::Priority::HIGH : utils::Priority::LOW;
+                          },
+                          [](const auto &) { MG_ASSERT(false, "Unexpected ParseRes variant!"); },
+                      },
+                      parsed_res_->parsed_query);
+  }
+
+  // Result means query has been prepared and we are pulling
+  return state_ == memgraph::communication::bolt::State::Result ? interpreter_.ApproximateNextQueryPriority()
+                                                                : utils::Priority::HIGH;
+}
+
+void SessionHL::TryDefaultDB() {
+  try {
+#ifdef MG_ENTERPRISE
+    const auto default_db = GetDefaultDB();
+    if (default_db) {
+      // Start off with the default database
+      interpreter_.SetCurrentDB(*default_db, false);
+    } else {
+      // Failed to get default db, connect without db
+      interpreter_.ResetDB();
+    }
+#else
+    // Community has to connect to the default database
+    interpreter_.SetCurrentDB();
+#endif
+  } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
+    // The default database is known but currently suspended (cold). This is a
+    // permanent client-visible condition — retrying will not help — so surface
+    // it as a ClientError rather than letting it propagate as a bare
+    // BasicException (which the Bolt handler would mis-classify as transient).
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
+}
+
+// This is called on connection establishment
+std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(const std::string &username,
+                                                                              const std::string &password) {
   interpreter_.ResetUser();
   {
     auto locked_auth = auth_->Lock();
-    if (locked_auth->HasUsers()) {
-      user_ = locked_auth->Authenticate(username, password);
-      if (user_.has_value()) {
-        interpreter_.SetUser(user_->username());
-      } else {
-        res = false;
+    if (locked_auth->AccessControlled()) {
+      auto const user_or_role = std::invoke([&]() -> std::optional<auth::UserOrRole> {
+        try {
+          return locked_auth->Authenticate(username, password);
+        } catch (const auth::AuthException &e) {
+          spdlog::warn("Couldn't authenticate user '{}': {}", username, e.what());
+          return std::nullopt;
+        }
+      });
+      if (!user_or_role) return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
+      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, user_or_role);
+      DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
+#ifdef MG_ENTERPRISE
+      // Setup user-related resource monitoring
+      user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
+      try {
+        interpreter_.SetUser(session_user_or_role_, user_resource_);
+      } catch (const auth::AuthException & /*unused*/) {
+        return std::unexpected{communication::bolt::AuthFailure::kResourceBound};
       }
+#else
+      interpreter_.SetUser(session_user_or_role_);
+#endif
+      interpreter_.SetSessionInfo(UUID(), interpreter_.user_or_role_->username().value_or(""), GetLoginTimestamp());
+    } else {
+      // No access control -> give empty user
+      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
+#ifdef MG_ENTERPRISE
+      interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for userless */});
+#else
+      interpreter_.SetUser(session_user_or_role_);
+#endif
+      interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
     }
   }
-#ifdef MG_ENTERPRISE
-  // Start off with the default database
-  interpreter_.SetCurrentDB(GetDefaultDB(), false);
-#endif
-  implicit_db_.emplace(GetCurrentDB());
-  return res;
+
+  TryDefaultDB();
+  return {};
 }
 
-void SessionHL::Abort() { interpreter_.Abort(); }
+std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate(
+    const std::string &scheme, const std::string &identity_provider_response) {
+  interpreter_.ResetUser();
 
-std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Discard(std::optional<int> n,
-                                                                               std::optional<int> qid) {
+  auto locked_auth = auth_->Lock();
+
+  const auto user_or_role = locked_auth->SSOAuthenticate(scheme, identity_provider_response);
+  if (!user_or_role) {
+    return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
+  }
+
+  session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+  DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
+
+#ifdef MG_ENTERPRISE
+  // Setup user-related resource monitoring
+  user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
+  try {
+    interpreter_.SetUser(session_user_or_role_, user_resource_);
+  } catch (const auth::AuthException & /*unused*/) {
+    return std::unexpected{communication::bolt::AuthFailure::kResourceBound};
+  }
+#else
+  interpreter_.SetUser(session_user_or_role_);
+#endif
+  interpreter_.SetSessionInfo(UUID(), session_user_or_role_->username().value_or(""), GetLoginTimestamp());
+  TryDefaultDB();
+  return {};
+}
+
+#ifdef MG_ENTERPRISE
+std::expected<void, std::string_view> SessionHL::CoordinatorSSOAuthenticate(
+    const std::string &scheme, const std::string &identity_provider_response) {
+  auto *coordinator_state = interpreter_context_->coordinator_state_;
+  if (coordinator_state == nullptr) {
+    return std::unexpected{"SSO authentication failed: this instance is not a coordinator."};
+  }
+
+  // Snapshot the leader's committed role set once (read locally if this coordinator is the ready leader, otherwise
+  // forwarded to the leader). Authentication is fail-closed: when the leader is unreachable the login is rejected
+  // rather than validated against possibly-stale local replicated state, which could still contain a dropped role or
+  // an already-revoked mask. The auth kvstore is never consulted for coordinator roles.
+  auto const maybe_roles = coordinator_state->GetRoles();
+  if (!maybe_roles.has_value()) {
+    spdlog::warn("Rejecting SSO login on coordinator: the leader is unreachable so the role set cannot be validated.");
+    return std::unexpected{
+        "SSO authentication failed: the coordinator leader is unreachable, so roles can't be validated. Retry once a "
+        "leader is elected."};
+  }
+  auto const &roles = *maybe_roles;
+
+  auto role_mask_provider = [&roles](std::string const &role_name) -> std::optional<uint64_t> {
+    auto const it = std::ranges::find(roles, role_name, &coordination::CoordinatorRole::name);
+    if (it == roles.end()) {
+      return std::nullopt;
+    }
+    return it->permissions;
+  };
+
+  auto module_runner = [this](std::string const &sso_scheme,
+                              std::string const &response) -> std::optional<auth::SSOIdentity> {
+    auto locked_auth = auth_->Lock();
+    return locked_auth->SSOGetIdentity(sso_scheme, response);
+  };
+
+  CoordinatorSSOAuthenticator const authenticator{std::move(module_runner), std::move(role_mask_provider)};
+  auto auth_result = authenticator.Authenticate(scheme, identity_provider_response);
+  if (!auth_result) {
+    // The role-related cases say enough for an operator to act without naming which role failed, so a rejected login
+    // can't be used to enumerate the coordinator's role set (the authenticator logs the specifics server-side).
+    return std::unexpected{std::invoke([reason = auth_result.error()]() -> std::string_view {
+      switch (reason) {
+        using enum SSORejection;
+        case kModuleFailed:
+          return "SSO authentication failed: the identity provider token was rejected, the auth module failed, or the "
+                 "enterprise license is missing.";
+        case kNoRolesReturned:
+          return "SSO authentication failed: the identity provider returned no roles for this identity. Map the "
+                 "identity's group to a coordinator role.";
+        case kUnknownRole:
+          return "SSO authentication failed: the identity provider returned a role that doesn't exist on this "
+                 "coordinator. Create it with CREATE ROLE, or fix the identity provider mapping.";
+        case kRoleWithoutPrivilege:
+          return "SSO authentication failed: this identity's role(s) exist but carry no coordinator privilege. Grant "
+                 "COORDINATOR_READ or COORDINATOR_WRITE to one of them.";
+      }
+      // No default case, so adding a rejection reason without a message is a -Wswitch error rather than a silent fall
+      // through to this generic text.
+      return "SSO authentication failed.";
+    })};
+  }
+
+  // The session carries the matched role names; the coordinator privilege checks (query gate and ROUTE handler)
+  // recompute the effective mask from these roles against the leader's committed role set on every check, so a
+  // later REVOKE or DROP ROLE downgrades this session without a reconnect. The login-time mask is stored too, but it
+  // is authoritative only for role-less (basic-auth passthrough) sessions. Authentication already rejects any identity
+  // without COORDINATOR_READ or COORDINATOR_WRITE, so a surviving session starts with at least read privileges.
+  interpreter_.SetCoordinatorPrivileges(auth_result->effective_mask);
+  interpreter_.SetCoordinatorRoles(std::move(auth_result->roles));
+  // Records the principal the identity provider authenticated. There is no QueryUserOrRole to derive it from here (a
+  // coordinator authorizes by Raft-replicated role, not by a kvstore user), so the module's username is the only thing
+  // that ties a control-plane query -- FORCE RESET CLUSTER STATE, SET INSTANCE TO MAIN -- back to a person.
+  interpreter_.SetSessionInfo(UUID(), std::move(auth_result->username), GetLoginTimestamp());
+  return {};
+}
+
+void SessionHL::CoordinatorPassthroughAuthenticate() {
+  interpreter_.SetCoordinatorPrivileges(static_cast<uint64_t>(auth::Permission::COORDINATOR_READ) |
+                                        static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE));
+  interpreter_.SetCoordinatorRoles({});
+  // No principal was authenticated (credentials are ignored on this path), so the session records an empty username and
+  // SHOW CURRENT USER reports null. Set unconditionally so a LOGOFF -> passthrough LOGON can't leave the previous SSO
+  // session's principal behind, in the same way the privileges above are re-established.
+  interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
+}
+
+std::optional<bool> SessionHL::CoordinatorHasWritableRole() const {
+  auto *coordinator_state = interpreter_context_->coordinator_state_;
+  if (coordinator_state == nullptr) {
+    return std::nullopt;
+  }
+  // Strong read from the leader; nullopt when the leader is unreachable. Fail-closed: an unknown role set is not
+  // treated as "no writable role", so a transient leader outage never opens the basic-auth break-glass path.
+  auto const maybe_roles = coordinator_state->GetRoles();
+  if (!maybe_roles.has_value()) {
+    return std::nullopt;
+  }
+  auto const write_bit = static_cast<uint64_t>(auth::Permission::COORDINATOR_WRITE);
+  return std::ranges::any_of(*maybe_roles,
+                             [write_bit](auto const &role) { return (role.permissions & write_bit) != 0U; });
+}
+#endif
+
+void SessionHL::LogOff() {
+  Abort();
+#ifdef MG_ENTERPRISE
+  interpreter_.ResetDB();
+  // Defense-in-depth: a logged-off session carries no coordinator privileges until the next LOGON re-establishes
+  // them (SSO or basic passthrough).
+  interpreter_.SetCoordinatorPrivileges(0);
+  interpreter_.SetCoordinatorRoles({});
+#endif
+  interpreter_.ResetUser();
+  session_user_or_role_.reset();
+}
+
+void SessionHL::Abort() {
+  interpreter_.ResetCachedFga();
+  interpreter_.Abort();
+}
+
+bolt_map_t SessionHL::Discard(std::optional<int> n, std::optional<int> qid) {
   try {
     memgraph::query::DiscardValueResultStream stream;
     return DecodeSummary(interpreter_.Pull(&stream, n, qid));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
+    RewrapQueryException(e);
+  } catch (const memgraph::query::ReplicationException &e) {
     metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
     throw memgraph::communication::bolt::ClientError(e.what());
-  }
-}
-std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(SessionHL::TEncoder *encoder,
-                                                                            std::optional<int> n,
-                                                                            std::optional<int> qid) {
-  try {
-    auto &db = interpreter_.current_db_.db_acc_;
-    auto *storage = db ? db->get()->storage() : nullptr;
-    TypedValueResultStream<TEncoder> stream(encoder, storage);
-    return DecodeSummary(interpreter_.Pull(&stream, n, qid));
-  } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
+  } catch (const memgraph::storage::InvalidOperationException &e) {
+    // The engine rejected the request as invalid, so it stays invalid however many times it is
+    // sent. Without this it would fall to the branch below and be presented as worth retrying.
     metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
     throw memgraph::communication::bolt::ClientError(e.what());
   } catch (const utils::BasicException &) {
     // Exceptions inheriting from BasicException will result in a TransientError
@@ -186,96 +520,195 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::Pull(Sess
   }
 }
 
-std::pair<std::vector<std::string>, std::optional<int>> SessionHL::Interpret(
-    const std::string &query, const std::map<std::string, memgraph::communication::bolt::Value> &params,
-    const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
-  std::map<std::string, memgraph::storage::PropertyValue> params_pv;
-  for (const auto &[key, bolt_param] : params) {
-    params_pv.emplace(key, ToPropertyValue(bolt_param));
+bolt_map_t SessionHL::Pull(std::optional<int> n, std::optional<int> qid) {
+  try {
+    using TEncoder =
+        communication::bolt::Encoder<communication::bolt::ChunkedEncoderBuffer<communication::v2::OutputStream>>;
+    auto &db = interpreter_.current_db_.db_acc_;
+    auto *storage = db ? db->get()->storage() : nullptr;
+    TypedValueResultStream<TEncoder> stream(&encoder_, storage, interpreter_.GetCachedFga());
+    return DecodeSummary(interpreter_.Pull(&stream, n, qid));
+  } catch (const memgraph::query::QueryException &e) {
+    RewrapQueryException(e);
+  } catch (const memgraph::query::ReplicationException &e) {
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::storage::InvalidOperationException &e) {
+    // The engine rejected the request as invalid, so it stays invalid however many times it is
+    // sent. Without this it would fall to the branch below and be presented as worth retrying.
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const utils::BasicException &) {
+    // Exceptions inheriting from BasicException will result in a TransientError
+    // i. e. client will be encouraged to retry execution because it
+    // could succeed if executed again.
+    throw;
   }
+}
 
+void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, const bolt_map_t &extra) {
 #ifdef MG_ENTERPRISE
-  const std::string *username{nullptr};
-  if (user_) {
-    username = &user_->username();
-  }
-
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     auto &db = interpreter_.current_db_.db_acc_;
-    audit_log_->Record(endpoint_.address().to_string(), user_ ? *username : "", query,
-                       memgraph::storage::PropertyValue(params_pv), db ? db->get()->name() : "no known database");
+    const auto &user_or_role = interpreter_.user_or_role_;
+    // Coordinator sessions authorize by Raft-replicated role and never build a QueryUserOrRole, so fall back to the
+    // principal recorded at login; without it every control-plane query would be audited with an empty username.
+    const auto username =
+        user_or_role && user_or_role->username() ? *user_or_role->username() : interpreter_.session_info_.username;
+    audit_log_->Record(fmt::format("{}:{}", endpoint_.address().to_string(), std::to_string(endpoint_.port())),
+                       username,
+                       query,
+                       params,
+                       db ? db->get()->name() : "");
   }
 #endif
-  try {
-    auto result = interpreter_.Prepare(query, params_pv, ToQueryExtras(extra));
-    const std::string db_name = result.db ? *result.db : "";
-    if (user_ && !AuthChecker::IsUserAuthorized(*user_, result.privileges, db_name)) {
-      interpreter_.Abort();
-      if (db_name.empty()) {
-        throw memgraph::communication::bolt::ClientError(
-            "You are not authorized to execute this query! Please contact your database administrator.");
-      }
-      throw memgraph::communication::bolt::ClientError(
-          "You are not authorized to execute this query on database \"{}\"! Please contact your database "
-          "administrator.",
-          db_name);
-    }
-    return {std::move(result.headers), result.qid};
 
+  auto get_params_pv =
+      [params = std::move(params)](storage::Storage const *storage) -> memgraph::storage::ExternalPropertyValue::map_t {
+    auto params_pv = memgraph::storage::ExternalPropertyValue::map_t{};
+    do_reserve(params_pv, params.size());
+    for (const auto &[key, bolt_param] : params) {
+      params_pv.try_emplace(key, ToExternalPropertyValue(bolt_param, storage));
+    }
+    return params_pv;
+  };
+
+  try {
+    auto query_extras = ToQueryExtras(extra);
+    auto parsed_query = interpreter_.Parse(query, get_params_pv, query_extras);
+    parsed_res_.emplace(std::move(parsed_query), std::move(get_params_pv), std::move(query_extras));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
   }
 }
+
+std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare() {
+  if (!parsed_res_) {
+    throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
+  }
+
+  try {
+    auto parsed_res = *std::move(parsed_res_);
+    parsed_res_.reset();
+    auto result =
+        interpreter_.Prepare(std::move(parsed_res.parsed_query), std::move(parsed_res.get_params_pv), parsed_res.extra);
+    interpreter_.CheckAuthorized(result.privileges, result.db);
+
+    return {std::move(result.headers), result.qid};
+  } catch (const memgraph::query::QueryException &e) {
+    RewrapQueryException(e);
+  } catch (const memgraph::query::ReplicationException &e) {
+    // Count the number of specific exceptions thrown
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  }
+}
+
+#ifdef MG_ENTERPRISE
+auto SessionHL::Route(bolt_map_t const & /*routing*/, std::vector<bolt_value_t> const & /*bookmarks*/,
+                      std::optional<std::string> const &db, bolt_map_t const &
+                      /*extra*/) -> bolt_map_t {
+  if (db) {
+    spdlog::trace("Handling routing request for the database: {}", *db);
+  }
+
+  // Route can throw a QueryException (e.g. the coordinator routing-table privilege denial). Rewrap it as a bolt
+  // ClientError like every other query path so it is reported as a non-retryable client error rather than a transient
+  // one -- an authorization denial must not be retried by the driver.
+  try {
+    auto routing_table_res = interpreter_.Route(db);
+
+    auto create_server = [](auto const &server_info) -> bolt_value_t {
+      auto const &[addresses, role] = server_info;
+      bolt_map_t server_map;
+      auto bolt_addresses = ranges::views::transform(addresses, [](auto const &addr) { return bolt_value_t{addr}; }) |
+                            ranges::to<std::vector<bolt_value_t>>();
+
+      server_map["addresses"] = std::move(bolt_addresses);
+      server_map["role"] = bolt_value_t{role};
+      return bolt_value_t{std::move(server_map)};
+    };
+
+    bolt_map_t communication_res;
+    communication_res["ttl"] = bolt_value_t{routing_table_res.ttl};
+    // Needed for routing from coordinators to data instances
+    if (db) {
+      communication_res["db"] = bolt_value_t{*db};
+    } else {
+      communication_res["db"] = bolt_value_t{};
+    }
+
+    auto servers =
+        ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<bolt_value_t>>();
+    communication_res["servers"] = bolt_value_t{std::move(servers)};
+
+    return {{"rt", bolt_value_t{std::move(communication_res)}}};
+  } catch (const memgraph::query::QueryException &e) {
+    RewrapQueryException(e);
+  }
+}
+#endif
 
 void SessionHL::RollbackTransaction() {
   try {
     interpreter_.RollbackTransaction();
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::storage::InvalidOperationException &e) {
+    // The engine rejected the request as invalid, so it stays invalid however many times it is
+    // sent. Without this it would fall to the branch below and be presented as worth retrying.
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const utils::BasicException &) {
+    // Exceptions inheriting from BasicException will result in a TransientError
+    // i. e. client will be encouraged to retry execution because it
+    // could succeed if executed again.
+    throw;
   }
 }
 
-void SessionHL::CommitTransaction() {
+bolt_map_t SessionHL::CommitTransaction() {
   try {
-    interpreter_.CommitTransaction();
+    auto const notification = interpreter_.CommitTransaction();
+    if (!notification) return {};
+    // A commit can report a SYNC replication failure; deliver it the same way Pull delivers notifications.
+    using memgraph::query::TypedValue;
+    auto notifications = std::vector<TypedValue>{TypedValue{notification->ConvertToMap()}};
+    std::map<std::string, TypedValue> summary;
+    summary.emplace("notifications", TypedValue{std::move(notifications)});
+    return DecodeSummary(summary);
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
     throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::storage::InvalidOperationException &e) {
+    // The engine rejected the request as invalid, so it stays invalid however many times it is
+    // sent. Without this it would fall to the branch below and be presented as worth retrying.
+    metrics::IncrementCounter(GetExceptionName(e));
+    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const utils::BasicException &) {
+    // Exceptions inheriting from BasicException will result in a TransientError
+    // i. e. client will be encouraged to retry execution because it
+    // could succeed if executed again.
+    throw;
   }
 }
 
-void SessionHL::BeginTransaction(const std::map<std::string, memgraph::communication::bolt::Value> &extra) {
+void SessionHL::BeginTransaction(const bolt_map_t &extra) {
   try {
     interpreter_.BeginTransaction(ToQueryExtras(extra));
   } catch (const memgraph::query::QueryException &e) {
-    // Count the number of specific exceptions thrown
-    metrics::IncrementCounter(GetExceptionName(e));
-    // Wrap QueryException into ClientError, because we want to allow the
-    // client to fix their query.
-    throw memgraph::communication::bolt::ClientError(e.what());
+    RewrapQueryException(e);
   } catch (const memgraph::query::ReplicationException &e) {
     // Count the number of specific exceptions thrown
     metrics::IncrementCounter(GetExceptionName(e));
@@ -283,81 +716,54 @@ void SessionHL::BeginTransaction(const std::map<std::string, memgraph::communica
   }
 }
 
-void SessionHL::Configure(const std::map<std::string, memgraph::communication::bolt::Value> &run_time_info) {
+void SessionHL::Configure(const bolt_map_t &run_time_info) {
 #ifdef MG_ENTERPRISE
-  std::string db;
-  bool update = false;
-  // Check if user explicitly defined the database to use
-  if (run_time_info.contains("db")) {
-    const auto &db_info = run_time_info.at("db");
-    if (!db_info.IsString()) {
-      throw memgraph::communication::bolt::ClientError("Malformed database name.");
-    }
-    db = db_info.ValueString();
-    const auto &current = GetCurrentDB();
-    update = db != current;
-    if (!in_explicit_db_) implicit_db_.emplace(current);  // Still not in an explicit database, save for recovery
-    in_explicit_db_ = true;
-    // NOTE: Once in a transaction, the drivers stop explicitly sending the db and count on using it until commit
-  } else if (in_explicit_db_ && !interpreter_.in_explicit_transaction_) {  // Just on a switch
-    if (implicit_db_) {
-      db = *implicit_db_;
-    } else {
-      db = GetDefaultDB();
-    }
-    update = db != GetCurrentDB();
-    in_explicit_db_ = false;
-  }
-
-  // Check if the underlying database needs to be updated
-  if (update) {
-    MultiDatabaseAuth(user_, db);
-    interpreter_.SetCurrentDB(db, in_explicit_db_);
-  }
+  // Coordinators have no dbms_handler and no databases to switch to, so there is nothing to configure.
+  if (flags::CoordinationSetupInstance().IsCoordinator()) return;
+  runtime_config_.Configure(run_time_info, interpreter_.in_explicit_transaction_);
+#else
+  (void)run_time_info;
 #endif
 }
-SessionHL::SessionHL(memgraph::query::InterpreterContext *interpreter_context,
-                     memgraph::communication::v2::ServerEndpoint endpoint,
-                     memgraph::communication::v2::InputStream *input_stream,
-                     memgraph::communication::v2::OutputStream *output_stream,
-                     memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth
-#ifdef MG_ENTERPRISE
-                     ,
-                     memgraph::audit::Log *audit_log
-#endif
-                     )
+
+SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *input_stream,
+                     memgraph::communication::v2::OutputStream *output_stream)
     : Session<memgraph::communication::v2::InputStream, memgraph::communication::v2::OutputStream>(input_stream,
                                                                                                    output_stream),
-      interpreter_context_(interpreter_context),
+      interpreter_context_(context.ic),
       interpreter_(interpreter_context_),
 #ifdef MG_ENTERPRISE
-      audit_log_(audit_log),
+      audit_log_(context.audit_log),
+      runtime_config_{this},
 #endif
-      auth_(auth),
-      endpoint_(std::move(endpoint)),
-      implicit_db_(dbms::kDefaultDB) {
-  // Metrics update
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveBoltSessions);
+      auth_(context.auth),
+      endpoint_(std::move(context.endpoint)) {
+  bolt_session_gauge_ = metrics::ScopedGauge{metrics::Metrics().global.active_bolt_sessions};
 #ifdef MG_ENTERPRISE
-  interpreter_.OnChangeCB([&](std::string_view db_name) { MultiDatabaseAuth(user_, db_name); });
+  interpreter_.OnChangeCB([&](std::string_view db_name) {
+    auto &user_or_role = interpreter_.user_or_role_;
+    MultiDatabaseAuth(user_or_role.get(), db_name);
+  });
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
 }
 
 SessionHL::~SessionHL() {
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveBoltSessions);
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.erase(&interpreter_); });
+#ifdef MG_ENTERPRISE
+  // User-related resource monitoring
+  interpreter_.ResetUser();
+#endif
 }
 
-std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSummary(
-    const std::map<std::string, memgraph::query::TypedValue> &summary) {
+bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query::TypedValue> &summary) {
   auto &db_acc = interpreter_.current_db_.db_acc_;
   auto *storage = db_acc ? db_acc->get()->storage() : nullptr;
-  std::map<std::string, memgraph::communication::bolt::Value> decoded_summary;
+  bolt_map_t decoded_summary;
   for (const auto &kv : summary) {
-    auto maybe_value = ToBoltValue(kv.second, storage, memgraph::storage::View::NEW);
-    if (maybe_value.HasError()) {
-      switch (maybe_value.GetError()) {
+    auto maybe_value = ToBoltValue(kv.second, storage, memgraph::storage::View::NEW, nullptr);
+    if (!maybe_value) {
+      switch (maybe_value.error()) {
         case memgraph::storage::Error::DELETED_OBJECT:
         case memgraph::storage::Error::SERIALIZATION_ERROR:
         case memgraph::storage::Error::VERTEX_HAS_EDGES:
@@ -376,4 +782,88 @@ std::map<std::string, memgraph::communication::bolt::Value> SessionHL::DecodeSum
 
   return decoded_summary;
 }
+
+#ifdef MG_ENTERPRISE
+void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_tx) {
+  // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
+  // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
+  if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
+
+  session_->interpreter_.ResetCachedFga();
+
+  db_explicit_ = false;
+  user_explicit_ = false;
+
+  // Step 1: Handle user configuration first
+  // NOTE: This must be called first because it defines the default database for the user
+  std::shared_ptr<query::QueryUserOrRole> user;
+  if (run_time_info.contains("imp_user")) {
+    user_explicit_ = true;
+    const auto &info = run_time_info.at("imp_user");
+    if (!info.IsString()) {
+      throw memgraph::communication::bolt::ClientError("Malformed config input.");
+    }
+    const auto auth_user = session_->auth_->ReadLock()->GetUser(info.ValueString());
+    if (!auth_user) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
+    user = AuthChecker::GenQueryUser(session_->auth_, *auth_user);
+  }
+
+  // Step 2: Handle database configuration with consideration for user impersonation
+  std::optional<std::string> defined_db;
+  if (run_time_info.contains("db")) {
+    db_explicit_ = true;
+    const auto &info = run_time_info.at("db");
+    if (!info.IsString()) {
+      throw memgraph::communication::bolt::ClientError("Malformed config input.");
+    }
+    defined_db = info.ValueString();
+  }
+
+  // Step 3: Determine final target database
+  if (!defined_db) {
+    if (user) {
+      defined_db = user->GetDefaultDB();
+    } else if (session_->session_user_or_role_) {
+      defined_db = session_->session_user_or_role_->GetDefaultDB();
+    } else {
+      defined_db = std::string{memgraph::dbms::kDefaultDB};
+    }
+  }
+
+  // Handle user impersonation (check privileges based on target database)
+  if (user) {
+    spdlog::trace("Trying to impersonate user '{}' on database '{}'...",
+                  user->username().value_or("----"),
+                  defined_db.value_or("----"));
+    // Check impersonation privileges with the target database
+    ImpersonateUserAuth(session_->session_user_or_role_.get(), user->username().value_or("----"), defined_db);
+    // Setup user-related resource monitoring
+    auto user_resource = ResourceAtLogin(*user, session_->interpreter_context_->resource_monitoring);
+    session_->interpreter_.SetUser(user, std::move(user_resource));
+    session_->TryDefaultDB();
+  } else {
+    // Set our default user/role
+    session_->interpreter_.SetUser(session_->session_user_or_role_, session_->user_resource_);
+    session_->TryDefaultDB();
+  }
+
+  // Handle database configuration (check access with current user)
+  if (defined_db) {  // Db connection
+    MultiDatabaseAuth(session_->interpreter_.user_or_role_.get(), *defined_db);
+    try {
+      session_->interpreter_.SetCurrentDB(*defined_db, db_explicit_);
+    } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
+      // The explicitly-requested database is known but currently suspended
+      // (cold). Retrying will not help — surface as ClientError so the driver
+      // does not treat this as a transient failure.
+      throw memgraph::communication::bolt::ClientError(e.what());
+    }
+  } else {  // Non-db connection
+    session_->interpreter_.ResetDB();
+  }
+
+  // Update the previous run_time_info for next comparison
+  previous_run_time_info_ = run_time_info;
+}
+#endif
 }  // namespace memgraph::glue

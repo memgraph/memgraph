@@ -1,0 +1,41 @@
+query: >
+  MATCH p = (person:Person:Employee)-[:WORKS_FOR]->(company:Company:Organization)
+  WITH collect(p) AS paths
+  CALL convert_c.to_tree(paths, true, {
+    nodes: {
+      Person: ["name", "age"],
+      Employee: ["salary", "department"],
+      Company: ["name", "industry"],
+      Organization: ["founded_year"]
+    }
+  }) YIELD value
+  RETURN value.name AS name,
+         value.age AS age,
+         value.salary AS salary,
+         value.department AS department,
+         value._type AS type,
+         size(value.works_for) AS company_count,
+         [comp IN value.works_for | comp.name] AS company_names,
+         [comp IN value.works_for | comp.industry] AS industries,
+         [comp IN value.works_for | comp.founded_year] AS founded_years
+  ORDER BY name
+
+output:
+  - name: Alice
+    age: 30
+    salary: 75000
+    department: "Engineering"
+    type: ["Person", "Employee"]
+    company_count: 1
+    company_names: ["TechCorp"]
+    industries: ["Technology"]
+    founded_years: [2010]
+  - name: Bob
+    age: 25
+    salary: 65000
+    department: "Marketing"
+    type: ["Person", "Employee"]
+    company_count: 1
+    company_names: ["InnovateInc"]
+    industries: ["Consulting"]
+    founded_years: [2015]

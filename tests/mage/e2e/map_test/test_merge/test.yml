@@ -1,0 +1,5 @@
+query: >
+  RETURN map.merge({a: "b", c: "d"}, {e: "f", g: "h"}) AS merged
+
+output:
+  - merged: {a: "b", c: "d", e: "f", g: "h"}

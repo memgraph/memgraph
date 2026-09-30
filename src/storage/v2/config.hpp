@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,14 +11,22 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
+#include <optional>
+#include <string>
 
+#include "flags/coord_flag_env_handler.hpp"
+#include "nlohmann/json_fwd.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "utils/compressor.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/logging.hpp"
+#include "utils/safe_string.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::storage {
@@ -30,39 +38,30 @@ class StorageConfigException : public utils::BasicException {
 };
 
 struct SalientConfig {
-  std::string name;
+  utils::SafeString name;
   utils::UUID uuid;
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
+  utils::CompressionLevel property_store_compression_level{utils::CompressionLevel::MID};
+
   struct Items {
     bool properties_on_edges{true};
+    bool enable_edges_metadata{false};
     bool enable_schema_metadata{false};
+    bool enable_schema_info{false};
+    bool enable_label_index_auto_creation{false};
+    bool enable_edge_type_index_auto_creation{false};
+    bool storage_light_edge{false};
+    bool delta_on_identical_property_update{true};
+    bool property_store_compression_enabled{false};
     friend bool operator==(const Items &lrh, const Items &rhs) = default;
+    friend void to_json(nlohmann::json &data, Items const &items);
+    friend void from_json(const nlohmann::json &data, Items &items);
   } items;
 
   friend bool operator==(const SalientConfig &, const SalientConfig &) = default;
+  friend void to_json(nlohmann::json &data, SalientConfig const &config);
+  friend void from_json(const nlohmann::json &data, SalientConfig &config);
 };
-
-inline void to_json(nlohmann::json &data, SalientConfig::Items const &items) {
-  data = nlohmann::json{{"properties_on_edges", items.properties_on_edges},
-                        {"enable_schema_metadata", items.enable_schema_metadata}};
-}
-
-inline void from_json(const nlohmann::json &data, SalientConfig::Items &items) {
-  data.at("properties_on_edges").get_to(items.properties_on_edges);
-  data.at("enable_schema_metadata").get_to(items.enable_schema_metadata);
-}
-
-inline void to_json(nlohmann::json &data, SalientConfig const &config) {
-  data = nlohmann::json{
-      {"items", config.items}, {"name", config.name}, {"uuid", config.uuid}, {"storage_mode", config.storage_mode}};
-}
-
-inline void from_json(const nlohmann::json &data, SalientConfig &config) {
-  data.at("items").get_to(config.items);
-  data.at("name").get_to(config.name);
-  data.at("uuid").get_to(config.uuid);
-  data.at("storage_mode").get_to(config.storage_mode);
-}
 
 /// Pass this class to the \ref Storage constructor to change the behavior of
 /// the storage. This class also defines the default behavior.
@@ -76,30 +75,51 @@ struct Config {
   } gc;  // SYSTEM FLAG
 
   struct Durability {
-    enum class SnapshotWalMode { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
+    enum class SnapshotWalMode : uint8_t { DISABLED, PERIODIC_SNAPSHOT, PERIODIC_SNAPSHOT_WITH_WAL };
 
-    std::filesystem::path storage_directory{"storage"};  // PER INSTANCE SYSTEM FLAG-> root folder...ish
+    std::filesystem::path storage_directory{"storage"};    // PER INSTANCE SYSTEM FLAG-> root folder...ish
+    std::filesystem::path root_data_directory{"storage"};  // ROOT DATA DIR for instance not for DB
 
     bool recover_on_startup{false};  // PER INSTANCE SYSTEM FLAG
 
-    SnapshotWalMode snapshot_wal_mode{SnapshotWalMode::DISABLED};  // PER DATABASE
+    // When true, a tenant that fails durability recovery comes up in a broken
+    // state instead of crashing the process. PER INSTANCE SYSTEM FLAG.
+    bool allow_recovery_failure{false};
 
-    std::chrono::milliseconds snapshot_interval{std::chrono::minutes(2)};  // PER DATABASE
-    uint64_t snapshot_retention_count{3};                                  // PER DATABASE
+    SnapshotWalMode snapshot_wal_mode{
+        SnapshotWalMode::DISABLED};  // PER DATABASE - as at time of initialization; can be changed by
+                                     // enabling/disabling the periodic snapshot
+
+    memgraph::utils::SchedulerInterval snapshot_interval{
+        std::chrono::minutes(2)};          // PER DATABASE - as at time of initialization; can be changed by user
+    uint64_t snapshot_retention_count{3};  // PER DATABASE
 
     uint64_t wal_file_size_kibibytes{20 * 1024};  // PER DATABASE
-    uint64_t wal_file_flush_every_n_tx{100000};   // PER DATABASE
+    uint64_t wal_file_flush_every_n_tx{100'000};  // PER DATABASE
 
     bool snapshot_on_exit{false};                      // PER DATABASE
     bool restore_replication_state_on_startup{false};  // PER INSTANCE
 
     uint64_t items_per_batch{1'000'000};  // PER DATABASE
+    uint64_t snapshot_thread_count{8};    // PER INSTANCE SYSTEM FLAG
     uint64_t recovery_thread_count{8};    // PER INSTANCE SYSTEM FLAG
 
-    // deprecated
-    bool allow_parallel_index_creation{false};  // KILL
+    // Per snapshot writer, so a parallel snapshot may hold this much again for every thread it
+    // uses. 0 disables pacing.
+    uint64_t snapshot_writeback_window_mib{32};  // PER INSTANCE SYSTEM FLAG
 
-    bool allow_parallel_schema_creation{false};  // PER DATABASE
+    // Whether a snapshot is released from the page cache once recovery has loaded it. Nothing on
+    // this instance reads that file again, so its pages only compete with the graph built from them.
+    bool release_recovered_snapshot_page_cache{true};  // PER INSTANCE SYSTEM FLAG
+
+    // Whether a snapshot is released from the page cache once it has been sent to a replica. A
+    // separate decision from the one above, and off by default: the file cache is reclaimable on
+    // demand, so releasing it buys memory the kernel could take back anyway, while costing every
+    // further replica syncing from the same snapshot a re-read from the device.
+    bool release_sent_snapshot_page_cache{false};  // PER INSTANCE SYSTEM FLAG
+
+    bool allow_parallel_snapshot_creation{false};  // PER DATABASE
+    bool allow_parallel_schema_creation{false};    // PER DATABASE
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 
@@ -124,14 +144,23 @@ struct Config {
 
   bool force_on_disk{false};  // TODO: cleanup.... remove + make the default storage_mode ON_DISK_TRANSACTIONAL if true
 
+  bool track_label_counts{false};
+
+  bool register_metrics{true};
+
   friend bool operator==(const Config &lrh, const Config &rhs) = default;
 };
 
 inline auto ReplicationStateRootPath(memgraph::storage::Config const &config) -> std::optional<std::filesystem::path> {
-  if (!config.durability.restore_replication_state_on_startup) {
+  if (!config.durability.restore_replication_state_on_startup
+#ifdef MG_ENTERPRISE
+      && !memgraph::flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator()
+#endif
+  ) {
     spdlog::warn(
         "Replication configuration will NOT be stored. When the server restarts, replication state will be "
         "forgotten.");
+
     return std::nullopt;
   }
   return {config.durability.storage_directory};

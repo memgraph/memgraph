@@ -1,0 +1,4 @@
+query: |
+  RETURN text.distance("", "") AS output;
+output:
+  - output: 0

@@ -1,0 +1,12 @@
+query: >
+    RETURN collections.union([0, 1, 2, 3], [2, 2, 3, 4, 5]) AS union
+
+output:
+    - union: [
+   4,
+   3,
+   5,
+   2,
+   1,
+   0
+]

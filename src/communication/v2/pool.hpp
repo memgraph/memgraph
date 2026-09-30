@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstddef>
+#include <exception>
 #include <thread>
 #include <vector>
 
@@ -19,6 +20,7 @@
 #include <boost/asio/io_context.hpp>
 
 #include "utils/logging.hpp"
+#include "utils/thread.hpp"
 
 namespace memgraph::communication::v2 {
 
@@ -28,7 +30,8 @@ class IOContextThreadPool final {
   using IOContextGuard = boost::asio::executor_work_guard<boost::asio::io_context::executor_type>;
 
  public:
-  explicit IOContextThreadPool(size_t pool_size) : guard_{io_context_.get_executor()}, pool_size_{pool_size} {
+  explicit IOContextThreadPool(size_t pool_size)
+      : io_context_(pool_size), guard_{io_context_.get_executor()}, pool_size_{pool_size} {
     MG_ASSERT(pool_size != 0, "Pool size must be greater then 0!");
   }
 
@@ -40,10 +43,21 @@ class IOContextThreadPool final {
 
   void Run() {
     background_threads_.reserve(pool_size_);
-    for (size_t i = 0; i < pool_size_; ++i) {
-      background_threads_.emplace_back([this]() { io_context_.run(); });
-    }
     running_ = true;
+    for (size_t i = 0; i < pool_size_; ++i) {
+      background_threads_.emplace_back([this]() {
+        utils::ThreadSetName("io context");
+        while (running_) {
+          try {
+            io_context_.run();
+            spdlog::trace("IOContextThreadPool exited");
+            break;  // exited normally
+          } catch (const std::exception &e) {
+            spdlog::trace("IOContextThreadPool exception: {}", e.what());
+          }
+        }
+      });
+    }
   }
 
   void Shutdown() {
@@ -63,6 +77,6 @@ class IOContextThreadPool final {
   IOContextGuard guard_;
   size_t pool_size_;
   std::vector<std::jthread> background_threads_;
-  bool running_{false};
+  std::atomic_bool running_{false};
 };
 }  // namespace memgraph::communication::v2

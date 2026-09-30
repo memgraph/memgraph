@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -56,10 +56,15 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
 
   bool PreVisit(ScanAll &) override;
   bool PreVisit(ScanAllByLabel &) override;
-  bool PreVisit(ScanAllByLabelPropertyValue &) override;
-  bool PreVisit(ScanAllByLabelPropertyRange &) override;
-  bool PreVisit(ScanAllByLabelProperty &) override;
+  bool PreVisit(ScanAllByLabelProperties &) override;
   bool PreVisit(ScanAllById &) override;
+
+  bool PreVisit(ScanAllByEdge &) override;
+  bool PreVisit(ScanAllByEdgeType &) override;
+  bool PreVisit(ScanAllByEdgeTypeProperty &) override;
+  bool PreVisit(ScanAllByEdgeProperty &) override;
+  bool PreVisit(ScanAllByEdgeId &) override;
+  bool PreVisit(ScanAllByVertexProperty &) override;
 
   bool PreVisit(Expand &) override;
   bool PreVisit(ExpandVariable &) override;
@@ -87,9 +92,60 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(CallProcedure &) override;
   bool PreVisit(Foreach &) override;
 
+  bool PreVisit(Apply &) override;
+  bool PreVisit(IndexedJoin &) override;
+  bool PreVisit(HashJoin &) override;
+  bool PreVisit(RollUpApply &) override;
+  bool PreVisit(PeriodicSubquery &) override;
+  bool PreVisit(PeriodicCommit &) override;
+  bool PreVisit(SetNestedProperty &) override;
+  bool PreVisit(RemoveNestedProperty &) override;
+
+  bool PreVisit(AggregateParallel &) override;
+  bool PreVisit(OrderByParallel &) override;
+  bool PreVisit(ParallelMerge &) override;
+  bool PreVisit(ScanParallel &) override;
+  bool PreVisit(ScanParallelByLabel &) override;
+  bool PreVisit(ScanParallelByLabelProperties &) override;
+  bool PreVisit(ScanParallelByEdge &) override;
+  bool PreVisit(ScanParallelByEdgeType &) override;
+  bool PreVisit(ScanParallelByEdgeTypeProperty &) override;
+  bool PreVisit(ScanParallelByEdgeProperty &) override;
+  bool PreVisit(ScanParallelByVertexProperty &) override;
+  bool PreVisit(ScanChunk &) override;
+  bool PreVisit(ScanChunkByEdge &) override;
+
   bool Visit(Once &) override;
 
   void UpdateType(RWType op_type);
 };
+
+/// Reaching storage is a different question from reading the graph: a call to a procedure that declared
+/// it touches no graph stays a read, which is what clients and the read counters are told, but it reaches
+/// no storage. Derives from ReadWriteTypeChecker so every other operator keeps one classification, and an
+/// operator added later is covered by the type it declares there.
+struct StorageAccessChecker : ReadWriteTypeChecker {
+  using ReadWriteTypeChecker::PreVisit;
+
+  bool PreVisit(CallProcedure &op) override;
+};
+
+/// True if executing `plan` needs a storage transaction.
+bool PlanRequiresStorageAccess(const LogicalOperator &plan);
+
+inline std::ostream &operator<<(std::ostream &os, ReadWriteTypeChecker::RWType type) {
+  switch (type) {
+    using enum ReadWriteTypeChecker::RWType;
+    case NONE:
+      return os << "NONE";
+    case R:
+      return os << "READ";
+    case W:
+      return os << "WRITE";
+    case RW:
+      return os << "READ-WRITE";
+  }
+  return os;
+}
 
 }  // namespace memgraph::query::plan

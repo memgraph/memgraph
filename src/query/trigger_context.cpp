@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -18,6 +18,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/relations/equivalence.hpp"
 #include "query/serialization/property_value.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
@@ -53,8 +54,7 @@ concept WithIsValid = requires(const T value) {
 template <typename T>
 concept ConvertableToTypedValue = requires(T value, DbAccessor *dba) {
   { ToTypedValue(value, dba) } -> std::same_as<TypedValue>;
-}
-&&WithIsValid<T>;
+} && WithIsValid<T>;
 
 template <typename T>
 concept LabelUpdateContext = utils::SameAsAnyOf<T, detail::SetVertexLabel, detail::RemovedVertexLabel>;
@@ -82,7 +82,9 @@ TypedValue ToTypedValue(const std::vector<TContext> &values, DbAccessor *dba) {
 }
 
 template <ConvertableToTypedValue T>
-TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba) requires(!LabelUpdateContext<T>) {
+TypedValue ToTypedValue(const std::vector<T> &values, DbAccessor *dba)
+  requires(!LabelUpdateContext<T>)
+{
   TypedValue result{std::vector<TypedValue>{}};
   auto &typed_values = result.ValueList();
   typed_values.reserve(values.size());
@@ -173,24 +175,22 @@ template <detail::ObjectAccessor TAccessor>
   std::vector<detail::RemovedObjectProperty<TAccessor>> removed_object_properties;
 
   for (auto it = map.begin(); it != map.end(); it = map.erase(it)) {
-    const auto &[key, property_change_info] = *it;
-    if (property_change_info.old_value.IsNull() && property_change_info.new_value.IsNull()) {
-      // no change happened on the transaction level
-      continue;
-    }
-
-    if (const auto is_equal = property_change_info.old_value == property_change_info.new_value;
-        is_equal.IsBool() && is_equal.ValueBool()) {
-      // no change happened on the transaction level
+    // Bound without const so that the two values below are moved out of an
+    // entry this loop erases next, rather than copied.
+    auto &[key, property_change_info] = *it;
+    // Whether the property changed is whether the two are the same value, which
+    // equivalence answers and equality does not. Reading equality here reports
+    // changes that did not happen.
+    if (relations::equivalence::Equivalent(property_change_info.old_value, property_change_info.new_value)) {
       continue;
     }
 
     if (property_change_info.new_value.IsNull()) {
-      removed_object_properties.emplace_back(key.first, key.second /* property_id */,
-                                             std::move(property_change_info.old_value));
+      removed_object_properties.emplace_back(
+          key.first, key.second /* property_id */, std::move(property_change_info.old_value));
     } else {
-      set_object_properties.emplace_back(key.first, key.second, std::move(property_change_info.old_value),
-                                         std::move(property_change_info.new_value));
+      set_object_properties.emplace_back(
+          key.first, key.second, std::move(property_change_info.old_value), std::move(property_change_info.new_value));
     }
   }
 
@@ -202,12 +202,15 @@ template <detail::ObjectAccessor TAccessor>
   auto [set_object_properties, removed_object_properties] = PropertyMapToList(std::move(registry.property_changes));
   std::vector<detail::CreatedObject<TAccessor>> created_objects_vec;
   created_objects_vec.reserve(registry.created_objects.size());
-  std::transform(registry.created_objects.begin(), registry.created_objects.end(),
+  std::transform(registry.created_objects.begin(),
+                 registry.created_objects.end(),
                  std::back_inserter(created_objects_vec),
                  [](const auto &gid_and_created_object) { return gid_and_created_object.second; });
   registry.created_objects.clear();
 
-  return {std::move(created_objects_vec), std::move(registry.deleted_objects), std::move(set_object_properties),
+  return {std::move(created_objects_vec),
+          std::move(registry.deleted_objects),
+          std::move(set_object_properties),
           std::move(removed_object_properties)};
 }
 }  // namespace
@@ -223,6 +226,10 @@ bool RemovedVertexLabel::IsValid() const { return object.IsVisible(storage::View
 
 std::map<std::string, TypedValue> RemovedVertexLabel::ToMap(DbAccessor *dba) const {
   return {{"vertex", TypedValue{object}}, {"label", TypedValue{dba->LabelToName(label_id)}}};
+}
+
+auto ObjectCommonMethods::PropertyToName(DbAccessor *dba, storage::PropertyId key) -> TypedValue {
+  return TypedValue{dba->PropertyToName(key)};
 }
 }  // namespace detail
 
@@ -303,7 +310,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
         continue;
       }
       auto maybe_out_edges = maybe_from_vertex->OutEdges(storage::View::OLD);
-      MG_ASSERT(maybe_out_edges.HasValue());
+      MG_ASSERT(maybe_out_edges);
       const auto edge_gid = created_edge.object.Gid();
       for (const auto &edge : maybe_out_edges->edges) {
         if (edge.Gid() == edge_gid) {
@@ -324,7 +331,7 @@ void TriggerContext::AdaptForAccessor(DbAccessor *accessor) {
     for (const auto &value : *values) {
       if (auto maybe_vertex = accessor->FindVertex(value.object.From().Gid(), storage::View::OLD); maybe_vertex) {
         auto maybe_out_edges = maybe_vertex->OutEdges(storage::View::OLD);
-        MG_ASSERT(maybe_out_edges.HasValue());
+        MG_ASSERT(maybe_out_edges);
         for (const auto &edge : maybe_out_edges->edges) {
           if (edge.Gid() == value.object.Gid()) {
             *it = std::move(value);
@@ -381,15 +388,20 @@ TypedValue TriggerContext::GetTypedValue(const TriggerIdentifierTag tag, DbAcces
       return ToTypedValue(removed_vertex_labels_, dba);
 
     case TriggerIdentifierTag::UPDATED_VERTICES:
-      return Concatenate(dba, set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_,
-                         removed_vertex_labels_);
+      return Concatenate(
+          dba, set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_, removed_vertex_labels_);
 
     case TriggerIdentifierTag::UPDATED_EDGES:
       return Concatenate(dba, set_edge_properties_, removed_edge_properties_);
 
     case TriggerIdentifierTag::UPDATED_OBJECTS:
-      return Concatenate(dba, set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
-                         removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
+      return Concatenate(dba,
+                         set_vertex_properties_,
+                         set_edge_properties_,
+                         removed_vertex_properties_,
+                         removed_edge_properties_,
+                         set_vertex_labels_,
+                         removed_vertex_labels_);
   }
 }
 
@@ -397,9 +409,16 @@ bool TriggerContext::ShouldEventTrigger(const TriggerEventType event_type) const
   using EventType = TriggerEventType;
   switch (event_type) {
     case EventType::ANY:
-      return AnyContainsValue(created_vertices_, created_edges_, deleted_vertices_, deleted_edges_,
-                              set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
-                              removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
+      return AnyContainsValue(created_vertices_,
+                              created_edges_,
+                              deleted_vertices_,
+                              deleted_edges_,
+                              set_vertex_properties_,
+                              set_edge_properties_,
+                              removed_vertex_properties_,
+                              removed_edge_properties_,
+                              set_vertex_labels_,
+                              removed_vertex_labels_);
 
     case EventType::CREATE:
       return AnyContainsValue(created_vertices_, created_edges_);
@@ -420,12 +439,16 @@ bool TriggerContext::ShouldEventTrigger(const TriggerEventType event_type) const
       return AnyContainsValue(deleted_edges_);
 
     case EventType::UPDATE:
-      return AnyContainsValue(set_vertex_properties_, set_edge_properties_, removed_vertex_properties_,
-                              removed_edge_properties_, set_vertex_labels_, removed_vertex_labels_);
+      return AnyContainsValue(set_vertex_properties_,
+                              set_edge_properties_,
+                              removed_vertex_properties_,
+                              removed_edge_properties_,
+                              set_vertex_labels_,
+                              removed_vertex_labels_);
 
     case EventType::VERTEX_UPDATE:
-      return AnyContainsValue(set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_,
-                              removed_vertex_labels_);
+      return AnyContainsValue(
+          set_vertex_properties_, removed_vertex_properties_, set_vertex_labels_, removed_vertex_labels_);
 
     case EventType::EDGE_UPDATE:
       return AnyContainsValue(set_edge_properties_, removed_edge_properties_);
@@ -530,11 +553,16 @@ TriggerContext TriggerContextCollector::TransformToTriggerContext() && {
   auto [created_edges, deleted_edges, set_edge_properties, removed_edge_properties] =
       Summarize(std::move(edge_registry_));
 
-  return {std::move(created_vertices),      std::move(deleted_vertices),
-          std::move(set_vertex_properties), std::move(removed_vertex_properties),
-          std::move(set_vertex_labels),     std::move(removed_vertex_labels),
-          std::move(created_edges),         std::move(deleted_edges),
-          std::move(set_edge_properties),   std::move(removed_edge_properties)};
+  return {std::move(created_vertices),
+          std::move(deleted_vertices),
+          std::move(set_vertex_properties),
+          std::move(removed_vertex_properties),
+          std::move(set_vertex_labels),
+          std::move(removed_vertex_labels),
+          std::move(created_edges),
+          std::move(deleted_edges),
+          std::move(set_edge_properties),
+          std::move(removed_edge_properties)};
 }
 
 TriggerContextCollector::LabelChangesLists TriggerContextCollector::LabelMapToList(LabelChangesMap &&label_changes) {
@@ -552,5 +580,68 @@ TriggerContextCollector::LabelChangesLists TriggerContextCollector::LabelMapToLi
   label_changes.clear();
 
   return {std::move(set_vertex_labels), std::move(removed_vertex_labels)};
+}
+
+void TriggerContextCollector::MergeFrom(TriggerContextCollector &&other) {
+  // Helper to merge a registry
+  auto merge_registry = [](auto &main_registry, auto &other_registry) {
+    // Merge created_objects: if GID exists in main, keep main; if only in other, add it
+    for (auto &&[gid, created_obj] : other_registry.created_objects) {
+      if (!main_registry.created_objects.contains(gid)) {
+        main_registry.created_objects.emplace(gid, std::move(created_obj));
+      }
+    }
+
+    // Merge deleted_objects: append all from other, but skip if the object was created in main
+    for (auto &deleted_obj : other_registry.deleted_objects) {
+      if (!main_registry.created_objects.contains(deleted_obj.object.Gid())) {
+        main_registry.deleted_objects.emplace_back(std::move(deleted_obj));
+      }
+    }
+
+    // Merge property_changes: if same object+property exists, keep the one from other (latest change)
+    // If only in other, add it (but skip if object was created in main)
+    for (auto &&[key, change_info] : other_registry.property_changes) {
+      if (main_registry.created_objects.contains(key.first.Gid())) {
+        // Object was created in main, skip property changes
+        continue;
+      }
+      // If exists in main, replace with other (latest change); otherwise add it
+      main_registry.property_changes[key] = std::move(change_info);
+    }
+  };
+
+  // Merge vertex registry
+  merge_registry(vertex_registry_, other.vertex_registry_);
+
+  // Merge edge registry
+  merge_registry(edge_registry_, other.edge_registry_);
+
+  // Merge label_changes_: combine the changes (clamp to -1, 1)
+  for (auto &&[key, label_state] : other.label_changes_) {
+    if (vertex_registry_.created_objects.contains(key.first.Gid())) {
+      // Vertex was created in main, skip label changes
+      continue;
+    }
+    if (auto it = label_changes_.find(key); it != label_changes_.end()) {
+      // Combine the changes
+      it->second = static_cast<signed char>(std::clamp(it->second + label_state, -1, 1));
+    } else {
+      // Add the change from other
+      label_changes_.emplace(key, label_state);
+    }
+  }
+}
+
+TriggerContextCollector TriggerContextCollector::CreateEmptyWithSameConfig() const {
+  TriggerContextCollector empty_collector{{}};  // Create with empty event types
+  // Copy the configuration flags but not the data
+  empty_collector.vertex_registry_.should_register_created_objects = vertex_registry_.should_register_created_objects;
+  empty_collector.vertex_registry_.should_register_deleted_objects = vertex_registry_.should_register_deleted_objects;
+  empty_collector.vertex_registry_.should_register_updated_objects = vertex_registry_.should_register_updated_objects;
+  empty_collector.edge_registry_.should_register_created_objects = edge_registry_.should_register_created_objects;
+  empty_collector.edge_registry_.should_register_deleted_objects = edge_registry_.should_register_deleted_objects;
+  empty_collector.edge_registry_.should_register_updated_objects = edge_registry_.should_register_updated_objects;
+  return empty_collector;
 }
 }  // namespace memgraph::query

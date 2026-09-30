@@ -1,0 +1,9 @@
+query: >
+  MATCH (n1:Person {name: 'Alice'}), (n2:Person {name: 'Bob'})
+  CALL refactor.merge_nodes([n1, n2], {properties: 'override'}) YIELD node
+  RETURN node.name as name, node.age as age, node.city as city, node.country as country;
+output:
+  - name: Bob
+    age: 25
+    city: New York
+    country: USA

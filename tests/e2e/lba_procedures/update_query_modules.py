@@ -14,8 +14,10 @@ import sys
 import pytest
 from common import *
 
-set_vertex_property_query = "MATCH (n:update_label) CALL update.set_property(n) YIELD * RETURN n.prop;"
-set_edge_property_query = "MATCH (n:update_label_1)-[r:update_edge_type]->(m:update_label_2) CALL update.set_property(r) YIELD * RETURN r.prop;"
+set_vertex_property_query = "MATCH (n:update_label) CALL update.set_property(n) RETURN n.prop;"
+set_edge_property_query = (
+    "MATCH (n:update_label_1)-[r:update_edge_type]->(m:update_label_2) CALL update.set_property(r) RETURN r.prop;"
+)
 
 
 @pytest.mark.parametrize("switch", [False, True])
@@ -26,7 +28,7 @@ def test_can_not_update_vertex_when_given_read(switch):
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -44,7 +46,7 @@ def test_can_update_vertex_when_given_update_grant_on_label(switch):
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON NODES CONTAINING LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -55,14 +57,14 @@ def test_can_update_vertex_when_given_update_grant_on_label(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_update_vertex_when_given_create_delete_grant_on_label(switch):
+def test_can_update_vertex_when_given_update_grant_on_label(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON NODES CONTAINING LABELS :update_label TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -80,7 +82,7 @@ def test_can_update_vertex_when_given_update_global_grant_on_label(switch):
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -91,14 +93,14 @@ def test_can_update_vertex_when_given_update_global_grant_on_label(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_update_vertex_when_given_create_delete_global_grant_on_label(switch):
+def test_can_update_vertex_when_given_update_global_grant_on_label(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -116,8 +118,8 @@ def test_can_not_update_vertex_when_denied_update_and_granted_global_update_on_l
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -128,15 +130,15 @@ def test_can_not_update_vertex_when_denied_update_and_granted_global_update_on_l
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_not_update_vertex_when_denied_update_and_granted_global_create_delete_on_label(switch):
+def test_can_not_update_vertex_when_denied_update_and_granted_global_update_on_label(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON LABELS * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON NODES CONTAINING LABELS * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -154,9 +156,9 @@ def test_can_update_edge_when_given_update_grant_on_edge_type(switch):
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label_1 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGE_TYPES :update_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_1 TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_2 TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON EDGES OF TYPE :update_edge_type TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -174,9 +176,9 @@ def test_can_not_update_edge_when_given_read_grant_on_edge_type(switch):
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label_1 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGE_TYPES :update_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_1 TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_2 TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES OF TYPE :update_edge_type TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -187,16 +189,16 @@ def test_can_not_update_edge_when_given_read_grant_on_edge_type(switch):
 
 
 @pytest.mark.parametrize("switch", [False, True])
-def test_can_update_edge_when_given_create_delete_grant_on_edge_type(switch):
+def test_can_update_edge_when_given_update_on_edge_type(switch):
     admin_cursor = connect(username="admin", password="test").cursor()
     create_multi_db(admin_cursor)
     if switch:
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label_1 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT CREATE_DELETE ON EDGE_TYPES :update_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_1 TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_2 TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ, UPDATE ON EDGES OF TYPE :update_edge_type TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -214,10 +216,10 @@ def test_can_not_update_edge_when_denied_update_edge_type_but_granted_global_upd
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label_1 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGE_TYPES :update_edge_type TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGE_TYPES * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_1 TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_2 TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES OF TYPE :update_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES OF TYPE * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:
@@ -235,10 +237,10 @@ def test_can_not_update_edge_when_denied_update_edge_type_but_granted_global_cre
         switch_db(admin_cursor)
     reset_update_permissions(admin_cursor)
 
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label_1 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON LABELS :update_label_2 TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGE_TYPES :update_edge_type TO user;")
-    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGE_TYPES * TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_1 TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON NODES CONTAINING LABELS :update_label_2 TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT READ ON EDGES OF TYPE :update_edge_type TO user;")
+    execute_and_fetch_all(admin_cursor, "GRANT UPDATE ON EDGES OF TYPE * TO user;")
 
     test_cursor = connect(username="user", password="test").cursor()
     if switch:

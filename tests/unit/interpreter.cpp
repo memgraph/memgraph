@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,35 +10,48 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
+#include <map>
+#include <set>
+#include <sstream>
+#include <thread>
 
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
-#include "csv/parsing.hpp"
 #include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "interpreter_faker.hpp"
+#include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/stripped.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
 #include "query/metadata.hpp"
+#include "query/procedure/mg_procedure_impl.hpp"
+#include "query/procedure/module.hpp"
 #include "query/stream.hpp"
 #include "query/typed_value.hpp"
 #include "query_common.hpp"
 #include "replication/state.hpp"
+#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
+
+import memgraph.csv.parsing;
 
 namespace {
 
@@ -79,8 +92,9 @@ class InterpreterTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::replication::ReplicationState repl_state{memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config, repl_state};
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
   memgraph::dbms::DatabaseAccess db{
       [&]() {
         auto db_acc_opt = db_gk.access();
@@ -94,7 +108,20 @@ class InterpreterTest : public ::testing::Test {
       }()  // iile
   };
 
-  memgraph::query::InterpreterContext interpreter_context{{}, kNoHandler, &repl_state};
+  memgraph::system::System system_state;
+  memgraph::query::InterpreterContext interpreter_context{{},
+                                                          nullptr,
+                                                          nullptr,
+                                                          kNoHandler,
+                                                          &repl_state,
+                                                          system_state,
+                                                          nullptr
+#ifdef MG_ENTERPRISE
+                                                          ,
+                                                          nullptr,
+                                                          nullptr
+#endif
+  };
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -107,7 +134,7 @@ class InterpreterTest : public ::testing::Test {
 
   InterpreterFaker default_interpreter{&interpreter_context, db};
 
-  auto Prepare(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
+  auto Prepare(const std::string &query, const memgraph::storage::ExternalPropertyValue::map_t &params = {}) {
     return default_interpreter.Prepare(query, params);
   }
 
@@ -115,13 +142,859 @@ class InterpreterTest : public ::testing::Test {
     default_interpreter.Pull(stream, n, qid);
   }
 
-  auto Interpret(const std::string &query, const std::map<std::string, memgraph::storage::PropertyValue> &params = {}) {
+  auto Interpret(const std::string &query, const memgraph::storage::ExternalPropertyValue::map_t &params = {}) {
     return default_interpreter.Interpret(query, params);
+  }
+
+  auto AstCacheSize() {
+    return interpreter_context.ast_cache.WithLock([](auto &cache) { return cache.size(); });
   }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(InterpreterTest, StorageTypes);
+TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
+
+// Lab's connection-check / probe queries are constant RETURNs and take the accessor-free fast
+// path; presence of "graph_free" in the summary marks that no storage transaction was opened.
+// (The query is still planned and executed like any other, so it also records "plan_execution_time".)
+TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
+  {
+    auto stream = this->Interpret("RETURN 1 AS APP_INTERNAL_EXEC_VAR");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "APP_INTERNAL_EXEC_VAR");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN 1");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "1");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    // Multiple constants, mixed types, alias vs. no alias.
+    auto stream = this->Interpret("RETURN 1, 'x' AS s, true AS b");
+    ASSERT_EQ(stream.GetHeader().size(), 3U);
+    EXPECT_EQ(stream.GetHeader()[0], "1");
+    EXPECT_EQ(stream.GetHeader()[1], "s");
+    EXPECT_EQ(stream.GetHeader()[2], "b");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[0][1].ValueString(), "x");
+    EXPECT_EQ(stream.GetResults()[0][2].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    // List/map built solely from constants are still constant.
+    auto stream = this->Interpret("RETURN [1, 2] AS l, {a: 1} AS m");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueList().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[0].ValueInt(), 1);
+    EXPECT_EQ(stream.GetResults()[0][1].ValueMap().at("a").ValueInt(), 1);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+
+// Queries that reach the graph take the normal, accessor-backed path, marked by the absence of
+// "graph_free" in the summary. A function call is the interesting control: it computes nothing
+// from the graph, but implementations receive the accessor, so the analysis will not admit one.
+TYPED_TEST(InterpreterTest, QueriesThatReachTheGraphTakeNormalPath) {
+  {
+    auto stream = this->Interpret("RETURN abs(-3) AS x");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+  }
+  {
+    auto stream = this->Interpret("MATCH (n) RETURN count(n) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 0);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+  }
+}
+
+// IsConstantExpression (interpreter.cpp) was broadened from literals-only to also recurse into
+// arithmetic/comparison/logical/unary operators, CASE (IfOperator) and coalesce; each of these must
+// now take the accessor-free fast path ("graph_free" present) and still return the right value.
+// `coalesce(...)` parses to a Coalesce AST node, not a Function call (see
+// cypher_main_visitor.cpp:3754), so it is fast-path eligible like the operators above.
+TYPED_TEST(InterpreterTest, ConstantExpressionReturnUsesAccessorFreeFastPath) {
+  {
+    auto stream = this->Interpret("RETURN 1 + 1 AS x");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN 2 > 1 AS b");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN CASE WHEN true THEN 10 ELSE 20 END AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 10);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN coalesce(null, 5) AS d");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 5);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN [1+1, 2*2] AS l");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0][0].ValueList().size(), 2U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[0].ValueInt(), 2);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueList()[1].ValueInt(), 4);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN -5 AS n");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), -5);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("RETURN NOT false AS t");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueBool(), true);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+
+// Parity: the accessor-free evaluator (PrimitiveLiteralExpressionEvaluator, dba=nullptr) must return
+// exactly what the normal, accessor-backed ExpressionEvaluator returns for the same expression. A
+// leading `WITH 1 AS ignored` makes the query multi-clause, which IsConstantReturnQuery's single-RETURN-
+// clause gate (interpreter.cpp) rejects, forcing the normal path -- giving an in-process baseline.
+// communication::bolt::Value has no operator== (see src/communication/bolt/v1/value.hpp), so the two
+// sides are compared via its operator<< string rendering instead.
+TYPED_TEST(InterpreterTest, ConstantExpressionFastPathMatchesNormalPath) {
+  auto render = [](const memgraph::communication::bolt::Value &value) {
+    std::ostringstream out;
+    out << value;
+    return out.str();
+  };
+  // One expression per duplicated node in the hand-copied PrimitiveLiteralExpressionEvaluator visitor
+  // surface (OrOperator, Exponentiation, IsNull, Coalesce, UnaryPlus and the full comparison set), plus
+  // null-operand cases that assert the two evaluators agree on null-propagation.
+  for (auto const *expr : {"1+1",
+                           "3*4-2",
+                           "7/2",
+                           "7%3",
+                           "2>1",
+                           "1=1",
+                           "1<>2",
+                           "1<2",
+                           "2<=2",
+                           "3>=1",
+                           "true AND false",
+                           "true OR false",
+                           "NOT false",
+                           "2 ^ 10",
+                           "null IS NULL",
+                           "coalesce(null, 2)",
+                           "+5",
+                           "-5",
+                           "null + 1",
+                           "1 = null",
+                           "CASE WHEN false THEN 1 ELSE 2 END"}) {
+    SCOPED_TRACE(expr);
+    auto fast = this->Interpret(std::string("RETURN ") + expr + " AS r");
+    // An explicit transaction is the control: the accessor is already open inside one, so the same query
+    // runs the transaction-backed path there whatever the graph-access analysis says about it.
+    this->Interpret("BEGIN");
+    auto normal = this->Interpret(std::string("RETURN ") + expr + " AS r");
+    this->Interpret("COMMIT");
+    ASSERT_EQ(fast.GetSummary().count("graph_free"), 1U);
+    ASSERT_EQ(normal.GetSummary().count("graph_free"), 0U);
+    ASSERT_EQ(fast.GetResults().size(), 1U);
+    ASSERT_EQ(normal.GetResults().size(), 1U);
+    EXPECT_EQ(render(fast.GetResults()[0][0]), render(normal.GetResults()[0][0]));
+  }
+
+  // Outcome parity on an expression that fails: skipping the transaction must not change whether a query
+  // throws or what it says. `capture()` returns the exception text if one is thrown, else the rendered
+  // value, so a single comparison covers both outcomes.
+  {
+    auto capture = [this, &render](const std::string &query) -> std::string {
+      try {
+        auto res = this->Interpret(query);
+        return res.GetResults().empty() ? "<no rows>" : render(res.GetResults()[0][0]);
+      } catch (const memgraph::query::QueryRuntimeException &e) {
+        return std::string("throw: ") + e.what();
+      }
+    };
+    const auto fast = capture("RETURN 1 / 0 AS r");
+    this->Interpret("BEGIN");
+    const auto normal = capture("RETURN 1 / 0 AS r");
+    this->Interpret("ROLLBACK");
+    EXPECT_EQ(fast, normal);
+  }
+}
+
+// Only implicit (autocommit) transactions are eligible for the accessor-free fast path. Inside an
+// explicit BEGIN...COMMIT block the accessor is already open, so `RETURN 1` must take the NORMAL path
+// (no "graph_free" marker) and leave the session mid-transaction.
+TYPED_TEST(InterpreterTest, ConstantReturnInExplicitTxTakesNormalPath) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  this->Interpret("BEGIN");
+  auto stream = this->Interpret("RETURN 1");
+  // Normal path: an accessor-backed transaction was opened, so no "graph_free" marker is set.
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  // Still inside the explicit transaction (fast-path autocommit would have cleared the id).
+  EXPECT_NE(interpreter.GetTransactionId(), std::nullopt);
+  this->Interpret("COMMIT");
+}
+
+// Lab's `CALL mg.procedures() YIELD *` and sibling mg.* introspection calls read only the module
+// registry, so they also take the accessor-free fast path.
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionUsesAccessorFreeFastPath) {
+  {
+    // YIELD * exposes all result fields in the procedure's (alphabetical) map order.
+    auto stream = this->Interpret("CALL mg.procedures() YIELD *");
+    ASSERT_EQ(stream.GetHeader().size(), 5U);
+    EXPECT_EQ(stream.GetHeader()[0], "is_editable");
+    EXPECT_EQ(stream.GetHeader()[1], "is_write");
+    EXPECT_EQ(stream.GetHeader()[2], "name");
+    EXPECT_EQ(stream.GetHeader()[3], "path");
+    EXPECT_EQ(stream.GetHeader()[4], "signature");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    // mg.procedures must list itself, and it is a read procedure.
+    bool found_self = false;
+    for (auto &row : stream.GetResults()) {
+      if (row[2].ValueString() == "mg.procedures") {
+        found_self = true;
+        EXPECT_FALSE(row[1].ValueBool());
+      }
+    }
+    EXPECT_TRUE(found_self);
+  }
+  {
+    auto stream = this->Interpret("CALL mg.functions() YIELD name");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "name");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+  {
+    auto stream = this->Interpret("CALL mg.procedures() YIELD name AS n");
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    EXPECT_EQ(stream.GetHeader()[0], "n");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+
+// The accessor-free fast path must return exactly the rows the normal (planned) path would. A
+// trailing RETURN forces the normal path, giving a baseline to diff against.
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionMatchesNormalPath) {
+  auto sorted_names = [](auto &stream) {
+    std::vector<std::string> out;
+    out.reserve(stream.GetResults().size());
+    for (auto &row : stream.GetResults()) out.push_back(row[0].ValueString());
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  auto fast = this->Interpret("CALL mg.procedures() YIELD name");
+  // Inside an explicit transaction the accessor is already open, so the same call runs the
+  // transaction-backed path.
+  this->Interpret("BEGIN");
+  auto normal = this->Interpret("CALL mg.procedures() YIELD name");
+  this->Interpret("COMMIT");
+  EXPECT_EQ(fast.GetSummary().count("graph_free"), 1U);
+  EXPECT_EQ(normal.GetSummary().count("graph_free"), 0U);
+  EXPECT_FALSE(sorted_names(fast).empty());
+  EXPECT_EQ(sorted_names(fast), sorted_names(normal));
+}
+
+// `Apply` restarts the subquery branch per input row, so the procedure's cursor must rewind everything
+// on a reset -- its input included -- or every row after the first silently yields nothing.
+TYPED_TEST(InterpreterTest, ProcedureInsideSubqueryRunsForEveryInputRow) {
+  auto baseline = this->Interpret("CALL mg.procedures() YIELD name RETURN count(name) AS c");
+  ASSERT_EQ(baseline.GetResults().size(), 1U);
+  const auto expected_count = baseline.GetResults()[0][0].ValueInt();
+  ASSERT_GT(expected_count, 0);
+  {
+    auto stream = this->Interpret(
+        "UNWIND [1, 2, 3] AS x CALL (x) { CALL mg.procedures() YIELD name RETURN count(name) AS c } RETURN x, c");
+    ASSERT_EQ(stream.GetResults().size(), 3U);
+    for (auto &row : stream.GetResults()) {
+      SCOPED_TRACE(row[0].ValueInt());
+      EXPECT_EQ(row[1].ValueInt(), expected_count);
+    }
+  }
+  {
+    // The subquery's LIMIT stops pulling mid-stream, so the reset interrupts a live procedure.
+    auto stream = this->Interpret(
+        "UNWIND [1, 2, 3] AS x CALL (x) { CALL mg.procedures() YIELD name RETURN name LIMIT 1 } RETURN x, name");
+    EXPECT_EQ(stream.GetResults().size(), 3U);
+  }
+  // Periodic commit is only supported on in-memory storage.
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    // Same restart via the periodic-commit subquery operator; it returns no rows, so check the writes.
+    this->Interpret("MATCH (n) DETACH DELETE n");
+    this->Interpret(
+        "UNWIND [1, 2, 3] AS x CALL (x) { CALL mg.procedures() YIELD name WITH x, count(name) AS c "
+        "CREATE (:Row {x: x, c: c}) } IN TRANSACTIONS OF 1 ROWS");
+    auto stream = this->Interpret("MATCH (r:Row) RETURN r.x AS x, r.c AS c ORDER BY x");
+    ASSERT_EQ(stream.GetResults().size(), 3U);
+    for (int64_t i = 0; i < 3; ++i) {
+      SCOPED_TRACE(i);
+      EXPECT_EQ(stream.GetResults()[i][0].ValueInt(), i + 1);
+      EXPECT_EQ(stream.GetResults()[i][1].ValueInt(), expected_count);
+    }
+    this->Interpret("MATCH (n) DETACH DELETE n");
+  }
+}
+
+// Restarting the procedure's cursor restarts everything it feeds on, so a write below it runs per row
+// too. The body without a procedure is the reference; the procedure variant used to run the write once.
+TYPED_TEST(InterpreterTest, WriteBelowProcedureInsideSubqueryRunsForEveryInputRow) {
+  auto count_nodes = [this](const std::string &label) {
+    auto stream = this->Interpret("MATCH (n:" + label + ") RETURN count(n) AS c");
+    return stream.GetResults()[0][0].ValueInt();
+  };
+
+  this->Interpret("MATCH (n) DETACH DELETE n");
+  auto reference = this->Interpret("UNWIND [1, 2, 3] AS x CALL (x) { CREATE (:Ref) WITH x RETURN 1 AS r } RETURN x, r");
+  EXPECT_EQ(reference.GetResults().size(), 3U);
+  EXPECT_EQ(count_nodes("Ref"), 3);
+
+  auto with_procedure = this->Interpret(
+      "UNWIND [1, 2, 3] AS x CALL (x) { CREATE (:Proc) WITH x CALL mg.procedures() YIELD name "
+      "RETURN count(name) AS c } RETURN x, c");
+  EXPECT_EQ(with_procedure.GetResults().size(), 3U);
+  EXPECT_EQ(count_nodes("Proc"), 3);
+
+  this->Interpret("MATCH (n) DETACH DELETE n");
+}
+
+namespace {
+
+namespace procedure = memgraph::query::procedure;
+
+class ProbeModule : public procedure::Module {
+ public:
+  bool Close() override { return true; }
+
+  const std::map<std::string, mgp_proc, std::less<>> *Procedures() const override { return &procedures; }
+
+  const std::map<std::string, mgp_trans, std::less<>> *Transformations() const override { return &transformations; }
+
+  const std::map<std::string, mgp_func, std::less<>> *Functions() const override { return &functions; }
+
+  std::optional<std::filesystem::path> Path() const override { return std::nullopt; }
+
+  std::map<std::string, mgp_proc, std::less<>> procedures{};
+  std::map<std::string, mgp_trans, std::less<>> transformations{};
+  std::map<std::string, mgp_func, std::less<>> functions{};
+};
+
+// A batched procedure that counts its own lifecycle, so a test can assert on the teardown the plan
+// performed instead of on the plan's shape. Each initializer starts a stream of `rows_per_stream`
+// records; stopping the pull before that many leaves the stream live.
+struct BatchedProbe {
+  int inits{0};
+  int cleanups{0};
+  int rows_per_stream{2};
+  bool cleanup_throws{false};
+  int remaining{0};
+};
+
+void AddBatchedProbe(ProbeModule &module, const char *name, BatchedProbe *probe) {
+  auto *memory = memgraph::utils::NewDeleteResource();
+  mgp_type *int_type{nullptr};
+  MG_ASSERT(mgp_type_int(&int_type) == mgp_error::MGP_ERROR_NO_ERROR);
+
+  auto initializer = [probe](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_memory * /*memory*/) {
+    ++probe->inits;
+    probe->remaining = probe->rows_per_stream;
+  };
+  auto cleanup = [probe] {
+    ++probe->cleanups;
+    probe->remaining = 0;
+    if (probe->cleanup_throws) {
+      throw memgraph::utils::BasicException("the cleanup of a mock procedure failed");
+    }
+  };
+  auto callback = [probe](mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result *result, mgp_memory *result_memory) {
+    if (probe->remaining == 0) return;
+    --probe->remaining;
+    mgp_result_record *record{nullptr};
+    MG_ASSERT(mgp_result_new_record(result, &record) == mgp_error::MGP_ERROR_NO_ERROR);
+    mgp_value *value{nullptr};
+    MG_ASSERT(mgp_value_make_int(probe->remaining, result_memory, &value) == mgp_error::MGP_ERROR_NO_ERROR);
+    MG_ASSERT(mgp_result_record_insert(record, "num", value) == mgp_error::MGP_ERROR_NO_ERROR);
+    mgp_value_destroy(value);
+  };
+
+  mgp_proc proc(name,
+                callback,
+                initializer,
+                cleanup,
+                memory,
+                {.graph_access = memgraph::query::GraphAccess::None, .is_batched = true});
+  proc.results.emplace(memgraph::utils::pmr::string{"num", memory}, std::make_pair(int_type->impl.get(), false));
+  module.procedures.emplace(name, std::move(proc));
+}
+
+}  // namespace
+
+// Registering a module is private to the registry, so the probes are set up from the fixture, which
+// the registry befriends.
+class ProcedureTeardownTest : public InterpreterTest<memgraph::storage::InMemoryStorage> {
+ protected:
+  // The probes outlive the test body on purpose: a stream left live at the end of a test is torn
+  // down from `TearDown`, and the cleanup that runs then writes to the probe it was registered with.
+  BatchedProbe probe;
+  BatchedProbe lower;
+  BatchedProbe upper;
+
+  void RegisterProbes(std::initializer_list<std::pair<const char *, BatchedProbe *>> probes) {
+    auto module = std::make_unique<ProbeModule>();
+    for (auto [name, p] : probes) {
+      AddBatchedProbe(*module, name, p);
+    }
+    const std::unique_lock registry_lock{procedure::gModuleRegistry.lock_};
+    ASSERT_TRUE(procedure::gModuleRegistry.RegisterModule("probe_module", std::move(module)));
+  }
+
+  // Set by a test that ends with a stream still live, to pin where that stream is torn down.
+  bool expect_teardown_to_clean_up{false};
+
+  void TearDown() override {
+    // A test that stops mid-query leaves the plan, and with it the module's shared_ptr, alive.
+    const auto cleanups_before = probe.cleanups;
+    default_interpreter.Abort();
+    if (expect_teardown_to_clean_up) {
+      EXPECT_EQ(probe.cleanups, cleanups_before + 1);
+    }
+    procedure::gModuleRegistry.UnloadAllModules();
+    InterpreterTest<memgraph::storage::InMemoryStorage>::TearDown();
+  }
+};
+
+// Two stacked procedures whose cleanups both throw: the query has to fail, and every stream still
+// has to be torn down. Teardown that ran a second cleanup from a destructor while the first was
+// unwinding aborted the process instead.
+TEST_F(ProcedureTeardownTest, ThrowingProcedureCleanupFailsTheQueryInsteadOfTheProcess) {
+  lower.rows_per_stream = 4;
+  upper.rows_per_stream = 4;
+  RegisterProbes({{"lower", &lower}, {"upper", &upper}});
+
+  // `LIMIT 2` is reached with both streams still live, so `Shutdown` is what tears them down.
+  // Arming the throw between the two pulls keeps it out of everything that runs earlier, which
+  // would fail the query before it ever reaches `Shutdown`.
+  auto [stream, qid] =
+      Prepare("CALL probe_module.lower() YIELD num AS a CALL probe_module.upper() YIELD num AS b RETURN a, b LIMIT 2");
+  Pull(&stream, 1);
+  ASSERT_EQ(lower.inits, 1);
+  ASSERT_EQ(upper.inits, 1);
+  lower.cleanup_throws = true;
+  upper.cleanup_throws = true;
+
+  EXPECT_ANY_THROW(Pull(&stream));
+  EXPECT_EQ(upper.cleanups, 1);
+  EXPECT_EQ(lower.cleanups, 1);
+}
+
+// A query that ends in an exception never reaches `Shutdown`, so without a teardown of its own the
+// module keeps the stream's state long after the query that started it is gone.
+TEST_F(ProcedureTeardownTest, ProcedureStreamIsTornDownWhenTheQueryFails) {
+  RegisterProbes({{"probe", &probe}});
+
+  // The division fails on the first row, with rows of the stream still unread.
+  EXPECT_THROW(Interpret("CALL probe_module.probe() YIELD num RETURN num / 0"), memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(probe.inits, 1);
+  EXPECT_EQ(probe.cleanups, 1);
+  // Only the cleanup clears what the initializer set up, so this is what the module was left holding.
+  EXPECT_EQ(probe.remaining, 0);
+}
+
+// One initializer, one cleanup: a reset defers the teardown to the next pull rather than doing it
+// itself, and no later teardown repeats it.
+TEST_F(ProcedureTeardownTest, ProcedureRunsOneCleanupPerInitializer) {
+  RegisterProbes({{"probe", &probe}});
+
+  // The subquery restarts the procedure per input row, and its `LIMIT` leaves every stream live.
+  Interpret("UNWIND [1, 2, 3] AS x CALL (x) { CALL probe_module.probe() YIELD num RETURN num LIMIT 1 } RETURN x, num");
+  EXPECT_EQ(probe.inits, 3);
+  EXPECT_EQ(probe.cleanups, 3);
+}
+
+// Rolling back is the other way a query ends without reaching `Shutdown`. The plan is released while
+// the transaction it reads is still open, so the cleanup does not run against a dead accessor.
+TEST_F(ProcedureTeardownTest, ProcedureStreamIsTornDownWhenTheTransactionRollsBack) {
+  probe.rows_per_stream = 4;
+  RegisterProbes({{"probe", &probe}});
+
+  Interpret("BEGIN");
+  auto [stream, qid] = Prepare("CALL probe_module.probe() YIELD num RETURN num");
+  Pull(&stream, 1, qid);
+  ASSERT_EQ(probe.inits, 1);
+  ASSERT_GT(probe.remaining, 0);
+
+  Interpret("ROLLBACK");
+  // Only the cleanup clears what the initializer set up, so this is the teardown, not a count that
+  // some other cleanup site could also have produced.
+  EXPECT_EQ(probe.remaining, 0);
+  EXPECT_EQ(probe.cleanups, probe.inits);
+}
+
+// A stream left live when the test ends is torn down from `TearDown`, after the test body's locals
+// are gone. The cleanup writes to its probe as it goes, so the probe has to outlive the body.
+TEST_F(ProcedureTeardownTest, ProcedureStreamOutlivesTheQueryUntilTheInterpreterIsAborted) {
+  probe.rows_per_stream = 4;
+  RegisterProbes({{"probe", &probe}});
+  expect_teardown_to_clean_up = true;
+
+  Interpret("BEGIN");
+  auto [stream, qid] = Prepare("CALL probe_module.probe() YIELD num RETURN num");
+  Pull(&stream, 1, qid);
+  ASSERT_EQ(probe.inits, 1);
+  ASSERT_GT(probe.remaining, 0);
+}
+
+// Column headers from the accessor-free path must be byte-identical to the normal path's (clients
+// rely on stable column names); the two paths derive them via different code (AST names vs. output
+// symbols), so this pins the cases where they could drift.
+TYPED_TEST(InterpreterTest, AccessorFreePathHeaderParity) {
+  using Headers = std::vector<std::string>;
+  auto header_of = [this](const std::string &query,
+                          const memgraph::storage::ExternalPropertyValue::map_t &params = {}) {
+    auto stream = this->Interpret(query, params);
+    // Guard that we actually exercised the accessor-free path, so this stays a fast-path parity test.
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U) << query;
+    return stream.GetHeader();
+  };
+  // Constant RETURN: unaliased literal keeps its stripped-query spelling; aliases and $param too.
+  EXPECT_EQ(header_of("RETURN 1"), Headers({"1"}));
+  EXPECT_EQ(header_of("RETURN 1 AS APP_INTERNAL_EXEC_VAR"), Headers({"APP_INTERNAL_EXEC_VAR"}));
+  EXPECT_EQ(header_of("RETURN 1, 'x' AS s, true AS b"), Headers({"1", "s", "b"}));
+  EXPECT_EQ(header_of("RETURN [1, 2] AS l, {a: 1} AS m"), Headers({"l", "m"}));
+  {
+    memgraph::storage::ExternalPropertyValue::map_t params;
+    params.emplace("p", memgraph::storage::ExternalPropertyValue(int64_t{7}));
+    EXPECT_EQ(header_of("RETURN $p", params), Headers({"$p"}));
+  }
+  // Introspection: YIELD * exposes the fields in the procedure's map order; explicit and aliased
+  // YIELD use the yielded names / aliases, in order.
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD *"),
+            Headers({"is_editable", "is_write", "name", "path", "signature"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name"), Headers({"name"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name AS n"), Headers({"n"}));
+  EXPECT_EQ(header_of("CALL mg.procedures() YIELD name, is_write, path"), Headers({"name", "is_write", "path"}));
+}
+
+// SetupInterpreterTransaction stamps a fresh transaction id / ACTIVE status for every autocommit
+// query, including accessor-free ones whose handler returns NOTHING; NOTHING must dispose that
+// tracking state itself (Commit/Abort do it for their paths) or the session is left permanently
+// mid-transaction.
+TYPED_TEST(InterpreterTest, AccessorFreePathClearsTransactionTracking) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  for (auto const *query : {"RETURN 1",
+                            "RETURN 1 AS APP_INTERNAL_EXEC_VAR",
+                            "CALL mg.procedures() YIELD name",
+                            "CALL mg.functions() YIELD name"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    // Confirm we took the fast path, otherwise this isn't exercising the NOTHING cleanup at all.
+    ASSERT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    EXPECT_EQ(interpreter.GetTransactionId(), std::nullopt);
+  }
+}
+
+// Shapes the two hardcoded recognizers could not accept, now admitted by the graph-access analysis.
+TYPED_TEST(InterpreterTest, ComposedGraphFreeQueriesUseAccessorFreePath) {
+  for (auto const *query : {"UNWIND [1, 2, 3] AS x RETURN x",
+                            "WITH 1 AS x RETURN x",
+                            "WITH 1 AS x WHERE x > 0 RETURN x",
+                            "UNWIND [3, 1, 2] AS x RETURN DISTINCT x ORDER BY x SKIP 1 LIMIT 1",
+                            "UNWIND [1, 2, 3] AS x RETURN count(x) AS c",
+                            "RETURN 1 UNION RETURN 2",
+                            "CALL mg.procedures() YIELD name RETURN count(name) AS c"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+
+TYPED_TEST(InterpreterTest, ComposedGraphFreeQueriesProduceTheSameResults) {
+  {
+    auto stream = this->Interpret("UNWIND [1, 2, 3] AS x RETURN x");
+    ASSERT_EQ(stream.GetResults().size(), 3U);
+    EXPECT_EQ(stream.GetResults()[2][0].ValueInt(), 3);
+  }
+  {
+    auto stream = this->Interpret("UNWIND [3, 1, 2] AS x RETURN DISTINCT x ORDER BY x SKIP 1 LIMIT 1");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 2);
+  }
+  {
+    auto stream = this->Interpret("UNWIND [1, 2, 3] AS x RETURN count(x) AS c");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
+  }
+  {
+    auto stream = this->Interpret("RETURN 1 UNION RETURN 2");
+    ASSERT_EQ(stream.GetResults().size(), 2U);
+  }
+}
+
+// A privileged query stays on the transaction-backed path even when it reaches no graph, so that
+// privileged queries are audited one way.
+TYPED_TEST(InterpreterTest, PrivilegedGraphFreeQueryTakesNormalPath) {
+  auto stream = this->Interpret("CALL mg.get_module_files() YIELD path");
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+}
+
+// A procedure that reaches no graph is still a read: the type reported to drivers and the read counter
+// must not change just because the query skipped its transaction.
+TYPED_TEST(InterpreterTest, GraphFreeProcedureCallIsReportedAsARead) {
+  auto stream = this->Interpret("CALL mg.procedures() YIELD name");
+  ASSERT_EQ(stream.GetSummary().count("type"), 1U);
+  EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "r");
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+}
+
+// What storage access a Cypher query needs is one decision with four outcomes, and three of them are
+// reachable here (UNIQUE needs schema.assert, which is a module). Pinned through what each query reports
+// so that how the decision is encoded can change without the behaviour moving.
+TYPED_TEST(InterpreterTest, CypherQueriesTakeTheAccessTheyNeed) {
+  {
+    // A plan that touches nothing is RWType::NONE, which is reported as "rw" because the Neo4j drivers
+    // accept no other spelling. Unrelated to the transaction, and unchanged by skipping one.
+    SCOPED_TRACE("reaching no graph opens no transaction");
+    auto stream = this->Interpret("RETURN 1");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "rw");
+  }
+  {
+    SCOPED_TRACE("a read of the graph");
+    auto stream = this->Interpret("MATCH (n) RETURN n");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+    EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "r");
+  }
+  {
+    SCOPED_TRACE("a write");
+    auto stream = this->Interpret("CREATE ()");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+    EXPECT_EQ(stream.GetSummary().at("type").ValueString(), "w");
+  }
+  {
+    // PROFILE shares the access decision with the query it profiles but never its transaction-free path:
+    // it reports what execution did, so there has to be an execution to report on.
+    SCOPED_TRACE("profiling a query that would otherwise reach no graph");
+    auto stream = this->Interpret("PROFILE RETURN 1");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+  }
+}
+
+// The graph-access analysis reads the query and the storage-access check reads the plan built from it.
+// Nothing makes them disagree today, so the disagreement is forced: a plan that scans is planted in the
+// plan cache under a graph-free query's key. Preparing that query must refuse it, because running a plan
+// that reaches storage with no transaction open is a crash rather than a wrong answer.
+TYPED_TEST(InterpreterTest, PlanThatReachesStorageIsRefused) {
+  auto *plan_cache = this->db->plan_cache();
+  ASSERT_NE(plan_cache, nullptr);
+
+  this->Interpret("MATCH (n) RETURN 1");
+  const memgraph::query::frontend::StrippedQuery scanning{"MATCH (n) RETURN 1"};
+  const memgraph::query::frontend::StrippedQuery ping{"RETURN 1"};
+
+  auto scanning_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(scanning.stripped_query()); });
+  ASSERT_TRUE(scanning_plan.has_value());
+  plan_cache->WithLock([&](auto &cache) { cache.put(ping.stripped_query(), *scanning_plan); });
+
+  EXPECT_THROW(this->Interpret("RETURN 1"), memgraph::query::QueryRuntimeException);
+
+  // The session is usable afterwards: the refusal is one query's, not the connection's.
+  auto stream = this->Interpret("MATCH (n) RETURN 1");
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+}
+
+#ifdef MG_ENTERPRISE
+// A quota is charged through whichever tracker the query has, so having one no longer costs a user the
+// transaction-free path.
+TYPED_TEST(InterpreterTest, UserWithAMemoryQuotaStillSkipsTheTransaction) {
+  // A user resource is only attached to a session under an enterprise license. The checker is process
+  // state shared with every other test in this binary, so put it back.
+  memgraph::license::global_license_checker.EnableTesting();
+  const memgraph::utils::OnScopeExit restore_license{
+      []() { memgraph::license::global_license_checker.DisableTesting(); }};
+  auto &interpreter = this->default_interpreter.interpreter;
+  auto quota = std::make_shared<memgraph::utils::UserResources>();
+  quota->SetTransactionsMemoryLimit(1024UL * 1024UL * 1024UL);
+  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("alice", {}), quota);
+
+  // The quota is charged through the tracker the query execution owns, so it no longer costs the user
+  // their transaction-free path.
+  for (auto const *query : {"RETURN 1", "CALL mg.procedures() YIELD name"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+#endif
+
+// Charging runs on the jemalloc hooks, so without them nothing is charged and every assertion here
+// holds vacuously.
+#if defined(MG_ENTERPRISE) && USE_JEMALLOC
+// What a query is charged is returned when it ends. A query that opens no transaction has no commit or
+// abort to reconcile through, so its charge has to be settled elsewhere; if it is not, a session's usage
+// climbs with every query until the user is refused for memory nothing is holding.
+TYPED_TEST(InterpreterTest, GraphFreeQueriesDoNotAccumulateAgainstTheQuota) {
+  memgraph::license::global_license_checker.EnableTesting();
+  const memgraph::utils::OnScopeExit restore_license{
+      []() { memgraph::license::global_license_checker.DisableTesting(); }};
+  auto &interpreter = this->default_interpreter.interpreter;
+  auto quota = std::make_shared<memgraph::utils::UserResources>();
+  quota->SetTransactionsMemoryLimit(1024UL * 1024UL * 1024UL);
+  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("alice", {}), quota);
+
+  // Ordering buffers every row, so the query still holds it when the last pull returns. Built from a
+  // parameter because the analysis admits no function, and `range` is one.
+  auto values = std::vector<memgraph::storage::ExternalPropertyValue>{};
+  values.reserve(50000);
+  for (auto i = 0; i < 50000; ++i) values.emplace_back(static_cast<int64_t>(i));
+  memgraph::storage::ExternalPropertyValue::map_t params;
+  params.emplace("values", memgraph::storage::ExternalPropertyValue(std::move(values)));
+
+  auto const run = [&] {
+    auto stream = this->Interpret("UNWIND $values AS x RETURN x ORDER BY x", params);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    return quota->GetTransactionsMemory().first;
+  };
+
+  auto const after_first = run();
+  EXPECT_EQ(after_first, 0U);
+  for (auto i = 0; i < 4; ++i) {
+    EXPECT_EQ(run(), 0U) << "usage grew on run " << i + 2;
+  }
+
+  // The quota is enforced on this path and not merely counted, which is also what stops the assertions
+  // above passing on a query that was never charged.
+  quota->SetTransactionsMemoryLimit(1024UL * 1024UL);
+  EXPECT_THROW(this->Interpret("UNWIND $values AS x RETURN x ORDER BY x", params), std::exception);
+  EXPECT_EQ(quota->GetTransactionsMemory().first, 0U) << "a refused query left its charge behind";
+}
+#endif  // MG_ENTERPRISE && USE_JEMALLOC
+
+#ifdef MG_ENTERPRISE
+// A query that skips its transaction must not disturb what the session has cached. The fine-grained
+// auth cache is keyed on the database and rebuilt from the accessor, so dropping it on every graph-free
+// query would make the next real query pay to rebuild it.
+TYPED_TEST(InterpreterTest, GraphFreeQueryLeavesTheAuthCacheWarm) {
+  using State = memgraph::query::CachedFineGrainedAuth::State;
+  auto &interpreter = this->default_interpreter.interpreter;
+  // The cache is only populated for a named user; the fixture's default user has no name.
+  interpreter.SetUser(this->default_interpreter.auth_checker.GenQueryUser("alice", {}));
+
+  this->Interpret("MATCH (n) RETURN n");
+  const auto warmed = interpreter.cached_fga_->state;
+  ASSERT_NE(warmed, State::EMPTY);
+
+  for (auto const *query : {"RETURN 1", "CALL mg.procedures() YIELD name", "UNWIND [1] AS x RETURN x"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    ASSERT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    EXPECT_EQ(interpreter.cached_fga_->state, warmed);
+  }
+}
+#endif
+
+#ifdef MG_ENTERPRISE
+// A session whose current database was dropped out from under it has no database to run against. Both a
+// graph-free query and a graph-touching one must report that, not abort the process. Only a deployment
+// that can hold more than one database can drop the one a session is on.
+TYPED_TEST(InterpreterTest, CypherQueryWithoutCurrentDatabaseThrows) {
+  this->default_interpreter.interpreter.ResetDB();
+  for (auto const *query : {"RETURN 1", "CALL mg.procedures() YIELD name", "MATCH (n) RETURN n"}) {
+    SCOPED_TRACE(query);
+    EXPECT_THROW(this->Interpret(query), memgraph::query::DatabaseContextRequiredException);
+  }
+}
+#endif
+
+// Modifier routing on the accessor-free path. The path now runs a real plan, so a per-call PROCEDURE
+// MEMORY LIMIT is carried by the CallProcedure operator and honoured on it. Modifiers that would need a
+// storage transaction or a graph-touching plan -- a YIELD ... WHERE, a query-level QUERY MEMORY LIMIT, or
+// USING pre-query directives -- instead fall through to the normal transaction path. "graph_free"
+// in the summary marks the accessor-free path; its absence marks the normal (transaction) path.
+TYPED_TEST(InterpreterTest, AccessorFreePathModifierRouting) {
+  {
+    // A YIELD ... WHERE whose predicate reaches no graph plans a Filter, which reaches no storage
+    // either, so it stays on the accessor-free path and still filters.
+    SCOPED_TRACE("graph-free YIELD ... WHERE stays on the accessor-free path");
+    auto unfiltered = this->Interpret("CALL mg.procedures() YIELD name");
+    EXPECT_EQ(unfiltered.GetSummary().count("graph_free"), 1U);
+    EXPECT_GT(unfiltered.GetResults().size(), 1U);
+
+    auto filtered = this->Interpret("CALL mg.procedures() YIELD name WHERE name = 'mg.procedures' RETURN name");
+    EXPECT_EQ(filtered.GetSummary().count("graph_free"), 1U);
+    ASSERT_EQ(filtered.GetResults().size(), 1U);
+    EXPECT_EQ(filtered.GetResults()[0][0].ValueString(), "mg.procedures");
+  }
+  {
+    // A predicate that reaches the graph pulls the whole query onto the transaction path.
+    SCOPED_TRACE("graph-touching YIELD ... WHERE takes the normal path");
+    auto stream = this->Interpret("CALL mg.procedures() YIELD name WHERE name STARTS WITH 'mg' RETURN name");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+    EXPECT_GT(stream.GetResults().size(), 1U);
+  }
+  {
+    // A per-call PROCEDURE MEMORY LIMIT is carried by the CallProcedure operator and installed by its
+    // cursor via thread-local tracking (no accessor needed), so the query stays on the accessor-free path
+    // with the limit honoured -- not dropped, and not forced onto the transaction path. (Enforcement is
+    // not asserted with a throw: the tracked-allocation size of mg.procedures relative to any small limit
+    // is environment-dependent, so a throw would be flaky; the dedicated procedure-memory-limit tests
+    // cover enforcement.)
+    SCOPED_TRACE("per-call PROCEDURE MEMORY LIMIT stays on the accessor-free path");
+    auto stream = this->Interpret("CALL mg.procedures() PROCEDURE MEMORY LIMIT 100 MB YIELD name");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    EXPECT_GT(stream.GetResults().size(), 1U);
+  }
+  {
+    // A memory limit is armed on the tracker the query execution owns, so it needs no transaction.
+    SCOPED_TRACE("query-level QUERY MEMORY LIMIT stays on the graph-free path");
+    auto stream = this->Interpret("RETURN 1 QUERY MEMORY LIMIT 1024 MB");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+  {
+    SCOPED_TRACE("USING pre-query directives take the normal path");
+    auto stream = this->Interpret("USING INDEX :Foo RETURN 1");
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  }
+}
+
+// The accessor-free path is gated on procedure metadata (graph_free AND no required privilege),
+// not on the procedure name.
+TYPED_TEST(InterpreterTest, AccessorFreePathRequiresDeclaredGraphFree) {
+  for (auto const *query :
+       {"CALL mg.procedures() YIELD name", "CALL mg.functions() YIELD name", "CALL mg.transformations() YIELD name"}) {
+    SCOPED_TRACE(query);
+    auto stream = this->Interpret(query);
+    EXPECT_EQ(stream.GetSummary().count("graph_free"), 1U);
+  }
+}
+
+// mg.get_module_files declares graph_free but requires MODULE_READ, so it is not accessor-free
+// eligible: the fast path would invoke the callback during Prepare, before the auth check.
+TYPED_TEST(InterpreterTest, AccessorFreePathExcludesPrivilegedProcedures) {
+  auto stream = this->Interpret("CALL mg.get_module_files() YIELD path");
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+}
 
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {
@@ -208,8 +1081,9 @@ TYPED_TEST(InterpreterTest, AstCache) {
 // Run query with same ast multiple times with different parameters.
 TYPED_TEST(InterpreterTest, Parameters) {
   {
-    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::PropertyValue(10)},
-                                                         {"a b", memgraph::storage::PropertyValue(15)}});
+    auto stream = this->Interpret(
+        "RETURN $2 + $`a b`",
+        {{"2", memgraph::storage::ExternalPropertyValue(10)}, {"a b", memgraph::storage::ExternalPropertyValue(15)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -218,9 +1092,10 @@ TYPED_TEST(InterpreterTest, Parameters) {
   }
   {
     // Not needed parameter.
-    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::PropertyValue(10)},
-                                                         {"a b", memgraph::storage::PropertyValue(15)},
-                                                         {"c", memgraph::storage::PropertyValue(10)}});
+    auto stream = this->Interpret("RETURN $2 + $`a b`",
+                                  {{"2", memgraph::storage::ExternalPropertyValue(10)},
+                                   {"a b", memgraph::storage::ExternalPropertyValue(15)},
+                                   {"c", memgraph::storage::ExternalPropertyValue(10)}});
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "$2 + $`a b`");
     ASSERT_EQ(stream.GetResults().size(), 1U);
@@ -229,57 +1104,387 @@ TYPED_TEST(InterpreterTest, Parameters) {
   }
   {
     // Cached ast, different parameters.
-    auto stream = this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::PropertyValue("da")},
-                                                         {"a b", memgraph::storage::PropertyValue("ne")}});
+    auto stream = this->Interpret("RETURN $2 + $`a b`",
+                                  {{"2", memgraph::storage::ExternalPropertyValue("da")},
+                                   {"a b", memgraph::storage::ExternalPropertyValue("ne")}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
     ASSERT_EQ(stream.GetResults()[0][0].ValueString(), "dane");
   }
   {
     // Non-primitive literal.
-    auto stream = this->Interpret("RETURN $2",
-                                  {{"2", memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
-                                             memgraph::storage::PropertyValue(5), memgraph::storage::PropertyValue(2),
-                                             memgraph::storage::PropertyValue(3)})}});
+    auto stream = this->Interpret(
+        "RETURN $2",
+        {{"2",
+          memgraph::storage::ExternalPropertyValue(
+              std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(5),
+                                                                    memgraph::storage::ExternalPropertyValue(2),
+                                                                    memgraph::storage::ExternalPropertyValue(3)})}});
     ASSERT_EQ(stream.GetResults().size(), 1U);
     ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    auto result = memgraph::query::test_common::ToIntList(memgraph::glue::ToTypedValue(stream.GetResults()[0][0]));
+    auto result =
+        memgraph::query::test_common::ToIntList(memgraph::glue::ToTypedValue(stream.GetResults()[0][0], nullptr));
     ASSERT_THAT(result, testing::ElementsAre(5, 2, 3));
   }
   {
     // Cached ast, unprovided parameter.
-    ASSERT_THROW(this->Interpret("RETURN $2 + $`a b`", {{"2", memgraph::storage::PropertyValue("da")},
-                                                        {"ab", memgraph::storage::PropertyValue("ne")}}),
+    ASSERT_THROW(this->Interpret("RETURN $2 + $`a b`",
+                                 {{"2", memgraph::storage::ExternalPropertyValue("da")},
+                                  {"ab", memgraph::storage::ExternalPropertyValue("ne")}}),
                  memgraph::query::UnprovidedParameterError);
   }
+}
+
+// With a label+property index, n.prop IN <list> unwinds the list into
+// per-element index lookups. This must stay result-identical to the membership
+// Filter: a node matched by a duplicated element is emitted once, a parameter
+// list drives the same lookup, null and empty yield no rows, and a non-list
+// scalar throws.
+TYPED_TEST(InterpreterTest, PropertyInListIndexedEquivalence) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  this->Interpret("CREATE INDEX ON :L(prop)");
+  this->Interpret("CREATE (:L {prop: 1}), (:L {prop: 2}), (:L {prop: 3})");
+
+  auto count = [&](const std::string &query, EPV::map_t params = {}) {
+    auto stream = this->Interpret(query, params);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+  auto list = [](std::vector<EPV> xs) { return EPV(std::move(xs)); };
+
+  // Duplicate list elements must not emit a matched node more than once.
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN [1, 1] RETURN n"), 1);
+  // Whole-number doubles collapse onto their int, and the index matches both.
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN [1, 1.0] RETURN n"), 1);
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN [1, 2] RETURN n"), 2);
+
+  // A parameter list drives the same indexed lookup.
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", list({EPV(int64_t{1}), EPV(int64_t{2})})}}), 2);
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", list({EPV(int64_t{1}), EPV(int64_t{1})})}}), 1);
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", EPV{}}}), 0);                    // null -> 0 rows
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", list({})}}), 0);                 // empty -> 0 rows
+  EXPECT_EQ(count("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", list({EPV(int64_t{9})})}}), 0);  // no match
+
+  // A non-list scalar parameter throws, matching the membership Filter.
+  EXPECT_ANY_THROW(this->Interpret("MATCH (n:L) WHERE n.prop IN $v RETURN n", {{"v", EPV(int64_t{1})}}));
+}
+
+// With an edge-type+property index, e.prop IN <list> unwinds the list into
+// per-element index lookups. Like the vertex path, this must stay
+// result-identical to the membership Filter: an edge matched by a duplicated
+// element is emitted once, a parameter list drives the same lookup, null and
+// empty yield no rows, and a non-list scalar throws.
+TYPED_TEST(InterpreterTest, EdgePropertyInListIndexedEquivalence) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  // Edge-type indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE EDGE INDEX ON :R(prop)");
+  this->Interpret("CREATE ()-[:R {prop: 1}]->(), ()-[:R {prop: 2}]->(), ()-[:R {prop: 3}]->()");
+
+  auto count = [&](const std::string &query, EPV::map_t params = {}) {
+    auto stream = this->Interpret(query, params);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+  auto list = [](std::vector<EPV> xs) { return EPV(std::move(xs)); };
+
+  // Duplicate list elements must not emit a matched edge more than once.
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN [1, 1] RETURN e"), 1);
+  // Whole-number doubles collapse onto their int, and the index matches both.
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN [1, 1.0] RETURN e"), 1);
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN [1, 2] RETURN e"), 2);
+
+  // A parameter list drives the same indexed lookup.
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", list({EPV(int64_t{1}), EPV(int64_t{2})})}}),
+            2);
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", list({EPV(int64_t{1}), EPV(int64_t{1})})}}),
+            1);
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", EPV{}}}), 0);     // null -> 0 rows
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", list({})}}), 0);  // empty -> 0 rows
+  EXPECT_EQ(count("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", list({EPV(int64_t{9})})}}), 0);  // no match
+
+  // A non-list scalar parameter throws, matching the membership Filter.
+  EXPECT_ANY_THROW(this->Interpret("MATCH ()-[e:R]->() WHERE e.prop IN $v RETURN e", {{"v", EPV(int64_t{1})}}));
+}
+
+// The Unwind feeding an edge property-index scan emits edges in per-element
+// order, so an ORDER BY on the indexed property must still sort rather than
+// being elided as already-ordered.
+TYPED_TEST(InterpreterTest, EdgePropertyInListOrderByNotElided) {
+  // Edge-type indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE EDGE INDEX ON :R(prop)");
+  this->Interpret("CREATE ()-[:R {prop: 1}]->(), ()-[:R {prop: 2}]->(), ()-[:R {prop: 3}]->()");
+
+  // Drive the scan with the values out of order; ORDER BY must re-sort.
+  auto stream = this->Interpret("MATCH ()-[e:R]->() WHERE e.prop IN [3, 1, 2] RETURN e.prop AS prop ORDER BY e.prop");
+  std::vector<int64_t> out;
+  for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+  EXPECT_THAT(out, testing::ElementsAre(1, 2, 3));
+}
+
+// `id(n) IN <list>` is lowered to Unwind(toSet(coalesce(value, []))) feeding a
+// per-element ScanAllById. The optimised plan must be result-identical to the
+// ScanAll + membership Filter it replaces for every input shape.
+TYPED_TEST(InterpreterTest, IdInListEquivalence) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  // Three vertices; capture their ids in creation order.
+  std::vector<int64_t> ids;
+  {
+    auto stream = this->Interpret("UNWIND range(1, 3) AS i CREATE (n) RETURN id(n) AS id");
+    for (const auto &row : stream.GetResults()) ids.push_back(row[0].ValueInt());
+  }
+  ASSERT_EQ(ids.size(), 3U);
+  std::sort(ids.begin(), ids.end());
+  const int64_t present = ids.front();
+  const int64_t missing = ids.back() + 1000;
+
+  auto matched_ids = [&](EPV ids_param) {
+    auto stream = this->Interpret("MATCH (n) WHERE id(n) IN $ids RETURN id(n) AS id", {{"ids", std::move(ids_param)}});
+    std::vector<int64_t> out;
+    for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  auto list = [](std::vector<EPV> xs) { return EPV(std::move(xs)); };
+  const auto present_dbl = static_cast<double>(present);
+
+  EXPECT_THAT(matched_ids(EPV{}), testing::IsEmpty());          // null parameter -> 0 rows
+  EXPECT_THAT(matched_ids(list({})), testing::IsEmpty());       // empty list -> 0 rows
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV(present)})),  // duplicates -> once
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV(present_dbl)})),  // int/double dup -> once
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV{}})),  // null element dropped
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(1.5), EPV(std::string("x"))})),  // no coercible id -> none
+              testing::IsEmpty());
+  EXPECT_THAT(matched_ids(list({EPV(present_dbl)})), testing::ElementsAre(present));  // exact-int double matches
+  EXPECT_THAT(matched_ids(list({EPV(missing)})), testing::IsEmpty());                 // missing id -> 0 rows
+
+  // A non-list scalar throws, matching the membership Filter's "IN expected a list".
+  EXPECT_ANY_THROW(this->Interpret("MATCH (n) WHERE id(n) IN $ids RETURN n", {{"ids", EPV(int64_t{5})}}));
+}
+
+// The Unwind feeding the id scan emits nodes in list order, so an ORDER BY
+// id(n) must still sort rather than being elided as already-ordered.
+TYPED_TEST(InterpreterTest, IdInListOrderByNotElided) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  std::vector<int64_t> ids;
+  {
+    auto stream = this->Interpret("UNWIND range(1, 4) AS i CREATE (n) RETURN id(n) AS id");
+    for (const auto &row : stream.GetResults()) ids.push_back(row[0].ValueInt());
+  }
+  std::sort(ids.begin(), ids.end());
+
+  // Drive the scan with the ids in descending order; ORDER BY must re-sort.
+  EPV::list_t param;
+  for (auto it = ids.rbegin(); it != ids.rend(); ++it) param.emplace_back(EPV(*it));
+  auto stream = this->Interpret("MATCH (n) WHERE id(n) IN $ids RETURN id(n) AS id ORDER BY id(n)",
+                                {{"ids", EPV(std::move(param))}});
+  std::vector<int64_t> out;
+  for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+  EXPECT_THAT(out, testing::ElementsAreArray(ids));
+}
+
+// A user UNWIND driving a label+property equality lookup feeds the value scan
+// per element, so its output follows list order, not property order. An ORDER
+// BY on the property must still sort rather than being elided as
+// already-ordered.
+TYPED_TEST(InterpreterTest, PropertyEqualityFromUnwindOrderByNotElided) {
+  this->Interpret("CREATE INDEX ON :L(prop)");
+  this->Interpret("CREATE (:L {prop: 1}), (:L {prop: 2}), (:L {prop: 3})");
+
+  auto stream =
+      this->Interpret("UNWIND [3, 1, 2] AS x MATCH (n:L) WHERE n.prop = x RETURN n.prop AS prop ORDER BY n.prop");
+  std::vector<int64_t> out;
+  for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+  EXPECT_THAT(out, testing::ElementsAre(1, 2, 3));
+}
+
+// A nested property predicate `e.a.b = x` filters on the path [a, b], which no
+// single-property edge index covers. With an edge index on the outer key `a`,
+// the rewriter must not reinterpret it as `e.a = x` (which would compare the
+// whole map to a scalar and drop the real predicate); it must keep the filter.
+TYPED_TEST(InterpreterTest, EdgeNestedPropertyFilterNotIndexMisread) {
+  // Edge-type indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE EDGE INDEX ON :T(a)");
+  this->Interpret("CREATE ()-[:T {a: {b: 5}}]->(), ()-[:T {a: {b: 99}}]->()");
+
+  auto count = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    return static_cast<int64_t>(stream.GetResults().size());
+  };
+
+  EXPECT_EQ(count("MATCH ()-[e:T]->() WHERE e.a.b = 5 RETURN e"), 1);
+  EXPECT_EQ(count("MATCH ()-[e:T]->() WHERE e.a.b = 99 RETURN e"), 1);
+  EXPECT_EQ(count("MATCH ()-[e:T]->() WHERE e.a.b = 7 RETURN e"), 0);
+}
+
+// A composite index stores a missing property as NULL and sorts NULL first,
+// but Cypher ORDER BY places NULL last. When an ORDER BY targets an unconstrained
+// suffix column of the index (only the prefix is pinned), the scan's index order
+// disagrees with ORDER BY on NULL placement, so the sort must not be eliminated.
+// A constrained suffix column (its own filter excludes NULL) is safe to eliminate.
+TYPED_TEST(InterpreterTest, CompositeIndexNullableSuffixOrderByNotElided) {
+  // Composite indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret("CREATE INDEX ON :L(a, b)");
+  // One row leaves b missing (stored as NULL in the index).
+  this->Interpret("CREATE (:L {a: 5, b: 3}), (:L {a: 5, b: 1}), (:L {a: 5}), (:L {a: 5, b: 2})");
+
+  // Records each row's b as an int, or -1 for NULL, preserving result order.
+  auto values = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    std::vector<int64_t> out;
+    for (const auto &row : stream.GetResults()) {
+      out.push_back(row[0].type() == memgraph::communication::bolt::Value::Type::Null ? -1 : row[0].ValueInt());
+    }
+    return out;
+  };
+
+  // Unconstrained suffix: NULL must sort last, not first.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b"), testing::ElementsAre(1, 2, 3, -1));
+  // With LIMIT the misordering would return the wrong rows entirely.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b LIMIT 2"), testing::ElementsAre(1, 2));
+  // A constrained suffix stays correct (and remains eligible for elimination).
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 AND n.b > 0 RETURN n.b AS b ORDER BY n.b"),
+              testing::ElementsAre(1, 2, 3));
+}
+
+// The DESC counterpart: a DESC composite index sorts NULL last (a full reversal
+// of ASC's NULL-first), but ORDER BY ... DESC places NULL first, so the mismatch
+// is symmetric and the sort must be kept for DESC too. Eliminating it (e.g. by
+// gating the guard on ASC only) would return NULLs last here.
+TYPED_TEST(InterpreterTest, CompositeIndexNullableSuffixDescOrderByNotElided) {
+  // Composite indexes are only supported on in-memory storage.
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    return;
+  }
+
+  this->Interpret(R"(CREATE INDEX ON :L(a, b) WITH CONFIG {"order": "DESC"})");
+  // One row leaves b missing (stored as NULL in the index).
+  this->Interpret("CREATE (:L {a: 5, b: 3}), (:L {a: 5, b: 1}), (:L {a: 5}), (:L {a: 5, b: 2})");
+
+  auto values = [&](const std::string &query) {
+    auto stream = this->Interpret(query);
+    std::vector<int64_t> out;
+    for (const auto &row : stream.GetResults()) {
+      out.push_back(row[0].type() == memgraph::communication::bolt::Value::Type::Null ? -1 : row[0].ValueInt());
+    }
+    return out;
+  };
+
+  // Unconstrained suffix, DESC: NULL must sort first, not last.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b DESC"), testing::ElementsAre(-1, 3, 2, 1));
+  // With LIMIT the misordering would return the wrong rows entirely.
+  EXPECT_THAT(values("MATCH (n:L) WHERE n.a = 5 RETURN n.b AS b ORDER BY n.b DESC LIMIT 2"),
+              testing::ElementsAre(-1, 3));
+}
+
+// `MATCH (n:L) WHERE id(n) IN $ids` selects the id scan and keeps the label as a
+// residual filter, so only labelled vertices come back.
+TYPED_TEST(InterpreterTest, IdInListLabelResidual) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  std::vector<int64_t> labelled;
+  std::vector<int64_t> all;
+  {
+    auto stream = this->Interpret("CREATE (a:L), (b) RETURN id(a) AS la, id(b) AS lb");
+    labelled.push_back(stream.GetResults()[0][0].ValueInt());
+    all.push_back(stream.GetResults()[0][0].ValueInt());
+    all.push_back(stream.GetResults()[0][1].ValueInt());
+  }
+
+  EPV::list_t param;
+  for (auto id : all) param.emplace_back(EPV(id));
+  auto stream = this->Interpret("MATCH (n:L) WHERE id(n) IN $ids RETURN id(n) AS id", {{"ids", EPV(std::move(param))}});
+  std::vector<int64_t> out;
+  for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+  EXPECT_THAT(out, testing::ElementsAreArray(labelled));
+}
+
+// `id(e) IN <list>` over an edge is lowered to Unwind(toSet(coalesce(value,
+// []))) feeding a per-element ScanAllByEdgeId, mirroring the vertex id scan. On
+// in-memory storage the optimised plan must be result-identical to the ScanAll
+// + membership Filter it replaces for every input shape. On-disk storage does
+// not implement edge id lookup, so IN stays consistent with `id(e) = x` there
+// and surfaces the same unsupported-operation error rather than silently
+// returning nothing.
+TYPED_TEST(InterpreterTest, EdgeIdInListEquivalence) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+
+  // Three edges; capture their ids in creation order.
+  std::vector<int64_t> ids;
+  {
+    auto stream = this->Interpret("UNWIND range(1, 3) AS i CREATE ()-[r:R]->() RETURN id(r) AS id");
+    for (const auto &row : stream.GetResults()) ids.push_back(row[0].ValueInt());
+  }
+  ASSERT_EQ(ids.size(), 3U);
+  std::sort(ids.begin(), ids.end());
+  const int64_t present = ids.front();
+  const int64_t missing = ids.back() + 1000;
+  auto list = [](std::vector<EPV> xs) { return EPV(std::move(xs)); };
+
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    EXPECT_ANY_THROW(
+        this->Interpret("MATCH ()-[e]->() WHERE id(e) IN $ids RETURN id(e)", {{"ids", list({EPV(present)})}}));
+    return;
+  }
+
+  auto matched_ids = [&](EPV ids_param) {
+    auto stream =
+        this->Interpret("MATCH ()-[e]->() WHERE id(e) IN $ids RETURN id(e) AS id", {{"ids", std::move(ids_param)}});
+    std::vector<int64_t> out;
+    for (const auto &row : stream.GetResults()) out.push_back(row[0].ValueInt());
+    std::sort(out.begin(), out.end());
+    return out;
+  };
+  const auto present_dbl = static_cast<double>(present);
+
+  EXPECT_THAT(matched_ids(list({EPV(ids[0]), EPV(ids[1]), EPV(ids[2])})),  // all present -> all matched
+              testing::ElementsAreArray(ids));
+  EXPECT_THAT(matched_ids(EPV{}), testing::IsEmpty());          // null parameter -> 0 rows
+  EXPECT_THAT(matched_ids(list({})), testing::IsEmpty());       // empty list -> 0 rows
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV(present)})),  // duplicates -> once
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV(present_dbl)})),  // int/double dup -> once
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(present), EPV{}})),  // null element dropped
+              testing::ElementsAre(present));
+  EXPECT_THAT(matched_ids(list({EPV(1.5), EPV(std::string("x"))})),  // no coercible id -> none
+              testing::IsEmpty());
+  EXPECT_THAT(matched_ids(list({EPV(present_dbl)})), testing::ElementsAre(present));  // exact-int double matches
+  EXPECT_THAT(matched_ids(list({EPV(missing)})), testing::IsEmpty());                 // missing id -> 0 rows
+
+  // A non-list scalar throws, matching the membership Filter's "IN expected a list".
+  EXPECT_ANY_THROW(this->Interpret("MATCH ()-[e]->() WHERE id(e) IN $ids RETURN e", {{"ids", EPV(int64_t{5})}}));
 }
 
 // Run CREATE/MATCH/MERGE queries with property map
 TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
   {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
-    property_map["name"] = memgraph::storage::PropertyValue("name1");
-    property_map["age"] = memgraph::storage::PropertyValue(25);
-    auto stream =
-        this->Interpret("CREATE (n $prop) RETURN n", {
-                                                         {"prop", memgraph::storage::PropertyValue(property_map)},
-                                                     });
-    ASSERT_EQ(stream.GetHeader().size(), 1U);
-    ASSERT_EQ(stream.GetHeader()[0], "n");
-    ASSERT_EQ(stream.GetResults().size(), 1U);
-    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
-    auto result = stream.GetResults()[0][0].ValueVertex();
-    EXPECT_EQ(result.properties["name"].ValueString(), "name1");
-    EXPECT_EQ(result.properties["age"].ValueInt(), 25);
-  }
-  {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
-    property_map["name"] = memgraph::storage::PropertyValue("name1");
-    property_map["age"] = memgraph::storage::PropertyValue(25);
-    this->Interpret("CREATE (:Person)");
-    auto stream = this->Interpret("MATCH (m: Person) CREATE (n $prop) RETURN n",
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    property_map["age"] = memgraph::storage::ExternalPropertyValue(25);
+    auto stream = this->Interpret("CREATE (n $prop) RETURN n",
                                   {
-                                      {"prop", memgraph::storage::PropertyValue(property_map)},
+                                      {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
                                   });
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     ASSERT_EQ(stream.GetHeader()[0], "n");
@@ -290,12 +1495,29 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["age"].ValueInt(), 25);
   }
   {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
-    property_map["name"] = memgraph::storage::PropertyValue("name1");
-    property_map["weight"] = memgraph::storage::PropertyValue(121);
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    property_map["age"] = memgraph::storage::ExternalPropertyValue(25);
+    this->Interpret("CREATE (:Person)");
+    auto stream = this->Interpret("MATCH (m: Person) CREATE (n $prop) RETURN n",
+                                  {
+                                      {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
+                                  });
+    ASSERT_EQ(stream.GetHeader().size(), 1U);
+    ASSERT_EQ(stream.GetHeader()[0], "n");
+    ASSERT_EQ(stream.GetResults().size(), 1U);
+    ASSERT_EQ(stream.GetResults()[0].size(), 1U);
+    auto result = stream.GetResults()[0][0].ValueVertex();
+    EXPECT_EQ(result.properties["name"].ValueString(), "name1");
+    EXPECT_EQ(result.properties["age"].ValueInt(), 25);
+  }
+  {
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    property_map["weight"] = memgraph::storage::ExternalPropertyValue(121);
     auto stream = this->Interpret("CREATE ()-[r:TO $prop]->() RETURN r",
                                   {
-                                      {"prop", memgraph::storage::PropertyValue(property_map)},
+                                      {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
                                   });
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     ASSERT_EQ(stream.GetHeader()[0], "r");
@@ -306,25 +1528,53 @@ TYPED_TEST(InterpreterTest, ParametersAsPropertyMap) {
     EXPECT_EQ(result.properties["weight"].ValueInt(), 121);
   }
   {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
-    property_map["name"] = memgraph::storage::PropertyValue("name1");
-    property_map["age"] = memgraph::storage::PropertyValue(15);
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    property_map["age"] = memgraph::storage::ExternalPropertyValue(15);
     ASSERT_THROW(this->Interpret("MATCH (n $prop) RETURN n",
                                  {
-                                     {"prop", memgraph::storage::PropertyValue(property_map)},
+                                     {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
                                  }),
                  memgraph::query::SemanticException);
   }
   {
-    std::map<std::string, memgraph::storage::PropertyValue> property_map{};
-    property_map["name"] = memgraph::storage::PropertyValue("name1");
-    property_map["age"] = memgraph::storage::PropertyValue(15);
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    property_map["age"] = memgraph::storage::ExternalPropertyValue(15);
     ASSERT_THROW(this->Interpret("MERGE (n $prop) RETURN n",
                                  {
-                                     {"prop", memgraph::storage::PropertyValue(property_map)},
+                                     {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
                                  }),
                  memgraph::query::SemanticException);
   }
+  {
+    // A parameter states properties just as a literal map does, so giving either to a node the query has
+    // already declared is the same error. Creation skips a node whose variable is bound, so accepting it would
+    // drop the properties the query asked for.
+    ASSERT_THROW(this->Interpret("MATCH (n) CREATE (n {name: 'name1'})-[:TO]->() RETURN n"),
+                 memgraph::query::SemanticException);
+
+    memgraph::storage::ExternalPropertyValue::map_t property_map{};
+    property_map["name"] = memgraph::storage::ExternalPropertyValue("name1");
+    ASSERT_THROW(this->Interpret("MATCH (n) CREATE (n $prop)-[:TO]->() RETURN n",
+                                 {
+                                     {"prop", memgraph::storage::ExternalPropertyValue(property_map)},
+                                 }),
+                 memgraph::query::SemanticException);
+  }
+}
+
+TYPED_TEST(InterpreterTest, WhitespaceBetweenDollarAndParameterName) {
+  auto stream = this->Interpret("RETURN $ 1", {{"1", memgraph::storage::ExternalPropertyValue(42)}});
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 42);
+}
+
+TYPED_TEST(InterpreterTest, CurrencySymbolsAllowedInIdentifiers) {
+  this->Interpret("CREATE (a:Label {i$: 3})");
+  auto stream = this->Interpret("MATCH (a:Label) RETURN a.i$");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  ASSERT_EQ(stream.GetResults()[0][0].ValueInt(), 3);
 }
 
 // Test bfs end to end.
@@ -334,7 +1584,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
   auto kNumNodesPerLevel = 100;
   auto kNumEdgesPerNode = 100;
   auto kNumUnreachableNodes = 1000;
-  auto kNumUnreachableEdges = 100000;
+  auto kNumUnreachableEdges = 100'000;
   auto kResCoeff = 5;
   const auto *const kReachable = "reachable";
   const auto kId = "id";
@@ -344,7 +1594,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
     kNumNodesPerLevel = 20;
     kNumEdgesPerNode = 20;
     kNumUnreachableNodes = 200;
-    kNumUnreachableEdges = 20000;
+    kNumUnreachableEdges = 20'000;
     kResCoeff = 4;
   }
 
@@ -353,13 +1603,13 @@ TYPED_TEST(InterpreterTest, Bfs) {
 
   // Set up.
   {
-    auto storage_dba = this->db->Access();
+    auto storage_dba = this->db->Access(memgraph::storage::WRITE);
     memgraph::query::DbAccessor dba(storage_dba.get());
     auto add_node = [&](int level, bool reachable) {
       auto node = dba.InsertVertex();
-      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), memgraph::storage::PropertyValue(id++)).HasValue());
+      MG_ASSERT(node.SetProperty(dba.NameToProperty(kId), memgraph::storage::PropertyValue(id++)).has_value());
       MG_ASSERT(
-          node.SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).HasValue());
+          node.SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).has_value());
       levels[level].push_back(node);
       return node;
     };
@@ -367,7 +1617,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
     auto add_edge = [&](auto &v1, auto &v2, bool reachable) {
       auto edge = dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("edge"));
       MG_ASSERT(
-          edge->SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).HasValue());
+          edge->SetProperty(dba.NameToProperty(kReachable), memgraph::storage::PropertyValue(reachable)).has_value());
     };
 
     // Add source node.
@@ -405,7 +1655,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
       add_edge(node1, node2, false);
     }
 
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_TRUE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 
   auto stream = this->Interpret(
@@ -461,7 +1711,9 @@ TYPED_TEST(InterpreterTest, ShortestPath) {
     this->Interpret(
         fmt::format("CREATE (n:A {{x: 1}}), (m:B {{x: 2}}), (l:C {{x: 1}}), (n)-[:r1 {{w: {} "
                     "}}]->(m)-[:r2 {{w: {}}}]->(l), (n)-[:r3 {{w: {}}}]->(l)",
-                    get_weight(1), get_weight(2), get_weight(4)));
+                    get_weight(1),
+                    get_weight(2),
+                    get_weight(4)));
 
     auto stream = this->Interpret("MATCH (n)-[e *wshortest 5 (e, n | e.w) ]->(m) return e");
 
@@ -583,6 +1835,31 @@ TYPED_TEST(InterpreterTest, ShowStorageInfoInMulticommandTransaction) {
   this->Interpret("ROLLBACK");
 }
 
+TYPED_TEST(InterpreterTest, ShowStorageInfoIncludesQueryTrackingFields) {
+  auto stream = this->Interpret("SHOW STORAGE INFO");
+  ASSERT_EQ(stream.GetHeader().size(), 2U);
+  EXPECT_EQ(stream.GetHeader()[0], "storage info");
+  EXPECT_EQ(stream.GetHeader()[1], "value");
+
+  std::map<std::string, memgraph::communication::bolt::Value> values;
+  for (const auto &row : stream.GetResults()) {
+    ASSERT_EQ(row.size(), 2U);
+    values.emplace(row[0].ValueString(), row[1]);
+  }
+
+  EXPECT_TRUE(values.contains("memory_tracked"));
+  EXPECT_TRUE(values.contains("memory_limit"));
+  EXPECT_TRUE(values.contains("license_memory_limit"));
+  EXPECT_TRUE(values.contains("disk_usage"));
+  EXPECT_TRUE(values.contains("disk_available"));
+  EXPECT_TRUE(values.contains("query+graph_memory_tracked"));
+
+  EXPECT_TRUE(values.at("memory_tracked").IsString());
+  EXPECT_TRUE(values.at("disk_available").IsString());
+  EXPECT_TRUE(values.at("license_memory_limit").IsString());
+  EXPECT_TRUE(values.at("query+graph_memory_tracked").IsString());
+}
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(InterpreterTest, ExistenceConstraintTest) {
   this->Interpret("CREATE CONSTRAINT ON (n:A) ASSERT EXISTS (n.a);");
@@ -643,20 +1920,22 @@ TYPED_TEST(InterpreterTest, UniqueConstraintTest) {
   // Show constraint info.
   {
     auto stream = this->Interpret("SHOW CONSTRAINT INFO");
-    ASSERT_EQ(stream.GetHeader().size(), 3U);
+    ASSERT_EQ(stream.GetHeader().size(), 4U);
     const auto &header = stream.GetHeader();
     ASSERT_EQ(header[0], "constraint type");
     ASSERT_EQ(header[1], "label");
     ASSERT_EQ(header[2], "properties");
+    ASSERT_EQ(header[3], "data_type");
     ASSERT_EQ(stream.GetResults().size(), 1U);
     const auto &result = stream.GetResults().front();
-    ASSERT_EQ(result.size(), 3U);
+    ASSERT_EQ(result.size(), 4U);
     ASSERT_EQ(result[0].ValueString(), "unique");
     ASSERT_EQ(result[1].ValueString(), "A");
     const auto &properties = result[2].ValueList();
     ASSERT_EQ(properties.size(), 2U);
     ASSERT_EQ(properties[0].ValueString(), "a");
     ASSERT_EQ(properties[1].ValueString(), "b");
+    ASSERT_EQ(result[3].ValueString(), "");
   }
 
   // Drop constraint.
@@ -667,7 +1946,7 @@ TYPED_TEST(InterpreterTest, UniqueConstraintTest) {
 
 TYPED_TEST(InterpreterTest, ExplainQuery) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto stream = this->Interpret("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
@@ -682,15 +1961,15 @@ TYPED_TEST(InterpreterTest, ExplainQuery) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto [stream, qid] = this->Prepare("EXPLAIN MATCH (n) RETURN *;");
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
@@ -715,15 +1994,15 @@ TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ExplainQueryInMulticommandTransaction) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   this->Interpret("BEGIN");
   auto stream = this->Interpret("EXPLAIN MATCH (n) RETURN *;");
   this->Interpret("COMMIT");
@@ -740,17 +2019,17 @@ TYPED_TEST(InterpreterTest, ExplainQueryInMulticommandTransaction) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ExplainQueryWithParams) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
-  auto stream =
-      this->Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
+  EXPECT_EQ(this->AstCacheSize(), 0U);
+  auto stream = this->Interpret("EXPLAIN MATCH (n) WHERE n.id = $id RETURN *;",
+                                {{"id", memgraph::storage::ExternalPropertyValue(42)}});
   ASSERT_EQ(stream.GetHeader().size(), 1U);
   EXPECT_EQ(stream.GetHeader().front(), "QUERY PLAN");
   std::vector<std::string> expected_rows{" * Produce {n}", " * Filter {n.id}", " * ScanAll (n)", " * Once"};
@@ -764,15 +2043,16 @@ TYPED_TEST(InterpreterTest, ExplainQueryWithParams) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for EXPLAIN ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
-  this->Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue("something else")}});
+  EXPECT_EQ(this->AstCacheSize(), 2U);
+  this->Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
+                  {{"id", memgraph::storage::ExternalPropertyValue("something else")}});
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQuery) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto stream = this->Interpret("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -787,15 +2067,15 @@ TYPED_TEST(InterpreterTest, ProfileQuery) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQueryMultiplePulls) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto [stream, qid] = this->Prepare("PROFILE MATCH (n) RETURN *;");
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -823,10 +2103,10 @@ TYPED_TEST(InterpreterTest, ProfileQueryMultiplePulls) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("MATCH (n) RETURN *;");
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQueryInMulticommandTransaction) {
@@ -837,9 +2117,9 @@ TYPED_TEST(InterpreterTest, ProfileQueryInMulticommandTransaction) {
 
 TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
-  auto stream =
-      this->Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue(42)}});
+  EXPECT_EQ(this->AstCacheSize(), 0U);
+  auto stream = this->Interpret("PROFILE MATCH (n) WHERE n.id = $id RETURN *;",
+                                {{"id", memgraph::storage::ExternalPropertyValue(42)}});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
   std::vector<std::string> expected_rows{"* Produce {n}", "* Filter {n.id}", "* ScanAll (n)", "* Once"};
@@ -853,15 +2133,16 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithParams) {
   // We should have a plan cache for MATCH ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner MATCH ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
-  this->Interpret("MATCH (n) WHERE n.id = $id RETURN *;", {{"id", memgraph::storage::PropertyValue("something else")}});
+  EXPECT_EQ(this->AstCacheSize(), 2U);
+  this->Interpret("MATCH (n) WHERE n.id = $id RETURN *;",
+                  {{"id", memgraph::storage::ExternalPropertyValue("something else")}});
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, ProfileQueryWithLiterals) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 0U);
+  EXPECT_EQ(this->AstCacheSize(), 0U);
   auto stream = this->Interpret("PROFILE UNWIND range(1, 1000) AS x CREATE (:Node {id: x});", {});
   std::vector<std::string> expected_header{"OPERATOR", "ACTUAL HITS", "RELATIVE TIME", "ABSOLUTE TIME"};
   EXPECT_EQ(stream.GetHeader(), expected_header);
@@ -876,10 +2157,10 @@ TYPED_TEST(InterpreterTest, ProfileQueryWithLiterals) {
   // We should have a plan cache for UNWIND ...
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   // We should have AST cache for PROFILE ... and for inner UNWIND ...
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
   this->Interpret("UNWIND range(42, 4242) AS x CREATE (:Node {id: x});", {});
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
-  EXPECT_EQ(this->interpreter_context.ast_cache.size(), 2U);
+  EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
 TYPED_TEST(InterpreterTest, Transactions) {
@@ -990,6 +2271,7 @@ class TmpDirManager final {
       : tmp_dir_{std::filesystem::temp_directory_path() / directory} {
     CreateDir();
   }
+
   ~TmpDirManager() { Clear(); }
 
   const std::filesystem::path &Path() const { return tmp_dir_; }
@@ -1063,8 +2345,8 @@ TYPED_TEST(InterpreterTest, LoadCsvClause) {
   writer.Close();
 
   {
-    const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x.A)",
-                                          csv_path.string(), delimiter);
+    const std::string query = fmt::format(
+        R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x.A)", csv_path.string(), delimiter);
     auto [stream, qid] = this->Prepare(query);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "x.A");
@@ -1083,8 +2365,8 @@ TYPED_TEST(InterpreterTest, LoadCsvClause) {
   }
 
   {
-    const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x.C)",
-                                          csv_path.string(), delimiter);
+    const std::string query = fmt::format(
+        R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x.C)", csv_path.string(), delimiter);
     auto [stream, qid] = this->Prepare(query);
     ASSERT_EQ(stream.GetHeader().size(), 1U);
     EXPECT_EQ(stream.GetHeader()[0], "x.C");
@@ -1099,22 +2381,65 @@ TYPED_TEST(InterpreterTest, LoadCsvClause) {
 }
 
 TYPED_TEST(InterpreterTest, CacheableQueries) {
-  // This should be cached
+  // Accessor-free queries are planned and executed like any Cypher query (just without opening a storage
+  // transaction), so they populate both the AST cache and the plan cache -- which lets a repeated Lab ping
+  // reuse its cached plan instead of re-planning.
   {
-    SCOPED_TRACE("Cacheable query");
+    SCOPED_TRACE("Constant RETURN is AST- and plan-cached");
     this->Interpret("RETURN 1");
-    EXPECT_EQ(this->interpreter_context.ast_cache.size(), 1U);
+    EXPECT_EQ(this->AstCacheSize(), 1U);
     EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
   }
 
   {
-    SCOPED_TRACE("Uncacheable query");
-    // Queries which are calling procedure should not be cached because the
-    // result signature could be changed
-    this->Interpret("CALL mg.load_all()");
-    EXPECT_EQ(this->interpreter_context.ast_cache.size(), 1U);
-    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 1U);
+    SCOPED_TRACE("Cacheable procedure query");
+    this->Interpret("CALL mg.procedures() YIELD name RETURN name");
+    EXPECT_EQ(this->AstCacheSize(), 2U);
+    EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 2U);
   }
+}
+
+TYPED_TEST(InterpreterTest, ProcedurePlanReuseAndGenerationInvalidation) {
+  const std::string query = "CALL mg.procedures() YIELD name RETURN name";
+  const auto key = memgraph::query::frontend::StrippedQuery{query}.stripped_query();
+  auto cached_plan = [&] {
+    return this->db->plan_cache()->WithLock([&](auto &cache) {
+      auto entry = cache.get(key);
+      return entry ? *entry : nullptr;
+    });
+  };
+
+  this->Interpret(query);
+  auto first = cached_plan();
+  ASSERT_NE(first, nullptr);
+
+  this->Interpret(query);
+  EXPECT_EQ(cached_plan(), first);
+
+  this->Interpret("CALL mg.load_all()");
+  this->Interpret(query);
+  EXPECT_NE(cached_plan(), first);
+}
+
+// A query that names no procedure and no user-defined function bakes in nothing a module reload
+// can invalidate, so a reload must leave its cached plan and AST alone.
+TYPED_TEST(InterpreterTest, ModuleFreePlanSurvivesModuleReload) {
+  const std::string query = "MATCH (n) RETURN n";
+  const auto key = memgraph::query::frontend::StrippedQuery{query}.stripped_query();
+  auto cached_plan = [&] {
+    return this->db->plan_cache()->WithLock([&](auto &cache) {
+      auto entry = cache.get(key);
+      return entry ? *entry : nullptr;
+    });
+  };
+
+  this->Interpret(query);
+  auto first = cached_plan();
+  ASSERT_NE(first, nullptr);
+
+  this->Interpret("CALL mg.load_all()");
+  this->Interpret(query);
+  EXPECT_EQ(cached_plan(), first);
 }
 
 TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
@@ -1139,8 +2464,9 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
       config2.force_on_disk = true;
     }
 
-    memgraph::replication::ReplicationState repl_state2{memgraph::storage::ReplicationStateRootPath(config2)};
-    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2, repl_state2);
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state2{
+        memgraph::storage::ReplicationStateRootPath(config2)};
+    memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk2(config2);
     auto db_acc_opt = db_gk2.access();
     ASSERT_TRUE(db_acc_opt) << "Failed to access db2";
     auto &db_acc = *db_acc_opt;
@@ -1149,9 +2475,22 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
                                                  : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
         << "Wrong storage mode!";
 
-    memgraph::replication::ReplicationState repl_state{std::nullopt};
-    memgraph::query::InterpreterContext csv_interpreter_context{
-        {.query = {.allow_load_csv = allow_load_csv}}, nullptr, &repl_state};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        std::nullopt};
+    memgraph::system::System system_state;
+    memgraph::query::InterpreterContext csv_interpreter_context{{.query = {.allow_load_csv = allow_load_csv}},
+                                                                nullptr,
+                                                                nullptr,
+                                                                nullptr,
+                                                                &repl_state,
+                                                                system_state,
+                                                                nullptr
+#ifdef MG_ENTERPRISE
+                                                                ,
+                                                                nullptr,
+                                                                nullptr
+#endif
+    };
     InterpreterFaker interpreter_faker{&csv_interpreter_context, db_acc};
     for (const auto &query : queries) {
       if (allow_load_csv) {
@@ -1170,7 +2509,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
   check_load_csv_queries(false);
 }
 
-void AssertAllValuesAreZero(const std::map<std::string, memgraph::communication::bolt::Value> &map,
+void AssertAllValuesAreZero(const memgraph::communication::bolt::map_t &map,
                             const std::vector<std::string> &exceptions) {
   for (const auto &[key, value] : map) {
     if (const auto it = std::find(exceptions.begin(), exceptions.end(), key); it != exceptions.end()) continue;
@@ -1186,8 +2525,13 @@ TYPED_TEST(InterpreterTest, ExecutionStatsIsValid) {
     ASSERT_EQ(stream.GetSummary().count("stats"), 0);
   }
   {
-    std::array stats_keys{"nodes-created",  "nodes-deleted", "relationships-created", "relationships-deleted",
-                          "properties-set", "labels-added",  "labels-removed"};
+    std::array stats_keys{"nodes-created",
+                          "nodes-deleted",
+                          "relationships-created",
+                          "relationships-deleted",
+                          "properties-set",
+                          "labels-added",
+                          "labels-removed"};
     auto [stream, qid] = this->Prepare("CREATE ();");
     this->Pull(&stream);
 
@@ -1278,6 +2622,21 @@ TYPED_TEST(InterpreterTest, ExecutionStatsValues) {
     AssertAllValuesAreZero(stats, {"properties-set"});
   }
 }
+
+#if defined(MG_ENTERPRISE) && USE_JEMALLOC
+TYPED_TEST(InterpreterTest, UserTransactionMemoryLimitWithoutExplicitQueryLimitIsEnforced) {
+  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  memgraph::license::global_license_checker.EnableTesting();
+
+  auto user_resource = std::make_shared<memgraph::utils::UserResources>();
+  user_resource->SetTransactionsMemoryLimit(1);
+  this->default_interpreter.interpreter.SetUser(
+      this->default_interpreter.auth_checker.GenQueryUser(std::optional<std::string>{"user1"}, {}), user_resource);
+
+  ASSERT_THROW(this->Interpret("UNWIND range(1, 1000) AS i RETURN collect(i)"), memgraph::utils::BasicException);
+  EXPECT_EQ(user_resource->GetTransactionsMemory().first, 0);
+}
+#endif  // MG_ENTERPRISE && USE_JEMALLOC
 
 TYPED_TEST(InterpreterTest, ExecutionStatsValuesPropertiesSet) {
   {
@@ -1556,8 +2915,8 @@ TYPED_TEST(InterpreterTest, LoadCsvClauseNotification) {
 
   writer.Close();
 
-  const std::string query = fmt::format(R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x;)",
-                                        csv_path.string(), delimiter);
+  const std::string query = fmt::format(
+      R"(LOAD CSV FROM "{}" WITH HEADER IGNORE BAD DELIMITER "{}" AS x RETURN x;)", csv_path.string(), delimiter);
   auto [stream, qid] = this->Prepare(query);
   this->Pull(&stream);
 
@@ -1572,4 +2931,259 @@ TYPED_TEST(InterpreterTest, LoadCsvClauseNotification) {
             "convert the parsed row values to the appropriate type. This can be done using the built-in "
             "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
   ASSERT_EQ(notification["description"].ValueString(), "");
+}
+
+// Accessor-free fast-path shapes (constant RETURN / builtin mg.* introspection) are Lab's health-check
+// pings, so both PrepareConstantReturnQuery and PrepareBuiltinIntrospectionQuery mark them HIGH
+// (interpreter.cpp) -- a normal Cypher query that opens an accessor stays LOW.
+TYPED_TEST(InterpreterTest, ConstantReturnQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("RETURN 1");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, ConstantExpressionReturnQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("RETURN 1+1");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, BuiltinIntrospectionQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("CALL mg.procedures() YIELD *");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, NonAccessorFreeCypherQueryPriorityIsLow) {
+  auto [stream, qid] = this->Prepare("MATCH (n) RETURN n");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
+}
+
+TYPED_TEST(InterpreterTest, BeginIsLow) {
+  auto [stream, qid] = this->Prepare("BEGIN");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
+}
+
+TYPED_TEST(InterpreterTest, CommitIsLow) {
+  auto [stream, qid] = this->Prepare("COMMIT");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
+}
+
+// SessionHL::ApproximateQueryPriority routes an explicit COMMIT to HIGH only when the active transaction
+// has no pending writes (empty deltas), because only then is the COMMIT a near-noop (no
+// engine_lock/WAL/replication). The routing's sole discriminator is Interpreter::IsCurrentTransactionEmpty()
+// -- the SessionHL glue itself is a Bolt session (covered by e2e), so assert the predicate that drives it.
+// (CommitIsLow above exercises the unrelated GetQueryPriority path, which stores LOW on the prepared COMMIT.)
+TYPED_TEST(InterpreterTest, EmptyTransactionRoutesCommitHigh) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  // No active transaction -> nothing to promote.
+  EXPECT_FALSE(interpreter.IsCurrentTransactionEmpty());
+
+  interpreter.BeginTransaction(memgraph::query::QueryExtras{.is_read = true});
+  EXPECT_TRUE(interpreter.IsCurrentTransactionEmpty());  // no writes -> COMMIT routed HIGH
+  interpreter.RollbackTransaction();
+
+  // Cleared once the transaction ends.
+  EXPECT_FALSE(interpreter.IsCurrentTransactionEmpty());
+}
+
+// The signal is deltas, not the declared read/write mode: a write-capable transaction that actually
+// wrote has deltas, so its COMMIT is not a noop and stays LOW. (A write-capable transaction that only
+// read would have empty deltas and route HIGH -- the case the plain read/write mode flag would miss.)
+TYPED_TEST(InterpreterTest, TransactionWithWritesKeepsCommitLow) {
+  auto &interpreter = this->default_interpreter.interpreter;
+  interpreter.BeginTransaction(memgraph::query::QueryExtras{.is_read = false});
+  auto [stream, qid] = this->Prepare("CREATE (:Node)");
+  this->Pull(&stream);
+  EXPECT_FALSE(interpreter.IsCurrentTransactionEmpty());  // wrote deltas -> COMMIT stays LOW
+  interpreter.RollbackTransaction();
+}
+
+TYPED_TEST(InterpreterTest, CreateIndexQueryPriorityIsLow) {
+  auto [stream, qid] = this->Prepare("CREATE INDEX ON :Person(id)");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::LOW);
+}
+
+TYPED_TEST(InterpreterTest, ShowVersionQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("SHOW VERSION");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, ShowConfigQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("SHOW CONFIG");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+TYPED_TEST(InterpreterTest, ShowTransactionsQueryPriorityIsHigh) {
+  auto [stream, qid] = this->Prepare("SHOW TRANSACTIONS");
+  EXPECT_EQ(this->default_interpreter.interpreter.GetQueryPriority(qid), memgraph::utils::Priority::HIGH);
+}
+
+// When ASC and DESC label-property indexes coexist on the same
+// (label, properties), ANALYZE GRAPH would scan vertices and emit stats once
+// per index order, producing duplicate result rows and redundant
+// SetIndexStats writes for the same (label, properties) slot.
+//
+// The create-side dedup is observable through duplicate result rows. The
+// delete-side dedup eliminates redundant `MetadataDelta::label_property_index
+// _stats_clear` emissions, which are not visible through query results — the
+// assertion below only verifies that `DELETE STATISTICS` returns one row per
+// (label, properties) regardless of the number of (label, properties, order)
+// entries that were deduplicated.
+TYPED_TEST(InterpreterTest, AnalyzeGraphDeduplicatesAscDescIndexes) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "DESC label-property indexes are not supported on disk storage.";
+  }
+
+  this->Interpret("CREATE INDEX ON :LabelA(prop);");
+  this->Interpret(R"(CREATE INDEX ON :LabelA(prop) WITH CONFIG {"order": "DESC"};)");
+  this->Interpret("CREATE INDEX ON :LabelB(prop);");
+  this->Interpret(R"(CREATE INDEX ON :LabelB(prop) WITH CONFIG {"order": "DESC"};)");
+  this->Interpret("FOREACH (i IN range(1, 10) | CREATE (n:LabelA {prop: i}));");
+  this->Interpret("FOREACH (i IN range(1, 5) | CREATE (n:LabelB {prop: i}));");
+
+  // ANALYZE GRAPH result columns: label, property, num estimation nodes, ...
+  constexpr std::size_t kLabelCol = 0;
+  constexpr std::size_t kPropertyCol = 1;
+  constexpr std::size_t kCountCol = 2;
+
+  auto stream = this->Interpret("ANALYZE GRAPH;");
+  const auto &results = stream.GetResults();
+  ASSERT_EQ(results.size(), 2U) << "ANALYZE GRAPH should produce exactly one row per "
+                                   "(label, properties); ASC/DESC duplicates must be deduped.";
+  std::map<std::string, int64_t> counts_by_label;
+  for (const auto &row : results) {
+    const auto &props = row[kPropertyCol].ValueList();
+    ASSERT_EQ(props.size(), 1U);
+    EXPECT_EQ(props[0].ValueString(), "prop");
+    counts_by_label[row[kLabelCol].ValueString()] = row[kCountCol].ValueInt();
+  }
+  EXPECT_EQ(counts_by_label["LabelA"], 10);
+  EXPECT_EQ(counts_by_label["LabelB"], 5);
+
+  auto delete_stream = this->Interpret("ANALYZE GRAPH DELETE STATISTICS;");
+  const auto &delete_results = delete_stream.GetResults();
+  ASSERT_EQ(delete_results.size(), 2U) << "ANALYZE GRAPH DELETE STATISTICS should report each "
+                                          "(label, properties) at most once.";
+  std::set<std::string> deleted_labels;
+  for (const auto &row : delete_results) {
+    deleted_labels.insert(row[kLabelCol].ValueString());
+  }
+  EXPECT_EQ(deleted_labels, (std::set<std::string>{"LabelA", "LabelB"}));
+}
+
+TYPED_TEST(InterpreterTest, MixedSignListSharesCacheEntryAndKeepsValues) {
+  auto values = [](const auto &stream) {
+    std::vector<int64_t> out;
+    for (const auto &v : stream.GetResults()[0][0].ValueList()) out.push_back(v.ValueInt());
+    return out;
+  };
+  EXPECT_EQ(this->AstCacheSize(), 0U);
+  auto s1 = this->Interpret("RETURN [-1, 2, -3] AS x");
+  auto s2 = this->Interpret("RETURN [4, -5, 6] AS x");
+  EXPECT_EQ(values(s1), (std::vector<int64_t>{-1, 2, -3}));
+  EXPECT_EQ(values(s2), (std::vector<int64_t>{4, -5, 6}));
+  EXPECT_EQ(this->AstCacheSize(), 1U);
+}
+
+TYPED_TEST(InterpreterTest, ListWithSubtractionKeepsBinaryMinus) {
+  auto stream = this->Interpret("RETURN [1-2, 3] AS x");
+  const auto &list = stream.GetResults()[0][0].ValueList();
+  EXPECT_EQ(list[0].ValueInt(), -1);
+  EXPECT_EQ(list[1].ValueInt(), 3);
+}
+
+// `OPTIONAL CALL ( ) { ... }` keeps an input row whose body returned nothing, with the body's own symbols null -
+// the same contract as OPTIONAL MATCH. Every expectation here was measured against Neo4j 2026.02.2.
+TYPED_TEST(InterpreterTest, OptionalCallSubquery) {
+  // 1 -> 2 and 1 -> 3, so node 1 exercises the branch that yields several rows and then runs out, while nodes 2
+  // and 3 exercise the branch that yields nothing at all.
+  this->Interpret("CREATE (a:P {id: 1}), (b:P {id: 2}), (c:P {id: 3}), (a)-[:R]->(b), (a)-[:R]->(c)");
+
+  using Row = std::pair<int64_t, std::optional<int64_t>>;
+  auto pairs = [](const auto &stream) {
+    std::vector<Row> out;
+    for (const auto &row : stream.GetResults()) {
+      auto const is_null = row[1].type() == memgraph::communication::bolt::Value::Type::Null;
+      out.emplace_back(row[0].ValueInt(), is_null ? std::nullopt : std::optional<int64_t>{row[1].ValueInt()});
+    }
+    std::ranges::sort(out);
+    return out;
+  };
+
+  {
+    auto stream = this->Interpret(
+        "MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) RETURN m.id AS mid } RETURN n.id AS nid, mid");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}, {2, std::nullopt}, {3, std::nullopt}}));
+  }
+  {
+    // Without OPTIONAL the rows that produced nothing are still dropped.
+    auto stream =
+        this->Interpret("MATCH (n:P) CALL (n) { MATCH (n)-[:R]->(m) RETURN m.id AS mid } RETURN n.id AS nid, mid");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}}));
+  }
+  {
+    // An uncorrelated body that matches nothing nulls every row rather than emptying the result.
+    auto stream =
+        this->Interpret("MATCH (n:P) OPTIONAL CALL { MATCH (z:Missing) RETURN z.id AS zid } RETURN n.id AS nid, zid");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, std::nullopt}, {2, std::nullopt}, {3, std::nullopt}}));
+  }
+  {
+    // A UNION body's projected symbols are what get nulled.
+    auto stream = this->Interpret(
+        "MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) WHERE m.id = 2 RETURN m.id AS v "
+        "UNION MATCH (n)-[:R]->(m) WHERE m.id = 3 RETURN m.id AS v } RETURN n.id AS nid, v");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}, {2, std::nullopt}, {3, std::nullopt}}));
+  }
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    // `IN TRANSACTIONS` plans a different operator with the same contract. On-disk storage has no periodic commit.
+    auto stream = this->Interpret(
+        "MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) RETURN m.id AS mid } IN TRANSACTIONS OF 1 ROWS "
+        "RETURN n.id AS nid, mid");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}, {2, std::nullopt}, {3, std::nullopt}}));
+  }
+  {
+    // `RETURN *` projects the imported variable back out; nulling it would wipe the caller's own row.
+    auto stream = this->Interpret(
+        "MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) RETURN * } RETURN n.id AS nid, m.id AS mid");
+    EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}, {2, std::nullopt}, {3, std::nullopt}}));
+  }
+}
+
+TEST(AstCacheBounded, EvictsBeyondMaxSize) {
+  constexpr std::size_t kMaxSize = 2;
+  memgraph::query::AstCache cache{kMaxSize};
+  memgraph::query::InterpreterConfig::Query const query_config{};
+  auto const cache_size = [&] { return cache.WithLock([](auto &c) { return c.size(); }); };
+
+  for (int i = 0; i < 10; ++i) {
+    auto const query = "RETURN 1 AS a" + std::to_string(i);
+    memgraph::query::ParseQuery(query, {}, &cache, query_config, "uuid", nullptr);
+    EXPECT_LE(cache_size(), kMaxSize) << "cache grew past its bound at iteration " << i;
+  }
+  EXPECT_EQ(cache_size(), kMaxSize);
+}
+
+TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
+  memgraph::query::AstCache cache{1};
+  memgraph::query::InterpreterConfig::Query const query_config{};
+  constexpr int kThreads = 8;
+  constexpr int kIters = 3000;
+  std::atomic<int> failures{0};
+
+  {
+    std::vector<std::jthread> threads;
+    for (int t = 0; t < kThreads; ++t) {
+      threads.emplace_back([&, t] {
+        for (int i = 0; i < kIters; ++i) {
+          int const value = t * kIters + i;  // disjoint per thread -> all distinct -> constant eviction
+          auto parsed =
+              memgraph::query::ParseQuery("RETURN " + std::to_string(value), {}, &cache, query_config, "uuid", nullptr);
+          // "RETURN <value>" strips to "RETURN 0" with the literal at token position 1.
+          if (parsed.query == nullptr || parsed.parameters.AtTokenPosition(1).ValueInt() != value) {
+            failures.fetch_add(1, std::memory_order_relaxed);
+          }
+        }
+      });
+    }
+  }
+  EXPECT_EQ(failures.load(), 0);
+  EXPECT_LE(cache.WithLock([](auto &c) { return c.size(); }), 1U);
 }

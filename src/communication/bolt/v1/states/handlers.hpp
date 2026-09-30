@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,13 +25,17 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
+#include "license/license_sender.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
 
 namespace memgraph::communication::bolt {
 // TODO: Revise these error messages
-inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::exception &e) {
+inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::exception &e,
+                                                                   metrics::DatabaseMetricHandles *metric_handles) {
   if (const auto *verbose = dynamic_cast<const VerboseError *>(&e)) {
     return {verbose->code(), verbose->what()};
   }
@@ -58,9 +62,31 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     // database probably aborted transaction because of some timeout,
     // deadlock, serialization error or something similar. We return
     // TransientError since retry of same transaction could succeed.
+
+    // If this is in the context of a database (i.e., we have database
+    // `metric_handles`), then log count failure in the db metrics;
+    // otherwise, count in the global metrics.
+    if (metric_handles)
+      metric_handles->transient_errors.Increment();
+    else
+      metrics::Metrics().global.transient_errors->Increment();
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {
+    {
+      // It is possible that something used C based memory allocation and hence we didn't pick up the MemoryErrorStatus
+      // that corresponds to memory tracker errors. It is possible that 3rd party code or something following C++
+      // conventions will throw std::bad_alloc. We will check here and handle as an OutOfMemoryException if that is the
+      // case.
+      [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
+      if (auto maybe_msg = memgraph::utils::MemoryErrorStatus().msg(); maybe_msg) {
+        DMG_ASSERT(false,
+                   "Something is using C based allocation and triggering MemoryTracker. This should not happen, go via "
+                   "C++ new/delete where possible");
+        return {"Memgraph.TransientError.MemgraphError.MemgraphError", std::move(*maybe_msg)};
+      }
+    }
+
     // std::bad_alloc was thrown, God knows in which state is database ->
     // terminate.
     LOG_FATAL("Memgraph is out of memory");
@@ -68,8 +94,8 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
   // All exceptions used in memgraph are derived from BasicException. Since
   // we caught some other exception we don't know what is going on. Return
   // DatabaseError, log real message and return generic string.
-  spdlog::error(utils::MessageWithLink("Unknown exception occurred during query execution {}.", e.what(),
-                                       "https://memgr.ph/unknown"));
+  spdlog::error(utils::MessageWithLink(
+      "Unknown exception occurred during query execution {}.", e.what(), "https://memgr.ph/unknown"));
   return {"Memgraph.DatabaseError.MemgraphError.MemgraphError",
           "An unknown exception occurred, this is unexpected. Real message "
           "should be in database logs."};
@@ -80,10 +106,10 @@ namespace details {
 template <bool is_pull, typename TSession>
 State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<int> qid) {
   try {
-    std::map<std::string, Value> summary;
+    map_t summary;
     if constexpr (is_pull) {
       // Pull can throw.
-      summary = session.Pull(&session.encoder_, n, qid);
+      summary = session.Pull(n, qid);
     } else {
       summary = session.Discard(n, qid);
     }
@@ -93,7 +119,8 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
       return State::Close;
     }
 
-    if (summary.contains("has_more") && summary.at("has_more").ValueBool()) {
+    auto has_more_it = summary.find("has_more");
+    if (has_more_it != summary.end() && has_more_it->second.IsBool() && has_more_it->second.ValueBool()) {
       return State::Result;
     }
 
@@ -107,7 +134,7 @@ template <bool is_pull, typename TSession>
 State HandlePullDiscardV1(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct;
   if (marker != expected_marker) {
-    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -128,7 +155,7 @@ template <bool is_pull, typename TSession>
 State HandlePullDiscardV4(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct1;
   if (marker != expected_marker) {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -148,14 +175,16 @@ State HandlePullDiscardV4(TSession &session, const State state, const Marker mar
     spdlog::trace("Couldn't read extra field!");
   }
   const auto &extra_map = extra.ValueMap();
-  if (extra_map.contains("n")) {
-    if (const auto n_value = extra_map.at("n").ValueInt(); n_value != kPullAll) {
+  auto n_it = extra_map.find("n");
+  if (n_it != extra_map.end() && n_it->second.IsInt()) {
+    if (const auto n_value = n_it->second.ValueInt(); n_value != kPullAll) {
       n = n_value;
     }
   }
 
-  if (extra_map.contains("qid")) {
-    if (const auto qid_value = extra_map.at("qid").ValueInt(); qid_value != kPullLast) {
+  auto qid_it = extra_map.find("qid");
+  if (qid_it != extra_map.end() && qid_it->second.IsInt()) {
+    if (const auto qid_value = qid_it->second.ValueInt(); qid_value != kPullLast) {
       qid = qid_value;
     }
   }
@@ -169,9 +198,13 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
   if (const auto *p = dynamic_cast<const utils::StacktraceException *>(&e)) {
     spdlog::trace("Error trace: {}", p->trace());
   }
-  session.encoder_buffer_.Clear();
+  // Complete any record already partially on the wire (64 KiB auto-flush split) before the summary.
+  if (!session.encoder_buffer_.FlushFinalized()) {
+    spdlog::trace("Couldn't flush finalized record chunks!");
+    return State::Close;
+  }
 
-  auto code_message = ExceptionToErrorMessage(e);
+  auto code_message = ExceptionToErrorMessage(e, session.GetMetricHandles());
   bool fail_sent = session.encoder_.MessageFailure({{"code", code_message.first}, {"message", code_message.second}});
   if (!fail_sent) {
     spdlog::trace("Couldn't send failure message!");
@@ -181,11 +214,40 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
 }
 
 template <typename TSession>
+State HandlePrepare(TSession &session) {
+  try {
+    // Interpret can throw.
+    const auto [header, qid] = session.InterpretPrepare();
+    // Convert std::string to Value
+    std::vector<Value> vec;
+    map_t data;
+    vec.reserve(header.size());
+    for (auto &i : header) vec.emplace_back(std::move(i));
+    data.emplace("fields", std::move(vec));
+    if (session.version_.major > 1) {
+      if (qid) {
+        data.emplace("qid", Value{*qid});
+      }
+    }
+
+    // Send the header.
+    if (!session.encoder_.MessageSuccess(data)) {
+      spdlog::trace("Couldn't send query header!");
+      return State::Close;
+    }
+    return State::Result;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+}
+
+template <typename TSession>
 State HandleRunV1(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct2;
   if (marker != expected_marker) {
     spdlog::trace("Expected {} marker, but received 0x{:02X}!",
-                  session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3", utils::UnderlyingCast(marker));
+                  session.version_.major == 1 ? "TinyStruct2" : "TinyStruct3",
+                  std::to_underlying(marker));
     return State::Close;
   }
   Value query;
@@ -210,30 +272,17 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
 
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
-#if MG_ENTERPRISE
-  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
-#else
-  spdlog::debug("[Run] '{}'", query.ValueString());
-#endif
-
   // Increment number of queries in the metrics
   IncrementQueryMetrics(session);
 
   try {
-    // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), {});
-    // Convert std::string to Value
-    std::vector<Value> vec;
-    std::map<std::string, Value> data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
-    data.emplace("fields", std::move(vec));
-    // Send the header.
-    if (!session.encoder_.MessageSuccess(data)) {
-      spdlog::trace("Couldn't send query header!");
-      return State::Close;
-    }
-    return State::Result;
+    // Split in 2 parts: Parsing and Preparing
+    // Parsing generates ast tree and metadata
+    //  - here we figure out which query has been sent and its priority
+    // Prepare actually makes the plan
+    //  - here we take the storage accessors, so priority is important to know
+    session.InterpretParse(query.ValueString(), params.ValueMap(), {});
+    return State::Parsed;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -243,7 +292,7 @@ template <typename TSession>
 State HandleRunV4(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct3;
   if (marker != expected_marker) {
-    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
   }
   Value query;
@@ -281,34 +330,17 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
     return HandleFailure(session, e);
   }
 
-#if MG_ENTERPRISE
-  spdlog::debug("[Run - {}] '{}'", session.GetCurrentDB(), query.ValueString());
-#else
-  spdlog::debug("[Run] '{}'", query.ValueString());
-#endif
-
   // Increment number of queries in the metrics
   IncrementQueryMetrics(session);
 
   try {
-    // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
-    // Convert std::string to Value
-    std::vector<Value> vec;
-    std::map<std::string, Value> data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
-    data.emplace("fields", std::move(vec));
-    if (qid.has_value()) {
-      data.emplace("qid", Value{*qid});
-    }
-
-    // Send the header.
-    if (!session.encoder_.MessageSuccess(data)) {
-      spdlog::trace("Couldn't send query header!");
-      return State::Close;
-    }
-    return State::Result;
+    // Split in 2 parts: Parsing and Preparing
+    // Parsing generates ast tree and metadata
+    //  - here we figure out which query has been sent and its priority
+    // Prepare actually makes the plan
+    //  - here we take the storage accessors, so priority is important to know
+    session.InterpretParse(query.ValueString(), params.ValueMap(), extra.ValueMap());
+    return State::Parsed;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -338,16 +370,19 @@ State HandlePullV5(TSession &session, const State state, const Marker marker) {
 
 template <typename TSession>
 State HandleDiscardV1(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received DISCARD message");
   return details::HandlePullDiscardV1<false>(session, state, marker);
 }
 
 template <typename TSession>
 State HandleDiscardV4(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received DISCARD message");
   return details::HandlePullDiscardV4<false>(session, state, marker);
 }
 
 template <typename TSession>
 State HandleDiscardV5(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received DISCARD message");
   // Using V4 on purpose
   return HandleDiscardV4<TSession>(session, state, marker);
 }
@@ -363,8 +398,9 @@ State HandleReset(TSession &session, const Marker marker) {
   // so we cannot simply "kill" a transaction while it is running. So
   // now this command only resets the session to a clean state. It
   // does not IGNORE running and pending commands as it should.
+  spdlog::trace("Received RESET message");
   if (marker != Marker::TinyStruct) {
-    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02X}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -374,6 +410,7 @@ State HandleReset(TSession &session, const Marker marker) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
+    spdlog::trace("Session reset!");
     return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
@@ -382,8 +419,9 @@ State HandleReset(TSession &session, const Marker marker) {
 
 template <typename TSession>
 State HandleBegin(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received BEGIN message");
   if (marker != Marker::TinyStruct1) {
-    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct1 marker, but received 0x{:02x}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -415,8 +453,9 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
 
 template <typename TSession>
 State HandleCommit(TSession &session, const State state, const Marker marker) {
+  spdlog::trace("Received COMMIT message");
   if (marker != Marker::TinyStruct) {
-    spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -428,8 +467,7 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
   DMG_ASSERT(!session.encoder_buffer_.HasData(), "There should be no data to write in this state");
 
   try {
-    session.CommitTransaction();
-    if (!session.encoder_.MessageSuccess({})) {
+    if (!session.encoder_.MessageSuccess(session.CommitTransaction())) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
@@ -442,7 +480,7 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
 template <typename TSession>
 State HandleRollback(TSession &session, const State state, const Marker marker) {
   if (marker != Marker::TinyStruct) {
-    spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct marker, but received 0x{:02x}!", std::to_underlying(marker));
     return State::Close;
   }
 
@@ -472,17 +510,48 @@ State HandleNoop(const State state) {
 }
 
 template <typename TSession>
-State HandleGoodbye() {
+State HandleGoodbye(TSession &session) {
+  // Deliver any responses deferred by encoder response-batching before the connection closes; the flush
+  // result is moot since the SessionClosedException below closes the connection regardless.
+  static_cast<void>(session.encoder_buffer_.FlushFinalized());
   throw SessionClosedException("Closing connection.");
 }
 
-template <typename TSession>
+template <typename TSession, int bolt_major, int bolt_minor = 0>
+auto ReadDB(TSession &session) -> std::optional<std::string> {
+  // The ROUTE message carries the database name differently across Bolt versions: 4.3 sends it as a standalone
+  // string field, while 4.4+ (and all of 5.x) moved it inside the trailing `extra` map. The third struct field
+  // must be consumed regardless so the decoder stays aligned, hence the explicit branch per layout.
+  if constexpr (bolt_major == 5 || (bolt_major == 4 && bolt_minor >= 4)) {
+    Value extra;
+    if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+      spdlog::trace("Couldn't read extra field!");
+      return std::nullopt;
+    }
+    auto const extra_map = extra.ValueMap();
+    auto const db_it = extra_map.find("db");
+    if (db_it == extra_map.end() || !db_it->second.IsString()) {
+      spdlog::trace("Couldn't read db field inside extra!");
+      return std::nullopt;
+    }
+    return db_it->second.ValueString();
+  }
+  if constexpr (bolt_major == 4 && bolt_minor == 3) {
+    Value val_db;
+    if (!session.decoder_.ReadValue(&val_db, Value::Type::String)) {
+      spdlog::trace("Couldn't read db field!");
+      return std::nullopt;
+    }
+    return val_db.ValueString();
+  }
+  return std::nullopt;
+}
+
+template <typename TSession, int bolt_major, int bolt_minor = 0>
 State HandleRoute(TSession &session, const Marker marker) {
-  // Route message is not implemented since it is Neo4j specific, therefore we will receive it and inform user that
-  // there is no implementation. Before that, we have to read out the fields from the buffer to leave it in a clean
-  // state.
+  spdlog::trace("Received ROUTE message");
   if (marker != Marker::TinyStruct3) {
-    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02x}!", utils::UnderlyingCast(marker));
+    spdlog::trace("Expected TinyStruct3 marker, but received 0x{:02x}!", std::to_underlying(marker));
     return State::Close;
   }
   Value routing;
@@ -496,12 +565,24 @@ State HandleRoute(TSession &session, const Marker marker) {
     spdlog::trace("Couldn't read bookmarks field!");
     return State::Close;
   }
-  Value db;
-  if (!session.decoder_.ReadValue(&db)) {
-    spdlog::trace("Couldn't read db field!");
-    return State::Close;
+
+  auto const db = ReadDB<TSession, bolt_major, bolt_minor>(session);
+
+#ifdef MG_ENTERPRISE
+  try {
+    if (auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), db, {});
+        !session.encoder_.MessageSuccess(std::move(res))) {
+      spdlog::trace("Couldn't send result of routing!");
+      return State::Close;
+    }
+    return State::Idle;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
   }
-  session.encoder_buffer_.Clear();
+
+#else
+  // Deliver any responses deferred earlier in this burst before the FAILURE, rather than discarding them.
+  static_cast<void>(session.encoder_buffer_.FlushFinalized());
   bool fail_sent =
       session.encoder_.MessageFailure({{"code", "66"}, {"message", "Route message is not supported in Memgraph!"}});
   if (!fail_sent) {
@@ -509,11 +590,20 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
   return State::Error;
+#endif
 }
 
 template <typename TSession>
-State HandleLogOff() {
-  // No arguments sent, the user just needs to reauthenticate
-  return State::Init;
+State HandleLogOff(TSession &session) {
+  try {
+    session.LogOff();
+    if (!session.encoder_.MessageSuccess({})) {
+      spdlog::trace("Couldn't send success message!");
+      return State::Close;
+    }
+    return State::Init;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
 }
 }  // namespace memgraph::communication::bolt

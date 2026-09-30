@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,13 +11,15 @@
 
 #pragma once
 
-#include <cxxabi.h>
-#include <execinfo.h>
+#include <string>
+#include <vector>
+
 #include <fmt/format.h>
-#include <stdexcept>
-#include <utility>
 
 #include "utils/on_scope_exit.hpp"
+
+#include <cxxabi.h>
+#include <execinfo.h>
 
 namespace memgraph::utils {
 
@@ -51,11 +53,15 @@ class Stacktrace {
   }
 
   auto begin() { return lines.begin(); }
+
   auto begin() const { return lines.begin(); }
+
   auto cbegin() const { return lines.cbegin(); }
 
   auto end() { return lines.end(); }
+
   auto end() const { return lines.end(); }
+
   auto cend() const { return lines.cend(); }
 
   const Line &operator[](size_t idx) const { return lines[idx]; }
@@ -79,7 +85,6 @@ class Stacktrace {
   std::vector<Line> lines;
 
   Line format(const std::string &original) {
-    using namespace abi;
     auto line = original;
 
     auto begin = line.find('(');
@@ -90,7 +95,7 @@ class Stacktrace {
     line[end] = '\0';
 
     int s;
-    auto demangled = __cxa_demangle(line.data() + begin + 1, nullptr, nullptr, &s);
+    auto demangled = abi::__cxa_demangle(line.data() + begin + 1, nullptr, nullptr, &s);
 
     auto location = line.substr(0, begin);
 

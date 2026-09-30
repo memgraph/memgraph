@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,7 @@ void RdKafkaDeleter::operator()(rd_kafka_t *rd) {
     rd_kafka_destroy(rd);
   }
 }
+
 void RdKafkaMockClusterDeleter::operator()(rd_kafka_mock_cluster_t *rd) {
   if (rd != nullptr) {
     rd_kafka_mock_cluster_destroy(rd);
@@ -78,10 +79,6 @@ void KafkaClusterMock::CreateTopic(const std::string &topic_name) {
   }
 }
 
-void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::string_view message) {
-  SeedTopic(topic_name, std::span{message.data(), message.size()});
-}
-
 void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::span<const char> message) {
   char errstr[256] = {'\0'};
   std::string bootstraps_servers = Bootstraps();
@@ -111,8 +108,13 @@ void KafkaClusterMock::SeedTopic(const std::string &topic_name, std::span<const 
   }
 
   int remains = 1;
-  if (rd_kafka_produce(rkt, RD_KAFKA_PARTITION_UA, RD_KAFKA_MSG_F_COPY,
-                       static_cast<void *>(const_cast<char *>(message.data())), message.size(), nullptr, 0,
+  if (rd_kafka_produce(rkt,
+                       RD_KAFKA_PARTITION_UA,
+                       RD_KAFKA_MSG_F_COPY,
+                       static_cast<void *>(const_cast<char *>(message.data())),
+                       message.size(),
+                       nullptr,
+                       0,
                        &remains) == -1) {
     throw std::runtime_error("Failed to produce a message on " + topic_name + " to seed it");
   }

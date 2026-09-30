@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,9 +27,11 @@ class NameIdMapper {
     uint64_t id;
 
     bool operator<(const MapNameToId &other) const { return name < other.name; }
+
     bool operator==(const MapNameToId &other) const { return name == other.name; }
 
     bool operator<(const std::string_view other) const { return name < other; }
+
     bool operator==(const std::string_view other) const { return name == other; }
   };
 
@@ -38,9 +40,11 @@ class NameIdMapper {
     std::string name;
 
     bool operator<(const MapIdToName &other) const { return id < other.id; }
+
     bool operator==(const MapIdToName &other) const { return id == other.id; }
 
     bool operator<(uint64_t other) const { return id < other; }
+
     bool operator==(uint64_t other) const { return id == other; }
   };
 
@@ -75,12 +79,24 @@ class NameIdMapper {
     // We have to try to insert the ID to name mapping even if we are not the
     // one who assigned the ID because we have to make sure that after this
     // method returns that both mappings exist.
-    if (id_to_name_acc.find(id) == id_to_name_acc.end()) {
+    if (!id_to_name_acc.contains(id)) {
       // We first try to find the `id` in the map to avoid making an unnecessary
       // temporary memory allocation when the object already exists.
       id_to_name_acc.insert({id, std::string(name)});
     }
     return id;
+  }
+
+  /// This method unlike NameToId does not insert the new property id if not found
+  /// but just returns either std::nullopt or the value of the property id if it
+  /// finds it.
+  virtual std::optional<uint64_t> NameToIdIfExists(const std::string_view name) const {
+    auto name_to_id_acc = name_to_id_.access();
+    auto found = name_to_id_acc.find(name);
+    if (found == name_to_id_acc.end()) {
+      return std::nullopt;
+    }
+    return found->id;
   }
 
   // NOTE: Currently this function returns a `const std::string &` instead of a
@@ -98,6 +114,15 @@ class NameIdMapper {
     return maybe_name.value();
   }
 
+  // Resets the mapper to its initial empty state. Used when scrubbing a storage
+  // back to empty (e.g. bringing up a broken database after recovery failure).
+  // Must not be called while other threads hold references returned by IdToName.
+  virtual void Clear() {
+    name_to_id_.clear();
+    id_to_name_.clear();
+    counter_.store(0, std::memory_order_release);
+  }
+
  protected:
   std::optional<std::reference_wrapper<const std::string>> MaybeIdToName(uint64_t id) const {
     auto id_to_name_acc = id_to_name_.access();
@@ -109,7 +134,7 @@ class NameIdMapper {
   }
 
   std::atomic<uint64_t> counter_{0};
-  utils::SkipList<MapNameToId> name_to_id_;
-  utils::SkipList<MapIdToName> id_to_name_;
+  utils::SkipListDb<MapNameToId> name_to_id_;
+  utils::SkipListDb<MapIdToName> id_to_name_;
 };
 }  // namespace memgraph::storage

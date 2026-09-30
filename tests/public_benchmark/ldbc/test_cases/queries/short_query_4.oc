@@ -1,8 +1,0 @@
-// Message Content
-MATCH (m:Message {id:"1236950581249"})
-RETURN
-  CASE m.content IS NOT null
-    WHEN true THEN m.content
-    ELSE m.imageFile
-  END AS messageContent,
-  m.creationDate as messageCreationDate;

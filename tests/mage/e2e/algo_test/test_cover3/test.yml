@@ -1,0 +1,7 @@
+query: >
+  MATCH (n)
+  WITH collect(n) AS list
+  CALL algo.cover(list) YIELD rel RETURN count(rel) AS count;
+
+output:
+    - count: 1001

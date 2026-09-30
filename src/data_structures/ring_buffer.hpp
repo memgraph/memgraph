@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2024 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -49,7 +49,7 @@ class RingBuffer {
   void emplace(TArgs &&...args) {
     while (true) {
       {
-        std::lock_guard<memgraph::utils::SpinLock> guard(lock_);
+        auto guard = std::lock_guard{lock_};
         if (size_ < capacity_) {
           buffer_[write_pos_++] = TElement(std::forward<TArgs>(args)...);
           write_pos_ %= capacity_;
@@ -70,7 +70,7 @@ class RingBuffer {
    * empty, nullopt is returned.
    */
   std::optional<TElement> pop() {
-    std::lock_guard<memgraph::utils::SpinLock> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     if (size_ == 0) return std::nullopt;
     size_--;
     std::optional<TElement> result(std::move(buffer_[read_pos_++]));
@@ -80,7 +80,7 @@ class RingBuffer {
 
   /** Removes all elements from the buffer. */
   void clear() {
-    std::lock_guard<memgraph::utils::SpinLock> guard(lock_);
+    auto guard = std::lock_guard{lock_};
     read_pos_ = 0;
     write_pos_ = 0;
     size_ = 0;

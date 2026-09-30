@@ -1,7 +1,7 @@
 queries_cluster: &queries_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-properties-on-edges"]
       log_file: "queries.log"
       setup_queries: []
       validation_queries: []

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,87 +11,119 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "dbms/coordinator_handler.hpp"
+#include <optional>
+#include <string_view>
 
-#include "dbms/dbms_handler.hpp"
+#include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_ops_status.hpp"
+#include "dbms/coordinator_handler.hpp"
 
 namespace memgraph::dbms {
 
-CoordinatorHandler::CoordinatorHandler(DbmsHandler &dbms_handler) : dbms_handler_(dbms_handler) {}
+CoordinatorHandler::CoordinatorHandler(coordination::CoordinatorState &coordinator_state)
+    : coordinator_state_(coordinator_state) {}
 
-auto CoordinatorHandler::RegisterReplicaOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
-    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus> {
-  auto instance_client = dbms_handler_.CoordinatorState().RegisterReplica(config);
-  using repl_status = memgraph::coordination::RegisterMainReplicaCoordinatorStatus;
-  using dbms_status = memgraph::dbms::RegisterMainReplicaCoordinatorStatus;
-  if (instance_client.HasError()) {
-    switch (instance_client.GetError()) {
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR:
-        MG_ASSERT(false, "Only coordinator instance can register main and replica!");
-        return {};
-      case repl_status::NAME_EXISTS:
-        return dbms_status::NAME_EXISTS;
-      case repl_status::END_POINT_EXISTS:
-        return dbms_status::END_POINT_EXISTS;
-      case repl_status::COULD_NOT_BE_PERSISTED:
-        return dbms_status::COULD_NOT_BE_PERSISTED;
-      case repl_status::SUCCESS:
-        break;
-    }
-  }
-
-  instance_client.GetValue()->StartFrequentCheck();
-  return {};
+auto CoordinatorHandler::RegisterReplicationInstance(coordination::DataInstanceConfig const &config)
+    -> coordination::RegisterInstanceCoordinatorStatus {
+  return coordinator_state_.RegisterReplicationInstance(config);
 }
 
-auto CoordinatorHandler::RegisterMainOnCoordinator(const memgraph::coordination::CoordinatorClientConfig &config)
-    -> utils::BasicResult<RegisterMainReplicaCoordinatorStatus> {
-  auto instance_client = dbms_handler_.CoordinatorState().RegisterMain(config);
-  if (instance_client.HasError()) switch (instance_client.GetError()) {
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::NOT_COORDINATOR:
-        MG_ASSERT(false, "Only coordinator instance can register main and replica!");
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS:
-        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::NAME_EXISTS;
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS:
-        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::END_POINT_EXISTS;
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::COULD_NOT_BE_PERSISTED:
-        return memgraph::dbms::RegisterMainReplicaCoordinatorStatus::COULD_NOT_BE_PERSISTED;
-      case memgraph::coordination::RegisterMainReplicaCoordinatorStatus::SUCCESS:
-        break;
-    }
-
-  instance_client.GetValue()->StartFrequentCheck();
-  return {};
+auto CoordinatorHandler::UnregisterReplicationInstance(std::string_view instance_name)
+    -> coordination::UnregisterInstanceCoordinatorStatus {
+  return coordinator_state_.UnregisterReplicationInstance(instance_name);
 }
 
-auto CoordinatorHandler::ShowReplicasOnCoordinator() const -> std::vector<coordination::CoordinatorEntityInfo> {
-  return dbms_handler_.CoordinatorState().ShowReplicas();
+auto CoordinatorHandler::DemoteInstanceToReplica(std::string_view instance_name)
+    -> coordination::DemoteInstanceCoordinatorStatus {
+  return coordinator_state_.DemoteInstanceToReplica(instance_name);
 }
 
-auto CoordinatorHandler::PingReplicasOnCoordinator() const -> std::unordered_map<std::string_view, bool> {
-  return dbms_handler_.CoordinatorState().PingReplicas();
+auto CoordinatorHandler::SetReplicationInstanceToMain(std::string_view instance_name)
+    -> coordination::SetInstanceToMainCoordinatorStatus {
+  return coordinator_state_.SetReplicationInstanceToMain(instance_name);
 }
 
-auto CoordinatorHandler::ShowMainOnCoordinator() const -> std::optional<coordination::CoordinatorEntityInfo> {
-  return dbms_handler_.CoordinatorState().ShowMain();
+auto CoordinatorHandler::ForceResetClusterState() -> coordination::ReconcileClusterStateStatus {
+  // Query is called ForceResetClusterState but internally we have function which verifies and corrects
+  // cluster state
+  return coordinator_state_.ReconcileClusterState();
 }
 
-auto CoordinatorHandler::PingMainOnCoordinator() const -> std::optional<coordination::CoordinatorEntityHealthInfo> {
-  return dbms_handler_.CoordinatorState().PingMain();
+auto CoordinatorHandler::YieldLeadership() const -> coordination::YieldLeadershipStatus {
+  return coordinator_state_.YieldLeadership();
 }
 
-auto CoordinatorHandler::DoFailover() const -> DoFailoverStatus {
-  auto status = dbms_handler_.CoordinatorState().DoFailover();
-  switch (status) {
-    case memgraph::coordination::DoFailoverStatus::ALL_REPLICAS_DOWN:
-      return memgraph::dbms::DoFailoverStatus::ALL_REPLICAS_DOWN;
-    case memgraph::coordination::DoFailoverStatus::SUCCESS:
-      return memgraph::dbms::DoFailoverStatus::SUCCESS;
-    case memgraph::coordination::DoFailoverStatus::MAIN_ALIVE:
-      return memgraph::dbms::DoFailoverStatus::MAIN_ALIVE;
-    case memgraph::coordination::DoFailoverStatus::CLUSTER_UNINITIALIZED:
-      return memgraph::dbms::DoFailoverStatus::CLUSTER_UNINITIALIZED;
-  }
+auto CoordinatorHandler::SetCoordinatorSetting(std::string_view const setting_name,
+                                               std::string_view const setting_value) const
+    -> coordination::SetCoordinatorSettingStatus {
+  return coordinator_state_.SetCoordinatorSetting(setting_name, setting_value);
+}
+
+auto CoordinatorHandler::CreateRole(std::string_view const role_name) const -> coordination::CreateRoleStatus {
+  return coordinator_state_.CreateRole(role_name);
+}
+
+auto CoordinatorHandler::DropRole(std::string_view const role_name) const -> coordination::DropRoleStatus {
+  return coordinator_state_.DropRole(role_name);
+}
+
+auto CoordinatorHandler::GetRoles() const -> std::optional<std::vector<coordination::CoordinatorRole>> {
+  return coordinator_state_.GetRoles();
+}
+
+auto CoordinatorHandler::GrantPrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> coordination::GrantPrivilegeStatus {
+  return coordinator_state_.GrantPrivilege(role_name, privileges);
+}
+
+auto CoordinatorHandler::RevokePrivilege(std::string_view const role_name, uint64_t const privileges) const
+    -> coordination::RevokePrivilegeStatus {
+  return coordinator_state_.RevokePrivilege(role_name, privileges);
+}
+
+auto CoordinatorHandler::GetRolePrivileges(std::string_view const role_name) const
+    -> std::optional<std::pair<bool, uint64_t>> {
+  return coordinator_state_.GetRolePrivileges(role_name);
+}
+
+auto CoordinatorHandler::ShowCoordinatorSettings() const
+    -> std::optional<std::vector<std::pair<std::string, std::string>>> {
+  return coordinator_state_.ShowCoordinatorSettings();
+}
+
+auto CoordinatorHandler::ShowReplicationLag() const -> std::optional<coordination::ReplicationLagResult> {
+  return coordinator_state_.ShowReplicationLag();
+}
+
+auto CoordinatorHandler::GetRoutingTable(std::string_view const db_name) const -> coordination::RoutingTable {
+  return coordinator_state_.GetRoutingTable(db_name);
+}
+
+auto CoordinatorHandler::ShowInstance() const -> coordination::InstanceStatus {
+  return coordinator_state_.ShowInstance();
+}
+
+auto CoordinatorHandler::ShowInstances() const -> std::optional<std::vector<coordination::InstanceStatus>> {
+  return coordinator_state_.ShowInstances();
+}
+
+auto CoordinatorHandler::AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
+    -> coordination::AddCoordinatorInstanceStatus {
+  return coordinator_state_.AddCoordinatorInstance(config);
+}
+
+auto CoordinatorHandler::RemoveCoordinatorInstance(int32_t coordinator_id)
+    -> coordination::RemoveCoordinatorInstanceStatus {
+  return coordinator_state_.RemoveCoordinatorInstance(coordinator_id);
+}
+
+auto CoordinatorHandler::GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData> {
+  return coordinator_state_.GetLeaderCoordinatorData();
+}
+
+auto CoordinatorHandler::UpdateConfig(coordination::UpdateInstanceConfig const &config)
+    -> coordination::UpdateConfigStatus {
+  return coordinator_state_.UpdateConfig(config);
 }
 
 }  // namespace memgraph::dbms

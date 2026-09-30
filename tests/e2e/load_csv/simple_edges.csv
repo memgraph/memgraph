@@ -1,0 +1,5 @@
+from_id,edge_type,to_id
+1,EDGE_1,3
+2,EDGE_2,4
+3,EDGE_3,2
+4,EDGE_4,1

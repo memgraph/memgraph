@@ -1,0 +1,146 @@
+name: Run benchmark on pokec large dataset
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmark_on_pokec_large:
+    name: "Benchmark on pokec large dataset"
+    runs-on: [self-hosted, Linux, benchmark]
+    timeout-minutes: 720
+    env:
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: ubuntu-24.04
+      TOOLCHAIN: v8
+      ARCH: amd
+      BUILD_TYPE: RelWithDebInfo
+
+    steps:
+        - name: Set up repository
+          uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+          with:
+            # Number of commits to fetch. `0` indicates all history for all
+            # branches and tags. (default: 1)
+            fetch-depth: 0
+
+        - name: Clean up Docker
+          if: always()
+          continue-on-error: true
+          run: |
+            ./tools/ci/docker_cleanup.sh
+
+        - name: Log in to Docker Hub
+          uses: ./.github/actions/docker-login
+          with:
+            username: ${{ secrets.DOCKERHUB_USERNAME }}
+            password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        - name: Spin up mgbuild container
+          env:
+            GITHUB_TOKEN: ${{ github.token }}
+          run: |
+            USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            run --custom-mirror $USE_CUSTOM_MIRROR
+
+        - name: Check core dump support
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            check-core-dumps
+
+        - name: Build binary
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            build-memgraph --split-debug
+
+        - name: Get branch name (merge)
+          if: github.event_name != 'pull_request'
+          shell: bash
+          run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+
+        - name: Get branch name (pull request)
+          if: github.event_name == 'pull_request'
+          shell: bash
+          run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+
+        - name: Force container into first numa group
+          run: |
+            numagroup="$(./tools/ci/numa-0-cores.sh)"
+            echo "Using numa group: $numagroup"
+            docker update \
+            --cpuset-cpus="$numagroup" \
+            --cpuset-mems="0" \
+            "mgbuild_${TOOLCHAIN}_${OS}"
+
+        - name: Run mgbench
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph mgbench --dataset pokec --size large
+
+        - name: Upload mgbench results
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph upload-to-bench-graph \
+            --benchmark-name "mgbench" \
+            --benchmark-results "../../tests/mgbench/benchmark_result.json" \
+            --github-run-id "${{ github.run_id }}" \
+            --github-run-number "${{ github.run_number }}" \
+            --head-branch-name "${{ env.BRANCH_NAME }}"
+
+        - name: Collect core dumps
+          if: failure()
+          continue-on-error: true
+          env:
+            AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+            MONITORING_HOST: ${{ secrets.MONITORING_HOST }}
+            MONITORING_USERNAME: ${{ secrets.MONITORING_USERNAME }}
+            MONITORING_PASSWORD: ${{ secrets.MONITORING_PASSWORD }}
+            CLUSTER_ID: "${{ github.run_id }}-${{ github.job }}"
+            CLUSTER_ENV: "ci-benchmark-pokec-large"
+          run: |
+            ./tools/ci/core-dumps/collect.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --run-id "${{ github.run_id }}" \
+            --job-id "${{ github.job }}-${{ github.run_attempt }}"
+
+        - name: Stop mgbuild container
+          if: always()
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            stop --remove
+
+        - name: Clean up Docker
+          if: always()
+          continue-on-error: true
+          run: |
+            ./tools/ci/docker_cleanup.sh

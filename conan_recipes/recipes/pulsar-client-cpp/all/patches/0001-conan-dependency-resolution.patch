@@ -1,0 +1,101 @@
+diff --git a/LegacyFindPackages.cmake b/LegacyFindPackages.cmake
+index 3fa78d6..05d0c1b 100644
+--- a/LegacyFindPackages.cmake
++++ b/LegacyFindPackages.cmake
+@@ -45,9 +45,9 @@ if (MSVC)
+     find_package(dlfcn-win32 REQUIRED)
+ endif ()
+ 
+-set(Boost_NO_BOOST_CMAKE ON)
++set(Boost_NO_BOOST_CMAKE OFF)
+ 
+-if (APPLE AND NOT LINK_STATIC)
++if (NOT LINK_STATIC)
+     # The latest Protobuf dependency on macOS requires the C++17 support and
+     # it could only be found by the CONFIG mode
+     set(LATEST_PROTOBUF TRUE)
+@@ -71,7 +71,7 @@ if (LINK_STATIC)
+     endif()
+ endif ()
+ 
+-find_package(Boost REQUIRED)
++find_package(Boost REQUIRED CONFIG)
+ message("Boost_INCLUDE_DIRS: " ${Boost_INCLUDE_DIRS})
+ 
+ set(OPENSSL_ROOT_DIR ${OPENSSL_ROOT_DIR} /usr/lib64/)
+@@ -90,15 +90,24 @@ if (LATEST_PROTOBUF)
+ else ()
+     find_package(Protobuf REQUIRED)
+ endif ()
++if (NOT Protobuf_INCLUDE_DIRS AND protobuf_INCLUDE_DIRS)
++    set(Protobuf_INCLUDE_DIRS ${protobuf_INCLUDE_DIRS})
++endif ()
++if (NOT Protobuf_LIBRARIES AND TARGET protobuf::libprotobuf)
++    set(Protobuf_LIBRARIES protobuf::libprotobuf)
++endif ()
++if (Protobuf_INCLUDE_DIRS)
++    include_directories(BEFORE ${Protobuf_INCLUDE_DIRS})
++endif ()
+ message("Protobuf_INCLUDE_DIRS: " ${Protobuf_INCLUDE_DIRS})
+ message("Protobuf_LIBRARIES: " ${Protobuf_LIBRARIES})
+ 
+ # NOTE: CMake might not find curl and zlib on some platforms like Ubuntu, in this case, find them manually
+-set(CURL_NO_CURL_CMAKE ON)
+-find_package(curl QUIET)
+-if (NOT CURL_FOUND)
+-    find_path(CURL_INCLUDE_DIRS NAMES curl/curl.h)
+-    find_library(CURL_LIBRARIES NAMES curl curllib libcurl_imp curllib_static libcurl)
++find_package(CURL REQUIRED)
++if (TARGET CURL::libcurl)
++    set(CURL_FOUND TRUE)
++    set(CURL_LIBRARIES CURL::libcurl)
++    get_target_property(CURL_INCLUDE_DIRS CURL::libcurl INTERFACE_INCLUDE_DIRECTORIES)
+ endif ()
+ message("CURL_INCLUDE_DIRS: " ${CURL_INCLUDE_DIRS})
+ message("CURL_LIBRARIES: " ${CURL_LIBRARIES})
+@@ -106,7 +115,17 @@ if (NOT CURL_INCLUDE_DIRS OR NOT CURL_LIBRARIES)
+     message(FATAL_ERROR "Could not find libcurl")
+ endif ()
+ 
+-find_package(zlib QUIET)
++if (TARGET ZLIB::ZLIB)
++    set(ZLIB_FOUND TRUE)
++    set(ZLIB_LIBRARIES ZLIB::ZLIB)
++    get_target_property(ZLIB_INCLUDE_DIRS ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)
++else ()
++    find_package(ZLIB REQUIRED)
++    if (TARGET ZLIB::ZLIB)
++        set(ZLIB_LIBRARIES ZLIB::ZLIB)
++        get_target_property(ZLIB_INCLUDE_DIRS ZLIB::ZLIB INTERFACE_INCLUDE_DIRECTORIES)
++    endif ()
++endif ()
+ if (NOT ZLIB_FOUND)
+     find_path(ZLIB_INCLUDE_DIRS NAMES zlib.h)
+     find_library(ZLIB_LIBRARIES NAMES z zlib zdll zlib1 zlibstatic)
+@@ -191,7 +210,7 @@ if(BUILD_PERF_TOOLS)
+     set(BOOST_COMPONENTS ${BOOST_COMPONENTS} program_options)
+ endif()
+ 
+-find_package(Boost REQUIRED COMPONENTS ${BOOST_COMPONENTS})
++find_package(Boost REQUIRED CONFIG COMPONENTS ${BOOST_COMPONENTS})
+ 
+ if (BUILD_TESTS)
+     find_path(GTEST_INCLUDE_PATH gtest/gtest.h)
+diff --git a/lib/CMakeLists.txt b/lib/CMakeLists.txt
+index e34555d..005a58a 100644
+--- a/lib/CMakeLists.txt
++++ b/lib/CMakeLists.txt
+@@ -70,6 +70,13 @@ add_library(PULSAR_OBJECT_LIB OBJECT ${PULSAR_SOURCES})
+ set_property(TARGET PULSAR_OBJECT_LIB PROPERTY POSITION_INDEPENDENT_CODE 1)
+ if (INTEGRATE_VCPKG)
+     target_link_libraries(PULSAR_OBJECT_LIB PROTO_OBJECTS)
++elseif (TARGET protobuf::libprotobuf)
++    target_link_libraries(PULSAR_OBJECT_LIB PRIVATE protobuf::libprotobuf)
++endif ()
++if (Protobuf_INCLUDE_DIRS)
++    target_include_directories(PULSAR_OBJECT_LIB BEFORE PRIVATE ${Protobuf_INCLUDE_DIRS})
++elseif (protobuf_INCLUDE_DIRS)
++    target_include_directories(PULSAR_OBJECT_LIB BEFORE PRIVATE ${protobuf_INCLUDE_DIRS})
+ endif ()
+ target_include_directories(PULSAR_OBJECT_LIB PUBLIC
+     "${CMAKE_SOURCE_DIR}"

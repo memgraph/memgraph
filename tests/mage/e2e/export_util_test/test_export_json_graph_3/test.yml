@@ -1,0 +1,4 @@
+export: >
+  MATCH (d:Dog)-[l]->(h:Human) MATCH (p:Plane)-[f]->(de:Destination) CALL export_util.json_graph([d, h, de], [l], _exportfile) YIELD path RETURN path;
+import: >
+  CALL import_util.json(_exportfile);

@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Licensed as a Memgraph Enterprise file under the Memgraph Enterprise
 // License (the "License"); by using this file, you agree to be bound by the terms of the License, and you may not use
@@ -9,12 +9,15 @@
 /// @file
 #pragma once
 
+#include <sys/types.h>
+#include <array>
+#include <cstdint>
 #include <filesystem>
 #include <map>
+#include <memory>
 #include <mutex>
+#include <nlohmann/json_fwd.hpp>
 #include <string>
-
-#include <json/json.hpp>
 
 namespace memgraph::auth {
 struct TargetArguments {
@@ -26,7 +29,7 @@ struct TargetArguments {
 /// Wrapper around the module executable.
 class Module final {
  private:
-  const int kStackSizeBytes = 262144;
+  const int kStackSizeBytes = 262'144;
 
  public:
   explicit Module(const std::filesystem::path &module_executable_path);
@@ -43,13 +46,7 @@ class Module final {
   /// @param timeout_millisec timeout in ms used for communication with the
   ///                         module
   /// @return dict retuned by module function
-  nlohmann::json Call(const nlohmann::json &params, int timeout_millisec);
-
-  /// This function returns a boolean value indicating whether the module has a
-  /// specified executable path and can thus be used.
-  ///
-  /// @return boolean indicating whether the module can be used
-  bool IsUsed();
+  nlohmann::json Call(nlohmann::json params, int timeout_millisec);
 
   ~Module();
 
@@ -59,14 +56,15 @@ class Module final {
 
   std::filesystem::path module_executable_path_;
   std::mutex lock_;
+  uint64_t call_id_{0};
   pid_t pid_{-1};
   int status_{0};
   // The stack used for the `clone` system call must be heap allocated.
   std::unique_ptr<uint8_t[]> stack_{new uint8_t[kStackSizeBytes]};
   // The target arguments passed to the new process must be heap allocated.
   std::unique_ptr<TargetArguments> target_arguments_{new TargetArguments()};
-  int pipe_to_module_[2] = {-1, -1};
-  int pipe_from_module_[2] = {-1, -1};
+  std::array<int, 2> pipe_to_module_ = {-1, -1};
+  std::array<int, 2> pipe_from_module_ = {-1, -1};
 };
 
 }  // namespace memgraph::auth

@@ -1,106 +1,532 @@
 name: Daily Benchmark
 
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
 on:
   workflow_dispatch:
+    inputs:
+      loop_count:
+        type: number
+        description: "Number of times to run the benchmarks. Default is 10. Not applied to HA suites"
+        default: 10
+      load_parquet:
+        type: boolean
+        description: "load-parquet"
+        default: true
+      mgbench_vector_search_index:
+        type: boolean
+        description: "mgbench-vector-search-index"
+        default: true
+      mgbench_vector_search_edge_index:
+        type: boolean
+        description: "mgbench-vector-search-edge-index"
+        default: true
+      mgbench_text_search_index:
+        type: boolean
+        description: "mgbench-text-search-index"
+        default: true
+      mgbench_text_search_edge_index:
+        type: boolean
+        description: "mgbench-text-search-edge-index"
+        default: true
+      macro_benchmark:
+        type: boolean
+        description: "macro-benchmark"
+        default: true
+      mgbench_supernode:
+        type: boolean
+        description: "mgbench-supernode"
+        default: true
+      mgbench:
+        type: boolean
+        description: "mgbench"
+        default: true
+      planner:
+        type: boolean
+        description: "planner"
+        default: true
+      mgbench_ha:
+        type: boolean
+        description: "mgbench-ha"
+        default: true
+      mgbench_ha_2_replicas:
+        type: boolean
+        description: "mgbench-ha-2-replicas"
+        default: true
+      mgbench_ha_async:
+        type: boolean
+        description: "mgbench-ha-async"
+        default: true
+      mgbench_ha_strict_sync:
+        type: boolean
+        description: "mgbench-ha-strict-sync"
+        default: true
+      mgbench_ha_2_strict_sync:
+        type: boolean
+        description: "mgbench-ha-2-strict-sync"
+        default: true
+      mgbench_ha_sync_async:
+        type: boolean
+        description: "mgbench-ha-sync-async"
+        default: true
+      mgbench_ha_strict_sync_async:
+        type: boolean
+        description: "mgbench-ha-strict-sync-async"
+        default: true
+      mgbench_ha_2_async:
+        type: boolean
+        description: "mgbench-ha-2-async"
+        default: true
+      mgbench_ha_2rep_rust:
+        type: boolean
+        description: "mgbench-ha-2rep-rust (native Rust routing load-gen)"
+        default: true
   schedule:
-    - cron: "0 22 * * *"
+    - cron: "0 0 * * *"
 
 jobs:
   release_benchmarks:
-    name: "Release benchmarks"
-    runs-on: [self-hosted, Linux, X64, Diff, Gen7]
+    name: "Daily benchmarks"
+    runs-on: [self-hosted, Linux, benchmark]
+    timeout-minutes: 900
     env:
-      THREADS: 24
+      ARCH: "amd"
+      OS: "ubuntu-24.04"
+      TOOLCHAIN: "v8"
+      BUILD_TYPE: "RelWithDebInfo"
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
+      DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE: 'benchmark_result_ha.json'
+      DEFAULT_MGBENCH_HA_2_REPLICAS_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_replicas.json'
+      DEFAULT_MGBENCH_HA_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_async.json'
+      DEFAULT_MGBENCH_HA_STRICT_SYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync.json'
+      DEFAULT_MGBENCH_HA_2_STRICT_SYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_strict_sync.json'
+      DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_async.json'
+      DEFAULT_MGBENCH_HA_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_sync_async.json'
+      DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync_async.json'
+      DEFAULT_MGBENCH_HA_2REP_RUST_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_rust.json'
+      LOOP_COUNT: ${{ inputs.loop_count || 10 }}
+      CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
+      CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
+      CONAN_PASSWORD: ${{ secrets.CONAN_PASSWORD }}
 
     steps:
       - name: Set up repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
         with:
-          # Number of commits to fetch. `0` indicates all history for all
-          # branches and tags. (default: 1)
           fetch-depth: 0
 
-      - name: Build release binaries
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          # Activate toolchain.
-          source /opt/toolchain-v4/activate
+          ./tools/ci/docker_cleanup.sh
 
-          # Initialize dependencies.
-          ./init
+      - name: Log in to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-          # Build only memgraph release binaries.
-          cd build
-          cmake -DCMAKE_BUILD_TYPE=release ..
-          make -j$THREADS
-
-      - name: Run macro benchmarks
+      - name: Spin up mgbuild container
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          cd tests/macro_benchmark
-          ./harness QuerySuite MemgraphRunner \
-            --groups aggregation 1000_create unwind_create dense_expand match \
-            --no-strict
+          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          run --custom-mirror $USE_CUSTOM_MIRROR
 
-      - name: Get branch name (merge)
-        if: github.event_name != 'pull_request'
+      - name: Build release binary
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          build-memgraph \
+          --split-debug \
+          --conan-remote $CONAN_REMOTE \
+          --conan-username $CONAN_USERNAME \
+          --conan-password $CONAN_PASSWORD
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
+      - name: Get branch name
         shell: bash
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
-
-      - name: Get branch name (pull request)
-        if: github.event_name == 'pull_request'
-        shell: bash
-        run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
-
-      - name: Upload macro benchmark results
         run: |
-          cd tools/bench-graph-client
-          virtualenv -p python3 ve3
-          source ve3/bin/activate
-          pip install -r requirements.txt
-          ./main.py --benchmark-name "macro_benchmark" \
-                    --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
+          if [[ ${{ github.event_name }} == 'pull_request' ]]; then
+            echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+          else
+            echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+          fi
 
-      - name: Run mgbench
+      - name: Force container into first numa group
         run: |
-          cd tests/mgbench
-          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results benchmark_pokec.json pokec/medium/*/*
+          numagroup="$(./tools/ci/numa-0-cores.sh)"
+          echo "Using numa group: $numagroup"
+          docker update \
+          --cpuset-cpus="$numagroup" \
+          --cpuset-mems="0" \
+          "mgbuild_${TOOLCHAIN}_${OS}"
 
-          ./benchmark.py vendor-native --num-workers-for-benchmark 1 --export-results benchmark_supernode.json supernode
 
-          ./benchmark.py vendor-native --num-workers-for-benchmark 1 --export-results benchmark_high_write_set_property.json high_write_set_property
-
-          ./benchmark.py vendor-native --num-workers-for-benchmark 12 --export-results cartesian.json cartesian
-
-      - name: Upload mgbench results
+      - name: Run and upload mgbench-ha
+        id: mgbench-ha
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
         run: |
-          cd tools/bench-graph-client
-          virtualenv -p python3 ve3
-          source ve3/bin/activate
-          pip install -r requirements.txt
-          ./main.py --benchmark-name "mgbench" \
-                    --benchmark-results "../../tests/mgbench/benchmark_pokec.json" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-ha \
+            mgbench-ha \
+            ${{ env.DEFAULT_MGBENCH_HA_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
 
-          ./main.py --benchmark-name "supernode" \
-                    --benchmark-results "../../tests/mgbench/benchmark_supernode.json" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
+      # CPU-pinned 2-replica cluster (reads-on-main ON): 3 arms (point / heavy / splitslowmix) × 2 targets (direct / routing); Rust auto-commit execute_query only.
+      - name: Widen container across all NUMA nodes (HA-2rep)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2rep_rust }}
+        run: |
+          allcpus="$(cat /sys/devices/system/node/node[0-9]*/cpulist | paste -sd, -)"
+          allmems="$(ls -d /sys/devices/system/node/node[0-9]* | sed 's#.*/node##' | paste -sd, -)"
+          echo "Widening container to cpus=$allcpus mems=$allmems"
+          docker update \
+          --cpuset-cpus="$allcpus" \
+          --cpuset-mems="$allmems" \
+          "mgbuild_${TOOLCHAIN}_${OS}"
 
-          ./main.py --benchmark-name "high_write_set_property" \
-                    --benchmark-results "../../tests/mgbench/benchmark_high_write_set_property.json" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
+      # Native Rust routing client (point/heavy reads + split read/write) on the pinned 2-replica cluster — the only client
+      # fast enough to saturate the replicas and show read fan-out that the python client cannot.
+      - name: Run and upload mgbench-ha-2rep-rust
+        id: mgbench-ha-2rep-rust
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2rep_rust }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha-rust" \
+            mgbench-ha-2rep-rust \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_RUST_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
 
-          ./main.py --benchmark-name "cartesian" \
-                    --benchmark-results "../../tests/mgbench/cartesian.json" \
-                    --github-run-id "${{ github.run_id }}" \
-                    --github-run-number "${{ github.run_number }}" \
-                    --head-branch-name "${{ env.BRANCH_NAME }}"
+      - name: Restore container to first NUMA node
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2rep_rust }}
+        run: |
+          numagroup="$(./tools/ci/numa-0-cores.sh)"
+          echo "Restoring container to numa group: $numagroup"
+          docker update \
+          --cpuset-cpus="$numagroup" \
+          --cpuset-mems="0" \
+          "mgbuild_${TOOLCHAIN}_${OS}"
+
+      - name: Run and upload mgbench-ha-2-replicas
+        id: mgbench-ha-2-replicas
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2_replicas }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_2_replicas.yaml" \
+            mgbench-ha-2-replicas \
+            ${{ env.DEFAULT_MGBENCH_HA_2_REPLICAS_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-async
+        id: mgbench-ha-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_async }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_async.yaml" \
+            mgbench-ha-async \
+            ${{ env.DEFAULT_MGBENCH_HA_ASYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-strict-sync
+        id: mgbench-ha-strict-sync
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_strict_sync }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_strict_sync.yaml" \
+            mgbench-ha-strict-sync \
+            ${{ env.DEFAULT_MGBENCH_HA_STRICT_SYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2-strict-sync
+        id: mgbench-ha-2-strict-sync
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2_strict_sync }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_2_strict_sync.yaml" \
+            mgbench-ha-2-strict-sync \
+            ${{ env.DEFAULT_MGBENCH_HA_2_STRICT_SYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-sync-async
+        id: mgbench-ha-sync-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_sync_async }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_sync_async.yaml" \
+            mgbench-ha-sync-async \
+            ${{ env.DEFAULT_MGBENCH_HA_SYNC_ASYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-strict-sync-async
+        id: mgbench-ha-strict-sync-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_strict_sync_async }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_strict_sync_async.yaml" \
+            mgbench-ha-strict-sync-async \
+            ${{ env.DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-ha-2-async
+        id: mgbench-ha-2-async
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2_async }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: 1
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha --cluster-description ha_cluster_2_async.yaml" \
+            mgbench-ha-2-async \
+            ${{ env.DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload load_parquet benchmark
+        id: load-parquet
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.load_parquet }}
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-load-parquet \
+            load-parquet \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME
+
+      - name: Run and upload mgbench-vector-search-index
+        id: mgbench-vector-search-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_vector_search_index }}
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-vector-search-index \
+            vector-search-index \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-vector-search-edge-index
+        id: mgbench-vector-search-edge-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_vector_search_edge_index }}
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-vector-search-edge-index \
+            vector-search-edge-index \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-text-search-index
+        id: mgbench-text-search-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_text_search_index }}
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-text-search-index \
+            text-search-index \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench-text-search-edge-index
+        id: mgbench-text-search-edge-index
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_text_search_edge_index }}
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-text-search-edge-index \
+            text-search-edge-index \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload macro benchmarks
+        id: macro-benchmark
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.macro_benchmark }}
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            macro-benchmark \
+            macro_benchmark \
+            .harness_summary \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            macro_benchmark
+
+      - name: Run and upload mgbench-supernode
+        id: mgbench-supernode
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_supernode }}
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench-supernode \
+            supernode \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run and upload mgbench
+        id: mgbench
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench }}
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            mgbench \
+            mgbench \
+            ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Run extended planner optimizations mgbench
+        id: planner
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.planner }}
+        continue-on-error: true
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench --dataset pokec_planner_optimizations --size medium" \
+            mgbench-planner-optimizations \
+            benchmark_result_extended.json \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Stop mgbuild container
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/ci/docker_cleanup.sh
+
+      - name: Trigger Regression Detection Job
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
+        run: |
+          curl -X POST \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            https://api.github.com/repos/memgraph/infra/dispatches \
+            -d "{\"event_type\": \"regression-detection\"}"
+
+      - name: Set Job Status
+        run: |
+          # Only an explicit failure fails the job. A step disabled with `if: false`, or never
+          # reached, reports "skipped" or nothing, and must not be read as a failed benchmark.
+          check() {
+            case "$2" in
+              failure) echo "FAILED   $1"; failed="$failed $1" ;;
+              success) echo "ok       $1" ;;
+              *)       echo "skipped  $1" ;;
+            esac
+          }
+          failed=""
+          check mgbench-ha                       "${{ steps.mgbench-ha.outcome }}"
+          check load-parquet                     "${{ steps.load-parquet.outcome }}"
+          check mgbench-vector-search-index      "${{ steps.mgbench-vector-search-index.outcome }}"
+          check mgbench-vector-search-edge-index "${{ steps.mgbench-vector-search-edge-index.outcome }}"
+          check mgbench-text-search-index        "${{ steps.mgbench-text-search-index.outcome }}"
+          check mgbench-text-search-edge-index   "${{ steps.mgbench-text-search-edge-index.outcome }}"
+          check macro-benchmark                  "${{ steps.macro-benchmark.outcome }}"
+          check mgbench-supernode                "${{ steps.mgbench-supernode.outcome }}"
+          check mgbench                          "${{ steps.mgbench.outcome }}"
+          check planner                          "${{ steps.planner.outcome }}"
+          if [ -n "$failed" ]; then
+            echo "success=false" >> $GITHUB_OUTPUT
+            echo "Failed benchmarks:$failed"
+            exit 1
+          fi
+          echo "success=true" >> $GITHUB_OUTPUT
+          echo "All benchmarks that ran succeeded"

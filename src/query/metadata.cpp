@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,6 @@
 
 #include "query/metadata.hpp"
 
-#include <algorithm>
-#include <compare>
 #include <string>
 #include <string_view>
 
@@ -67,15 +65,33 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
     case NotificationCode::REGISTER_REPLICA:
       return "RegisterReplica"sv;
 #ifdef MG_ENTERPRISE
-    case NotificationCode::REGISTER_COORDINATOR_SERVER:
-      return "RegisterCoordinatorServer"sv;
-    case NotificationCode::DO_FAILOVER:
-      return "DoFailover"sv;
+    case NotificationCode::REGISTER_REPLICATION_INSTANCE:
+      return "RegisterReplicationInstance"sv;
+    case NotificationCode::ADD_COORDINATOR_INSTANCE:
+      return "AddCoordinatorInstance"sv;
+    case NotificationCode::REMOVE_COORDINATOR_INSTANCE:
+      return "RemoveCoordinatorInstance"sv;
+    case NotificationCode::UPDATE_CONFIG:
+      return "UpdateConfig"sv;
+    case NotificationCode::UNREGISTER_INSTANCE:
+      return "UnregisterInstance"sv;
+    case NotificationCode::DEMOTE_INSTANCE_TO_REPLICA:
+      return "DemoteInstanceToReplica"sv;
+    case NotificationCode::FORCE_RESET_CLUSTER_STATE:
+      return "ReconcileClusterState"sv;
+    case NotificationCode::YIELD_LEADERSHIP:
+      return "YieldLeadership"sv;
+    case NotificationCode::LEADER_NOT_REACHABLE:
+      return "LeaderNotReachable"sv;
+    case NotificationCode::REPLICATION_LAG_UNAVAILABLE:
+      return "ReplicationLagUnavailable"sv;
 #endif
     case NotificationCode::REPLICA_PORT_WARNING:
       return "ReplicaPortWarning"sv;
     case NotificationCode::SET_REPLICA:
       return "SetReplica"sv;
+    case NotificationCode::SYNC_REPLICATION_FAILURE:
+      return "SyncReplicationFailure"sv;
     case NotificationCode::START_STREAM:
       return "StartStream"sv;
     case NotificationCode::START_ALL_STREAMS:
@@ -84,6 +100,22 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "StopStream"sv;
     case NotificationCode::STOP_ALL_STREAMS:
       return "StopAllStreams"sv;
+    case NotificationCode::ENABLE_TTL:
+      return "EnableTTL"sv;
+    case NotificationCode::DISABLE_TTL:
+      return "DisableTTL"sv;
+    case NotificationCode::STOP_TTL:
+      return "StopTTL"sv;
+    case NotificationCode::PARALLEL_EXECUTION_FALLBACK:
+      return "ParallelExecutionFallback"sv;
+    case NotificationCode::RELOAD_SSL:
+      return "ReloadSSL"sv;
+    case NotificationCode::INDEX_CONSTRAINT_NAME_IGNORED:
+      return "IndexConstraintNameIgnored"sv;
+    case NotificationCode::CREATE_USER:
+      return "CreateUser"sv;
+    case NotificationCode::CREATE_ROLE:
+      return "CreateRole"sv;
   }
 }
 }  // namespace
@@ -91,10 +123,10 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
 Notification::Notification(SeverityLevel level) : level{level} {};
 
 Notification::Notification(SeverityLevel level, NotificationCode code, std::string title, std::string description)
-    : level{level}, code{code}, title(std::move(title)), description(std::move(description)){};
+    : level{level}, code{code}, title(std::move(title)), description(std::move(description)) {};
 
 Notification::Notification(SeverityLevel level, NotificationCode code, std::string title)
-    : level{level}, code{code}, title(std::move(title)){};
+    : level{level}, code{code}, title(std::move(title)) {};
 
 std::map<std::string, TypedValue> Notification::ConvertToMap() const {
   return std::map<std::string, TypedValue>{{"severity", TypedValue(GetSeverityLevelString(level))},

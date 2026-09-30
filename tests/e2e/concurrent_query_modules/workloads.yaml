@@ -9,7 +9,7 @@ in_memory_cluster: &in_memory_cluster
     main:
       args: *args
       log_file: "concurrent-query-modules-e2e.log"
-      setup_queries: []
+      setup_queries: ["UNWIND range(1, 5) AS i CREATE (n:Node {id: i})"]
       validation_queries: []
 
 disk_cluster: &disk_cluster
@@ -17,7 +17,7 @@ disk_cluster: &disk_cluster
     main:
       args: *args
       log_file: "concurrent-query-modules-e2e.log"
-      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL"]
+      setup_queries: ["STORAGE MODE ON_DISK_TRANSACTIONAL", "UNWIND range(1, 5) AS i CREATE (n:Node {id: i})"]
       validation_queries: []
 
 workloads:

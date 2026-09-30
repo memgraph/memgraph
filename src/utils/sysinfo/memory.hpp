@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,8 +11,9 @@
 
 #pragma once
 
+#include <cstdint>
 #include <fstream>
-#include <iostream>
+#include <iosfwd>
 #include <limits>
 #include <optional>
 
@@ -26,16 +27,16 @@ namespace memgraph::utils::sysinfo {
  */
 std::optional<uint64_t> AvailableMemory();
 
-/**
- * Gets the amount of total RAM in KiB. If the information is
- * unavalable an empty value is returned.
- */
-std::optional<uint64_t> TotalMemory();
+struct MemoryCapacity {
+  uint64_t ram_kib = 0;
+  uint64_t swap_kib = 0;
+};
 
 /**
- * Gets the amount of total swap space in KiB. If the information is
- * unavalable an empty value is returned.
+ * Gets the amount of total RAM and total swap space in KiB with a single
+ * sysinfo(2) call. If the information is unavailable an empty value is
+ * returned.
  */
-std::optional<uint64_t> SwapTotalMemory();
+std::optional<MemoryCapacity> InstalledMemory();
 
 }  // namespace memgraph::utils::sysinfo

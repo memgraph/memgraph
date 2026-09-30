@@ -187,7 +187,7 @@ Feature: Merge feature
         Then the result should be:
             | r    |
             | [:X] |
- 
+
     Scenario: Merge relationship test02
         Given an empty graph
         And having executed:
@@ -417,4 +417,123 @@ Feature: Merge feature
             | ({a: 1}) |
             | ({a: 2}) |
             | ({a: 3)) |
- 
+
+    Scenario: Merge node with null property error
+        Given an empty graph
+        When executing query:
+            """
+            MERGE ({id: null})
+            """
+        Then an error should be raised
+
+    Scenario: Merge node with one null property error
+        Given an empty graph
+        When executing query:
+            """
+            MERGE ({id2: 1, id: null})
+            """
+        Then an error should be raised
+
+    Scenario: Merge edge with null property error
+        Given an empty graph
+        When executing query:
+            """
+            MERGE ()-[:TYPE {id:null}]->()
+            """
+        Then an error should be raised
+
+    Scenario: Merge node with unwind with null property error
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, null, 3] as x
+            MERGE ({id: x})
+            """
+        Then an error should be raised
+
+    Scenario: Merge edge with unwind with null property error
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, null, 3] as x
+            MERGE ()-[:TYPE {id:x}]->()
+            """
+        Then an error should be raised
+
+    Scenario: Merge node with null in properties on match passes
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({a: 1})
+            """
+        When executing query:
+            """
+            MERGE (n {a: 1})
+            ON MATCH SET n.prop = null
+            ON CREATE SET n.prop = null;
+            """
+        Then the result should be empty
+
+    Scenario: Merge edge with null in properties on match passes
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ()-[:TYPE {a: 1}]->()
+            """
+        When executing query:
+            """
+            MERGE ()-[r:TYPE {a: 1}]->()
+            ON MATCH SET r.prop = null
+            ON CREATE SET r.prop = null;
+            """
+        Then the result should be empty
+
+    Scenario: Merge node with null in properties on create passes
+        Given an empty graph
+        When executing query:
+            """
+            MERGE (n {a: 1})
+            ON MATCH SET n.prop = null
+            ON CREATE SET n.prop = null;
+            """
+        Then the result should be empty
+
+    Scenario: Merge edge with null in properties on create passes
+        Given an empty graph
+        When executing query:
+            """
+            MERGE ()-[r:TYPE {a: 1}]->()
+            ON MATCH SET r.prop = null
+            ON CREATE SET r.prop = null;
+            """
+        Then the result should be empty
+
+    Scenario: Merge followed by Create must terminate (issue #1333)
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (), ()
+            """
+        When executing query:
+            """
+            MERGE (n0) MERGE (n1) CREATE (c0)
+            """
+        Then the result should be empty
+
+    Scenario: Merge followed by Create bounded count (issue #1333)
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (), ()
+            """
+        And having executed:
+            """
+            MERGE (n0) MERGE (n1) CREATE (c0)
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN count(n) AS c
+            """
+        Then the result should be:
+            | c |
+            | 8 |

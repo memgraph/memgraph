@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,12 +13,14 @@
 
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::replication_coordination_glue {
 
 struct FrequentHeartbeatReq {
-  static const utils::TypeInfo kType;  // TODO: make constexpr?
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ,
+                                         .name = "FrequentHeartbeatReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
@@ -26,8 +28,9 @@ struct FrequentHeartbeatReq {
 };
 
 struct FrequentHeartbeatRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_FREQUENT_HEARTBEAT_RES,
+                                         .name = "FrequentHeartbeatRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
@@ -36,7 +39,35 @@ struct FrequentHeartbeatRes {
 
 using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
 
-void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder);
+struct SwapMainUUIDReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SWAP_UUID_REQ, .name = "SwapMainUUIDReq"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(SwapMainUUIDReq *self, memgraph::slk::Reader *reader);
+  static void Save(const SwapMainUUIDReq &self, memgraph::slk::Builder *builder);
+
+  explicit SwapMainUUIDReq(const utils::UUID &uuid) : uuid(uuid) {}
+
+  SwapMainUUIDReq() = default;
+
+  utils::UUID uuid;
+};
+
+struct SwapMainUUIDRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SWAP_UUID_RES, .name = "SwapMainUUIDRes"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(SwapMainUUIDRes *self, memgraph::slk::Reader *reader);
+  static void Save(const SwapMainUUIDRes &self, memgraph::slk::Builder *builder);
+
+  explicit SwapMainUUIDRes(bool success) : success(success) {}
+
+  SwapMainUUIDRes() = default;
+
+  bool success;
+};
+
+using SwapMainUUIDRpc = rpc::RequestResponse<SwapMainUUIDReq, SwapMainUUIDRes>;
 
 }  // namespace memgraph::replication_coordination_glue
 
@@ -46,4 +77,10 @@ void Load(memgraph::replication_coordination_glue::FrequentHeartbeatRes *self, m
 void Save(const memgraph::replication_coordination_glue::FrequentHeartbeatReq & /*self*/,
           memgraph::slk::Builder * /*builder*/);
 void Load(memgraph::replication_coordination_glue::FrequentHeartbeatReq * /*self*/, memgraph::slk::Reader * /*reader*/);
+
+// SwapMainUUIDRpc
+void Save(const memgraph::replication_coordination_glue::SwapMainUUIDReq &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication_coordination_glue::SwapMainUUIDReq *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::replication_coordination_glue::SwapMainUUIDRes &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication_coordination_glue::SwapMainUUIDRes *self, memgraph::slk::Reader *reader);
 }  // namespace memgraph::slk

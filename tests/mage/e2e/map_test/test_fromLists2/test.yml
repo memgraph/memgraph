@@ -1,0 +1,5 @@
+query: >
+  RETURN map.from_lists(["name", "surname","list"],["Pero", "Peric",[1,2,4,5]]) AS result;
+
+output:
+  - result: {"list": [1,2,4,5],"name": "Pero","surname": "Peric"}

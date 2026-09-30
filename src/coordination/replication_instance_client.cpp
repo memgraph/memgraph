@@ -1,0 +1,133 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#ifdef MG_ENTERPRISE
+
+#include "coordination/replication_instance_client.hpp"
+
+#include "coordination/coordinator_instance.hpp"
+#include "coordination/coordinator_rpc.hpp"
+#include "metrics/scoped_histogram_timer.hpp"
+#include "replication_coordination_glue/common.hpp"
+
+#include <string>
+
+namespace memgraph::coordination {
+
+// clang-format off
+// NOLINTBEGIN(cppcoreguidelines-macro-usage,bugprone-macro-parentheses)
+#define RpcInfoSpecialize(RPC, SUCC, FAIL, HIST)                                                             \
+  template <>                                                                                                \
+  prometheus::Counter *RpcInfo<RPC>::succ_counter() { return metrics::Metrics().global.SUCC; }              \
+  template <>                                                                                                \
+  prometheus::Counter *RpcInfo<RPC>::fail_counter() { return metrics::Metrics().global.FAIL; }              \
+  template <>                                                                                                \
+  prometheus::Histogram *RpcInfo<RPC>::histogram() { return metrics::Metrics().global.HIST; }
+// NOLINTEND(cppcoreguidelines-macro-usage,bugprone-macro-parentheses)
+
+RpcInfoSpecialize(PromoteToMainRpc,            promote_to_main_rpc_success,               promote_to_main_rpc_fail,               promote_to_main_rpc_seconds)
+RpcInfoSpecialize(DemoteMainToReplicaRpc,      demote_main_to_replica_rpc_success,        demote_main_to_replica_rpc_fail,        demote_main_to_replica_rpc_seconds)
+RpcInfoSpecialize(RegisterReplicaOnMainRpc,    register_replica_on_main_rpc_success,      register_replica_on_main_rpc_fail,      register_replica_on_main_rpc_seconds)
+RpcInfoSpecialize(UnregisterReplicaRpc,        unregister_replica_rpc_success,            unregister_replica_rpc_fail,            unregister_replica_rpc_seconds)
+RpcInfoSpecialize(UpdateDataInstanceConfigRpc, update_data_instance_config_rpc_success,   update_data_instance_config_rpc_fail,   update_data_instance_config_rpc_seconds)
+    // clang-format on
+
+    ReplicationInstanceClient::ReplicationInstanceClient(std::string instance_name, io::network::Endpoint mgt_server,
+                                                         CoordinatorInstance *coord_instance,
+                                                         const std::chrono::seconds instance_health_check_frequency_sec,
+                                                         std::optional<utils::TlsConfig> const &tls_config)
+    : rpc_context_{communication::CreateClientContext(tls_config)},
+      rpc_client_{std::move(mgt_server), &rpc_context_},
+      instance_name_(std::move(instance_name)),
+      coord_instance_(coord_instance),
+      instance_health_check_frequency_sec_(instance_health_check_frequency_sec) {}
+
+auto ReplicationInstanceClient::InstanceName() const -> std::string const & { return instance_name_; }
+
+void ReplicationInstanceClient::UpdateHealthCheckFrequencySec(std::chrono::seconds const &new_config) const {
+  // Called on an already-running checker (runtime setting change), so wake it rather than SetInterval.
+  instance_checker_.SetIntervalAndWake(new_config);
+}
+
+void ReplicationInstanceClient::StartStateCheck() {
+  if (instance_checker_.IsRunning()) {
+    return;
+  }
+
+  MG_ASSERT(instance_health_check_frequency_sec_ >= std::chrono::seconds{kMinInstanceHealthCheckFreqSec},
+            "Health check frequency must be at least {}s",
+            kMinInstanceHealthCheckFreqSec);
+
+  instance_checker_.SetInterval(instance_health_check_frequency_sec_);
+  instance_checker_.Run(instance_name_, [this] {
+    if (auto const maybe_res = SendStateCheckRpc()) {
+      coord_instance_->InstanceSuccessCallback(instance_name_, *maybe_res);
+    } else {
+      coord_instance_->InstanceFailCallback(instance_name_);
+    }
+  });
+}
+
+void ReplicationInstanceClient::StopStateCheck() { instance_checker_.Stop(); }
+
+void ReplicationInstanceClient::PauseStateCheck() { instance_checker_.Pause(); }
+
+void ReplicationInstanceClient::ResumeStateCheck() { instance_checker_.Resume(); }
+
+auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<InstanceState> {
+  auto &g = metrics::Metrics().global;
+  metrics::ScopedHistogramTimer const timer{g.state_check_rpc_seconds};
+  try {
+    auto stream{rpc_client_.Stream<StateCheckRpc>()};
+    auto res = stream.SendAndWait();
+    g.state_check_rpc_success->Increment();
+    return res.arg_;
+  } catch (rpc::RpcFailedException const &e) {
+    spdlog::warn("Failed to receive response to StateCheckRpc. Error occurred: {}", e.what());
+    g.state_check_rpc_fail->Increment();
+    return {};
+  }
+}
+
+auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
+    -> std::optional<replication_coordination_glue::InstanceInfo> {
+  auto &g = metrics::Metrics().global;
+  metrics::ScopedHistogramTimer const timer{g.get_database_histories_rpc_seconds};
+  try {
+    auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
+    auto res = stream.SendAndWait();
+    g.get_database_histories_rpc_success->Increment();
+    return res.arg_;
+  } catch (const rpc::RpcFailedException &e) {
+    spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
+    g.get_database_histories_rpc_fail->Increment();
+    return {};
+  }
+}
+
+auto ReplicationInstanceClient::SendGetReplicationLagRpc() const
+    -> std::expected<ReplicationLagInfo, ReplicationLagStatus> {
+  try {
+    auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
+    auto res = stream.SendAndWait();
+    if (!res.arg_.has_value()) {
+      spdlog::error("Instance {} refused to report replication lag because it isn't main.", instance_name_);
+      return std::unexpected{ReplicationLagStatus::MAIN_IS_REPLICA};
+    }
+    return std::move(*res.arg_);
+  } catch (const rpc::RpcFailedException &e) {
+    spdlog::warn("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
+    return std::unexpected{ReplicationLagStatus::MAIN_UNRESPONSIVE};
+  }
+}
+
+}  // namespace memgraph::coordination
+#endif

@@ -1,0 +1,6 @@
+memgraph_query: >
+  MATCH ()-[r]-()
+  WITH collect(distinct(r)) AS rels
+  CALL refactor.rename_type_property("how","velocity", rels) YIELD relationships_changed RETURN relationships_changed;
+neo4j_query: >
+  CALL apoc.refactor.rename.typeProperty("how","velocity") YIELD total RETURN total;

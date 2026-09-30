@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -122,6 +122,7 @@ class CartesianProduct {
     // Iterator interface says that dereferencing a past-the-end iterator is
     // undefined, so don't bother checking if we are done.
     reference operator*() const { return current_product_; }
+
     pointer operator->() const { return &current_product_; }
 
    private:
@@ -139,6 +140,7 @@ class CartesianProduct {
   };
 
   auto begin() { return iterator(this, false); }
+
   auto end() { return iterator(this, true); }
 
  private:
@@ -154,24 +156,24 @@ auto MakeCartesianProduct(std::vector<TSet> sets) {
 
 namespace impl {
 
-class NodeSymbolHash {
+class PatternAtomSymbolHash {
  public:
-  explicit NodeSymbolHash(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
+  explicit PatternAtomSymbolHash(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
-  size_t operator()(const NodeAtom *node_atom) const {
-    return std::hash<Symbol>{}(symbol_table_.at(*node_atom->identifier_));
+  size_t operator()(const PatternAtom *pattern_atom) const {
+    return std::hash<Symbol>{}(symbol_table_.at(*pattern_atom->identifier_));
   }
 
  private:
   const SymbolTable &symbol_table_;
 };
 
-class NodeSymbolEqual {
+class PatternAtomSymbolEqual {
  public:
-  explicit NodeSymbolEqual(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
+  explicit PatternAtomSymbolEqual(const SymbolTable &symbol_table) : symbol_table_(symbol_table) {}
 
-  bool operator()(const NodeAtom *node_atom1, const NodeAtom *node_atom2) const {
-    return symbol_table_.at(*node_atom1->identifier_) == symbol_table_.at(*node_atom2->identifier_);
+  bool operator()(const PatternAtom *pattern_atom1, const PatternAtom *pattern_atom2) const {
+    return symbol_table_.at(*pattern_atom1->identifier_) == symbol_table_.at(*pattern_atom2->identifier_);
   }
 
  private:
@@ -195,11 +197,15 @@ class VaryMatchingStart {
     iterator(VaryMatchingStart *, bool);
 
     iterator &operator++();
+
     reference operator*() const { return current_matching_; }
+
     pointer operator->() const { return &current_matching_; }
+
     bool operator==(const iterator &other) const {
-      return self_ == other.self_ && start_nodes_it_ == other.start_nodes_it_;
+      return self_ == other.self_ && start_atoms_it_ == other.start_atoms_it_;
     }
+
     bool operator!=(const iterator &other) const { return !(*this == other); }
 
    private:
@@ -207,22 +213,23 @@ class VaryMatchingStart {
     // assignment.
     VaryMatchingStart *self_;
     Matching current_matching_;
-    // Iterator over start nodes. Optional is used for differentiating the case
-    // when there are no start nodes vs. VaryMatchingStart::iterator itself
-    // being at the end. When there are no nodes, this iterator needs to produce
+    // Iterator over start nodes and edges. Optional is used for differentiating the case
+    // when there are no start nodes and edges vs. VaryMatchingStart::iterator itself
+    // being at the end. When there are no nodes or edges, this iterator needs to produce
     // a single result, which is the original matching passed in. Setting
-    // start_nodes_it_ to end signifies the end of our iteration.
-    std::optional<std::unordered_set<NodeAtom *, NodeSymbolHash, NodeSymbolEqual>::iterator> start_nodes_it_;
+    // start_atoms_it_ to end signifies the end of our iteration.
+    std::optional<std::vector<PatternAtom *>::iterator> start_atoms_it_;
   };
 
   auto begin() { return iterator(this, false); }
+
   auto end() { return iterator(this, true); }
 
  private:
   friend class iterator;
   Matching matching_;
   const SymbolTable &symbol_table_;
-  std::unordered_set<NodeAtom *, NodeSymbolHash, NodeSymbolEqual> nodes_;
+  std::vector<PatternAtom *> graph_atoms_;
 };
 
 // Similar to VaryMatchingStart, but varies the starting nodes for all given
@@ -230,7 +237,8 @@ class VaryMatchingStart {
 // Cartesian product of all of them is returned.
 CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Matching> &, const SymbolTable &);
 
-CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &matching, const SymbolTable &symbol_table);
+CartesianProduct<VaryMatchingStart> VarySubqueryMatchingStarts(const Matching &matching,
+                                                               const SymbolTable &symbol_table);
 
 // Produces alternative query parts out of a single part by varying how each
 // graph matching is done.
@@ -252,9 +260,13 @@ class VaryQueryPartMatching {
              CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator);
 
     iterator &operator++();
+
     reference operator*() const { return current_query_part_; }
+
     pointer operator->() const { return &current_query_part_; }
+
     bool operator==(const iterator &) const;
+
     bool operator!=(const iterator &other) const { return !(*this == other); }
 
    private:
@@ -275,14 +287,27 @@ class VaryQueryPartMatching {
   };
 
   auto begin() {
-    return iterator(query_part_, matchings_.begin(), matchings_.end(), optional_matchings_.begin(),
-                    optional_matchings_.end(), merge_matchings_.begin(), merge_matchings_.end(),
-                    filter_matchings_.begin(), filter_matchings_.end());
+    return iterator(query_part_,
+                    matchings_.begin(),
+                    matchings_.end(),
+                    optional_matchings_.begin(),
+                    optional_matchings_.end(),
+                    merge_matchings_.begin(),
+                    merge_matchings_.end(),
+                    subquery_matchings_.begin(),
+                    subquery_matchings_.end());
   }
+
   auto end() {
-    return iterator(query_part_, matchings_.end(), matchings_.end(), optional_matchings_.end(),
-                    optional_matchings_.end(), merge_matchings_.end(), merge_matchings_.end(), filter_matchings_.end(),
-                    filter_matchings_.end());
+    return iterator(query_part_,
+                    matchings_.end(),
+                    matchings_.end(),
+                    optional_matchings_.end(),
+                    optional_matchings_.end(),
+                    merge_matchings_.end(),
+                    merge_matchings_.end(),
+                    subquery_matchings_.end(),
+                    subquery_matchings_.end());
   }
 
  private:
@@ -294,7 +319,7 @@ class VaryQueryPartMatching {
   CartesianProduct<VaryMatchingStart> optional_matchings_;
   // Like optional matching, but for merge matchings.
   CartesianProduct<VaryMatchingStart> merge_matchings_;
-  CartesianProduct<VaryMatchingStart> filter_matchings_;
+  CartesianProduct<VaryMatchingStart> subquery_matchings_;
 };
 
 }  // namespace impl
@@ -308,7 +333,6 @@ class VaryQueryPartMatching {
 /// @sa MakeLogicalPlan
 template <class TPlanningContext>
 class VariableStartPlanner {
- private:
   TPlanningContext *context_;
 
   // Generates different, equivalent query parts by taking different graph
@@ -334,7 +358,8 @@ class VariableStartPlanner {
 
         for (const auto &subquery : single_query_part.subqueries) {
           const auto subquery_results = ExtractSingleQueryParts(subquery);
-          results.insert(results.end(), std::make_move_iterator(subquery_results.begin()),
+          results.insert(results.end(),
+                         std::make_move_iterator(subquery_results.begin()),
                          std::make_move_iterator(subquery_results.end()));
         }
       }
@@ -370,12 +395,14 @@ class VariableStartPlanner {
   /// @brief Generate multiple plans by varying the order of graph traversal.
   auto Plan(const QueryParts &query_parts) {
     return iter::imap(
-        [context = context_, old_query_parts = query_parts, this](const auto &alternative_query_parts) {
+        [context = context_, old_query_parts = query_parts, this](
+            const auto &alternative_query_parts) -> RuleBasedPlanner<TPlanningContext>::PlanResult {
           uint64_t index = 0;
           auto reconstructed_query_parts = ReconstructQueryParts(old_query_parts, alternative_query_parts, index);
 
           RuleBasedPlanner<TPlanningContext> rule_planner(context);
           context->bound_symbols.clear();
+          context->scoped_call_imports.clear();
           return rule_planner.Plan(reconstructed_query_parts);
         },
         VaryQueryMatching(query_parts, *context_->symbol_table));

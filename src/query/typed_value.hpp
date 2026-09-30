@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,7 +12,7 @@
 #pragma once
 
 #include <cstdint>
-#include <iostream>
+#include <iosfwd>
 #include <map>
 #include <memory>
 #include <string>
@@ -20,17 +20,31 @@
 #include <utility>
 #include <vector>
 
-#include "query/db_accessor.hpp"
-#include "query/graph.hpp"
 #include "query/path.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/memory.hpp"
-#include "utils/pmr/map.hpp"
+#include "utils/pmr/flat_map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/temporal.hpp"
 
+#include <nlohmann/json_fwd.hpp>
+
 namespace memgraph::query {
+
+class Graph;         // fwd declare
+class VirtualGraph;  // fwd declare
+class VirtualEdge;   // fwd declare
+class VirtualNode;   // fwd declare
+
+namespace {
+template <typename T>
+concept TypedValueValidPrimativeType =
+    std::is_same_v<T, bool> || std::is_same_v<T, int> || std::is_same_v<T, int64_t> || std::is_same_v<T, double> ||
+    std::is_same_v<T, storage::Enum> || std::is_same_v<T, utils::Date> || std::is_same_v<T, utils::LocalTime> ||
+    std::is_same_v<T, utils::LocalDateTime> || std::is_same_v<T, utils::ZonedDateTime> ||
+    std::is_same_v<T, utils::Duration> || std::is_same_v<T, utils::Duration> || std::is_same_v<T, std::string>;
+}
 
 // TODO: Neo4j does overflow checking. Should we also implement it?
 /**
@@ -68,6 +82,11 @@ class TypedValue {
     size_t operator()(const TypedValue &value) const;
   };
 
+  template <typename H>
+  friend H AbslHashValue(H h, TypedValue const &value) {
+    return H::combine(std::move(h), Hash{}(value));
+  }
+
   /** A value type. Each type corresponds to exactly one C++ type */
   enum class Type : unsigned {
     Null,
@@ -83,10 +102,23 @@ class TypedValue {
     Date,
     LocalTime,
     LocalDateTime,
+    ZonedDateTime,
     Duration,
     Graph,
-    Function
+    VirtualGraph,
+    Function,
+    Enum,
+    Point2d,
+    Point3d,
+    VirtualEdge,
+    VirtualNode
   };
+
+  /// How many types a value can be, read off the last enumerator above.
+  ///
+  /// Kept beside the enumeration rather than beside any one table built over
+  /// it, so that a type added here is counted everywhere at once.
+  static constexpr auto kTypeCount = static_cast<unsigned>(Type::VirtualNode) + 1U;
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
   // the standard says that instantiating a container with an incomplete type
@@ -94,213 +126,210 @@ class TypedValue {
   // std::map with incomplete type, but this is still murky territory. Note that
   // since C++17, std::vector is explicitly said to support incomplete types.
 
-  using TString = utils::pmr::string;
-  using TVector = utils::pmr::vector<TypedValue>;
-  using TMap = utils::pmr::map<utils::pmr::string, TypedValue>;
-
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<TypedValue>;
+  using alloc_trait = std::allocator_traits<allocator_type>;
+
+  using TString = utils::pmr::string;
+  using TVector = utils::pmr::vector<TypedValue>;
+  using TMap = std::pmr::map<TString, TypedValue, std::less<>>;
+  // TODO: use boost flat_map when boost has been updated
+  // using TMap = utils::pmr::flat_map<TString, TypedValue>;
+
+  storage::PropertyValue ToPropertyValue(storage::NameIdMapper *name_id_mapper) const;
 
   /** Construct a Null value with default utils::NewDeleteResource(). */
   TypedValue() : type_(Type::Null) {}
 
   /** Construct a Null value with given utils::MemoryResource. */
-  explicit TypedValue(utils::MemoryResource *memory) : memory_(memory), type_(Type::Null) {}
+  explicit TypedValue(utils::MemoryResource *res) : alloc_(res), type_(Type::Null) {}
+
+  explicit TypedValue(allocator_type alloc) : alloc_(alloc), type_(Type::Null) {}
 
   /**
    * Construct a copy of other.
-   * utils::MemoryResource is obtained by calling
+   * allocator_type is obtained by calling
    * std::allocator_traits<>::select_on_container_copy_construction(other.memory_).
    * Since we use utils::Allocator, which does not propagate, this means that
    * memory_ will be the default utils::NewDeleteResource().
    */
-  TypedValue(const TypedValue &other);
+  TypedValue(const TypedValue &other)
+      : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.alloc_)) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const TypedValue &other, utils::MemoryResource *memory);
+  /** Construct a copy given allocator_type */
+  TypedValue(const TypedValue &other, allocator_type alloc);
 
   /**
    * Construct with the value of other.
-   * utils::MemoryResource is obtained from other. After the move, other will be
+   * allocator_type is obtained from other. After the move, other will be
    * set to Null.
    */
   TypedValue(TypedValue &&other) noexcept;
 
   /**
-   * Construct with the value of other, but use the given utils::MemoryResource.
+   * Construct with the value of other, but use the given allocator_type.
    * After the move, other will be set to Null.
-   * If `*memory != *other.GetMemoryResource()`, then a copy is made instead of
+   * If `*memory != *other.get_allocator()`, then a copy is made instead of
    * a move.
    */
-  TypedValue(TypedValue &&other, utils::MemoryResource *memory);
+  TypedValue(TypedValue &&other, allocator_type alloc);
 
-  explicit TypedValue(bool value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Bool) {
-    bool_v = value;
-  }
+  explicit TypedValue(bool value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Bool) { bool_v = value; }
 
-  explicit TypedValue(int value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Int) {
-    int_v = value;
-  }
+  explicit TypedValue(int value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Int) { int_v = value; }
 
-  explicit TypedValue(int64_t value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Int) {
-    int_v = value;
-  }
+  explicit TypedValue(int64_t value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Int) { int_v = value; }
 
-  explicit TypedValue(double value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Double) {
+  explicit TypedValue(double value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Double) {
     double_v = value;
   }
 
-  explicit TypedValue(const utils::Date &value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Date) {
+  explicit TypedValue(storage::Enum value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Enum) {
+    enum_v = value;
+  }
+
+  explicit TypedValue(const utils::Date &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Date) {
     date_v = value;
   }
 
-  explicit TypedValue(const utils::LocalTime &value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::LocalTime) {
+  explicit TypedValue(const utils::LocalTime &value, allocator_type alloc = {})
+      : alloc_{alloc}, type_(Type::LocalTime) {
     local_time_v = value;
   }
 
-  explicit TypedValue(const utils::LocalDateTime &value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::LocalDateTime) {
+  explicit TypedValue(const utils::LocalDateTime &value, allocator_type alloc = {})
+      : alloc_{alloc}, type_(Type::LocalDateTime) {
     local_date_time_v = value;
   }
 
-  explicit TypedValue(const utils::Duration &value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Duration) {
+  explicit TypedValue(const utils::ZonedDateTime &value, allocator_type alloc = {})
+      : alloc_{alloc}, type_(Type::ZonedDateTime) {
+    zoned_date_time_v = value;
+  }
+
+  explicit TypedValue(const utils::Duration &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Duration) {
     duration_v = value;
   }
 
-  // conversion function to storage::PropertyValue
-  explicit operator storage::PropertyValue() const;
+  explicit TypedValue(const storage::Point2d &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Point2d) {
+    point_2d_v = value;
+  }
+
+  explicit TypedValue(const storage::Point3d &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Point3d) {
+    point_3d_v = value;
+  }
+
+  // conversion function to storage::ExternalPropertyValue
+  explicit operator storage::ExternalPropertyValue() const;
 
   // copy constructors for non-primitive types
-  explicit TypedValue(const std::string &value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::String) {
-    new (&string_v) TString(value, memory_);
-  }
+  explicit TypedValue(const std::string &value, allocator_type alloc = {})
+      : alloc_{alloc}, string_v{value, alloc_}, type_(Type::String) {}
 
-  explicit TypedValue(const char *value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::String) {
-    new (&string_v) TString(value, memory_);
-  }
+  explicit TypedValue(const char *value, allocator_type alloc = {})
+      : alloc_{alloc}, string_v{value, alloc_}, type_(Type::String) {}
 
-  explicit TypedValue(const std::string_view value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::String) {
-    new (&string_v) TString(value, memory_);
-  }
+  explicit TypedValue(const std::string_view value, allocator_type alloc = {})
+      : alloc_{alloc}, string_v{value, alloc_}, type_(Type::String) {}
 
   /**
    * Construct a copy of other.
-   * utils::MemoryResource is obtained by calling
+   * allocator_type is obtained by calling
    * std::allocator_traits<>::
    *     select_on_container_copy_construction(other.get_allocator()).
    * Since we use utils::Allocator, which does not propagate, this means that
    * memory_ will be the default utils::NewDeleteResource().
    */
   explicit TypedValue(const TString &other)
-      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::select_on_container_copy_construction(
-                              other.get_allocator())
-                              .GetMemoryResource()) {}
+      : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.get_allocator())) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const TString &other, utils::MemoryResource *memory) : memory_(memory), type_(Type::String) {
-    new (&string_v) TString(other, memory_);
-  }
+  /** Construct a copy given allocator_type */
+  TypedValue(const TString &other, allocator_type alloc)
+      : alloc_{alloc}, string_v{other, alloc_}, type_(Type::String) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
-  explicit TypedValue(const std::vector<TypedValue> &value, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::List) {
-    new (&list_v) TVector(memory_);
-    list_v.reserve(value.size());
-    list_v.assign(value.begin(), value.end());
-  }
+  /** Construct a copy given allocator_type */
+  explicit TypedValue(const std::vector<TypedValue> &value, allocator_type alloc = {})
+      : alloc_{alloc}, list_v{value.begin(), value.end(), alloc_}, type_(Type::List) {}
+
+  template <class T>
+    requires TypedValueValidPrimativeType<T>
+  explicit TypedValue(const std::vector<T> &value, allocator_type alloc = {})
+      : alloc_{alloc}, list_v{value.begin(), value.end(), alloc_}, type_(Type::List) {}
 
   /**
    * Construct a copy of other.
-   * utils::MemoryResource is obtained by calling
+   * allocator_type is obtained by calling
    * std::allocator_traits<>::
    *     select_on_container_copy_construction(other.get_allocator()).
    * Since we use utils::Allocator, which does not propagate, this means that
    * memory_ will be the default utils::NewDeleteResource().
    */
   explicit TypedValue(const TVector &other)
-      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::select_on_container_copy_construction(
-                              other.get_allocator())
-                              .GetMemoryResource()) {}
+      : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.get_allocator())) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const TVector &value, utils::MemoryResource *memory) : memory_(memory), type_(Type::List) {
-    new (&list_v) TVector(value, memory_);
-  }
+  /** Construct a copy given allocator_type */
+  TypedValue(const TVector &value, allocator_type alloc) : alloc_{alloc}, list_v{value, alloc_}, type_(Type::List) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
-  explicit TypedValue(const std::map<std::string, TypedValue> &value,
-                      utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(memory_);
-    for (const auto &kv : value) map_v.emplace(kv.first, kv.second);
-  }
+  /** Construct a copy given allocator_type */
+  explicit TypedValue(const std::map<std::string, TypedValue> &value, allocator_type alloc = {})
+      : alloc_{alloc}, map_v{value.begin(), value.end(), alloc_}, type_(Type::Map) {}
 
   /**
    * Construct a copy of other.
-   * utils::MemoryResource is obtained by calling
+   * allocator_type is obtained by calling
    * std::allocator_traits<>::
    *     select_on_container_copy_construction(other.get_allocator()).
    * Since we use utils::Allocator, which does not propagate, this means that
    * memory_ will be the default utils::NewDeleteResource().
    */
   explicit TypedValue(const TMap &other)
-      : TypedValue(other, std::allocator_traits<utils::Allocator<TypedValue>>::select_on_container_copy_construction(
-                              other.get_allocator())
-                              .GetMemoryResource()) {}
+      : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.get_allocator())) {}
 
-  /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const TMap &value, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(value, memory_);
-  }
+  /** Construct a copy given allocator_type */
+  TypedValue(const TMap &value, allocator_type alloc) : alloc_{alloc}, map_v{value, alloc_}, type_(Type::Map) {}
 
-  explicit TypedValue(const VertexAccessor &vertex, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Vertex) {
-    new (&vertex_v) VertexAccessor(vertex);
-  }
+  explicit TypedValue(const VertexAccessor &vertex, allocator_type alloc = {})
+      : alloc_{alloc}, vertex_v{vertex}, type_(Type::Vertex) {}
 
-  explicit TypedValue(const EdgeAccessor &edge, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Edge) {
-    new (&edge_v) EdgeAccessor(edge);
-  }
+  explicit TypedValue(const EdgeAccessor &edge, allocator_type alloc = {})
+      : alloc_{alloc}, edge_v{edge}, type_(Type::Edge) {}
 
-  explicit TypedValue(const Path &path, utils::MemoryResource *memory = utils::NewDeleteResource())
-      : memory_(memory), type_(Type::Path) {
-    new (&path_v) Path(path, memory_);
+  explicit TypedValue(const VirtualEdge &ve, allocator_type alloc = {});
+
+  explicit TypedValue(const VirtualNode &vn, allocator_type alloc = {});
+
+  explicit TypedValue(const Path &path, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Path) {
+    auto *path_ptr = utils::Allocator<Path>(alloc_).new_object<Path>(path);
+    alloc_trait::construct(alloc_, &path_v, path_ptr);
   }
 
   /** Construct a copy using default utils::NewDeleteResource() */
-  explicit TypedValue(const storage::PropertyValue &value);
+  explicit TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper);
 
   /** Construct a copy using the given utils::MemoryResource */
-  TypedValue(const storage::PropertyValue &value, utils::MemoryResource *memory);
+  TypedValue(const storage::PropertyValue &value, storage::NameIdMapper *name_id_mapper, allocator_type alloc);
+
+  /** Construct a copy using default utils::NewDeleteResource() */
+  explicit TypedValue(const storage::ExternalPropertyValue &value);
+
+  /** Construct a copy given allocator_type */
+  TypedValue(const storage::ExternalPropertyValue &value, allocator_type alloc);
 
   // move constructors for non-primitive types
 
   /**
    * Construct with the value of other.
-   * utils::MemoryResource is obtained from other. After the move, other will be
+   * allocator_type is obtained from other. After the move, other will be
    * left in unspecified state.
    */
-  explicit TypedValue(TString &&other) noexcept
-      : TypedValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
+  explicit TypedValue(TString &&other) noexcept : TypedValue(std::move(other), other.get_allocator()) {}
 
   /**
    * Construct with the value of other and use the given MemoryResource
    * After the move, other will be left in unspecified state.
    */
-  TypedValue(TString &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::String) {
-    new (&string_v) TString(std::move(other), memory_);
-  }
+  TypedValue(TString &&other, allocator_type alloc)
+      : alloc_{alloc}, string_v{std::move(other), alloc_}, type_(Type::String) {}
 
   /**
    * Perform an element-wise move using default utils::NewDeleteResource().
@@ -312,34 +341,22 @@ class TypedValue {
    * Perform an element-wise move of the other and use the given MemoryResource.
    * Other will be not be left empty, though elements may be Null.
    */
-  TypedValue(std::vector<TypedValue> &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::List) {
-    new (&list_v) TVector(memory_);
-    list_v.reserve(other.size());
-    // std::vector<TypedValue> has std::allocator and there's no move
-    // constructor for std::vector using different allocator types. Since
-    // std::allocator is not propagated to elements, it is possible that some
-    // TypedValue elements have a MemoryResource that is the same as the one we
-    // are given. In such a case we would like to move those TypedValue
-    // instances, so we use move_iterator.
-    list_v.assign(std::make_move_iterator(other.begin()), std::make_move_iterator(other.end()));
-  }
+  TypedValue(std::vector<TypedValue> &&other, allocator_type alloc);
 
   /**
    * Construct with the value of other.
-   * utils::MemoryResource is obtained from other. After the move, other will be
+   * allocator_type is obtained from other. After the move, other will be
    * left empty.
    */
-  explicit TypedValue(TVector &&other) noexcept
-      : TypedValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
+  explicit TypedValue(TVector &&other) noexcept : TypedValue(std::move(other), other.get_allocator()) {}
 
   /**
    * Construct with the value of other and use the given MemoryResource.
    * If `other.get_allocator() != *memory`, this call will perform an
    * element-wise move and other is not guaranteed to be empty.
    */
-  TypedValue(TVector &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::List) {
-    new (&list_v) TVector(std::move(other), memory_);
-  }
+  TypedValue(TVector &&other, allocator_type alloc)
+      : alloc_{alloc}, list_v{std::move(other), alloc_}, type_(Type::List) {}
 
   /**
    * Perform an element-wise move using default utils::NewDeleteResource().
@@ -354,72 +371,61 @@ class TypedValue {
    * Other will not be left empty, i.e. keys will exist but their values may
    * be Null.
    */
-  TypedValue(std::map<std::string, TypedValue> &&other, utils::MemoryResource *memory)
-      : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(memory_);
-    for (auto &kv : other) map_v.emplace(kv.first, std::move(kv.second));
-  }
-
+  TypedValue(std::map<std::string, TypedValue> &&other, allocator_type alloc);
   /**
    * Construct with the value of other.
-   * utils::MemoryResource is obtained from other. After the move, other will be
+   * allocator_type is obtained from other. After the move, other will be
    * left empty.
    */
-  explicit TypedValue(TMap &&other) noexcept
-      : TypedValue(std::move(other), other.get_allocator().GetMemoryResource()) {}
-
+  explicit TypedValue(TMap &&other);
   /**
    * Construct with the value of other and use the given MemoryResource.
    * If `other.get_allocator() != *memory`, this call will perform an
    * element-wise move and other is not guaranteed to be empty, i.e. keys may
    * exist but their values may be Null.
    */
-  TypedValue(TMap &&other, utils::MemoryResource *memory) : memory_(memory), type_(Type::Map) {
-    new (&map_v) TMap(std::move(other), memory_);
-  }
+  TypedValue(TMap &&other, allocator_type alloc);
 
-  explicit TypedValue(VertexAccessor &&vertex, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
-      : memory_(memory), type_(Type::Vertex) {
-    new (&vertex_v) VertexAccessor(std::move(vertex));
-  }
+  explicit TypedValue(VertexAccessor &&vertex, allocator_type alloc) noexcept
+      : alloc_{alloc}, vertex_v{std::move(vertex)}, type_(Type::Vertex) {}
 
-  explicit TypedValue(EdgeAccessor &&edge, utils::MemoryResource *memory = utils::NewDeleteResource()) noexcept
-      : memory_(memory), type_(Type::Edge) {
-    new (&edge_v) EdgeAccessor(std::move(edge));
-  }
+  explicit TypedValue(EdgeAccessor &&edge, allocator_type alloc) noexcept
+      : alloc_{alloc}, edge_v{std::move(edge)}, type_(Type::Edge) {}
+
+  explicit TypedValue(VirtualEdge &&ve, allocator_type alloc);
+
+  explicit TypedValue(VirtualNode &&vn, allocator_type alloc);
 
   /**
    * Construct with the value of path.
-   * utils::MemoryResource is obtained from path. After the move, path will be
+   * allocator_type is obtained from path. After the move, path will be
    * left empty.
    */
-  explicit TypedValue(Path &&path) noexcept : TypedValue(std::move(path), path.GetMemoryResource()) {}
+  explicit TypedValue(Path &&path);
 
   /**
    * Construct with the value of path and use the given MemoryResource.
-   * If `*path.GetMemoryResource() != *memory`, this call will perform an
+   * If `*path.get_allocator() != *memory`, this call will perform an
    * element-wise move and path is not guaranteed to be empty.
    */
-  TypedValue(Path &&path, utils::MemoryResource *memory) : memory_(memory), type_(Type::Path) {
-    new (&path_v) Path(std::move(path), memory_);
-  }
+  explicit TypedValue(Path &&path, allocator_type alloc);
 
   /**
    * Construct with the value of graph.
-   * utils::MemoryResource is obtained from graph. After the move, graph will be
+   * allocator_type is obtained from graph. After the move, graph will be
    * left empty.
    */
-  explicit TypedValue(Graph &&graph) noexcept : TypedValue(std::move(graph), graph.GetMemoryResource()) {}
+  explicit TypedValue(Graph &&graph);
 
   /**
    * Construct with the value of graph and use the given MemoryResource.
-   * If `*graph.GetMemoryResource() != *memory`, this call will perform an
+   * If `*graph.get_allocator() != *memory`, this call will perform an
    * element-wise move and graph is not guaranteed to be empty.
    */
-  TypedValue(Graph &&graph, utils::MemoryResource *memory) : memory_(memory), type_(Type::Graph) {
-    auto *graph_ptr = utils::Allocator<Graph>(memory_).new_object<Graph>(std::move(graph));
-    new (&graph_v) std::unique_ptr<Graph>(graph_ptr);
-  }
+  TypedValue(Graph &&graph, allocator_type alloc);
+
+  explicit TypedValue(VirtualGraph &&graph);
+  TypedValue(VirtualGraph &&graph, allocator_type alloc);
 
   explicit TypedValue(std::function<void(TypedValue *)> &&other)
       : function_v(std::move(other)), type_(Type::Function) {}
@@ -429,13 +435,26 @@ class TypedValue {
    * Default utils::NewDeleteResource() is used for allocations. After the move,
    * other will be set to Null.
    */
-  explicit TypedValue(storage::PropertyValue &&other);
+  explicit TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper);
 
   /**
-   * Construct with the value of other, but use the given utils::MemoryResource.
+   * Construct with the value of other, but use the given allocator_type.
    * After the move, other will be set to Null.
    */
-  TypedValue(storage::PropertyValue &&other, utils::MemoryResource *memory);
+  TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *name_id_mapper, allocator_type alloc);
+
+  /**
+   * Construct with the value of other.
+   * Default utils::NewDeleteResource() is used for allocations. After the move,
+   * other will be set to Null.
+   */
+  explicit TypedValue(storage::ExternalPropertyValue &&other);
+
+  /**
+   * Construct with the value of other, but use the given allocator_type.
+   * After the move, other will be set to Null.
+   */
+  TypedValue(storage::ExternalPropertyValue &&other, allocator_type alloc);
 
   // copy assignment operators
   TypedValue &operator=(const char *);
@@ -450,17 +469,21 @@ class TypedValue {
   TypedValue &operator=(const std::map<std::string, TypedValue> &);
   TypedValue &operator=(const VertexAccessor &);
   TypedValue &operator=(const EdgeAccessor &);
+  TypedValue &operator=(const VirtualEdge &);
+  TypedValue &operator=(const VirtualNode &);
   TypedValue &operator=(const Path &);
   TypedValue &operator=(const utils::Date &);
   TypedValue &operator=(const utils::LocalTime &);
   TypedValue &operator=(const utils::LocalDateTime &);
+  TypedValue &operator=(const utils::ZonedDateTime &);
   TypedValue &operator=(const utils::Duration &);
+  TypedValue &operator=(const storage::Enum &);
   TypedValue &operator=(const std::function<void(TypedValue *)> &);
 
-  /** Copy assign other, utils::MemoryResource of `this` is used */
+  /** Copy assign other, allocator_type of `this` is used */
   TypedValue &operator=(const TypedValue &other);
 
-  /** Move assign other, utils::MemoryResource of `this` is used. */
+  /** Move assign other, allocator_type of `this` is used. */
   TypedValue &operator=(TypedValue &&other) noexcept(false);
 
   // move assignment operators
@@ -475,50 +498,58 @@ class TypedValue {
 
   Type type() const { return type_; }
 
-  // TODO consider adding getters for primitives by value (and not by ref)
+#define DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(type_param, type_enum, field) \
+  /** Gets the value of type field. Throws if value is not field*/             \
+  type_param &Value##type_enum();                                              \
+  /** Gets the value of type field. Throws if value is not field*/             \
+  type_param Value##type_enum() const;                                         \
+  /** Checks if it's the value is of the given type */                         \
+  bool Is##type_enum() const;                                                  \
+  /** Get the value of the type field. Unchecked */                            \
+  type_param UnsafeValue##type_enum() const { return field; }
 
-#define DECLARE_VALUE_AND_TYPE_GETTERS(type_param, field)          \
-  /** Gets the value of type field. Throws if value is not field*/ \
-  type_param &Value##field();                                      \
-  /** Gets the value of type field. Throws if value is not field*/ \
-  const type_param &Value##field() const;                          \
-  /** Checks if it's the value is of the given type */             \
-  bool Is##field() const;
+#define DECLARE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field) \
+  /** Gets the value of type field. Throws if value is not field*/   \
+  type_param &Value##type_enum();                                    \
+  /** Gets the value of type field. Throws if value is not field*/   \
+  const type_param &Value##type_enum() const;                        \
+  /** Checks if it's the value is of the given type */               \
+  bool Is##type_enum() const;                                        \
+  /** Get the value of the type field. Unchecked */                  \
+  type_param const &UnsafeValue##type_enum() const { return field; }
 
-  DECLARE_VALUE_AND_TYPE_GETTERS(bool, Bool)
-  DECLARE_VALUE_AND_TYPE_GETTERS(int64_t, Int)
-  DECLARE_VALUE_AND_TYPE_GETTERS(double, Double)
-  DECLARE_VALUE_AND_TYPE_GETTERS(TString, String)
+  DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
-  /**
-   * Get the list value.
-   * @throw TypedValueException if stored value is not a list.
-   */
-  TVector &ValueList();
+  DECLARE_VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, *virtual_edge_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, *virtual_node_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 
-  const TVector &ValueList() const;
-
-  /** Check if the stored value is a list value */
-  bool IsList() const;
-
-  DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map)
-  DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex)
-  DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge)
-  DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path)
-
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date)
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime)
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime)
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration)
-  DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph)
-  DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, enum_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, point_2d_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
+  DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 
 #undef DECLARE_VALUE_AND_TYPE_GETTERS
+#undef DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
 
   bool ContainsDeleted() const;
 
   /**  Checks if value is a TypedValue::Null. */
-  bool IsNull() const;
+  bool IsNull() const { return type_ == Type::Null; }
 
   /** Convenience function for checking if this TypedValue is either
    * an integer or double */
@@ -528,13 +559,171 @@ class TypedValue {
    * storage::PropertyValue */
   bool IsPropertyValue() const;
 
-  utils::MemoryResource *GetMemoryResource() const { return memory_; }
+  auto get_allocator() const -> allocator_type { return alloc_; }
+
+  // binary bool operators
+
+  /**
+   * Perform logical 'and' on TypedValues.
+   *
+   * If any of the values is false, return false. Otherwise checks if any value is
+   * Null and return Null. All other cases return true. The resulting value uses
+   * the same MemoryResource as the left hand side arguments.
+   *
+   * @throw TypedValueException if arguments are not boolean or Null.
+   */
+  friend TypedValue operator&&(const TypedValue &a, const TypedValue &b);
+
+  /**
+   * Perform logical 'or' on TypedValues.
+   *
+   * If any of the values is true, return true. Otherwise checks if any value is
+   * Null and return Null. All other cases return false. The resulting value uses
+   * the same MemoryResource as the left hand side arguments.
+   *
+   * @throw TypedValueException if arguments are not boolean or Null.
+   */
+  friend TypedValue operator||(const TypedValue &a, const TypedValue &b);
+
+  /**
+   * Logically negate a TypedValue.
+   *
+   * Negating Null value returns Null. Values other than null raise an exception.
+   * The resulting value uses the same MemoryResource as the argument.
+   *
+   * @throw TypedValueException if TypedValue is not a boolean or Null.
+   */
+  friend TypedValue operator!(const TypedValue &a);
+
+  // binary bool xor, not power operator
+  // Be careful: since ^ is binary operator and || and && are logical operators
+  // they have different priority in c++.
+  friend TypedValue operator^(const TypedValue &a, const TypedValue &b);
+
+  // comparison operators
+
+  /**
+   * Compare TypedValues and return true, false or Null.
+   *
+   * Null is returned if either of the two values is Null.
+   * Since each TypedValue may have a different MemoryResource for allocations,
+   * the results is allocated using MemoryResource obtained from the left hand
+   * side.
+   */
+  friend TypedValue operator==(const TypedValue &a, const TypedValue &b);
+
+  /**
+   * Compare TypedValues and return true, false or Null.
+   *
+   * Null is returned if either of the two values is Null.
+   * Since each TypedValue may have a different MemoryResource for allocations,
+   * the results is allocated using MemoryResource obtained from the left hand
+   * side.
+   */
+  friend TypedValue operator!=(const TypedValue &a, const TypedValue &b) { return !(a == b); }
+
+  // The four ordered comparisons are the presentation surface over
+  // comparability and live with that relation, so a caller asking one includes
+  // the relation it reads.
+
+  // arithmetic operators
+
+  /**
+   * Arithmetically negate a value.
+   *
+   * If the value is Null, then Null is returned.
+   * The resulting value uses the same MemoryResource as the argument.
+   *
+   * @throw TypedValueException if the value is not numeric or Null.
+   */
+  friend TypedValue operator-(const TypedValue &a);
+
+  /**
+   * Apply the unary plus operator to a value.
+   *
+   * If the value is Null, then Null is returned.
+   * The resulting value uses the same MemoryResource as the argument.
+   *
+   * @throw TypedValueException if the value is not numeric or Null.
+   */
+  friend TypedValue operator+(const TypedValue &a);
+
+  /**
+   * Perform addition or concatenation on two values.
+   *
+   * Numeric values are summed, while lists and character strings are
+   * concatenated. If either value is Null, then Null is returned. The resulting
+   * value uses the same MemoryResource as the left hand side argument.
+   *
+   * @throw TypedValueException if values cannot be summed or concatenated.
+   */
+  friend TypedValue operator+(const TypedValue &a, const TypedValue &b);
+
+  /**
+   * Subtract two values.
+   *
+   * If any of the values is Null, then Null is returned.
+   * The resulting value uses the same MemoryResource as the left hand side
+   * argument.
+   *
+   * @throw TypedValueException if the values are not numeric or Null.
+   */
+  friend TypedValue operator-(const TypedValue &a, const TypedValue &b);
+
+  /**
+   * Divide two values.
+   *
+   * If any of the values is Null, then Null is returned.
+   * The resulting value uses the same MemoryResource as the left hand side
+   * argument.
+   *
+   * @throw TypedValueException if the values are not numeric or Null, or if
+   *        dividing two integer values by zero.
+   */
+  friend TypedValue operator/(const TypedValue &a, const TypedValue &b);
+
+  /**
+   * Multiply two values.
+   *
+   * If any of the values is Null, then Null is returned.
+   * The resulting value uses the same MemoryResource as the left hand side
+   * argument.
+   *
+   * @throw TypedValueException if the values are not numeric or Null.
+   */
+  friend TypedValue operator*(const TypedValue &a, const TypedValue &b);
+
+  /**
+   * Perform modulo operation on two values.
+   *
+   * If any of the values is Null, then Null is returned.
+   * The resulting value uses the same MemoryResource as the left hand side
+   * argument.
+   *
+   * @throw TypedValueException if the values are not numeric or Null.
+   */
+  friend TypedValue operator%(const TypedValue &a, const TypedValue &b);
+
+  /**
+   * Perform an exponentation operation on two values.
+   *
+   * If any of the values is Null, then Null is returned. The return value
+   * is always a floating-point value, even when called with integers.
+   * The resulting value uses the same MemoryResource as the left hand side
+   * argument.
+   *
+   * @throw TypedValueException if the values are not numeric or Null.
+   */
+  friend TypedValue pow(const TypedValue &a, const TypedValue &b);
+
+  /** Output the TypedValue::Type value as a string */
+  friend std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type);
+
+  /** Helper method for extract CRS from possible point types */
+  friend auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem>;
 
  private:
-  void DestroyValue();
-
-  // Memory resource for allocations of non primitive values
-  utils::MemoryResource *memory_{utils::NewDeleteResource()};
+  [[no_unique_address]] allocator_type alloc_{};
 
   // storage for the value of the property
   union {
@@ -551,14 +740,21 @@ class TypedValue {
     TMap map_v;
     VertexAccessor vertex_v;
     EdgeAccessor edge_v;
-    Path path_v;
+    std::unique_ptr<Path> path_v;
     utils::Date date_v;
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
+    utils::ZonedDateTime zoned_date_time_v;
     utils::Duration duration_v;
+    storage::Enum enum_v;
+    storage::Point2d point_2d_v;
+    storage::Point3d point_3d_v;
     // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
     std::unique_ptr<Graph> graph_v;
+    std::unique_ptr<VirtualGraph> virtual_graph_v;
     std::function<void(TypedValue *)> function_v;
+    std::unique_ptr<VirtualEdge> virtual_edge_v;
+    std::unique_ptr<VirtualNode> virtual_node_v;
   };
 
   /**
@@ -578,194 +774,31 @@ class TypedValueException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(TypedValueException)
 };
 
-// binary bool operators
+constexpr bool is_canonical(TypedValue::Type type) {
+  switch (type) {
+    case TypedValue::Type::Null:
+    case TypedValue::Type::Int:
+    case TypedValue::Type::Double:
+    case TypedValue::Type::String:
+    case TypedValue::Type::Bool:
+    case TypedValue::Type::List:
+    case TypedValue::Type::Map:
+    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Edge:
+    case TypedValue::Type::Path:
+      return true;
+    default:
+      return false;
+  }
+}
 
-/**
- * Perform logical 'and' on TypedValues.
- *
- * If any of the values is false, return false. Otherwise checks if any value is
- * Null and return Null. All other cases return true. The resulting value uses
- * the same MemoryResource as the left hand side arguments.
- *
- * @throw TypedValueException if arguments are not boolean or Null.
- */
-TypedValue operator&&(const TypedValue &a, const TypedValue &b);
+/// @throw TypedValueException unless the value is an Int or a Double.
+double ToDouble(const TypedValue &value);
 
-/**
- * Perform logical 'or' on TypedValues.
- *
- * If any of the values is true, return true. Otherwise checks if any value is
- * Null and return Null. All other cases return false. The resulting value uses
- * the same MemoryResource as the left hand side arguments.
- *
- * @throw TypedValueException if arguments are not boolean or Null.
- */
-TypedValue operator||(const TypedValue &a, const TypedValue &b);
+void to_json(nlohmann::json &j, TypedValue const &value);
+void from_json(nlohmann::json const &j, TypedValue &value);
 
-/**
- * Logically negate a TypedValue.
- *
- * Negating Null value returns Null. Values other than null raise an exception.
- * The resulting value uses the same MemoryResource as the argument.
- *
- * @throw TypedValueException if TypedValue is not a boolean or Null.
- */
-TypedValue operator!(const TypedValue &a);
-
-// binary bool xor, not power operator
-// Be careful: since ^ is binary operator and || and && are logical operators
-// they have different priority in c++.
-TypedValue operator^(const TypedValue &a, const TypedValue &b);
-
-// comparison operators
-
-/**
- * Compare TypedValues and return true, false or Null.
- *
- * Null is returned if either of the two values is Null.
- * Since each TypedValue may have a different MemoryResource for allocations,
- * the results is allocated using MemoryResource obtained from the left hand
- * side.
- */
-TypedValue operator==(const TypedValue &a, const TypedValue &b);
-
-/**
- * Compare TypedValues and return true, false or Null.
- *
- * Null is returned if either of the two values is Null.
- * Since each TypedValue may have a different MemoryResource for allocations,
- * the results is allocated using MemoryResource obtained from the left hand
- * side.
- */
-inline TypedValue operator!=(const TypedValue &a, const TypedValue &b) { return !(a == b); }
-
-/**
- * Compare TypedValues and return true, false or Null.
- *
- * Null is returned if either of the two values is Null.
- * The resulting value uses the same MemoryResource as the left hand side
- * argument.
- *
- * @throw TypedValueException if the values cannot be compared, i.e. they are
- *        not either Null, numeric or a character string type.
- */
-TypedValue operator<(const TypedValue &a, const TypedValue &b);
-
-/**
- * Compare TypedValues and return true, false or Null.
- *
- * Null is returned if either of the two values is Null.
- * The resulting value uses the same MemoryResource as the left hand side
- * argument.
- *
- * @throw TypedValueException if the values cannot be compared, i.e. they are
- *        not either Null, numeric or a character string type.
- */
-inline TypedValue operator<=(const TypedValue &a, const TypedValue &b) { return a < b || a == b; }
-
-/**
- * Compare TypedValues and return true, false or Null.
- *
- * Null is returned if either of the two values is Null.
- * The resulting value uses the same MemoryResource as the left hand side
- * argument.
- *
- * @throw TypedValueException if the values cannot be compared, i.e. they are
- *        not either Null, numeric or a character string type.
- */
-inline TypedValue operator>(const TypedValue &a, const TypedValue &b) { return !(a <= b); }
-
-/**
- * Compare TypedValues and return true, false or Null.
- *
- * Null is returned if either of the two values is Null.
- * The resulting value uses the same MemoryResource as the left hand side
- * argument.
- *
- * @throw TypedValueException if the values cannot be compared, i.e. they are
- *        not either Null, numeric or a character string type.
- */
-inline TypedValue operator>=(const TypedValue &a, const TypedValue &b) { return !(a < b); }
-
-// arithmetic operators
-
-/**
- * Arithmetically negate a value.
- *
- * If the value is Null, then Null is returned.
- * The resulting value uses the same MemoryResource as the argument.
- *
- * @throw TypedValueException if the value is not numeric or Null.
- */
-TypedValue operator-(const TypedValue &a);
-
-/**
- * Apply the unary plus operator to a value.
- *
- * If the value is Null, then Null is returned.
- * The resulting value uses the same MemoryResource as the argument.
- *
- * @throw TypedValueException if the value is not numeric or Null.
- */
-TypedValue operator+(const TypedValue &a);
-
-/**
- * Perform addition or concatenation on two values.
- *
- * Numeric values are summed, while lists and character strings are
- * concatenated. If either value is Null, then Null is returned. The resulting
- * value uses the same MemoryResource as the left hand side argument.
- *
- * @throw TypedValueException if values cannot be summed or concatenated.
- */
-TypedValue operator+(const TypedValue &a, const TypedValue &b);
-
-/**
- * Subtract two values.
- *
- * If any of the values is Null, then Null is returned.
- * The resulting value uses the same MemoryResource as the left hand side
- * argument.
- *
- * @throw TypedValueException if the values are not numeric or Null.
- */
-TypedValue operator-(const TypedValue &a, const TypedValue &b);
-
-/**
- * Divide two values.
- *
- * If any of the values is Null, then Null is returned.
- * The resulting value uses the same MemoryResource as the left hand side
- * argument.
- *
- * @throw TypedValueException if the values are not numeric or Null, or if
- *        dividing two integer values by zero.
- */
-TypedValue operator/(const TypedValue &a, const TypedValue &b);
-
-/**
- * Multiply two values.
- *
- * If any of the values is Null, then Null is returned.
- * The resulting value uses the same MemoryResource as the left hand side
- * argument.
- *
- * @throw TypedValueException if the values are not numeric or Null.
- */
-TypedValue operator*(const TypedValue &a, const TypedValue &b);
-
-/**
- * Perform modulo operation on two values.
- *
- * If any of the values is Null, then Null is returned.
- * The resulting value uses the same MemoryResource as the left hand side
- * argument.
- *
- * @throw TypedValueException if the values are not numeric or Null.
- */
-TypedValue operator%(const TypedValue &a, const TypedValue &b);
-
-/** Output the TypedValue::Type value as a string */
-std::ostream &operator<<(std::ostream &os, const TypedValue::Type &type);
+void to_json(nlohmann::json &j, TypedValue::TVector const &value);
+void to_json(nlohmann::json &j, TypedValue::TMap const &value);
 
 }  // namespace memgraph::query

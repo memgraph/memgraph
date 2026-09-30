@@ -1,0 +1,7 @@
+query: >
+  MATCH (a:Person {name: 'Joey'})
+  CALL node.relationship_exists(a, ["<FRIENDS"]) YIELD exists
+  RETURN exists
+
+output:
+  - exists: True

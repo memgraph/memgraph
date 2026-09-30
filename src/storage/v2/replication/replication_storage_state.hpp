@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,21 +15,15 @@
 #include <utility>
 
 #include "kvstore/kvstore.hpp"
-#include "storage/v2/delta.hpp"
-#include "storage/v2/durability/storage_global_operation.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/result.hpp"
 
 /// REPLICATION ///
-#include "replication/config.hpp"
 #include "replication/epoch.hpp"
-#include "replication/state.hpp"
-#include "storage/v2/database_access.hpp"
 #include "storage/v2/replication/enums.hpp"
-#include "storage/v2/replication/global.hpp"
-#include "storage/v2/replication/rpc.hpp"
-#include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/replication/replication_transaction.hpp"
 #include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
@@ -37,38 +31,39 @@ namespace memgraph::storage {
 class Storage;
 
 class ReplicationStorageClient;
+class ReplicaStream;
+
+using EpochHistory = std::deque<std::pair<std::string, uint64_t>>;
+
+// Max number of prior epochs retained in EpochHistory before the oldest is dropped (HOT path,
+// SaveLatestHistory).
+inline constexpr uint16_t kEpochHistoryRetention = 1000;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  void InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc);
-  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
-  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
-  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                       const LabelPropertyIndexStats &property_stats, uint64_t final_commit_timestamp);
-  bool FinalizeTransaction(uint64_t timestamp, Storage *storage, DatabaseAccessProtector db_acc);
+  auto StartPrepareCommitPhase(uint64_t durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args)
+      -> TransactionReplication;
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
-  auto ReplicasInfo(const Storage *storage) const -> std::vector<ReplicaInfo>;
 
   // History
-  void TrackLatestHistory();
-  void AddEpochToHistoryForce(std::string prev_epoch);
+  void SaveLatestHistory();
 
   void Reset();
 
   template <typename F>
   bool WithClient(std::string_view replica_name, F &&callback) {
-    return replication_clients_.WithLock([replica_name, cb = std::forward<F>(callback)](auto &clients) {
-      for (const auto &client : clients) {
-        if (client->Name() == replica_name) {
-          cb(client.get());
-          return true;
-        }
-      }
-      return false;
-    });
+    return replication_storage_clients_.WithReadLock(
+        [replica_name, cb = std::forward<F>(callback)](auto const &clients) {
+          for (const auto &client : clients) {
+            if (client->Name() == replica_name) {
+              cb(*client);
+              return true;
+            }
+          }
+          return false;
+        });
   }
 
   // Questions:
@@ -77,8 +72,10 @@ struct ReplicationStorageState {
   // History of the previous epoch ids.
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
-  std::deque<std::pair<std::string, uint64_t>> history;
-  std::atomic<uint64_t> last_commit_timestamp_{kTimestampInitialId};
+  EpochHistory history;
+
+  mutable std::atomic<CommitTsInfo> commit_ts_info_{
+      CommitTsInfo{.ldt_ = kTimestampInitialId, .num_committed_txns_ = 0}};
 
   // We create ReplicationClient using unique_ptr so we can move
   // newly created client into the vector.
@@ -90,10 +87,10 @@ struct ReplicationStorageState {
   // This way we can initialize client in main thread which means
   // that we can immediately notify the user if the initialization
   // failed.
-  using ReplicationClientPtr = std::unique_ptr<ReplicationStorageClient>;
-  using ReplicationClientList = utils::Synchronized<std::vector<ReplicationClientPtr>, utils::RWSpinLock>;
+  using ReplicationStorageClientPtr = std::unique_ptr<ReplicationStorageClient>;
+  using ReplicationStorageClientList = utils::Synchronized<std::vector<ReplicationStorageClientPtr>, utils::RWSpinLock>;
 
-  ReplicationClientList replication_clients_;
+  ReplicationStorageClientList replication_storage_clients_;
 
   memgraph::replication::ReplicationEpoch epoch_;
 };

@@ -163,7 +163,7 @@ def test_label_property_index_hint(memgraph):
     expected_explain_no_hint = [
         " * Produce {n}",
         " * Filter {n.id1}",
-        " * ScanAllByLabelPropertyValue (n :Label {id2})",
+        " * ScanAllByLabelProperties (n :Label {id2})",
         " * Once",
     ]
     expected_explain_with_hint = [
@@ -185,6 +185,98 @@ def test_label_property_index_hint(memgraph):
     assert explain_no_hint == expected_explain_no_hint and explain_with_hint == expected_explain_with_hint
 
 
+def test_label_property_nested_index_hint(memgraph):
+    memgraph.execute("CREATE INDEX ON :Label1(a.b, c.d);")
+    memgraph.execute("CREATE INDEX ON :Label2(a.b, c.d);")
+
+    explain_with_hint_label1 = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label1(a.b, c.d) MATCH (x:Label1)-[r]->(y:Label2) WHERE x.a.b = 23 AND y.a.b = 24 RETURN *;"
+        )
+    ]
+
+    expected_explain_with_hint_label1 = [
+        " * Produce {r, x, y}",
+        " * Filter (y :Label2), {y.a.b}",
+        " * Expand (x)-[r]->(y)",
+        " * ScanAllByLabelProperties (x :Label1 {a.b, c.d})",
+        " * Once",
+    ]
+
+    assert explain_with_hint_label1 == expected_explain_with_hint_label1
+
+    explain_with_hint_label2 = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label2(a.b, c.d) MATCH (x:Label1)-[r]->(y:Label2) WHERE x.a.b = 23 AND y.a.b = 24 RETURN *;"
+        )
+    ]
+
+    expected_explain_with_hint_label2 = [
+        " * Produce {r, x, y}",
+        " * Filter (x :Label1), {x.a.b}",
+        " * Expand (y)<-[r]-(x)",
+        " * ScanAllByLabelProperties (y :Label2 {a.b, c.d})",
+        " * Once",
+    ]
+
+    assert explain_with_hint_label2 == expected_explain_with_hint_label2
+
+
+def test_label_property_composite_index_hint_prefix(memgraph):
+    memgraph.execute("CREATE INDEX ON :Label1(a);")
+    memgraph.execute("CREATE INDEX ON :Label1(a, b.c);")
+    memgraph.execute("CREATE INDEX ON :Label1(a, b.c, d.e.f);")
+
+    explain_with_hint_label1 = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label1(a) MATCH (x:Label1) WHERE x.a = 42 AND x.b.c = 23 AND x.d.e.f = 11 RETURN *;"
+        )
+    ]
+
+    expected_explain_with_hint_label1 = [
+        " * Produce {x}",
+        " * Filter {x.b.c}, {x.d.e.f}",
+        " * ScanAllByLabelProperties (x :Label1 {a})",
+        " * Once",
+    ]
+
+    assert explain_with_hint_label1 == expected_explain_with_hint_label1
+
+    explain_with_hint_label2 = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label1(a, b.c) MATCH (x:Label1) WHERE x.a = 42 AND x.b.c = 23 AND x.d.e.f = 11 RETURN *;"
+        )
+    ]
+
+    expected_explain_with_hint_label2 = [
+        " * Produce {x}",
+        " * Filter {x.d.e.f}",
+        " * ScanAllByLabelProperties (x :Label1 {a, b.c})",
+        " * Once",
+    ]
+
+    assert explain_with_hint_label2 == expected_explain_with_hint_label2
+
+    explain_with_hint_label3 = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch(
+            "EXPLAIN USING INDEX :Label1(a, b.c, d.e.f) MATCH (x:Label1) WHERE x.a = 42 AND x.b.c = 23 AND x.d.e.f = 11 RETURN *;"
+        )
+    ]
+
+    expected_explain_with_hint_label3 = [
+        " * Produce {x}",
+        " * ScanAllByLabelProperties (x :Label1 {a, b.c, d.e.f})",
+        " * Once",
+    ]
+
+    assert explain_with_hint_label3 == expected_explain_with_hint_label3
+
+
 def test_label_property_index_hint_alternative_orderings(memgraph):
     memgraph.execute("FOREACH (i IN range(1, 100) | CREATE (n:Label {id1: i}));")
     memgraph.execute("FOREACH (i IN range(1, 50) | CREATE (n:Label {id2: i % 5}));")
@@ -194,7 +286,7 @@ def test_label_property_index_hint_alternative_orderings(memgraph):
     expected_explain_with_hint = [
         " * Produce {n}",
         " * Filter {n.id2}",
-        " * ScanAllByLabelPropertyValue (n :Label {id1})",
+        " * ScanAllByLabelProperties (n :Label {id1})",
         " * Once",
     ]
 
@@ -223,7 +315,7 @@ def test_multiple_label_property_index_hints(memgraph):
     expected_explain_with_hint = [
         " * Produce {n}",
         " * Filter {n.id2}",
-        " * ScanAllByLabelPropertyValue (n :Label {id1})",
+        " * ScanAllByLabelProperties (n :Label {id1})",
         " * Once",
     ]
 
@@ -253,7 +345,7 @@ def test_multiple_applicable_label_property_index_hints(memgraph):
     expected_explain_with_hint = [
         " * Produce {n}",
         " * Filter {n.id2}",
-        " * ScanAllByLabelPropertyValue (n :Label {id1})",
+        " * ScanAllByLabelProperties (n :Label {id1})",
         " * Once",
     ]
 
@@ -277,7 +369,7 @@ def test_multiple_applicable_label_property_index_hints_alternative_orderings(me
     expected_explain_with_hint_1 = [
         " * Produce {n}",
         " * Filter {n.id2}",
-        " * ScanAllByLabelPropertyValue (n :Label {id1})",
+        " * ScanAllByLabelProperties (n :Label {id1})",
         " * Once",
     ]
     expected_explain_with_hint_2 = [
@@ -412,13 +504,13 @@ def test_multiple_match_query(memgraph):
     # TODO: Fix this test since it has the filtering info wrong (filtering by label that's already indexed)
     expected_explain_with_hint = [
         " * Produce {n, m}",
-        " * Cartesian {m : n}",
+        " * Cartesian {n : m}",
         " |\\ ",
-        " | * Filter (n :Label1:Label2), {n.id}",
-        " | * ScanAllByLabel (n :Label1)",
+        " | * Filter (m :Label2:Label3)",
+        " | * ScanAllByLabel (m :Label2)",
         " | * Once",
-        " * Filter (m :Label2:Label3)",
-        " * ScanAllByLabel (m :Label2)",
+        " * Filter (n :Label1:Label2), {n.id}",
+        " * ScanAllByLabel (n :Label1)",
         " * Once",
     ]
 
@@ -515,6 +607,48 @@ def test_index_hint_on_expand(memgraph):
     ]
 
     assert explain_without_hint == expected_explain_without_hint and explain_with_hint == expected_explain_with_hint
+
+
+def test_vertex_property_index_hint_forces_scan(memgraph):
+    """USING INDEX :(prop) forces vertex-property scan over label+property scan."""
+    memgraph.execute("FOREACH (i IN range(1, 100) | CREATE (n:Label {val: i}));")
+    memgraph.execute("CREATE INDEX ON :Label(val);")
+    memgraph.execute("CREATE GLOBAL INDEX ON :(val);")
+
+    plan_no_hint = [
+        row["QUERY PLAN"] for row in memgraph.execute_and_fetch("EXPLAIN MATCH (n:Label) WHERE n.val = 1 RETURN n;")
+    ]
+    plan_with_hint = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch("EXPLAIN USING INDEX :(val) MATCH (n:Label) WHERE n.val = 1 RETURN n;")
+    ]
+
+    # Without hint, planner picks label+property index
+    assert any("ScanAllByLabelProperties" in step for step in plan_no_hint)
+    # With hint, planner picks vertex-property index
+    assert any("ScanAllByVertexProperty" in step for step in plan_with_hint)
+
+
+def test_vertex_property_index_hint_nonexistent_ignored(memgraph):
+    """USING INDEX on a non-existent vertex-property index is silently ignored."""
+    memgraph.execute("CREATE (:Node {x: 1});")
+
+    # Should not crash — hint is ignored, planner falls back to ScanAll
+    plan = [
+        row["QUERY PLAN"]
+        for row in memgraph.execute_and_fetch("EXPLAIN USING INDEX :(x) MATCH (n) WHERE n.x = 1 RETURN n;")
+    ]
+    assert any("ScanAll" in step for step in plan)
+
+
+def test_vertex_property_index_hint_correctness(memgraph):
+    """Query with vertex-property index hint returns correct results."""
+    memgraph.execute("FOREACH (i IN range(1, 5) | CREATE (n:Label {val: i}));")
+    memgraph.execute("CREATE GLOBAL INDEX ON :(val);")
+
+    results = list(memgraph.execute_and_fetch("USING INDEX :(val) MATCH (n) WHERE n.val = 3 RETURN n.val AS v;"))
+    assert len(results) == 1
+    assert results[0]["v"] == 3
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,12 +17,14 @@
 
 #include "auth/models.hpp"
 #include "glue/auth_checker.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/plan/operator.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/logging.hpp"
 
@@ -31,7 +33,12 @@
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
 
-using Bound = ScanAllByLabelPropertyRange::Bound;
+using Bound = memgraph::utils::Bound<memgraph::query::Expression *>;
+
+inline memgraph::metrics::DatabaseMetricHandles &TestMetricHandles() {
+  static memgraph::metrics::DatabaseMetricHandles h;
+  return h;
+}
 
 ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbol_table,
                              memgraph::query::DbAccessor *dba) {
@@ -39,6 +46,8 @@ ExecutionContext MakeContext(const AstStorage &storage, const SymbolTable &symbo
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
+  context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
+  context.metric_handles = &TestMetricHandles();
   return context;
 }
 #ifdef MG_ENTERPRISE
@@ -49,8 +58,9 @@ ExecutionContext MakeContextWithFineGrainedChecker(const AstStorage &storage, co
   context.symbol_table = symbol_table;
   context.evaluation_context.properties = NamesToProperties(storage.properties_, dba);
   context.evaluation_context.labels = NamesToLabels(storage.labels_, dba);
-  context.auth_checker = std::make_unique<memgraph::glue::FineGrainedAuthChecker>(std::move(*auth_checker));
-
+  context.evaluation_context.edgetypes = NamesToEdgeTypes(storage.edge_types_, dba);
+  context.auth_checker = auth_checker;
+  context.metric_handles = &TestMetricHandles();
   return context;
 }
 #endif
@@ -68,7 +78,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
     symbols.emplace_back(context->symbol_table.at(*named_expression));
 
   // stream out results
-  auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource());
+  auto cursor = produce.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   std::vector<std::vector<TypedValue>> results;
   while (cursor->Pull(frame, *context)) {
     std::vector<TypedValue> values;
@@ -81,7 +91,7 @@ std::vector<std::vector<TypedValue>> CollectProduce(const Produce &produce, Exec
 
 int PullAll(const LogicalOperator &logical_op, ExecutionContext *context) {
   Frame frame(context->symbol_table.max_position());
-  auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource());
+  auto cursor = logical_op.MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   int count = 0;
   while (cursor->Pull(frame, *context)) {
     count++;
@@ -140,15 +150,15 @@ ScanAllTuple MakeScanAllByLabel(AstStorage &storage, SymbolTable &symbol_table, 
  */
 ScanAllTuple MakeScanAllByLabelPropertyRange(AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
                                              memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
-                                             const std::string &property_name, std::optional<Bound> lower_bound,
-                                             std::optional<Bound> upper_bound,
+                                             std::optional<Bound> lower_bound, std::optional<Bound> upper_bound,
                                              std::shared_ptr<LogicalOperator> input = {nullptr},
                                              memgraph::storage::View view = memgraph::storage::View::OLD) {
   auto *node = memgraph::query::test_common::GetNode(storage, identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
-  auto logical_op = std::make_shared<ScanAllByLabelPropertyRange>(input, symbol, label, property, property_name,
-                                                                  lower_bound, upper_bound, view);
+  auto expression_ranges = std::vector{ExpressionRange::Range(lower_bound, upper_bound)};
+  auto logical_op = std::make_shared<ScanAllByLabelProperties>(
+      input, symbol, label, std::vector{memgraph::storage::PropertyPath{property}}, expression_ranges, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -160,14 +170,15 @@ ScanAllTuple MakeScanAllByLabelPropertyRange(AstStorage &storage, SymbolTable &s
  */
 ScanAllTuple MakeScanAllByLabelPropertyValue(AstStorage &storage, SymbolTable &symbol_table, std::string identifier,
                                              memgraph::storage::LabelId label, memgraph::storage::PropertyId property,
-                                             const std::string &property_name, Expression *value,
-                                             std::shared_ptr<LogicalOperator> input = {nullptr},
+                                             Expression *value, std::shared_ptr<LogicalOperator> input = {nullptr},
                                              memgraph::storage::View view = memgraph::storage::View::OLD) {
   auto *node = memgraph::query::test_common::GetNode(storage, identifier);
   auto symbol = symbol_table.CreateSymbol(identifier, true);
   node->identifier_->MapTo(symbol);
-  auto logical_op =
-      std::make_shared<ScanAllByLabelPropertyValue>(input, symbol, label, property, property_name, value, view);
+
+  auto expression_ranges = std::vector{ExpressionRange::Equal(value)};
+  auto logical_op = std::make_shared<ScanAllByLabelProperties>(
+      input, symbol, label, std::vector{memgraph::storage::PropertyPath{property}}, expression_ranges, view);
   return ScanAllTuple{node, logical_op, symbol};
 }
 
@@ -222,7 +233,7 @@ inline uint64_t CountEdges(memgraph::query::DbAccessor *dba, memgraph::storage::
   uint64_t count = 0;
   for (auto vertex : dba->Vertices(view)) {
     auto maybe_edges = vertex.OutEdges(view);
-    MG_ASSERT(maybe_edges.HasValue());
+    MG_ASSERT(maybe_edges.has_value());
     count += CountIterable(maybe_edges->edges);
   }
   return count;

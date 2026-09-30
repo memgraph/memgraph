@@ -1,0 +1,5 @@
+query: >
+    RETURN collections.contains([1,2,3,4,5], 4) AS output;
+
+output:
+  - output: true

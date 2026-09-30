@@ -1,0 +1,17 @@
+# The two modes differ only where a graph lets a walk return to a node it has already visited over a
+# different relationship, so the fixture gives A and B two parallel relationships. RELATIONSHIP_PATH
+# admits the two-hop walk back to A over the other relationship; NODE_PATH does not, because A is
+# already in the path. A one-relationship graph cannot tell the two apart.
+query: >
+  MATCH (a:Node {name: "A"})
+  CALL path.expand_config(a, {relationshipFilter: 'R', minHops: 1, maxHops: 3, bfs: false,
+                              uniqueness: 'NODE_PATH'}) YIELD result
+  WITH collect(size(nodes(result)) - 1) AS node_path
+  MATCH (b:Node {name: "A"})
+  CALL path.expand_config(b, {relationshipFilter: 'R', minHops: 1, maxHops: 3, bfs: false,
+                              uniqueness: 'RELATIONSHIP_PATH'}) YIELD result
+  RETURN node_path, collect(size(nodes(result)) - 1) AS rel_path;
+
+output:
+  - node_path: [1, 1]
+    rel_path: [1, 2, 1, 2]

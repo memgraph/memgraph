@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include "metrics/metric_handles.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
@@ -24,7 +26,41 @@ namespace memgraph::storage {
 
 class DiskUniqueConstraints : public UniqueConstraints {
  public:
-  explicit DiskUniqueConstraints(const Config &config);
+  using DeletionEntries = std::map<uint64_t, std::map<Gid, std::set<std::pair<LabelId, std::set<PropertyId>>>>>;
+
+  /// ActiveConstraints implementation for disk unique constraints.
+  /// Disk storage doesn't have MVCC for constraints, so this is a simple wrapper.
+  class ActiveConstraints final : public UniqueConstraints::ActiveConstraints {
+   public:
+    explicit ActiveConstraints(const DiskUniqueConstraints *constraints) : constraints_{constraints} {}
+
+    auto ListConstraints(uint64_t start_timestamp) const
+        -> std::vector<std::pair<LabelId, std::set<PropertyId>>> override;
+    void UpdateBeforeCommit(const Vertex *vertex, const Transaction &tx) override;
+    auto GetAbortProcessor() const -> AbortProcessor override;
+    void CollectForAbort(AbortProcessor &processor, Vertex const *vertex) const override;
+    void AbortEntries(AbortableInfo &&info, uint64_t exact_start_timestamp) override;
+    bool empty() const override;
+
+    // On-disk storage validates while flushing vertices rather than through the commit-time
+    // verification set, so it never gathers the ids it is keyed on and cannot narrow by them.
+    auto ConstrainedProperties() const -> InterestingProperties override { return InterestingProperties::Everything(); }
+
+    auto ConstrainedLabels() const -> InterestingLabels override { return InterestingLabels::Everything(); }
+
+    void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
+                             uint64_t transaction_start_timestamp) override;
+
+    void UpdateOnAddLabel(LabelId added_label, const Vertex &vertex_before_update,
+                          uint64_t transaction_start_timestamp) override;
+
+    const DiskUniqueConstraints *constraints_;
+    DeletionEntries entries_for_deletion;
+  };
+
+  auto GetActiveConstraints() const -> std::shared_ptr<UniqueConstraints::ActiveConstraints> override;
+
+  explicit DiskUniqueConstraints(const Config &config, metrics::GaugeHandle gauge = {});
 
   CreationStatus CheckIfConstraintCanBeCreated(LabelId label, const std::set<PropertyId> &properties) const;
 
@@ -32,27 +68,18 @@ class DiskUniqueConstraints : public UniqueConstraints {
       LabelId label, const std::set<PropertyId> &properties,
       const std::vector<std::pair<std::string, std::string>> &vertices_under_constraint);
 
-  std::optional<ConstraintViolation> Validate(const Vertex &vertex,
-                                              std::vector<std::vector<PropertyValue>> &unique_storage) const;
+  std::expected<void, ConstraintViolation> Validate(const Vertex &vertex,
+                                                    std::vector<std::vector<PropertyValue>> &unique_storage) const;
 
   [[nodiscard]] bool ClearDeletedVertex(std::string_view gid, uint64_t transaction_commit_timestamp) const;
 
-  [[nodiscard]] bool DeleteVerticesWithRemovedConstraintLabel(uint64_t transaction_start_timestamp,
+  [[nodiscard]] bool DeleteVerticesWithRemovedConstraintLabel(DeletionEntries &deletion_entries,
+                                                              uint64_t transaction_start_timestamp,
                                                               uint64_t transaction_commit_timestamp);
 
   [[nodiscard]] bool SyncVertexToUniqueConstraintsStorage(const Vertex &vertex, uint64_t commit_timestamp) const;
 
-  DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties) override;
-
-  [[nodiscard]] bool ConstraintExists(LabelId label, const std::set<PropertyId> &properties) const override;
-
-  void UpdateOnRemoveLabel(LabelId removed_label, const Vertex &vertex_before_update,
-                           uint64_t transaction_start_timestamp) override;
-
-  void UpdateOnAddLabel(LabelId added_label, const Vertex &vertex_before_update,
-                        uint64_t transaction_start_timestamp) override;
-
-  std::vector<std::pair<LabelId, std::set<PropertyId>>> ListConstraints() const override;
+  DeletionStatus DropConstraint(LabelId label, const std::set<PropertyId> &properties);
 
   void Clear() override;
 
@@ -61,12 +88,11 @@ class DiskUniqueConstraints : public UniqueConstraints {
   void LoadUniqueConstraints(const std::vector<std::string> &keys);
 
  private:
-  utils::Synchronized<std::map<uint64_t, std::map<Gid, std::set<std::pair<LabelId, std::set<PropertyId>>>>>>
-      entries_for_deletion;
   std::set<std::pair<LabelId, std::set<PropertyId>>> constraints_;
   std::unique_ptr<RocksDBStorage> kvstore_;
+  metrics::GaugeHandle gauge_{};
 
-  [[nodiscard]] std::optional<ConstraintViolation> TestIfVertexSatisifiesUniqueConstraint(
+  [[nodiscard]] std::expected<void, ConstraintViolation> TestIfVertexSatisifiesUniqueConstraint(
       const Vertex &vertex, std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
       const std::set<PropertyId> &constraint_properties) const;
 
@@ -74,5 +100,4 @@ class DiskUniqueConstraints : public UniqueConstraints {
                       const std::vector<std::vector<PropertyValue>> &unique_storage, const LabelId &constraint_label,
                       const std::set<PropertyId> &constraint_properties, Gid gid) const;
 };
-
 }  // namespace memgraph::storage

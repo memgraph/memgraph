@@ -1,4 +1,4 @@
-FROM dokken/centos-stream-9
+FROM quay.io/centos/centos:stream9
 
 ARG env_folder
 ARG toolchain_version

@@ -1,0 +1,10 @@
+# subgraph_all always returns exactly one row, so a null start yields that row with both lists empty
+# rather than no rows at all.
+query: >
+  CALL path.subgraph_all(null, {maxHops: 3})
+  YIELD nodes, rels
+  RETURN size(nodes) AS node_count, size(rels) AS rel_count;
+
+output:
+  - node_count: 0
+    rel_count: 0

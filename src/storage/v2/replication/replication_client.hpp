@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,31 +11,28 @@
 
 #pragma once
 
-#include "replication/config.hpp"
-#include "replication/epoch.hpp"
 #include "replication/replication_client.hpp"
-#include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
-#include "storage/v2/database_access.hpp"
-#include "storage/v2/durability/storage_global_operation.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/label_index_stats.hpp"
-#include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/access_type.hpp"
+#include "storage/v2/commit_ts_info.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
-#include "utils/file_locker.hpp"
-#include "utils/scheduler.hpp"
+#include "storage/v2/replication/serialization.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "utils/synchronized.hpp"
-#include "utils/thread_pool.hpp"
+#include "utils/uuid.hpp"
 
-#include <atomic>
 #include <concepts>
-#include <functional>
+#include <expected>
+#include <future>
 #include <optional>
-#include <set>
 #include <string>
-#include <variant>
+
+namespace memgraph::memory {
+class ArenaPool;
+}  // namespace memgraph::memory
 
 namespace memgraph::storage {
 
@@ -46,45 +43,66 @@ class Storage;
 class ReplicationStorageClient;
 
 // Handler used for transferring the current transaction.
+// You need to acquire the RPC lock before creating ReplicaStream object
 class ReplicaStream {
  public:
-  explicit ReplicaStream(Storage *storage, rpc::Client &rpc_client, uint64_t current_seq_num);
+  explicit ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::PrepareCommitRpc> stream);
+  ReplicaStream(ReplicaStream const &) = delete;
+  ReplicaStream &operator=(ReplicaStream const &) = delete;
+  ReplicaStream(ReplicaStream &&) = default;
+  ReplicaStream &operator=(ReplicaStream &&) = default;
+  ~ReplicaStream() = default;
 
   /// @throw rpc::RpcFailedException
-  void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t final_commit_timestamp);
+  void AppendDelta(const Delta &delta, Vertex *vertex, uint64_t final_commit_timestamp, Storage *storage);
 
   /// @throw rpc::RpcFailedException
-  void AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp);
+  void AppendDelta(const Delta &delta, Edge *edge, uint64_t final_commit_timestamp, Storage *storage, Gid in_vertex_gid,
+                   EdgeTypeId edge_type_id);
+
+  /// @throw rpc::RpcFailedException
+  void AppendTransactionStart(uint64_t final_commit_timestamp, bool commit, StorageAccessType access_type);
 
   /// @throw rpc::RpcFailedException
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
 
   /// @throw rpc::RpcFailedException
-  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
-
-  /// @throw rpc::RpcFailedException
-  replication::AppendDeltasRes Finalize();
+  replication::PrepareCommitRes Finalize();
 
   bool IsDefunct() const { return stream_.IsDefunct(); }
 
+  auto DbArenaPool() const -> memory::ArenaPool *;
+
+  auto encoder() -> replication::Encoder { return replication::Encoder{stream_.GetBuilder()}; }
+
+  auto GetStreamHandler() -> rpc::Client::StreamHandler<replication::PrepareCommitRpc> && { return std::move(stream_); }
+
  private:
   Storage *storage_;
-  rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream_;
+  rpc::Client::StreamHandler<replication::PrepareCommitRpc> stream_;
+};
+
+class ReplicaStreamExecutor {
+ public:
+  explicit ReplicaStreamExecutor(std::optional<ReplicaStream> stream) : stream_(std::move(stream)) {}
+
+  void operator()() const {}
+
+ private:
+  std::optional<ReplicaStream> stream_;
 };
 
 template <typename F>
 concept InvocableWithStream = std::invocable<F, ReplicaStream &>;
 
-// TODO Rename to something without the word "client"
 class ReplicationStorageClient {
   friend class InMemoryCurrentWalHandler;
   friend class ReplicaStream;
   friend struct ::memgraph::replication::ReplicationClient;
+  friend class TransactionReplication;
 
  public:
-  explicit ReplicationStorageClient(::memgraph::replication::ReplicationClient &client);
+  explicit ReplicationStorageClient(::memgraph::replication::ReplicationClient &client, utils::UUID main_uuid);
 
   ReplicationStorageClient(ReplicationStorageClient const &) = delete;
   ReplicationStorageClient &operator=(ReplicationStorageClient const &) = delete;
@@ -93,30 +111,46 @@ class ReplicationStorageClient {
 
   ~ReplicationStorageClient() = default;
 
-  // TODO Remove the client related functions
-  auto Mode() const -> memgraph::replication_coordination_glue::ReplicationMode { return client_.mode_; }
+  auto Mode() const -> replication_coordination_glue::ReplicationMode { return client_.mode_; }
+
+  bool TwoPhaseCommit() const {
+    // SYNC and ASYNC replicas should commit immediately when receiving deltas
+    // STRICT_SYNC we are doing two phase commit
+    return client_.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC;
+  }
+
   auto Name() const -> std::string const & { return client_.name_; }
+
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
 
-  auto State() const -> replication::ReplicaState { return replica_state_.WithLock(std::identity()); }
-  auto GetTimestampInfo(Storage const *storage) -> TimestampInfo;
+  void AbortRpcClient() const { client_.rpc_client_.Shutdown(); }
+
+  void SetMaybeBehind() const {
+    replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
+  }
+
+  auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
+
+  auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;
 
   /**
    * @brief Check the replica state
    *
    * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void Start(Storage *storage, DatabaseAccessProtector db_acc);
+  void Start(Storage *storage, DatabaseProtector const &protector);
 
   /**
    * @brief Start a new transaction replication (open up a stream)
    *
-   * @param current_wal_seq_num
    * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param durability_commit_timestamp LDT with which this txn should be committed
    */
-  void StartTransactionReplication(uint64_t current_wal_seq_num, Storage *storage, DatabaseAccessProtector db_acc);
+  auto StartTransactionReplication(Storage *storage, DatabaseProtector const &protector,
+                                   uint64_t durability_commit_timestamp)
+      -> std::expected<ReplicaStream, StartTxnReplicationError>;
 
   // Replication clients can be removed at any point
   // so to avoid any complexity of checking if the client was removed whenever
@@ -124,7 +158,7 @@ class ReplicationStorageClient {
   // function will run a callback if, after previously calling
   // StartTransactionReplication, stream is created.
   template <InvocableWithStream F>
-  void IfStreamingTransaction(F &&callback) {
+  void IfStreamingTransaction(F &&callback, std::optional<ReplicaStream> &replica_stream) {
     // We can only check the state because it guarantees to be only
     // valid during a single transaction replication (if the assumption
     // that this and other transaction replication functions can only be
@@ -132,76 +166,109 @@ class ReplicationStorageClient {
     if (State() != replication::ReplicaState::REPLICATING) {
       return;
     }
-    if (!replica_stream_ || replica_stream_->IsDefunct()) {
-      replica_state_.WithLock([this](auto &state) {
-        replica_stream_.reset();
+    if (!replica_stream || replica_stream->IsDefunct()) {
+      replica_state_.WithLock([&replica_stream](auto &state) {
+        replica_stream.reset();
         state = replication::ReplicaState::MAYBE_BEHIND;
       });
       LogRpcFailure();
       return;
     }
     try {
-      callback(*replica_stream_);  // failure state what if not streaming (std::nullopt)
+      callback(*replica_stream);  // failure state what if not streaming (std::nullopt)
     } catch (const rpc::RpcFailedException &) {
-      replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
+      // We don't need to reset replica stream here, as it is destroyed when object goes out of scope
+      // in FinalizeTransactionReplication function
+      replica_state_.WithLock([&replica_stream](auto &state) {
+        replica_stream.reset();
+        state = replication::ReplicaState::MAYBE_BEHIND;
+      });
       LogRpcFailure();
-      return;
     }
   }
 
-  /**
-   * @brief Return whether the transaction could be finalized on the replication client or not.
-   *
-   * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
-   * @return true
-   * @return false
-   */
-  [[nodiscard]] bool FinalizeTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc);
+  // Runs `task` on this client's background worker and returns its result through a future.
+  // The single worker executes tasks in schedule order, which keeps per-replica transactions FIFO.
+  template <std::invocable F>
+  auto ScheduleTask(F task) const -> std::future<std::invoke_result_t<F>> {
+    std::packaged_task<std::invoke_result_t<F>()> wrapped{std::move(task)};
+    auto future = wrapped.get_future();
+    client_.thread_pool_.AddTask(std::move(wrapped));
+    return future;
+  }
+
+  [[nodiscard]] auto FinalizePrepareCommitPhase(std::optional<ReplicaStream> &replica_stream,
+                                                uint64_t durability_commit_timestamp) const
+      -> std::expected<void, io::network::ClientCommunicationError>;
+
+  auto FinalizeTransactionReplication(DatabaseProtector const &protector, std::optional<ReplicaStream> &&replica_stream,
+                                      uint64_t durability_commit_timestamp, uint64_t commit_num_committed_txns) const
+      -> std::expected<void, io::network::ClientCommunicationError>;
+
+  [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,
+                                           uint64_t durability_commit_timestamp,
+                                           std::optional<ReplicaStream> replica_stream) noexcept;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary
    *
-   * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param main_storage pointer to the storage associated with the client
+   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void TryCheckReplicaStateAsync(Storage *storage, DatabaseAccessProtector db_acc);  // TODO Move back to private
+  void TryCheckReplicaStateAsync(Storage *main_storage, DatabaseProtector const &protector);
 
-  auto &Client() { return client_; }
+  /**
+   * @brief Force reset a replica.
+   * @param main_storage pointer to the storage associated with the client
+   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   */
+  void ForceRecoverReplica(Storage *main_storage, DatabaseProtector const &protector) const;
+
+  auto GetNumCommittedTxns() const -> uint64_t;
 
  private:
   /**
    * @brief Get necessary recovery steps and execute them.
    *
-   * @param replica_commit the commit up to which we should recover to
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param replica_last_commit_ts the commit up to which we should recover to
+   * @param main_storage pointer to the storage associated with the client
+   * @param reset_needed If true, replica needs to reset its storage when the 1st recovery step is sent.
    */
-  void RecoverReplica(uint64_t replica_commit, memgraph::storage::Storage *storage);
+  void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, DatabaseProtector const &protector,
+                      bool reset_needed = false) const;
 
   /**
    * @brief Check replica state
    *
-   * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param main_storage pointer to the storage associated with the client
+   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void UpdateReplicaState(Storage *storage, DatabaseAccessProtector db_acc);
+  void UpdateReplicaState(Storage *main_storage, DatabaseProtector const &protector);
 
-  void LogRpcFailure();
+  /**
+   * @brief Forcefully reset storage to as it is when started from scratch.
+   *
+   */
+  void LogRpcFailure() const;
+
+  // Retires the RPC connection for a tenant that is being dropped: resets the stream so ~StreamHandler
+  // does not leave the socket mid-read, aborts the RPC client to close the socket (framing correctness),
+  // and marks the replica MAYBE_BEHIND. Each call site still returns its own std::unexpected.
+  void RetireForSealedTenant(std::optional<ReplicaStream> &stream) const;
 
   /**
    * @brief Synchronously try to check the replica state and start a recovery thread if necessary
    *
-   * @param storage pointer to the storage associated with the client
-   * @param gk gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param main_storage pointer to the storage associated with the client
+   * @param protector gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void TryCheckReplicaStateSync(Storage *storage, DatabaseAccessProtector db_acc);
+  void TryCheckReplicaStateSync(Storage *main_storage, DatabaseProtector const &protector);
 
   ::memgraph::replication::ReplicationClient &client_;
-  // TODO Do not store the stream, make is a local variable
-  std::optional<ReplicaStream>
-      replica_stream_;  // Currently active stream (nullopt if not in use), note: a single stream per rpc client
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
+  mutable std::atomic<CommitTsInfo> commit_ts_info_;
+  const utils::UUID main_uuid_;
 };
 
 }  // namespace memgraph::storage

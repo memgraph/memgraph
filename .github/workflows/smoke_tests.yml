@@ -1,0 +1,115 @@
+name: "Smoke Test Docker Images"
+concurrency:
+  group: smoke-tests-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  #push:
+  workflow_dispatch:
+    inputs:
+      version:
+        type: string
+        required: false
+        description: "Version (e.g. x.y.z or x.y.z-relwithdebinfo etc.), daily build date (YYYYMMDD), or URL to Docker image: Default - latest daily build"
+      arch:
+        type: choice
+        default: "amd"
+        options:
+        - "all"
+        - "arm"
+        - "amd"
+        required: false
+        description: "Architecture to build the image for (amd/arm)"
+      malloc:
+        type: boolean
+        default: false
+        description: "Test malloc build (only used for daily builds)"
+      cuda:
+        type: boolean
+        default: false
+        description: "Test CUDA build (only used for daily builds)"
+      relwithdebinfo:
+        type: boolean
+        default: false
+        description: "Test RelWithDebInfo build (only used for daily builds)"
+      image_type:
+        type: choice
+        default: "mage"
+        options:
+        - "mage"
+        - "memgraph"
+        required: false
+        description: "Image type to test (mage or memgraph)"
+
+run-name: "Smoke Test Docker Images"
+
+jobs:
+  smoke-release-tests-setup:
+    name: "Setup Smoke Testing"
+    if: ${{ github.event_name != 'push' }}
+    runs-on: ubuntu-latest
+    outputs:
+      run_all: ${{ steps.determine.outputs.run_all }}
+    steps:
+      - name: Determine whether to run “all” or “single”
+        id: determine
+        shell: bash
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          ARCH:         ${{ github.event.inputs.arch }}
+        run: |
+          # if the version is a URL, or arch != "all", we only run the "single" path
+          if [[ "$VERSION" =~ ^https?:// ]] || [[ "$ARCH" != "all" ]]; then
+            echo "run_all=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_all=true"  >> "$GITHUB_OUTPUT"
+          fi
+
+  smoke-release-single:
+    name: "Smoke Testing Docker Images (Single)"
+    needs: smoke-release-tests-setup
+    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'false' }}
+    uses: ./.github/workflows/reusable_smoke_test_docker.yml
+    with:
+      arch: "${{ inputs.arch }}"
+      version: "${{ inputs.version }}"
+      malloc: ${{ inputs.malloc }}
+      image_type: "${{ inputs.image_type }}"
+    secrets: inherit
+
+
+  smoke-release-all-memgraph:
+    name: "Smoke Testing Memgraph Docker Images (All)"
+    needs: smoke-release-tests-setup
+    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'true' && inputs.image_type == 'memgraph' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["amd", "arm"]
+    uses: ./.github/workflows/reusable_smoke_test_docker.yml
+    with:
+      arch: "${{ matrix.arch }}"
+      version: "${{ inputs.version }}"
+      image_type: "memgraph"
+    secrets: inherit
+
+
+  smoke-release-all-mage:
+    name: "Smoke Testing MAGE Docker Images (All)"
+    needs: smoke-release-tests-setup
+    if: ${{ github.event_name != 'push' && needs.smoke-release-tests-setup.outputs.run_all == 'true' && inputs.image_type == 'mage' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: ["amd", "arm"]
+        malloc: [false]
+        include:
+        - arch: "amd"
+          malloc: true
+    uses: ./.github/workflows/reusable_smoke_test_docker.yml
+    with:
+      arch: "${{ matrix.arch }}"
+      version: "${{ inputs.version }}"
+      malloc: ${{ matrix.malloc }}
+      image_type: "mage"
+    secrets: inherit

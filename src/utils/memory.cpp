@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,12 +11,15 @@
 
 #include "utils/memory.hpp"
 
+#include <pthread.h>
 #include <algorithm>
 #include <cmath>
-#include <cstdint>
+#include <cstddef>
+#include <exception>
 #include <limits>
 #include <type_traits>
 
+#include "utils/concurrency_hint.hpp"
 #include "utils/logging.hpp"
 
 namespace memgraph::utils {
@@ -77,7 +80,7 @@ void MonotonicBufferResource::Release() {
     auto alloc_size = b->size();
     auto alignment = b->alignment;
     b->~Buffer();
-    memory_->Deallocate(b, alloc_size, alignment);
+    memory_->deallocate(b, alloc_size, alignment);
     b = next;
   }
   current_buffer_ = nullptr;
@@ -85,12 +88,12 @@ void MonotonicBufferResource::Release() {
   allocated_ = 0U;
 }
 
-void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
+void *MonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
   static_assert(std::is_same_v<size_t, uintptr_t>);
   static_assert(std::is_same_v<size_t, uint64_t>);
   auto push_current_buffer = [this, bytes, alignment](size_t next_size) {
     // Set size so that the bytes fit.
-    const size_t size = next_size > bytes ? next_size : bytes;
+    const size_t size = std::max(next_size, bytes);
     // Simplify alignment by always using values greater or equal to max_align
     const size_t alloc_align = std::max(alignment, alignof(std::max_align_t));
     // Setup the Buffer area before `Buffer::data` such that `Buffer::data` is
@@ -101,14 +104,19 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
     static_assert(IsPow2(alignof(Buffer)),
                   "Buffer should not be a packed struct in order to be placed "
                   "at the start of an allocation request");
+    // TODO : use better function than RoundUint64ToMultiple because we know alloc_align is a power of 2
     const auto maybe_bytes_for_buffer = RoundUint64ToMultiple(sizeof(Buffer), alloc_align);
     if (!maybe_bytes_for_buffer) throw BadAlloc("Allocation size overflow");
     const size_t bytes_for_buffer = *maybe_bytes_for_buffer;
-    const size_t alloc_size = bytes_for_buffer + size;
-    if (alloc_size < size) throw BadAlloc("Allocation size overflow");
-    void *ptr = memory_->Allocate(alloc_size, alloc_align);
+    // TODO : use better function than RoundUint64ToMultiple because we know alloc_align is a power of 2
+    if (size > std::numeric_limits<uint64_t>::max() - bytes_for_buffer) {
+      throw BadAlloc("Allocation size overflow");
+    }
+    const auto alloc_size = RoundUint64ToMultiple(bytes_for_buffer + size, alloc_align);
+    if (!alloc_size) throw BadAlloc("Allocation size overflow");
+    void *ptr = memory_->allocate(*alloc_size, alloc_align);
     // Instantiate the Buffer at the start of the allocated block.
-    current_buffer_ = new (ptr) Buffer{current_buffer_, alloc_size - bytes_for_buffer, alloc_align};
+    current_buffer_ = new (ptr) Buffer{current_buffer_, *alloc_size - bytes_for_buffer, alloc_align};
     allocated_ = 0;
   };
 
@@ -142,6 +150,113 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
 
 // MonotonicBufferResource END
 
+// ThreadSafeMonotonicBufferResource implementation
+
+thread_local ThreadSafeMonotonicBufferResource::ThreadLocalState
+    *ThreadSafeMonotonicBufferResource::thread_local_cache_ = nullptr;
+thread_local uint64_t ThreadSafeMonotonicBufferResource::last_resource_id_ = 0;
+std::atomic<uint64_t> ThreadSafeMonotonicBufferResource::resource_id_ = 1;
+
+ThreadSafeMonotonicBufferResource::ThreadLocalState &ThreadSafeMonotonicBufferResource::thread_local_state() {
+  if (last_resource_id_ != id_) {
+    last_resource_id_ = id_;
+    thread_local_cache_ = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_block_key_));
+  }
+  ThreadLocalState *state = thread_local_cache_;
+  if (!state) {
+    // Allocate space for the ThreadLocalState using the upstream memory resource
+    // This is a small, one-time allocation per thread, so using the upstream directly is fine
+    state = new ThreadLocalState{};
+    state->next_buffer_size = initial_buffer_size_;
+    pthread_setspecific(thread_local_block_key_, reinterpret_cast<void *>(state));
+    thread_local_cache_ = state;
+    {
+      const auto lock = std::lock_guard<std::mutex>(blocks_mutex_);
+      states_.push_back(state);
+    }
+  }
+  return *state;
+}
+
+void *ThreadSafeMonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
+  ThreadLocalState &state = thread_local_state();
+
+  // Try to allocate from the thread-local block
+  if (state.current_block) {
+    // Calculate the current position in the block
+    char *current_ptr = state.current_block->begin() + state.current_size;
+    void *aligned_ptr = current_ptr;
+    size_t available = state.current_block->capacity - state.current_size;
+
+    if (std::align(alignment, bytes, aligned_ptr, available)) {
+      // Success: update the thread-local size
+      const size_t aligned_offset = reinterpret_cast<char *>(aligned_ptr) - state.current_block->begin();
+      state.current_size = aligned_offset + bytes;
+      CheckAllocationSizeOverflow(aligned_ptr, bytes);
+      return aligned_ptr;
+    }
+  }
+
+  // Need a new block - allocate with lock
+  auto *new_block = allocate_new_block(state, bytes, alignment);
+  if (!new_block) {
+    throw BadAlloc("Failed to allocate new block");
+  }
+
+  // Try to align the pointer
+  void *aligned_ptr = new_block->begin();
+  size_t available = new_block->capacity;
+  if (!std::align(alignment, bytes, aligned_ptr, available)) {
+    throw BadAlloc("Failed to align pointer in new block");
+  }
+
+  CheckAllocationSizeOverflow(aligned_ptr, bytes);
+
+  // Update thread-local state
+  state.current_block = new_block;
+  const size_t aligned_offset = reinterpret_cast<char *>(aligned_ptr) - new_block->begin();
+  state.current_size = aligned_offset + bytes;
+
+  return aligned_ptr;
+}
+
+ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::allocate_new_block(ThreadLocalState &state,
+                                                                                                size_t min_size,
+                                                                                                size_t alignment) {
+  // Use the thread-local next_buffer_size for exponential growth, but ensure it's at least min_size
+  const size_t block_size = std::max(state.next_buffer_size, min_size);
+
+  // Allocate memory for block header + data
+  size_t total_size = sizeof(Block) + block_size;
+  const auto align = std::max(alignment, alignof(std::max_align_t));
+  // Size must be a multiple of alignof(Block)
+  if (const auto maybe_total_size = RoundUint64ToMultiple(total_size, align)) {
+    total_size = *maybe_total_size;
+  } else {
+    throw BadAlloc("Allocation size overflow");
+  }
+  void *new_buffer = memory_->allocate(total_size, align);
+
+  if (!new_buffer) {
+    throw BadAlloc("Failed to allocate new block");
+  }
+
+  // Create new block at the beginning of the allocated memory
+  auto *new_block = new (new_buffer) Block(0, total_size - sizeof(Block), align);
+
+  // Add to global list for cleanup
+  {
+    const std::lock_guard<std::mutex> lock(blocks_mutex_);
+    blocks_.emplace_front(new_block);
+  }
+
+  // Grow the thread-local next buffer size for future allocations
+  state.next_buffer_size =
+      GrowMonotonicBuffer(state.next_buffer_size, std::numeric_limits<size_t>::max() - sizeof(Block));
+
+  return new_block;
+}
+
 // PoolResource
 //
 // Implementation is partially based on "Small Object Allocation" implementation
@@ -150,128 +265,252 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
 
 namespace impl {
 
-Pool::Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *memory)
-    : blocks_per_chunk_(blocks_per_chunk), block_size_(block_size), chunks_(memory) {}
-
-Pool::~Pool() { MG_ASSERT(chunks_.empty(), "You need to call Release before destruction!"); }
-
-void *Pool::Allocate() {
-  auto allocate_block_from_chunk = [this](Chunk *chunk) {
-    unsigned char *available_block = chunk->data + (chunk->first_available_block_ix * block_size_);
-    // Update free-list pointer (index in our case) by reading "next" from the
-    // available_block.
-    chunk->first_available_block_ix = *available_block;
-    --chunk->blocks_available;
-    return available_block;
-  };
-  if (last_alloc_chunk_ && last_alloc_chunk_->blocks_available > 0U)
-    return allocate_block_from_chunk(last_alloc_chunk_);
-  // Find a Chunk with available memory.
-  for (auto &chunk : chunks_) {
-    if (chunk.blocks_available > 0U) {
-      last_alloc_chunk_ = &chunk;
-      return allocate_block_from_chunk(last_alloc_chunk_);
-    }
-  }
-  // We haven't found a Chunk with available memory, so allocate a new one.
-  if (block_size_ > std::numeric_limits<size_t>::max() / blocks_per_chunk_) throw BadAlloc("Allocation size overflow");
-  size_t data_size = blocks_per_chunk_ * block_size_;
+Pool::Pool(size_t block_size, unsigned char blocks_per_chunk, MemoryResource *chunk_memory)
+    : blocks_per_chunk_(blocks_per_chunk), block_size_(block_size), chunks_(chunk_memory) {
   // Use the next pow2 of block_size_ as alignment, so that we cover alignment
   // requests between 1 and block_size_. Users of this class should make sure
   // that requested alignment of particular blocks is never greater than the
   // block itself.
-  size_t alignment = Ceil2(block_size_);
-  if (alignment < block_size_) throw BadAlloc("Allocation alignment overflow");
-  auto *data = reinterpret_cast<unsigned char *>(GetUpstreamResource()->Allocate(data_size, alignment));
-  // Form a free-list of blocks in data.
-  for (unsigned char i = 0U; i < blocks_per_chunk_; ++i) {
-    *(data + (i * block_size_)) = i + 1U;
-  }
-  Chunk chunk{data, 0, blocks_per_chunk_};
-  // Insert the big block in the sorted position.
-  auto it = std::lower_bound(chunks_.begin(), chunks_.end(), chunk,
-                             [](const auto &a, const auto &b) { return a.data < b.data; });
-  try {
-    it = chunks_.insert(it, chunk);
-  } catch (...) {
-    GetUpstreamResource()->Deallocate(data, data_size, alignment);
-    throw;
-  }
+  if (block_size_ > std::numeric_limits<size_t>::max() / blocks_per_chunk_) throw BadAlloc("Allocation size overflow");
+}
 
-  last_alloc_chunk_ = &*it;
-  last_dealloc_chunk_ = &*it;
-  return allocate_block_from_chunk(last_alloc_chunk_);
+Pool::~Pool() {
+  if (!chunks_.empty()) {
+    auto *resource = GetUpstreamResource();
+    auto const dataSize = blocks_per_chunk_ * block_size_;
+    auto const alignment = Ceil2(block_size_);
+    for (auto &chunk : chunks_) {
+      resource->deallocate(chunk.raw_data, dataSize, alignment);
+    }
+    chunks_.clear();
+  }
+  free_list_ = nullptr;
+}
+
+void *Pool::Allocate() {
+  if (!free_list_) [[unlikely]] {
+    // need new chunk
+    auto const data_size = blocks_per_chunk_ * block_size_;
+    auto const alignment = Ceil2(block_size_);
+    auto *resource = GetUpstreamResource();
+    auto *data = reinterpret_cast<std::byte *>(resource->allocate(data_size, alignment));
+    try {
+      auto &new_chunk = chunks_.emplace_front(data);
+      free_list_ = new_chunk.build_freelist(block_size_, blocks_per_chunk_);
+    } catch (...) {
+      resource->deallocate(data, data_size, alignment);
+      throw;
+    }
+  }
+  return std::exchange(free_list_, *reinterpret_cast<std::byte **>(free_list_));
 }
 
 void Pool::Deallocate(void *p) {
-  MG_ASSERT(last_dealloc_chunk_, "No chunk to deallocate");
-  MG_ASSERT(!chunks_.empty(),
-            "Expected a call to Deallocate after at least a "
-            "single Allocate has been done.");
-  auto is_in_chunk = [this, p](const Chunk &chunk) {
-    auto ptr = reinterpret_cast<uintptr_t>(p);
-    size_t data_size = blocks_per_chunk_ * block_size_;
-    return reinterpret_cast<uintptr_t>(chunk.data) <= ptr && ptr < reinterpret_cast<uintptr_t>(chunk.data + data_size);
-  };
-  auto deallocate_block_from_chunk = [this, p](Chunk *chunk) {
-    // NOTE: This check is not enough to cover all double-free issues.
-    MG_ASSERT(chunk->blocks_available < blocks_per_chunk_,
-              "Deallocating more blocks than a chunk can contain, possibly a "
-              "double-free situation or we have a bug in the allocator.");
-    // Link the block into the free-list
-    auto *block = reinterpret_cast<unsigned char *>(p);
-    *block = chunk->first_available_block_ix;
-    chunk->first_available_block_ix = (block - chunk->data) / block_size_;
-    chunk->blocks_available++;
-  };
-  if (is_in_chunk(*last_dealloc_chunk_)) {
-    deallocate_block_from_chunk(last_dealloc_chunk_);
-    return;
-  }
-
-  // Find the chunk which served this allocation
-  Chunk chunk{reinterpret_cast<unsigned char *>(p) - blocks_per_chunk_ * block_size_, 0, 0};
-  auto it = std::lower_bound(chunks_.begin(), chunks_.end(), chunk,
-                             [](const auto &a, const auto &b) { return a.data <= b.data; });
-  MG_ASSERT(it != chunks_.end(), "Failed deallocation in utils::Pool");
-  MG_ASSERT(is_in_chunk(*it), "Failed deallocation in utils::Pool");
-
-  // Update last_alloc_chunk_ as well because it now has a free block.
-  // Additionally this corresponds with C++ pattern of allocations and
-  // deallocations being done in reverse order.
-  last_alloc_chunk_ = &*it;
-  last_dealloc_chunk_ = &*it;
-  deallocate_block_from_chunk(last_dealloc_chunk_);
-  // TODO: We could release the Chunk to upstream memory
+  *reinterpret_cast<std::byte **>(p) = std::exchange(free_list_, reinterpret_cast<std::byte *>(p));
 }
 
-void Pool::Release() {
-  for (auto &chunk : chunks_) {
-    size_t data_size = blocks_per_chunk_ * block_size_;
-    size_t alignment = Ceil2(block_size_);
-    GetUpstreamResource()->Deallocate(chunk.data, data_size, alignment);
+thread_local ThreadSafePool::ThreadLocalState *ThreadSafePool::tls_cache_ = nullptr;
+thread_local uint64_t ThreadSafePool::last_pool_ = 0;
+std::atomic<uint64_t> ThreadSafePool::pool_id_ = 1;
+
+ThreadSafePool::ThreadLocalState *ThreadSafePool::thread_state() {
+  if (last_pool_ != id_) {
+    last_pool_ = id_;
+    tls_cache_ = static_cast<ThreadLocalState *>(pthread_getspecific(thread_local_key_));
   }
-  chunks_.clear();
-  last_alloc_chunk_ = nullptr;
-  last_dealloc_chunk_ = nullptr;
+  ThreadLocalState *state = tls_cache_;
+  if (!state) {
+    // Initialize
+    state = new ThreadLocalState{};
+    pthread_setspecific(thread_local_key_, reinterpret_cast<void *>(state));
+    tls_cache_ = state;
+    {
+      const auto lock = std::lock_guard<std::mutex>(mtx_);
+      states_.push_back(state);
+    }
+  }
+  return state;
+}
+
+// OPTIMIZED: Just allocate the chunk. Do NOT touch the memory.
+// This prevents the "thundering herd" of page faults and clear_page calls.
+void *ThreadSafePool::carve_block() {
+  // Allocate a new chunk (Virtual Memory only)
+  void *raw = chunk_memory_->allocate(chunk_size(), chunk_alignment());
+  {
+    // Push back to the global list for cleanup later
+    const std::unique_lock lock(mtx_);
+    chunks_.emplace_front(raw);
+  }
+  // Return the raw pointer immediately
+  return raw;
+}
+
+ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks, MemoryResource *chunk_memory)
+    : block_size_(block_size),
+      blocks_per_chunk_(blocks_per_chunks),
+      id_{pool_id_.fetch_add(1)},
+      chunk_memory_(chunk_memory) {
+  // Create pthread key with destructor for cleanup when threads exit
+  if (pthread_key_create(&thread_local_key_, nullptr) != 0) {
+    throw BadAlloc("Failed to create pthread key for thread-local storage");
+  }
+  states_.reserve(utils::GetNumWorkers());
+}
+
+ThreadSafePool::~ThreadSafePool() {
+  if (!chunks_.empty()) {
+    for (auto &chunk : chunks_) {
+      chunk_memory_->deallocate(chunk, chunk_size(), chunk_alignment());
+    }
+    chunks_.clear();
+  }
+
+  for (auto *state : states_) {
+    delete state;
+  }
+  states_.clear();
+
+  pthread_key_delete(thread_local_key_);
+  last_pool_ = 0;
+  tls_cache_ = nullptr;
+}
+
+void *ThreadSafePool::Allocate() {
+  ThreadLocalState *state = thread_state();
+
+  // 1. Hot Path: Pop from the free list (recycled nodes)
+  // These pages are likely already physically mapped and hot in cache.
+  if (state->free_list_head) {
+    Node *node = state->free_list_head;
+    state->free_list_head = node->next;
+    return node;
+  }
+
+  // 2. Warm Path: Bump allocation from current chunk
+  // This lazily triggers page faults one by one as we cross 4KB boundaries.
+  if (state->cursor && (state->cursor + block_size_ <= state->end)) {
+    void *p = state->cursor;
+    state->cursor += block_size_;
+    return p;
+  }
+
+  // 3. Cold Path: Carve a new chunk
+  void *raw = carve_block();
+
+  // Initialize the bump pointers
+  state->cursor = static_cast<char *>(raw);
+  state->end = state->cursor + chunk_size();
+
+  // Return the first block
+  void *p = state->cursor;
+  state->cursor += block_size_;
+  return p;
+}
+
+void ThreadSafePool::Deallocate(void *p) noexcept {
+  try {
+    ThreadLocalState *state = thread_state();
+    Node *node = static_cast<Node *>(p);
+
+    // Push onto the free list
+    node->next = state->free_list_head;
+    state->free_list_head = node;
+  } catch (...) {
+    std::terminate();
+  }
 }
 
 }  // namespace impl
 
-PoolResource::PoolResource(size_t max_blocks_per_chunk, size_t max_block_size, MemoryResource *memory_pools,
-                           MemoryResource *memory_unpooled)
-    : pools_(memory_pools),
-      unpooled_(memory_unpooled),
-      max_blocks_per_chunk_(std::min(max_blocks_per_chunk, static_cast<size_t>(impl::Pool::MaxBlocksInChunk()))),
-      max_block_size_(max_block_size) {
-  MG_ASSERT(max_blocks_per_chunk_ > 0U, "Invalid number of blocks per chunk");
-  MG_ASSERT(max_block_size_ > 0U, "Invalid size of block");
+struct NullMemoryResourceImpl final : public MemoryResource {
+  NullMemoryResourceImpl() = default;
+  NullMemoryResourceImpl(NullMemoryResourceImpl const &) = default;
+  NullMemoryResourceImpl &operator=(NullMemoryResourceImpl const &) = default;
+  NullMemoryResourceImpl(NullMemoryResourceImpl &&) = default;
+  NullMemoryResourceImpl &operator=(NullMemoryResourceImpl &&) = default;
+  ~NullMemoryResourceImpl() override = default;
+
+ private:
+  void *do_allocate(size_t /*bytes*/, size_t /*alignment*/) override {
+    throw BadAlloc{"NullMemoryResource doesn't allocate"};
+  }
+
+  void do_deallocate(void * /*p*/, size_t /*bytes*/, size_t /*alignment*/) override {
+    throw BadAlloc{"NullMemoryResource doesn't deallocate"};
+  }
+
+  bool do_is_equal(MemoryResource const &other) const noexcept override {
+    return dynamic_cast<NullMemoryResourceImpl const *>(&other) != nullptr;
+  }
+};
+
+MemoryResource *NullMemoryResource() noexcept {
+  static auto res = NullMemoryResourceImpl{};
+  return &res;
 }
 
-void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
+namespace impl {
+
+/// 1 bit sensitivity test
+static_assert(bin_index<1>(9U) == 0);
+static_assert(bin_index<1>(10U) == 0);
+static_assert(bin_index<1>(11U) == 0);
+static_assert(bin_index<1>(12U) == 0);
+static_assert(bin_index<1>(13U) == 0);
+static_assert(bin_index<1>(14U) == 0);
+static_assert(bin_index<1>(15U) == 0);
+static_assert(bin_index<1>(16U) == 0);
+
+static_assert(bin_index<1>(17U) == 1);
+static_assert(bin_index<1>(18U) == 1);
+static_assert(bin_index<1>(19U) == 1);
+static_assert(bin_index<1>(20U) == 1);
+static_assert(bin_index<1>(21U) == 1);
+static_assert(bin_index<1>(22U) == 1);
+static_assert(bin_index<1>(23U) == 1);
+static_assert(bin_index<1>(24U) == 1);
+static_assert(bin_index<1>(25U) == 1);
+static_assert(bin_index<1>(26U) == 1);
+static_assert(bin_index<1>(27U) == 1);
+static_assert(bin_index<1>(28U) == 1);
+static_assert(bin_index<1>(29U) == 1);
+static_assert(bin_index<1>(30U) == 1);
+static_assert(bin_index<1>(31U) == 1);
+static_assert(bin_index<1>(32U) == 1);
+
+/// 2 bit sensitivity test
+
+static_assert(bin_index<2>(9U) == 0);
+static_assert(bin_index<2>(10U) == 0);
+static_assert(bin_index<2>(11U) == 0);
+static_assert(bin_index<2>(12U) == 0);
+
+static_assert(bin_index<2>(13U) == 1);
+static_assert(bin_index<2>(14U) == 1);
+static_assert(bin_index<2>(15U) == 1);
+static_assert(bin_index<2>(16U) == 1);
+
+static_assert(bin_index<2>(17U) == 2);
+static_assert(bin_index<2>(18U) == 2);
+static_assert(bin_index<2>(19U) == 2);
+static_assert(bin_index<2>(20U) == 2);
+static_assert(bin_index<2>(21U) == 2);
+static_assert(bin_index<2>(22U) == 2);
+static_assert(bin_index<2>(23U) == 2);
+static_assert(bin_index<2>(24U) == 2);
+
+}  // namespace impl
+
+// Explicit template instantiations for PoolResource with default template parameter
+template class PoolResource<impl::Pool>;
+template class PoolResource<impl::ThreadSafePool>;
+
+template <typename P>
+void *PoolResource<P>::do_allocate(size_t bytes, size_t alignment) {
   // Take the max of `bytes` and `alignment` so that we simplify handling
   // alignment requests.
-  size_t block_size = std::max(bytes, alignment);
+  size_t block_size = std::max({bytes, alignment, 1UL});
   // Check that we have received a regular allocation request with non-padded
   // structs/classes in play. These will always have
   // `sizeof(T) % alignof(T) == 0`. Special requests which don't have that
@@ -279,80 +518,42 @@ void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
   // have to write a general-purpose allocator which has to behave as complex
   // as malloc/free.
   if (block_size % alignment != 0) throw BadAlloc("Requested bytes must be a multiple of alignment");
-  if (block_size > max_block_size_) {
-    // Allocate a big block.
-    BigBlock big_block{bytes, alignment, GetUpstreamResourceBlocks()->Allocate(bytes, alignment)};
-    // Insert the big block in the sorted position.
-    auto it = std::lower_bound(unpooled_.begin(), unpooled_.end(), big_block,
-                               [](const auto &a, const auto &b) { return a.data < b.data; });
-    try {
-      unpooled_.insert(it, big_block);
-    } catch (...) {
-      GetUpstreamResourceBlocks()->Deallocate(big_block.data, bytes, alignment);
-      throw;
-    }
-    return big_block.data;
+
+  if (block_size <= 64) {
+    return mini_pools_[(block_size - 1UL) / 8UL].Allocate();
   }
-  // Allocate a regular block, first check if last_alloc_pool_ is suitable.
-  if (last_alloc_pool_ && last_alloc_pool_->GetBlockSize() == block_size) {
-    return last_alloc_pool_->Allocate();
+  if (block_size <= 128) {
+    return pools_3bit_.allocate(block_size);
   }
-  // Find the pool with greater or equal block_size.
-  impl::Pool pool(block_size, max_blocks_per_chunk_, GetUpstreamResource());
-  auto it = std::lower_bound(pools_.begin(), pools_.end(), pool,
-                             [](const auto &a, const auto &b) { return a.GetBlockSize() < b.GetBlockSize(); });
-  if (it != pools_.end() && it->GetBlockSize() == block_size) {
-    last_alloc_pool_ = &*it;
-    last_dealloc_pool_ = &*it;
-    return it->Allocate();
+  if (block_size <= 512) {
+    return pools_4bit_.allocate(block_size);
   }
-  // We don't have a pool for this block_size, so insert it in the sorted
-  // position.
-  it = pools_.emplace(it, std::move(pool));
-  last_alloc_pool_ = &*it;
-  last_dealloc_pool_ = &*it;
-  return it->Allocate();
+  if (block_size <= 1024) {
+    return pools_5bit_.allocate(block_size);
+  }
+  return unpooled_memory_->allocate(bytes, alignment);
 }
 
-void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
-  size_t block_size = std::max(bytes, alignment);
-  MG_ASSERT(block_size % alignment == 0,
-            "PoolResource shouldn't serve allocation requests where bytes aren't "
-            "a multiple of alignment");
-  if (block_size > max_block_size_) {
-    // Deallocate a big block.
-    BigBlock big_block{bytes, alignment, p};
-    auto it = std::lower_bound(unpooled_.begin(), unpooled_.end(), big_block,
-                               [](const auto &a, const auto &b) { return a.data < b.data; });
-    MG_ASSERT(it != unpooled_.end(), "Failed deallocation");
-    MG_ASSERT(it->data == p && it->bytes == bytes && it->alignment == alignment, "Failed deallocation");
-    unpooled_.erase(it);
-    GetUpstreamResourceBlocks()->Deallocate(p, bytes, alignment);
-    return;
+template <typename P>
+void PoolResource<P>::do_deallocate(void *p, size_t bytes, size_t alignment) {
+  size_t block_size = std::max({bytes, alignment, 1UL});
+  DMG_ASSERT(block_size % alignment == 0);
+
+  if (block_size <= 64) {
+    mini_pools_[(block_size - 1UL) / 8UL].Deallocate(p);
+  } else if (block_size <= 128) {
+    pools_3bit_.deallocate(p, block_size);
+  } else if (block_size <= 512) {
+    pools_4bit_.deallocate(p, block_size);
+  } else if (block_size <= 1024) {
+    pools_5bit_.deallocate(p, block_size);
+  } else {
+    unpooled_memory_->deallocate(p, bytes, alignment);
   }
-  // Deallocate a regular block, first check if last_dealloc_pool_ is suitable.
-  if (last_dealloc_pool_ && last_dealloc_pool_->GetBlockSize() == block_size) return last_dealloc_pool_->Deallocate(p);
-  // Find the pool with equal block_size.
-  impl::Pool pool(block_size, max_blocks_per_chunk_, GetUpstreamResource());
-  auto it = std::lower_bound(pools_.begin(), pools_.end(), pool,
-                             [](const auto &a, const auto &b) { return a.GetBlockSize() < b.GetBlockSize(); });
-  MG_ASSERT(it != pools_.end(), "Failed deallocation");
-  MG_ASSERT(it->GetBlockSize() == block_size, "Failed deallocation");
-  last_alloc_pool_ = &*it;
-  last_dealloc_pool_ = &*it;
-  return it->Deallocate(p);
 }
 
-void PoolResource::Release() {
-  for (auto &pool : pools_) pool.Release();
-  pools_.clear();
-  for (auto &big_block : unpooled_)
-    GetUpstreamResourceBlocks()->Deallocate(big_block.data, big_block.bytes, big_block.alignment);
-  unpooled_.clear();
-  last_alloc_pool_ = nullptr;
-  last_dealloc_pool_ = nullptr;
+template <typename P>
+bool PoolResource<P>::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
+  return this == &other;
 }
-
-// PoolResource END
-
 }  // namespace memgraph::utils

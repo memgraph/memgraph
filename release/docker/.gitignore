@@ -1,0 +1,2 @@
+# Transient artifacts staged into this docker build context by package_docker.
+mirrors/

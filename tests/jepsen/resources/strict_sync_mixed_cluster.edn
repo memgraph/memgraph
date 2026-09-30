@@ -1,0 +1,7 @@
+{"n1" {:management-port 10000 :replication-port 20000 :replica-type "strict_sync"}
+  "n2" {:management-port 10000 :replication-port 20000 :replica-type "async"}
+  "n3" {:management-port 10000 :replication-port 20000 :replica-type "strict_sync"}
+  "n4" {:management-port 10000 :coordinator-port 12000 :coordinator-id 1}
+  "n5" {:management-port 10000 :coordinator-port 12000 :coordinator-id 2}
+  "n6" {:management-port 10000 :coordinator-port 12000 :coordinator-id 3}
+}

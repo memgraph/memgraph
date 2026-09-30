@@ -1,0 +1,17 @@
+sources:
+  "5.2.1-memgraph":
+    url: "https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
+    sha256: "34330e5ce276099e2e8950d9335db5a875689a4c6a56751ef3b1d8c537f887f6"
+patches:
+  "5.2.1-memgraph":
+    - patch_file: "patches/0001-clang12-dont-declare-system-functions-as-nothrow.patch"
+      patch_description: "Remove nothrow from system function declarations on macOS and FreeBSD."
+      patch_type: "backport"
+    - patch_file: "patches/0002-roll-back-background-threads-after-creation-failure.patch"
+      patch_description: "Disable background threads when thread 0 cannot be created, so decay falls back to application threads."
+      patch_type: "backport"
+      patch_source: "https://github.com/jemalloc/jemalloc/pull/2979"
+    - patch_file: "patches/0003-wait-on-condition-variable-while-paused-for-arena-reset.patch"
+      patch_description: "Pause a background thread for an arena reset on its condition variable, so stopping the threads straight after a reset cannot deadlock."
+      patch_type: "backport"
+      patch_source: "https://github.com/jemalloc/jemalloc/commit/6957341f19"

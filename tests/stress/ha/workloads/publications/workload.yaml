@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: publications-import-workload
+      script: "ha/workloads/publications/workload.py"
+      timeout_min: 120

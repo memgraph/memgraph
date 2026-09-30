@@ -1,0 +1,5 @@
+query: >
+  RETURN collections.union_all(null, [1, 2]) AS result;
+
+output:
+  - result: [1, 2]

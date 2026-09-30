@@ -1,0 +1,4 @@
+query: >
+  RETURN path.slice(null, 0, -1) AS result;
+output:
+  - result: null

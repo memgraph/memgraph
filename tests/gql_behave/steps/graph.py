@@ -1,4 +1,4 @@
-# Copyright 2021 Memgraph Ltd.
+# Copyright 2025 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,24 +11,32 @@
 
 # -*- coding: utf-8 -*-
 
-import database
 import os
+
+import database
 from behave import given
 
 
 def clear_graph(context):
-    database.query("MATCH (n) DETACH DELETE n", context)
-    if context.exception is not None:
-        context.exception = None
+    result = database.query("SHOW STORAGE INFO ON CURRENT DATABASE", context)
+    storage_mode = next(record["value"] for record in result if record["storage info"] == "storage_mode")
+    if storage_mode == "ON_DISK_TRANSACTIONAL":
         database.query("MATCH (n) DETACH DELETE n", context)
+    elif storage_mode == "IN_MEMORY_TRANSACTIONAL":
+        database.query("STORAGE MODE IN_MEMORY_ANALYTICAL", context)
+        database.query("DROP GRAPH", context)
+        database.query("STORAGE MODE IN_MEMORY_TRANSACTIONAL", context)
+    else:
+        database.query("DROP GRAPH", context)
+    database.query("DELETE ALL PARAMETERS", context)
 
 
-@given('an empty graph')
+@given("an empty graph")
 def empty_graph_step(context):
     clear_graph(context)
 
 
-@given('any graph')
+@given("any graph")
 def any_graph_step(context):
     clear_graph(context)
 
@@ -46,20 +54,18 @@ def create_graph(name, context):
     and sets graph properties to beginning values.
     """
     clear_graph(context)
-    path = os.path.join(context.config.test_directory, "graphs",
-                        name + ".cypher")
+    path = os.path.join(context.config.test_directory, "graphs", name + ".cypher")
 
-    q_marks = ["'", '"', '`']
+    q_marks = ["'", '"', "`"]
 
-    with open(path, 'r') as f:
-        content = f.read().replace('\n', ' ')
-        single_query = ''
+    with open(path, "r") as f:
+        content = f.read().replace("\n", " ")
+        single_query = ""
         quote = None
         i = 0
         while i < len(content):
             ch = content[i]
-            if ch == '\\' and i != len(content) - 1 and \
-                    content[i + 1] in q_marks:
+            if ch == "\\" and i != len(content) - 1 and content[i + 1] in q_marks:
                 single_query += ch + content[i + 1]
                 i += 2
             else:
@@ -68,9 +74,9 @@ def create_graph(name, context):
                     quote = None
                 elif ch in q_marks and quote is None:
                     quote = ch
-                if ch == ';' and quote is None:
+                if ch == ";" and quote is None:
                     database.query(single_query, context)
-                    single_query = ''
+                    single_query = ""
                 i += 1
-        if single_query.strip() != '':
+        if single_query.strip() != "":
             database.query(single_query, context)

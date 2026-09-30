@@ -110,6 +110,7 @@ if __name__ == "__main__":
         benchmark_target_workload=copy.copy(args.benchmarks),
         client_binary=args.client_binary,
         num_workers_for_import=args.num_workers_for_import,
+        num_workers_for_benchmark=1,
         temporary_directory=args.temporary_directory,
     )
 
@@ -140,7 +141,7 @@ if __name__ == "__main__":
             vendor_runner.stop_db_init("import")
         else:
             workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
-            imported = workload.custom_import()
+            imported = workload.custom_import(client)
             if not imported:
                 vendor_runner.start_db_init("import")
                 print("Executing database cleanup and index setup...")
@@ -177,6 +178,7 @@ if __name__ == "__main__":
         benchmark_target_workload=copy.copy(args.benchmarks),
         client_binary=args.client_binary,
         num_workers_for_import=args.num_workers_for_import,
+        num_workers_for_benchmark=1,
         temporary_directory=args.temporary_directory,
     )
 
@@ -201,7 +203,7 @@ if __name__ == "__main__":
             vendor_runner.stop("import")
         else:
             workload.prepare(cache.cache_directory("datasets", workload.NAME, workload.get_variant()))
-            imported = workload.custom_import()
+            imported = workload.custom_import(client)
             if not imported:
                 vendor_runner.start_db_init("import")
                 print("Executing database cleanup and index setup...")
@@ -240,11 +242,11 @@ if __name__ == "__main__":
             db_1_values = set()
             for index, value in results_db_1[key]:
                 db_1_values.add(value)
-            neo4j_values = set()
+            db_2_values = set()
             for index, value in results_db_2[key]:
-                neo4j_values.add(value)
+                db_2_values.add(value)
 
-            if db_1_values == neo4j_values:
+            if db_1_values == db_2_values:
                 validation[key] = "Identical results"
             else:
                 validation[key] = "Different results, check manually."

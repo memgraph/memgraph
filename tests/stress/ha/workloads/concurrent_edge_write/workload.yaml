@@ -1,0 +1,5 @@
+customWorkloads:
+  tests:
+    - name: concurrent-edge-write
+      script: "ha/workloads/concurrent_edge_write/workload.py"
+      timeout_min: 120

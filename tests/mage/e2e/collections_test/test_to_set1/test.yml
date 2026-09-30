@@ -1,0 +1,8 @@
+query: >
+  WITH collections.to_set([1,1,2,1,3,4,1]) AS result UNWIND result AS element RETURN element ORDER BY element ASC;
+
+output:
+  - element: 1
+  - element: 2
+  - element: 3
+  - element: 4

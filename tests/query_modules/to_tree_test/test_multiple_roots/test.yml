@@ -1,0 +1,15 @@
+query: >
+  MATCH p = (person:Person)-[:OWNS]->(car:Car)
+  WHERE person.name IN ['Alice', 'Bob']
+  WITH collect(p) AS paths
+  CALL convert_c.to_tree(paths) YIELD value
+  RETURN value.name AS name, value._type AS type, size(value.owns) AS car_count
+  ORDER BY name
+
+output:
+  - name: Alice
+    type: Person
+    car_count: 2
+  - name: Bob
+    type: Person
+    car_count: 2

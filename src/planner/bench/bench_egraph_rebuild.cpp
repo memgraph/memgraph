@@ -1,0 +1,54 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include <ranges>
+
+#include "bench_common.hpp"
+
+import memgraph.planner.core.egraph;
+
+using namespace memgraph::planner::bench;
+using TestContext = ProcessingContext<Op>;
+
+static void BM_EGraph_CongruenceChain(benchmark::State &state) {
+  TestEGraph egraph;
+  TestContext ctx;
+
+  auto chain_length = state.range(0);
+
+  for (auto _ : state) {
+    state.PauseTiming();
+    egraph.clear();
+
+    std::vector<EClassId> chain_head;
+    for (auto chain_num = 0; chain_num != 5; ++chain_num) {
+      auto previous = egraph.emplace(Op::Const, static_cast<uint64_t>(chain_num));
+      chain_head.emplace_back(previous.eclass_id);
+      for (auto i = 0; i != chain_length; ++i) {
+        previous = egraph.emplace(Op::F, {previous.eclass_id});
+      }
+    }
+    auto rng = std::views::zip(chain_head | std::views::drop(1), chain_head);
+    for (auto [a, b] : rng) {
+      egraph.merge(a, b);
+    }
+    state.ResumeTiming();
+    egraph.rebuild(ctx);
+  }
+
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+
+BENCHMARK(BM_EGraph_CongruenceChain)
+    ->Name("EGraph/Rebuild/CongruenceChain")
+    ->Range(100, 10'000)
+    ->ArgName("length")
+    ->Unit(benchmark::kMicrosecond);

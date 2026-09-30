@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,68 +12,185 @@
 #pragma once
 
 #include <atomic>
-#include <limits>
-#include <list>
+#include <exception>
 #include <memory>
+#include <optional>
+#include <unordered_map>
+#include <vector>
 
+#include <spdlog/spdlog.h>
+
+#include "storage/v2/id_types.hpp"
+#include "storage/v2/index_arming.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/property_write_targets.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
+#include "utils/query_memory_tracker.hpp"
 #include "utils/skip_list.hpp"
 
+#include "delta_container.hpp"
+#include "storage/v2/async_indexer.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
-#include "storage/v2/delta.hpp"
+#include "storage/v2/constraints/active_constraints.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/indices/active_indices.hpp"
+#include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/metadata_delta.hpp"
 #include "storage/v2/modified_edge.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
-#include "storage/v2/view.hpp"
-#include "utils/bond.hpp"
 #include "utils/pmr/list.hpp"
 
-#include <rocksdb/utilities/transaction.h>
+namespace rocksdb {
+class Transaction;
+}  // namespace rocksdb
 
 namespace memgraph::storage {
 
-const uint64_t kTimestampInitialId = 0;
-const uint64_t kTransactionInitialId = 1ULL << 63U;
-using PmrListDelta = utils::pmr::list<Delta>;
+struct CommitCallbacks {
+  using func_t = std::function<void(uint64_t)>;
+
+  void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
+
+  void RunAll(uint64_t commit_timestamp) {
+    for (auto &callback : callbacks_) {
+      callback(commit_timestamp);
+    }
+    callbacks_.clear();
+  }
+
+  std::vector<std::function<void(uint64_t)>> callbacks_;
+};
+
+/// Mirror of CommitCallbacks. Each site that adds a commit_callback typically
+/// adds a paired abort_callback that undoes the same eager mutation; commit
+/// runs commit_callbacks and discards abort_callbacks, abort the reverse.
+struct AbortCallbacks {
+  using func_t = std::function<void()>;
+
+  void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
+
+  // noexcept: a throwing callback here will std::terminate. In practice this
+  // is fine — abort runs with the soft memory tracker disabled (no
+  // OutOfMemoryExceptionEnabler in scope), so OOM can't fire from these
+  // callbacks, and a true system bad_alloc means we're going down anyway.
+  void RunAll() noexcept {
+    for (auto &callback : callbacks_) {
+      callback();
+    }
+    callbacks_.clear();
+  }
+
+  void Clear() noexcept { callbacks_.clear(); }
+
+  std::vector<func_t> callbacks_;
+};
+
+struct AsyncIndexHelper {
+  AsyncIndexHelper() = default;
+  AsyncIndexHelper(Config const &config, ActiveIndices const &active_indices, uint64_t start_timestamp);
+
+  // Perf: keep this code inlinable
+  void Track(LabelId label) {
+    if (label_index_ && !label_index_->existing_.contains(label)) {
+      label_index_->requested_.insert(label);
+      // optimisation: this prevent redundant insertions requested_
+      label_index_->existing_.insert(label);
+    }
+  }
+
+  // Perf: keep this code inlinable
+  void Track(EdgeTypeId edge_type) {
+    if (edgetype_index_ && !edgetype_index_->existing_.contains(edge_type)) {
+      edgetype_index_->requested_.insert(edge_type);
+      // optimisation: this prevent redundant insertions requested_
+      edgetype_index_->existing_.insert(edge_type);
+    }
+  }
+
+  void DispatchRequests(AsyncIndexer &async_indexer);
+
+ private:
+  struct LabelIndexInfo {
+    absl::flat_hash_set<LabelId> existing_;
+    absl::flat_hash_set<LabelId> requested_;
+  };
+
+  struct EdgeTypeIndexInfo {
+    absl::flat_hash_set<EdgeTypeId> existing_;
+    absl::flat_hash_set<EdgeTypeId> requested_;
+  };
+
+  std::optional<LabelIndexInfo> label_index_ = std::nullopt;
+  std::optional<EdgeTypeIndexInfo> edgetype_index_ = std::nullopt;
+};
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
-              StorageMode storage_mode, bool edge_import_mode_active)
+              StorageMode storage_mode, bool edge_import_mode_active, PointIndexContext point_index_ctx,
+              ActiveIndicesPtr active_indices, ActiveConstraintsPtr active_constraints,
+              AsyncIndexHelper async_index_helper = {}, std::optional<uint64_t> last_durable_ts = std::nullopt,
+              uint64_t last_durable_num_committed_txns = 0, metrics::GaugeHandle unreleased_delta_gauge = {})
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
+        original_start_timestamp(start_timestamp),
         command_id(0),
-        deltas(0),
+        deltas(unreleased_delta_gauge),
         md_deltas(utils::NewDeleteResource()),
-        must_abort(false),
+        has_serialization_error(false),
         isolation_level(isolation_level),
         storage_mode(storage_mode),
         edge_import_mode_active(edge_import_mode_active),
+        active_constraints_{std::move(active_constraints)},
+        // The parameter has been moved from by now, so these ids come from the member.
+        constraint_verification_info{
+            (active_constraints_ && !active_constraints_->empty())
+                ? std::optional<
+                      ConstraintVerificationInfo>{std::in_place,
+                                                  ConstraintRelevance{
+                                                      .unique_properties =
+                                                          active_constraints_->unique_->ConstrainedProperties(),
+                                                      .unique_labels =
+                                                          active_constraints_->unique_->ConstrainedLabels(),
+                                                      .existence_properties =
+                                                          active_constraints_->existence_->ConstrainedProperties(),
+                                                      .existence_labels =
+                                                          active_constraints_->existence_->ConstrainedLabels()}}
+                : std::nullopt},
         vertices_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
-                      ? std::optional<utils::SkipList<Vertex>>{std::in_place}
+                      ? std::optional<utils::SkipListDb<Vertex>>{std::in_place}
                       : std::nullopt},
         edges_{(storage_mode == StorageMode::ON_DISK_TRANSACTIONAL)
-                   ? std::optional<utils::SkipList<Edge>>{std::in_place}
-                   : std::nullopt} {}
+                   ? std::optional<utils::SkipListDb<Edge>>{std::in_place}
+                   : std::nullopt},
+        point_index_ctx_{std::move(point_index_ctx)},
+        point_index_change_collector_{point_index_ctx_},
+        query_memory_tracker_{},
+        last_durable_ts_{last_durable_ts},
+        last_durable_num_committed_txns_{last_durable_num_committed_txns},
+        active_indices_{std::move(active_indices)},
+        async_index_helper_(std::move(async_index_helper)) {}
 
   Transaction(Transaction &&other) noexcept = default;
 
   Transaction(const Transaction &) = delete;
   Transaction &operator=(const Transaction &) = delete;
-  Transaction &operator=(Transaction &&other) = default;
+  Transaction &operator=(Transaction &&other) = delete;
 
   ~Transaction() = default;
 
   bool IsDiskStorage() const { return storage_mode == StorageMode::ON_DISK_TRANSACTIONAL; }
 
-  /// @throw std::bad_alloc if failed to create the `commit_timestamp`
-  void EnsureCommitTimestampExists() {
-    if (commit_timestamp != nullptr) return;
-    commit_timestamp = std::make_unique<std::atomic<uint64_t>>(transaction_id);
+  /// @throw std::bad_alloc if failed to create the `commit_info`
+  void EnsureCommitInfoExists() {
+    if (commit_info != nullptr) return;
+    commit_info = std::make_unique<CommitInfo>(transaction_id);
   }
 
   bool AddModifiedEdge(Gid gid, ModifiedEdgeInfo modified_edge) {
@@ -82,52 +199,148 @@ struct Transaction {
 
   bool RemoveModifiedEdge(const Gid &gid) { return modified_edges_.erase(gid) > 0U; }
 
+  struct EdgeSetPropertyInfo {
+    Gid in_vertex_gid = kInvalidGid;
+    EdgeTypeId edge_type_id = kInvalidEdgeTypeId;
+  };
+
+  void RecordEdgeSetPropertyInfo(Gid edge_gid, Gid in_vertex_gid, EdgeTypeId edge_type_id) {
+    edge_set_property_info_[edge_gid] = EdgeSetPropertyInfo{in_vertex_gid, edge_type_id};
+  }
+
+  EdgeSetPropertyInfo GetEdgeSetPropertyInfo(Gid edge_gid) const {
+    auto it = edge_set_property_info_.find(edge_gid);
+    if (it == edge_set_property_info_.end()) return {};
+    return it->second;
+  }
+
+  void UpdateOnChangeLabel(LabelId label, Vertex *vertex) {
+    point_index_change_collector_.UpdateOnChangeLabel(label, vertex);
+    manyDeltasCache.Invalidate(vertex, label);
+  }
+
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &old_value, const PropertyValue &new_value,
+                           Vertex *vertex) {
+    point_index_change_collector_.UpdateOnSetProperty(property, old_value, new_value, vertex);
+    manyDeltasCache.Invalidate(vertex, property);
+  }
+
+  void UpdateOnVertexDelete(Vertex *vertex) {
+    point_index_change_collector_.UpdateOnVertexDelete(vertex);
+    manyDeltasCache.Invalidate(vertex);
+  }
+
+  void SetParallelExecution() { parallel_execution_ = true; }
+
+  bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !parallel_execution_; }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
-  // The `Transaction` object is stack allocated, but the `commit_timestamp`
+  // Set at construction; never reassigned. Stable across PeriodicCommit.
+  uint64_t original_start_timestamp{};
+  // The `Transaction` object is stack allocated, but the `commit_info`
   // must be heap allocated because `Delta`s have a pointer to it, and that
   // pointer must stay valid after the `Transaction` is moved into
   // `commited_transactions_` list for GC.
-  std::unique_ptr<std::atomic<uint64_t>> commit_timestamp{};
+  std::unique_ptr<CommitInfo> commit_info{};
   uint64_t command_id{};
 
-  Bond<PmrListDelta> deltas;
+  delta_container deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
-  bool must_abort{};
+  bool has_serialization_error{};
+  bool has_non_sequential_deltas{};
+  // A property delta does not say whether it was on a vertex or an edge. That is known where the
+  // delta is created, so it is recorded here rather than worked out later by following the delta
+  // chain back to whatever it belongs to.
+  PropertyWriteTargets wrote_properties_on{};
+  // Which indexes this transaction's writes could have left something to sweep, filled by the write
+  // path itself. Only analytical uses it: transactional arming is read off the deltas as the
+  // collector unlinks them, and analytical produces no deltas to read. Empty, and allocation-free,
+  // otherwise.
+  IndexArming index_arming{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};
+
+  /// Concurrent safe constraints that existed at the beginning of the transaction
+  /// Used for constraint validation during commit.
+  ///
+  /// Declared ahead of `constraint_verification_info`, which borrows the constrained id sets from
+  /// this snapshot: the borrower is then initialised second and destroyed first.
+  ActiveConstraintsPtr active_constraints_;
 
   // A cache which is consistent to the current transaction_id + command_id.
   // Used to speedup getting info about a vertex when there is a long delta
   // chain involved in rebuilding that info.
   mutable VertexInfoCache manyDeltasCache{};
-  mutable ConstraintVerificationInfo constraint_verification_info{};
+  mutable std::optional<ConstraintVerificationInfo> constraint_verification_info{};
 
   // Store modified edges GID mapped to changed Delta and serialized edge key
   // Only for disk storage
   ModifiedEdgesMap modified_edges_{};
+  std::unordered_map<Gid, EdgeSetPropertyInfo> edge_set_property_info_{};
   rocksdb::Transaction *disk_transaction_{};
   /// Main storage
-  std::optional<utils::SkipList<Vertex>> vertices_{};
-  std::vector<std::unique_ptr<utils::SkipList<Vertex>>> index_storage_{};
+  std::optional<utils::SkipListDb<Vertex>> vertices_{};
+  std::vector<std::unique_ptr<utils::SkipListDb<Vertex>>> index_storage_{};
 
   /// We need them because query context for indexed reading is cleared after the query is done not after the
   /// transaction is done
-  std::vector<std::list<Delta>> index_deltas_storage_{};
-  std::optional<utils::SkipList<Edge>> edges_{};
-  std::map<std::string, std::pair<std::string, std::string>> edges_to_delete_{};
-  std::map<std::string, std::string> vertices_to_delete_{};
+  std::vector<delta_container> index_deltas_storage_{};
+  std::optional<utils::SkipListDb<Edge>> edges_{};
+  std::map<std::string, std::pair<std::string, std::string>, std::less<>> edges_to_delete_{};
+  std::map<std::string, std::string, std::less<>> vertices_to_delete_{};
   bool scanned_all_vertices_ = false;
+  /// Hold point index relevant to this txn+command
+  PointIndexContext point_index_ctx_;
+  /// Tracks changes relevant to point index (used during Commit/AdvanceCommand)
+  PointIndexChangeCollector point_index_change_collector_;
+  /// Tracking schema changes done during the transaction
+  LocalSchemaTracking schema_diff_;
+  SchemaInfoPostProcess post_process_;
+
+  /// Query memory tracker
+  utils::QueryMemoryTracker query_memory_tracker_;
+
+  /// Text index change tracking (batched apply on commit)
+  TextIndexChangeCollector text_index_change_collector_;
+
+  /// Text edge index change tracking (batched apply on commit)
+  TextEdgeIndexChangeCollector text_edge_index_change_collector_;
+
+  /// Pinned tantivy searcher cache for snapshot-consistent text index reads within this transaction
+  mutable std::unique_ptr<TextSearchSession> text_search_session_;
+
+  /// Last durable timestamp at the moment of transaction creation
+  std::optional<uint64_t> last_durable_ts_;
+  /// Number of committed txns paired with last_durable_ts_, captured from the same atomic load so a snapshot
+  /// writes a mutually consistent (durable_timestamp, num_committed_txns) pair.
+  uint64_t last_durable_num_committed_txns_{0};
+
+  /// Concurrent safe indices that existed at the beginning of the transaction
+  /// Used to insert new entries, and during planning to speed up scans
+  ActiveIndicesPtr active_indices_;
+  CommitCallbacks commit_callbacks_;
+  /// Rollback hooks for eager DDL owner-side mutations. Runs on Abort(),
+  /// cleared on successful commit (see commit_callbacks_.RunAll site).
+  AbortCallbacks abort_callbacks_;
+
+  /// Auto indexing infomation gathering
+  AsyncIndexHelper async_index_helper_;
+
+  bool parallel_execution_{false};  // For now just disable for the whole query
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {
   return first.transaction_id == second.transaction_id;
 }
+
 inline bool operator<(const Transaction &first, const Transaction &second) {
   return first.transaction_id < second.transaction_id;
 }
+
 inline bool operator==(const Transaction &first, const uint64_t &second) { return first.transaction_id == second; }
+
 inline bool operator<(const Transaction &first, const uint64_t &second) { return first.transaction_id < second; }
 
 }  // namespace memgraph::storage

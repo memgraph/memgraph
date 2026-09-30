@@ -1,0 +1,25 @@
+# PageRank values validated against NetworkX ground truth
+query: >
+  CALL cugraph.pagerank.get() YIELD node, pagerank
+  RETURN node.id AS node_id, pagerank
+  ORDER BY node_id ASC;
+
+output:
+  - node_id: 1
+    pagerank: 0.0716673
+  - node_id: 2
+    pagerank: 0.129423
+  - node_id: 3
+    pagerank: 0.121955
+  - node_id: 4
+    pagerank: 0.118334
+  - node_id: 5
+    pagerank: 0.0716673
+  - node_id: 6
+    pagerank: 0.129423
+  - node_id: 7
+    pagerank: 0.121955
+  - node_id: 8
+    pagerank: 0.118334
+  - node_id: 9
+    pagerank: 0.117242

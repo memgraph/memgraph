@@ -1,0 +1,8 @@
+function(copy_show_active_users_info_e2e_python_files FILE_NAME)
+    copy_e2e_python_files(show_active_users_info ${FILE_NAME})
+endfunction()
+
+copy_show_active_users_info_e2e_python_files(common.py)
+copy_show_active_users_info_e2e_python_files(test_show_active_users_info.py)
+
+copy_e2e_files(show_active_users_info workloads.yaml)

@@ -1,0 +1,7 @@
+memgraph_query: >
+  MATCH (a)-[r]->(b)
+  CALL refactor.clone_nodes([a, b], True, ["age"]) YIELD input, output RETURN input, output;
+
+neo4j_query: >
+  MATCH (a)-[r]->(b)
+  CALL apoc.refactor.cloneNodes([a, b], True, ["age"]) YIELD input, output RETURN input, output;

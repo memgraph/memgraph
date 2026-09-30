@@ -1,0 +1,10 @@
+- query: >-
+    CALL node2vec_online.get() YIELD node, embedding
+    RETURN count(embedding) as embeddings_count;
+  output:
+    - embeddings_count: 0
+- query: >-
+    CALL node2vec_online.get() YIELD node, embedding
+    RETURN count(embedding) as embeddings_count;
+  output:
+    - embeddings_count: 0

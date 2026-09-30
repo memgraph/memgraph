@@ -11,6 +11,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import re
 import sys
 import time
 from multiprocessing import Process
@@ -19,6 +20,23 @@ import common
 import mgclient
 import pytest
 from mg_utils import mg_sleep_and_assert
+
+
+def _get_storage_info(cursor):
+    cursor.execute("SHOW STORAGE INFO ON CURRENT DATABASE")
+    return {row[0]: row[1] for row in cursor.fetchall()}
+
+
+def _parse_size_bytes(size_str):
+    """Parse a human-readable size string from GetReadableSize(), e.g. '1.50MiB'."""
+    if not size_str:
+        return 0
+    m = re.match(r"^(\d+(?:\.\d+)?)\s*(B|KiB|MiB|GiB|TiB)$", size_str.strip())
+    if not m:
+        return 0
+    units = {"B": 1, "KiB": 1024, "MiB": 1024**2, "GiB": 1024**3, "TiB": 1024**4}
+    return int(float(m.group(1)) * units[m.group(2)])
+
 
 TRANSFORMATIONS_TO_CHECK_C = ["c_transformations.empty_transformation"]
 TRANSFORMATIONS_TO_CHECK_PY = ["kafka_transform.simple", "kafka_transform.with_parameters"]
@@ -111,6 +129,8 @@ def test_check_stream(kafka_producer, kafka_topics, connection, transformation):
     common.create_stream(cursor, stream_name, kafka_topics[0], transformation, batch_size=BATCH_SIZE)
     common.start_stream(cursor, stream_name)
     kafka_producer.send(kafka_topics[0], common.SIMPLE_MSG).get(timeout=KAFKA_PRODUCER_SENDING_MSG_DEFAULT_TIMEOUT)
+    # Wait for the message to be ingested (and its offset committed) before stopping, or CHECK STREAM below starts at it
+    common.kafka_check_vertex_exists_with_topic_and_payload(cursor, kafka_topics[0], common.SIMPLE_MSG)
     common.stop_stream(cursor, stream_name)
 
     messages = [b"first message", b"second message", b"third message"]
@@ -162,7 +182,11 @@ def test_show_streams(kafka_topics, connection):
     complex_values_stream = "complex_values"
 
     common.create_stream(
-        cursor, default_values_stream, kafka_topics[0], "kafka_transform.simple", bootstrap_servers="'localhost:29092'"
+        cursor,
+        default_values_stream,
+        kafka_topics[0],
+        "kafka_transform.simple",
+        bootstrap_servers=f"'{common.KAFKA_BOOTSTRAP_SERVERS}'",
     )
     common.create_stream(
         cursor,
@@ -255,7 +279,7 @@ def test_restart_after_error(kafka_producer, kafka_topics, connection):
 def test_bootstrap_server(kafka_producer, kafka_topics, connection, transformation):
     assert len(kafka_topics) > 0
     cursor = connection.cursor()
-    local = "'localhost:29092'"
+    local = f"'{common.KAFKA_BOOTSTRAP_SERVERS}'"
     stream_name = "test_bootstrap_server_" + transformation.split(".")[1]
 
     common.create_stream(cursor, stream_name, ",".join(kafka_topics), transformation, bootstrap_servers=local)
@@ -287,6 +311,10 @@ def test_set_offset(kafka_producer, kafka_topics, connection, transformation):
         cursor,
         f"CREATE KAFKA STREAM test TOPICS {kafka_topics[0]} TRANSFORM {transformation} BATCH_SIZE 1",
     )
+    # Let the consumer finish joining its group before the first offset change: set_stream_offset re-subscribes, and
+    # doing that while the initial join is in flight leaves an orphaned pending member that stalls the group for 45s.
+    common.start_stream(cursor, "test")
+    common.stop_stream(cursor, "test")
 
     messages = [f"{i} message" for i in range(1, 21)]
     for message in messages:
@@ -341,7 +369,7 @@ def test_info_procedure(kafka_topics, connection):
     cursor = connection.cursor()
     stream_name = "test_stream"
     configs = {"sasl.username": "michael.scott"}
-    local = "localhost:29092"
+    local = common.KAFKA_BOOTSTRAP_SERVERS
     credentials = {"sasl.password": "S3cr3tP4ssw0rd"}
     consumer_group = "ConsumerGr"
 
@@ -500,6 +528,50 @@ def test_check_stream_with_batch_limit_with_invalid_batch_limit(kafka_topics, co
         )
 
     common.test_check_stream_with_batch_limit_with_invalid_batch_limit(connection, stream_creator)
+
+
+def test_db_memory_grows_from_kafka_stream_ingestion(kafka_producer, kafka_topics, connection):
+    """
+    Objects created by Kafka consumer ingestion must be attributed to tenant_memory_tracked.
+
+    The Kafka consumer thread is fully pinned to the DB jemalloc arena via je_mallctl
+    (kafka/consumer.cpp). Every vertex/edge created by the transformation Cypher query
+    goes through the DB arena extent hooks and is reflected in
+    SHOW STORAGE INFO ON CURRENT DATABASE → tenant_memory_tracked.
+    """
+    assert len(kafka_topics) > 0
+    cursor = connection.cursor()
+    stream_name = "test_db_memory_kafka"
+    topic = kafka_topics[0]
+
+    common.create_stream(cursor, stream_name, topic, "kafka_transform.simple")
+    common.start_stream(cursor, stream_name)
+
+    before = _parse_size_bytes(_get_storage_info(cursor).get("tenant_memory_tracked", "0B"))
+
+    # Send enough messages to trigger arena extent allocations (each message creates
+    # one :MESSAGE node with topic + payload properties via kafka_transform.simple).
+    msg_count = 300
+    for _ in range(msg_count):
+        kafka_producer.send(topic, common.SIMPLE_MSG).get(timeout=KAFKA_PRODUCER_SENDING_MSG_DEFAULT_TIMEOUT)
+
+    # Wait until every message is ingested before measuring (the messages are identical, so count them).
+    def ingested_count():
+        return common.execute_and_fetch_all(cursor, f"MATCH (n:MESSAGE {{topic: '{topic}'}}) RETURN count(n)")[0][0]
+
+    mg_sleep_and_assert(msg_count, ingested_count, max_duration=60)
+
+    after = _parse_size_bytes(_get_storage_info(cursor).get("tenant_memory_tracked", "0B"))
+
+    # Cleanup
+    common.stop_stream(cursor, stream_name)
+    common.drop_stream(cursor, stream_name)
+    cursor.execute("MATCH (n:MESSAGE) DETACH DELETE n")
+
+    assert after > before, (
+        f"tenant_memory_tracked must grow after Kafka consumer creates {msg_count} nodes. "
+        f"before={before} after={after}"
+    )
 
 
 if __name__ == "__main__":

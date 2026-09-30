@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,19 +9,39 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <thread>
+#pragma once
+
+#include <range/v3/algorithm/any_of.hpp>
+#include <range/v3/range/conversion.hpp>
+#include <range/v3/view/transform.hpp>
+
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
+#include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
+#include "memory/db_arena_fwd.hpp"
+
+#include <atomic>
+
 namespace memgraph::storage {
 
-namespace {
+/// A sweep leaves entries at or past the oldest active start timestamp alone, so that a transaction
+/// which started before such an entry was written can still reach the version it names. Analytical
+/// keeps no versions to reach: a write is applied in place, and a delete removes the object from
+/// storage in the same collection pass whose sweep would have been leaving its entry alone, so the
+/// entry is left naming freed memory for every later reader of that index. Callers hold the main
+/// lock, which is what keeps the answer true for the length of a sweep.
+inline bool SweepPreservesRecentEntries(StorageMode mode) { return mode == StorageMode::IN_MEMORY_TRANSACTIONAL; }
+
+namespace details {
 
 template <Delta::Action... actions>
 struct ActionSet {
@@ -32,15 +52,15 @@ struct ActionSet {
 /// the provided timestamp, and calls the provided callback function for each
 /// delta. If the callback ever returns true, traversal is stopped and the
 /// function returns true. Otherwise, the function returns false.
-template <ActionSet interesting, typename TCallback>
+template <ActionSet handled_actions, typename TCallback>
 inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta, const TCallback &predicate) {
   while (delta != nullptr) {
-    const auto ts = delta->timestamp->load(std::memory_order_acquire);
+    const auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
     // This is a committed change that we see so we shouldn't undo it.
     if (ts < timestamp) {
       break;
     }
-    if (interesting.contains(delta->action) && predicate(*delta)) {
+    if (handled_actions.contains(delta->action) && predicate(*delta)) {
       return true;
     }
     // Move to the next delta.
@@ -49,7 +69,7 @@ inline bool AnyVersionSatisfiesPredicate(uint64_t timestamp, const Delta *delta,
   return false;
 }
 
-}  // namespace
+}  // namespace details
 
 /// Helper function for label index garbage collection. Returns true if there's
 /// a reachable version of the vertex that has the given label.
@@ -59,96 +79,31 @@ inline bool AnyVersionHasLabel(const Vertex &vertex, LabelId label, uint64_t tim
   const Delta *delta = nullptr;
   {
     auto guard = std::shared_lock{vertex.lock};
-    has_label = utils::Contains(vertex.labels, label);
-    deleted = vertex.deleted;
-    delta = vertex.delta;
+    has_label = std::ranges::contains(vertex.labels, label);
+    deleted = vertex.deleted();
+    delta = vertex.delta();
   }
   if (!deleted && has_label) {
     return true;
   }
-  constexpr auto interesting =
-      ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL, Delta::Action::RECREATE_OBJECT,
-                Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(timestamp, delta, [&has_label, &deleted, label](const Delta &delta) {
-    switch (delta.action) {
-      case Delta::Action::ADD_LABEL:
-        if (delta.label == label) {
-          MG_ASSERT(!has_label, "Invalid database state!");
-          has_label = true;
-        }
-        break;
-      case Delta::Action::REMOVE_LABEL:
-        if (delta.label == label) {
-          MG_ASSERT(has_label, "Invalid database state!");
-          has_label = false;
-        }
-        break;
-      case Delta::Action::RECREATE_OBJECT: {
-        MG_ASSERT(deleted, "Invalid database state!");
-        deleted = false;
-        break;
-      }
-      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-      case Delta::Action::DELETE_OBJECT: {
-        MG_ASSERT(!deleted, "Invalid database state!");
-        deleted = true;
-        break;
-      }
-      case Delta::Action::SET_PROPERTY:
-      case Delta::Action::ADD_IN_EDGE:
-      case Delta::Action::ADD_OUT_EDGE:
-      case Delta::Action::REMOVE_IN_EDGE:
-      case Delta::Action::REMOVE_OUT_EDGE:
-        break;
-    }
-    return !deleted && has_label;
-  });
-}
-
-/// Helper function for label-property index garbage collection. Returns true if
-/// there's a reachable version of the vertex that has the given label and
-/// property value.
-inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId key, const PropertyValue &value,
-                                       uint64_t timestamp) {
-  Delta const *delta;
-  bool deleted;
-  bool has_label;
-  bool current_value_equal_to_value;
-  {
-    auto guard = std::shared_lock{vertex.lock};
-    delta = vertex.delta;
-    deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
-    // Avoid IsPropertyEqual if already not possible
-    if (delta == nullptr && (deleted || !has_label)) return false;
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
-  }
-
-  if (!deleted && has_label && current_value_equal_to_value) {
-    return true;
-  }
-
-  constexpr auto interesting = ActionSet<Delta::Action::ADD_LABEL, Delta::Action::REMOVE_LABEL,
-                                         Delta::Action::SET_PROPERTY, Delta::Action::RECREATE_OBJECT,
-                                         Delta::Action::DELETE_DESERIALIZED_OBJECT, Delta::Action::DELETE_OBJECT>{};
-  return AnyVersionSatisfiesPredicate<interesting>(
-      timestamp, delta, [&has_label, &current_value_equal_to_value, &deleted, label, key, &value](const Delta &delta) {
+  constexpr auto handled_actions = details::ActionSet<Delta::Action::ADD_LABEL,
+                                                      Delta::Action::REMOVE_LABEL,
+                                                      Delta::Action::RECREATE_OBJECT,
+                                                      Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                                                      Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<handled_actions>(
+      timestamp, delta, [&has_label, &deleted, label](const Delta &delta) {
         switch (delta.action) {
           case Delta::Action::ADD_LABEL:
-            if (delta.label == label) {
+            if (delta.label.value == label) {
               MG_ASSERT(!has_label, "Invalid database state!");
               has_label = true;
             }
             break;
           case Delta::Action::REMOVE_LABEL:
-            if (delta.label == label) {
+            if (delta.label.value == label) {
               MG_ASSERT(has_label, "Invalid database state!");
               has_label = false;
-            }
-            break;
-          case Delta::Action::SET_PROPERTY:
-            if (delta.property.key == key) {
-              current_value_equal_to_value = delta.property.value == value;
             }
             break;
           case Delta::Action::RECREATE_OBJECT: {
@@ -162,118 +117,146 @@ inline bool AnyVersionHasLabelProperty(const Vertex &vertex, LabelId label, Prop
             deleted = true;
             break;
           }
+          case Delta::Action::SET_PROPERTY:
           case Delta::Action::ADD_IN_EDGE:
           case Delta::Action::ADD_OUT_EDGE:
           case Delta::Action::REMOVE_IN_EDGE:
           case Delta::Action::REMOVE_OUT_EDGE:
             break;
         }
-        return !deleted && has_label && current_value_equal_to_value;
+        return !deleted && has_label;
       });
 }
 
-// Helper function for iterating through label-property index. Returns true if
-// this transaction can see the given vertex, and the visible version has the
-// given label and property.
-inline bool CurrentVersionHasLabelProperty(const Vertex &vertex, LabelId label, PropertyId key,
-                                           const PropertyValue &value, Transaction *transaction, View view) {
-  bool exists = true;
-  bool deleted = false;
-  bool has_label = false;
-  bool current_value_equal_to_value = value.IsNull();
+inline bool AnyVersionIsVisible(Edge *edge, uint64_t timestamp) {
+  bool deleted{false};
   const Delta *delta = nullptr;
   {
-    auto guard = std::shared_lock{vertex.lock};
-    deleted = vertex.deleted;
-    has_label = utils::Contains(vertex.labels, label);
-    current_value_equal_to_value = vertex.properties.IsPropertyEqual(key, value);
-    delta = vertex.delta;
+    auto guard = std::shared_lock{edge->lock};
+    deleted = edge->deleted();
+    delta = edge->delta();
+  }
+  if (!deleted) {
+    return true;
   }
 
-  // Checking cache has a cost, only do it if we have any deltas
-  // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
-    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
-    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
-    auto const useCache = transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
-    if (useCache) {
-      auto const &cache = transaction->manyDeltasCache;
-      if (auto resError = HasError(view, cache, &vertex, false); resError) return false;
-      auto resLabel = cache.GetHasLabel(view, &vertex, label);
-      if (resLabel && *resLabel) {
-        auto resProp = cache.GetProperty(view, &vertex, key);
-        if (resProp && *resProp == value) return true;
+  constexpr auto handled_actions = details::ActionSet<Delta::Action::RECREATE_OBJECT,
+                                                      Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                                                      Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<handled_actions>(timestamp, delta, [&deleted](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::RECREATE_OBJECT: {
+        MG_ASSERT(deleted, "Invalid database state!");
+        deleted = false;
+        break;
       }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        MG_ASSERT(!deleted, "Invalid database state!");
+        deleted = true;
+        break;
+      }
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::SET_PROPERTY:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
     }
+    return !deleted;
+  });
+}
 
-    auto const n_processed = ApplyDeltasForRead(transaction, delta, view, [&, label, key](const Delta &delta) {
+/// Helper function for edgetype-property index garbage collection. Returns true if
+/// there's a reachable version of the edge that has the given property value.
+template <typename TEntity>
+inline bool AnyVersionHasProperty(TEntity const &entity, PropertyId key, PropertyValue const &value,
+                                  uint64_t timestamp) {
+  Delta const *delta;
+  bool deleted;
+  bool current_value_equal_to_value;
+  {
+    auto guard = std::shared_lock{entity.lock};
+    delta = entity.delta();
+    deleted = entity.deleted();
+    if (delta == nullptr && deleted) return false;
+    current_value_equal_to_value = entity.properties.IsPropertyEqual(key, value);
+  }
+
+  if (!deleted && current_value_equal_to_value) {
+    return true;
+  }
+
+  constexpr auto handled_actions = details::ActionSet<Delta::Action::SET_PROPERTY,
+                                                      Delta::Action::RECREATE_OBJECT,
+                                                      Delta::Action::DELETE_DESERIALIZED_OBJECT,
+                                                      Delta::Action::DELETE_OBJECT>{};
+  return details::AnyVersionSatisfiesPredicate<handled_actions>(
+      timestamp, delta, [&current_value_equal_to_value, &deleted, key, &value](Delta const &delta) {
+        switch (delta.action) {
+          case Delta::Action::SET_PROPERTY:
+            if (delta.property.key == key) {
+              current_value_equal_to_value = *delta.property.value == value;
+            }
+            break;
+          case Delta::Action::RECREATE_OBJECT: {
+            MG_ASSERT(deleted, "Invalid database state!");
+            deleted = false;
+            break;
+          }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT: {
+            MG_ASSERT(!deleted, "Invalid database state!");
+            deleted = true;
+            break;
+          }
+          case Delta::Action::ADD_LABEL:
+          case Delta::Action::REMOVE_LABEL:
+          case Delta::Action::ADD_IN_EDGE:
+          case Delta::Action::ADD_OUT_EDGE:
+          case Delta::Action::REMOVE_IN_EDGE:
+          case Delta::Action::REMOVE_OUT_EDGE:
+            break;
+        }
+        return !deleted && current_value_equal_to_value;
+      });
+}
+
+template <typename TEntity>
+inline bool CurrentVersionHasProperty(TEntity const &entity, PropertyId key, PropertyValue const &value,
+                                      Transaction *transaction, View view) {
+  bool exists = true;
+  bool deleted = false;
+  bool current_value_equal_to_value = value.IsNull();
+  Delta const *delta = nullptr;
+  {
+    auto guard = std::shared_lock{entity.lock};
+    deleted = entity.deleted();
+    current_value_equal_to_value = entity.properties.IsPropertyEqual(key, value);
+    delta = entity.delta();
+  }
+
+  if (delta && transaction->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    ApplyDeltasForRead(transaction, delta, view, [&, key](Delta const &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Deleted_ActionMethod(deleted),
         Exists_ActionMethod(exists),
-        HasLabel_ActionMethod(has_label, label),
-        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key,value)
+        PropertyValueMatch_ActionMethod(current_value_equal_to_value, key, value)
       });
       // clang-format on
     });
-
-    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
-      auto &cache = transaction->manyDeltasCache;
-      cache.StoreExists(view, &vertex, exists);
-      cache.StoreDeleted(view, &vertex, deleted);
-      cache.StoreHasLabel(view, &vertex, label, has_label);
-      if (current_value_equal_to_value) {
-        cache.StoreProperty(view, &vertex, key, value);
-      }
-    }
   }
 
-  return exists && !deleted && has_label && current_value_equal_to_value;
+  return exists && !deleted && current_value_equal_to_value;
 }
 
-template <typename TIndexAccessor>
-inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, TIndexAccessor &index_accessor) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
-    return;
-  }
-
-  index_accessor.insert({&vertex, 0});
-}
-
-template <typename TIndexAccessor>
-inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::pair<LabelId, PropertyId> label_property_pair,
-                                        TIndexAccessor &index_accessor) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, label_property_pair.first)) {
-    return;
-  }
-  auto value = vertex.properties.GetProperty(label_property_pair.second);
-  if (value.IsNull()) {
-    return;
-  }
-  index_accessor.insert({std::move(value), &vertex, 0});
-}
-
-template <typename TSkiplistIter, typename TIndex, typename TIndexKey, typename TFunc>
-inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
-                                      TIndexKey key, const TFunc &func) {
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  try {
-    auto acc = it->second.access();
-    for (Vertex &vertex : vertices) {
-      func(vertex, key, acc);
-    }
-  } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    index.erase(it);
-    throw;
-  }
-}
-
-template <typename TIndex, typename TIndexKey, typename TSKiplistIter, typename TFunc>
-inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
-                                         TIndex &index, TIndexKey key,
-                                         const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
-                                         const TFunc &func) {
+template <typename TVerticesAccessor, typename TSkipListAccessorFactory, typename TFunc>
+inline void PopulateIndexOnMultipleThreads(TVerticesAccessor &vertices, TSkipListAccessorFactory &&accessor_factory,
+                                           const TFunc &func,
+                                           durability::ParallelizedSchemaCreationInfo const &parallel_exec_info) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -284,40 +267,266 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
             "creation!");
 
   std::atomic<uint64_t> batch_counter = 0;
+  // A cancel check throwing inside a worker would escape the thread function and terminate the process, so it is
+  // caught per worker and re-thrown from this thread once they have all joined. That keeps cancellation identical
+  // whether population ran on one thread or many.
+  std::atomic<bool> cancelled = false;
 
-  utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock> maybe_error{};
+  // TODO(composite_index): return std::optional<utils::OutOfMemoryException>, handle index cleanup from caller
+  auto maybe_error = utils::Synchronized<std::optional<utils::OutOfMemoryException>, utils::SpinLock>{};
   {
-    std::vector<std::jthread> threads;
+    std::vector<memory::DbAwareThread> threads;
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back(
-          [&skiplist_iter, &func, &index, &vertex_batches, &maybe_error, &batch_counter, &key, &vertices]() {
-            while (!maybe_error.Lock()->has_value()) {
-              const auto batch_index = batch_counter++;
-              if (batch_index >= vertex_batches.size()) {
-                return;
-              }
-              const auto &batch = vertex_batches[batch_index];
-              auto index_accessor = index.at(key).access();
-              auto it = vertices.find(batch.first);
+      threads.emplace_back(parallel_exec_info.arena_pool, [&, func /*local copy incase there is local state*/]() {
+        auto acc = accessor_factory();
+        while (!maybe_error.Lock()->has_value() && !cancelled.load(std::memory_order_relaxed)) {
+          const auto batch_index = batch_counter++;
+          if (batch_index >= vertex_batches.size()) {
+            return;
+          }
+          const auto &batch = vertex_batches[batch_index];
+          auto it = vertices.find(batch.first);
 
-              try {
-                for (auto i{0U}; i < batch.second; ++i, ++it) {
-                  func(*it, key, index_accessor);
-                }
-
-              } catch (utils::OutOfMemoryException &failure) {
-                utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-                index.erase(skiplist_iter);
-                *maybe_error.Lock() = std::move(failure);
-              }
+          try {
+            for (auto i{0U}; i < batch.second; ++i, ++it) {
+              func(*it, acc);
             }
-          });
+
+          } catch (utils::OutOfMemoryException &failure) {
+            utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+            *maybe_error.Lock() = std::move(failure);
+          } catch (PopulateCancel const &) {
+            cancelled.store(true, std::memory_order_relaxed);
+          }
+        }
+      });
     }
   }
-  if (maybe_error.Lock()->has_value()) {
-    throw utils::OutOfMemoryException((*maybe_error.Lock())->what());
+  // Out of memory wins over cancellation: it is the more specific failure and the caller unwinds it differently.
+  auto error = maybe_error.Lock();
+  if (error->has_value()) {
+    throw *std::move(*error);
+  }
+  if (cancelled.load(std::memory_order_relaxed)) {
+    throw PopulateCancel{};
+  }
+}
+
+template <typename TVerticesAccessor, typename TSkipListAccessorFactory, typename TFunc>
+inline void PopulateIndexOnSingleThread(TVerticesAccessor &vertices, TSkipListAccessorFactory &&accessor_factory,
+                                        const TFunc &func) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+
+  auto acc = accessor_factory();
+  for (Vertex &vertex : vertices) {
+    func(vertex, acc);
+  }
+}
+
+template <typename TVerticesAccessor, typename TSkipListAccessorFactory, typename TFunc>
+inline void PopulateIndexDispatch(TVerticesAccessor &vertices, TSkipListAccessorFactory &&accessor_factory,
+                                  const TFunc &insert_function, CheckCancelFunction &&cancel_check,
+                                  std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info) {
+  auto checked_insert_function =
+      [&, cancel_check = std::move(cancel_check) /*need to be owned, if parallel these will be copied per thread*/](
+          Vertex &vertex, auto &index_accessor) {
+        if (cancel_check()) {
+          throw PopulateCancel{};
+        }
+        insert_function(vertex, index_accessor);
+      };
+
+  if (parallel_exec_info && parallel_exec_info->thread_count > 1) {
+    PopulateIndexOnMultipleThreads(vertices,
+                                   std::forward<TSkipListAccessorFactory>(accessor_factory),
+                                   checked_insert_function,
+                                   *parallel_exec_info);
+  } else {
+    PopulateIndexOnSingleThread(
+        vertices, std::forward<TSkipListAccessorFactory>(accessor_factory), checked_insert_function);
+  }
+}
+
+// Helper function that determines, if a transaction has an original start timestamp
+// (for example in a periodic commit when it is necessary to preserve initial index iterators)
+// whether we are allowed to see the entity in the index data structures
+// Returns true if we are allowed to see the entity in the index data structures
+// If the method returns true, the reverts of the deltas will finally decide what's the version
+// of the graph entity
+inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction *transaction, View view) {
+  // Not enough information, need to rely on MVCC to fully check entry
+  if (transaction->command_id != 0) return true;
+  auto const original_start_timestamp = transaction->original_start_timestamp;
+  if (view == View::OLD) {
+    return insertion_timestamp < original_start_timestamp;
+  }
+  return insertion_timestamp <= original_start_timestamp;
+}
+
+// Two bounds a range may be read from: either the value types can be compared, or the pair is the
+// marker for one whole stretch of the order, whose ends are of two types on purpose. Every other
+// pair of two types describes an empty range.
+inline bool AreComparableBounds(utils::Bound<PropertyValue> const &lower_bound,
+                                utils::Bound<PropertyValue> const &upper_bound) {
+  return AreComparable(lower_bound.value(), upper_bound.value()) ||
+         BoundsRunToTheEndOfAStretch(lower_bound, upper_bound);
+}
+
+// `allow_whole_type_span` admits the bound pair that marks an entire type (see AreComparableBounds).
+// Only pass it where the query layer has already discarded a user range whose bounds cannot be
+// compared -- a scan driven by an ExpressionRange, which is marked INVALID in that case. A scan
+// carrying raw bounds has no such marking and must stay strict, or a range like
+// `e.p >= -inf AND e.p < ''` is mistaken for the marker and returns every number.
+inline bool ValidateBounds(std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                           std::optional<utils::Bound<PropertyValue>> &upper_bound,
+                           bool allow_whole_type_span = false) {
+  // Handle the bounds that the user provided to us. If the user
+  // provided only one bound we should make sure that only values of that type
+  // are returned by the iterator. We ensure this by supplying either an
+  // inclusive lower bound of the same type, or an exclusive upper bound of the
+  // following type. If neither bound is set we yield all items in the index.
+  // Remove any bounds that are set to `Null` because that isn't a valid value.
+  if (lower_bound && lower_bound->value().IsNull()) {
+    lower_bound = std::nullopt;
+  }
+  if (upper_bound && upper_bound->value().IsNull()) {
+    upper_bound = std::nullopt;
+  }
+
+  // Check whether the bounds are of comparable types if both are supplied.
+  if (lower_bound && upper_bound) {
+    auto const comparable = allow_whole_type_span ? AreComparableBounds(*lower_bound, *upper_bound)
+                                                  : AreComparable(lower_bound->value(), upper_bound->value());
+    if (!comparable || lower_bound->value() > upper_bound->value()) {
+      return false;
+    }
+  }
+  // Set missing bounds.
+  if (lower_bound && !upper_bound) {
+    upper_bound = UpperBoundComparableWith(lower_bound->value());
+  }
+  if (upper_bound && !lower_bound) {
+    lower_bound = LowerBoundComparableWith(upper_bound->value());
+  }
+  return true;
+}
+
+using LowerAndUpperBounds =
+    std::tuple<std::optional<utils::Bound<PropertyValue>>, std::optional<utils::Bound<PropertyValue>>, bool>;
+
+inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUpperBounds {
+  std::optional<utils::Bound<PropertyValue>> lower_bound;
+  std::optional<utils::Bound<PropertyValue>> upper_bound;
+
+  if (range.type_ == PropertyRangeType::INVALID) {
+    return {std::nullopt, std::nullopt, false};
+  } else if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
+    upper_bound = UpperBoundForNonNulls();
+  } else if (range.type_ == PropertyRangeType::BOUNDED) {
+    // We have to fix the bounds that the user provided to us. If the user
+    // provided only one bound we should make sure that only values of that type
+    // are returned by the iterator. We ensure this by supplying either an
+    // inclusive lower bound of the same type, or an exclusive upper bound of the
+    // following type. If neither bound is set we yield all items in the index.
+    lower_bound = std::move(range.lower_);
+    upper_bound = std::move(range.upper_);
+
+    // Remove any bounds that are set to `Null` because that isn't a valid value.
+    if (lower_bound && lower_bound->value().IsNull()) {
+      lower_bound = std::nullopt;
+    }
+    if (upper_bound && upper_bound->value().IsNull()) {
+      upper_bound = std::nullopt;
+    }
+
+    // If both bounds are set, but are incomparable types, then this is an
+    // invalid range and will yield an empty result set.
+    if (lower_bound && upper_bound && !AreComparableBounds(*lower_bound, *upper_bound)) {
+      return {std::nullopt, std::nullopt, false};
+    }
+
+    // Set missing bounds.
+    if (lower_bound && !upper_bound) {
+      // Here we need to supply an upper bound. The upper bound is set to an
+      // exclusive lower bound of the following stretch of the order.
+      upper_bound = UpperBoundComparableWith(lower_bound->value());
+    }
+
+    if (upper_bound && !lower_bound) {
+      // Here we need to supply a lower bound. The lower bound is set to an
+      // inclusive lower bound of the current stretch of the order.
+      lower_bound = LowerBoundComparableWith(upper_bound->value());
+    }
+  }
+
+  return {std::move(lower_bound), std::move(upper_bound), true};
+}
+
+inline bool ValidateBounds(const std::span<PropertyValueRange const> &ranges,
+                           std::vector<std::optional<utils::Bound<PropertyValue>>> &lower_bound,
+                           std::vector<std::optional<utils::Bound<PropertyValue>>> &upper_bound) {
+  // Handle the range to bounds conversion
+  lower_bound.reserve(ranges.size());
+  upper_bound.reserve(ranges.size());
+
+  for (auto &&range : ranges) {
+    auto [lb, ub, valid] = MakeBoundsFromRange(range);
+    if (!valid) {
+      lower_bound.clear();
+      upper_bound.clear();
+      return false;
+    }
+    lower_bound.emplace_back(std::move(lb));
+    upper_bound.emplace_back(std::move(ub));
+  }
+  return true;
+}
+
+inline std::optional<std::vector<PropertyValue>> GenerateBounds(
+    const std::vector<std::optional<utils::Bound<PropertyValue>>> &bounds, const PropertyValue &default_value) {
+  if (ranges::any_of(bounds, [](auto &&ub) { return ub.has_value(); })) {
+    return bounds | ranges::views::transform([&default_value](auto &&bound) -> storage::PropertyValue {
+             if (bound) {
+               return bound->value();
+             }
+             return default_value;
+           }) |
+           ranges::to_vector;
+  }
+  return std::nullopt;
+}
+
+template <typename T>
+inline void RechunkIndex(typename T::ChunkCollection &chunks, auto &&compare_fn) {
+  // Index can have duplicate vertex entries, we need to make sure each unique vertex is inside a single chunk.
+  // Chunks are divided at the skiplist level, we need to move each adjacent chunk's star/end to valid entries
+  for (int i = 1; i < chunks.size(); ++i) {
+    auto &chunk = chunks[i];
+    auto begin = chunk.begin();
+    auto end = chunk.end();
+    auto null = typename T::ChunkedIterator{};
+    // Special case where whole chunk is invalid
+    if (begin != null && end != null && compare_fn(*begin, *end)) [[unlikely]] {
+      auto &prev_chunk = chunks[i - 1];
+      prev_chunk = typename T::Chunk{prev_chunk.begin(), end};
+      chunks.erase(chunks.begin() + i);
+      --i;
+      continue;
+    }
+    // Since skiplist has only forward links, we cannot check if the previous vertex is the same as the current one.
+    // We need to iterate through the chunk to find the first valid vertex.
+    auto prev_v = begin;
+    while (begin != end) {
+      if (!compare_fn(*prev_v, *begin)) break;
+      prev_v = begin;
+      ++begin;
+    }
+    // Update
+    auto &prev = chunks[i - 1];
+    prev = typename T::Chunk{prev.begin(), begin};
+    chunk = typename T::Chunk{begin, end};
   }
 }
 

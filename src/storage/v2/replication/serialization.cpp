@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -20,6 +20,14 @@ void Encoder::WriteBool(bool value) {
   slk::Save(value, builder_);
 }
 
+// Just writes 0 as placeholder value. No need to encode replication stream when we are using TCP sockets
+uint32_t Encoder::WriteCrc() {
+  WriteMarker(durability::Marker::TYPE_INT);
+  uint64_t const placeholder{0};
+  slk::Save(placeholder, builder_);
+  return static_cast<uint32_t>(placeholder);
+}
+
 void Encoder::WriteUint(uint64_t value) {
   WriteMarker(durability::Marker::TYPE_INT);
   slk::Save(value, builder_);
@@ -35,12 +43,29 @@ void Encoder::WriteString(const std::string_view value) {
   slk::Save(value, builder_);
 }
 
-void Encoder::WritePropertyValue(const PropertyValue &value) {
+void Encoder::WriteEnum(storage::Enum value) {
+  WriteMarker(durability::Marker::TYPE_ENUM);
+  slk::Save(value, builder_);
+}
+
+void Encoder::WritePoint2d(storage::Point2d value) {
+  WriteMarker(durability::Marker::TYPE_POINT_2D);
+  slk::Save(value, builder_);
+}
+
+void Encoder::WritePoint3d(storage::Point3d value) {
+  WriteMarker(durability::Marker::TYPE_POINT_3D);
+  slk::Save(value, builder_);
+}
+
+void Encoder::WriteExternalPropertyValue(const ExternalPropertyValue &value) {
   WriteMarker(durability::Marker::TYPE_PROPERTY_VALUE);
   slk::Save(value, builder_);
 }
 
-void Encoder::WriteBuffer(const uint8_t *buffer, const size_t buffer_size) { builder_->Save(buffer, buffer_size); }
+void Encoder::WriteFileBuffer(const uint8_t *buffer, const size_t buffer_size) {
+  builder_->SaveFileBuffer(buffer, buffer_size);
+}
 
 void Encoder::WriteFileData(utils::InputFile *file) {
   auto file_size = file->GetSize();
@@ -48,22 +73,34 @@ void Encoder::WriteFileData(utils::InputFile *file) {
   while (file_size > 0) {
     const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
     file->Read(buffer, chunk_size);
-    WriteBuffer(buffer, chunk_size);
+    WriteFileBuffer(buffer, chunk_size);
     file_size -= chunk_size;
   }
 }
 
-void Encoder::WriteFile(const std::filesystem::path &path) {
+bool Encoder::WriteFile(const std::filesystem::path &path, std::filesystem::path const &path_to_write,
+                        utils::PageCachePolicy const page_cache) {
+  builder_->PrepareForFileSending();
   utils::InputFile file;
-  MG_ASSERT(file.Open(path), "Failed to open file {}", path);
-  MG_ASSERT(path.has_filename(), "Path does not have a filename!");
-  const auto &filename = path.filename().generic_string();
-  WriteString(filename);
-  auto file_size = file.GetSize();
+  if (!file.Open(path)) {
+    spdlog::error("Failed to open file {}.", path);
+    return false;
+  }
+  if (!path.has_filename()) {
+    spdlog::error("Path {} does not have a filename.", path);
+    return false;
+  }
+  WriteString(path_to_write.string());
+  auto const file_size = file.GetSize();
   WriteUint(file_size);
   WriteFileData(&file);
-  file.Close();
+  // The read is done and left the file's pages clean, which is the only state they can be evicted
+  // in. The bytes are already in the stream's buffers, so nothing here waits on the replica.
+  if (page_cache == utils::PageCachePolicy::kDrop) file.DropCachedPages();
+  return true;
 }
+
+uint64_t Encoder::GetPosition() { return builder_->GetPosition(); }
 
 ////// Decoder //////
 std::optional<durability::Marker> Decoder::ReadMarker() {
@@ -95,15 +132,37 @@ std::optional<double> Decoder::ReadDouble() {
 
 std::optional<std::string> Decoder::ReadString() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_STRING) return std::nullopt;
+
   std::string value;
   slk::Load(&value, reader_);
   return std::move(value);
 }
 
-std::optional<PropertyValue> Decoder::ReadPropertyValue() {
+std::optional<Enum> Decoder::ReadEnumValue() {
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_ENUM) return std::nullopt;
+  storage::Enum value;
+  slk::Load(&value, reader_);
+  return value;
+}
+
+std::optional<Point2d> Decoder::ReadPoint2dValue() {
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_POINT_2D) return std::nullopt;
+  storage::Point2d value;
+  slk::Load(&value, reader_);
+  return value;
+}
+
+std::optional<Point3d> Decoder::ReadPoint3dValue() {
+  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_POINT_3D) return std::nullopt;
+  storage::Point3d value;
+  slk::Load(&value, reader_);
+  return value;
+}
+
+std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE)
     return std::nullopt;
-  PropertyValue value;
+  ExternalPropertyValue value;
   slk::Load(&value, reader_);
   return std::move(value);
 }
@@ -115,35 +174,11 @@ bool Decoder::SkipString() {
   return true;
 }
 
-bool Decoder::SkipPropertyValue() {
+bool Decoder::SkipExternalPropertyValue() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_PROPERTY_VALUE) return false;
-  PropertyValue value;
+  ExternalPropertyValue value;
   slk::Load(&value, reader_);
   return true;
 }
 
-std::optional<std::filesystem::path> Decoder::ReadFile(const std::filesystem::path &directory,
-                                                       const std::string &suffix) {
-  MG_ASSERT(std::filesystem::exists(directory) && std::filesystem::is_directory(directory),
-            "Sent path for streamed files should be a valid directory!");
-  utils::OutputFile file;
-  const auto maybe_filename = ReadString();
-  MG_ASSERT(maybe_filename, "Filename missing for the file");
-  const auto filename = *maybe_filename + suffix;
-  auto path = directory / filename;
-
-  file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  std::optional<size_t> maybe_file_size = ReadUint();
-  MG_ASSERT(maybe_file_size, "File size missing");
-  auto file_size = *maybe_file_size;
-  uint8_t buffer[utils::kFileBufferSize];
-  while (file_size > 0) {
-    const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
-    reader_->Load(buffer, chunk_size);
-    file.Write(buffer, chunk_size);
-    file_size -= chunk_size;
-  }
-  file.Close();
-  return std::move(path);
-}
 }  // namespace memgraph::storage::replication

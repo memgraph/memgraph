@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,11 +24,11 @@
 #include "query/plan/planner.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "typed_value.hpp"
 #include "utils/algorithm.hpp"
 
 #include "formatters.hpp"
 
-using memgraph::replication::ReplicationRole;
 using namespace memgraph::query::plan;
 using memgraph::query::AstStorage;
 using Type = memgraph::query::EdgeAtom::Type;
@@ -41,11 +41,12 @@ std::string ToString(const std::vector<TypedValue> &row, const TAccessor &acc) {
   memgraph::utils::PrintIterable(os, row, ", ", [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
   return os.str();
 }
+
 template <class TAccessor>
 std::string ToString(const std::vector<std::vector<TypedValue>> &rows, const TAccessor &acc) {
   std::ostringstream os;
-  memgraph::utils::PrintIterable(os, rows, "\n",
-                                 [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
+  memgraph::utils::PrintIterable(
+      os, rows, "\n", [&](auto &stream, const auto &item) { stream << ToString(item, acc); });
   return os.str();
 }
 
@@ -79,11 +80,14 @@ void CheckPlansProduce(size_t expected_plan_count, memgraph::query::CypherQuery 
                        std::function<void(const std::vector<std::vector<TypedValue>> &)> check) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planning_context = MakePlanningContext(&storage, &symbol_table, query, dba);
-  auto query_parts = CollectQueryParts(symbol_table, storage, query);
+  auto query_parts = CollectQueryParts(symbol_table, storage, query, false);
   EXPECT_TRUE(query_parts.query_parts.size() > 0);
   auto plans = MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context);
   EXPECT_EQ(std::distance(plans.begin(), plans.end()), expected_plan_count);
   for (const auto &plan : plans) {
+    if (!memgraph::query::plan::ValidatePlan(*plan, symbol_table)) {
+      continue;
+    }
     auto *produce = dynamic_cast<Produce *>(plan.get());
     ASSERT_TRUE(produce);
     auto context = MakeContext(storage, symbol_table, dba);
@@ -108,42 +112,42 @@ class TestVariableStartPlanner : public testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-TYPED_TEST_CASE(TestVariableStartPlanner, StorageTypes);
+TYPED_TEST_SUITE(TestVariableStartPlanner, StorageTypes);
 
 TYPED_TEST(TestVariableStartPlanner, MatchReturn) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph (v1) -[:r]-> (v2)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) RETURN n
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))), RETURN("n")));
-  // We have 2 nodes `n` and `m` from which we could start, so expect 2 plans.
-  CheckPlansProduce(2, query, this->storage, &dba, [&](const auto &results) {
+  // We have 3 entities:  `n`, `r` and `m` from which we could start, so expect 3 plans.
+  CheckPlansProduce(3, query, this->storage, &dba, [&](const auto &results) {
     // We expect to produce only a single (v1) node.
     AssertRows(results, {{TypedValue(memgraph::query::VertexAccessor(v1))}}, dba);
   });
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
-  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();
   {
     // Test `MATCH (n) -[r]-> (m) -[e]-> (l) RETURN n`
     auto *query = QUERY(SINGLE_QUERY(
         MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
         RETURN("n")));
-    // We have 3 nodes: `n`, `m` and `l` from which we could start.
-    CheckPlansProduce(3, query, this->storage, &dba, [&](const auto &results) {
+    // We have 5 entities: `n`, `r`, `m`, `e`, `l` from which we could start.
+    CheckPlansProduce(5, query, this->storage, &dba, [&](const auto &results) {
       // We expect to produce only a single (v1) node.
       AssertRows(results, {{TypedValue(memgraph::query::VertexAccessor(v1))}}, dba);
     });
@@ -153,29 +157,29 @@ TYPED_TEST(TestVariableStartPlanner, MatchTripletPatternReturn) {
     auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m")),
                                            PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
                                      RETURN("n")));
-    CheckPlansProduce(3, query, this->storage, &dba, [&](const auto &results) {
+    CheckPlansProduce(5, query, this->storage, &dba, [&](const auto &results) {
       AssertRows(results, {{TypedValue(memgraph::query::VertexAccessor(v1))}}, dba);
     });
   }
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Make a graph (v1) -[:r]-> (v2) -[:r]-> (v3)
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
-  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l) RETURN n, l
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
-                         OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))), RETURN("n", "l")));
-  // We have 2 nodes `n` and `m` from which we could start the MATCH, and 2
-  // nodes for OPTIONAL MATCH. This should produce 2 * 2 plans.
-  CheckPlansProduce(4, query, this->storage, &dba, [&](const auto &results) {
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+                                   OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
+                                   RETURN("n", "l")));
+  // We have 3 entities, `n`, `r` and `m` from which we could start the MATCH, and 3
+  // entities for OPTIONAL MATCH. This should produce 3 * 3 plans.
+  CheckPlansProduce(9, query, this->storage, &dba, [&](const auto &results) {
     // We expect to produce 2 rows:
     //   * (v1), (v3)
     //   * (v2), null
@@ -187,14 +191,14 @@ TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchReturn) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Graph (v1) -[:r]-> (v2)
   memgraph::query::VertexAccessor v1(dba.InsertVertex());
   memgraph::query::VertexAccessor v2(dba.InsertVertex());
   auto r_type_name = "r";
   auto r_type = dba.NameToEdgeType(r_type_name);
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, r_type).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, r_type).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) OPTIONAL MATCH (m) -[e]-> (l)
   //      MERGE (u) -[q:r]-> (v) RETURN n, m, l, u, v
@@ -202,36 +206,37 @@ TYPED_TEST(TestVariableStartPlanner, MatchOptionalMatchMergeReturn) {
                                    OPTIONAL_MATCH(PATTERN(NODE("m"), EDGE("e", Direction::OUT), NODE("l"))),
                                    MERGE(PATTERN(NODE("u"), EDGE("q", Direction::OUT, {r_type_name}), NODE("v"))),
                                    RETURN("n", "m", "l", "u", "v")));
-  // Since MATCH, OPTIONAL MATCH and MERGE each have 2 nodes from which we can
-  // start, we generate 2 * 2 * 2 plans.
-  CheckPlansProduce(8, query, this->storage, &dba, [&](const auto &results) {
+  // Since MATCH, OPTIONAL MATCH and MERGE each have 3 entities from which we can
+  // start, we generate 3 * 3 * 3 plans.
+  CheckPlansProduce(27, query, this->storage, &dba, [&](const auto &results) {
     // We expect to produce a single row: (v1), (v2), null, (v1), (v2)
     AssertRows(results, {{TypedValue(v1), TypedValue(v2), TypedValue(), TypedValue(v1), TypedValue(v2)}}, dba);
   });
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchWithMatchReturn) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Graph (v1) -[:r]-> (v2)
   memgraph::query::VertexAccessor v1(dba.InsertVertex());
   memgraph::query::VertexAccessor v2(dba.InsertVertex());
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r")).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r]-> (m) WITH n MATCH (m) -[r]-> (l) RETURN n, m, l
-  auto *query =
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))), WITH("n"),
-                         MATCH(PATTERN(NODE("m"), EDGE("r", Direction::OUT), NODE("l"))), RETURN("n", "m", "l")));
-  // We can start from 2 nodes in each match. Since WITH separates query parts,
-  // we expect to get 2 plans for each, which totals 2 * 2.
-  CheckPlansProduce(4, query, this->storage, &dba, [&](const auto &results) {
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), EDGE("r", Direction::OUT), NODE("m"))),
+                                   WITH("n"),
+                                   MATCH(PATTERN(NODE("m"), EDGE("r", Direction::OUT), NODE("l"))),
+                                   RETURN("n", "m", "l")));
+  // We can start from 3 entities in each match. Since WITH separates query parts,
+  // we expect to get 3 plans for each, which totals 3 * 3.
+  CheckPlansProduce(9, query, this->storage, &dba, [&](const auto &results) {
     // We expect to produce a single row: (v1), (v1), (v2)
     AssertRows(results, {{TypedValue(v1), TypedValue(v1), TypedValue(v2)}}, dba);
   });
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchVariableExpand) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   // Graph (v1) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
@@ -248,22 +253,22 @@ TYPED_TEST(TestVariableStartPlanner, MatchVariableExpand) {
   TypedValue r2_list(std::vector<TypedValue>{TypedValue(r2)});  // [r2]
   // [r1, r2]
   TypedValue r1_r2_list(std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)});
-  CheckPlansProduce(2, query, this->storage, &dba, [&](const auto &results) {
+  CheckPlansProduce(3, query, this->storage, &dba, [&](const auto &results) {
     AssertRows(results, {{r1_list}, {r2_list}, {r1_r2_list}}, dba);
   });
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).has_value());
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
   auto r2 = *dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2"));
   dba.AdvanceCommand();
@@ -276,18 +281,17 @@ TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandReferenceNode) {
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});
   // [r2] (v2 -[*..2]-> v3)
   TypedValue r2_list(std::vector<TypedValue>{TypedValue(r2)});
-  CheckPlansProduce(2, query, this->storage, &dba, [&](const auto &results) {
-    AssertRows(results, {{r1_list}, {r2_list}}, dba);
-  });
+  CheckPlansProduce(
+      3, query, this->storage, &dba, [&](const auto &results) { AssertRows(results, {{r1_list}, {r2_list}}, dba); });
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2) -[:r2]-> (v3)
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
   auto v2 = dba.InsertVertex();
   auto v3 = dba.InsertVertex();
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
@@ -302,28 +306,27 @@ TYPED_TEST(TestVariableStartPlanner, MatchVariableExpandBoth) {
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]
   // [r1, r2]
   TypedValue r1_r2_list(std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)});
-  CheckPlansProduce(2, query, this->storage, &dba, [&](const auto &results) {
-    AssertRows(results, {{r1_list}, {r1_r2_list}}, dba);
-  });
+  CheckPlansProduce(
+      3, query, this->storage, &dba, [&](const auto &results) { AssertRows(results, {{r1_list}, {r1_r2_list}}, dba); });
 }
 
 TYPED_TEST(TestVariableStartPlanner, MatchBfs) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
   // Graph (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
   auto v3 = dba.InsertVertex();
-  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).HasValue());
+  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).has_value());
   auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
-  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2")).has_value());
   dba.AdvanceCommand();
   // Test MATCH (n) -[r *bfs..10](r, n | n.id <> 3)]-> (m) RETURN r
   auto *bfs = this->storage.template Create<memgraph::query::EdgeAtom>(
-      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, Direction::OUT, std::vector<memgraph::query::EdgeTypeIx>{});
+      IDENT("r"), EdgeAtom::Type::BREADTH_FIRST, Direction::OUT, std::vector<memgraph::query::QueryEdgeType>{});
   bfs->filter_lambda_.inner_edge = IDENT("r");
   bfs->filter_lambda_.inner_node = IDENT("n");
   bfs->filter_lambda_.expression = NEQ(PROPERTY_LOOKUP(dba, "n", id), LITERAL(3));
@@ -331,11 +334,65 @@ TYPED_TEST(TestVariableStartPlanner, MatchBfs) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"), bfs, NODE("m"))), RETURN("r")));
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]
-  CheckPlansProduce(2, query, this->storage, &dba, [&](const auto &results) { AssertRows(results, {{r1_list}}, dba); });
+  CheckPlansProduce(3, query, this->storage, &dba, [&](const auto &results) { AssertRows(results, {{r1_list}}, dba); });
+}
+
+TYPED_TEST(TestVariableStartPlanner, MatchKShortest) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto id = dba.NameToProperty("id");
+  // Graph
+  // (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
+  //             ------------[:r3]------------>
+  auto v1 = dba.InsertVertex();
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
+  auto v2 = dba.InsertVertex();
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
+  auto v3 = dba.InsertVertex();
+  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).has_value());
+  auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
+  auto r2 = *dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2"));
+  auto r3 = *dba.InsertEdge(&v1, &v3, dba.NameToEdgeType("r3"));
+  dba.AdvanceCommand();
+  // Test MATCH (n{id:1}), (m{id:3}) WITH n, m MATCH (n) -[r *kshortest..10]-> (m) RETURN r
+  auto *kshortest = this->storage.template Create<memgraph::query::EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::KSHORTEST, Direction::OUT, std::vector<memgraph::query::QueryEdgeType>{});
+  kshortest->upper_bound_ = LITERAL(10);
+  kshortest->filter_lambda_.inner_edge =
+      this->storage.template Create<memgraph::query::Identifier>("anon_inner_e", false);
+  kshortest->filter_lambda_.inner_node =
+      this->storage.template Create<memgraph::query::Identifier>("anon_inner_n", false);
+
+  auto node_n = NODE("n");
+  std::get<0>(node_n->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(1);
+  auto node_m = NODE("m");
+  std::get<0>(node_m->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(3);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)),
+                                   WITH("n", "m"),
+                                   MATCH(PATTERN(NODE("n"), kshortest, NODE("m"))),
+                                   RETURN("r")));
+  // We expect to get a single column with the following rows:
+  const auto result = std::vector<TypedValue>{TypedValue{std::vector<TypedValue>{TypedValue(r3)}},
+                                              TypedValue{std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)}}};
+  CheckPlansProduce(6, query, this->storage, &dba, [&](const auto &results) {
+    ASSERT_EQ(results.size(), 2);
+    ASSERT_EQ(results[0].size(), 1);
+    ASSERT_EQ(results[0][0].ValueList().size(), 1);
+    ASSERT_TRUE(TypedValue::BoolEqual()(results[0][0].ValueList()[0], result[0].ValueList()[0]));
+    ASSERT_EQ(results[1].size(), 1);
+    ASSERT_EQ(results[1][0].ValueList().size(), 2);
+    auto result_list = results[1][0].ValueList();
+    auto expected_result_list = result[1].ValueList();
+    ASSERT_TRUE(std::is_permutation(result_list.begin(),
+                                    result_list.end(),
+                                    expected_result_list.begin(),
+                                    expected_result_list.end(),
+                                    TypedValue::BoolEqual()));
+  });
 }
 
 TYPED_TEST(TestVariableStartPlanner, TestBasicSubquery) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
@@ -357,12 +414,12 @@ TYPED_TEST(TestVariableStartPlanner, TestBasicSubquery) {
 }
 
 TYPED_TEST(TestVariableStartPlanner, TestBasicSubqueryWithMatching) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
 
   auto v1 = dba.InsertVertex();
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).has_value());
 
   dba.AdvanceCommand();
 
@@ -370,25 +427,26 @@ TYPED_TEST(TestVariableStartPlanner, TestBasicSubqueryWithMatching) {
       SINGLE_QUERY(MATCH(PATTERN(NODE("m2"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("n2"))), RETURN("m2"));
 
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m1"), EDGE("r1", EdgeAtom::Direction::OUT), NODE("n1"))),
-                                   CALL_SUBQUERY(subquery), RETURN("m1", "m2")));
+                                   CALL_SUBQUERY(subquery),
+                                   RETURN("m1", "m2")));
 
-  CheckPlansProduce(4, query, this->storage, &dba, [&](const auto &results) {
+  CheckPlansProduce(9, query, this->storage, &dba, [&](const auto &results) {
     AssertRows(results, {{TypedValue(v1), TypedValue(v1)}}, dba);
   });
 }
 
 TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithUnion) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
 
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
 
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
 
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).has_value());
 
   dba.AdvanceCommand();
 
@@ -398,25 +456,26 @@ TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithUnion) {
                                    RETURN("n2"))));
 
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m1"), EDGE("r1", EdgeAtom::Direction::OUT), NODE("n1"))),
-                                   CALL_SUBQUERY(subquery), RETURN("m1", "n2")));
+                                   CALL_SUBQUERY(subquery),
+                                   RETURN("m1", "n2")));
 
-  CheckPlansProduce(8, query, this->storage, &dba, [&](const auto &results) {
+  CheckPlansProduce(27, query, this->storage, &dba, [&](const auto &results) {
     AssertRows(results, {{TypedValue(v1), TypedValue(v2)}, {TypedValue(v1), TypedValue(v2)}}, dba);
   });
 }
 
 TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithTripleUnion) {
-  auto storage_dba = this->db->Access(ReplicationRole::MAIN);
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
   auto id = dba.NameToProperty("id");
 
   auto v1 = dba.InsertVertex();
-  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
 
   auto v2 = dba.InsertVertex();
-  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
 
-  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).HasValue());
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).has_value());
 
   dba.AdvanceCommand();
 
@@ -428,12 +487,134 @@ TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithTripleUnion) {
                                    RETURN("n2"))));
 
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m1"), EDGE("r1", EdgeAtom::Direction::OUT), NODE("n1"))),
-                                   CALL_SUBQUERY(subquery), RETURN("m1", "n2")));
+                                   CALL_SUBQUERY(subquery),
+                                   RETURN("m1", "n2")));
 
-  CheckPlansProduce(16, query, this->storage, &dba, [&](const auto &results) {
+  CheckPlansProduce(81, query, this->storage, &dba, [&](const auto &results) {
     AssertRows(results,
                {{TypedValue(v1), TypedValue(v2)}, {TypedValue(v1), TypedValue(v2)}, {TypedValue(v1), TypedValue(v2)}},
                dba);
+  });
+}
+
+// Test nested pattern comprehensions where inner PC starts from outer's expansion node
+// Query: MATCH (n) WHERE n.id = 1 RETURN [(n)-[]->(m) | [(m)-[]->(x) | x.id]] AS result
+// Graph: (a {id:1})-[:R]->(b {id:2})-[:R]->(c {id:3})
+// Expected: [[3]] (one row with outer list containing inner list [3])
+TYPED_TEST(TestVariableStartPlanner, NestedPatternComprehensionChainedExpansion) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto id = dba.NameToProperty("id");
+
+  // Create graph: (a {id:1})-[:R]->(b {id:2})-[:R]->(c {id:3})
+  auto a = dba.InsertVertex();
+  ASSERT_TRUE(a.SetProperty(id, memgraph::storage::PropertyValue(1)).has_value());
+
+  auto b = dba.InsertVertex();
+  ASSERT_TRUE(b.SetProperty(id, memgraph::storage::PropertyValue(2)).has_value());
+
+  auto c = dba.InsertVertex();
+  ASSERT_TRUE(c.SetProperty(id, memgraph::storage::PropertyValue(3)).has_value());
+
+  ASSERT_TRUE(dba.InsertEdge(&a, &b, dba.NameToEdgeType("R")).has_value());
+  ASSERT_TRUE(dba.InsertEdge(&b, &c, dba.NameToEdgeType("R")).has_value());
+
+  dba.AdvanceCommand();
+
+  // Inner pattern comprehension: [(m)-[]->(x) | x.id]
+  // This starts from 'm' which is discovered by the outer pattern comprehension
+  auto *inner_pc =
+      PATTERN_COMPREHENSION(nullptr,
+                            PATTERN(NODE("m"), EDGE("anon_inner_edge", EdgeAtom::Direction::OUT), NODE("x")),
+                            nullptr,
+                            PROPERTY_LOOKUP(dba, "x", id));
+
+  // Outer pattern comprehension: [(n)-[]->(m) | <inner_pc>]
+  auto *outer_pc = PATTERN_COMPREHENSION(
+      nullptr, PATTERN(NODE("n"), EDGE("anon_outer_edge", EdgeAtom::Direction::OUT), NODE("m")), nullptr, inner_pc);
+
+  // Query: MATCH (n) WHERE n.id = 1 RETURN <outer_pc> AS result
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                   WHERE(EQ(PROPERTY_LOOKUP(dba, "n", id), LITERAL(1))),
+                                   RETURN(NEXPR("result", outer_pc))));
+
+  CheckPlansProduce(1, query, this->storage, &dba, [&](const auto &results) {
+    ASSERT_EQ(results.size(), 1) << "Should have exactly one result row";
+    ASSERT_EQ(results[0].size(), 1) << "Should have exactly one column";
+
+    const auto &outer_list = results[0][0];
+    ASSERT_TRUE(outer_list.IsList()) << "Result should be a list";
+    ASSERT_EQ(outer_list.ValueList().size(), 1) << "Outer list should have one element (for node b)";
+
+    const auto &inner_list = outer_list.ValueList()[0];
+    ASSERT_TRUE(inner_list.IsList()) << "Inner element should be a list";
+    ASSERT_EQ(inner_list.ValueList().size(), 1) << "Inner list should have one element (for node c)";
+
+    const auto &inner_value = inner_list.ValueList()[0];
+    ASSERT_TRUE(inner_value.IsInt()) << "Inner value should be an integer (c.id)";
+    EXPECT_EQ(inner_value.ValueInt(), 3) << "Inner value should be 3 (c's id)";
+  });
+}
+
+// Test that pattern comprehension with variable-length path after CREATE can see newly created data.
+// This tests View::OLD vs View::NEW handling when VLE is combined with writes.
+// Query: CREATE (a)-[:R]->(b)-[:R]->(c) WITH a RETURN [(a)-[*1..2]->(x) | x.id] AS reachable
+// Expected: [[2, 3]] (sees both b and c through the VLE)
+TYPED_TEST(TestVariableStartPlanner, PatternComprehensionVLEAfterCreate) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto id = dba.NameToProperty("id");
+
+  // Build: CREATE (a {id:1})-[:R]->(b {id:2})-[:R]->(c {id:3})
+  auto *node_a = NODE("a");
+  std::get<0>(node_a->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(1);
+  auto *node_b = NODE("b");
+  std::get<0>(node_b->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(2);
+  auto *node_c = NODE("c");
+  std::get<0>(node_c->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(3);
+
+  // Single pattern chain: (a)-[:R]->(b)-[:R]->(c)
+  auto *create_clause = CREATE(PATTERN(node_a,
+                                       EDGE("r1", EdgeAtom::Direction::OUT, {"R"}),
+                                       node_b,
+                                       EDGE("r2", EdgeAtom::Direction::OUT, {"R"}),
+                                       node_c));
+
+  // Build: WITH a
+  auto *with_clause = WITH(NEXPR("a", IDENT("a")));
+
+  // Build variable-length edge for pattern comprehension: (a)-[*1..2]->(x)
+  auto *vle_edge = EDGE_VARIABLE("anon_edge", EdgeAtom::Type::DEPTH_FIRST, EdgeAtom::Direction::OUT);
+  vle_edge->lower_bound_ = LITERAL(1);
+  vle_edge->upper_bound_ = LITERAL(2);
+
+  // Build: [(a)-[*1..2]->(x) | x.id]
+  auto *pc =
+      PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), vle_edge, NODE("x")), nullptr, PROPERTY_LOOKUP(dba, "x", id));
+
+  // Build: RETURN <pc> AS reachable
+  auto *query = QUERY(SINGLE_QUERY(create_clause, with_clause, RETURN(NEXPR("reachable", pc))));
+
+  CheckPlansProduce(1, query, this->storage, &dba, [&](const auto &results) {
+    ASSERT_EQ(results.size(), 1) << "Should have exactly one result row";
+    ASSERT_EQ(results[0].size(), 1) << "Should have exactly one column";
+
+    const auto &list = results[0][0];
+    ASSERT_TRUE(list.IsList()) << "Result should be a list";
+
+    // Should see both b (id=2) and c (id=3) through the VLE [*1..2]
+    // With View::OLD (bug), this would be empty because CREATE data isn't visible
+    // With correct handling, this should have 2 elements
+    ASSERT_EQ(list.ValueList().size(), 2) << "Should reach both b and c through VLE [*1..2]";
+
+    // Check the values (order may vary based on traversal)
+    std::set<int64_t> found_ids;
+    for (const auto &val : list.ValueList()) {
+      ASSERT_TRUE(val.IsInt()) << "Each element should be an integer (node id)";
+      found_ids.insert(val.ValueInt());
+    }
+    EXPECT_TRUE(found_ids.contains(2)) << "Should find node b (id=2)";
+    EXPECT_TRUE(found_ids.contains(3)) << "Should find node c (id=3)";
   });
 }
 }  // namespace

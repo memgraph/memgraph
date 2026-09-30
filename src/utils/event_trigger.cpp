@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -26,16 +26,17 @@ void FirstSuccessfulQuery() {
   constexpr double kBusyMark = -1.0;
   // Mark as busy (if it fails, someone already set it)
   if (global_one_shot_events.Trigger(OneShotEvents::kFirstSuccessfulQueryTs, kBusyMark)) {
-    global_one_shot_events.Trigger(OneShotEvents::kFirstSuccessfulQueryTs,
-                                   utils::Timestamp::Now().SecWithNsecSinceTheEpoch(), kBusyMark);
+    global_one_shot_events.Trigger(
+        OneShotEvents::kFirstSuccessfulQueryTs, utils::Timestamp::Now().SecWithNsecSinceTheEpoch(), kBusyMark);
   }
 }
+
 void FirstFailedQuery() {
   constexpr double kBusyMark = -1.0;
   // Mark as busy (if it fails, someone already set it)
   if (global_one_shot_events.Trigger(OneShotEvents::kFirstFailedQueryTs, kBusyMark)) {
-    global_one_shot_events.Trigger(OneShotEvents::kFirstFailedQueryTs,
-                                   utils::Timestamp::Now().SecWithNsecSinceTheEpoch(), kBusyMark);
+    global_one_shot_events.Trigger(
+        OneShotEvents::kFirstFailedQueryTs, utils::Timestamp::Now().SecWithNsecSinceTheEpoch(), kBusyMark);
   }
 }
 }  // namespace memgraph::metrics

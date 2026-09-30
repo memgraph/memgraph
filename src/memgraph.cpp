@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,51 +10,175 @@
 // licenses/APL.txt.
 
 #include <cstdint>
+#include <cstdlib>
+#include <exception>
+#include <memory>
+#include <optional>
+#include <ranges>
+#include <span>
+#include <sstream>
+#include <stdexcept>
+#include <string>
+#include <string_view>
+#include <variant>
+
 #include "audit/log.hpp"
-#include "communication/websocket/auth.hpp"
+#include "auth/auth.hpp"
+#include "auth/crypto.hpp"
+#include "communication/cluster_tls.hpp"
+#include "communication/init.hpp"
+#include "communication/v2/server.hpp"
 #include "communication/websocket/server.hpp"
+#include "coordination/coordinator_state.hpp"
 #include "dbms/constants.hpp"
-#include "dbms/inmemory/replication_handlers.hpp"
+#include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/two_pc_commit_cache.hpp"
 #include "flags/all.hpp"
+#include "flags/bolt.hpp"
+#include "flags/coord_flag_env_handler.hpp"
+#include "flags/coordination.hpp"
+#include "flags/experimental.hpp"
+#include "flags/general.hpp"
+#include "flags/logging.hpp"
+#include "flags/query_modules_directory.hpp"
 #include "glue/MonitoringServerT.hpp"
+#include "glue/PrometheusServerT.hpp"
 #include "glue/ServerT.hpp"
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "glue/run_id.hpp"
+#include "glue/websocket_auth.hpp"
 #include "helpers.hpp"
+#include "license/license.hpp"
 #include "license/license_sender.hpp"
 #include "memory/global_memory_control.hpp"
+#include "metrics/prometheus_metrics.hpp"
+#include "parameters/parameters.hpp"
+#include "query/auth_checker.hpp"
+#include "query/auth_query_handler.hpp"
 #include "query/config.hpp"
 #include "query/discard_value_stream.hpp"
 #include "query/interpreter.hpp"
+#include "query/interpreter_context.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/module.hpp"
+#ifdef MG_PYTHON_SUPPORT
 #include "query/procedure/py_module.hpp"
+#endif
+#include "replication/state.hpp"
+#include "replication_handler/data_instance_management_server_handlers.hpp"
+#include "replication_handler/replication_handler.hpp"
 #include "requests/requests.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/storage_mode.hpp"
+#include "system/system.hpp"
 #include "telemetry/telemetry.hpp"
+#include "utils/build_info.hpp"
+#include "utils/file.hpp"
+#include "utils/logging.hpp"
+#include "utils/page_cache_releaser.hpp"
+#include "utils/readable_size.hpp"
+#include "utils/resource_monitoring.hpp"
+#include "utils/scheduler.hpp"
 #include "utils/signals.hpp"
+#include "utils/startup_failure.hpp"
+#include "utils/stat.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
+#include "utils/variant_helpers.hpp"
 #include "version.hpp"
 
-#include "dbms/dbms_handler.hpp"
-#include "query/auth_query_handler.hpp"
-#include "query/interpreter_context.hpp"
+#include <gflags/gflags.h>
+#include <spdlog/spdlog.h>
+#include <boost/asio/ip/address.hpp>
 
 namespace {
 constexpr const char *kMgUser = "MEMGRAPH_USER";
 constexpr const char *kMgPassword = "MEMGRAPH_PASSWORD";
 constexpr const char *kMgPassfile = "MEMGRAPH_PASSFILE";
-constexpr uint64_t kMgVmMaxMapCount = 262144;
+
+constexpr const char *kMgExperimentalEnabled = "MEMGRAPH_EXPERIMENTAL_ENABLED";
+constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
+constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
+
+constexpr uint64_t kMgVmMaxMapCount = 524'288;
+
+void WarnDeprecatedFlags() {
+  [[maybe_unused]] auto warn_if_set = [](std::string_view name, std::string_view message) {
+    const auto info = gflags::GetCommandLineFlagInfoOrDie(std::string{name}.c_str());
+    if (!info.is_default) spdlog::warn("{}", message);
+  };
+}
+
+/// Memgraph does not use positional arguments. After gflags parsing, any remaining
+/// argv[1..argc-1] entries are unexpected — typically caused by writing `--bool-flag false`
+/// (space-separated) instead of `--bool-flag=false`. gflags bool flags don't consume the
+/// next argument; `--flag false` silently sets the flag to true and orphans "false".
+///
+/// @return true if startup should continue, false if `--strict-flag-check` requires aborting.
+[[nodiscard]] bool CheckSuspiciousPositionalArgs(int argc, char **argv) {
+  if (argc <= 1) return true;
+
+  auto is_bool_like = [](std::string_view arg) {
+    using namespace std::string_view_literals;
+    constexpr auto kBoolValues =
+        std::array{"true"sv, "false"sv, "yes"sv, "no"sv, "1"sv, "0"sv, "t"sv, "f"sv, "y"sv, "n"sv};
+    auto lower = memgraph::utils::ToLowerCase(arg);
+    return std::ranges::any_of(kBoolValues, [&](std::string_view bv) { return lower == bv; });
+  };
+
+  auto args = std::span(argv + 1, static_cast<size_t>(argc - 1));
+  std::ostringstream oss;
+  bool any_bool_like = false;
+  for (auto *a : args) {
+    if (oss.tellp() > 0) oss << ", ";
+    oss << "'" << a << "'";
+    if (is_bool_like(a)) any_bool_like = true;
+  }
+  auto all_args = std::move(oss).str();
+
+  auto level = FLAGS_strict_flag_check ? spdlog::level::err : spdlog::level::warn;
+  if (any_bool_like) {
+    spdlog::log(level,
+                "Unexpected positional argument(s): {}. "
+                "This is likely caused by writing '--bool-flag false' (space-separated). "
+                "Boolean flags require '=' syntax, e.g. '--bool-flag=false', or use '--nobool-flag'. "
+                "Without '=', the flag is set to true regardless of the value that follows it.",
+                all_args);
+  } else {
+    spdlog::log(
+        level, "Unexpected positional argument(s): {}. Memgraph does not accept positional arguments.", all_args);
+  }
+  return !FLAGS_strict_flag_check;
+}
 
 // TODO: move elsewhere so that we can remove need of interpreter.hpp
-void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbms::DatabaseAccess &db_acc,
-                         std::string cypherl_file_path, memgraph::audit::Log *audit_log = nullptr) {
-  memgraph::query::Interpreter interpreter(&ctx, db_acc);
-  std::ifstream file(cypherl_file_path);
+void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx,
+                         std::optional<memgraph::dbms::DatabaseAccess> &db_acc, std::string cypherl_file_path,
+                         memgraph::audit::Log *audit_log = nullptr) {
+  auto interpreter = std::invoke([&ctx, &db_acc]() {
+    if (db_acc.has_value()) {
+      return memgraph::query::Interpreter{&ctx, *db_acc};
+    }
+    return memgraph::query::Interpreter{&ctx};
+  });
 
+  // Temporary empty user
+  // TODO: Double check with buda
+  memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
+  auto tmp_user = tmp_auth_checker.GenEmptyUser();
+  interpreter.SetUser(tmp_user);
+#ifdef MG_ENTERPRISE
+  // A locally-authored init file is trusted the same way the empty user above trusts it, so grant the coordinator
+  // privileges the HA cluster-init queries (ADD COORDINATOR / REGISTER INSTANCE / SET INSTANCE TO MAIN) require. This
+  // interpreter never authenticates, and the privilege mask grants nothing by default.
+  interpreter.SetCoordinatorPrivileges(static_cast<uint64_t>(memgraph::auth::Permission::COORDINATOR_READ) |
+                                       static_cast<uint64_t>(memgraph::auth::Permission::COORDINATOR_WRITE));
+#endif
+
+  std::ifstream file(cypherl_file_path);
   if (!file.is_open()) {
     spdlog::trace("Could not find init file {}", cypherl_file_path);
     return;
@@ -64,11 +188,14 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   while (std::getline(file, line)) {
     if (!line.empty()) {
       try {
-        auto results = interpreter.Prepare(line, {}, {});
+        // TODO remove security issue
+        spdlog::trace("Executing line: {}", line);
+        auto results = interpreter.Prepare(line, memgraph::query::no_params_fn, {});
         memgraph::query::DiscardValueResultStream stream;
         interpreter.Pull(&stream, {}, results.qid);
-      } catch (const memgraph::query::UserAlreadyExistsException &e) {
-        spdlog::warn("{} The rest of the init-file will be run.", e.what());
+      } catch (std::exception const &e) {
+        spdlog::warn("Exception occurred while executing one line. The rest of the init-file will be run. {}",
+                     e.what());
       }
       if (audit_log) {
         audit_log->Record("", "", line, {}, std::string{memgraph::dbms::kDefaultDB});
@@ -81,41 +208,76 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
 
 using memgraph::communication::ServerContext;
 
-// Needed to correctly handle memgraph destruction from a signal handler.
-// Without having some sort of a flag, it is possible that a signal is handled
-// when we are exiting main, inside destructors of database::GraphDb and
-// similar. The signal handler may then initiate another shutdown on memgraph
-// which is in half destructed state, causing invalid memory access and crash.
-// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-volatile sig_atomic_t is_shutting_down = 0;
-
-void InitSignalHandlers(const std::function<void()> &shutdown_fun) {
-  // Prevent handling shutdown inside a shutdown. For example, SIGINT handler
-  // being interrupted by SIGTERM before is_shutting_down is set, thus causing
-  // double shutdown.
-  sigset_t block_shutdown_signals;
-  sigemptyset(&block_shutdown_signals);
-  sigaddset(&block_shutdown_signals, SIGTERM);
-  sigaddset(&block_shutdown_signals, SIGINT);
-
-  // Wrap the shutdown function in a safe way to prevent recursive shutdown.
-  auto shutdown = [shutdown_fun]() {
-    if (is_shutting_down) return;
-    is_shutting_down = 1;
-    shutdown_fun();
-  };
-
-  MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::Terminate, shutdown,
-                                                            block_shutdown_signals),
-            "Unable to register SIGTERM handler!");
-  MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::Interupt, shutdown,
-                                                            block_shutdown_signals),
-            "Unable to register SIGINT handler!");
+// Block SIGTERM and SIGINT so they can be synchronously consumed via sigwait()
+// on the main thread. This avoids running shutdown logic (which does logging,
+// memory allocation, mutex acquisition, etc.) inside an async signal handler
+// where those operations are undefined behaviour.
+void BlockShutdownSignals() {
+  sigset_t mask;
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGTERM);
+  sigaddset(&mask, SIGINT);
+  MG_ASSERT(pthread_sigmask(SIG_BLOCK, &mask, nullptr) == 0, "Failed to block shutdown signals!");
 }
+
+// Wait for SIGTERM or SIGINT on the calling (main) thread, then run the
+// shutdown function in normal thread context — not inside a signal handler.
+void WaitForShutdownSignal(const std::function<void()> &shutdown_fun) {
+  sigset_t mask;
+  sigemptyset(&mask);
+  sigaddset(&mask, SIGTERM);
+  sigaddset(&mask, SIGINT);
+
+  int sig = 0;
+  // sigwait blocks until one of the masked signals is pending.
+  int const rc = sigwait(&mask, &sig);
+  MG_ASSERT(rc == 0, "sigwait failed!");
+
+  spdlog::info("Received signal {}, shutting down...", sig);
+  shutdown_fun();
+}
+
+// Cleans all folders and files that aren't necessary anymore
+void CleanDataDir(std::filesystem::path const &data_directory) {
+  // Clean tmp folders from the data directory
+  // These tmp folders are used for storing snapshots and WALs received from main on replica and they should be deleted
+  // during the normal cluster functioning but if the node goes down, files will never be deleted, so we delete them
+  // immediately on the restart
+  auto const mg_db_tmp = data_directory / "tmp";
+  spdlog::trace("Deleting dir: {}", mg_db_tmp);
+  memgraph::utils::DeleteDir(mg_db_tmp);
+  // Optionally clean .old directories if flag set to false
+  if (!FLAGS_storage_backup_dir_enabled) {
+    // Delete .old for snapshots of the default db
+    auto const mg_db_snp_old = data_directory / "snapshots" / ".old";
+    spdlog::trace("Deleting dir: {}", mg_db_snp_old);
+    memgraph::utils::DeleteDir(mg_db_snp_old);
+    // Delete .old for WAL files of the default db
+    auto const mg_db_wal_old = data_directory / "wal" / ".old";
+    spdlog::trace("Deleting dir: {}", mg_db_wal_old);
+    memgraph::utils::DeleteDir(mg_db_wal_old);
+  }
+
+  auto const dbs = data_directory / "databases";
+  std::error_code ec;
+  for (auto const &db : std::filesystem::directory_iterator(dbs, ec)) {
+    memgraph::utils::DeleteDir(db.path() / "tmp");
+    if (!FLAGS_storage_backup_dir_enabled) {
+      auto const db_snp_old = db.path() / "snapshots" / ".old";
+      auto const db_wal_old = db.path() / "wal" / ".old";
+      spdlog::trace("Deleting snp: {}", db_snp_old);
+      spdlog::trace("Deleting wal: {}", db_wal_old);
+      memgraph::utils::DeleteDir(db_snp_old);
+      memgraph::utils::DeleteDir(db_wal_old);
+    }
+  }
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
   memgraph::memory::SetHooks();
+  memgraph::memory::EnableBackgroundThreads();
   google::SetUsageMessage("Memgraph database server");
   gflags::SetVersionString(version_string);
 
@@ -123,85 +285,164 @@ int main(int argc, char **argv) {
   // overwrite the config.
   LoadConfig("memgraph");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
+  if (!CheckSuspiciousPositionalArgs(argc, argv)) return EXIT_FAILURE;
+  WarnDeprecatedFlags();
+
+  // Publish worker count early so allocators can pre-size thread-local structures
+  memgraph::utils::SetNumWorkers(FLAGS_bolt_num_workers);
 
   if (FLAGS_h) {
     gflags::ShowUsageWithFlags(argv[0]);
-    exit(1);
+    return EXIT_FAILURE;
   }
 
+  auto flags_experimental = memgraph::flags::ReadExperimental(FLAGS_experimental_enabled);
+  memgraph::flags::SetExperimental(flags_experimental);
+  auto *maybe_experimental = std::getenv(kMgExperimentalEnabled);
+  if (maybe_experimental) {
+    auto env_experimental = memgraph::flags::ReadExperimental(maybe_experimental);
+    memgraph::flags::AppendExperimental(env_experimental);
+  }
+  // Initialize the logger. Done after experimental setup so that we could print which experimental features are enabled
+  // even if --also-log-to-stderr is false
   memgraph::flags::InitializeLogger();
+
+  {
+    const auto build_info = memgraph::utils::GetBuildInfo();
+    spdlog::info("Memgraph {} (build-id: {}, build-type: {})",
+                 build_info.version,
+                 build_info.build_id.empty() ? "unknown" : build_info.build_id,
+                 build_info.build_name);
+  }
+
+#ifdef MG_ENTERPRISE
+  // Must run before anything builds an SSL context or hashes a password, and
+  // after logger init so a failure is actually delivered.
+  if (FLAGS_fips_mode) {
+    memgraph::auth::EnableFipsMode();
+    memgraph::communication::EnableFipsMode();
+  }
+#endif
+
+  // Owns the thread that drops read-through snapshots from the page cache. Declared here so it
+  // outlives every database that can hand it a file, and is joined before `main` returns rather
+  // than during static destruction.
+  auto const page_cache_releaser = memgraph::utils::InstallPageCacheReleaser();
+
+  // Fail fast if --cluster-{cert,key,ca}-file are partially configured.
+  // Must run after logger init so the fatal message is delivered.
+  memgraph::flags::ValidateIntraClusterTLSFlags();
+
+  // Initialize the cluster TLS singletons from the cluster flags. Every
+  // ClusterView ServerContext/ClientContext below will atomic-load from
+  // these. A bad cert/key/CA path here surfaces at boot, not at first peer
+  // connection.
+  if (auto const cluster_tls = memgraph::flags::TlsConfigFromClusterFlags()) {
+    if (auto const r = memgraph::communication::ClusterServerSsl::Instance().Init(*cluster_tls); !r.has_value()) {
+      LOG_FATAL("Failed to initialize cluster server TLS: {}", r.error().msg);
+    }
+    if (auto const r = memgraph::communication::ClusterClientSsl::Instance().Init(*cluster_tls); !r.has_value()) {
+      LOG_FATAL("Failed to initialize cluster client TLS: {}", r.error().msg);
+    }
+  }
+
+  // Block SIGTERM/SIGINT as early as possible so that every thread we spawn
+  // inherits the blocked mask.  The main thread will consume them
+  // synchronously via sigwait() later.
+  BlockShutdownSignals();
 
   // Unhandled exception handler init.
   std::set_terminate(&memgraph::utils::TerminateHandler);
 
-  // Initialize Python
-  auto *program_name = Py_DecodeLocale(argv[0], nullptr);
-  MG_ASSERT(program_name);
-  // Set program name, so Python can find its way to runtime libraries relative
-  // to executable.
-  Py_SetProgramName(program_name);
-  PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
-  Py_InitializeEx(0 /* = initsigs */);
-  PyEval_InitThreads();
-  Py_BEGIN_ALLOW_THREADS;
+#ifdef MG_ENTERPRISE
+  memgraph::flags::SetFinalCoordinationSetup();
+  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+  bool const is_coordinator_instance = coordination_setup.management_port && coordination_setup.coordinator_port &&
+                                       coordination_setup.coordinator_id != memgraph::flags::kUnsetCoordinatorId &&
+                                       !coordination_setup.coordinator_hostname.empty();
 
-  // Add our Python modules to sys.path
-  try {
-    auto exe_path = memgraph::utils::GetExecutablePath();
-    auto py_support_dir = exe_path.parent_path() / "python_support";
-    if (std::filesystem::is_directory(py_support_dir)) {
-      auto gil = memgraph::py::EnsureGIL();
-      auto maybe_exc = memgraph::py::AppendToSysPath(py_support_dir.c_str());
-      if (maybe_exc) {
-        spdlog::error(memgraph::utils::MessageWithLink("Unable to load support for embedded Python: {}.", *maybe_exc,
-                                                       "https://memgr.ph/python"));
-      } else {
-        // Change how we load dynamic libraries on Python by using RTLD_NOW and
-        // RTLD_DEEPBIND flags. This solves an issue with using the wrong version of
-        // libstd.
+#else
+  bool const is_coordinator_instance = false;
+#endif
+
+#ifdef MG_PYTHON_SUPPORT
+  std::optional<memgraph::utils::Scheduler> python_gc_scheduler{std::nullopt};
+  wchar_t *program_name{nullptr};
+  PyThreadState *python_thread_state{nullptr};
+
+  if (!is_coordinator_instance) {
+    // Initialize Python
+    program_name = Py_DecodeLocale(argv[0], nullptr);
+    MG_ASSERT(program_name);
+    // Set program name, so Python can find its way to runtime libraries relative
+    // to executable.
+    Py_SetProgramName(program_name);
+    PyImport_AppendInittab("_mgp", &memgraph::query::procedure::PyInitMgpModule);
+    Py_InitializeEx(0 /* = initsigs */);
+    python_thread_state = PyEval_SaveThread();
+
+    // Add our Python modules to sys.path
+    try {
+      auto exe_path = memgraph::utils::GetExecutablePath();
+      auto py_support_dir = exe_path.parent_path() / "python_support";
+      if (std::filesystem::is_directory(py_support_dir)) {
         auto gil = memgraph::py::EnsureGIL();
-        // NOLINTNEXTLINE(hicpp-signed-bitwise)
-        auto *flag = PyLong_FromLong(RTLD_NOW);
-        auto *setdl = PySys_GetObject("setdlopenflags");
-        MG_ASSERT(setdl);
-        auto *arg = PyTuple_New(1);
-        MG_ASSERT(arg);
-        MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);
-        PyObject_CallObject(setdl, arg);
-        Py_DECREF(flag);
-        Py_DECREF(setdl);
-        Py_DECREF(arg);
+        auto maybe_exc = memgraph::py::AppendToSysPath(py_support_dir.c_str());
+        if (maybe_exc) {
+          spdlog::error(memgraph::utils::MessageWithLink(
+              "Unable to load support for embedded Python: {}.", *maybe_exc, "https://memgr.ph/python"));
+        } else {
+          // Change how we load dynamic libraries on Python by using RTLD_NOW flag.
+          // This solves an issue with using the wrong version of libstdc++.
+          // NOLINTNEXTLINE(hicpp-signed-bitwise)
+          auto *flag = PyLong_FromLong(RTLD_NOW);
+          auto *setdl = PySys_GetObject("setdlopenflags");
+          MG_ASSERT(setdl);
+          auto *arg = PyTuple_New(1);
+          MG_ASSERT(arg);
+          MG_ASSERT(PyTuple_SetItem(arg, 0, flag) == 0);  // steals flag
+          PyObject_CallObject(setdl, arg);
+          // flag stolen by SetItem — do NOT Py_DECREF it
+          // setdl is a borrowed ref from PySys_GetObject — do NOT Py_DECREF it
+          Py_DECREF(arg);
+        }
+      } else {
+        spdlog::error(
+            memgraph::utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",
+                                             py_support_dir,
+                                             "https://memgr.ph/python"));
       }
-    } else {
-      spdlog::error(
-          memgraph::utils::MessageWithLink("Unable to load support for embedded Python: missing directory {}.",
-                                           py_support_dir, "https://memgr.ph/python"));
+    } catch (const std::filesystem::filesystem_error &e) {
+      spdlog::error(memgraph::utils::MessageWithLink(
+          "Unable to load support for embedded Python: {}.", e.what(), "https://memgr.ph/python"));
     }
-  } catch (const std::filesystem::filesystem_error &e) {
-    spdlog::error(memgraph::utils::MessageWithLink("Unable to load support for embedded Python: {}.", e.what(),
-                                                   "https://memgr.ph/python"));
-  }
 
-  memgraph::utils::Scheduler python_gc_scheduler;
-  python_gc_scheduler.Run("Python GC", std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec),
-                          [] { memgraph::query::procedure::PyCollectGarbage(); });
+    python_gc_scheduler.emplace();
+    python_gc_scheduler->SetInterval(std::chrono::seconds(FLAGS_storage_python_gc_cycle_sec));
+    python_gc_scheduler->Run("Python GC", [] { memgraph::query::procedure::PyCollectGarbage(); });
+  }
+#endif
 
   // Initialize the communication library.
   memgraph::communication::SSLInit sslInit;
 
   // Initialize the requests library.
-  memgraph::requests::Init();
+  memgraph::requests::Init(FLAGS_ca_bundle_file);
 
   // Start memory warning logger.
   memgraph::utils::Scheduler mem_log_scheduler;
   if (FLAGS_memory_warning_threshold > 0) {
     auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
     if (free_ram) {
-      mem_log_scheduler.Run("Memory warning", std::chrono::seconds(3), [] {
+      mem_log_scheduler.SetInterval(std::chrono::seconds(3));
+      mem_log_scheduler.Run("Memory check", [peak_gauge = memgraph::metrics::Metrics().global.peak_memory_res_bytes] {
         auto free_ram = memgraph::utils::sysinfo::AvailableMemory();
         if (free_ram && *free_ram / 1024 < FLAGS_memory_warning_threshold)
-          spdlog::warn(memgraph::utils::MessageWithLink("Running out of available RAM, only {} MB left.",
-                                                        *free_ram / 1024, "https://memgr.ph/ram"));
+          spdlog::warn(memgraph::utils::MessageWithLink(
+              "Running out of available RAM, only {} MB left.", *free_ram / 1024, "https://memgr.ph/ram"));
+
+        auto memory_res = memgraph::utils::GetMemoryRES();
+        memgraph::metrics::Metrics().UpdateAndGetPeakMemoryRes(memory_res);
       });
     } else {
       // Kernel version for the `MemAvailable` value is from: man procfs
@@ -215,7 +456,7 @@ int main(int argc, char **argv) {
   std::cout << "To get started with Memgraph, visit https://memgr.ph/start" << std::endl;
 
   const auto vm_max_map_count = memgraph::utils::GetVmMaxMapCount();
-  if (vm_max_map_count.has_value()) {
+  if (vm_max_map_count) {
     if (vm_max_map_count.value() < kMgVmMaxMapCount) {
       std::cout << "Max virtual memory areas vm.max_map_count " << vm_max_map_count.value()
                 << " is too low, increase to at least " << kMgVmMaxMapCount << std::endl;
@@ -226,6 +467,8 @@ int main(int argc, char **argv) {
   }
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
+  CleanDataDir(data_directory);
+  memgraph::flags::CleanLogsDir();
 
   memgraph::utils::EnsureDirOrDie(data_directory);
   // Verify that the user that started the process is the same user that is
@@ -233,15 +476,20 @@ int main(int argc, char **argv) {
   memgraph::storage::durability::VerifyStorageDirectoryOwnerAndProcessUserOrDie(data_directory);
   // Create the lock file and open a handle to it. This will crash the
   // database if it can't open the file for writing or if any other process is
-  // holding the file opened.
+  // holding the file opened after timeout occurs
   memgraph::utils::OutputFile lock_file_handle;
-  lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  MG_ASSERT(lock_file_handle.AcquireLock(),
-            "Couldn't acquire lock on the storage directory {}"
-            "!\nAnother Memgraph process is currently running with the same "
-            "storage directory, please stop it first before starting this "
-            "process!",
+  MG_ASSERT(lock_file_handle.Open(data_directory / ".lock", memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING),
+            "Failed to open {}/.lock file",
             data_directory);
+  MG_ASSERT(lock_file_handle.AcquireLockWithTimeout(FLAGS_data_dir_lock_acquisition_timeout_sec),
+            "Couldn't acquire lock on the storage directory {} within {}s!"
+            "Another Memgraph process is currently running with the same "
+            "storage directory, please stop it first before restarting this "
+            "process!",
+            data_directory,
+            FLAGS_data_dir_lock_acquisition_timeout_sec);
+
+  spdlog::trace("Successfully acquired lock on data directory");
 
   const auto memory_limit = memgraph::flags::GetMemoryLimit();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
@@ -249,22 +497,35 @@ int main(int argc, char **argv) {
   memgraph::utils::total_memory_tracker.SetMaximumHardLimit(memory_limit);
   memgraph::utils::total_memory_tracker.SetHardLimit(memory_limit);
 
-  memgraph::utils::global_settings.Initialize(data_directory / "settings");
-  memgraph::utils::OnScopeExit settings_finalizer([&] { memgraph::utils::global_settings.Finalize(); });
+  auto settings = std::make_shared<memgraph::utils::Settings>(data_directory / "settings");
+  auto parameters = std::make_shared<memgraph::parameters::Parameters>(data_directory / "parameters");
 
   // register all runtime settings
-  memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker,
-                                             memgraph::utils::global_settings);
-  memgraph::utils::OnScopeExit global_license_finalizer([] { memgraph::license::global_license_checker.Finalize(); });
+  memgraph::license::RegisterLicenseSettings(memgraph::license::global_license_checker, *settings);
 
-  memgraph::flags::run_time::Initialize();
-
-  memgraph::license::global_license_checker.CheckEnvLicense();
+  memgraph::license::global_license_checker.CheckEnvLicense(*settings);
   if (!FLAGS_organization_name.empty() && !FLAGS_license_key.empty()) {
-    memgraph::license::global_license_checker.SetLicenseInfoOverride(FLAGS_license_key, FLAGS_organization_name);
+    memgraph::license::global_license_checker.SetCliLicense(FLAGS_license_key, FLAGS_organization_name, *settings);
   }
 
-  memgraph::license::global_license_checker.StartBackgroundLicenseChecker(memgraph::utils::global_settings);
+  memgraph::license::global_license_checker.StartBackgroundLicenseChecker(settings);
+
+#ifdef MG_ENTERPRISE
+  // FIPS mode engages much earlier (it has to precede the first SSL context and
+  // password hash), but the license cannot be evaluated until here — it may come
+  // from settings, which need the data directory. Both are still well before the
+  // Bolt server starts, so no traffic is ever served in approved mode without a
+  // valid licence.
+  if (FLAGS_fips_mode) {
+    if (auto const res = memgraph::license::global_license_checker.IsEnterpriseValid(*settings); !res.has_value()) {
+      memgraph::utils::FailStartup(memgraph::utils::ExitCode::FipsModeRequiresEnterprise,
+                                   memgraph::license::LicenseCheckErrorToString(res.error(), "--fips-mode"));
+    }
+  }
+#endif
+
+  // Has to be initialized after the storage and license startup
+  memgraph::flags::run_time::Initialize(*settings);
 
   // All enterprise features should be constructed before the main database
   // storage. This will cause them to be destructed *after* the main database
@@ -279,16 +540,20 @@ int main(int argc, char **argv) {
 
 #ifdef MG_ENTERPRISE
   // Audit log
-  memgraph::audit::Log audit_log{data_directory / "audit", FLAGS_audit_buffer_size,
-                                 FLAGS_audit_buffer_flush_interval_ms};
+  memgraph::audit::Log audit_log{
+      data_directory / "audit", FLAGS_audit_buffer_size, FLAGS_audit_buffer_flush_interval_ms};
   // Start the log if enabled.
   if (FLAGS_audit_enabled) {
-    audit_log.Start();
+    MG_ASSERT(audit_log.Start(), "Failed to open audit file {}", data_directory / "audit");
   }
   // Setup SIGUSR2 to be used for reopening audit log files, when e.g. logrotate
   // rotates our audit logs.
   MG_ASSERT(memgraph::utils::SignalHandler::RegisterHandler(memgraph::utils::Signal::User2,
-                                                            [&audit_log]() { audit_log.ReopenLog(); }),
+                                                            [&audit_log]() {
+                                                              if (audit_log.ReopenLog()) {
+                                                                spdlog::info("Successfully reopened audit log");
+                                                              }
+                                                            }),
             "Unable to register SIGUSR2 handler!");
 
   // End enterprise features initialization
@@ -300,16 +565,21 @@ int main(int argc, char **argv) {
              .interval = std::chrono::seconds(FLAGS_storage_gc_cycle_sec)},
 
       .durability = {.storage_directory = FLAGS_data_directory,
-                     .recover_on_startup = FLAGS_storage_recover_on_startup || FLAGS_data_recovery_on_startup,
+                     .root_data_directory = FLAGS_data_directory,
+                     .recover_on_startup = FLAGS_data_recovery_on_startup,
+                     .allow_recovery_failure = FLAGS_storage_allow_recovery_failure,
                      .snapshot_retention_count = FLAGS_storage_snapshot_retention_count,
                      .wal_file_size_kibibytes = FLAGS_storage_wal_file_size_kib,
                      .wal_file_flush_every_n_tx = FLAGS_storage_wal_file_flush_every_n_tx,
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
                      .restore_replication_state_on_startup = FLAGS_replication_restore_state_on_startup,
                      .items_per_batch = FLAGS_storage_items_per_batch,
+                     .snapshot_thread_count = FLAGS_storage_snapshot_thread_count,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
-                     // deprecated
-                     .allow_parallel_index_creation = FLAGS_storage_parallel_index_recovery,
+                     .snapshot_writeback_window_mib = FLAGS_storage_snapshot_writeback_window_mib,
+                     .release_recovered_snapshot_page_cache = FLAGS_storage_release_recovered_snapshot_page_cache,
+                     .release_sent_snapshot_page_cache = FLAGS_storage_release_sent_snapshot_page_cache,
+                     .allow_parallel_snapshot_creation = FLAGS_storage_parallel_snapshot_creation,
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
@@ -321,34 +591,109 @@ int main(int argc, char **argv) {
                .durability_directory = FLAGS_data_directory + "/rocksdb_durability",
                .wal_directory = FLAGS_data_directory + "/rocksdb_wal"},
       .salient.items = {.properties_on_edges = FLAGS_storage_properties_on_edges,
-                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata},
-      .salient.storage_mode = memgraph::flags::ParseStorageMode()};
+                        .enable_edges_metadata =
+                            FLAGS_storage_properties_on_edges ? FLAGS_storage_enable_edges_metadata : false,
+                        .enable_schema_metadata = FLAGS_storage_enable_schema_metadata,
+                        .enable_schema_info = FLAGS_schema_info_enabled,
+                        .enable_label_index_auto_creation = FLAGS_storage_automatic_label_index_creation_enabled,
+                        .enable_edge_type_index_auto_creation =
+                            FLAGS_storage_automatic_edge_type_index_creation_enabled,  // NOLINT(misc-include-cleaner)
+                        .storage_light_edge = FLAGS_storage_light_edge,
+                        .delta_on_identical_property_update = FLAGS_storage_delta_on_identical_property_update,
+                        .property_store_compression_enabled = FLAGS_storage_property_store_compression_enabled},
+      .salient.storage_mode = memgraph::flags::ParseStorageMode(),
+      .salient.property_store_compression_level = memgraph::flags::ParseCompressionLevel(),
+      .track_label_counts = FLAGS_telemetry_enabled};
+  // Light edges require properties on edges: coerce BEFORE any check that
+  // depends on properties_on_edges (the edge-type auto-index fatal below and
+  // the edges-metadata warning) so they all observe the effective value.
+  if (db_config.salient.items.storage_light_edge && !db_config.salient.items.properties_on_edges) {
+    spdlog::warn("Light edges require properties on edges. Forcing properties_on_edges to true.");
+    db_config.salient.items.properties_on_edges = true;
+    // enable_edges_metadata was derived from the raw flag at struct-init
+    // (false when properties_on_edges was off) — re-derive it from the user's
+    // request now that properties_on_edges is effectively on.
+    db_config.salient.items.enable_edges_metadata = FLAGS_storage_enable_edges_metadata;
+  }
+  if (db_config.salient.items.enable_edge_type_index_auto_creation && !db_config.salient.items.properties_on_edges) {
+    LOG_FATAL(
+        "Automatic index creation on edge-types has been set but properties on edges are disabled. If you wish to use "
+        "automatic edge-type index creation, enable properties on edges as well.");
+  }
+  // Read the POST-coercion config field so the warning reflects the effective
+  // value (light-edge coercion above may have forced properties_on_edges true).
+  if (!db_config.salient.items.properties_on_edges && FLAGS_storage_enable_edges_metadata) {
+    spdlog::warn(
+        "Properties on edges were not enabled, hence edges metadata will also be disabled. If you wish to utilize "
+        "extra metadata on edges, enable properties on edges as well.");
+  }
+  spdlog::info("config recover on startup {}, flags {}",
+               db_config.durability.recover_on_startup,
+               FLAGS_data_recovery_on_startup);
+  using namespace std::chrono_literals;
+  using enum memgraph::storage::StorageMode;
+  using enum memgraph::storage::Config::Durability::SnapshotWalMode;
 
-  memgraph::utils::Scheduler jemalloc_purge_scheduler;
-  jemalloc_purge_scheduler.Run("Jemalloc purge", std::chrono::seconds(FLAGS_storage_gc_cycle_sec),
-                               [] { memgraph::memory::PurgeUnusedMemory(); });
-
-  if (FLAGS_storage_snapshot_interval_sec == 0) {
-    if (FLAGS_storage_wal_enabled) {
-      LOG_FATAL(
-          "In order to use write-ahead-logging you must enable "
-          "periodic snapshots by setting the snapshot interval to a "
-          "value larger than 0!");
-      db_config.durability.snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::DISABLED;
-    }
-  } else {
-    if (FLAGS_storage_wal_enabled) {
-      db_config.durability.snapshot_wal_mode =
-          memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  if (!is_coordinator_instance) {
+    db_config.durability.snapshot_interval =
+        memgraph::utils::SchedulerInterval(memgraph::flags::run_time::GetStorageSnapshotInterval());
+    if (db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
+      if (!db_config.durability.snapshot_interval) {
+        if (FLAGS_storage_wal_enabled) {
+          LOG_FATAL(
+              "In order to use write-ahead-logging you must enable "
+              "periodic snapshots by setting the snapshot interval to a "
+              "value larger than 0!");
+        }
+        db_config.durability.snapshot_wal_mode = DISABLED;
+      } else {
+        if (FLAGS_storage_wal_enabled) {
+          db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT_WITH_WAL;
+        } else {
+          db_config.durability.snapshot_wal_mode = PERIODIC_SNAPSHOT;
+        }
+      }
     } else {
-      db_config.durability.snapshot_wal_mode =
-          memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT;
+      // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
+      db_config.durability.snapshot_wal_mode = DISABLED;
     }
-    db_config.durability.snapshot_interval = std::chrono::seconds(FLAGS_storage_snapshot_interval_sec);
   }
 
+#ifdef MG_ENTERPRISE
+  MG_ASSERT(!(coordination_setup.IsDataInstanceManagedByCoordinator() &&
+              db_config.salient.storage_mode == IN_MEMORY_ANALYTICAL),
+            "Data instances cannot use analytical mode!");
+
+  if (coordination_setup.IsDataInstanceManagedByCoordinator() &&
+      db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
+    MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
+              "When running Memgraph in high availability mode, a data instance must be started with flag "
+              "--storage-wal-enabled=true. One of the flags used for setting up snapshots "
+              "--storage-snapshot-interval-sec or --storage-snapshot-interval also needs to be set.");
+  }
+
+  if (is_coordinator_instance) {
+    MG_ASSERT(
+        FLAGS_init_file.empty(),
+        "Coordinator instances don't support --init-file flag. Please restart the instance by removing this flag.");
+    MG_ASSERT(FLAGS_init_data_file.empty(),
+              "Coordinator instances don't support --init-data-file flag. Please restart the instance by removing this "
+              "flag.");
+    spdlog::warn("All storage-related flags are ignored since coordinators don't have storage.");
+  }
+
+  if (coordination_setup.IsDataInstanceManagedByCoordinator()) {
+    MG_ASSERT(FLAGS_init_file.empty(),
+              "Data instances don't support --init-file flag. Please restart the instance by removing this flag.");
+    MG_ASSERT(FLAGS_init_data_file.empty(),
+              "Data instances don't support --init-data-file flag. Please restart the instance by removing this "
+              "flag.");
+  }
+
+#endif
+
   // Default interpreter configuration
-  memgraph::query::InterpreterConfig interp_config{
+  memgraph::query::InterpreterConfig const interp_config{
       .query = {.allow_load_csv = FLAGS_allow_load_csv},
       .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
@@ -356,52 +701,305 @@ int main(int argc, char **argv) {
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
-  auto auth_glue =
-      [flag = FLAGS_auth_user_or_role_name_regex](
-          memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> *auth,
-          std::unique_ptr<memgraph::query::AuthQueryHandler> &ah, std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+#ifdef MG_ENTERPRISE
+  auto auth_glue = [&coordination_setup]
+#else
+  auto auth_glue = []
+#endif
+      (memgraph::auth::SynchedAuth *auth,
+       std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
+       std::unique_ptr<memgraph::query::AuthChecker> &ac) {
         // Glue high level auth implementations to the query side
-        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth, flag);
+        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
         ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
         // Handle users passed via arguments
         auto *maybe_username = std::getenv(kMgUser);
         auto *maybe_password = std::getenv(kMgPassword);
         auto *maybe_pass_file = std::getenv(kMgPassfile);
+#ifdef MG_ENTERPRISE
+        if (maybe_username && maybe_password && !coordination_setup.IsCoordinator()) {
+#else
         if (maybe_username && maybe_password) {
-          ah->CreateUser(maybe_username, maybe_password);
+#endif
+          ah->CreateUser(maybe_username, maybe_password, nullptr);
         } else if (maybe_pass_file) {
           const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
           if (!username.empty() && !password.empty()) {
-            ah->CreateUser(username, password);
+            ah->CreateUser(username, password, nullptr);
           }
         }
       };
 
-  // WIP
-  memgraph::utils::Synchronized<memgraph::auth::Auth, memgraph::utils::WritePrioritizedRWLock> auth_{data_directory /
-                                                                                                     "auth"};
+  memgraph::auth::Auth::Config const auth_config{
+      FLAGS_auth_user_or_role_name_regex, FLAGS_auth_password_strength_regex, FLAGS_auth_password_permit_null};
+
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
-  auth_glue(&auth_, auth_handler, auth_checker);
-
-  memgraph::dbms::DbmsHandler dbms_handler(db_config
+  std::unique_ptr<memgraph::auth::SynchedAuth> auth_;
 #ifdef MG_ENTERPRISE
-                                           ,
-                                           &auth_, FLAGS_data_recovery_on_startup
+  // Resource monitoring
+  auto resource_monitoring = memgraph::utils::ResourceMonitoring{};
+  try {
+    auth_ = std::make_unique<memgraph::auth::SynchedAuth>(data_directory / "auth", auth_config, &resource_monitoring);
+#else
+  try {
+    auth_ = std::make_unique<memgraph::auth::SynchedAuth>(data_directory / "auth", auth_config);
 #endif
-  );
-  auto db_acc = dbms_handler.Get();
+  } catch (std::exception const &e) {
+    spdlog::error("Exception was thrown on creating SyncedAuth object, shutting down Memgraph. {}", e.what());
+    return EXIT_FAILURE;
+  }
+  auth_glue(auth_.get(), auth_handler, auth_checker);
 
-  memgraph::query::InterpreterContext interpreter_context_(
-      interp_config, &dbms_handler, &dbms_handler.ReplicationState(), auth_handler.get(), auth_checker.get());
-  MG_ASSERT(db_acc, "Failed to access the main database");
+#ifdef MG_ENTERPRISE
+  if (FLAGS_fips_mode) {
+    if (!FLAGS_auth_module_mappings.empty()) {
+      spdlog::warn(
+          "An external auth module is configured ({}); it authenticates in a separate process, which approved mode "
+          "cannot constrain. A module that uses OpenSSL inherits OPENSSL_CONF and so follows the same provider "
+          "configuration, but any other cryptography it performs is outside FIPS 140-3 approved mode.",
+          FLAGS_auth_module_mappings);
+    }
 
-  memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
-                                                                  FLAGS_data_directory);
-  memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
-  memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
+    auto locked_out_count = 0U;
+    for (auto const &user : auth_->ReadLock()->AllUsers()) {
+      auto const algo = user.PasswordHashAlgo();
+      if (!algo || memgraph::auth::IsFipsApproved(*algo)) continue;
+      spdlog::warn("User '{}' cannot authenticate in FIPS mode: its password hash uses '{}', which is not approved.",
+                   user.username(),
+                   memgraph::auth::AsString(*algo));
+      ++locked_out_count;
+    }
+    if (locked_out_count != 0) {
+      spdlog::warn(
+          "{} user(s) cannot authenticate in FIPS mode. Their passwords must be reset, not migrated -- re-hashing "
+          "needs the plaintext, which Memgraph does not store. Reset them with 'SET PASSWORD FOR <user> TO "
+          "<password>', which does not read the old hash. To avoid the lockout entirely, do that on a non-FIPS "
+          "instance started with --password-encryption-algorithm=pbkdf2-sha256 before enabling --fips-mode; if this "
+          "instance is already locked out, use --init-file to reset an administrator first.",
+          locked_out_count);
+    }
+  }
+#endif
+
+  auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
+
+  int const extracted_bolt_port = [&]() {
+    if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
+      return std::stoi(maybe_env_bolt_port);
+    }
+    return FLAGS_bolt_port;
+  }();  // iile
+
+// singleton coordinator state
+#ifdef MG_ENTERPRISE
+  using memgraph::coordination::CoordinatorInstanceInitConfig;
+  using memgraph::coordination::CoordinatorState;
+  using memgraph::coordination::ReplicationInstanceInitConfig;
+
+  // coordinator_state must be declared before repl_state because in initialization repl state needs coordinator state —
+  // but DataInstanceManagementServer must be explicitly shut down before repl_state destruction (done in shutdown
+  // lambda)
+  std::shared_ptr<CoordinatorState> coordinator_state{};
+  auto const is_valid_data_instance = coordination_setup.management_port && !coordination_setup.coordinator_port &&
+                                      coordination_setup.coordinator_id == memgraph::flags::kUnsetCoordinatorId;
+
+  auto try_init_coord_state = [&coordinator_state,
+                               &extracted_bolt_port,
+                               &is_valid_data_instance,
+                               &is_coordinator_instance](auto const &coordination_setup) {
+    if (!(coordination_setup.management_port || coordination_setup.coordinator_port ||
+          coordination_setup.coordinator_id != memgraph::flags::kUnsetCoordinatorId)) {
+      spdlog::trace("Aborting coordinator initialization.");
+      return;
+    }
+
+    spdlog::trace("Creating coordinator state.");
+    if (!(is_coordinator_instance || is_valid_data_instance)) {
+      throw std::runtime_error(
+          "You specified invalid combination of HA flags to start coordinator instance or data instance."
+          "Coordinator must be started with coordinator_id, coordinator_hostname, coordinator_port and "
+          "management_port. Data instance must be "
+          "started only with management port.");
+    }
+
+    auto maybe_ssl = memgraph::flags::TlsConfigFromClusterFlags();
+    if (!maybe_ssl.has_value()) {
+      spdlog::warn(memgraph::utils::MessageWithLink(
+          "Running HA without intra-cluster TLS. Replication, coordinator, and management traffic is unencrypted.",
+          "https://memgr.ph/cluster-tls"));
+    }
+
+    if (is_coordinator_instance) {
+      constexpr auto kRaftDataDir = "/high_availability/raft_data";
+      auto const high_availability_data_dir = FLAGS_data_directory + kRaftDataDir;
+      memgraph::utils::EnsureDirOrDie(high_availability_data_dir);
+
+      coordinator_state = std::make_shared<CoordinatorState>(
+          CoordinatorInstanceInitConfig{.coordinator_id = coordination_setup.coordinator_id,
+                                        .coordinator_port = coordination_setup.coordinator_port,
+                                        .bolt_port = extracted_bolt_port,
+                                        .management_port = coordination_setup.management_port,
+                                        .durability_dir = high_availability_data_dir,
+                                        .coordinator_hostname = coordination_setup.coordinator_hostname,
+                                        .nuraft_log_file = coordination_setup.nuraft_log_file,
+                                        .tls_config = std::move(maybe_ssl)});
+    } else {
+      coordinator_state = std::make_shared<CoordinatorState>(ReplicationInstanceInitConfig{
+          .management_port = coordination_setup.management_port, .tls_config = std::move(maybe_ssl)});
+    }
+  };
+
+  try {
+    try_init_coord_state(coordination_setup);
+    spdlog::trace("Coordinator state initialized successfully.");
+  } catch (std::exception const &e) {
+    spdlog::error("Exception was thrown on coordinator state construction, shutting down Memgraph. {}", e.what());
+    return EXIT_FAILURE;
+  }
+
+#endif
+
+  // Owns the process-wide 2PC commit-accessor slot. Declared BEFORE dbms_handler so it is destroyed
+  // AFTER it: ~DbmsHandler runs every ~Database, each draining its own tenant's cached 2PC while its
+  // storage is still alive, leaving an empty slot for this Owner to free. Unconditional: harmless on
+  // a coordinator, which never populates the replica-only slot.
+  const memgraph::dbms::TwoPCCommitCache::Owner two_pc_cache_owner;
+
+  std::optional<memgraph::dbms::DbmsHandler> dbms_handler;
+  if (!is_coordinator_instance) {
+    dbms_handler.emplace(db_config);
+  }
+
+#ifdef MG_ENTERPRISE
+  // Wired before the replication RPC server and the init file, either of which can drop a database:
+  // an unwired arm is an empty std::function, so the drop leaves the parameters behind for good.
+  if (dbms_handler.has_value()) {
+    dbms_handler->SetOnUuidRetired([parameters](memgraph::utils::UUID const &uuid) {
+      [[maybe_unused]] auto purged = parameters->DeleteScope(uuid);
+    });
+  }
+#endif
+
+  memgraph::metrics::Metrics().SetStorageSnapshotResolver(
+      [&dbms_handler](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
+        if (!dbms_handler) return std::nullopt;
+        return dbms_handler->TryGetStorageSnapshotForMetrics(uuid);
+      });
+
+#ifdef MG_ENTERPRISE
+  memgraph::metrics::Metrics().SetInstanceStatusResolver(
+      [&coordinator_state]() -> std::vector<memgraph::coordination::InstanceStatus> {
+        if (!coordinator_state || !coordinator_state->IsCoordinator()) return {};
+        return coordinator_state->ShowInstances().value_or(std::vector<memgraph::coordination::InstanceStatus>{});
+      });
+#endif
+
+  // singleton replication state
+  // Important that repl_state gets destroyed before dbms_handler because some RPC handlers use dbms_handler
+  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
+      repl_state;
+
+  if (!is_coordinator_instance) {
+#ifdef MG_ENTERPRISE
+    repl_state.emplace(ReplicationStateRootPath(db_config), coordinator_state && coordinator_state->IsDataInstance());
+#else
+    repl_state.emplace(ReplicationStateRootPath(db_config));
+#endif
+  }
+
+  // TTL will be stopped with StopAllBackgroundTasks in DatabaseHandler
+  if (!is_coordinator_instance) {
+    dbms_handler->ForEach([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+      db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
+        const auto locked_repl_state = repl_state->ReadLock();
+        return locked_repl_state->IsMainWriteable();
+      });
+    });
+  }
+
+  // Note: Now that all system's subsystems are initialised (dbms & auth)
+  //       We can now initialise the recovery of replication (which will include those subsystems)
+  //       ReplicationHandler will handle the recovery
+  std::optional<memgraph::replication::ReplicationHandler> replication_handler;
+  std::optional<memgraph::dbms::DatabaseAccess> db_acc;
+
+  if (!is_coordinator_instance) {
+#ifdef MG_ENTERPRISE
+    replication_handler.emplace(*repl_state, *dbms_handler, system, *auth_, *parameters);
+#else
+    replication_handler.emplace(*repl_state, *dbms_handler, system, *parameters);
+#endif
+    db_acc.emplace(dbms_handler->Get());
+  }
+
+  // Global worker pool!
+  // Used by sessions to schedule tasks.
+  std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
+  unsigned io_n_threads = FLAGS_bolt_num_workers;
+
+  if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
+    // Register each worker thread with the Python interpreter at startup.
+    // This pre-initializes Python thread states to prevent "PyGILState_Ensure: Couldn't create
+    // thread-state for new thread" errors when many threads simultaneously try to call Python
+    // procedures during parallel execution.
+    // NOTE: We should also register cleanup, but since threads exist until the end of the program,
+    //       everyhting will be cleaned up anyway at program exit.
+
+    worker_pool_.emplace(/* low priority */
+                         static_cast<uint16_t>(FLAGS_bolt_num_workers),
+                         /* high priority */ 1U,
+#ifdef MG_PYTHON_SUPPORT
+                         is_coordinator_instance ? []() {} : []() { memgraph::query::procedure::RegisterPyThread(); });
+#else
+                         []() {});
+#endif
+    io_n_threads = 1U;
+  }
+
+  // Used by interpreter context
+  std::string service_name = "Bolt";
+  auto bolt_server_context = !FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()
+                                 ? ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file)
+                                 : ServerContext{};
+  if (bolt_server_context.use_ssl()) {
+    service_name = "BoltS";
+    spdlog::info("Using secure Bolt connection (with SSL)");
+  } else {
+    spdlog::warn(
+        memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
+  }
+
+  memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
+      interp_config,
+      settings.get(),
+      parameters.get(),
+      dbms_handler.has_value() ? &*dbms_handler : nullptr,
+      repl_state.has_value() ? &*repl_state : nullptr,
+      system,
+      &bolt_server_context,
+#ifdef MG_ENTERPRISE
+      coordinator_state.get(),
+      &resource_monitoring,
+#endif
+      auth_handler.get(),
+      auth_checker.get(),
+      replication_handler.has_value() ? &*replication_handler : nullptr,
+      worker_pool_ ? &*worker_pool_ : nullptr);
+
+  auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
+  if (!is_coordinator_instance) {
+    MG_ASSERT(db_acc.has_value(), "Failed to access the main database");
+
+    memgraph::query::procedure::gModuleRegistry.SetModulesDirectory(memgraph::flags::ParseQueryModulesDirectory(),
+                                                                    FLAGS_data_directory);
+    memgraph::query::procedure::gModuleRegistry.UnloadAndLoadModulesFromDirectories();
+    memgraph::query::procedure::gCallableAliasMapper.LoadMapping(FLAGS_query_callable_mappings_path);
+  }
 
   // TODO Make multi-tenant
+  // No need to check here if coordinator instance because we check above that --init-file is not set on coordinator
+  // instances
   if (!FLAGS_init_file.empty()) {
     spdlog::info("Running init file...");
 #ifdef MG_ENTERPRISE
@@ -415,42 +1013,79 @@ int main(int argc, char **argv) {
 #endif
   }
 
-#ifdef MG_ENTERPRISE
-  dbms_handler.RestoreTriggers(&interpreter_context_);
-  dbms_handler.RestoreStreams(&interpreter_context_);
-#else
-  {
-    // Triggers can execute query procedures, so we need to reload the modules first and then
-    // the triggers
-    auto storage_accessor = db_acc->Access();
-    auto dba = memgraph::query::DbAccessor{storage_accessor.get()};
-    db_acc->trigger_store()->RestoreTriggers(&interpreter_context_.ast_cache, &dba, interpreter_context_.config.query,
-                                             interpreter_context_.auth_checker);
+  // Tied to coord initialization, must happen after coordinator is initialized
+  auto *maybe_ha_init_file = std::getenv(kMgHaClusterInitQueries);
+  if (maybe_ha_init_file) {
+    spdlog::trace("Initializing coordinator using cypher file.");
+    InitFromCypherlFile(interpreter_context_, db_acc, maybe_ha_init_file);
+    spdlog::trace("Coordinator initialized using cypher file.");
   }
 
-  // As the Stream transformations are using modules, they have to be restored after the query modules are loaded.
-  db_acc->streams()->RestoreStreams(db_acc, &interpreter_context_);
+  // Triggers can execute query procedures, so we need to reload the modules first and then the triggers.
+  // Stream transformations use modules, so we need to restored streams after the query modules have been loaded.
+  if (db_config.durability.recover_on_startup && dbms_handler.has_value()) {
+    dbms_handler->RestoreTriggers(&interpreter_context_);
+    spdlog::trace("Triggers restored.");
+    dbms_handler->RestoreStreams(&interpreter_context_);
+    spdlog::trace("Streams restored.");
+  }
+
+#ifdef MG_ENTERPRISE
+  // Hot/cold suspend/resume arms (multi-tenant). Wired unconditionally (not gated on recover_on_startup):
+  //  - on_suspend_: before the freeze, stop the per-db stream consumers (each pins the tenant HOT via a
+  //    captured DatabaseAccess), preserving their durable metadata so resume rebuilds them;
+  //  - restore_streams_: undo that stop if a suspend does not commit (preserving each stream's run/stop state);
+  //  - on_resume_: after a COLD tenant's storage is rebuilt, re-arm its triggers AND streams from durable
+  //    metadata (BuildDetached does not auto-arm either). Triggers must come first (streams use modules).
+  if (dbms_handler.has_value()) {
+    auto *dh = &*dbms_handler;
+    auto *ic = &interpreter_context_;
+    dh->SetOnSuspend(
+        [](memgraph::dbms::DatabaseAccess db_acc) { memgraph::dbms::DbmsHandler::StopStreamsFor(db_acc); });
+    dh->SetRestoreStreams([dh, ic](memgraph::dbms::DatabaseAccess db_acc) { dh->RestoreStreamsFor(db_acc, ic); });
+    dh->SetOnResume([dh, ic, &repl_state](memgraph::dbms::DatabaseAccess db_acc) {
+      memgraph::dbms::DbmsHandler::RestoreTriggersFor(db_acc, ic);
+      dh->RestoreStreamsFor(db_acc, ic);
+      db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
+        const auto locked_repl_state = repl_state->ReadLock();
+        return locked_repl_state->IsMainWriteable();
+      });
+    });
+  }
 #endif
 
-  ServerContext context;
-  std::string service_name = "Bolt";
-  if (!FLAGS_bolt_key_file.empty() && !FLAGS_bolt_cert_file.empty()) {
-    context = ServerContext(FLAGS_bolt_key_file, FLAGS_bolt_cert_file);
-    service_name = "BoltS";
-    spdlog::info("Using secure Bolt connection (with SSL)");
-  } else {
-    spdlog::warn(
-        memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
-  }
-  auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
-      boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(FLAGS_bolt_port)};
 #ifdef MG_ENTERPRISE
-  Context session_context{&interpreter_context_, &auth_, &audit_log};
-#else
-  Context session_context{&interpreter_context_, &auth_};
+  // MAIN or REPLICA instance
+  // Needs to start after dbms_handler.RestoreTriggers has been run. Otherwise we have a deadlock:
+  // This thread takes unique lock on dbms handler and waits for storage write access
+  // Thread serving requests from DataInstanceManagementServer does the demote. Takes READ_ONLY access
+  // on all DBs and tries to acquire unique lock on replication_storage_state_ in order to clear replication
+  // storage clients.
+  if (is_valid_data_instance) {
+    spdlog::trace("Starting data instance management server.");
+    memgraph::dbms::DataInstanceManagementServerHandlers::Register(coordinator_state->GetDataInstanceManagementServer(),
+                                                                   *replication_handler);
+    MG_ASSERT(coordinator_state->GetDataInstanceManagementServer().Start(), "Failed to start coordinator server!");
+    spdlog::trace("Data instance management server started.");
+  }
 #endif
-  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, FLAGS_bolt_session_inactivity_timeout,
-                                 service_name, FLAGS_bolt_num_workers);
+
+  auto server_endpoint = memgraph::communication::v2::ServerEndpoint{boost::asio::ip::make_address(FLAGS_bolt_address),
+                                                                     static_cast<uint16_t>(extracted_bolt_port)};
+#ifdef MG_ENTERPRISE
+  memgraph::glue::Context session_context{.endpoint = server_endpoint,
+                                          .ic = &interpreter_context_,
+                                          .auth = auth_.get(),
+                                          .audit_log = &audit_log,
+                                          .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
+#else
+  memgraph::glue::Context session_context{.endpoint = server_endpoint,
+                                          .ic = &interpreter_context_,
+                                          .auth = auth_.get(),
+                                          .worker_pool_ = worker_pool_ ? &*worker_pool_ : nullptr};
+#endif
+
+  memgraph::glue::ServerT server(server_endpoint, &session_context, &bolt_server_context, service_name, io_n_threads);
 
   const auto machine_id = memgraph::utils::GetMachineId();
 
@@ -458,73 +1093,179 @@ int main(int argc, char **argv) {
   static constexpr auto telemetry_server{"https://telemetry.memgraph.com/88b5e7e8-746a-11e8-9f85-538a9e9690cc/"};
   std::optional<memgraph::telemetry::Telemetry> telemetry;
   if (FLAGS_telemetry_enabled) {
-    telemetry.emplace(telemetry_server, data_directory / "telemetry", memgraph::glue::run_id_, machine_id,
-                      service_name == "BoltS", FLAGS_data_directory, std::chrono::minutes(10));
-    telemetry->AddStorageCollector(dbms_handler, auth_);
+    try {
+      telemetry.emplace(telemetry_server,
+                        data_directory / "telemetry",
+                        memgraph::glue::run_id_,
+                        machine_id,
+                        service_name == "BoltS",
+                        FLAGS_data_directory,
+                        std::chrono::hours(8),
+                        1);
+    } catch (std::exception const &e) {
+      spdlog::error("Failed to initialize telemetry. Error: {}", e.what());
+      return EXIT_FAILURE;
+    }
+    if (!is_coordinator_instance) {
+      telemetry->AddStorageCollector(*dbms_handler, *auth_, *parameters);
 #ifdef MG_ENTERPRISE
-    telemetry->AddDatabaseCollector(dbms_handler);
+      telemetry->AddDatabaseCollector(*dbms_handler);
 #else
-    telemetry->AddDatabaseCollector();
+      telemetry->AddDatabaseCollector();
+#endif
+      telemetry->AddReplicationCollector(*repl_state);
+    }
+#ifdef MG_ENTERPRISE
+    telemetry->AddCoordinatorCollector(coordinator_state);
 #endif
     telemetry->AddClientCollector();
     telemetry->AddEventsCollector();
     telemetry->AddQueryModuleCollector();
     telemetry->AddExceptionCollector();
-    telemetry->AddReplicationCollector();
+    telemetry->Start();
   }
-  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, memgraph::glue::run_id_, machine_id,
+  memgraph::license::LicenseInfoSender license_info_sender(telemetry_server,
+                                                           memgraph::glue::run_id_,
+                                                           machine_id,
                                                            memory_limit,
                                                            memgraph::license::global_license_checker.GetLicenseInfo());
 
-  memgraph::communication::websocket::SafeAuth websocket_auth{&auth_};
+  memgraph::glue::SafeAuth websocket_auth{auth_.get()};
   memgraph::communication::websocket::Server websocket_server{
-      {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &context, websocket_auth};
-  memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
+      {FLAGS_monitoring_address, static_cast<uint16_t>(FLAGS_monitoring_port)}, &bolt_server_context, websocket_auth};
+
+  spdlog::trace("Websocket server created.");
+  if (!websocket_server.HasErrorHappened()) {
+    spdlog::trace("Initializing logger sync.");
+    memgraph::flags::AddLoggerSink(websocket_server.GetLoggingSink());
+    spdlog::trace("Logger sink added.");
+  } else {
+    spdlog::error("Skipping adding logger sync for websocket.");
+  }
 
 #ifdef MG_ENTERPRISE
-  // TODO: Make multi-tenant
-  memgraph::glue::MonitoringServerT metrics_server{
-      {FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)}, db_acc->storage(), &context};
+  auto const metrics_endpoint =
+      memgraph::io::network::Endpoint{FLAGS_metrics_address, static_cast<uint16_t>(FLAGS_metrics_port)};
+  using MetricsServerVariant = std::variant<memgraph::glue::PrometheusServerT, memgraph::glue::MonitoringServerT>;
+  MetricsServerVariant metrics_server =
+      FLAGS_metrics_format == "JSON" ? MetricsServerVariant{std::in_place_type<memgraph::glue::MonitoringServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context}
+                                     : MetricsServerVariant{std::in_place_type<memgraph::glue::PrometheusServerT>,
+                                                            metrics_endpoint,
+                                                            &memgraph::metrics::Metrics(),
+                                                            &bolt_server_context};
+  spdlog::trace("Metrics server created.");
 #endif
 
   // Handler for regular termination signals
   auto shutdown = [
 #ifdef MG_ENTERPRISE
+                      &coordinator_state,
                       &metrics_server,
 #endif
-                      &websocket_server, &server, &interpreter_context_] {
+                      is_coordinator_instance,
+                      &websocket_server,
+                      &server,
+                      &interpreter_context_,
+                      &dbms_handler,
+                      &repl_state,
+                      &worker_pool_,
+                      &license_info_sender,
+                      &telemetry] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
+    spdlog::trace("Shutting down handler!");
+
+    // STOP LICENSE SENDER IMMEDIATELY
+    // Prevents blocking on license HTTP requests during shutdown
+    license_info_sender.Stop();
+
+    // STOP TELEMETRY IMMEDIATELY
+    // Prevents blocking on telemetry HTTP requests during shutdown
+    if (telemetry) {
+      telemetry->Stop();
+    }
+
+    spdlog::info("Workers shutting down.");
+    if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
+    // Shutdown communication server
     server.Shutdown();
+
+// DataInstanceManagementServer needs to be closed before replication state because some RPCs require access to
+// replication state
+#ifdef MG_ENTERPRISE
+    if (coordinator_state && coordinator_state->IsDataInstance()) {
+      spdlog::trace("Closing data instance mgmt server");
+      coordinator_state->GetDataInstanceManagementServer().Shutdown();
+    }
+#endif
+
+    // Don't replicate on shutdown anymore
+    {
+      // Read lock is fine because we are only shutting down all the state which should be concurrently safe to do with
+      // other operations. This allows terminating current commit that is taking place
+      if (!is_coordinator_instance) {
+        auto locked_repl_state = repl_state->ReadLock();
+        spdlog::trace("Closing repl state");
+        locked_repl_state->Shutdown();
+      }
+    }
+
+    if (dbms_handler.has_value()) {
+      dbms_handler->ForEach([](memgraph::dbms::DatabaseAccess acc) {
+        spdlog::trace("Closing background tasks and deleting repl clients for db: {}", acc->name());
+        // Stop all triggers, streams and ttl
+        acc->StopAllBackgroundTasks();
+        acc->storage()->repl_storage_state_.replication_storage_clients_.WithLock(
+            [](auto &clients) { clients.clear(); });
+      });
+    }
+
     // After the server is notified to stop accepting and processing
     // connections we tell the execution engine to stop processing all pending
     // queries.
+    spdlog::trace("Shutting down interpreter context");
     interpreter_context_.Shutdown();
+    spdlog::trace("Shutting down websocket server");
     websocket_server.Shutdown();
 #ifdef MG_ENTERPRISE
-    metrics_server.Shutdown();
+    std::visit([](auto &s) { s.Shutdown(); }, metrics_server);
+    if (coordinator_state && coordinator_state->IsCoordinator()) {
+      // Coordinator instance destruction will handle the complete shutdown
+      coordinator_state.reset();
+    }
 #endif
   };
-
-  InitSignalHandlers(shutdown);
 
   // Release the temporary database access
   db_acc.reset();
 
   // Startup the main server
   MG_ASSERT(server.Start(), "Couldn't start the Bolt server!");
+  spdlog::trace("Bolt server started.");
   websocket_server.Start();
+  spdlog::trace("Web socket server started.");
 
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.Start();
-  }
+  std::visit(
+      [](auto &s) {
+        s.Start();
+        if (s.IsRunning()) {
+          spdlog::trace("Metrics server started");
+        } else {
+          spdlog::warn("Metrics server failed to start on port {}. The port may already be in use.",
+                       FLAGS_metrics_port);
+        }
+      },
+      metrics_server);
 #endif
 
-  if (!FLAGS_init_data_file.empty()) {
-    spdlog::info("Running init data file.");
-    auto db_acc = dbms_handler.Get();
-    MG_ASSERT(db_acc, "Failed to gain access to the main database");
+  if (!FLAGS_init_data_file.empty() && dbms_handler.has_value()) {
+    std::optional<memgraph::dbms::DatabaseAccess> db_acc;
+    db_acc.emplace(dbms_handler->Get());
+    MG_ASSERT(*db_acc, "Failed to gain access to the main database");
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file, &audit_log);
@@ -534,24 +1275,41 @@ int main(int argc, char **argv) {
 #else
     InitFromCypherlFile(interpreter_context_, db_acc, FLAGS_init_data_file);
 #endif
+    spdlog::info("Running queries from init data file successfully finished.");
   }
 
+  spdlog::info("Memgraph successfully started!");
+
+  // Block the main thread until SIGTERM/SIGINT, then run shutdown in normal
+  // thread context (not inside a signal handler) — this is async-signal-safe.
+  WaitForShutdownSignal(shutdown);
+
+  if (worker_pool_) worker_pool_->AwaitShutdown();
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    metrics_server.AwaitShutdown();
-  }
+  std::visit([](auto &s) { s.AwaitShutdown(); }, metrics_server);
 #endif
 
-  memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
-
-  python_gc_scheduler.Stop();
-  Py_END_ALLOW_THREADS;
-  // Shutdown Python
-  Py_Finalize();
-  PyMem_RawFree(program_name);
+  if (!is_coordinator_instance) {
+    try {
+      memgraph::query::procedure::gModuleRegistry.UnloadAllModules();
+    } catch (memgraph::query::QueryException &) {
+      spdlog::warn("Failed to unload query modules while shutting down.");
+    }
+#ifdef MG_PYTHON_SUPPORT
+    python_gc_scheduler->Stop();
+    // NOTE: We intentionally skip Py_Finalize(). Third-party extensions (DGL,
+    // PyTorch, numpy) may have spawned background threads that race with
+    // CPython's TSS teardown, causing "gilstate_tss_set: failed to set current
+    // tstate" fatal errors (bpo-42969). Since the process is about to exit, the
+    // OS reclaims all resources. This is standard practice for embedded Python.
+    MG_ASSERT(python_thread_state, "Invalid Python thread state");
+    PyEval_RestoreThread(python_thread_state);
+    (void)program_name;
+#endif
+  }
 
   memgraph::utils::total_memory_tracker.LogPeakMemoryUsage();
   return 0;

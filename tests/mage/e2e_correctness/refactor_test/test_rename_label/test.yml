@@ -1,0 +1,4 @@
+memgraph_query: >
+  MATCH(n) WHERE n.title = 'Name' WITH collect(n) AS nodes CALL refactor.rename_label("Node1", "Node3", nodes) YIELD nodes_changed RETURN nodes_changed;
+neo4j_query: >
+  MATCH(n) WHERE n.title = 'Name' WITH collect(n) AS nodes CALL apoc.refactor.rename.label("Node1", "Node3", nodes) YIELD batches return batches;

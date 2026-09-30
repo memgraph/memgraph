@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,20 +11,54 @@
 
 #include "glue/communication.hpp"
 
+#include <algorithm>
 #include <map>
 #include <string>
 #include <vector>
 
+#include "communication/bolt/v1/mg_types.hpp"
+#include "communication/bolt/v1/value.hpp"
+#include "flags/run_time_configurable.hpp"
+#include "query/auth_checker.hpp"
+#include "query/graph.hpp"
+#include "query/typed_value.hpp"
+#include "query/virtual_graph.hpp"
 #include "storage/v2/edge_accessor.hpp"
+#include "storage/v2/point.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/temporal.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/temporal.hpp"
 
+using memgraph::communication::bolt::kMgTypeEnum;
+using memgraph::communication::bolt::kMgTypeType;
+using memgraph::communication::bolt::kMgTypeValue;
+using memgraph::communication::bolt::MgType;
 using memgraph::communication::bolt::Value;
+using bolt_map_t = memgraph::communication::bolt::map_t;
+using namespace std::string_view_literals;
 
 namespace memgraph::glue {
 
-query::TypedValue ToTypedValue(const Value &value) {
+auto BoltMapToMgType(bolt_map_t const &value, storage::Storage const *storage)
+    -> std::optional<storage::ExternalPropertyValue> {
+  auto info = BoltMapToMgTypeInfo(value);
+  if (!info) return std::nullopt;
+
+  auto const &[type, _, mg_value] = *info;
+  switch (type) {
+    case MgType::Enum: {
+      if (!storage) return std::nullopt;
+      auto enum_val = storage->enum_store_.ToEnum(mg_value);
+      if (!enum_val) return std::nullopt;
+      return storage::ExternalPropertyValue(*enum_val);
+    }
+  }
+  return std::nullopt;
+}
+
+query::TypedValue ToTypedValue(const Value &value, storage::Storage const *storage) {
   switch (value.type()) {
     case Value::Type::Null:
       return {};
@@ -39,12 +73,16 @@ query::TypedValue ToTypedValue(const Value &value) {
     case Value::Type::List: {
       std::vector<query::TypedValue> list;
       list.reserve(value.ValueList().size());
-      for (const auto &v : value.ValueList()) list.push_back(ToTypedValue(v));
+      for (const auto &v : value.ValueList()) list.push_back(ToTypedValue(v, storage));
       return query::TypedValue(std::move(list));
     }
     case Value::Type::Map: {
+      auto const &valueMap = value.ValueMap();
+      auto mg_type = BoltMapToMgType(valueMap, storage);
+      if (mg_type) return query::TypedValue{*mg_type};
+
       std::map<std::string, query::TypedValue> map;
-      for (const auto &kv : value.ValueMap()) map.emplace(kv.first, ToTypedValue(kv.second));
+      for (const auto &kv : valueMap) map.emplace(kv.first, ToTypedValue(kv.second, storage));
       return query::TypedValue(std::move(map));
     }
     case Value::Type::Vertex:
@@ -60,92 +98,173 @@ query::TypedValue ToTypedValue(const Value &value) {
       return query::TypedValue(value.ValueLocalDateTime());
     case Value::Type::Duration:
       return query::TypedValue(value.ValueDuration());
+    case Value::Type::ZonedDateTime:
+      return query::TypedValue(value.ValueZonedDateTime());
+    case Value::Type::Point2d: {
+      return query::TypedValue{value.ValuePoint2d()};
+    }
+    case Value::Type::Point3d: {
+      return query::TypedValue{value.ValuePoint3d()};
+    }
   }
 }
 
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const query::VertexAccessor &vertex,
-                                                          const storage::Storage &db, storage::View view) {
-  return ToBoltVertex(vertex.impl_, db, view);
+                                                          const storage::Storage &db, storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker) {
+  return ToBoltVertex(vertex.impl_, db, view, auth_checker);
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const query::EdgeAccessor &edge, const storage::Storage &db,
-                                                      storage::View view) {
-  return ToBoltEdge(edge.impl_, db, view);
+                                                      storage::View view,
+                                                      query::FineGrainedAuthChecker const *auth_checker) {
+  return ToBoltEdge(edge.impl_, db, view, auth_checker);
 }
 
-storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view) {
+namespace {
+communication::bolt::Edge ToBoltEdge(const query::VirtualEdge &ve, const storage::Storage &db) {
+  auto id = communication::bolt::Id::FromUint(ve.Gid().AsUint());
+  auto from = communication::bolt::Id::FromUint(ve.FromGid().AsUint());
+  auto to = communication::bolt::Id::FromUint(ve.ToGid().AsUint());
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : ve.Properties()) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  auto element_id = std::to_string(id.AsInt());
+  auto from_element_id = std::to_string(from.AsInt());
+  auto to_element_id = std::to_string(to.AsInt());
+  return communication::bolt::Edge{.id = id,
+                                   .from = from,
+                                   .to = to,
+                                   .type = std::string{ve.EdgeTypeName()},
+                                   .properties = std::move(properties),
+                                   .element_id = std::move(element_id),
+                                   .from_element_id = std::move(from_element_id),
+                                   .to_element_id = std::move(to_element_id)};
+}
+
+communication::bolt::Vertex ToBoltVertex(const query::VirtualNode &node, const storage::Storage &db) {
+  auto id = communication::bolt::Id::FromUint(node.Gid().AsUint());
+  std::vector<std::string> labels;
+  labels.reserve(node.Labels().size());
+  for (const auto &label : node.Labels()) labels.emplace_back(label);
+  bolt_map_t properties;
+  for (const auto &[prop_id, prop_value] : node.Properties()) {
+    properties[db.PropertyToName(prop_id)] = ToBoltValue(prop_value, db);
+  }
+  auto element_id = std::to_string(id.AsInt());
+  return communication::bolt::Vertex{
+      .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
+}
+}  // namespace
+
+storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage::Storage *db, storage::View view,
+                                   query::FineGrainedAuthChecker const *auth_checker) {
   auto check_db = [db]() {
     if (db == nullptr) [[unlikely]]
-      throw communication::bolt::ValueException("Database needed for TypeValue conversion.");
+      throw communication::bolt::ValueException("Database needed for TypedValue conversion.");
   };
 
   switch (value.type()) {
     // No database needed
     case query::TypedValue::Type::Null:
-      return Value();
+      return storage::Result<Value>{std::in_place};
     case query::TypedValue::Type::Bool:
-      return Value(value.ValueBool());
+      return storage::Result<Value>{std::in_place, value.ValueBool()};
     case query::TypedValue::Type::Int:
-      return Value(value.ValueInt());
+      return storage::Result<Value>{std::in_place, value.ValueInt()};
     case query::TypedValue::Type::Double:
-      return Value(value.ValueDouble());
+      return storage::Result<Value>{std::in_place, value.ValueDouble()};
     case query::TypedValue::Type::String:
-      return Value(std::string(value.ValueString()));
+      return storage::Result<Value>{std::in_place, std::string_view(value.ValueString())};
     case query::TypedValue::Type::Date:
-      return Value(value.ValueDate());
+      return storage::Result<Value>{std::in_place, value.ValueDate()};
     case query::TypedValue::Type::LocalTime:
-      return Value(value.ValueLocalTime());
+      return storage::Result<Value>{std::in_place, value.ValueLocalTime()};
     case query::TypedValue::Type::LocalDateTime:
-      return Value(value.ValueLocalDateTime());
+      return storage::Result<Value>{std::in_place, value.ValueLocalDateTime()};
     case query::TypedValue::Type::Duration:
-      return Value(value.ValueDuration());
+      return storage::Result<Value>{std::in_place, value.ValueDuration()};
+    case query::TypedValue::Type::ZonedDateTime:
+      return storage::Result<Value>{std::in_place, value.ValueZonedDateTime()};
 
     // Database potentially not required
     case query::TypedValue::Type::Map: {
-      std::map<std::string, Value> map;
+      bolt_map_t map;
       for (const auto &kv : value.ValueMap()) {
-        auto maybe_value = ToBoltValue(kv.second, db, view);
-        if (maybe_value.HasError()) return maybe_value.GetError();
+        auto maybe_value = ToBoltValue(kv.second, db, view, auth_checker);
+        if (!maybe_value) return std::unexpected{maybe_value.error()};
         map.emplace(kv.first, std::move(*maybe_value));
       }
-      return Value(std::move(map));
+      return storage::Result<Value>{std::in_place, std::move(map)};
     }
 
     // Database is required
     case query::TypedValue::Type::List: {
-      check_db();
       std::vector<Value> values;
       values.reserve(value.ValueList().size());
       for (const auto &v : value.ValueList()) {
-        auto maybe_value = ToBoltValue(v, db, view);
-        if (maybe_value.HasError()) return maybe_value.GetError();
+        auto maybe_value = ToBoltValue(v, db, view, auth_checker);
+        if (!maybe_value) return std::unexpected{maybe_value.error()};
         values.emplace_back(std::move(*maybe_value));
       }
-      return Value(std::move(values));
+      return storage::Result<Value>{std::in_place, std::move(values)};
     }
     case query::TypedValue::Type::Vertex: {
       check_db();
-      auto maybe_vertex = ToBoltVertex(value.ValueVertex(), *db, view);
-      if (maybe_vertex.HasError()) return maybe_vertex.GetError();
-      return Value(std::move(*maybe_vertex));
+      auto maybe_vertex = ToBoltVertex(value.ValueVertex(), *db, view, auth_checker);
+      if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
+      return storage::Result<Value>{std::in_place, std::move(*maybe_vertex)};
     }
     case query::TypedValue::Type::Edge: {
       check_db();
-      auto maybe_edge = ToBoltEdge(value.ValueEdge(), *db, view);
-      if (maybe_edge.HasError()) return maybe_edge.GetError();
-      return Value(std::move(*maybe_edge));
+      auto maybe_edge = ToBoltEdge(value.ValueEdge(), *db, view, auth_checker);
+      if (!maybe_edge) return std::unexpected{maybe_edge.error()};
+      return storage::Result<Value>{std::in_place, std::move(*maybe_edge)};
     }
     case query::TypedValue::Type::Path: {
       check_db();
-      auto maybe_path = ToBoltPath(value.ValuePath(), *db, view);
-      if (maybe_path.HasError()) return maybe_path.GetError();
-      return Value(std::move(*maybe_path));
+      auto maybe_path = ToBoltPath(value.ValuePath(), *db, view, auth_checker);
+      if (!maybe_path) return std::unexpected{maybe_path.error()};
+      return storage::Result<Value>{std::in_place, std::move(*maybe_path)};
     }
     case query::TypedValue::Type::Graph: {
       check_db();
-      auto maybe_graph = ToBoltGraph(value.ValueGraph(), *db, view);
-      if (maybe_graph.HasError()) return maybe_graph.GetError();
-      return Value(std::move(*maybe_graph));
+      auto maybe_graph = ToBoltGraph(value.ValueGraph(), *db, view, auth_checker);
+      if (!maybe_graph) return std::unexpected{maybe_graph.error()};
+      return storage::Result<Value>{std::in_place, std::move(*maybe_graph)};
+    }
+    case query::TypedValue::Type::VirtualGraph: {
+      check_db();
+      auto maybe_vg = ToBoltVirtualGraph(value.ValueVirtualGraph(), *db);
+      return storage::Result<Value>{std::in_place, std::move(maybe_vg)};
+    }
+    case query::TypedValue::Type::Enum: {
+      check_db();
+      auto maybe_enum_value_str = db->enum_store_.ToString(value.ValueEnum());
+      if (!maybe_enum_value_str) [[unlikely]] {
+        throw communication::bolt::ValueException("Enum not registered in the database");
+      }
+      auto map = bolt_map_t{};
+      map.emplace(kMgTypeType, memgraph::communication::bolt::kMgTypeEnum);
+      map.emplace(kMgTypeValue, *std::move(maybe_enum_value_str));
+      return storage::Result<Value>{std::in_place, std::move(map)};
+    }
+    case query::TypedValue::Type::Point2d: {
+      return storage::Result<Value>{std::in_place, value.ValuePoint2d()};
+    }
+    case query::TypedValue::Type::Point3d: {
+      return storage::Result<Value>{std::in_place, value.ValuePoint3d()};
+    }
+
+    case query::TypedValue::Type::VirtualEdge: {
+      check_db();
+      return storage::Result<Value>{std::in_place, ToBoltEdge(value.ValueVirtualEdge(), *db)};
+    }
+
+    case query::TypedValue::Type::VirtualNode: {
+      check_db();
+      return storage::Result<Value>{std::in_place, ToBoltVertex(value.ValueVirtualNode(), *db)};
     }
 
     // Unsupported conversions
@@ -156,37 +275,60 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
 }
 
 storage::Result<communication::bolt::Vertex> ToBoltVertex(const storage::VertexAccessor &vertex,
-                                                          const storage::Storage &db, storage::View view) {
+                                                          const storage::Storage &db, storage::View view,
+                                                          query::FineGrainedAuthChecker const *auth_checker) {
   auto id = communication::bolt::Id::FromUint(vertex.Gid().AsUint());
   auto maybe_labels = vertex.Labels(view);
-  if (maybe_labels.HasError()) return maybe_labels.GetError();
+  if (!maybe_labels) return std::unexpected{maybe_labels.error()};
   std::vector<std::string> labels;
   labels.reserve(maybe_labels->size());
   for (const auto &label : *maybe_labels) {
     labels.push_back(db.LabelToName(label));
   }
   auto maybe_properties = vertex.Properties(view);
-  if (maybe_properties.HasError()) return maybe_properties.GetError();
-  std::map<std::string, Value> properties;
+  if (!maybe_properties) return std::unexpected{maybe_properties.error()};
+  const auto hidden_properties = flags::run_time::GetOmitVectorIndexPropertiesOnReturn()
+                                     ? vertex.VectorIndexedProperties(*maybe_labels)
+                                     : std::vector<storage::PropertyId>{};
+  bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
-    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second);
+    if (auth_checker && !auth_checker->HasPropertyPermission(
+                            *maybe_labels, prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
+      continue;
+    }
+    if (std::ranges::contains(hidden_properties, prop.first)) {
+      continue;
+    }
+    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
   auto element_id = std::to_string(id.AsInt());
-  return communication::bolt::Vertex{id, std::move(labels), std::move(properties), std::move(element_id)};
+  return communication::bolt::Vertex{
+      .id = id, .labels = std::move(labels), .properties = std::move(properties), .element_id = std::move(element_id)};
 }
 
 storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccessor &edge, const storage::Storage &db,
-                                                      storage::View view) {
+                                                      storage::View view,
+                                                      query::FineGrainedAuthChecker const *auth_checker) {
   auto id = communication::bolt::Id::FromUint(edge.Gid().AsUint());
   auto from = communication::bolt::Id::FromUint(edge.FromVertex().Gid().AsUint());
   auto to = communication::bolt::Id::FromUint(edge.ToVertex().Gid().AsUint());
   auto type = db.EdgeTypeToName(edge.EdgeType());
   auto maybe_properties = edge.Properties(view);
-  if (maybe_properties.HasError()) return maybe_properties.GetError();
-  std::map<std::string, Value> properties;
+  if (!maybe_properties) return std::unexpected{maybe_properties.error()};
+  const auto hidden_properties = flags::run_time::GetOmitVectorIndexPropertiesOnReturn()
+                                     ? edge.VectorIndexedProperties()
+                                     : std::vector<storage::PropertyId>{};
+  bolt_map_t properties;
   for (const auto &prop : *maybe_properties) {
-    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second);
+    if (auth_checker && !auth_checker->HasPropertyPermission(
+                            edge.EdgeType(), prop.first, query::AuthQuery::PropertyPermissionType::READ)) {
+      continue;
+    }
+    if (std::ranges::contains(hidden_properties, prop.first)) {
+      continue;
+    }
+    properties[db.PropertyToName(prop.first)] = ToBoltValue(prop.second, db);
   }
   // Introduced in Bolt v5 (for now just send the ID)
   const auto element_id = std::to_string(id.AsInt());
@@ -197,32 +339,33 @@ storage::Result<communication::bolt::Edge> ToBoltEdge(const storage::EdgeAccesso
 }
 
 storage::Result<communication::bolt::Path> ToBoltPath(const query::Path &path, const storage::Storage &db,
-                                                      storage::View view) {
+                                                      storage::View view,
+                                                      query::FineGrainedAuthChecker const *auth_checker) {
   std::vector<communication::bolt::Vertex> vertices;
   vertices.reserve(path.vertices().size());
   for (const auto &v : path.vertices()) {
-    auto maybe_vertex = ToBoltVertex(v, db, view);
-    if (maybe_vertex.HasError()) return maybe_vertex.GetError();
+    auto maybe_vertex = ToBoltVertex(v, db, view, auth_checker);
+    if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
     vertices.emplace_back(std::move(*maybe_vertex));
   }
   std::vector<communication::bolt::Edge> edges;
   edges.reserve(path.edges().size());
   for (const auto &e : path.edges()) {
-    auto maybe_edge = ToBoltEdge(e, db, view);
-    if (maybe_edge.HasError()) return maybe_edge.GetError();
+    auto maybe_edge = ToBoltEdge(e, db, view, auth_checker);
+    if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     edges.emplace_back(std::move(*maybe_edge));
   }
   return communication::bolt::Path(vertices, edges);
 }
 
-storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &graph, const storage::Storage &db,
-                                                          storage::View view) {
-  std::map<std::string, Value> map;
+storage::Result<bolt_map_t> ToBoltGraph(const query::Graph &graph, const storage::Storage &db, storage::View view,
+                                        query::FineGrainedAuthChecker const *auth_checker) {
+  bolt_map_t map;
   std::vector<Value> vertices;
   vertices.reserve(graph.vertices().size());
   for (const auto &v : graph.vertices()) {
-    auto maybe_vertex = ToBoltVertex(v, db, view);
-    if (maybe_vertex.HasError()) return maybe_vertex.GetError();
+    auto maybe_vertex = ToBoltVertex(v, db, view, auth_checker);
+    if (!maybe_vertex) return std::unexpected{maybe_vertex.error()};
     vertices.emplace_back(std::move(*maybe_vertex));
   }
   map.emplace("nodes", Value(vertices));
@@ -230,8 +373,8 @@ storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &gr
   std::vector<Value> edges;
   edges.reserve(graph.edges().size());
   for (const auto &e : graph.edges()) {
-    auto maybe_edge = ToBoltEdge(e, db, view);
-    if (maybe_edge.HasError()) return maybe_edge.GetError();
+    auto maybe_edge = ToBoltEdge(e, db, view, auth_checker);
+    if (!maybe_edge) return std::unexpected{maybe_edge.error()};
     edges.emplace_back(std::move(*maybe_edge));
   }
   map.emplace("edges", Value(edges));
@@ -239,50 +382,89 @@ storage::Result<std::map<std::string, Value>> ToBoltGraph(const query::Graph &gr
   return std::move(map);
 }
 
-storage::PropertyValue ToPropertyValue(const Value &value) {
+bolt_map_t ToBoltVirtualGraph(const query::VirtualGraph &vg, const storage::Storage &db) {
+  bolt_map_t map;
+  std::vector<Value> nodes;
+  nodes.reserve(vg.nodes().size());
+  for (const auto &[gid, vn] : vg.nodes()) {
+    nodes.emplace_back(ToBoltVertex(*vn, db));
+  }
+  map.emplace("nodes", Value(std::move(nodes)));
+
+  std::vector<Value> edges;
+  edges.reserve(vg.edges().size());
+  for (const auto &ve : vg.edges()) {
+    edges.emplace_back(ToBoltEdge(ve, db));
+  }
+  map.emplace("edges", Value(std::move(edges)));
+
+  return map;
+}
+
+storage::ExternalPropertyValue ToExternalPropertyValue(communication::bolt::Value const &value,
+                                                       storage::Storage const *storage) {
   switch (value.type()) {
     case Value::Type::Null:
-      return storage::PropertyValue();
+      return storage::ExternalPropertyValue();
     case Value::Type::Bool:
-      return storage::PropertyValue(value.ValueBool());
+      return storage::ExternalPropertyValue(value.ValueBool());
     case Value::Type::Int:
-      return storage::PropertyValue(value.ValueInt());
+      return storage::ExternalPropertyValue(value.ValueInt());
     case Value::Type::Double:
-      return storage::PropertyValue(value.ValueDouble());
+      return storage::ExternalPropertyValue(value.ValueDouble());
     case Value::Type::String:
-      return storage::PropertyValue(value.ValueString());
+      return storage::ExternalPropertyValue(value.ValueString());
     case Value::Type::List: {
-      std::vector<storage::PropertyValue> vec;
+      std::vector<storage::ExternalPropertyValue> vec;
       vec.reserve(value.ValueList().size());
-      for (const auto &value : value.ValueList()) vec.emplace_back(ToPropertyValue(value));
-      return storage::PropertyValue(std::move(vec));
+      for (const auto &value : value.ValueList()) vec.emplace_back(ToExternalPropertyValue(value, storage));
+      return storage::ExternalPropertyValue(std::move(vec));
     }
     case Value::Type::Map: {
-      std::map<std::string, storage::PropertyValue> map;
-      for (const auto &kv : value.ValueMap()) map.emplace(kv.first, ToPropertyValue(kv.second));
-      return storage::PropertyValue(std::move(map));
+      auto const &valueMap = value.ValueMap();
+      auto mg_type = BoltMapToMgType(valueMap, storage);
+      if (mg_type) return *mg_type;
+
+      auto map = storage::ExternalPropertyValue::map_t{};
+      do_reserve(map, valueMap.size());
+      for (const auto &[k, v] : valueMap) {
+        map.try_emplace(k, ToExternalPropertyValue(v, storage));
+      }
+      return storage::ExternalPropertyValue(std::move(map));
     }
     case Value::Type::Vertex:
     case Value::Type::Edge:
     case Value::Type::UnboundedEdge:
     case Value::Type::Path:
-      throw communication::bolt::ValueException("Unsupported conversion from Value to PropertyValue");
+      throw communication::bolt::ValueException("Unsupported conversion from Value to ExternalPropertyValue");
     case Value::Type::Date:
-      return storage::PropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData(storage::TemporalType::Date, value.ValueDate().MicrosecondsSinceEpoch()));
     case Value::Type::LocalTime:
-      return storage::PropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData(storage::TemporalType::LocalTime, value.ValueLocalTime().MicrosecondsSinceEpoch()));
     case Value::Type::LocalDateTime:
-      return storage::PropertyValue(storage::TemporalData(storage::TemporalType::LocalDateTime,
-                                                          value.ValueLocalDateTime().MicrosecondsSinceEpoch()));
+      // Bolt uses time since epoch without timezone (as if in UTC)
+      return storage::ExternalPropertyValue(storage::TemporalData(
+          storage::TemporalType::LocalDateTime, value.ValueLocalDateTime().SysMicrosecondsSinceEpoch()));
     case Value::Type::Duration:
-      return storage::PropertyValue(
+      return storage::ExternalPropertyValue(
           storage::TemporalData(storage::TemporalType::Duration, value.ValueDuration().microseconds));
+    case Value::Type::ZonedDateTime: {
+      const auto &temp_value = value.ValueZonedDateTime();
+      return storage::ExternalPropertyValue(storage::ZonedTemporalData(
+          storage::ZonedTemporalType::ZonedDateTime, temp_value.SysTimeSinceEpoch(), temp_value.GetTimezone()));
+    }
+    case Value::Type::Point2d: {
+      return storage::ExternalPropertyValue(value.ValuePoint2d());
+    }
+    case Value::Type::Point3d: {
+      return storage::ExternalPropertyValue(value.ValuePoint3d());
+    }
   }
 }
 
-Value ToBoltValue(const storage::PropertyValue &value) {
+Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &storage) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       return Value();
@@ -300,23 +482,54 @@ Value ToBoltValue(const storage::PropertyValue &value) {
       std::vector<Value> vec;
       vec.reserve(values.size());
       for (const auto &v : values) {
-        vec.push_back(ToBoltValue(v));
+        vec.push_back(ToBoltValue(v, storage));
       }
-      return Value(std::move(vec));
+      return vec;
+    }
+    case storage::PropertyValue::Type::NumericList: {
+      const auto &values = value.ValueNumericList();
+      std::vector<Value> vec;
+      vec.reserve(values.size());
+      for (const auto &v : values) {
+        if (std::holds_alternative<int>(v)) {
+          vec.emplace_back(std::get<int>(v));
+        } else {
+          vec.emplace_back(std::get<double>(v));
+        }
+      }
+      return vec;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      const auto &values = value.ValueIntList();
+      std::vector<Value> vec;
+      vec.reserve(values.size());
+      for (const auto &v : values) {
+        vec.emplace_back(v);
+      }
+      return vec;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      const auto &values = value.ValueDoubleList();
+      std::vector<Value> vec;
+      vec.reserve(values.size());
+      for (const auto &v : values) {
+        vec.emplace_back(v);
+      }
+      return vec;
     }
     case storage::PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
-      std::map<std::string, Value> dv_map;
+      bolt_map_t dv_map;
       for (const auto &kv : map) {
-        dv_map.emplace(kv.first, ToBoltValue(kv.second));
+        dv_map.emplace(storage.PropertyToName(kv.first), ToBoltValue(kv.second, storage));
       }
       return Value(std::move(dv_map));
     }
-    case storage::PropertyValue::Type::TemporalData:
+    case storage::PropertyValue::Type::TemporalData: {
       const auto &type = value.ValueTemporalData();
       switch (type.type) {
         case storage::TemporalType::Date:
-          return Value(utils::Date(type.microseconds));
+          return {utils::Date{std::chrono::microseconds{type.microseconds}}};
         case storage::TemporalType::LocalTime:
           return Value(utils::LocalTime(type.microseconds));
         case storage::TemporalType::LocalDateTime:
@@ -324,6 +537,35 @@ Value ToBoltValue(const storage::PropertyValue &value) {
         case storage::TemporalType::Duration:
           return Value(utils::Duration(type.microseconds));
       }
+    }
+    case storage::PropertyValue::Type::ZonedTemporalData: {
+      const auto &type = value.ValueZonedTemporalData();
+      switch (type.type) {
+        case storage::ZonedTemporalType::ZonedDateTime:
+          return {utils::ZonedDateTime(type.microseconds, type.timezone)};
+      }
+    }
+    case storage::PropertyValue::Type::Enum: {
+      auto maybe_enum_value_str = storage.enum_store_.ToString(value.ValueEnum());
+      if (!maybe_enum_value_str) [[unlikely]] {
+        throw communication::bolt::ValueException("Enum not registered in the database");
+      }
+      // Bolt does not know about enums, encode as map type instead
+      auto map = bolt_map_t{};
+      map.emplace(kMgTypeType, kMgTypeEnum);
+      map.emplace(kMgTypeValue, *std::move(maybe_enum_value_str));
+      return {std::move(map)};
+    }
+    case storage::PropertyValue::Type::Point2d: {
+      return {value.ValuePoint2d()};
+    }
+    case storage::PropertyValue::Type::Point3d: {
+      return {value.ValuePoint3d()};
+    }
+    case storage::PropertyValue::Type::VectorIndexId: {
+      const auto &vector = value.ValueVectorIndexList();
+      return vector | std::ranges::views::transform([](auto v) { return Value(v); }) | std::ranges::to<std::vector>();
+    }
   }
 }
 

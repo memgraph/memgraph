@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,14 +16,21 @@
 #include <string>
 #include <vector>
 
-#include "utils/cast.hpp"
+#include "storage/v2/point.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/temporal.hpp"
 
 namespace memgraph::communication::bolt {
 
+/**
+ * Different authentication failures that can occur.
+ */
+enum class AuthFailure { kGeneric, kResourceBound };
+
 /** Forward declaration of Value class. */
 class Value;
+
+using map_t = std::map<std::string, Value, std::less<>>;
 
 /** Wraps int64_t to prevent dangerous implicit conversions. */
 class Id {
@@ -31,13 +38,14 @@ class Id {
   Id() = default;
 
   /** Construct Id from uint64_t */
-  static Id FromUint(uint64_t id) { return Id(utils::MemcpyCast<int64_t>(id)); }
+  static Id FromUint(uint64_t id) { return Id(std::bit_cast<int64_t>(id)); }
 
   /** Construct Id from int64_t */
   static Id FromInt(int64_t id) { return Id(id); }
 
   int64_t AsInt() const { return id_; }
-  uint64_t AsUint() const { return utils::MemcpyCast<uint64_t>(id_); }
+
+  uint64_t AsUint() const { return std::bit_cast<uint64_t>(id_); }
 
  private:
   explicit Id(int64_t id) : id_(id) {}
@@ -56,7 +64,7 @@ inline bool operator!=(const Id &id1, const Id &id2) { return !(id1 == id2); }
 struct Vertex {
   Id id;
   std::vector<std::string> labels;
-  std::map<std::string, Value> properties;
+  map_t properties;
   std::string element_id;
 };
 
@@ -69,7 +77,7 @@ struct Edge {
   Id from;
   Id to;
   std::string type;
-  std::map<std::string, Value> properties;
+  map_t properties;
   std::string element_id;
   std::string from_element_id;
   std::string to_element_id;
@@ -82,7 +90,7 @@ struct Edge {
 struct UnboundedEdge {
   Id id;
   std::string type;
-  std::map<std::string, Value> properties;
+  map_t properties;
   std::string element_id;
 };
 
@@ -100,8 +108,7 @@ struct Path {
     // added to switch between positive and negative indices (that define edge
     // direction).
     auto add_element = [this](auto &collection, const auto &element, int multiplier, int offset) {
-      auto found =
-          std::find_if(collection.begin(), collection.end(), [&](const auto &e) { return e.id == element.id; });
+      auto found = std::ranges::find_if(collection, [&](const auto &e) { return e.id == element.id; });
       indices.emplace_back(multiplier * (std::distance(collection.begin(), found) + offset));
       if (found == collection.end()) collection.push_back(element);
     };
@@ -130,6 +137,12 @@ struct Path {
   std::vector<int64_t> indices;
 };
 
+using storage::CrsToSrid;
+
+struct Point2d : storage::Point2d {};
+
+struct Point3d : storage::Point3d {};
+
 /** Value represents supported values in the Bolt protocol. */
 class Value {
  public:
@@ -152,43 +165,73 @@ class Value {
     Date,
     LocalTime,
     LocalDateTime,
-    Duration
+    ZonedDateTime,
+    Duration,
+    Point2d,
+    Point3d
   };
 
   // constructors for primitive types
   Value(bool value) : type_(Type::Bool) { bool_v = value; }
+
   Value(int value) : type_(Type::Int) { int_v = value; }
+
   Value(int64_t value) : type_(Type::Int) { int_v = value; }
+
   Value(double value) : type_(Type::Double) { double_v = value; }
 
   // constructors for non-primitive types
   Value(const std::string &value) : type_(Type::String) { new (&string_v) std::string(value); }
+
   Value(const char *value) : Value(std::string(value)) {}
+
+  Value(std::string_view value) : Value(std::string(value)) {}
+
   Value(const std::vector<Value> &value) : type_(Type::List) { new (&list_v) std::vector<Value>(value); }
-  Value(const std::map<std::string, Value> &value) : type_(Type::Map) {
-    new (&map_v) std::map<std::string, Value>(value);
-  }
+
+  Value(const map_t &value) : type_(Type::Map) { new (&map_v) map_t(value); }
+
   Value(const Vertex &value) : type_(Type::Vertex) { new (&vertex_v) Vertex(value); }
+
   Value(const Edge &value) : type_(Type::Edge) { new (&edge_v) Edge(value); }
+
   Value(const UnboundedEdge &value) : type_(Type::UnboundedEdge) { new (&unbounded_edge_v) UnboundedEdge(value); }
+
   Value(const Path &value) : type_(Type::Path) { new (&path_v) Path(value); }
+
   Value(const utils::Date &date) : type_(Type::Date) { new (&date_v) utils::Date(date); }
+
   Value(const utils::LocalTime &time) : type_(Type::LocalTime) { new (&local_time_v) utils::LocalTime(time); }
+
   Value(const utils::LocalDateTime &date_time) : type_(Type::LocalDateTime) {
     new (&local_date_time_v) utils::LocalDateTime(date_time);
   }
+
   Value(const utils::Duration &dur) : type_(Type::Duration) { new (&duration_v) utils::Duration(dur); }
+
+  Value(const utils::ZonedDateTime &zoned_date_time) : type_(Type::ZonedDateTime) {
+    new (&zoned_date_time_v) utils::ZonedDateTime(zoned_date_time);
+  }
+
+  Value(const storage::Point2d &point_2d) : type_(Type::Point2d) { new (&point_2d_v) storage::Point2d(point_2d); }
+
+  Value(const storage::Point3d &point_3d) : type_(Type::Point3d) { new (&point_3d_v) storage::Point3d(point_3d); }
+
   // move constructors for non-primitive values
   Value(std::string &&value) noexcept : type_(Type::String) { new (&string_v) std::string(std::move(value)); }
+
   Value(std::vector<Value> &&value) noexcept : type_(Type::List) { new (&list_v) std::vector<Value>(std::move(value)); }
-  Value(std::map<std::string, Value> &&value) noexcept : type_(Type::Map) {
-    new (&map_v) std::map<std::string, Value>(std::move(value));
-  }
+
+  Value(map_t &&value) noexcept : type_(Type::Map) { new (&map_v) map_t(std::move(value)); }
+
   Value(Vertex &&value) noexcept : type_(Type::Vertex) { new (&vertex_v) Vertex(std::move(value)); }
+
   Value(Edge &&value) noexcept : type_(Type::Edge) { new (&edge_v) Edge(std::move(value)); }
+
   Value(UnboundedEdge &&value) noexcept : type_(Type::UnboundedEdge) {
     new (&unbounded_edge_v) UnboundedEdge(std::move(value));
   }
+
   Value(Path &&value) noexcept : type_(Type::Path) { new (&path_v) Path(std::move(value)); }
 
   Value &operator=(const Value &other);
@@ -215,7 +258,6 @@ class Value {
 
   DECL_GETTER_BY_REFERENCE(String, std::string)
   DECL_GETTER_BY_REFERENCE(List, std::vector<Value>)
-  using map_t = std::map<std::string, Value>;
   DECL_GETTER_BY_REFERENCE(Map, map_t)
   DECL_GETTER_BY_REFERENCE(Vertex, Vertex)
   DECL_GETTER_BY_REFERENCE(Edge, Edge)
@@ -225,6 +267,9 @@ class Value {
   DECL_GETTER_BY_REFERENCE(LocalTime, utils::LocalTime)
   DECL_GETTER_BY_REFERENCE(LocalDateTime, utils::LocalDateTime)
   DECL_GETTER_BY_REFERENCE(Duration, utils::Duration)
+  DECL_GETTER_BY_REFERENCE(ZonedDateTime, utils::ZonedDateTime)
+  DECL_GETTER_BY_REFERENCE(Point2d, Point2d);
+  DECL_GETTER_BY_REFERENCE(Point3d, Point3d);
 #undef DECL_GETTER_BY_REFERNCE
 
 #define TYPE_CHECKER(type) \
@@ -244,6 +289,9 @@ class Value {
   TYPE_CHECKER(LocalTime)
   TYPE_CHECKER(LocalDateTime)
   TYPE_CHECKER(Duration)
+  TYPE_CHECKER(ZonedDateTime)
+  TYPE_CHECKER(Point2d);
+  TYPE_CHECKER(Point3d);
 #undef TYPE_CHECKER
 
   friend std::ostream &operator<<(std::ostream &os, const Value &value);
@@ -258,7 +306,7 @@ class Value {
     double double_v;
     std::string string_v;
     std::vector<Value> list_v;
-    std::map<std::string, Value> map_v;
+    map_t map_v;
     Vertex vertex_v;
     Edge edge_v;
     UnboundedEdge unbounded_edge_v;
@@ -267,14 +315,19 @@ class Value {
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
     utils::Duration duration_v;
+    utils::ZonedDateTime zoned_date_time_v;
+    Point2d point_2d_v;
+    Point3d point_3d_v;
   };
 };
+
 /**
  * An exception raised by the Value system.
  */
 class ValueException : public utils::BasicException {
  public:
   using utils::BasicException::BasicException;
+
   ValueException() : BasicException("Incompatible template param and type!") {}
   SPECIALIZE_GET_EXCEPTION_NAME(ValueException)
 };
@@ -286,6 +339,8 @@ std::ostream &operator<<(std::ostream &os, const Vertex &vertex);
 std::ostream &operator<<(std::ostream &os, const Edge &edge);
 std::ostream &operator<<(std::ostream &os, const UnboundedEdge &edge);
 std::ostream &operator<<(std::ostream &os, const Path &path);
+std::ostream &operator<<(std::ostream &os, const Point2d &point_2d);
+std::ostream &operator<<(std::ostream &os, const Point3d &point_3d);
 std::ostream &operator<<(std::ostream &os, const Value &value);
 std::ostream &operator<<(std::ostream &os, const Value::Type type);
 }  // namespace memgraph::communication::bolt
