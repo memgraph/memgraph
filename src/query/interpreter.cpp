@@ -11683,7 +11683,9 @@ void Interpreter::Commit() {
     // Flush it here, under a system transaction created only now, so the system mutex covers the flush rather than
     // the whole time the user held the transaction open.
     if (auth_transaction_) {
-      // Covers every exit of this block, a throw included.
+      // Covers every exit of this block, a throw included. The status claim is all it gives back: the system
+      // transaction releases the system mutex through its own destructor, so an unwind that skips `clean_status`
+      // still frees it when the interpreter is reset or the session ends.
       //
       // On the way out normally, the claim is given back here only when nothing is left to replicate. With a
       // system transaction the commit is not over at this brace -- replication runs below -- and letting go here
