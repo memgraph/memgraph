@@ -11967,6 +11967,13 @@ class OrderByParallelCursor : public ParallelBranchCursor {
     return true;
   }
 
+  // Under an Apply the branch runs again for each row: resetting the branches clears the caches this heap points into.
+  void Reset() override {
+    ParallelBranchCursor::Reset();
+    initialized_ = false;
+    branch_iters_.clear();
+  }
+
  private:
   bool initialized_ = false;
   // Heap of (cache_it, order_by_it, cache_end, order_by_end, branch_index)
