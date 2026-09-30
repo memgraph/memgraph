@@ -61,12 +61,12 @@
       (mgquery/update-balance tx {:id from :amount (- amount)})
       (mgquery/update-balance tx {:id to :amount amount}))))
 
-(defrecord Client [nodes-config]
+(defrecord Client [nodes-config replicas-ready]
   client/Client
   ; Open connection to the node. Setup each node.
   (open! [this _test node]
     (info "Opening connection to node" node)
-    (repl-utils/replication-open-connection this node nodes-config))
+    (repl-utils/replication-open-connection this node nodes-config replicas-ready))
   ; On main detach-delete-all and create accounts.
   (setup! [this _test]
     (when (= (:replication-role this) :main)
@@ -112,6 +112,7 @@
 
       :register (if (= (:replication-role this) :main)
                   (do
+                    (repl-utils/wait-for-replicas nodes-config replicas-ready)
                     (doseq [n (filter #(= (:replication-role (val %))
                                           :replica)
                                       nodes-config)]
@@ -285,7 +286,7 @@
 (defn workload
   "Workload for running bank test."
   [opts]
-  {:client    (Client. (:nodes-config opts))
+  {:client    (Client. (:nodes-config opts) (atom #{}))
    :checker   (checker/compose
                {:bank     (bank-checker)
                 :timeline (timeline/html)
