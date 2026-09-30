@@ -4987,10 +4987,12 @@ std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
 
 namespace {
 
-/// `(n :A:B)`, `(n :A|B)`, `(n :A:(B|C))` -- how a labels test reads in a plan.
-std::string LabelsTestName(LabelsTest const *filter_expression) {
-  MG_ASSERT(filter_expression->Cnf(), "A label filter tests plain labels");
-  const auto &cnf = *filter_expression->Cnf();
+/// `(n :A:B)`, `(n :A|B)`, `(n :A:(B|C))` -- how a labels test reads in a plan. Nothing for a term held
+/// whole, which carries no plain labels to read.
+std::optional<std::string> LabelsTestName(LabelsTest const *filter_expression) {
+  const auto *cnf_of = filter_expression->Cnf();
+  if (!cnf_of) return std::nullopt;
+  const auto &cnf = *cnf_of;
   std::set<std::string, std::less<>> AND_label_names;
   for (const auto &label : cnf.labels) {
     AND_label_names.insert(label.name);
@@ -5098,10 +5100,13 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
                          utils::IterableToString(symbol_names, ", ", [](const auto &name) { return name; }));
     }
     case Type::Label: {
-      if (single_filter.expression->GetTypeInfo() != LabelsTest::kType) {
-        LOG_FATAL("Label filters not using LabelsTest are not supported for query inspection!");
+      // Naming the labels is what this filter is for, but inspecting a plan only reads it. An unnamed filter
+      // beats ending the process, as for `Type::Node` below.
+      if (single_filter.expression->GetTypeInfo() == LabelsTest::kType) {
+        if (auto name = LabelsTestName(static_cast<LabelsTest *>(single_filter.expression))) return *std::move(name);
       }
-      return LabelsTestName(static_cast<LabelsTest *>(single_filter.expression));
+      if (auto name = LabelTermTestName(single_filter.expression)) return *std::move(name);
+      return "()";
     }
     case Type::Property: {
       auto const &path = single_filter.property_filter->property_ids_.path;

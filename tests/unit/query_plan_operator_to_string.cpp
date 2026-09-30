@@ -526,6 +526,22 @@ TYPED_TEST(OperatorToStringTest, FilterLabelTerm) {
             "Filter NOT (person :Label1|Label2)");
 }
 
+// Inspecting a plan is read-only, so a filter whose labels it cannot read prints without a name rather
+// than ending the process.
+TYPED_TEST(OperatorToStringTest, FilterLabelTypeNamesWhatItCan) {
+  auto node = this->GetSymbol("person");
+  auto name_of = [&](Expression *expression) {
+    return Filter::SingleFilterName(FilterInfo{FilterInfo::Type::Label, expression, {node}});
+  };
+
+  // A whole-held term carries no plain labels for a `Label` filter to read, so its operators are the name.
+  EXPECT_EQ(name_of(MakeLabelsTest(this->storage, IDENT("person"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1")))),
+            "NOT (person :Label1)");
+  // Neither plain labels nor a subject to name them over.
+  EXPECT_EQ(name_of(MakeLabelsTest(this->storage, LITERAL(1), LABEL_TERM_WILDCARD())), "()");
+  EXPECT_EQ(name_of(LITERAL(true)), "()");
+}
+
 TYPED_TEST(OperatorToStringTest, Produce) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<Produce>(
       nullptr, std::vector<NamedExpression *>{NEXPR("pet", LITERAL(5)), NEXPR("string", LITERAL("string"))});
