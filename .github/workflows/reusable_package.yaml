@@ -392,10 +392,14 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: ${{ env.S3_REGION }}
         run: |
+          CONTAINER_OS="$OS"
+          if [[ "$ARCH" == "arm" && "$CONTAINER_OS" != *-arm ]]; then
+            CONTAINER_OS="${CONTAINER_OS}-arm"
+          fi
           ./tools/ci/fips/ensure-wheels.sh \
             --dest-dir release/docker/fips-wheels \
-            --container "mgbuild_${TOOLCHAIN}_${OS}" \
-            --distro "$OS"
+            --container "mgbuild_${TOOLCHAIN}_${CONTAINER_OS}" \
+            --distro "${OS%-arm}"
 
       - name: "Generate Memgraph build SBOM"
         # Stage 1 of the SBOM: fetch the conan + MGCXX component SBOMs from the
