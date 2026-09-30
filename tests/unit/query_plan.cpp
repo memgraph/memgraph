@@ -4912,6 +4912,32 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWithIndex) {
   DeleteListContent(&right_subquery_part);
 }
 
+TYPED_TEST(TestPlanner, ORLabelExpressionWithIndexRunsUpstreamOnce) {
+  // Test UNWIND [1, 2] AS x MATCH (n:Label1|Label2) RETURN n
+  FakeDbAccessor dba;
+  auto label1 = dba.Label("Label1");
+  auto label2 = dba.Label("Label2");
+  dba.SetIndexCount(label1, 1);
+  dba.SetIndexCount(label2, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2)), AS("x")),
+                                   MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
+                                   RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Each scan starts from its own Once; the Unwind stays outside the Union.
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> disjunction{new ExpectUnion(left_subquery_part, right_subquery_part),
+                                         new ExpectDistinct()};
+  CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectApply(disjunction), ExpectProduce());
+
+  DeleteListContent(&disjunction);
+  DeleteListContent(&left_subquery_part);
+  DeleteListContent(&right_subquery_part);
+}
+
 TYPED_TEST(TestPlanner, ORLabelExpressionWithMultipleLabels) {
   // Test MATCH (n:Label1|Label2|Label3) RETURN n
   FakeDbAccessor dba;
