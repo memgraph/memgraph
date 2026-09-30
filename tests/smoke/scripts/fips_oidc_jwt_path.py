@@ -10,9 +10,9 @@ is the only algorithm src/auth/reference_modules/oidc.py accepts, so that is
 what is exercised, with the key generated in-process.
 """
 
-import _hashlib
 import sys
 
+import _hashlib
 import jwt
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -21,9 +21,6 @@ AUDIENCE = "mg"
 
 
 def main():
-    # Without this the rest proves nothing: every assertion below passes just as
-    # well on a non-FIPS build, so the run has to establish that OpenSSL really
-    # is in approved mode before claiming anything about it.
     if not _hashlib.get_fips_mode():
         sys.exit("OpenSSL is not in approved mode, so this test proves nothing")
     print("  OpenSSL reports approved mode")
