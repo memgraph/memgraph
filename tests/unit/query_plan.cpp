@@ -3009,6 +3009,95 @@ std::vector<std::string> SymbolNames(const std::vector<Symbol> &symbols) {
 }
 }  // namespace
 
+// A conditional body is `Apply(prelude, Union(Apply(Filter(Once), branch_0), ...))`. The guard sits beside its branch,
+// not under it, so an untaken aggregating branch yields no row rather than an aggregate over nothing.
+TYPED_TEST(TestPlanner, ConditionalSubquery) {
+  FakeDbAccessor dba;
+
+  // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN MATCH (n) RETURN count(n) AS c ELSE RETURN 0 AS c } RETURN i, c
+  {
+    auto *count = COUNT(IDENT("n"), false);
+    auto *branches =
+        WHEN_BRANCHES({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(count, AS("c")))},
+                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(0), AS("c")))});
+    auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")),
+                                     CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}),
+                                     RETURN("i", "c")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto aggregate = ExpectAggregate({count}, {});
+    std::list<BaseOpChecker *> counting_branch{new ExpectScanAll(), &aggregate, new ExpectProduce()};
+    std::list<BaseOpChecker *> else_branch{new ExpectProduce()};
+    std::list<BaseOpChecker *> guarded_counting{new ExpectFilter(), new ExpectApply(counting_branch)};
+    std::list<BaseOpChecker *> guarded_else{new ExpectFilter(), new ExpectApply(else_branch)};
+    std::list<BaseOpChecker *> guarded_union{new ExpectUnion(guarded_counting, guarded_else)};
+    std::list<BaseOpChecker *> body{new ExpectProduce(), new ExpectApply(guarded_union)};
+    CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectApply(body), ExpectProduce());
+    counting_branch.remove(&aggregate);
+    for (auto *list : {&counting_branch, &else_branch, &guarded_counting, &guarded_else, &guarded_union, &body}) {
+      DeleteListContent(list);
+    }
+
+    auto *call = FindOpOfType<Apply>(&planner.plan());
+    ASSERT_NE(call, nullptr);
+    EXPECT_EQ(call->on_empty_branch_, OnEmptyBranch::kDropRow);
+    EXPECT_TRUE(call->output_symbols_.empty());
+    auto *root = dynamic_cast<Apply *>(call->subquery_.get());
+    ASSERT_NE(root, nullptr);
+    // The body returns the import too, as its own symbol: nothing writes it, so the caller keeps its value.
+    EXPECT_EQ(SymbolNames(root->output_symbols_), (std::vector<std::string>{"c", "i"}));
+    auto *guarded = dynamic_cast<Union *>(root->subquery_.get());
+    ASSERT_NE(guarded, nullptr);
+    EXPECT_EQ(SymbolNames(guarded->union_symbols_), (std::vector<std::string>{"c"}));
+    EXPECT_TRUE(dynamic_cast<Apply *>(guarded->left_op_.get())->output_symbols_.empty());
+    EXPECT_TRUE(dynamic_cast<Apply *>(guarded->right_op_.get())->output_symbols_.empty());
+
+    // A rewriter or the plan cache may clone the plan; the columns must survive it.
+    auto const cloned = call->Clone(&this->storage);
+    auto *cloned_root = dynamic_cast<Apply *>(dynamic_cast<Apply *>(cloned.get())->subquery_.get());
+    ASSERT_NE(cloned_root, nullptr);
+    EXPECT_EQ(SymbolNames(cloned_root->output_symbols_), (std::vector<std::string>{"c", "i"}));
+  }
+
+  // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN CREATE (n) RETURN 1 AS x } IN TRANSACTIONS OF 1 ROWS RETURN x
+  // A branch inherits the CALL's commit frequency, as a plain body does: its RETURN commits periodically.
+  {
+    auto *branches = WHEN_BRANCHES(
+        {EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(LITERAL(1), AS("x")))});
+    auto *call = CALL_PERIODIC_SUBQUERY(branches, COMMIT_FREQUENCY(LITERAL(1)));
+    call->has_variable_scope_ = true;
+    call->scoped_variables_.push_back(this->storage.template Create<memgraph::query::NamedExpression>("i", IDENT("i")));
+    auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), call, RETURN("x")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *periodic = FindOpOfType<PeriodicSubquery>(&planner.plan());
+    ASSERT_NE(periodic, nullptr);
+    auto *root = dynamic_cast<Apply *>(periodic->subquery_.get());
+    ASSERT_NE(root, nullptr);
+    auto *guarded = dynamic_cast<Apply *>(root->subquery_.get());
+    ASSERT_NE(guarded, nullptr);
+    auto *branch = dynamic_cast<Produce *>(guarded->subquery_.get());
+    ASSERT_NE(branch, nullptr);
+    EXPECT_TRUE(dynamic_cast<PeriodicCommit *>(branch->input().get()));
+  }
+
+  // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN CREATE (n) } RETURN i - a unit body keeps every outer row.
+  {
+    auto *branches = WHEN_BRANCHES({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))))});
+    auto *query = QUERY(SINGLE_QUERY(
+        UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}), RETURN("i")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *call = FindOpOfType<Apply>(&planner.plan());
+    ASSERT_NE(call, nullptr);
+    EXPECT_EQ(call->on_empty_branch_, OnEmptyBranch::kPassRow);
+    EXPECT_TRUE(dynamic_cast<EmptyResult *>(call->subquery_.get()));
+  }
+}
+
 // `OPTIONAL CALL` differs from `CALL` only in what the Apply does with an input row the branch returned nothing
 // for, so the plan shape is identical and the mode plus the null-fill list carry the whole feature.
 TYPED_TEST(TestPlanner, OptionalSubquery) {

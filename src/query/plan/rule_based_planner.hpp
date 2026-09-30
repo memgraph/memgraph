@@ -664,6 +664,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       }
 
+      if (query_part.conditional) {
+        input_op = PlanConditional(std::move(input_op), *query_part.conditional, initial_bound_symbols);
+      }
+
       // An EXISTS branch must keep emitting its rows for the fold to read, so it never gets the EmptyResult wrapper.
       if (!context.in_subquery_body && input_op && impl::IsUnitPlan(*input_op, *context.symbol_table)) {
         if (has_periodic_commit && is_root_query) {
@@ -687,6 +691,54 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
  private:
+  /// `Apply(prelude, Union(Apply(Filter(Once, d = 0), branch_0), ...))`: a guard beside its branch, so an untaken
+  /// branch never runs. A write in any branch reaches the CALL through `plan_wrote_`, which `Plan` never clears.
+  std::unique_ptr<LogicalOperator> PlanConditional(std::unique_ptr<LogicalOperator> prelude,
+                                                   const ConditionalQueryParts &conditional,
+                                                   std::unordered_set<Symbol> bound_symbols) {
+    SymbolTable &symbol_table = *context_->symbol_table;
+    AstStorage &storage = *context_->ast_storage;
+    // The prelude projects only `d`; what was bound before it stays on the frame.
+    bound_symbols.insert(conditional.discriminator);
+    // A column named after an import keeps the caller's value, so the union writes only the new ones.
+    auto const union_symbols = conditional.output_symbols |
+                               std::views::filter([&](const Symbol &sym) { return !bound_symbols.contains(sym); }) |
+                               std::ranges::to<std::vector<Symbol>>();
+    std::unique_ptr<LogicalOperator> branches;
+    // What `branches` reports: the first branch's columns, then the union's.
+    std::vector<Symbol> left_symbols;
+    for (size_t i = 0; i < conditional.branches.size(); ++i) {
+      context_->bound_symbols = bound_symbols;
+      std::unique_ptr<LogicalOperator> branch = Plan(conditional.branches[i]);
+      auto branch_symbols = branch->OutputSymbols(symbol_table);
+      auto *guard_expr = storage.Create<EqualOperator>(
+          storage.Create<Identifier>(conditional.discriminator.name(), false)->MapTo(conditional.discriminator),
+          storage.Create<PrimitiveLiteral>(TypedValue(static_cast<int64_t>(i))));
+      auto guard = std::make_unique<Filter>(
+          std::make_unique<Once>(std::vector<Symbol>(bound_symbols.begin(), bound_symbols.end())),
+          std::vector<std::shared_ptr<LogicalOperator>>{},
+          guard_expr,
+          Filters::FromExpression(guard_expr, symbol_table, storage));
+      auto guarded = std::make_unique<Apply>(std::move(guard), std::move(branch), OnEmptyBranch::kDropRow);
+      if (!branches) {
+        branches = std::move(guarded);
+        left_symbols = std::move(branch_symbols);
+        continue;
+      }
+      branches = std::make_unique<Union>(std::move(branches),
+                                         std::move(guarded),
+                                         union_symbols,
+                                         std::exchange(left_symbols, union_symbols),
+                                         std::move(branch_symbols));
+    }
+    auto root = std::make_unique<Apply>(std::move(prelude), std::move(branches), OnEmptyBranch::kDropRow);
+    root->output_symbols_ = conditional.output_symbols;
+    bound_symbols.erase(conditional.discriminator);
+    bound_symbols.insert(conditional.output_symbols.begin(), conditional.output_symbols.end());
+    context_->bound_symbols = std::move(bound_symbols);
+    return root;
+  }
+
   /// @brief Recursively plans a pattern comprehension including any nested pattern comprehensions.
   /// For nested pattern comprehensions (e.g., [()--() | [()--() | 1]]), the inner pattern
   /// comprehension is planned first and wrapped with RollUpApply before the outer one's Produce.

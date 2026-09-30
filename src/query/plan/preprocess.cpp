@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <stack>
 #include <string_view>
@@ -1372,12 +1373,51 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
   return query_parts;
 }
 
-QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery) {
+namespace {
+
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery,
+                             Expression *commit_frequency);
+
+/// One UNION leg. A WHEN body becomes its branches plus a prelude `WITH CASE WHEN p0 THEN 0 ... END AS d`; no `*`,
+/// which would copy every import per row. The prelude skips `SymbolGenerator::PostVisit(With)`: keep it bare.
+QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query, Tree *combinator,
+                           bool is_subquery, Expression *commit_frequency) {
+  auto *branches =
+      single_query->clauses_.size() == 1 ? utils::Downcast<ConditionalBranches>(single_query->clauses_[0]) : nullptr;
+  if (!branches) return QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), combinator};
+
+  auto conditional = std::make_shared<ConditionalQueryParts>();
+  conditional->discriminator = *branches->discriminator_;
+  conditional->output_symbols = branches->output_symbols_;
+  // No match leaves null, which no guard accepts.
+  Expression *index_expr = storage.Create<PrimitiveLiteral>(TypedValue());
+  for (auto i = static_cast<int64_t>(branches->predicates_.size()) - 1; i >= 0; --i) {
+    auto *index = storage.Create<PrimitiveLiteral>(TypedValue(i));
+    auto *predicate = branches->predicates_[i];
+    index_expr =
+        predicate ? storage.Create<IfOperator>(predicate, index, index_expr) : static_cast<Expression *>(index);
+  }
+  auto *with = storage.Create<With>();
+  with->body_.named_expressions.push_back(
+      storage.Create<NamedExpression>(conditional->discriminator.name(), index_expr)
+          ->MapTo(conditional->discriminator));
+  auto *prelude = storage.Create<SingleQuery>();
+  prelude->clauses_.push_back(with);
+
+  for (auto *body : branches->bodies_) {
+    conditional->branches.push_back(CollectQueryParts(symbol_table, storage, body, is_subquery, commit_frequency));
+  }
+  return QueryPart{CollectSingleQueryParts(symbol_table, storage, prelude), combinator, std::move(conditional)};
+}
+
+/// A conditional branch has no directives of its own and inherits the enclosing `IN TRANSACTIONS` frequency.
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery,
+                             Expression *commit_frequency) {
   std::vector<QueryPart> query_parts;
 
   auto *single_query = query->single_query_;
   MG_ASSERT(single_query, "Expected at least a single query");
-  query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query)});
+  query_parts.push_back(CollectQueryPart(symbol_table, storage, single_query, nullptr, is_subquery, commit_frequency));
 
   bool distinct = false;
   for (auto *cypher_union : query->cypher_unions_) {
@@ -1387,10 +1427,17 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
 
     auto *single_query = cypher_union->single_query_;
     MG_ASSERT(single_query, "Expected UNION to have a query");
-    query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
+    query_parts.push_back(
+        CollectQueryPart(symbol_table, storage, single_query, cypher_union, is_subquery, commit_frequency));
   }
 
-  return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_, is_subquery};
+  return QueryParts{query_parts, distinct, commit_frequency, is_subquery};
+}
+
+}  // namespace
+
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery) {
+  return CollectQueryParts(symbol_table, storage, query, is_subquery, query->pre_query_directives_.commit_frequency_);
 }
 
 // TODO: Think about converting all filtering expression into CNF to improve

@@ -16,10 +16,14 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 
 #include <algorithm>
+#include <cstdint>
+#include <functional>
 #include <optional>
 #include <ranges>
+#include <string>
 #include <unordered_set>
 #include <variant>
+#include <vector>
 
 #include "exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -345,6 +349,97 @@ bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
   }
 
   return true;
+}
+
+namespace {
+
+/// What a WHEN branch yields. All branches of one conditional must agree.
+enum class BranchKind : uint8_t { kReturns, kUpdates, kStandaloneCall };
+
+/// The procedure call a body ends in, looking through a nested WHEN, whose branches agree.
+const CallProcedure *TrailingCall(const CypherQuery &query) {
+  const auto *last = query.single_query_->clauses_.back();
+  if (const auto *nested = utils::Downcast<const ConditionalBranches>(last)) return TrailingCall(*nested->bodies_[0]);
+  return utils::Downcast<const CallProcedure>(last);
+}
+
+/// The columns a body's RETURN writes, `*` expanded. `all` also holds every import, which each RETURN re-injects.
+std::unordered_set<std::string> WrittenColumns(const CypherQuery &query, const std::unordered_set<std::string> &all) {
+  const auto *last = query.single_query_->clauses_.back();
+  if (const auto *nested = utils::Downcast<const ConditionalBranches>(last)) {
+    return WrittenColumns(*nested->bodies_[0], all);
+  }
+  const auto *ret = utils::Downcast<const Return>(last);
+  if (!ret || ret->body_.all_identifiers) return all;
+  return ret->body_.named_expressions | std::views::transform([](const auto *expr) { return expr->name_; }) |
+         std::ranges::to<std::unordered_set<std::string>>();
+}
+
+}  // namespace
+
+bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
+  auto const base = scopes_.back();
+  // Predicates see only the imports, under WHERE rules (no aggregation, patterns bind nothing).
+  scopes_.back().in_where = true;
+  for (auto *predicate : branches.predicates_) {
+    if (predicate) predicate->Accept(*this);
+  }
+  scopes_.back().in_where = false;
+
+  // Each branch starts from the imports alone, as a UNION part does.
+  std::vector<BranchKind> kinds;
+  std::vector<std::unordered_set<std::string>> names;
+  std::vector<std::unordered_set<std::string>> written;
+  for (auto *body : branches.bodies_) {
+    Scope scope{.in_subquery_body = base.in_subquery_body, .in_call_subquery = base.in_call_subquery};
+    scope.call_subquery_base = base.call_subquery_base;
+    scope.call_subquery_imports = base.call_subquery_imports;
+    scope.symbols = base.call_subquery_imports;
+    scopes_.back() = std::move(scope);
+    body->Accept(*this);
+    auto const kind = std::invoke([&] {
+      if (scopes_.back().has_return) return BranchKind::kReturns;
+      const auto *call = TrailingCall(*body);
+      if (!call) return BranchKind::kUpdates;
+      if (call->where_) throw SemanticException("Cannot use a standalone CALL with WHERE in a WHEN branch.");
+      return BranchKind::kStandaloneCall;
+    });
+    kinds.push_back(kind);
+    names.push_back(scopes_.back().curr_return_names);
+    written.push_back(WrittenColumns(*body, names.back()));
+  }
+  for (size_t i = 1; i < kinds.size(); ++i) {
+    if (kinds[i] != kinds[0]) {
+      throw SemanticException("All WHEN branches must either return rows or update the graph.");
+    }
+    if (written[i].size() != written[0].size()) {
+      throw SemanticException("All WHEN branches must return the same number of columns.");
+    }
+    if (written[i] != written[0]) {
+      throw SemanticException("All WHEN branches must have the same column names.");
+    }
+  }
+
+  // Only a single branch reads its own column symbols, so take the last branch's before restoring the scope.
+  auto const last_branch_symbols = std::move(scopes_.back().symbols);
+  scopes_.back() = base;
+  auto &scope = scopes_.back();
+  scope.has_return = kinds[0] == BranchKind::kReturns;
+  branches.discriminator_ = symbol_table_->CreateAnonymousSymbol();
+  if (!scope.has_return) return false;
+  scope.curr_return_names = names[0];
+  for (const auto &name : names[0]) {
+    // A column named after an import is the import: the caller keeps its own value, as after a plain `CALL`.
+    if (auto const import = base.call_subquery_imports.find(name); import != base.call_subquery_imports.end()) {
+      branches.output_symbols_.push_back(import->second);
+      continue;
+    }
+    // One branch needs no union. Several share a user symbol per column, so a later `*` sees it.
+    auto const symbol = branches.bodies_.size() == 1 ? last_branch_symbols.at(name) : CreateSymbol(name, true);
+    scopes_.back().symbols[name] = symbol;
+    branches.output_symbols_.push_back(symbol);
+  }
+  return false;
 }
 
 bool SymbolGenerator::PreVisit(LoadCsv &load_csv) { return false; }

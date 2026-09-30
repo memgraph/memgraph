@@ -9634,6 +9634,7 @@ std::unique_ptr<LogicalOperator> Apply::Clone(AstStorage *storage) const {
   object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
   object->on_empty_branch_ = on_empty_branch_;
   object->null_symbols_ = null_symbols_;
+  object->output_symbols_ = output_symbols_;
   return object;
 }
 

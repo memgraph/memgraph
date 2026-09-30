@@ -8568,6 +8568,83 @@ TEST_P(CypherMainVisitorTest, CallSubqueryOptional) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
+  auto &ast_generator = *GetParam();
+  auto const parse_branches = [&](const std::string &query) {
+    const auto *cypher_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    EXPECT_TRUE(cypher_query);
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(cypher_query->single_query_->clauses_[1]);
+    EXPECT_TRUE(call_subquery);
+    const auto &clauses = call_subquery->cypher_query_->single_query_->clauses_;
+    EXPECT_EQ(clauses.size(), 1U);
+    return std::pair{cypher_query, dynamic_cast<ConditionalBranches *>(clauses[0])};
+  };
+
+  {
+    auto const [query, branches] = parse_branches(
+        "UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN RETURN 1 AS x "
+        "WHEN i = 2 THEN { RETURN 2 AS x UNION RETURN 3 AS x } ELSE RETURN 4 AS x } RETURN x");
+    ASSERT_TRUE(branches);
+    ASSERT_EQ(branches->predicates_.size(), 3U);
+    ASSERT_EQ(branches->bodies_.size(), 3U);
+    EXPECT_TRUE(dynamic_cast<EqualOperator *>(branches->predicates_[0]));
+    EXPECT_TRUE(dynamic_cast<EqualOperator *>(branches->predicates_[1]));
+    EXPECT_EQ(branches->predicates_[2], nullptr);
+    EXPECT_TRUE(branches->bodies_[0]->cypher_unions_.empty());
+    EXPECT_EQ(branches->bodies_[1]->cypher_unions_.size(), 1U);
+    CheckRWType(query, kRead);
+  }
+
+  {
+    // A nested WHEN is the sole clause of its branch.
+    auto const [query, branches] = parse_branches(
+        "UNWIND [1] AS i CALL (i) { WHEN i > 0 THEN { WHEN i = 1 THEN RETURN 1 AS x ELSE RETURN 2 AS x } } RETURN x");
+    ASSERT_TRUE(branches);
+    ASSERT_EQ(branches->bodies_.size(), 1U);
+    const auto &inner = branches->bodies_[0]->single_query_->clauses_;
+    ASSERT_EQ(inner.size(), 1U);
+    const auto *inner_branches = dynamic_cast<ConditionalBranches *>(inner[0]);
+    ASSERT_TRUE(inner_branches);
+    EXPECT_EQ(inner_branches->bodies_.size(), 2U);
+  }
+
+  {
+    // A query ending in a unit body is accepted because a branch writes, and a write in any branch makes it a write.
+    auto const [query, branches] =
+        parse_branches("UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN SET i.p = 1 WHEN i = 2 THEN CREATE (:T) }");
+    ASSERT_TRUE(branches);
+    EXPECT_TRUE(dynamic_cast<SetProperty *>(branches->bodies_[0]->single_query_->clauses_[0]));
+    CheckRWType(query, kWrite);
+  }
+
+  {
+    auto const [query, branches] = parse_branches(
+        "UNWIND [true] AS when CALL (when) { WHEN when THEN RETURN 1 AS then ELSE RETURN 2 AS then } "
+        "RETURN then AS else");
+    ASSERT_TRUE(branches);
+    EXPECT_TRUE(dynamic_cast<Identifier *>(branches->predicates_[0]));
+  }
+
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "UNWIND [1] AS i CALL { WHEN true THEN RETURN 1 AS x } RETURN x",
+      ast_generator,
+      "WHEN ... THEN ... is not allowed in 'CALL { ... }'. Use 'CALL () { ... }' instead.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "UNWIND [1] AS i CALL (i) { WHEN true THEN { RETURN 1 AS x QUERY MEMORY UNLIMITED } } RETURN x",
+      ast_generator,
+      "Memory limit cannot be set on subqueries!");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "UNWIND [1] AS i CALL (i) { WHEN true THEN { USING PERIODIC COMMIT 1 CREATE (:T) } }",
+      ast_generator,
+      "USING cannot be put in a WHEN branch.");
+  // WHEN is the whole body, and a branch with UNION needs braces.
+  TestInvalidQuery<SyntaxException>("UNWIND [1] AS i CALL (i) { WITH i WHEN true THEN RETURN 1 AS x } RETURN x",
+                                    ast_generator);
+  TestInvalidQuery<SyntaxException>(
+      "UNWIND [1] AS i CALL (i) { WHEN true THEN RETURN 1 AS x UNION RETURN 2 AS x ELSE RETURN 3 AS x } RETURN x",
+      ast_generator);
+}
+
 TEST_P(CypherMainVisitorTest, CallSubquery) {
   auto &ast_generator = *GetParam();
 
@@ -9977,7 +10054,11 @@ TEST_P(CypherMainVisitorTest, KeywordsCanBeUsedAsLabels) {
 TEST(CypherParserTest, ValidQueryNeedsNoFullContextPrediction) {
   for (const auto *query : {"WITH [1] AS xs RETURN [x IN xs WHERE x:A AND true | x] AS v",
                             "WITH [1] AS xs RETURN reduce(s = 0, x IN xs | s + CASE WHEN x:A THEN 1 ELSE 0 END) AS v",
-                            "WITH [1] AS xs RETURN [x IN xs WHERE x:A | x AND true] AS v"}) {
+                            "WITH [1] AS xs RETURN [x IN xs WHERE x:A | x AND true] AS v",
+                            "UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN RETURN 1 AS x WHEN i = 2 THEN { RETURN 2 AS x "
+                            "UNION RETURN 3 AS x } ELSE { WHEN true THEN RETURN 4 AS x } } RETURN x",
+                            "UNWIND [1] AS i CALL (i) { WHEN CASE WHEN i = 1 THEN true ELSE false END THEN RETURN CASE "
+                            "WHEN i = 1 THEN 1 ELSE 2 END AS x ELSE RETURN 3 AS x } RETURN x"}) {
     ::frontend::opencypher::Parser parser(query);
     ASSERT_TRUE(parser.tree()) << query;
     EXPECT_EQ(parser.FullContextPredictions(), 0U) << query;
