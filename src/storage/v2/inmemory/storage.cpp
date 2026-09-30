@@ -1127,9 +1127,16 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     engine_guard.unlock();
   }
 
+  // Publishing needs engine_lock_; narrowing released it above, so take it back (commit_mutex_ is still held).
+  auto const with_engine_lock = [&](auto &&publish) {
+    if (!engine_guard.owns_lock()) engine_guard.lock();
+    publish();
+    if (narrowing) engine_guard.unlock();
+  };
+
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
   if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
-    FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/narrowing);
+    with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
     // No WAL file, hence no need to finalize it
     return {};
   }
@@ -1150,7 +1157,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If SYNC and ASYNC replica executes this, commit immediately while holding the engine lock
         if (!two_phase_commit) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/narrowing);
+          with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
         }
       });
   if (replica_write_was_applied) {
@@ -1165,7 +1172,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp, /*acquire_engine_lock=*/narrowing);
+          with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
 
           auto failures = replicating_txn.CollectAllFailures();
           // update replicas' cached commit info to this txn's absolute committed-txn count
@@ -1207,7 +1214,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }
 
         if (repl_prepare_phase_ok) {
-          PublishCommit(durability_commit_timestamp, /*acquire_engine_lock=*/narrowing);
+          // Publish only after replicas finalize: with engine_lock_ released a BEGIN could otherwise see a commit
+          // a failover may roll back (safe pre-narrowing only because engine_lock_ was held throughout).
+          with_engine_lock([&] { PublishCommit(durability_commit_timestamp, engine_guard); });
         }
 
         return {};
@@ -1218,6 +1227,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
 void InMemoryStorage::InMemoryAccessor::FinalizeWalCommitStatus() {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  // We only need to update commit flag from false->true if we are running 2PC. In all other situations, the default
+  // is fine.
   // Must run before FinalizeWalFile seals the file so the flag byte lands in the sealed segment.
   if (wal_txn_positions_.commit_flag_wal_position_ != 0 && needs_wal_update_) {
     mem_storage->wal_file_->UpdateCommitStatus(wal_txn_positions_);
@@ -1225,18 +1236,14 @@ void InMemoryStorage::InMemoryAccessor::FinalizeWalCommitStatus() {
 }
 
 void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_commit_timestamp,
-                                                      bool const acquire_engine_lock) {
+                                                      std::unique_lock<utils::SpinLock> const &engine_guard) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
-
-  // Narrowing path re-acquires engine_lock_ for the whole body: CheckForFastDiscardOfDeltas requires it.
-  std::optional<std::unique_lock<utils::SpinLock>> pub_guard;
-  if (acquire_engine_lock) {
-    pub_guard.emplace(storage_->engine_lock_);
-  }
+  DMG_ASSERT(engine_guard.owns_lock() && engine_guard.mutex() == &mem_storage->engine_lock_,
+             "PublishCommit requires engine_lock_ held");
 
   if (mem_storage->config_.experimental_commit_lock_narrowing) {
     // First, before any visibility side effect, and without a tracker OOM throw: WAL and replication are done.
-    // engine_lock_ is held here (pub_guard, or the replica finalize handler).
+    // engine_lock_ is held here (engine_guard).
     utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
     auto &windows = mem_storage->commit_windows_;
     if (mem_storage->timestamp_ > *commit_timestamp_ + 1) {
@@ -1361,9 +1368,9 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
 }
 
 void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp,
-                                                            bool const acquire_engine_lock) {
+                                                            std::unique_lock<utils::SpinLock> const &engine_guard) {
   FinalizeWalCommitStatus();
-  PublishCommit(durability_commit_timestamp, acquire_engine_lock);
+  PublishCommit(durability_commit_timestamp, engine_guard);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)

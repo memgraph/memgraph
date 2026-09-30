@@ -672,9 +672,9 @@ void PrepareWithoutPublish(InMemoryStorage &store, Gid gid, int value, PreparedC
 }
 
 // Publishes without re-minting (as the narrowed main does), then ends the writer so its ts is marked finished.
-void PublishAndEnd(PreparedCommit &commit) {
-  static_cast<InMemoryStorage::InMemoryAccessor &>(*commit.writer)
-      .FinalizeCommitPhase(commit.durable_ts, /*acquire_engine_lock=*/true);
+void PublishAndEnd(InMemoryStorage &store, PreparedCommit &commit) {
+  auto engine_guard = std::unique_lock{store.engine_lock_};
+  static_cast<InMemoryStorage::InMemoryAccessor &>(*commit.writer).FinalizeCommitPhase(commit.durable_ts, engine_guard);
   commit.writer.reset();
 }
 
@@ -699,7 +699,7 @@ TEST_F(LockFreeReadSnapshotRecovery, CommitWindowReader_RetainsPreImageAcrossGc_
   PrepareWithoutPublish(*store, gid, 2, commit);
   auto reader = store->Access(memgraph::storage::READ);
   ASSERT_EQ(ReadProp(*reader, gid), 1);
-  PublishAndEnd(commit);
+  PublishAndEnd(*store, commit);
 
   RunGc(*store);
   EXPECT_EQ(ReadProp(*reader, gid), 1) << "GC reclaimed the pre-image of a commit whose window the oldest reader "
@@ -730,13 +730,13 @@ TEST_F(LockFreeReadSnapshotRecovery, EarlierWindowReader_RetainsPreImageAcrossGc
   PrepareWithoutPublish(*store, gid, 2, c1);
   auto r1 = store->Access(memgraph::storage::READ);
   ASSERT_EQ(ReadProp(*r1, gid), 1);
-  PublishAndEnd(c1);
+  PublishAndEnd(*store, c1);
 
   PreparedCommit c2;
   PrepareWithoutPublish(*store, gid, 3, c2);
   auto r2 = store->Access(memgraph::storage::READ);
   ASSERT_EQ(ReadProp(*r2, gid), 2);
-  PublishAndEnd(c2);
+  PublishAndEnd(*store, c2);
 
   r2.reset();
   RunGc(*store);

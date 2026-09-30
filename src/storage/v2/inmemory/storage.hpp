@@ -476,14 +476,15 @@ class InMemoryStorage final : public Storage {
     // Does not require engine_lock_.
     void FinalizeWalCommitStatus();
 
-    // Publishes MVCC visibility. acquire_engine_lock takes engine_lock_ for the whole body
-    // (CheckForFastDiscardOfDeltas reads transaction_id_, racing BEGIN); when false the caller holds it.
+    // Publishes MVCC visibility. The caller must hold engine_lock_ via engine_guard for the whole body
+    // (CheckForFastDiscardOfDeltas reads transaction_id_, racing BEGIN).
     // Under commit-lock-narrowing the caller must hold commit_mutex_: mint-order == publish-order.
-    void PublishCommit(uint64_t durability_commit_timestamp, bool acquire_engine_lock);
+    void PublishCommit(uint64_t durability_commit_timestamp, std::unique_lock<utils::SpinLock> const &engine_guard);
 
     // FinalizeWalCommitStatus() then PublishCommit(). STRICT_SYNC main calls them separately to defer
     // PublishCommit past FinalizeTransaction. Only PrepareForCommitPhase may call this.
-    void FinalizeCommitPhase(uint64_t durability_commit_timestamp, bool acquire_engine_lock = false);
+    void FinalizeCommitPhase(uint64_t durability_commit_timestamp,
+                             std::unique_lock<utils::SpinLock> const &engine_guard);
 
     /// @throw std::bad_alloc
     void Abort() override;

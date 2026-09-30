@@ -593,11 +593,11 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     // taking here another commit timestamp.
     auto &commit_ts = commit_accessor->GetCommitTimestamp();
     DMG_ASSERT(commit_ts.has_value(), "Commit ts without a value");
-    auto guard = std::lock_guard{mem_storage->engine_lock_};
+    auto guard = std::unique_lock{mem_storage->engine_lock_};
     // Mark the old commit ts as finished before emplacing the new one
     mem_storage->commit_log_->MarkFinished(*commit_ts);
     commit_ts.emplace(mem_storage->GetCommitTimestamp());
-    commit_accessor->FinalizeCommitPhase(req.durability_commit_timestamp);
+    commit_accessor->FinalizeCommitPhase(req.durability_commit_timestamp, guard);
     spdlog::trace("Finalized txn on replica");
   } else {
     commit_accessor->AbortAndResetCommitTs();
