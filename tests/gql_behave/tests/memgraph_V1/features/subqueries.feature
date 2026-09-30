@@ -1456,3 +1456,48 @@ Feature: Subqueries
         Then the result should be:
             | rows | cs  |
             | 3    | [3] |
+
+    Scenario: RETURN * after a CALL whose body has a UNION includes the union's columns
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { RETURN 1 AS a UNION ALL RETURN 2 AS a }
+            RETURN *
+            """
+        Then the result should be:
+            | a | i |
+            | 1 | 1 |
+            | 2 | 1 |
+            | 1 | 2 |
+            | 2 | 2 |
+
+    Scenario: WITH * after a CALL whose body has a UNION carries the union's columns
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { RETURN 1 AS a UNION ALL RETURN 2 AS a }
+            WITH *
+            RETURN i, a
+            """
+        Then the result should be:
+            | i | a |
+            | 1 | 1 |
+            | 1 | 2 |
+            | 2 | 1 |
+            | 2 | 2 |
+
+    Scenario: CALL (*) after a CALL whose body has a UNION imports the union's columns
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1] AS i
+            CALL (i) { RETURN 1 AS a UNION ALL RETURN 2 AS a }
+            CALL (*) { RETURN a + 10 AS b }
+            RETURN a, b
+            """
+        Then the result should be:
+            | a | b  |
+            | 1 | 11 |
+            | 2 | 12 |
