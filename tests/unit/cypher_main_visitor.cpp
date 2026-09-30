@@ -9984,6 +9984,16 @@ TEST(CypherParserTest, ValidQueryNeedsNoFullContextPrediction) {
   }
 }
 
+// A valid query SLL rejects is parsed again with LL, which pays for full-context prediction.
+TEST(CypherParserTest, ValidQuerySLLRejectsIsParsedByTheLLPass) {
+  for (const auto *query :
+       {"MATCH (n)-[*{p: 1}]->(m) RETURN n", "MATCH () WHERE reduce(a = exists(()), b IN [] | a) RETURN 1"}) {
+    ::frontend::opencypher::Parser parser(query);
+    ASSERT_TRUE(parser.tree()) << query;
+    EXPECT_GT(parser.FullContextPredictions(), 0U) << query;
+  }
+}
+
 // A query SLL rejects is parsed again with LL, which words the error.
 TEST(CypherParserTest, SyntaxErrorIsReportedByTheLLPass) {
   try {
