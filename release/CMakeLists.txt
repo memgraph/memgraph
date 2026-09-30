@@ -94,6 +94,13 @@ endif()
 #                                (Ubuntu 20.04 LTS has libstdc++6 10).
 #   libgcc-s1                 — provides libgcc_s.so.1 (Ubuntu 20.04+).
 #   libatomic1                — NEEDED libatomic.so.1; absent on minimal images.
+#   zlib1g                    — NEEDED libz.so.1. conan builds zlib shared
+#                                ("zlib/*:shared" in conanfile.py), so the
+#                                binary resolves it from the distro rather than
+#                                compiling it in. Same name on every deb target
+#                                (bookworm/trixie, jammy/noble): no t64 rename.
+#   libseccomp2               — NEEDED libseccomp.so.2, likewise shared by conan
+#                                ("libseccomp/2.6.0", options shared=True).
 #   openssl                   — CLI; pulls libssl{3,1.1} transitively, name
 #                                stable across libssl3 / libssl3t64.
 #   python3 (>= 3.5.0)        — interpreter for tooling around query modules;
@@ -126,7 +133,7 @@ endif()
 # Everything from python3 onwards exists for the embedded interpreter and the
 # postinst pip phase, so it is only declared when MG_PYTHON_SUPPORT=ON.
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, openssl (>= 1.1.0)")
+    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, zlib1g, libseccomp2, openssl (>= 1.1.0)")
 if(MG_PYTHON_SUPPORT)
     string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
         ", python3 (>= 3.5.0), ca-certificates, libxmlsec1 | libxmlsec1-1, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
@@ -178,7 +185,10 @@ endif()
 # python3-pip + util-linux (runuser) serve the %post pip install of the
 # query-module deps; xmlsec1/krb5-libs are the system libs behind the pip
 # xmlsec and gssapi packages (SAML / Kerberos SSO).
-set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, logrotate, libatomic")
+# zlib and libseccomp are the rpm counterparts of zlib1g/libseccomp2 above:
+# conan links both shared, and with AUTOREQ off nothing would notice they are
+# missing. "zlib" resolves through zlib-ng-compat's Provides on Fedora.
+set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, logrotate, libatomic, zlib, libseccomp")
 # The el9 python3.12 rich dependency lives in the spec template as a whole
 # line, so it can be dropped entirely for Python-less builds.
 set(CPACK_MG_RPM_PYTHON_REQUIRES "")
