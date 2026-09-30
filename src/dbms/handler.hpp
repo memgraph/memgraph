@@ -388,6 +388,18 @@ class Handler {
     }
   }
 
+  void RunDrainHook_() {
+    // Held for the call so ClearDrainHook can wait it out.
+    auto lock = std::lock_guard{drain_hook_mutex_};
+    if (drain_hook_) {
+      try {
+        drain_hook_();
+      } catch (...) {
+        spdlog::warn("Deferred-drop drain hook failed; will retry on the next tick.");
+      }
+    }
+  }
+
   // Must be noexcept: utils::Scheduler invokes the job without catching exceptions,
   // so an uncaught exception would call std::terminate on the jthread.
   void Tick_() noexcept {
@@ -400,17 +412,7 @@ class Handler {
         for (auto it = pending_.begin(); it != pending_.end(); ++it) its.push_back(it);
       }
 
-      if (!its.empty()) {
-        // Held for the call so ClearDrainHook can wait it out.
-        auto lock = std::lock_guard{drain_hook_mutex_};
-        if (drain_hook_) {
-          try {
-            drain_hook_();
-          } catch (...) {
-            spdlog::warn("Deferred-drop drain hook failed; will retry on the next tick.");
-          }
-        }
-      }
+      if (!its.empty()) RunDrainHook_();
 
       for (auto it : its) {
         try {

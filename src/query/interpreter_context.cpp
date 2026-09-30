@@ -79,7 +79,7 @@ namespace {
 void CloseSessionsOnDroppingDatabases(
     utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> &interpreters) {
   std::vector<std::string> to_close;
-  interpreters.WithLock([&](auto const &all) {
+  interpreters.WithLock([&to_close](auto const &all) {
     for (auto *interpreter : all) {
       if (!interpreter->current_db_.foreign_db_view().marked_for_deletion) continue;
       auto const session = interpreter->foreign_session_view_.load(std::memory_order_acquire);
