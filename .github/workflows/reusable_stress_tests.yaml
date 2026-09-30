@@ -429,7 +429,7 @@ jobs:
   stress_test_eks_ha:
     name: "Stress Tests EKS HA"
     if: ${{ inputs.deployment == 'ha/eks' }}
-    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}", galactus]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}", Ubuntu24.04]
     timeout-minutes: 180
     steps:
       - name: Set up repository
@@ -504,10 +504,10 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.EKS_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.EKS_AWS_SECRET_ACCESS_KEY }}
 
-      # - name: Set up Python
-      #   uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
-      #   with:
-      #     python-version: '3.11'
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: '3.11'
 
       - name: Install K8s tools
         run: |
