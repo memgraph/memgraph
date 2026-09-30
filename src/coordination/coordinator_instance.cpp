@@ -911,14 +911,11 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
   // The Raft configuration and the application context are updated in two steps, so a removal that timed out
   // locally may have left the coordinator in only one of them. Each step runs only where the coordinator still is,
   // which lets a retry finish the removal.
-  auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
-  bool const in_context = std::erase_if(coordinator_instances_context, [coordinator_id](auto const &coordinator) {
-                            return coordinator.id == coordinator_id;
-                          }) == 1;
+  auto const is_target = [coordinator_id](auto const &coordinator) { return coordinator.id == coordinator_id; };
   bool const in_raft_config =
       std::ranges::contains(raft_state_->GetCoordinatorInstancesAux(), coordinator_id, &CoordinatorInstanceAux::id);
 
-  if (!in_context && !in_raft_config) {
+  if (!in_raft_config && !std::ranges::any_of(raft_state_->GetCoordinatorInstancesContext(), is_target)) {
     return RemoveCoordinatorInstanceStatus::NO_SUCH_ID;
   }
 
@@ -932,7 +929,9 @@ auto CoordinatorInstance::RemoveCoordinatorInstance(int coordinator_id) const ->
                  coordinator_id);
   }
 
-  if (!in_context) {
+  // Snapshot the context only after the Raft wait, so that a config update committed meanwhile isn't overwritten.
+  auto coordinator_instances_context = raft_state_->GetCoordinatorInstancesContext();
+  if (std::erase_if(coordinator_instances_context, is_target) == 0) {
     return RemoveCoordinatorInstanceStatus::SUCCESS;
   }
 
