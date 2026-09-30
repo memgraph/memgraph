@@ -9,13 +9,6 @@ SAML reaches OpenSSL through xmlsec rather than directly, and that integration
 is the part that breaks first in approved mode, so a signature is produced and
 verified here for real. All key material is generated in-process: there is no
 fixture to expire and no IdP to stand up.
-
-The e2e SSO tests are deliberately not reused. test_saml_sso_module.py
-monkey-patches OneLogin_Saml2_Utils.validate_sign to a no-op, so it never
-touches crypto, and its captured responses cannot be verified anyway — the
-assertion timestamps were hand-edited to 2124 to stop the fixtures expiring,
-which invalidates the signatures. Nothing noticed, because validation was
-patched out.
 """
 
 import datetime
