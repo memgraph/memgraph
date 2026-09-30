@@ -11,11 +11,10 @@
 
 import os
 import sys
-import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import execute_and_fetch_all
+from common import execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -27,11 +26,22 @@ interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR = os.path.normpath(
     os.path.join(interactive_mg_runner.BUILD_DIR, "query_modules")
 )
 
+FILE = "durability_with_vector_index"
 
-def test_durability_with_vector_index_basic(connection):
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
+def test_durability_with_vector_index_basic(connection, test_name):
     # Goal: That vector indices and their data are correctly restored after restart.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -41,8 +51,8 @@ def test_durability_with_vector_index_basic(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_with_vector_index_basic.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -96,13 +106,11 @@ def test_durability_with_vector_index_basic(connection):
     assert len(search_results) == 1
     assert search_results[0][0] == 0.0
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_vector_index_label_changes(connection):
+def test_durability_with_vector_index_label_changes(connection, test_name):
     # Goal: That adding and removing labels from nodes with vector properties is correctly persisted.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -112,8 +120,8 @@ def test_durability_with_vector_index_label_changes(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_vector_label_changes.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -166,13 +174,11 @@ def test_durability_with_vector_index_label_changes(connection):
     prop3_node = execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [5.0, 6.0]}) RETURN n.prop1;")
     assert prop3_node[0][0] == [5.0, 6.0]
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_vector_index_property_changes(connection):
+def test_durability_with_vector_index_property_changes(connection, test_name):
     # Goal: That setting properties to null and updating vector properties is correctly persisted.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -182,8 +188,8 @@ def test_durability_with_vector_index_property_changes(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_vector_property_changes.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -234,13 +240,11 @@ def test_durability_with_vector_index_property_changes(connection):
     original_prop = execute_and_fetch_all(cursor, "MATCH (n:L1 {prop1: [5.0, 6.0]}) RETURN n.prop1;")
     assert original_prop[0][0] == [5.0, 6.0]
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_two_vector_indices(connection):
+def test_durability_with_two_vector_indices(connection, test_name):
     # Goal: That two vector indices on different labels/properties are correctly restored.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -250,8 +254,8 @@ def test_durability_with_two_vector_indices(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_two_vector_indices.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -313,13 +317,11 @@ def test_durability_with_two_vector_indices(connection):
     search2 = execute_and_fetch_all(cursor, "CALL vector_search.search('test_index2', 1, [5.0, 6.0]) YIELD * RETURN *;")
     assert len(search2) == 1
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_two_vector_indices_drop_one(connection):
+def test_durability_with_two_vector_indices_drop_one(connection, test_name):
     # Goal: That dropping one vector index preserves vectors for remaining index on node with both labels.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -329,8 +331,8 @@ def test_durability_with_two_vector_indices_drop_one(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_two_indices_drop_one.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -394,13 +396,11 @@ def test_durability_with_two_vector_indices_drop_one(connection):
     assert len(search) == 1
     assert search[0][0] == 0.0
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_vector_index_drop_single_index(connection):
+def test_durability_with_vector_index_drop_single_index(connection, test_name):
     # Goal: That dropping a single vector index restores vectors to property store and persists correctly.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -410,8 +410,8 @@ def test_durability_with_vector_index_drop_single_index(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_vector_index_drop_single.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -477,13 +477,11 @@ def test_durability_with_vector_index_drop_single_index(connection):
     assert props[1][0] == [3.0, 4.0]
     assert props[2][0] == [5.0, 6.0]
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_two_vector_indices_remove_one_label(connection):
+def test_durability_with_two_vector_indices_remove_one_label(connection, test_name):
     # Goal: That removing one label from node with two labels keeps property in remaining index, not on node.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -493,8 +491,8 @@ def test_durability_with_two_vector_indices_remove_one_label(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_two_indices_remove_one_label.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -540,13 +538,11 @@ def test_durability_with_two_vector_indices_remove_one_label(connection):
     assert len(search) == 1
     assert search[0][0] == 0.0
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_two_vector_indices_remove_both_labels(connection):
+def test_durability_with_two_vector_indices_remove_both_labels(connection, test_name):
     # Goal: That removing both labels from node transfers property to property store, not in any index.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -556,8 +552,8 @@ def test_durability_with_two_vector_indices_remove_both_labels(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_two_indices_remove_both_labels.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -604,13 +600,11 @@ def test_durability_with_two_vector_indices_remove_both_labels(connection):
     prop_check = execute_and_fetch_all(cursor, "MATCH (n {prop1: [1.0, 2.0]}) RETURN n.prop1;")
     assert prop_check[0][0] == [1.0, 2.0]
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_vector_index_nodes_before_index_creation(connection):
+def test_durability_with_vector_index_nodes_before_index_creation(connection, test_name):
     # Goal: That nodes created before index creation and nodes added after index creation are correctly restored.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -620,8 +614,8 @@ def test_durability_with_vector_index_nodes_before_index_creation(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_vector_nodes_before_index.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -699,13 +693,11 @@ def test_durability_with_vector_index_nodes_before_index_creation(connection):
     assert len(search_results) == 1
     assert search_results[0][0] == 0.0
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_vector_index_snapshot_and_wal(connection):
+def test_durability_with_vector_index_snapshot_and_wal(connection, test_name):
     # Goal: That vector indices and their data are correctly restored after snapshot and WAL replay.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -715,8 +707,8 @@ def test_durability_with_vector_index_snapshot_and_wal(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_vector_snapshot_and_wal.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -757,14 +749,12 @@ def test_durability_with_vector_index_snapshot_and_wal(connection):
     assert props[1][0] == [3.0, 4.0]
     assert props[2][0] == [5.0, 6.0]
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_creating_index_after_vector_already_in_another_index(connection):
+def test_durability_creating_index_after_vector_already_in_another_index(connection, test_name):
     # Goal: Verify that when a node has a vector property already indexed by one index,
     # creating a second index on the same property (but different label) works correctly after WAL recovery.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -774,8 +764,8 @@ def test_durability_creating_index_after_vector_already_in_another_index(connect
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_creating_index_after_vector_already_in_another_index.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -830,17 +820,15 @@ def test_durability_creating_index_after_vector_already_in_another_index(connect
         == 1
     )
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
 
 
-def test_durability_with_wildcard_vector_index(connection):
+def test_durability_with_wildcard_vector_index(connection, test_name):
     # Goal: Wildcard vector index (ON :*) indexes all vertices and survives restart.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -850,8 +838,8 @@ def test_durability_with_wildcard_vector_index(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_wildcard_vector_index.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -887,13 +875,11 @@ def test_durability_with_wildcard_vector_index(connection):
     assert len(search) == 3
     assert search[0][0] == 0.0  # exact match distance
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_or_vector_index(connection):
+def test_durability_with_or_vector_index(connection, test_name):
     # Goal: OR vector index (ON :A|B) indexes vertices with any matching label and survives restart.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -903,8 +889,8 @@ def test_durability_with_or_vector_index(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_or_vector_index.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -939,13 +925,11 @@ def test_durability_with_or_vector_index(connection):
     )
     assert len(search) == 2
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
-def test_durability_with_and_vector_index(connection):
+def test_durability_with_and_vector_index(connection, test_name):
     # Goal: AND vector index (ON :A&B) indexes only vertices with ALL matching labels and survives restart.
-
-    data_directory = tempfile.TemporaryDirectory()
 
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
@@ -955,8 +939,8 @@ def test_durability_with_and_vector_index(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_and_vector_index.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -992,4 +976,4 @@ def test_durability_with_and_vector_index(connection):
     assert len(search) == 1
     assert search[0][0] == 0.0
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)

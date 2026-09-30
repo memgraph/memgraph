@@ -16,11 +16,11 @@
 
 import os
 import sys
-import tempfile
 
 import interactive_mg_runner
 import periodic_snapshot as base
 import pytest
+from common import get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -29,6 +29,20 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
+FILE = "periodic_snapshot_light_edge"
+
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 # Flags that turn on light edges. Light edges require properties-on-edges.
 LIGHT_EDGE_FLAGS = [
     "--storage-properties-on-edges=true",
@@ -36,28 +50,26 @@ LIGHT_EDGE_FLAGS = [
 ]
 
 
-def memgraph_instances(dir, mode="IN_MEMORY_TRANSACTIONAL"):
-    # Start from the heavy workload's instance definitions and inject the
-    # light-edge flags into every instance's arg list.
-    instances = base.memgraph_instances(dir, mode)
-    for name, cfg in instances.items():
+def memgraph_instances(test_name, mode="IN_MEMORY_TRANSACTIONAL"):
+    # Start from the heavy workload's instance definitions, keyed under this
+    # file's own data and log paths, and inject the light-edge flags into
+    # every instance's arg list.
+    instances = base.memgraph_instances(test_name, mode, file=FILE)
+    for cfg in instances.values():
         cfg["args"] = cfg["args"] + LIGHT_EDGE_FLAGS
-        cfg["log_file"] = "light_edge_" + cfg["log_file"]
     return instances
 
 
-def test_sec_flag_light_edge():
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "sec_flag")
-    base.main_test(data_directory.name + "/snapshots")
-    interactive_mg_runner.kill_all()
+def test_sec_flag_light_edge(test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name), "sec_flag")
+    base.main_test(base.snapshots_path(FILE, test_name))
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
-def test_interval_flag_light_edge():
-    data_directory = tempfile.TemporaryDirectory()
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "interval_flag")
-    base.main_test(data_directory.name + "/snapshots")
-    interactive_mg_runner.kill_all()
+def test_interval_flag_light_edge(test_name):
+    interactive_mg_runner.start(memgraph_instances(test_name), "interval_flag")
+    base.main_test(base.snapshots_path(FILE, test_name))
+    interactive_mg_runner.kill_all(keep_directories=False)
 
 
 if __name__ == "__main__":

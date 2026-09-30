@@ -11,11 +11,10 @@
 
 import os
 import sys
-import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import execute_and_fetch_all
+from common import execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -26,6 +25,13 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR = os.path.normpath(
     os.path.join(interactive_mg_runner.BUILD_DIR, "query_modules")
 )
+
+FILE = "durability_with_vector_edge_index"
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
 
 
 @pytest.fixture(autouse=True)
@@ -45,9 +51,7 @@ def vector_edge_search(cursor, index_name, limit, query_vector):
     )
 
 
-def test_durability_with_vector_edge_index_basic(connection):
-    data_directory = tempfile.TemporaryDirectory()
-
+def test_durability_with_vector_edge_index_basic(connection, test_name):
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
@@ -56,8 +60,8 @@ def test_durability_with_vector_edge_index_basic(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_with_vector_edge_index_basic.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -105,9 +109,7 @@ def test_durability_with_vector_edge_index_basic(connection):
     assert search_results[0][0] == 0.0
 
 
-def test_durability_with_vector_edge_index_property_changes(connection):
-    data_directory = tempfile.TemporaryDirectory()
-
+def test_durability_with_vector_edge_index_property_changes(connection, test_name):
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
@@ -116,8 +118,8 @@ def test_durability_with_vector_edge_index_property_changes(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_with_vector_edge_index_prop_changes.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -164,9 +166,7 @@ def test_durability_with_vector_edge_index_property_changes(connection):
     assert original[0][0] == [5.0, 6.0]
 
 
-def test_durability_with_vector_edge_index_snapshot_basic(connection):
-    data_directory = tempfile.TemporaryDirectory()
-
+def test_durability_with_vector_edge_index_snapshot_basic(connection, test_name):
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
@@ -175,8 +175,8 @@ def test_durability_with_vector_edge_index_snapshot_basic(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_vector_edge_snapshot_basic.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -226,9 +226,7 @@ def test_durability_with_vector_edge_index_snapshot_basic(connection):
     assert search_results[0][0] == 0.0
 
 
-def test_durability_with_vector_edge_index_snapshot_property_changes(connection):
-    data_directory = tempfile.TemporaryDirectory()
-
+def test_durability_with_vector_edge_index_snapshot_property_changes(connection, test_name):
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
@@ -237,8 +235,8 @@ def test_durability_with_vector_edge_index_snapshot_property_changes(connection)
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_vector_edge_snapshot_prop_changes.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -287,9 +285,7 @@ def test_durability_with_vector_edge_index_snapshot_property_changes(connection)
     assert original[0][0] == [5.0, 6.0]
 
 
-def test_durability_with_vector_edge_index_snapshot_and_wal(connection):
-    data_directory = tempfile.TemporaryDirectory()
-
+def test_durability_with_vector_edge_index_snapshot_and_wal(connection, test_name):
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
@@ -298,8 +294,8 @@ def test_durability_with_vector_edge_index_snapshot_and_wal(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_vector_edge_snapshot_and_wal.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -354,9 +350,7 @@ def test_durability_with_vector_edge_index_snapshot_and_wal(connection):
     assert search_results[0][0] == 0.0
 
 
-def test_durability_with_vector_edge_index_drop_after_snapshot(connection):
-    data_directory = tempfile.TemporaryDirectory()
-
+def test_durability_with_vector_edge_index_drop_after_snapshot(connection, test_name):
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
@@ -365,8 +359,8 @@ def test_durability_with_vector_edge_index_drop_after_snapshot(connection):
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": "main_durability_vector_edge_drop_after_snapshot.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
