@@ -226,8 +226,8 @@ COPY fips-wheels /tmp/fips-wheels
 # with --no-index removes the choice; the second install then reports those
 # pins already satisfied and leaves them.
 RUN pip3 install --no-cache-dir --break-system-packages --no-index --no-deps /tmp/fips-wheels/*.whl && \
-    pip3 install --no-cache-dir --break-system-packages -r /tmp/auth-module-requirements.txt && \
-    pip3 install --no-cache-dir --break-system-packages numpy==1.26.4 scipy==1.13.0 networkx==3.4.2
+    pip3 install --no-cache-dir --break-system-packages --only-binary :all: -r /tmp/auth-module-requirements.txt && \
+    pip3 install --no-cache-dir --break-system-packages --only-binary :all: numpy==1.26.4 scipy==1.13.0 networkx==3.4.2
 
 # In approved mode the FIPS provider serves no MD5, so CPython's hashlib
 # silently falls back to its own _md5 — an unvalidated implementation, still
