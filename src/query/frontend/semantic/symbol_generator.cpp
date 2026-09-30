@@ -391,12 +391,19 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   std::vector<std::unordered_set<std::string>> names;
   std::vector<std::unordered_set<std::string>> written;
   for (auto *body : branches.bodies_) {
-    Scope scope{.in_subquery_body = base.in_subquery_body, .in_call_subquery = base.in_call_subquery};
+    Scope scope{.in_subquery_body = base.in_subquery_body,
+                .subquery_fold = base.subquery_fold,
+                .in_call_subquery = base.in_call_subquery};
     scope.call_subquery_base = base.call_subquery_base;
     scope.call_subquery_imports = base.call_subquery_imports;
     scope.symbols = base.call_subquery_imports;
     scopes_.back() = std::move(scope);
     body->Accept(*this);
+    // An expression body folds its rows, so a branch that ends without RETURN has nothing to give.
+    if (base.in_subquery_body && !scopes_.back().has_return) {
+      throw SemanticException("Every WHEN branch of {} must end with RETURN.",
+                              SubqueryExpression::FoldName(base.subquery_fold));
+    }
     auto const kind = std::invoke([&] {
       if (scopes_.back().has_return) return BranchKind::kReturns;
       const auto *call = TrailingCall(*body);

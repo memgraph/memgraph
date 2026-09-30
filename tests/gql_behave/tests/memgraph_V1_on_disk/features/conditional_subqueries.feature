@@ -50,3 +50,23 @@ Feature: Conditional subqueries
             | 1 | 1 | 2 |
             | 2 | 1 | 2 |
             | 3 | 2 | 2 |
+
+    Scenario: The folds of an expression body with WHEN branches
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:P {v: 1})-[:R]->(:Q {v: 10}), (:P {v: 2})
+            """
+        When executing query:
+            """
+            MATCH (p:P)
+            RETURN p.v AS v,
+                   EXISTS { WHEN p.v = 1 THEN MATCH (p)-[:R]->(q) RETURN q } AS e,
+                   COUNT { WHEN p.v = 1 THEN MATCH (p)-[:R]->(q) RETURN q ELSE RETURN 0 AS q } AS c,
+                   COLLECT { WHEN p.v = 1 THEN MATCH (p)-[:R]->(q) RETURN q.v AS q } AS l
+            ORDER BY v
+            """
+        Then the result should be:
+            | v | e     | c | l    |
+            | 1 | true  | 1 | [10] |
+            | 2 | false | 1 | []   |
