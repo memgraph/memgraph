@@ -18,7 +18,7 @@ from multiprocessing import Pool
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, get_vertex_count
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, get_vertex_count, show_instances
 from mg_utils import (
     mg_sleep_and_assert,
     mg_sleep_and_assert_collection,
@@ -37,6 +37,16 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 file = "strict_sync"
 
+_commit_lock_narrowing = False
+
+
+@pytest.fixture(autouse=True, params=[False, True], ids=["narrowing_off", "narrowing_on"])
+def commit_lock_narrowing_mode(request):
+    global _commit_lock_narrowing
+    _commit_lock_narrowing = request.param
+    yield
+    _commit_lock_narrowing = False
+
 
 @pytest.fixture(autouse=True)
 def cleanup_after_test():
@@ -52,6 +62,7 @@ def test_name(request):
 
 
 def get_instances_description_no_setup(test_name: str):
+    narrowing_args = ["--experimental-enabled=commit-lock-narrowing"] if _commit_lock_narrowing else []
     return {
         "instance_1": {
             "args": [
@@ -61,6 +72,7 @@ def get_instances_description_no_setup(test_name: str):
                 "TRACE",
                 "--management-port",
                 "10011",
+                *narrowing_args,
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_1.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_1",
@@ -74,6 +86,7 @@ def get_instances_description_no_setup(test_name: str):
                 "TRACE",
                 "--management-port",
                 "10012",
+                *narrowing_args,
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_2.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_2",
@@ -87,6 +100,7 @@ def get_instances_description_no_setup(test_name: str):
                 "TRACE",
                 "--management-port",
                 "10013",
+                *narrowing_args,
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_3",
@@ -493,6 +507,30 @@ def test_after_commit_trigger_fires_for_committed_txn(test_name):
     mg_sleep_and_assert(0, partial(get_labeled_vertex_count, main_cursor, "Node"))
 
     mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Audit"))
+
+
+# Kill MAIN after a committed STRICT_SYNC write: the promoted instance must hold the committed vertex
+def test_committed_txn_survives_failover(test_name):
+    inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
+
+    main_cursor = connect(host="localhost", port=7689).cursor()
+    execute_and_fetch_all(main_cursor, "CREATE (n:Node {id: 1})")
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_3", keep_directories=False)
+
+    coord_cursor = connect(host="localhost", port=7692).cursor()
+
+    def promoted_rows(rows):
+        # Data instances have an empty coordinator_server column
+        return [r for r in rows if r[2] == "" and r[0] != "instance_3" and r[4] == "up" and r[5] == "main"]
+
+    rows = mg_sleep_and_assert_eval_function(
+        lambda rows: len(promoted_rows(rows)) == 1, partial(show_instances, coord_cursor)
+    )
+    new_main_port = int(promoted_rows(rows)[0][1].split(":")[1])
+
+    new_main_cursor = connect(host="localhost", port=new_main_port).cursor()
+    mg_sleep_and_assert(1, partial(get_vertex_count, new_main_cursor))
 
 
 if __name__ == "__main__":

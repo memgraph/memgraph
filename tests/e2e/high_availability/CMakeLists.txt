@@ -22,7 +22,6 @@ copy_e2e_python_files(high_availability large_cluster.py)
 copy_e2e_python_files(high_availability instance_metrics.py)
 copy_e2e_python_files(high_availability tls_cluster.py)
 copy_e2e_python_files(high_availability analytical_import.py)
-copy_e2e_python_files(high_availability commit_lock_narrowing_failover.py)
 copy_e2e_python_files(high_availability workloads.yaml)
 
 
