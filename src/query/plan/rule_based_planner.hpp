@@ -17,6 +17,7 @@
 #include <iterator>
 #include <optional>
 #include <ranges>
+#include <utility>
 #include <variant>
 
 #include "flags/run_time_configurable.hpp"
@@ -499,6 +500,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             // site, so a comprehension in its pattern sees what earlier rows created. Only an all-anonymous one
             // reaches here; a user-declared atom fails earlier in filter generation (pre-existing, MATCH too).
             context.is_write_query = true;
+            plan_wrote_ = true;
             write_occurred = true;
             plan_and_apply_comprehensions(eligible);
             input_op = GenMerge(*merge,
@@ -522,6 +524,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             context.is_write_query = false;
           } else if (IsWriteClause(clause)) {
             context.is_write_query = true;
+            plan_wrote_ = true;
             write_occurred = true;
             plan_and_apply_comprehensions(impl::OriginatingIn(clause, pending_comprehensions));
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols);
@@ -599,6 +602,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                 std::move(input_op), load_jsonl->file_, load_jsonl->configs_, row_sym);
           } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
             context.is_write_query = true;
+            plan_wrote_ = true;
             write_occurred = true;
             // One set gates both chains, whichever binds the symbols first. Forced: `ForeachCursor::Pull` evaluates
             // the list expression before writing the loop variable, so a list comprehension must drain here, and
@@ -636,6 +640,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                      }) |
                      std::ranges::to<std::unordered_set<Symbol>>();
             });
+            // The body's `Plan` clears `is_write_query` at every UNION part and WITH, so what it leaves says
+            // nothing about the body as a whole or about this part before the CALL.
+            bool const wrote_before_call = context.is_write_query;
+            bool const plan_wrote_before_call = std::exchange(plan_wrote_, false);
             input_op = HandleSubquery(std::move(input_op),
                                       single_query_part.subqueries[subquery_id++],
                                       *context.symbol_table,
@@ -643,7 +651,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                       call_sub->cypher_query_->pre_query_directives_.commit_frequency_,
                                       call_sub->optional_,
                                       scoped_variables);
-            if (context.is_write_query && !has_periodic_commit) {
+            bool const body_wrote = plan_wrote_;
+            plan_wrote_ |= plan_wrote_before_call;
+            context.is_write_query = wrote_before_call || body_wrote;
+            if (body_wrote && !has_periodic_commit) {
               input_op = std::make_unique<Accumulate>(
                   std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
             }
@@ -709,6 +720,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// branch consults it, not just the body's own MATCH: a body WITH/RETURN plans its comprehensions and nested EXISTS
   /// on demand through `branch_sees_write`, and a body MATCH's WHERE reaches `MakeSubqueryFilter`.
   bool subquery_branch_after_write_{false};
+
+  /// Whether the current `Plan` call wrote anywhere, nested CALL bodies included; unlike `is_write_query`, WITH and
+  /// UNION do not clear it.
+  bool plan_wrote_{false};
 
   /// What the query part being planned binds. Scoped to one query part and saved/restored around it, because a
   /// subquery re-enters `PlanQueryPart` on this same object.
