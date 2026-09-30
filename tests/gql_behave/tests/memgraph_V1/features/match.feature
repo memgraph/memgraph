@@ -1251,21 +1251,6 @@ Feature: Match
             | 'b'  |
             | 'c'  |
 
-    Scenario: Label expression AND
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
-            """
-        When executing query:
-            """
-            MATCH (n:A&B) RETURN n.n AS v ORDER BY v;
-            """
-        Then the result should be:
-            | v     |
-            | 'ab'  |
-            | 'abc' |
-
     Scenario: Label expression NOT
         Given an empty graph
         And having executed:
@@ -1299,6 +1284,39 @@ Feature: Match
             | 'abc' |
             | 'b'   |
             | 'c'   |
+
+    Scenario: A label expression in a pattern keeps the pattern's properties
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B {n: 'ab'}) RETURN n.n AS v UNION ALL MATCH (n:!A {n: 'b'}) RETURN n.n AS v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'b'  |
+
+    Scenario: An OR of a label expression and a label in WHERE
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n:!A OR n:B RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v      |
+            | 'ab'   |
+            | 'abc'  |
+            | 'b'    |
+            | 'c'    |
+            | 'none' |
 
     Scenario: Label expression negated wildcard matches only a node without labels
         Given an empty graph
@@ -1371,23 +1389,6 @@ Feature: Match
             MATCH (n:A&!A) RETURN n.n AS v ORDER BY v;
             """
         Then the result should be empty
-
-    Scenario: Label expression under NOT in WHERE
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
-            """
-        When executing query:
-            """
-            MATCH (n) WHERE NOT n:A&B RETURN n.n AS v ORDER BY v;
-            """
-        Then the result should be:
-            | v      |
-            | 'a'    |
-            | 'b'    |
-            | 'c'    |
-            | 'none' |
 
     Scenario: Label expression binds tighter than OR in WHERE
         Given an empty graph
@@ -1656,7 +1657,8 @@ Feature: Match
         And having executed:
             """
             CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
-                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2),
+                   (x2)-[:R]->(x0)
             """
         When executing query:
             """

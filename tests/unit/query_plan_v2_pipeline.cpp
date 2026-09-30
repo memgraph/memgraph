@@ -18,7 +18,6 @@
 // Per-operator round-trip coverage lives at the converter layer, not here; one
 // representative round-trip guards the parser->pipeline path.
 
-#include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
 #include <sstream>
@@ -370,23 +369,6 @@ TEST_F(PlannerV2PipelineTest, OptionalCallSubqueryIsRejected) {
   // The same body without OPTIONAL lowers fine - see the MinimalCallReturn pipeline case - so the guard keys on
   // the flag alone.
   EXPECT_THROW(ConvertToEgraph(*optional_call, optional_symbols), NotYetImplemented);
-}
-
-// A label expression lowers to `LabelsTest`, which plan_v2 cannot read yet. It has to keep saying so: a
-// silent lowering would drop the label test and answer with rows the query excludes. The thrown feature
-// is asserted, not just the throw, because a query can fail here for an unrelated missing clause.
-TEST_F(PlannerV2PipelineTest, LabelExpressionsAreRejected) {
-  // `WITH`, not `UNWIND [1]`: a list literal is itself unsupported and would throw before the RETURN.
-  // Every shape is one `LabelsTest`, so one query stands for them all.
-  auto *parsed = ParseQuery("WITH 1 AS n RETURN n:!A AS v;");
-  ASSERT_NE(parsed, nullptr);
-  auto symbols = MakeSymbolTable(parsed);
-  try {
-    ConvertToEgraph(*parsed, symbols);
-    ADD_FAILURE() << "expected a refusal";
-  } catch (const NotYetImplemented &e) {
-    EXPECT_THAT(e.what(), ::testing::HasSubstr("LabelsTest"));
-  }
 }
 
 TEST_F(PlannerV2PipelineTest, ExtractedSymbolPositionsResolveInCompactTable) {

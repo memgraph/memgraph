@@ -10178,6 +10178,16 @@ TEST(CypherMainVisitorParameterTest, LabelExpressionParameterLeaf) {
     EXPECT_EQ(TermToString(*node->label_term_), "|(A,C)");
     EXPECT_FALSE(is_cacheable);
   }
+  {
+    // A parameter that names no label is an error under an operator too, not an empty conjunction.
+    auto list_of_int = memgraph::storage::ExternalPropertyValue(
+        std::vector<memgraph::storage::ExternalPropertyValue>{memgraph::storage::ExternalPropertyValue(1)});
+    for (const auto &value : {memgraph::storage::ExternalPropertyValue(1), list_of_int}) {
+      AstStorage storage;
+      bool is_cacheable = true;
+      EXPECT_THROW(parse("MATCH (n:!$p) RETURN 1", value, storage, &is_cacheable), SyntaxException);
+    }
+  }
 }
 
 // In expression position a label expression is one labels test, whatever its shape: the planner splits it,
@@ -10270,10 +10280,28 @@ TEST_P(CypherMainVisitorTest, LabelExpressionComprehensionPipe) {
     EXPECT_FALSE(comprehension->expression_);
     EXPECT_EQ(LabelsToString(comprehension->where_->expression_), "(A|B)");
   }
+  // A pattern comprehension always projects, so its last pipe is the projection.
+  {
+    auto *comprehension = dynamic_cast<PatternComprehension *>(
+        FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN [(n)-->(m) WHERE m:A|B | m.v] AS v")));
+    ASSERT_TRUE(comprehension);
+    ASSERT_TRUE(comprehension->resultExpr_);
+    ASSERT_TRUE(comprehension->filter_);
+    EXPECT_EQ(LabelsToString(comprehension->filter_->expression_), "(A|B)");
+  }
   // Outside a comprehension nothing can claim the pipe, so it is always a disjunction.
-  for (const auto *expression : {"[n:A|B]", "[n:A|C, 1]", "{k: n:A|C}"}) {
-    auto *query = ast_generator.ParseQuery(fmt::format("MATCH (n) RETURN {} AS v", expression));
-    ASSERT_TRUE(query) << expression;
+  for (const auto *expression : {"[n:A|B]", "[n:A|B, 1]"}) {
+    auto *list = dynamic_cast<ListLiteral *>(
+        FirstReturnedExpression(ast_generator.ParseQuery(fmt::format("MATCH (n) RETURN {} AS v", expression))));
+    ASSERT_TRUE(list) << expression;
+    EXPECT_EQ(LabelsToString(list->elements_.front()), "(A|B)") << expression;
+  }
+  {
+    auto *map = dynamic_cast<MapLiteral *>(
+        FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN {k: n:A|B} AS v")));
+    ASSERT_TRUE(map);
+    ASSERT_EQ(map->elements_.size(), 1U);
+    EXPECT_EQ(LabelsToString(map->elements_.begin()->second), "(A|B)");
   }
   {
     auto *query = ast_generator.ParseQuery("MATCH (n) RETURN CASE WHEN n:A|B THEN 1 ELSE 0 END AS v");

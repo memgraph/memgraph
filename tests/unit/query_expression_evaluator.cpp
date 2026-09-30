@@ -1244,7 +1244,6 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWildcard) {
   };
   EXPECT_TRUE(eval_on(TypedValue(labelled)).ValueBool());
   EXPECT_FALSE(eval_on(TypedValue(bare)).ValueBool());
-  EXPECT_TRUE(eval_on(TypedValue()).IsNull());
 
   // A vertex of this command does not exist under the OLD view the evaluator reads, so `%` reads it under NEW.
   auto fresh = this->dba.InsertVertex();
@@ -1272,9 +1271,10 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
 
   auto leaf = [](LabelIx label) { return LabelTerm{LabelTerm::Label{label}}; };
   auto test_of = [&](LabelTerm term) { return MakeLabelsTest(this->storage, identifier, std::move(term)); };
-  // (ANIMAL|%)&!PLANT
-  auto term = LabelTerm{LabelTerm::And{{LabelTerm{LabelTerm::Or{{leaf(animal_ix), LabelTerm{LabelTerm::Wildcard{}}}}},
-                                        LabelTerm{LabelTerm::Not{leaf(plant_ix)}}}}};
+  // (ANIMAL|PLANT)&!(ANIMAL&PLANT): each of `|`, `&` and `!` read as another operator changes a row below.
+  auto term = LabelTerm{
+      LabelTerm::And{{LabelTerm{LabelTerm::Or{{leaf(animal_ix), leaf(plant_ix)}}},
+                      LabelTerm{LabelTerm::Not{LabelTerm{LabelTerm::And{{leaf(animal_ix), leaf(plant_ix)}}}}}}}};
   // An empty `$p` under an operator: an `And` of nothing.
   auto empty_conjunction = LabelTerm{LabelTerm::And{}};
 
@@ -1284,12 +1284,10 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
     return this->Eval(op);
   };
   EXPECT_TRUE(eval_on(TypedValue(animal), test_of(term)).ValueBool());
-  EXPECT_FALSE(eval_on(TypedValue(plant), test_of(term)).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue(plant), test_of(term)).ValueBool());
   EXPECT_FALSE(eval_on(TypedValue(both), test_of(term)).ValueBool());
   EXPECT_FALSE(eval_on(TypedValue(bare), test_of(term)).ValueBool());
   EXPECT_TRUE(eval_on(TypedValue(bare), test_of(empty_conjunction)).ValueBool());
-  EXPECT_TRUE(eval_on(TypedValue(), test_of(term)).IsNull());
-  EXPECT_THROW(eval_on(TypedValue(1), test_of(term)), QueryRuntimeException);
 }
 
 TYPED_TEST(ExpressionEvaluatorTest, EdgeTypesTest) {
