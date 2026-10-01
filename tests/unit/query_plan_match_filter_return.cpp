@@ -4677,6 +4677,18 @@ TYPED_TEST(SubqueriesFeature, ConditionalSkipsLaterFolds) {
   EXPECT_EQ(this->ConditionalRows(this->ReturnIX(i, conditional)), (Rows{{1, 1}, {2, 2}}));
 }
 
+TYPED_TEST(SubqueriesFeature, ConditionalNonBoolPredicateRaises) {
+  // UNWIND [1] AS i CALL (i) { WHEN i THEN RETURN 10 AS x } RETURN i, x
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto conditional = this->MakeConditional(i, LIST(LITERAL(1)), {this->When(IDENT("i")->MapTo(i), LITERAL(10))});
+  try {
+    this->ConditionalRows(this->ReturnIX(i, conditional));
+    FAIL() << "expected a QueryRuntimeException";
+  } catch (const QueryRuntimeException &e) {
+    EXPECT_STREQ(e.what(), "CASE/WHEN expected boolean expression, got int.");
+  }
+}
+
 TYPED_TEST(SubqueriesFeature, ConditionalClone) {
   auto i = this->symbol_table.CreateSymbol("i", true);
   auto exists_sym = this->symbol_table.CreateAnonymousSymbol();

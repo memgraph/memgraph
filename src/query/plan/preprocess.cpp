@@ -1378,8 +1378,8 @@ namespace {
 QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery,
                              Expression *commit_frequency);
 
-/// One UNION leg. A WHEN body becomes its branches plus a prelude `WITH CASE WHEN p0 THEN 0 ... END AS d`; no `*`,
-/// which would copy every import per row. The prelude skips `SymbolGenerator::PostVisit(With)`: keep it bare.
+/// One UNION leg. A WHEN body becomes its branches, its predicates, and per predicate the filters holding its
+/// subqueries; it has no query parts of its own.
 QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query, Tree *combinator,
                            bool is_subquery, Expression *commit_frequency) {
   auto *branches =
@@ -1389,25 +1389,22 @@ QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, Singl
   auto conditional = std::make_shared<ConditionalQueryParts>();
   conditional->discriminator = *branches->discriminator_;
   conditional->output_symbols = branches->output_symbols_;
-  // No match leaves null, which no guard accepts.
-  Expression *index_expr = storage.Create<PrimitiveLiteral>(TypedValue());
-  for (auto i = static_cast<int64_t>(branches->predicates_.size()) - 1; i >= 0; --i) {
-    auto *index = storage.Create<PrimitiveLiteral>(TypedValue(i));
-    auto *predicate = branches->predicates_[i];
-    index_expr =
-        predicate ? storage.Create<IfOperator>(predicate, index, index_expr) : static_cast<Expression *>(index);
+  for (auto *predicate : branches->predicates_) {
+    conditional->predicates.push_back(predicate);
+    auto &filters = conditional->predicate_filters.emplace_back();
+    if (!predicate) continue;
+    filters = Filters::FromExpression(predicate, symbol_table, storage);
+    for (auto &filter : filters) {
+      SubqueryMatchingCollector collector(symbol_table, storage);
+      filter.expression->Accept(collector);
+      filter.subquery_matchings = collector.getSubqueryMatchings();
+      filter.pattern_comprehension_matchings = collector.getPatternComprehensionMatchings();
+    }
   }
-  auto *with = storage.Create<With>();
-  with->body_.named_expressions.push_back(
-      storage.Create<NamedExpression>(conditional->discriminator.name(), index_expr)
-          ->MapTo(conditional->discriminator));
-  auto *prelude = storage.Create<SingleQuery>();
-  prelude->clauses_.push_back(with);
-
   for (auto *body : branches->bodies_) {
     conditional->branches.push_back(CollectQueryParts(symbol_table, storage, body, is_subquery, commit_frequency));
   }
-  return QueryPart{CollectSingleQueryParts(symbol_table, storage, prelude), combinator, std::move(conditional)};
+  return QueryPart{{}, combinator, std::move(conditional)};
 }
 
 /// A conditional branch has no directives of its own and inherits the enclosing `IN TRANSACTIONS` frequency.

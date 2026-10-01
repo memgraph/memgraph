@@ -765,11 +765,11 @@ struct ConditionalQueryParts;
 /// Holds query parts of a single query together with the optional information
 /// about the combinator used between this single query and the previous one.
 struct QueryPart {
-  /// For a conditional leg, the prelude that computes the branch index.
+  /// Empty for a conditional leg.
   std::vector<SingleQueryPart> single_query_parts = {};
   /// Optional AST query combinator node
   Tree *query_combinator = nullptr;
-  /// Set when the leg is a `WHEN ... THEN ...` body; its branches follow the prelude.
+  /// Set when the leg is a `WHEN ... THEN ...` body.
   std::shared_ptr<ConditionalQueryParts> conditional = nullptr;
 };
 
@@ -787,6 +787,9 @@ struct QueryParts {
 /// A conditional leg's branches; its prelude stores the taken branch's index, or null, in `discriminator`.
 struct ConditionalQueryParts {
   std::vector<QueryParts> branches;
+  /// Per branch: its predicate (nullptr = ELSE) and the filters that hold the predicate's subqueries.
+  std::vector<Expression *> predicates;
+  std::vector<Filters> predicate_filters;
   Symbol discriminator;
   std::vector<Symbol> output_symbols;
 };

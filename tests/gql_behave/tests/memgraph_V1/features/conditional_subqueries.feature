@@ -464,3 +464,425 @@ Feature: Conditional subqueries
             | WHEN i = 1 THEN CALL mg.procedures() YIELD name WHERE name = 'x'                  |
             | WHEN i = 1 THEN CALL mg.procedures() YIELD name ELSE CREATE (:Q)                  |
             | WHEN i = 1 THEN CREATE (:Q) ELSE { WHEN true THEN CALL mg.procedures() YIELD name } |
+
+    Scenario: A later EXISTS predicate is not evaluated when an earlier predicate is true
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        And parameters are:
+            | z | 0 |
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.k > 0 THEN RETURN 'pos' AS x WHEN EXISTS { MATCH (a)-[:R]->(b) WHERE b.k / $z > 0 } THEN RETURN 'out' AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x     |
+            | 1 | 'pos' |
+            | 3 | 'pos' |
+            | 5 | 'pos' |
+
+    Scenario: A later COUNT predicate is not evaluated when an earlier predicate is true
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        And parameters are:
+            | z | 0 |
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.k > 0 THEN RETURN 'pos' AS x WHEN COUNT { UNWIND [1 / $z] AS u RETURN u } > 0 THEN RETURN 'cnt' AS x ELSE RETURN 'e' AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x     |
+            | 3 | 'pos' |
+            | 5 | 'pos' |
+            | 1 | 'pos' |
+
+    Scenario: A later COLLECT predicate is not evaluated when an earlier predicate is true
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        And parameters are:
+            | z | 0 |
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.k > 0 THEN RETURN 'pos' AS x WHEN size(COLLECT { UNWIND [1 / $z] AS u RETURN u }) > 0 THEN RETURN 'col' AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x     |
+            | 1 | 'pos' |
+            | 3 | 'pos' |
+            | 5 | 'pos' |
+
+    Scenario: An EXISTS operand after a true OR operand is not evaluated
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        And parameters are:
+            | z | 0 |
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.k > 0 OR EXISTS { MATCH (a)-[:R]->(b) WHERE b.k / $z > 0 } THEN RETURN 'pos' AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x     |
+            | 3 | 'pos' |
+            | 5 | 'pos' |
+            | 1 | 'pos' |
+
+    Scenario: A pattern comprehension in a later predicate is not evaluated when an earlier predicate is true
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        And parameters are:
+            | z | 0 |
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.k > 0 THEN RETURN 'pos' AS x WHEN size([(a)-[:R]->(b) WHERE b.k / $z > 0 | b.k]) > 0 THEN RETURN 'out' AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x     |
+            | 1 | 'pos' |
+            | 3 | 'pos' |
+            | 5 | 'pos' |
+
+    Scenario: A reached subquery predicate still raises its error
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        And parameters are:
+            | z | 0 |
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.k > 4 THEN RETURN 'big' AS x WHEN EXISTS { MATCH (a)-[:R]->(b) WHERE b.k / $z > 0 } THEN RETURN 'out' AS x }
+            RETURN a.k AS k, x
+            """
+        # Neo4j raises an ArithmeticError; this step cannot check the text.
+        Then an error should be raised
+
+    Scenario: Subquery predicates choose per row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN COUNT { (a)-->() } = 1 AND a.k > 4 THEN RETURN 'far' AS x WHEN EXISTS { (a)-->() } THEN RETURN 'near' AS x ELSE RETURN 'none' AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x      |
+            | 3 | 'none' |
+            | 5 | 'far'  |
+            | 1 | 'near' |
+
+    Scenario: A property predicate sees a property an earlier row's branch set
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:C {v: 0})
+            """
+        When executing query:
+            """
+            MATCH (c:C)
+            UNWIND [1, 2, 3] AS i
+            CALL (c, i) { WHEN c.v < 2 THEN SET c.v = c.v + 1 RETURN 'inc' AS x ELSE RETURN 'skip' AS x }
+            RETURN i, x
+            """
+        Then the result should be:
+            | i | x      |
+            | 1 | 'inc'  |
+            | 2 | 'inc'  |
+            | 3 | 'skip' |
+
+    Scenario: Ten branches each take their own rows
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND range(0, 19) AS i
+            CALL (i) { WHEN i % 10 = 0 THEN RETURN 0 AS x WHEN i % 10 = 1 THEN RETURN 1 AS x WHEN i % 10 = 2 THEN RETURN 2 AS x
+                       WHEN i % 10 = 3 THEN RETURN 3 AS x WHEN i % 10 = 4 THEN RETURN 4 AS x WHEN i % 10 = 5 THEN RETURN 5 AS x
+                       WHEN i % 10 = 6 THEN RETURN 6 AS x WHEN i % 10 = 7 THEN RETURN 7 AS x WHEN i % 10 = 8 THEN RETURN 8 AS x
+                       ELSE RETURN 9 AS x }
+            RETURN x, count(*) AS c
+            """
+        Then the result should be:
+            | x | c |
+            | 0 | 2 |
+            | 1 | 2 |
+            | 2 | 2 |
+            | 3 | 2 |
+            | 4 | 2 |
+            | 5 | 2 |
+            | 6 | 2 |
+            | 7 | 2 |
+            | 8 | 2 |
+            | 9 | 2 |
+
+    Scenario: Branches with columns in different orders fill each column by name
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CALL (i) { WHEN i = 1 THEN RETURN 'b' AS y, 1 AS x WHEN i = 2 THEN RETURN 2 AS x, 'c' AS y ELSE RETURN 3 AS x, null AS y }
+            RETURN i, x, y
+            """
+        Then the result should be:
+            | i | x | y    |
+            | 1 | 1 | 'b'  |
+            | 2 | 2 | 'c'  |
+            | 3 | 3 | null |
+
+    Scenario: A branch's rows reach the caller, and a branch with no rows drops the caller's row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN EXISTS { (a)-->() } THEN MATCH (a)-->(b) UNWIND [b.k, b.k * 10] AS x RETURN x ELSE MATCH (a)<--(b) RETURN b.k AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x  |
+            | 1 | 2  |
+            | 1 | 20 |
+            | 5 | 6  |
+            | 5 | 60 |
+
+    Scenario: OPTIONAL CALL keeps a row that no branch takes, and one whose branch has no rows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            OPTIONAL CALL (a) { WHEN a.k = 1 THEN MATCH (a)-->(b) RETURN b.k AS x WHEN a.k = 5 THEN MATCH (a)<--(b) RETURN b.k AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x    |
+            | 1 | 2    |
+            | 3 | null |
+            | 5 | null |
+
+    Scenario: A null predicate is not taken
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, null, 3] AS i
+            CALL (i) { WHEN i > 2 THEN RETURN 'big' AS x WHEN i < 2 THEN RETURN 'small' AS x ELSE RETURN 'other' AS x }
+            RETURN i, x
+            """
+        Then the result should be:
+            | i    | x       |
+            | 1    | 'small' |
+            | null | 'other' |
+            | 3    | 'big'   |
+
+    Scenario: An aggregating branch that is not taken yields no row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.k = 1 THEN MATCH (b:B) RETURN count(b) AS c WHEN a.k = 3 THEN MATCH (b:Nope) RETURN count(b) AS c }
+            RETURN a.k AS k, c
+            """
+        Then the result should be:
+            | k | c |
+            | 1 | 2 |
+            | 3 | 0 |
+
+    Scenario: A nested WHEN chooses inside the outer branch
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.k < 4 THEN { WHEN EXISTS { (a)-->() } THEN RETURN 'n1' AS x ELSE RETURN 'n2' AS x } ELSE RETURN 'e' AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x    |
+            | 1 | 'n1' |
+            | 3 | 'n2' |
+            | 5 | 'e'  |
+
+    Scenario: A conditional body feeds a later star
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { WHEN i = 1 THEN RETURN 10 AS a ELSE RETURN 20 AS a }
+            RETURN *
+            """
+        Then the result should be:
+            | a  | i |
+            | 10 | 1 |
+            | 20 | 2 |
+
+    Scenario: A pattern comprehension after a true OR operand in one predicate is still evaluated
+        # Deliberate divergence from Neo4j: inside one predicate memgraph plans a pattern comprehension as an eager RollUpApply, as in WHERE on master; Neo4j evaluates it lazily. Recorded in ~/work/backlog.md.
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        And parameters are:
+            | z | 0 |
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.k > 0 OR size([(a)-[:R]->(b) WHERE b.k / $z > 0 | b.k]) > 0 THEN RETURN 'pos' AS x }
+            RETURN a.k AS k, x
+            """
+        Then an error should be raised
+
+    Scenario: A branch's count does not lose the caller's row under parallel execution
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:P {k: 1}), (:P {k: 2}), (:P {k: 30}) WITH 1 AS x UNWIND range(1, 200) AS i CREATE (:Q)
+            """
+        When executing query:
+            """
+            MATCH (n:P)
+            CALL (n) { WHEN n.k < 10 THEN MATCH (m:Q) RETURN count(m) AS c ELSE RETURN -1 AS c }
+            RETURN n.k AS k, c
+            """
+        Then the result should be:
+            | k  | c   |
+            | 1  | 200 |
+            | 2  | 200 |
+            | 30 | -1  |
+
+    Scenario: A true parameter predicate is taken
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        And parameters are:
+            | p | true |
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN $p THEN RETURN 'yes' AS x ELSE RETURN 'no' AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x   |
+            | 1 | 'yes' |
+            | 3 | 'yes' |
+            | 5 | 'yes' |
+
+    Scenario: A null parameter predicate is not taken
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        And parameters are:
+            | p | null |
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN $p THEN RETURN 'yes' AS x ELSE RETURN 'no' AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x   |
+            | 1 | 'no' |
+            | 3 | 'no' |
+            | 5 | 'no' |
+
+    Scenario Outline: A predicate may test a pattern
+        # exists() is memgraph syntax; Neo4j measured the bare pattern.
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN <predicate> THEN RETURN 'out' AS x ELSE RETURN 'none' AS x }
+            RETURN a.k AS k, x
+            """
+        Then the result should be:
+            | k | x      |
+            | 1 | 'out'  |
+            | 3 | 'none' |
+            | 5 | 'out'  |
+
+        Examples:
+            | predicate                |
+            | (a)-[:R]->()             |
+            | exists((a)-[:R]->())     |
+
+    Scenario: A predicate that is not a boolean raises
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.k THEN RETURN 'yes' AS x }
+            RETURN a.k AS k, x
+            """
+        Then an error should be raised
+
+    Scenario Outline: A subquery predicate sees a write before the CALL
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (c:C {v: 1})
+            WITH c
+            CALL (c) { WHEN <predicate> THEN RETURN 'seen' AS x ELSE RETURN 'none' AS x }
+            RETURN x
+            """
+        Then the result should be:
+            | x      |
+            | 'seen' |
+
+        Examples:
+            | predicate                     |
+            | EXISTS { MATCH (x:C) }        |
+            | COUNT { MATCH (x:C) } = 1     |
