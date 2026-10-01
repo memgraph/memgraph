@@ -123,7 +123,6 @@ void VectorIndex::RecoverAllVectorIndices(std::vector<VectorIndexRecoveryInfo> &
         utils::small_vector<float> vec;
 
         if (stored_as_tag) {
-          // Vector lives in vertex_vectors, not in the property store.
           utils::small_vector<float> *entry_ptr = nullptr;
           if (auto map_it = vertex_vectors.find(property); map_it != vertex_vectors.end()) {
             if (auto entry_it = map_it->second.find(vertex.gid); entry_it != map_it->second.end()) {
@@ -665,7 +664,7 @@ void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, con
 void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, PropertyValue &value, const Vertex *vertex,
                                               std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
                                               VertexVectors &vertex_vectors) {
-  // A tag with no vector is the legacy on-disk form of []; treat it as the plain empty list it stands for.
+  // Older versions stored [] as a tag with no floats; normalise it to plain [].
   if (value.IsVectorIndexId() && value.ValueVectorIndexList().empty()) {
     value = PropertyValue(std::vector<double>{});
   }

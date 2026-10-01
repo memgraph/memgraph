@@ -1468,7 +1468,6 @@ std::optional<RecoveryInfo> LoadWal(
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        // Label changes do not affect vector recovery — membership is recomputed in the final build.
       },
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1483,7 +1482,6 @@ std::optional<RecoveryInfo> LoadWal(
         std::swap(*it, vertex->labels.back());
         vertex->labels.pop_back();
         if (schema_info) schema_info->UpdateLabels(&*vertex, *old_labels, vertex->labels, items.properties_on_edges);
-        // Label changes do not affect vector recovery — membership is recomputed in the final build.
       },
       [&](WalVertexSetProperty const &data) {
         const auto vertex = vertex_acc.find(data.gid);
@@ -1495,8 +1493,8 @@ std::optional<RecoveryInfo> LoadWal(
           const auto old_type = vertex->properties.GetExtendedPropertyType(property_id);
           schema_info->SetProperty(&*vertex, property_id, ExtendedPropertyType{(property_value)}, old_type);
         }
-        // Capture the vector from the decoded value (it still carries the float data at this point).
-        // UpdateOnSetProperty may mutate property_value (tag-without-spec → plain list).
+        // Moves the tag's floats into vertex_vectors; may rewrite property_value (empty tag → [], no spec → plain
+        // list).
         VectorIndexRecovery::UpdateOnSetProperty(property_id,
                                                  property_value,
                                                  &*vertex,

@@ -144,14 +144,14 @@ struct VectorIndexRecoveryInfo {
 struct VectorIndexRecovery {
   using VertexVectors = absl::flat_hash_map<PropertyId, absl::flat_hash_map<Gid, utils::small_vector<float>>>;
 
-  /// Called on WAL VertexSetProperty: captures tag→vertex_vectors[p][gid] or erases (list/null)
-  /// when p has a spec; demotes stale tags to plain lists (mutates value) when p has no spec.
+  /// Called on WAL VertexSetProperty. Mutates value: an empty tag becomes plain []. With a spec on p, a tag is
+  /// captured into vertex_vectors[p][gid] and any other value erases it; without one, a stale tag becomes a list.
   static void UpdateOnSetProperty(PropertyId property, PropertyValue &value, const Vertex *vertex,
                                   std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
                                   VertexVectors &vertex_vectors);
 
-  /// Called on WAL VectorIndexDrop: removes the spec. If no other spec covers the same property,
-  /// iterates vertices to restore stored tags to plain lists, then drops the map entry.
+  /// Called on WAL VectorIndexDrop: removes the spec. If no other spec covers the same property, demotes stored
+  /// tags to plain lists (null if no vector captured), then erases the map entry.
   static void UpdateOnIndexDrop(std::string_view index_name, std::vector<VectorIndexRecoveryInfo> &recovery_info_vec,
                                 VertexVectors &vertex_vectors, utils::SkipListDb<Vertex>::Accessor &vertices);
 };
@@ -250,7 +250,7 @@ class VectorIndex {
   bool CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
                    NameIdMapper *name_id_mapper, ProgressCallback const &on_progress = {});
 
-  /// Recovers all vector indices in one pass. On failure, drops every index set up and rethrows.
+  /// Recovers all vector indices in one pass. On failure, drops all indices in recovery_infos and rethrows.
   /// vertex_vectors is cleared on success; on_progress fires once per vertex, not per insertion.
   void RecoverAllVectorIndices(std::vector<VectorIndexRecoveryInfo> &recovery_infos,
                                VectorIndexRecovery::VertexVectors &vertex_vectors,

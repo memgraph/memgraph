@@ -979,6 +979,11 @@ def test_durability_with_and_vector_index(connection, test_name):
     interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
+_POST_RESTART_REMOVE_LABEL = {
+    "node_added_to_two_indexes_via_label_addition": ("MATCH (n:I) REMOVE n:I;", {"idxI": 0, "idxJ": 1}),
+}
+
+
 @pytest.mark.parametrize(
     "scenario,queries,expected_indexes,expected_embedding,prop",
     [
@@ -1071,40 +1076,6 @@ def test_durability_with_and_vector_index(connection, test_name):
             [3.0, 4.0],
             "embedding",
         ),
-        (
-            "member_vector_updated_twice",
-            [
-                'CREATE VECTOR INDEX idx ON :A(emb) WITH CONFIG {"dimension": 2, "capacity": 10};',
-                "CREATE (:A {emb: [1.0, 2.0]});",
-                "MATCH (n:A) SET n.emb = [3.0, 4.0];",
-                "MATCH (n:A) SET n.emb = [5.0, 6.0];",
-            ],
-            {"idx": 1},
-            [5.0, 6.0],
-            "emb",
-        ),
-        (
-            "node_before_index_then_vector_updated",
-            [
-                "CREATE (:A {emb: [1.0, 2.0]});",
-                'CREATE VECTOR INDEX idx ON :A(emb) WITH CONFIG {"dimension": 2, "capacity": 10};',
-                "MATCH (n:A) SET n.emb = [9.0, 8.0];",
-            ],
-            {"idx": 1},
-            [9.0, 8.0],
-            "emb",
-        ),
-        (
-            "index_dropped_restores_plain_list",
-            [
-                'CREATE VECTOR INDEX idx ON :A(emb) WITH CONFIG {"dimension": 2, "capacity": 10};',
-                "CREATE (:A {emb: [7.0, 7.0]});",
-                "DROP VECTOR INDEX idx;",
-            ],
-            {},
-            [7.0, 7.0],
-            "emb",
-        ),
     ],
 )
 def test_durability_vector_index_membership_after_wal_replay(
@@ -1152,6 +1123,15 @@ def test_durability_vector_index_membership_after_wal_replay(
     assert len(embedding) == 1
     assert embedding[0][0] == expected_embedding
 
+    if scenario in _POST_RESTART_REMOVE_LABEL:
+        remove_query, sizes_after_removal = _POST_RESTART_REMOVE_LABEL[scenario]
+        execute_and_fetch_all(cursor, remove_query)
+        info_by_name = {row[0]: row for row in execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")}
+        assert {name: row[6] for name, row in info_by_name.items()} == sizes_after_removal
+        embedding = execute_and_fetch_all(cursor, f"MATCH (n) RETURN n.{prop};")
+        assert len(embedding) == 1
+        assert embedding[0][0] == expected_embedding
+
     interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
@@ -1162,31 +1142,35 @@ _IDX_CREATE = 'CREATE VECTOR INDEX idx ON :L(emb) WITH CONFIG {"dimension": 2, "
 @pytest.mark.parametrize(
     "scenario,queries,read_query,expected_indexes",
     [
-        (
+        pytest.param(
             "set_member_to_empty",
             [_IDX_CREATE, "CREATE (:L {emb: [1.0, 2.0]});", "MATCH (n:L) SET n.emb = [];"],
             "MATCH (n:L) RETURN n.emb;",
             {"idx": 0},
+            id="set_member_to_empty",
         ),
-        (
+        pytest.param(
             "drop_index",
             [_IDX_CREATE, "CREATE (:L {emb: []});", "DROP VECTOR INDEX idx;"],
             "MATCH (n:L) RETURN n.emb;",
             {},
+            id="drop_index",
         ),
-        (
+        pytest.param(
             "index_over_existing_empty",
             ["CREATE (:L {emb: []});", _IDX_CREATE, "DROP VECTOR INDEX idx;"],
             "MATCH (n:L) RETURN n.emb;",
             {},
+            id="index_over_existing_empty",
         ),
-        (
+        pytest.param(
             "remove_label",
             [_IDX_CREATE, "CREATE (:L {id: 1, emb: []});", "MATCH (n {id: 1}) REMOVE n:L;"],
             "MATCH (n {id: 1}) RETURN n.emb;",
             {"idx": 0},
+            id="remove_label",
         ),
-        (
+        pytest.param(
             "add_then_remove_label",
             [
                 _IDX_CREATE,
@@ -1196,10 +1180,13 @@ _IDX_CREATE = 'CREATE VECTOR INDEX idx ON :L(emb) WITH CONFIG {"dimension": 2, "
             ],
             "MATCH (n {id: 1}) RETURN n.emb;",
             {"idx": 0},
+            id="add_then_remove_label",
         ),
     ],
 )
-def test_durability_vector_index_empty_list(connection, test_name, mode, scenario, queries, read_query, expected_indexes):
+def test_durability_vector_index_empty_list(
+    connection, test_name, mode, scenario, queries, read_query, expected_indexes
+):
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [

@@ -286,7 +286,7 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   }
 
   // Vector idx on nodes — must run before label+property, global vertex property, text, and point
-  // rebuilds so they see the final VectorIndexIdData form, not the intermediate plain-list.
+  // rebuilds: it rewrites the stored property (member tags, demoted non-members) from untrusted recovered tags.
   {
     spdlog::info("Recreating {} vector indices.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();

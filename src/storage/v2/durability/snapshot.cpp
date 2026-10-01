@@ -957,7 +957,6 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListD
   uint64_t last_vertex_gid = 0;
   spdlog::info("Recovering {} vertices.", vertices_count);
   std::vector<std::pair<PropertyId, PropertyValue>> read_properties;
-  // Populated when capture != nullptr; merged into the shared map once under capture->mutex after the vertex loop.
   VectorIndexRecovery::VertexVectors local_capture;
   uint64_t five_percent_chunk = vertices_count / 20;
   if (five_percent_chunk == 0) {
