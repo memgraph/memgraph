@@ -58,6 +58,14 @@ if [ -n "$MG_INTEGRATION_LOG_DIR" ]; then
 else
   log_dir=$(mktemp -d "${TMPDIR:-/tmp}/memgraph_integration_logs.XXXXXX")
 fi
+# Fail fast if any suite would be silently skipped by run.sh's -x checks.
+for name in $(list_suites); do
+  if [ ! -x "$DIR/$name/runner.py" ] && [ ! -x "$DIR/$name/runner.sh" ]; then
+    echo "error: $name has no executable runner.py or runner.sh (check the git file mode)" >&2
+    exit 1
+  fi
+done
+
 echo "Running integration tests with $jobs parallel jobs (logs in $log_dir)"
 echo
 
