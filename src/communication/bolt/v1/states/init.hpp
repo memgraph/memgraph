@@ -147,6 +147,10 @@ std::optional<State> CoordinatorSSOAuthentication(TSession &session, memgraph::c
 
 template <typename TSession>
 std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
+  // Stamp the real authentication time; covers HELLO (Bolt <5.1) and LOGON (5.1+),
+  // including re-auth after LOGOFF, so SHOW SESSIONS reports the correct login time.
+  session.RefreshLoginTimestamp();
+
   // Get authentication data.
   // From neo4j driver v4.4, fields that have a default value are not sent.
   // In order to have back-compatibility, the missing fields will be added.

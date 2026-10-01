@@ -482,7 +482,12 @@ std::optional<bool> SessionHL::CoordinatorHasWritableRole() const {
 
 void SessionHL::LogOff() {
   Abort();
+  // LOGOFF is the identity boundary on a pooled connection: session state set by the previous user
+  // must not reach the next LOGON. The RuntimeConfig cache is also dropped because matching
+  // run_time_info metadata would skip Configure() and carry over the prior user's db/imp_user.
+  interpreter_.ResetForConnectionReuse();
 #ifdef MG_ENTERPRISE
+  runtime_config_.ResetForConnectionReuse();
   interpreter_.ResetDB();
   // Defense-in-depth: a logged-off session carries no coordinator privileges until the next LOGON re-establishes
   // them (SSO or basic passthrough).
@@ -792,13 +797,11 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   session_->interpreter_.ResetCachedFga();
 
   db_explicit_ = false;
-  user_explicit_ = false;
 
   // Step 1: Handle user configuration first
   // NOTE: This must be called first because it defines the default database for the user
   std::shared_ptr<query::QueryUserOrRole> user;
   if (run_time_info.contains("imp_user")) {
-    user_explicit_ = true;
     const auto &info = run_time_info.at("imp_user");
     if (!info.IsString()) {
       throw memgraph::communication::bolt::ClientError("Malformed config input.");
