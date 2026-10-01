@@ -13,6 +13,7 @@
 #include <sys/types.h>
 #include <chrono>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 #include <thread>
 #include <unordered_map>
@@ -93,6 +94,26 @@ class VectorEdgeIndexTest : public testing::Test {
     auto edge = edge_result.value();
     MG_ASSERT(edge.SetProperty(accessor->NameToProperty(property), property_value).has_value());
     return {from_vertex, to_vertex, edge};
+  }
+
+  // The form an older main replicates for SET e.prop = [] on an indexed edge.
+  PropertyValue MakeEmptyVectorEdgeIndexProperty(Storage::Accessor *accessor) {
+    const auto index_id = accessor->GetNameIdMapper()->NameToId(test_index.data());
+    return PropertyValue(PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{index_id},
+                                                          .vector = memgraph::utils::small_vector<float>{}});
+  }
+
+  void ExpectPlainEmptyList(Gid edge_gid, std::optional<std::size_t> expected_index_size) {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    if (expected_index_size) {
+      EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, *expected_index_size);
+    }
+    auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+    const auto stored = edge.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_FALSE(stored->IsVectorIndexId());
+    EXPECT_TRUE(stored->IsAnyList());
+    EXPECT_EQ(stored->ListSize(), 0u);
   }
 
   void CreateEdgeIndexNamed(std::string_view name, VectorMatchMode mode, std::uint16_t dimension,
@@ -363,6 +384,26 @@ TEST_F(VectorEdgeIndexTest, CreateIndexOverEmptyListThenDropKeepsPlainList) {
     EXPECT_TRUE(stored->IsAnyList());
     EXPECT_EQ(stored->ListSize(), 0u);
   }
+}
+
+TEST_F(VectorEdgeIndexTest, SetEmptyVectorIndexTagStoresPlainEmptyList) {
+  this->CreateEdgeIndex(2, 10);
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto empty_tag = MakeEmptyVectorEdgeIndexProperty(acc.get());
+    ASSERT_TRUE(empty_tag.IsVectorIndexId());
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, empty_tag, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->ExpectPlainEmptyList(edge_gid, 0);
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(!unique_acc->DropVectorIndex(test_index).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->ExpectPlainEmptyList(edge_gid, std::nullopt);
 }
 
 TEST_F(VectorEdgeIndexTest, DeleteEdgeTest) {

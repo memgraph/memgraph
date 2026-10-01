@@ -41,6 +41,8 @@ namespace {
 
 std::optional<PropertyValue> TryConvertToVectorEdgeIndexProperty(Storage *storage, EdgeTypeId edge_type,
                                                                  PropertyId property, const PropertyValue &value) {
+  // An older main sends [] as a tag with no vector; store it as the plain list it stands for.
+  if (value.IsVectorIndexId() && value.ValueVectorIndexList().empty()) return PropertyValue(std::vector<double>{});
   if (!value.IsAnyList() || value.IsVectorIndexId()) return std::nullopt;
   // An empty list has no vector to index; keep it as a plain list so the edge leaves the index.
   if (value.ListSize() == 0) return std::nullopt;

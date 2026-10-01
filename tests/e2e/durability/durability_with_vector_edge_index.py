@@ -14,7 +14,7 @@ import sys
 
 import interactive_mg_runner
 import pytest
-from common import execute_and_fetch_all, get_data_path, get_logs_path
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -414,20 +414,20 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
 
 
 @pytest.mark.parametrize(
-    "scenario,queries,snapshot_after,expected_indexes,expected_embedding",
+    "queries,snapshot_after,rolled_back_query,expected_indexes,expected_embedding",
     [
-        (
-            "edge_before_index",
+        pytest.param(
             [
                 "CREATE ()-[:REL {emb: [1.0, 2.0]}]->();",
                 EDGE_INDEX.format(name="idx", types=":REL"),
             ],
             None,
+            None,
             {"idx": 1},
             [1.0, 2.0],
+            id="edge_before_index",
         ),
-        (
-            "member_vector_updated_twice",
+        pytest.param(
             [
                 EDGE_INDEX.format(name="idx", types=":REL"),
                 "CREATE ()-[:REL {emb: [1.0, 2.0]}]->();",
@@ -435,67 +435,70 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
                 "MATCH ()-[r:REL]->() SET r.emb = [5.0, 6.0];",
             ],
             None,
+            None,
             {"idx": 1},
             [5.0, 6.0],
+            id="member_vector_updated_twice",
         ),
-        (
-            "member_set_to_empty_list",
+        pytest.param(
             [
                 EDGE_INDEX.format(name="idx", types=":REL"),
                 "CREATE ()-[:REL {emb: [1.0, 2.0]}]->();",
                 "MATCH ()-[r:REL]->() SET r.emb = [];",
             ],
             None,
+            None,
             {"idx": 0},
             [],
+            id="member_set_to_empty_list",
         ),
-        (
-            "member_set_to_empty_list_snapshot",
+        pytest.param(
             [
                 EDGE_INDEX.format(name="idx", types=":REL"),
                 "CREATE ()-[:REL {emb: [1.0, 2.0]}]->();",
                 "MATCH ()-[r:REL]->() SET r.emb = [];",
             ],
             [],
-            {"idx": 0},
-            [],
-        ),
-        (
-            "rollback_overwrite_of_empty_list",
-            [
-                EDGE_INDEX.format(name="idx", types=":REL"),
-                "CREATE ()-[:REL {emb: []}]->();",
-                "BEGIN;",
-                "MATCH ()-[r:REL]->() SET r.emb = [1.0, 2.0];",
-                "ROLLBACK;",
-            ],
             None,
             {"idx": 0},
             [],
+            id="member_set_to_empty_list_snapshot",
         ),
-        (
-            "index_created_over_empty_list",
+        pytest.param(
+            [
+                EDGE_INDEX.format(name="idx", types=":REL"),
+                "CREATE ()-[:REL {emb: []}]->();",
+            ],
+            None,
+            "MATCH ()-[r:REL]->() SET r.emb = [1.0, 2.0];",
+            {"idx": 0},
+            [],
+            id="rollback_overwrite_of_empty_list",
+        ),
+        pytest.param(
             [
                 "CREATE ()-[:REL {emb: []}]->();",
                 EDGE_INDEX.format(name="idx", types=":REL"),
             ],
             None,
+            None,
             {"idx": 0},
             [],
+            id="index_created_over_empty_list",
         ),
-        (
-            "index_created_over_empty_list_then_dropped",
+        pytest.param(
             [
                 "CREATE ()-[:REL {emb: []}]->();",
                 EDGE_INDEX.format(name="idx", types=":REL"),
                 "DROP VECTOR INDEX idx;",
             ],
             None,
+            None,
             {},
             [],
+            id="index_created_over_empty_list_then_dropped",
         ),
-        (
-            "index_created_over_empty_list_then_dropped_snapshot",
+        pytest.param(
             [
                 "CREATE ()-[:REL {emb: []}]->();",
                 EDGE_INDEX.format(name="idx", types=":REL"),
@@ -503,22 +506,24 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
             [
                 "DROP VECTOR INDEX idx;",
             ],
+            None,
             {},
             [],
+            id="index_created_over_empty_list_then_dropped_snapshot",
         ),
-        (
-            "index_dropped_restores_plain_list",
+        pytest.param(
             [
                 EDGE_INDEX.format(name="idx", types=":REL"),
                 "CREATE ()-[:REL {emb: [7.0, 7.0]}]->();",
                 "DROP VECTOR INDEX idx;",
             ],
             None,
+            None,
             {},
             [7.0, 7.0],
+            id="index_dropped_restores_plain_list",
         ),
-        (
-            "drop_then_recreate_on_same_property",
+        pytest.param(
             [
                 EDGE_INDEX.format(name="idx_old", types=":REL"),
                 "CREATE ()-[:REL {emb: [1.0, 2.0]}]->();",
@@ -526,11 +531,12 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
                 EDGE_INDEX.format(name="idx_new", types=":REL"),
             ],
             None,
+            None,
             {"idx_new": 1},
             [1.0, 2.0],
+            id="drop_then_recreate_on_same_property",
         ),
-        (
-            "two_indexes_drop_one",
+        pytest.param(
             [
                 EDGE_INDEX.format(name="idx_single", types=":REL"),
                 EDGE_INDEX.format(name="idx_any", types=":REL|OTHER"),
@@ -538,11 +544,12 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
                 "DROP VECTOR INDEX idx_single;",
             ],
             None,
+            None,
             {"idx_any": 1},
             [1.0, 2.0],
+            id="two_indexes_drop_one",
         ),
-        (
-            "second_index_backfills_then_first_dropped",
+        pytest.param(
             [
                 EDGE_INDEX.format(name="idx_a", types=":REL"),
                 "CREATE ()-[:REL {emb: [1.0, 2.0]}]->();",
@@ -551,11 +558,12 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
                 "MATCH ()-[r:REL]->() SET r.emb = [3.0, 4.0];",
             ],
             None,
+            None,
             {"idx_b": 1},
             [3.0, 4.0],
+            id="second_index_backfills_then_first_dropped",
         ),
-        (
-            "snapshot_then_drop_and_recreate",
+        pytest.param(
             [
                 EDGE_INDEX.format(name="idx_old", types=":REL"),
                 "CREATE ()-[:REL {emb: [1.0, 2.0]}]->();",
@@ -564,11 +572,12 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
                 "DROP VECTOR INDEX idx_old;",
                 EDGE_INDEX.format(name="idx_new", types=":REL"),
             ],
+            None,
             {"idx_new": 1},
             [1.0, 2.0],
+            id="snapshot_then_drop_and_recreate",
         ),
-        (
-            "snapshot_then_second_index_and_update",
+        pytest.param(
             [
                 EDGE_INDEX.format(name="idx_a", types=":REL"),
                 "CREATE ()-[:REL {emb: [1.0, 2.0]}]->();",
@@ -577,11 +586,12 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
                 EDGE_INDEX.format(name="idx_b", types=":REL|OTHER"),
                 "MATCH ()-[r:REL]->() SET r.emb = [9.0, 8.0];",
             ],
+            None,
             {"idx_a": 1, "idx_b": 1},
             [9.0, 8.0],
+            id="snapshot_then_second_index_and_update",
         ),
-        (
-            "snapshot_then_drop_both",
+        pytest.param(
             [
                 EDGE_INDEX.format(name="idx_a", types=":REL"),
                 EDGE_INDEX.format(name="idx_b", types=":REL|OTHER"),
@@ -591,16 +601,16 @@ EDGE_INDEX = 'CREATE VECTOR EDGE INDEX {name} ON {types}(emb) WITH CONFIG {{"dim
                 "DROP VECTOR INDEX idx_a;",
                 "DROP VECTOR INDEX idx_b;",
             ],
+            None,
             {},
             [1.0, 2.0],
+            id="snapshot_then_drop_both",
         ),
     ],
 )
 def test_durability_vector_edge_index_membership_after_replay(
-    connection, scenario, queries, snapshot_after, expected_indexes, expected_embedding
+    connection, test_name, queries, snapshot_after, rolled_back_query, expected_indexes, expected_embedding
 ):
-    data_directory = tempfile.TemporaryDirectory()
-
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
@@ -611,8 +621,8 @@ def test_durability_vector_edge_index_membership_after_replay(
                 "--query-modules-directory",
                 interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
-            "log_file": f"main_durability_vector_edge_index_membership_{scenario}.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -621,6 +631,14 @@ def test_durability_vector_edge_index_membership_after_replay(
 
     for query in queries:
         execute_and_fetch_all(cursor, query)
+
+    if rolled_back_query is not None:
+        # Explicit transactions are Bolt messages, not Cypher, so roll back through a non-autocommit connection.
+        tx_connection = connect(host="localhost", port=7687)
+        tx_connection.autocommit = False
+        execute_and_fetch_all(tx_connection.cursor(), rolled_back_query)
+        tx_connection.rollback()
+        tx_connection.close()
 
     if snapshot_after is not None:
         execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
