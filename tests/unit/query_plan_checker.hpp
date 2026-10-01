@@ -201,6 +201,12 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(Conditional &op) override {
+    CheckOp(op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
   PRE_VISIT(CallProcedure);
 
   bool PreVisit(RollUpApply &op) override {
@@ -525,6 +531,23 @@ class ExpectUnion : public OpChecker<Union> {
  private:
   std::list<BaseOpChecker *> left_;
   std::list<BaseOpChecker *> right_;
+};
+
+/// One checker list per branch, in source order; predicates' pattern filters are not checked.
+class ExpectConditional : public OpChecker<Conditional> {
+ public:
+  explicit ExpectConditional(std::vector<std::list<BaseOpChecker *>> branches) : branches_(std::move(branches)) {}
+
+  void ExpectOp(Conditional &op, const SymbolTable &symbol_table) override {
+    ASSERT_EQ(op.branches_.size(), branches_.size());
+    for (size_t i = 0; i < branches_.size(); ++i) {
+      PlanChecker check_branch(branches_[i], symbol_table);
+      op.branches_[i]->Accept(check_branch);
+    }
+  }
+
+ private:
+  std::vector<std::list<BaseOpChecker *>> branches_;
 };
 
 class ExpectExpandVariable : public OpChecker<ExpandVariable> {

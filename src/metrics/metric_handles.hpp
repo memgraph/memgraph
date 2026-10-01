@@ -135,6 +135,7 @@ struct DatabaseMetricHandles {
   CounterHandle indexed_join_operator;
   CounterHandle hash_join_operator;
   CounterHandle roll_up_apply_operator;
+  CounterHandle conditional_operator;
   CounterHandle periodic_commit_operator;
   CounterHandle periodic_subquery_operator;
   CounterHandle set_nested_property_operator;

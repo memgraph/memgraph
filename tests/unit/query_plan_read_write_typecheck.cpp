@@ -343,6 +343,34 @@ TYPED_TEST(ReadWriteTypeCheckTest, Foreach) {
   this->CheckPlanType(foreach.get(), RWType::RW);
 }
 
+TYPED_TEST(ReadWriteTypeCheckTest, Conditional) {
+  // CALL { WHEN true THEN MATCH (n) CREATE () }: a body's input is a bare Once, whose Visit returns false.
+  std::shared_ptr<LogicalOperator> scan_all = std::make_shared<ScanAll>(nullptr, this->GetSymbol("n"));
+  std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(scan_all, NodeCreationInfo());
+  auto writing = std::make_shared<Conditional>(std::make_shared<Once>(),
+                                               std::vector<Expression *>{LITERAL(true)},
+                                               std::vector<std::vector<std::shared_ptr<LogicalOperator>>>(1),
+                                               std::vector<std::shared_ptr<LogicalOperator>>{create},
+                                               std::vector<std::vector<std::pair<Symbol, Symbol>>>(1),
+                                               std::vector<Symbol>{});
+  this->CheckPlanType(writing.get(), RWType::RW);
+
+  // CALL { WHEN EXISTS { MATCH (m) } THEN RETURN 1 AS y }: only the predicate's fold reads.
+  std::shared_ptr<LogicalOperator> fold = std::make_shared<EvaluatePatternFilter>(
+      std::make_shared<ScanAll>(nullptr, this->GetSymbol("m")), this->GetSymbol("exists"), Fold::kBool);
+  Symbol y = this->GetSymbol("y");
+  std::shared_ptr<LogicalOperator> branch =
+      std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{NEXPR("y", LITERAL(1))});
+  auto reading = std::make_shared<Conditional>(std::make_shared<Once>(),
+                                               std::vector<Expression *>{LITERAL(true)},
+                                               std::vector<std::vector<std::shared_ptr<LogicalOperator>>>{{fold}},
+                                               std::vector<std::shared_ptr<LogicalOperator>>{branch},
+                                               std::vector<std::vector<std::pair<Symbol, Symbol>>>(1),
+                                               std::vector<Symbol>{y});
+  this->CheckPlanType(reading.get(), RWType::R);
+  EXPECT_TRUE(PlanRequiresStorageAccess(*reading));
+}
+
 TYPED_TEST(ReadWriteTypeCheckTest, CheckUpdateType) {
   std::array<std::array<RWType, 3>, 16> scenarios = {{
       {RWType::NONE, RWType::NONE, RWType::NONE},

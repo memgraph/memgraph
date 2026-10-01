@@ -82,6 +82,7 @@ struct UsedIndexChecker : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(IndexedJoin &) override;
   bool PreVisit(HashJoin &) override;
   bool PreVisit(RollUpApply &) override;
+  bool PreVisit(Conditional &) override;
   bool PreVisit(PeriodicSubquery &) override;
   bool PreVisit(PeriodicCommit &) override;
 

@@ -15,6 +15,7 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -1157,7 +1158,12 @@ TYPED_TEST(ExpressionEvaluatorTest, IfOperator) {
     auto *condition_exception = this->storage.template Create<AdditionOperator>(
         this->storage.template Create<PrimitiveLiteral>(2), this->storage.template Create<PrimitiveLiteral>(3));
     auto *op = this->storage.template Create<IfOperator>(condition_exception, then_expression, else_expression);
-    ASSERT_THROW(this->Eval(op), QueryRuntimeException);
+    try {
+      this->Eval(op);
+      FAIL() << "expected a non-boolean condition to throw";
+    } catch (const QueryRuntimeException &e) {
+      EXPECT_EQ(std::string_view{e.what()}, "CASE/WHEN expected boolean expression, got int.");
+    }
   }
 }
 

@@ -98,6 +98,7 @@ enum class TypeId : uint64_t {
   INDEXED_JOIN,
   HASH_JOIN,
   ROLLUP_APPLY,
+  CONDITIONAL,
   PERIODIC_COMMIT,
   PERIODIC_SUBQUERY,
   SET_NESTED_PROPERTY,
@@ -381,6 +382,8 @@ enum class TypeId : uint64_t {
   REP_RESUME_DATABASE_REQ,
   REP_RESUME_DATABASE_RES,
   AST_SESSION_QUERY,
+  AST_CONDITIONAL_BRANCHES,
+  // Append new ids here: the ids above are implicit, and RPC messages among them ship in releases.
 
   // Symbol
   SYMBOL = 4000,

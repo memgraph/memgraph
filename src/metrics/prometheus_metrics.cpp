@@ -352,6 +352,10 @@ PrometheusMetrics::PrometheusMetrics()
                                          .Name("memgraph_roll_up_apply_operator_total")
                                          .Help("Number of times RollUpApply operator was used")
                                          .Register(registry_)},
+      conditional_operator_family_{prometheus::BuildCounter()
+                                       .Name("memgraph_conditional_operator_total")
+                                       .Help("Number of times Conditional operator was used")
+                                       .Register(registry_)},
       periodic_commit_operator_family_{prometheus::BuildCounter()
                                            .Name("memgraph_periodic_commit_operator_total")
                                            .Help("Number of times PeriodicCommit operator was used")
@@ -991,6 +995,7 @@ PrometheusMetrics::Registration PrometheusMetrics::AddDatabase(utils::UUID const
                   .indexed_join_operator = {&indexed_join_operator_family_.Add(labels)},
                   .hash_join_operator = {&hash_join_operator_family_.Add(labels)},
                   .roll_up_apply_operator = {&roll_up_apply_operator_family_.Add(labels)},
+                  .conditional_operator = {&conditional_operator_family_.Add(labels)},
                   .periodic_commit_operator = {&periodic_commit_operator_family_.Add(labels)},
                   .periodic_subquery_operator = {&periodic_subquery_operator_family_.Add(labels)},
                   .set_nested_property_operator = {&set_nested_property_operator_family_.Add(labels)},
@@ -1141,6 +1146,7 @@ void PrometheusMetrics::ReleaseRegistration(uint64_t entry_id) {
   indexed_join_operator_family_.Remove(h.indexed_join_operator.get());
   hash_join_operator_family_.Remove(h.hash_join_operator.get());
   roll_up_apply_operator_family_.Remove(h.roll_up_apply_operator.get());
+  conditional_operator_family_.Remove(h.conditional_operator.get());
   periodic_commit_operator_family_.Remove(h.periodic_commit_operator.get());
   periodic_subquery_operator_family_.Remove(h.periodic_subquery_operator.get());
   set_nested_property_operator_family_.Remove(h.set_nested_property_operator.get());
@@ -1532,6 +1538,7 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back({"IndexedJoinOperator", "Operator", "Counter", static_cast<int64_t>(h.indexed_join_operator.Value())});
   out.push_back({"HashJoinOperator", "Operator", "Counter", static_cast<int64_t>(h.hash_join_operator.Value())});
   out.push_back({"RollUpApplyOperator", "Operator", "Counter", static_cast<int64_t>(h.roll_up_apply_operator.Value())});
+  out.push_back({"ConditionalOperator", "Operator", "Counter", static_cast<int64_t>(h.conditional_operator.Value())});
   out.push_back(
       {"PeriodicCommitOperator", "Operator", "Counter", static_cast<int64_t>(h.periodic_commit_operator.Value())});
   out.push_back(
@@ -1693,6 +1700,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_indexed_join_operator = 0;
   int64_t total_hash_join_operator = 0;
   int64_t total_roll_up_apply_operator = 0;
+  int64_t total_conditional_operator = 0;
   int64_t total_periodic_commit_operator = 0;
   int64_t total_periodic_subquery_operator = 0;
   int64_t total_set_nested_property_operator = 0;
@@ -1789,6 +1797,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_indexed_join_operator += static_cast<int64_t>(h.indexed_join_operator.Value());
       total_hash_join_operator += static_cast<int64_t>(h.hash_join_operator.Value());
       total_roll_up_apply_operator += static_cast<int64_t>(h.roll_up_apply_operator.Value());
+      total_conditional_operator += static_cast<int64_t>(h.conditional_operator.Value());
       total_periodic_commit_operator += static_cast<int64_t>(h.periodic_commit_operator.Value());
       total_periodic_subquery_operator += static_cast<int64_t>(h.periodic_subquery_operator.Value());
       total_set_nested_property_operator += static_cast<int64_t>(h.set_nested_property_operator.Value());
@@ -1888,6 +1897,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"IndexedJoinOperator", "Operator", "Counter", total_indexed_join_operator});
   out.push_back({"HashJoinOperator", "Operator", "Counter", total_hash_join_operator});
   out.push_back({"RollUpApplyOperator", "Operator", "Counter", total_roll_up_apply_operator});
+  out.push_back({"ConditionalOperator", "Operator", "Counter", total_conditional_operator});
   out.push_back({"PeriodicCommitOperator", "Operator", "Counter", total_periodic_commit_operator});
   out.push_back({"PeriodicSubqueryOperator", "Operator", "Counter", total_periodic_subquery_operator});
   out.push_back({"SetNestedPropertyOperator", "Operator", "Counter", total_set_nested_property_operator});
@@ -2231,6 +2241,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
   int64_t indexed_join_op = 0;
   int64_t hash_join_op = 0;
   int64_t roll_up_op = 0;
+  int64_t conditional_op = 0;
   int64_t periodic_commit_op = 0;
   int64_t periodic_subquery_op = 0;
   int64_t set_nested_prop_op = 0;
@@ -2325,6 +2336,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
       indexed_join_op += static_cast<int64_t>(h.indexed_join_operator.Value());
       hash_join_op += static_cast<int64_t>(h.hash_join_operator.Value());
       roll_up_op += static_cast<int64_t>(h.roll_up_apply_operator.Value());
+      conditional_op += static_cast<int64_t>(h.conditional_operator.Value());
       periodic_commit_op += static_cast<int64_t>(h.periodic_commit_operator.Value());
       periodic_subquery_op += static_cast<int64_t>(h.periodic_subquery_operator.Value());
       set_nested_prop_op += static_cast<int64_t>(h.set_nested_property_operator.Value());
@@ -2421,6 +2433,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"IndexedJoinOperator", indexed_join_op},
     {"HashJoinOperator", hash_join_op},
     {"RollUpApplyOperator", roll_up_op},
+    {"ConditionalOperator", conditional_op},
     {"PeriodicCommitOperator", periodic_commit_op},
     {"PeriodicSubqueryOperator", periodic_subquery_op},
     {"SetNestedPropertyOperator", set_nested_prop_op},

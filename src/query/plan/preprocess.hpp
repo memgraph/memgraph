@@ -760,12 +760,17 @@ struct SingleQueryPart {
   std::vector<std::shared_ptr<QueryParts>> subqueries{};
 };
 
+struct ConditionalQueryParts;
+
 /// Holds query parts of a single query together with the optional information
 /// about the combinator used between this single query and the previous one.
 struct QueryPart {
+  /// Empty for a conditional leg.
   std::vector<SingleQueryPart> single_query_parts = {};
   /// Optional AST query combinator node
   Tree *query_combinator = nullptr;
+  /// Set when the leg is a `WHEN ... THEN ...` body.
+  std::shared_ptr<ConditionalQueryParts> conditional = nullptr;
 };
 
 /// Holds query parts of all single queries together with the information
@@ -777,6 +782,15 @@ struct QueryParts {
   /// Commit frequency for periodic commit
   Expression *commit_frequency = nullptr;
   bool is_subquery = false;
+};
+
+/// A conditional leg: its branches, and per branch the predicate that selects it.
+struct ConditionalQueryParts {
+  std::vector<QueryParts> branches;
+  /// Per branch: its predicate (nullptr = ELSE) and the filters that hold the predicate's subqueries.
+  std::vector<Expression *> predicates;
+  std::vector<Filters> predicate_filters;
+  std::vector<Symbol> output_symbols;
 };
 
 /// @brief Convert the AST to multiple @c QueryParts.

@@ -302,6 +302,8 @@ inline bool IsUnitPlan(const LogicalOperator &op, const SymbolTable &symbol_tabl
   if (const auto *distinct = utils::Downcast<const Distinct>(&op)) {
     return IsUnitPlan(*distinct->input(), symbol_table);
   }
+  // The WHEN's columns, not a branch's: a branch ending in `CALL ... YIELD` reports its YIELD columns.
+  if (const auto *conditional = utils::Downcast<const Conditional>(&op)) return conditional->output_symbols_.empty();
   return op.OutputSymbols(symbol_table).empty();
 }
 
@@ -664,6 +666,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       }
 
+      if (query_part.conditional) {
+        input_op = PlanConditional(std::move(input_op), *query_part.conditional, initial_bound_symbols);
+      }
+
       // An EXISTS branch must keep emitting its rows for the fold to read, so it never gets the EmptyResult wrapper.
       if (!context.in_subquery_body && input_op && impl::IsUnitPlan(*input_op, *context.symbol_table)) {
         if (has_periodic_commit && is_root_query) {
@@ -687,6 +693,55 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
  private:
+  /// Per row, the first true predicate's branch runs; predicate i's subquery folds are pulled only when predicate i
+  /// is reached. A write in any branch reaches the CALL through `plan_wrote_`, which `Plan` never clears.
+  std::unique_ptr<LogicalOperator> PlanConditional(std::unique_ptr<LogicalOperator> input,
+                                                   const ConditionalQueryParts &conditional,
+                                                   std::unordered_set<Symbol> bound_symbols) {
+    SymbolTable &symbol_table = *context_->symbol_table;
+    AstStorage &storage = *context_->ast_storage;
+    std::unordered_map<std::string, Symbol> output_by_name;
+    for (const auto &sym : conditional.output_symbols) output_by_name.emplace(sym.name(), sym);
+
+    std::vector<std::shared_ptr<LogicalOperator>> branches;
+    std::vector<std::vector<std::pair<Symbol, Symbol>>> branch_columns;
+    for (const auto &branch_parts : conditional.branches) {
+      context_->bound_symbols = bound_symbols;
+      std::shared_ptr<LogicalOperator> branch = Plan(branch_parts);
+      auto &columns = branch_columns.emplace_back();
+      for (const auto &branch_sym : branch->OutputSymbols(symbol_table)) {
+        auto it = output_by_name.find(branch_sym.name());
+        if (it == output_by_name.end()) continue;
+        // A column named after an import keeps the caller's value.
+        if (bound_symbols.contains(it->second) || it->second == branch_sym) continue;
+        columns.emplace_back(branch_sym, it->second);
+      }
+      branches.push_back(std::move(branch));
+    }
+
+    std::vector<std::vector<std::shared_ptr<LogicalOperator>>> pattern_filters;
+    for (auto filters : conditional.predicate_filters) {
+      for (const auto &filter : filters) {
+        bool const has_fold = !filter.subquery_matchings.empty() || !filter.pattern_comprehension_matchings.empty();
+        if (has_fold && !impl::HasBoundFilterSymbols(bound_symbols, filter)) {
+          impl::ThrowPlannerBug("A WHEN predicate reads a symbol the conditional does not bind.");
+        }
+      }
+      auto fold_bound_symbols = bound_symbols;
+      pattern_filters.push_back(ExtractPatternFilters(filters, symbol_table, storage, fold_bound_symbols));
+    }
+
+    auto root = std::make_unique<Conditional>(std::move(input),
+                                              conditional.predicates,
+                                              std::move(pattern_filters),
+                                              std::move(branches),
+                                              std::move(branch_columns),
+                                              conditional.output_symbols);
+    bound_symbols.insert(conditional.output_symbols.begin(), conditional.output_symbols.end());
+    context_->bound_symbols = std::move(bound_symbols);
+    return root;
+  }
+
   /// @brief Recursively plans a pattern comprehension including any nested pattern comprehensions.
   /// For nested pattern comprehensions (e.g., [()--() | [()--() | 1]]), the inner pattern
   /// comprehension is planned first and wrapped with RollUpApply before the outer one's Produce.

@@ -893,6 +893,45 @@ TYPED_TEST(TestPlanner, ParallelExecutionOrderByAfterWrite) {
             ExpectOrderBy());
 }
 
+TYPED_TEST(TestPlanner, ConditionalBranchScanStaysSerial) {
+  LicenseWrapper license_wrapper;
+  // USING PARALLEL EXECUTION MATCH (n) CALL (n) { WHEN true THEN MATCH (m) RETURN count(m) AS c ELSE RETURN 0 AS c }
+  // RETURN n, c - a branch is reset per row and shares the caller's frame, so its scan stays serial.
+  FakeDbAccessor dba;
+  auto *branches =
+      WHEN_BRANCHES({LITERAL(true), SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN(COUNT(IDENT("m"), false), AS("c")))},
+                    {nullptr, SINGLE_QUERY(RETURN(LITERAL(0), AS("c")))});
+  auto *query = PARALLEL_QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"n"}), RETURN("n", "c")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  // Every operator below the CALL's Apply, through every branch.
+  std::vector<std::string> names;
+  std::vector<LogicalOperator *> stack;
+  for (auto *op = &planner.plan(); op; op = op->HasSingleInput() ? op->input().get() : nullptr) {
+    if (auto *apply = dynamic_cast<Apply *>(op)) stack.push_back(apply->subquery_.get());
+  }
+  ASSERT_EQ(stack.size(), 1);
+  EXPECT_STREQ(stack[0]->GetTypeInfo().name, "Conditional");
+  while (!stack.empty()) {
+    auto *op = stack.back();
+    stack.pop_back();
+    names.emplace_back(op->GetTypeInfo().name);
+    if (auto *conditional = dynamic_cast<Conditional *>(op)) {
+      for (const auto &branch : conditional->branches_) stack.push_back(branch.get());
+    } else if (auto *apply = dynamic_cast<Apply *>(op)) {
+      stack.push_back(apply->subquery_.get());
+    } else if (auto *union_op = dynamic_cast<Union *>(op)) {
+      stack.push_back(union_op->left_op_.get());
+      stack.push_back(union_op->right_op_.get());
+    }
+    if (op->HasSingleInput()) stack.push_back(op->input().get());
+  }
+  EXPECT_THAT(names, testing::Contains("ScanAll"));
+  for (const auto &name : names) EXPECT_FALSE(name.starts_with("ScanParallel")) << name;
+}
+
 }  // namespace
 
 #endif

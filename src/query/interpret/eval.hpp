@@ -421,8 +421,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return if_operator.else_expression_->Accept(*this);
     }
     if (condition.type() != TypedValue::Type::Bool) {
-      // At the moment IfOperator is used only in CASE construct.
-      throw QueryRuntimeException("CASE expected boolean expression, got {}.", condition.type());
+      // IfOperator serves CASE; the Conditional operator raises the same text for a WHEN predicate.
+      throw QueryRuntimeException("CASE/WHEN expected boolean expression, got {}.", condition.type());
     }
     if (condition.ValueBool()) {
       return if_operator.then_expression_->Accept(*this);

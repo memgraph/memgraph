@@ -12,6 +12,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <range/v3/view/transform.hpp>
 #include <unordered_map>
 #include <variant>
@@ -4180,6 +4181,49 @@ class CallSubquery : public memgraph::query::Clause {
     object->has_variable_scope_ = has_variable_scope_;
     object->all_variables_scoped_ = all_variables_scoped_;
     object->optional_ = optional_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+/// `WHEN p THEN body [WHEN ...]* [ELSE body]`; `predicates_[i]` is null for `ELSE`.
+/// Always the sole clause of its `SingleQuery`: the grammar guarantees it and `CollectQueryParts` relies on it.
+class ConditionalBranches : public memgraph::query::Clause {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ConditionalBranches() = default;
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      for (auto *predicate : predicates_) {
+        if (predicate) predicate->Accept(visitor);
+      }
+      for (auto *body : bodies_) {
+        body->Accept(visitor);
+      }
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  std::vector<memgraph::query::Expression *> predicates_;
+  std::vector<memgraph::query::CypherQuery *> bodies_;
+  /// Set by the symbol generator. The columns are empty exactly for a unit body; an import column is the import.
+  std::vector<Symbol> output_symbols_;
+
+  ConditionalBranches *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ConditionalBranches>();
+    for (auto *predicate : predicates_) {
+      object->predicates_.push_back(predicate ? predicate->Clone(storage) : nullptr);
+    }
+    for (auto *body : bodies_) {
+      object->bodies_.push_back(body->Clone(storage));
+    }
+    object->output_symbols_ = output_symbols_;
     return object;
   }
 

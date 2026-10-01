@@ -433,6 +433,27 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(Conditional &op) override {
+    op.input_->Accept(*this);
+    auto total_fold_cost = 0.0;
+    for (auto const &folds : op.pattern_filters_) {
+      for (auto const &fold : folds) {
+        total_fold_cost += EstimateCostOnBranch(&fold, scopes_.back()).cost;
+      }
+    }
+    IncrementCost(std::max(total_fold_cost, CostParam::kFilter));
+    double branch_cost = 0.0;
+    double branch_cardinality = 0.0;
+    for (auto const &branch : op.branches_) {
+      auto const estimation = EstimateCostOnBranch(&branch, scopes_.back());
+      branch_cost += estimation.cost;
+      branch_cardinality += estimation.cardinality;
+    }
+    IncrementCost(!utils::ApproxEqualDecimal(branch_cost, 0.0) ? branch_cost : 1);
+    cardinality_ *= !utils::ApproxEqualDecimal(branch_cardinality, 0.0) ? branch_cardinality : 1;
+    return false;
+  }
+
   bool PreVisit(Cartesian &op) override {
     // Get the cost of the main branch
     op.left_op_->Accept(*this);

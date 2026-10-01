@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <stack>
 #include <string_view>
@@ -1372,12 +1373,47 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
   return query_parts;
 }
 
-QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery) {
+namespace {
+
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery,
+                             Expression *commit_frequency);
+
+/// One UNION leg. A WHEN body becomes its branches, its predicates, and per predicate the filters holding its
+/// subqueries; it has no query parts of its own.
+QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query, Tree *combinator,
+                           bool is_subquery, Expression *commit_frequency) {
+  auto *branches =
+      single_query->clauses_.size() == 1 ? utils::Downcast<ConditionalBranches>(single_query->clauses_[0]) : nullptr;
+  if (!branches) return QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), combinator};
+
+  auto conditional = std::make_shared<ConditionalQueryParts>();
+  conditional->output_symbols = branches->output_symbols_;
+  for (auto *predicate : branches->predicates_) {
+    conditional->predicates.push_back(predicate);
+    auto &filters = conditional->predicate_filters.emplace_back();
+    if (!predicate) continue;
+    filters = Filters::FromExpression(predicate, symbol_table, storage);
+    for (auto &filter : filters) {
+      SubqueryMatchingCollector collector(symbol_table, storage);
+      filter.expression->Accept(collector);
+      filter.subquery_matchings = collector.getSubqueryMatchings();
+      filter.pattern_comprehension_matchings = collector.getPatternComprehensionMatchings();
+    }
+  }
+  for (auto *body : branches->bodies_) {
+    conditional->branches.push_back(CollectQueryParts(symbol_table, storage, body, is_subquery, commit_frequency));
+  }
+  return QueryPart{{}, combinator, std::move(conditional)};
+}
+
+/// A conditional branch has no directives of its own and inherits the enclosing `IN TRANSACTIONS` frequency.
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery,
+                             Expression *commit_frequency) {
   std::vector<QueryPart> query_parts;
 
   auto *single_query = query->single_query_;
   MG_ASSERT(single_query, "Expected at least a single query");
-  query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query)});
+  query_parts.push_back(CollectQueryPart(symbol_table, storage, single_query, nullptr, is_subquery, commit_frequency));
 
   bool distinct = false;
   for (auto *cypher_union : query->cypher_unions_) {
@@ -1387,10 +1423,17 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
 
     auto *single_query = cypher_union->single_query_;
     MG_ASSERT(single_query, "Expected UNION to have a query");
-    query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
+    query_parts.push_back(
+        CollectQueryPart(symbol_table, storage, single_query, cypher_union, is_subquery, commit_frequency));
   }
 
-  return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_, is_subquery};
+  return QueryParts{query_parts, distinct, commit_frequency, is_subquery};
+}
+
+}  // namespace
+
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery) {
+  return CollectQueryParts(symbol_table, storage, query, is_subquery, query->pre_query_directives_.commit_frequency_);
 }
 
 // TODO: Think about converting all filtering expression into CNF to improve

@@ -3009,6 +3009,255 @@ std::vector<std::string> SymbolNames(const std::vector<Symbol> &symbols) {
 }
 }  // namespace
 
+/// Every operator type in the plan, through every branch, fold and subquery.
+std::vector<std::string> OpNames(LogicalOperator *root) {
+  std::vector<std::string> names;
+  std::vector<LogicalOperator *> stack{root};
+  while (!stack.empty()) {
+    auto *op = stack.back();
+    stack.pop_back();
+    if (!op) continue;
+    names.emplace_back(op->GetTypeInfo().name);
+    if (auto *conditional = dynamic_cast<Conditional *>(op)) {
+      for (const auto &folds : conditional->pattern_filters_) {
+        for (const auto &fold : folds) stack.push_back(fold.get());
+      }
+      for (const auto &branch : conditional->branches_) stack.push_back(branch.get());
+    } else if (auto *apply = dynamic_cast<Apply *>(op)) {
+      stack.push_back(apply->subquery_.get());
+    } else if (auto *filter = dynamic_cast<Filter *>(op)) {
+      for (const auto &fold : filter->pattern_filters_) stack.push_back(fold.get());
+    } else if (auto *union_op = dynamic_cast<Union *>(op)) {
+      stack.push_back(union_op->left_op_.get());
+      stack.push_back(union_op->right_op_.get());
+    } else if (auto *rollup = dynamic_cast<RollUpApply *>(op)) {
+      stack.push_back(rollup->list_collection_branch_.get());
+    } else if (auto *join = dynamic_cast<HashJoin *>(op)) {
+      stack.push_back(join->left_op_.get());
+      stack.push_back(join->right_op_.get());
+    } else if (auto *cartesian = dynamic_cast<Cartesian *>(op)) {
+      stack.push_back(cartesian->left_op_.get());
+      stack.push_back(cartesian->right_op_.get());
+    }
+    if (op->HasSingleInput()) stack.push_back(op->input().get());
+  }
+  return names;
+}
+
+/// The conditional a `CALL (...) { WHEN ... }` plans: the subquery root of the first Apply.
+Conditional *CallConditional(LogicalOperator &plan) {
+  auto *call = FindOpOfType<Apply>(&plan);
+  return call ? dynamic_cast<Conditional *>(call->subquery_.get()) : nullptr;
+}
+
+// A conditional body is a Conditional with one branch per WHEN. A branch runs only on the rows that take it, so an
+// untaken aggregating branch yields no row rather than an aggregate over nothing.
+TYPED_TEST(TestPlanner, ConditionalSubquery) {
+  FakeDbAccessor dba;
+
+  // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN MATCH (n) RETURN count(n) AS c ELSE RETURN 0 AS c } RETURN i, c
+  {
+    auto *count = COUNT(IDENT("n"), false);
+    auto *branches =
+        WHEN_BRANCHES({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(count, AS("c")))},
+                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(0), AS("c")))});
+    auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")),
+                                     CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}),
+                                     RETURN("i", "c")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *call = FindOpOfType<Apply>(&planner.plan());
+    ASSERT_NE(call, nullptr);
+    EXPECT_EQ(call->on_empty_branch_, OnEmptyBranch::kDropRow);
+    EXPECT_STREQ(call->subquery_->GetTypeInfo().name, "Conditional");
+
+    auto aggregate = ExpectAggregate({count}, {});
+    std::list<BaseOpChecker *> counting_branch{new ExpectScanAll(), &aggregate, new ExpectProduce()};
+    std::list<BaseOpChecker *> else_branch{new ExpectProduce()};
+    std::list<BaseOpChecker *> body{new ExpectConditional({counting_branch, else_branch})};
+    CheckPlan(planner.plan(), symbol_table, ExpectUnwind(), ExpectApply(body), ExpectProduce());
+    counting_branch.remove(&aggregate);
+    for (auto *list : {&counting_branch, &else_branch, &body}) DeleteListContent(list);
+
+    auto *root = CallConditional(planner.plan());
+    ASSERT_NE(root, nullptr);
+    // The body returns the import too, as its own symbol: nothing writes it, so the caller keeps its value.
+    EXPECT_EQ(SymbolNames(root->output_symbols_), (std::vector<std::string>{"c", "i"}));
+    ASSERT_EQ(root->branch_columns_.size(), 2);
+    for (const auto &columns : root->branch_columns_) {
+      ASSERT_EQ(columns.size(), 1);
+      EXPECT_EQ(columns[0].second.name(), "c");
+    }
+    EXPECT_EQ(root->predicates_[1], nullptr);
+
+    // A rewriter or the plan cache may clone the plan; the columns must survive it.
+    auto const cloned = call->Clone(&this->storage);
+    auto *cloned_root = dynamic_cast<Conditional *>(dynamic_cast<Apply *>(cloned.get())->subquery_.get());
+    ASSERT_NE(cloned_root, nullptr);
+    EXPECT_EQ(SymbolNames(cloned_root->output_symbols_), (std::vector<std::string>{"c", "i"}));
+    EXPECT_EQ(cloned_root->branch_columns_, root->branch_columns_);
+  }
+
+  // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN CREATE (n) RETURN 1 AS x } IN TRANSACTIONS OF 1 ROWS RETURN x
+  // A branch inherits the CALL's commit frequency, as a plain body does: its RETURN commits periodically.
+  {
+    auto *branches = WHEN_BRANCHES(
+        {EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(LITERAL(1), AS("x")))});
+    auto *call = CALL_PERIODIC_SUBQUERY(branches, COMMIT_FREQUENCY(LITERAL(1)));
+    call->has_variable_scope_ = true;
+    call->scoped_variables_.push_back(this->storage.template Create<memgraph::query::NamedExpression>("i", IDENT("i")));
+    auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), call, RETURN("x")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *periodic = FindOpOfType<PeriodicSubquery>(&planner.plan());
+    ASSERT_NE(periodic, nullptr);
+    auto *root = dynamic_cast<Conditional *>(periodic->subquery_.get());
+    ASSERT_NE(root, nullptr);
+    ASSERT_EQ(root->branches_.size(), 1);
+    auto *branch = dynamic_cast<Produce *>(root->branches_[0].get());
+    ASSERT_NE(branch, nullptr);
+    EXPECT_TRUE(dynamic_cast<PeriodicCommit *>(branch->input().get()));
+  }
+
+  // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN CREATE (n) } RETURN i - a unit body keeps every outer row.
+  {
+    auto *branches = WHEN_BRANCHES({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))))});
+    auto *query = QUERY(SINGLE_QUERY(
+        UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}), RETURN("i")));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto *call = FindOpOfType<Apply>(&planner.plan());
+    ASSERT_NE(call, nullptr);
+    EXPECT_EQ(call->on_empty_branch_, OnEmptyBranch::kPassRow);
+    EXPECT_TRUE(dynamic_cast<EmptyResult *>(call->subquery_.get()));
+  }
+}
+
+// A subquery predicate is a deferred fold in its own predicate's list, so the operator pulls it only when an earlier
+// predicate was not true.
+TYPED_TEST(TestPlanner, ConditionalPredicateSubqueryIsDeferred) {
+  FakeDbAccessor dba;
+  // MATCH (a) CALL (a) { WHEN a.k = 1 THEN RETURN 1 AS x WHEN EXISTS { (a)-->() } THEN RETURN 2 AS x } RETURN x
+  auto k = dba.Property("k");
+  auto *exists = EXISTS(PATTERN(NODE("a"), EDGE("r", Direction::OUT, {}, false), NODE("m", std::nullopt, false)));
+  auto *branches =
+      WHEN_BRANCHES({EQ(PROPERTY_LOOKUP(dba, "a", k), LITERAL(1)), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))},
+                    {exists, SINGLE_QUERY(RETURN(LITERAL(2), AS("x")))});
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("a"))), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"a"}), RETURN("x")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto *root = CallConditional(planner.plan());
+  ASSERT_NE(root, nullptr);
+  ASSERT_EQ(root->pattern_filters_.size(), 2);
+  EXPECT_TRUE(root->pattern_filters_[0].empty());
+  ASSERT_EQ(root->pattern_filters_[1].size(), 1);
+  auto *fold = dynamic_cast<EvaluatePatternFilter *>(root->pattern_filters_[1][0].get());
+  ASSERT_NE(fold, nullptr);
+  EXPECT_EQ(fold->output_symbol_, symbol_table.at(*exists));
+  EXPECT_EQ(fold->fold_, Fold::kBool);
+}
+
+// A predicate filter whose symbols the conditional does not bind would plan to no fold, and the predicate would then
+// read an unwritten slot at runtime; the planner refuses it instead.
+TYPED_TEST(TestPlanner, ConditionalUnboundPredicateThrows) {
+  FakeDbAccessor dba;
+  // MATCH (a) CALL (a) { WHEN EXISTS { (a)-->() } THEN RETURN 1 AS x } RETURN x, its filter naming one more symbol
+  auto *branches =
+      WHEN_BRANCHES({EXISTS(PATTERN(NODE("a"), EDGE("r", Direction::OUT, {}, false), NODE("m", std::nullopt, false))),
+                     SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))});
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("a"))), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"a"}), RETURN("x")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planning_context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+  auto &body = query_parts.query_parts[0].single_query_parts[0].subqueries[0]->query_parts[0];
+  ASSERT_NE(body.conditional, nullptr);
+  auto &filters = body.conditional->predicate_filters[0];
+  ASSERT_NE(filters.begin(), filters.end());
+  filters.begin()->used_symbols.insert(symbol_table.CreateSymbol("ghost", false));
+  EXPECT_THROW(MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, &planning_context),
+               memgraph::query::QueryException);
+}
+
+// Each rewriter reaches a conditional's branches and its predicates' folds, with the imports bound.
+TYPED_TEST(TestPlanner, ConditionalRewritersReachBranchesAndFolds) {
+  FakeDbAccessor dba;
+  auto label = dba.Label("L");
+  auto p = dba.Property("p");
+  auto edge_type = dba.EdgeType("T");
+  dba.SetIndexCount(label, 1);
+  dba.SetIndexCount(label, p, 1);
+  dba.SetIndexCount(edge_type, 1);
+  auto names_of = [&](memgraph::query::CypherQuery *query) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    return OpNames(&planner.plan());
+  };
+  using testing::Contains;
+
+  // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN MATCH (n:L) RETURN n ELSE RETURN null AS n } RETURN n
+  {
+    auto *branches =
+        WHEN_BRANCHES({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(MATCH(PATTERN(NODE("n", "L"))), RETURN("n"))},
+                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(memgraph::query::TypedValue()), AS("n")))});
+    auto *query = QUERY(SINGLE_QUERY(
+        UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}), RETURN("n")));
+    EXPECT_THAT(names_of(query), Contains("ScanAllByLabel"));
+  }
+  // UNWIND [1] AS i CALL (i) { WHEN EXISTS { MATCH (m:L) } THEN RETURN 1 AS x } RETURN x
+  {
+    auto *exists_body = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m", "L")))));
+    auto *branches = WHEN_BRANCHES({EXISTS_SUBQUERY(exists_body), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))});
+    auto *query = QUERY(SINGLE_QUERY(
+        UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}), RETURN("x")));
+    EXPECT_THAT(names_of(query), Contains("ScanAllByLabel"));
+  }
+  // MATCH (a) CALL (a) { WHEN true THEN MATCH (m:L) WHERE m.p = a.p RETURN m } RETURN m
+  {
+    auto *branches = WHEN_BRANCHES({LITERAL(true),
+                                    SINGLE_QUERY(MATCH(PATTERN(NODE("m", "L"))),
+                                                 WHERE(EQ(PROPERTY_LOOKUP(dba, "m", p), PROPERTY_LOOKUP(dba, "a", p))),
+                                                 RETURN("m"))});
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("a"))), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"a"}), RETURN("m")));
+    EXPECT_THAT(names_of(query), Contains("ScanAllByLabelProperties"));
+  }
+  // MATCH (a) CALL (a) { WHEN EXISTS { MATCH (m:L) WHERE m.p = a.p } THEN RETURN 1 AS x } RETURN x
+  {
+    auto *exists_body = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m", "L"))),
+                                           WHERE(EQ(PROPERTY_LOOKUP(dba, "m", p), PROPERTY_LOOKUP(dba, "a", p)))));
+    auto *branches = WHEN_BRANCHES({EXISTS_SUBQUERY(exists_body), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))});
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("a"))), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"a"}), RETURN("x")));
+    EXPECT_THAT(names_of(query), Contains("ScanAllByLabelProperties"));
+  }
+  // UNWIND [1] AS i CALL (i) { WHEN true THEN MATCH ()-[r:T]->() RETURN r } RETURN r
+  {
+    auto *branches = WHEN_BRANCHES(
+        {LITERAL(true),
+         SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r", Direction::OUT, {"T"}), NODE("anon2"))), RETURN("r"))});
+    auto *query = QUERY(SINGLE_QUERY(
+        UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}), RETURN("r")));
+    EXPECT_THAT(names_of(query), Contains("ScanAllByEdgeType"));
+  }
+  // UNWIND [1] AS i CALL (i) { WHEN true THEN MATCH (x)-[r1]->(y), (z)-[r2]->(w) WHERE z.p = x.p RETURN x } RETURN x
+  {
+    auto *branches = WHEN_BRANCHES(
+        {LITERAL(true),
+         SINGLE_QUERY(MATCH(PATTERN(NODE("x"), EDGE("r1"), NODE("y")), PATTERN(NODE("z"), EDGE("r2"), NODE("w"))),
+                      WHERE(EQ(PROPERTY_LOOKUP(dba, "z", p), PROPERTY_LOOKUP(dba, "x", p))),
+                      RETURN("x"))});
+    auto *query = QUERY(SINGLE_QUERY(
+        UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}), RETURN("x")));
+    EXPECT_THAT(names_of(query), Contains("HashJoin"));
+  }
+}
+
 // `OPTIONAL CALL` differs from `CALL` only in what the Apply does with an input row the branch returned nothing
 // for, so the plan shape is identical and the mode plus the null-fill list carry the whole feature.
 TYPED_TEST(TestPlanner, OptionalSubquery) {

@@ -12,6 +12,8 @@
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
+#include <sstream>
+
 #include "disk_test_utils.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
@@ -1610,6 +1612,87 @@ TYPED_TEST(PrintToJsonTest, Apply) {
   this->Check(make_apply(OnEmptyBranch::kDropRow).get(), expected("drop row"));
   this->Check(make_apply(OnEmptyBranch::kPassRow).get(), expected("pass row"));
   this->Check(make_apply(OnEmptyBranch::kPassRowWithNulls).get(), expected("pass row with nulls"));
+}
+
+/// `UNWIND [1] AS i CALL (i) { WHEN i = 1 AND EXISTS {...} THEN RETURN 10 AS x ELSE RETURN 20 AS x }`.
+std::shared_ptr<Conditional> MakePrintedConditional(AstStorage &storage, SymbolTable &symbol_table) {
+  auto i = symbol_table.CreateSymbol("i", true);
+  auto x = symbol_table.CreateSymbol("x", true);
+  auto exists = symbol_table.CreateSymbol("exists", true);
+  auto unwind = std::make_shared<plan::Unwind>(
+      nullptr, storage.Create<ListLiteral>(std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1)}), i);
+  auto *predicate = storage.Create<EqualOperator>(storage.Create<Identifier>("i"), storage.Create<PrimitiveLiteral>(1));
+  auto fold = std::make_shared<EvaluatePatternFilter>(nullptr, exists, Fold::kBool);
+  auto then = std::make_shared<Produce>(
+      nullptr,
+      std::vector<NamedExpression *>{storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(10))});
+  auto otherwise = std::make_shared<Produce>(
+      nullptr,
+      std::vector<NamedExpression *>{storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(20))});
+  return std::make_shared<Conditional>(unwind,
+                                       std::vector<Expression *>{predicate, nullptr},
+                                       std::vector<std::vector<std::shared_ptr<LogicalOperator>>>{{fold}, {}},
+                                       std::vector<std::shared_ptr<LogicalOperator>>{then, otherwise},
+                                       std::vector<std::vector<std::pair<Symbol, Symbol>>>(2),
+                                       std::vector<Symbol>{x});
+}
+
+TYPED_TEST(PrintToJsonTest, Conditional) {
+  auto conditional = MakePrintedConditional(this->storage, this->symbol_table);
+  this->Check(conditional.get(), R"sep(
+          {
+            "name": "Conditional",
+            "output_symbols": ["x"],
+            "input": {
+              "name": "Unwind",
+              "output_symbol": "i",
+              "input_expression": "(ListLiteral [1])",
+              "input": { "name": "Once" }
+            },
+            "branches": [
+              {
+                "predicate": "(== (Identifier \"i\") 1)",
+                "pattern_filter1": {
+                  "name": "EvaluatePatternFilter",
+                  "fold": "bool",
+                  "output_symbol": "exists",
+                  "input": { "name": "Once" }
+                },
+                "plan": {
+                  "name": "Produce",
+                  "named_expressions": [{ "expression": "10", "name": "x" }],
+                  "input": { "name": "Once" }
+                }
+              },
+              {
+                "predicate": null,
+                "plan": {
+                  "name": "Produce",
+                  "named_expressions": [{ "expression": "20", "name": "x" }],
+                  "input": { "name": "Once" }
+                }
+              }
+            ]
+          })sep");
+}
+
+TYPED_TEST(PrintToJsonTest, ConditionalText) {
+  auto conditional = MakePrintedConditional(this->storage, this->symbol_table);
+  std::stringstream out;
+  PrettyPrint(this->dba, conditional.get(), &out);
+  EXPECT_EQ(out.str(),
+            " * Conditional {x}\n"
+            " |\\ WHEN 0\n"
+            " | * EvaluatePatternFilter\n"
+            " | * Once\n"
+            " |\\ WHEN 0\n"
+            " | * Produce {x}\n"
+            " | * Once\n"
+            " |\\ ELSE\n"
+            " | * Produce {x}\n"
+            " | * Once\n"
+            " * Unwind\n"
+            " * Once\n");
 }
 
 TYPED_TEST(PrintToJsonTest, RollUpApply) {
