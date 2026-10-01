@@ -302,11 +302,13 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     // STEP 4) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      storage->repl_storage_state_.epoch_ = new_epoch;
 
       // Modifying storage->timestamp_ needs to be done under the engine lock.
       // Engine lock needs to be acquired after the repl state lock
       auto lock = std::lock_guard{storage->engine_lock_};
+
+      // Under the engine lock because commits and snapshot creation read the epoch under it.
+      storage->repl_storage_state_.epoch_ = new_epoch;
 
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
       // We need to take bigger timestamp not to lose durability ordering

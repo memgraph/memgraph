@@ -4506,8 +4506,9 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
 
   DMG_ASSERT(transaction->last_durable_ts_.has_value());
   // Copied under engine_lock_: a replica switches epoch when the first commit of a new main arrives, and that
-  // can happen while the snapshot is being written. The snapshot describes the state as of its start timestamp,
-  // which belongs to the epoch current at that moment.
+  // can happen while the snapshot is being written. The copy is taken after Access(), so it may already hold
+  // the new epoch while the snapshot's data predates that epoch's first commit. That is harmless: a main sees
+  // such a snapshot's ldt as behind in an epoch it knows, which only means catching the replica up from WAL.
   auto [epoch, epoch_history] = std::invoke([this] {
     auto const engine_guard = std::unique_lock{engine_lock_};
     return std::pair{repl_storage_state_.epoch_, repl_storage_state_.history};
