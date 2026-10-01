@@ -1395,32 +1395,92 @@ TEST_F(VectorIndexTest, AddLabelToVertexWithEmptyListStaysPlainList) {
   }
 }
 
-TEST_F(VectorIndexTest, AbortAfterSetOnEmptyListRestoresEmptyList) {
+// Aborting a write over an indexed or empty-list vertex restores the prior value and index membership.
+TEST_F(VectorIndexTest, AbortRestoresPriorValueAndIndexMembership) {
+  struct Row {
+    bool initially_indexed;
+    PropertyValue overwrite;
+    bool overwrite_with_tag = false;
+  };
+
+  const std::vector<PropertyValue> two_doubles{PropertyValue(1.0), PropertyValue(2.0)};
+  const std::array rows{Row{true, PropertyValue(std::vector<PropertyValue>{})},
+                        Row{false, PropertyValue(two_doubles)},
+                        Row{true, PropertyValue("str")},
+                        Row{false, PropertyValue("str")},
+                        Row{false, PropertyValue(), true}};
+
+  for (const auto &row : rows) {
+    SCOPED_TRACE(testing::Message() << "initially_indexed=" << row.initially_indexed
+                                    << " overwrite_with_tag=" << row.overwrite_with_tag);
+    storage = std::make_unique<InMemoryStorage>();
+    this->CreateIndex(2, 10);
+    Gid vertex_gid;
+    {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      const auto initial = row.initially_indexed
+                               ? MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 2.0F})
+                               : PropertyValue(std::vector<PropertyValue>{});
+      vertex_gid = this->CreateVertex(acc.get(), test_property, initial, test_label).Gid();
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+    const std::size_t expected_size = row.initially_indexed ? 1 : 0;
+    {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+      const auto overwrite = row.overwrite_with_tag
+                                 ? MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F})
+                                 : row.overwrite;
+      ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), overwrite));
+      acc->Abort();
+    }
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, expected_size);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    const auto stored = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(stored.has_value());
+    if (row.initially_indexed) {
+      EXPECT_TRUE(stored->IsVectorIndexId());
+      EXPECT_EQ(stored->ValueVectorIndexList(), (memgraph::utils::small_vector<float>{1.0F, 2.0F}));
+    } else {
+      EXPECT_FALSE(stored->IsVectorIndexId());
+      EXPECT_TRUE(stored->IsAnyList());
+      EXPECT_EQ(stored->ListSize(), 0u);
+    }
+  }
+}
+
+// An older main ships [] as a tag with no vector; SetProperty must store it as a plain empty list.
+TEST_F(VectorIndexTest, SetEmptyVectorIndexTagStoresPlainEmptyList) {
   this->CreateIndex(2, 10);
   Gid vertex_gid;
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
-    auto vertex = this->CreateVertex(acc.get(), test_property, PropertyValue(std::vector<PropertyValue>{}), test_label);
-    vertex_gid = vertex.Gid();
+    auto empty_tag = MakeEmptyVectorIndexProperty(acc.get());
+    ASSERT_TRUE(empty_tag.IsVectorIndexId());
+    vertex_gid = this->CreateVertex(acc.get(), test_property, empty_tag, test_label).Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  {
-    auto acc = this->storage->Access(memgraph::storage::WRITE);
-    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
-    auto property_value = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
-    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), property_value));
-    acc->Abort();
-  }
-  {
+  const auto expect_plain_empty_list = [&] {
     auto acc = this->storage->Access(memgraph::storage::READ);
-    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
     auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
     const auto stored = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD);
     ASSERT_TRUE(stored.has_value());
     EXPECT_FALSE(stored->IsVectorIndexId());
     EXPECT_TRUE(stored->IsAnyList());
     EXPECT_EQ(stored->ListSize(), 0u);
+  };
+  {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
   }
+  expect_plain_empty_list();
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->DropVectorIndex(test_index.data()).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  expect_plain_empty_list();
 }
 
 // UpdateOnSetProperty: a tag with no embedded vector is the legacy on-disk form of [] and must become a
