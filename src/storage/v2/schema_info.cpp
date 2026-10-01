@@ -158,12 +158,12 @@ inline const VertexKey *GetLabelsViewOld(const Vertex *v, uint64_t snapshot_boun
 }
 
 // Keep v locked as we could return a reference to labels
-inline std::pair<const VertexKey *, bool> GetLabels(const Vertex *v, uint64_t start_timestamp,
-                                                    uint64_t commit_timestamp, auto &cache) {
-  const auto state = GetState(v->delta(), start_timestamp, commit_timestamp);
+inline std::pair<const VertexKey *, bool> GetLabels(const Vertex *v, uint64_t snapshot_bound, uint64_t commit_timestamp,
+                                                    auto &cache) {
+  const auto state = GetState(v->delta(), snapshot_bound, commit_timestamp);
   const auto *labels = &v->labels;
   if (state == ANOTHER_TX) {
-    labels = GetLabelsViewOld(v, start_timestamp, cache);
+    labels = GetLabelsViewOld(v, snapshot_bound, cache);
   }
   return std::pair{labels, state != THIS_TX};
 }
@@ -175,10 +175,10 @@ struct Labels {
 };
 
 // Cache needs to be reference stable because we are using it as a key
-inline Labels GetLabels(const Vertex *from, const Vertex *to, uint64_t start_timestamp, uint64_t commit_timestamp,
+inline Labels GetLabels(const Vertex *from, const Vertex *to, uint64_t snapshot_bound, uint64_t commit_timestamp,
                         auto &cache) {
-  const auto from_res = GetLabels(from, start_timestamp, commit_timestamp, cache);
-  const auto to_res = GetLabels(to, start_timestamp, commit_timestamp, cache);
+  const auto from_res = GetLabels(from, snapshot_bound, commit_timestamp, cache);
+  const auto to_res = GetLabels(to, snapshot_bound, commit_timestamp, cache);
   return {from_res.first, to_res.first, from_res.second || to_res.second};
 }
 
@@ -188,12 +188,12 @@ struct LabelsDiff {
 };
 
 // Cache needs to be reference stable because we are using it as a key
-inline LabelsDiff GetLabelsDiff(const Vertex *v, State state, uint64_t timestamp, auto &cache, auto &post_cache) {
+inline LabelsDiff GetLabelsDiff(const Vertex *v, State state, uint64_t snapshot_bound, auto &cache, auto &post_cache) {
   // NO CHANGES
   if (state == NO_CHANGE) return {&v->labels, &v->labels};
 
   // Labels as seen at transaction start (cached)
-  auto pre_labels = GetLabelsViewOld(v, timestamp, cache);
+  auto pre_labels = GetLabelsViewOld(v, snapshot_bound, cache);
 
   // THIS TX
   if (state == THIS_TX) {
@@ -225,14 +225,14 @@ inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edg
   return edge_props;
 }
 
-inline Properties GetProperties(const Edge *edge, uint64_t start_timestamp, uint64_t commit_timestamp) {
-  const auto state = GetState(edge->delta(), start_timestamp, commit_timestamp);
+inline Properties GetProperties(const Edge *edge, uint64_t snapshot_bound, uint64_t commit_timestamp) {
+  const auto state = GetState(edge->delta(), snapshot_bound, commit_timestamp);
   // TODO Should we cache this as well
   auto edge_props = edge->properties.ExtendedPropertyTypes();
 
   if (state == ANOTHER_TX) {
     // Apply deltas
-    ApplyDeltasForRead(edge->delta(), start_timestamp, [&edge_props](const Delta &delta) {
+    ApplyDeltasForRead(edge->delta(), snapshot_bound, [&edge_props](const Delta &delta) {
       // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
           PropertyTypes_ActionMethod(edge_props)
@@ -250,13 +250,13 @@ struct PropertiesDiff {
 };
 
 // Cache needs to be reference stable because we are using it as a key
-inline PropertiesDiff GetPropertiesDiff(const Edge *edge, State state, uint64_t timestamp) {
+inline PropertiesDiff GetPropertiesDiff(const Edge *edge, State state, uint64_t snapshot_bound) {
   // NO CHANGES
   auto edge_props = edge->properties.ExtendedPropertyTypes();
   if (state == NO_CHANGE) return {edge_props, edge_props};
 
   // Properties as seen at transaction start
-  auto pre_props = GetPropertiesViewOld(edge, timestamp);
+  auto pre_props = GetPropertiesViewOld(edge, snapshot_bound);
 
   // THIS TX
   if (state == THIS_TX) {

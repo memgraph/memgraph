@@ -617,10 +617,15 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) no
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
+    // Abort() moves commit_info away, so sample "never published" first.
+    bool const unpublished =
+        transaction_.commit_info == nullptr ||
+        transaction_.commit_info->timestamp.load(std::memory_order_acquire) == transaction_.transaction_id;
     InMemoryAccessor::Abort();
     // A minted-but-unpublished commit ts must be released, else it pins commit_log_->OldestActive().
+    // A published one stays unfinished: marking it would let GC free deltas Abort() left linked.
     if (commit_timestamp_) {
-      static_cast<InMemoryStorage *>(storage_)->commit_log_->MarkFinished(*commit_timestamp_);
+      if (unpublished) static_cast<InMemoryStorage *>(storage_)->commit_log_->MarkFinished(*commit_timestamp_);
       commit_timestamp_.reset();
     }
   }
@@ -1190,6 +1195,18 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         if (repl_prepare_phase_ok) {
           FinalizeWalCommitStatus();
         }
+        // The WAL commit flag is durable and replicas may have committed: an exception below must still publish,
+        // otherwise ~InMemoryAccessor aborts a transaction the WAL considers committed.
+        bool published = false;
+        utils::OnScopeExit const publish_on_unwind{[&] {
+          if (!repl_prepare_phase_ok || published) return;
+          published = true;
+          try {
+            with_engine_lock([&] { PublishCommit(durability_commit_timestamp, engine_guard); });
+          } catch (...) {
+            spdlog::error("Failed to publish a transaction whose WAL commit flag was already written.");
+          }
+        }};
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
@@ -1199,10 +1216,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
             repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
 
         auto failures = replicating_txn.CollectAllFailures();
-        // update replicas' cached commit info only if the txn was actually committed
-        if (repl_prepare_phase_ok) {
-          replicating_txn.UpdateCommitTsInfo();
-        }
 
         if (!failures.empty()) {
           // Only reachable with repl_prepare_phase_ok == false: PublishCommit has not run, so abort cannot
@@ -1215,7 +1228,10 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         if (repl_prepare_phase_ok) {
           // Publish only after replicas finalize: with engine_lock_ released a BEGIN could otherwise see a commit
           // a failover may roll back (safe pre-narrowing only because engine_lock_ was held throughout).
+          published = true;
           with_engine_lock([&] { PublishCommit(durability_commit_timestamp, engine_guard); });
+          // After publish: main's commit_ts_info_ is bumped in PublishCommit; replica caches must not lead it.
+          replicating_txn.UpdateCommitTsInfo();
         }
 
         return {};
@@ -1271,6 +1287,12 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
 
   MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
   transaction_.commit_info->timestamp.store(*commit_timestamp_, std::memory_order_release);
+  if (mem_storage->config_.experimental_commit_lock_narrowing) {
+    // Same engine_lock_ hold as the visibility store, so a later throw cannot leave the watermark behind.
+    MG_ASSERT(*commit_timestamp_ > mem_storage->last_committed_mvcc_ts_.load(std::memory_order_relaxed),
+              "watermark must strictly increase: commit mint order and publish order have diverged");
+    mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
+  }
 
   // If the transaction had non-sequential deltas (or another transaction propagated
   // the flag to us), we should re-establish the `has_uncommitted_non_sequential_deltas`
@@ -1356,13 +1378,6 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
     transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
 
-  if (mem_storage->config_.experimental_commit_lock_narrowing) {
-    // Same engine_lock_ hold as commit_info->timestamp, so no reader sees a partial publish;
-    // commit_mutex_ guarantees mint order == publish order (asserted below).
-    DMG_ASSERT(*commit_timestamp_ > mem_storage->last_committed_mvcc_ts_.load(std::memory_order_relaxed),
-               "watermark must strictly increase: commit mint order and publish order have diverged");
-    mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
-  }
   is_transaction_active_ = false;
 }
 
@@ -3144,6 +3159,8 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
 
 void InMemoryStorage::SetTimestampQuiescent(uint64_t const next_timestamp) {
   timestamp_ = next_timestamp;
+  // 0 is never a live commit ts (the first BEGIN consumes it) and is recovery's always-visible stamp,
+  // so the clamp is exact.
   last_committed_mvcc_ts_.store(next_timestamp > kTimestampInitialId ? next_timestamp - 1 : kTimestampInitialId,
                                 std::memory_order_release);
 }

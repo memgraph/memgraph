@@ -593,6 +593,8 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     // taking here another commit timestamp.
     auto &commit_ts = commit_accessor->GetCommitTimestamp();
     DMG_ASSERT(commit_ts.has_value(), "Commit ts without a value");
+    // Same committer serialization as the local commit path (see Storage::commit_mutex_).
+    auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
     auto guard = std::unique_lock{mem_storage->engine_lock_};
     // Mark the old commit ts as finished before emplacing the new one
     mem_storage->commit_log_->MarkFinished(*commit_ts);
