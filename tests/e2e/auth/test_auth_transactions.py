@@ -155,7 +155,9 @@ def test_a_transaction_conflicts_with_a_concurrent_change(cursor):
     execute(other, "CREATE USER bob")
 
     execute(cursor, "CREATE USER carol")
-    with pytest.raises(mgclient.DatabaseError, match="conflicted"):
+    # Reported as a serialization conflict, the same class the data path uses, so a driver retries rather than
+    # treating the query itself as wrong.
+    with pytest.raises(mgclient.DatabaseError, match="Retry this transaction"):
         execute(cursor, "COMMIT")
 
     # The loser's write is gone; the winner's stands.
