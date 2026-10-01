@@ -105,6 +105,41 @@ TEST_F(PruningBFSRewriteTest, DoesNotRewriteWhenAFilterExpressionReadsTheEdges) 
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
 }
 
+TEST_F(PruningBFSRewriteTest, DoesNotRewriteWhenAConditionalPredicateReadsTheEdges) {
+  // CALL (edges) { WHEN edges IS NULL THEN RETURN 1 AS x }: the predicate reads the edges.
+  auto const type = RewrittenType([this](auto input) {
+    auto *reads_edges = storage.Create<IsNullOperator>(storage.Create<Identifier>("edges")->MapTo(edge_sym));
+    auto x = symbol_table.CreateSymbol("x", true);
+    auto *named = storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(1))->MapTo(x);
+    return std::static_pointer_cast<LogicalOperator>(
+        std::make_shared<Conditional>(input,
+                                      std::vector<Expression *>{reads_edges},
+                                      std::vector<std::vector<std::shared_ptr<LogicalOperator>>>(1),
+                                      std::vector<std::shared_ptr<LogicalOperator>>{
+                                          std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})},
+                                      std::vector<std::vector<std::pair<Symbol, Symbol>>>(1),
+                                      std::vector<Symbol>{x}));
+  });
+  EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
+}
+
+TEST_F(PruningBFSRewriteTest, RewritesBelowAConditionalThatReadsNoEdges) {
+  // CALL { WHEN true THEN RETURN 1 AS x }
+  auto const type = RewrittenType([this](auto input) {
+    auto x = symbol_table.CreateSymbol("x", true);
+    auto *named = storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(1))->MapTo(x);
+    return std::static_pointer_cast<LogicalOperator>(
+        std::make_shared<Conditional>(input,
+                                      std::vector<Expression *>{storage.Create<PrimitiveLiteral>(true)},
+                                      std::vector<std::vector<std::shared_ptr<LogicalOperator>>>(1),
+                                      std::vector<std::shared_ptr<LogicalOperator>>{
+                                          std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})},
+                                      std::vector<std::vector<std::pair<Symbol, Symbol>>>(1),
+                                      std::vector<Symbol>{x}));
+  });
+  EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
+}
+
 TEST_F(PruningBFSRewriteTest, DoesNotRewriteBelowAWriteProcedure) {
   // A write procedure runs once per row, so collapsing duplicate rows changes
   // how many times its side effects happen.

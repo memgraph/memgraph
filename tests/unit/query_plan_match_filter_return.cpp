@@ -4207,6 +4207,58 @@ class SubqueriesFeature : public testing::Test {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
   }
+
+  struct WhenBranch {
+    Expression *predicate;  // nullptr = ELSE
+    std::shared_ptr<LogicalOperator> plan;
+    Symbol column;
+  };
+
+  /// `[input] RETURN column AS x`.
+  WhenBranch When(Expression *predicate, Expression *column, std::shared_ptr<LogicalOperator> input = nullptr) {
+    auto sym = this->symbol_table.CreateSymbol("x", true);
+    return {predicate, MakeProduce(std::move(input), NEXPR("x", column)->MapTo(sym)), sym};
+  }
+
+  /// `UNWIND values AS i CALL (i) { WHEN ... }`; each branch's `x` maps to the conditional's `x`.
+  std::shared_ptr<Conditional> MakeConditional(const Symbol &i, Expression *values,
+                                               const std::vector<WhenBranch> &whens,
+                                               std::vector<std::vector<std::shared_ptr<LogicalOperator>>> folds = {}) {
+    auto x = this->symbol_table.CreateSymbol("x", true);
+    std::vector<Expression *> predicates;
+    std::vector<std::shared_ptr<LogicalOperator>> branches;
+    std::vector<std::vector<std::pair<Symbol, Symbol>>> columns;
+    for (const auto &when : whens) {
+      predicates.push_back(when.predicate);
+      branches.push_back(when.plan);
+      columns.push_back({{when.column, x}});
+    }
+    folds.resize(whens.size());
+    return std::make_shared<Conditional>(std::make_shared<plan::Unwind>(nullptr, values, i),
+                                         std::move(predicates),
+                                         std::move(folds),
+                                         std::move(branches),
+                                         std::move(columns),
+                                         std::vector<Symbol>{x});
+  }
+
+  /// `RETURN i, x` over the conditional.
+  std::shared_ptr<Produce> ReturnIX(const Symbol &i, const std::shared_ptr<Conditional> &conditional) {
+    auto return_i = NEXPR("i", IDENT("i")->MapTo(i))->MapTo(this->symbol_table.CreateSymbol("i", true));
+    auto const &x = conditional->output_symbols_[0];
+    auto return_x = NEXPR("x", IDENT("x")->MapTo(x))->MapTo(this->symbol_table.CreateSymbol("x", true));
+    return MakeProduce(conditional, return_i, return_x);
+  }
+
+  std::vector<std::vector<int64_t>> ConditionalRows(const std::shared_ptr<Produce> &produce) {
+    auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
+    std::vector<std::vector<int64_t>> rows;
+    for (const auto &row : CollectProduce(*produce, &context)) {
+      auto &ints = rows.emplace_back();
+      for (const auto &value : row) ints.push_back(value.ValueInt());
+    }
+    return rows;
+  }
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
@@ -4492,6 +4544,180 @@ TYPED_TEST(SubqueriesFeature, SubqueriesWithForeach) {
   auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   auto results = CollectProduce(*produce, &context);
   EXPECT_EQ(results.size(), 2);
+}
+
+using Rows = std::vector<std::vector<int64_t>>;
+
+TYPED_TEST(SubqueriesFeature, ConditionalTakesFirstTrueBranch) {
+  // UNWIND [1, 2] AS i CALL (i) { WHEN true THEN RETURN 10 AS x WHEN true THEN RETURN 20 AS x } RETURN i, x
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto conditional =
+      this->MakeConditional(i,
+                            LIST(LITERAL(1), LITERAL(2)),
+                            {this->When(LITERAL(true), LITERAL(10)), this->When(LITERAL(true), LITERAL(20))});
+  EXPECT_EQ(this->ConditionalRows(this->ReturnIX(i, conditional)), (Rows{{1, 10}, {2, 10}}));
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalNullAndNoMatchDropRows) {
+  // UNWIND [1, null, 3] AS i CALL (i) { WHEN i > 2 THEN RETURN i AS x } RETURN i, x
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto conditional =
+      this->MakeConditional(i,
+                            LIST(LITERAL(1), LITERAL(TypedValue()), LITERAL(3)),
+                            {this->When(GREATER(IDENT("i")->MapTo(i), LITERAL(2)), IDENT("i")->MapTo(i))});
+  EXPECT_EQ(this->ConditionalRows(this->ReturnIX(i, conditional)), (Rows{{3, 3}}));
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalZeroRowBranchDropsRow) {
+  // UNWIND [1, 2] AS i CALL (i) { WHEN i = 1 THEN UNWIND [] AS y RETURN y AS x ELSE RETURN i AS x } RETURN i, x
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto y = this->symbol_table.CreateSymbol("y", true);
+  auto empty = std::make_shared<plan::Unwind>(nullptr, LIST(), y);
+  auto conditional =
+      this->MakeConditional(i,
+                            LIST(LITERAL(1), LITERAL(2)),
+                            {this->When(EQ(IDENT("i")->MapTo(i), LITERAL(1)), IDENT("y")->MapTo(y), empty),
+                             this->When(nullptr, IDENT("i")->MapTo(i))});
+  EXPECT_EQ(this->ConditionalRows(this->ReturnIX(i, conditional)), (Rows{{2, 2}}));
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalMultiRowBranch) {
+  // UNWIND [1, 2] AS i CALL (i) { WHEN i = 1 THEN UNWIND [10, 11] AS y RETURN y AS x ELSE RETURN i AS x }
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto y = this->symbol_table.CreateSymbol("y", true);
+  auto two_rows = std::make_shared<plan::Unwind>(nullptr, LIST(LITERAL(10), LITERAL(11)), y);
+  auto conditional =
+      this->MakeConditional(i,
+                            LIST(LITERAL(1), LITERAL(2)),
+                            {this->When(EQ(IDENT("i")->MapTo(i), LITERAL(1)), IDENT("y")->MapTo(y), two_rows),
+                             this->When(nullptr, IDENT("i")->MapTo(i))});
+  EXPECT_EQ(this->ConditionalRows(this->ReturnIX(i, conditional)), (Rows{{1, 10}, {1, 11}, {2, 2}}));
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalMapsColumnsBySymbol) {
+  // UNWIND [1, 2] AS i CALL (i) { WHEN i = 1 THEN RETURN 100 AS b, i AS a ELSE RETURN i AS a, 200 AS b }
+  // RETURN i, a, b
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto a0 = this->symbol_table.CreateSymbol("a", true);
+  auto b0 = this->symbol_table.CreateSymbol("b", true);
+  auto a1 = this->symbol_table.CreateSymbol("a", true);
+  auto b1 = this->symbol_table.CreateSymbol("b", true);
+  auto a = this->symbol_table.CreateSymbol("a", true);
+  auto b = this->symbol_table.CreateSymbol("b", true);
+  auto branch0 = MakeProduce(nullptr, NEXPR("b", LITERAL(100))->MapTo(b0), NEXPR("a", IDENT("i")->MapTo(i))->MapTo(a0));
+  auto branch1 = MakeProduce(nullptr, NEXPR("a", IDENT("i")->MapTo(i))->MapTo(a1), NEXPR("b", LITERAL(200))->MapTo(b1));
+  auto conditional = std::make_shared<Conditional>(
+      std::make_shared<plan::Unwind>(nullptr, LIST(LITERAL(1), LITERAL(2)), i),
+      std::vector<Expression *>{EQ(IDENT("i")->MapTo(i), LITERAL(1)), nullptr},
+      std::vector<std::vector<std::shared_ptr<LogicalOperator>>>(2),
+      std::vector<std::shared_ptr<LogicalOperator>>{branch0, branch1},
+      std::vector<std::vector<std::pair<Symbol, Symbol>>>{{{b0, b}, {a0, a}}, {{a1, a}, {b1, b}}},
+      std::vector<Symbol>{a, b});
+  auto produce = MakeProduce(conditional,
+                             NEXPR("i", IDENT("i")->MapTo(i))->MapTo(this->symbol_table.CreateSymbol("i", true)),
+                             NEXPR("a", IDENT("a")->MapTo(a))->MapTo(this->symbol_table.CreateSymbol("a", true)),
+                             NEXPR("b", IDENT("b")->MapTo(b))->MapTo(this->symbol_table.CreateSymbol("b", true)));
+  EXPECT_EQ(this->ConditionalRows(produce), (Rows{{1, 1, 100}, {2, 2, 200}}));
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalResetsBranchPerRow) {
+  // UNWIND [1, 2, 3] AS i CALL (i) { WHEN true THEN UNWIND [i, 0] AS y RETURN y AS x } RETURN i, x
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto y = this->symbol_table.CreateSymbol("y", true);
+  auto rows = std::make_shared<plan::Unwind>(nullptr, LIST(IDENT("i")->MapTo(i), LITERAL(0)), y);
+  auto conditional = this->MakeConditional(
+      i, LIST(LITERAL(1), LITERAL(2), LITERAL(3)), {this->When(LITERAL(true), IDENT("y")->MapTo(y), rows)});
+  EXPECT_EQ(this->ConditionalRows(this->ReturnIX(i, conditional)),
+            (Rows{{1, 1}, {1, 0}, {2, 2}, {2, 0}, {3, 3}, {3, 0}}));
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalResetAfterAbandon) {
+  // UNWIND [1, 2] AS i CALL (i) { WHEN true THEN RETURN i AS x } RETURN i, x: two rows, Reset, then the first again.
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto conditional =
+      this->MakeConditional(i, LIST(LITERAL(1), LITERAL(2)), {this->When(LITERAL(true), IDENT("i")->MapTo(i))});
+  auto const &x = conditional->output_symbols_[0];
+  auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
+  Frame frame(context.symbol_table.max_position());
+  auto cursor = conditional->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  EXPECT_EQ(frame[x].ValueInt(), 2);
+  cursor->Reset();
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  EXPECT_EQ(frame[i].ValueInt(), 1);
+  EXPECT_EQ(frame[x].ValueInt(), 1);
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalSkipsLaterFolds) {
+  // UNWIND [1, 2] AS i CALL (i) { WHEN true THEN RETURN i AS x WHEN EXISTS {...} AND [...] IS NULL THEN RETURN 0 AS x }
+  // Predicate 1's folds both read `UNWIND [1 / 0]`: pulling either one, or evaluating predicate 1, raises.
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto *exists = EXISTS(PATTERN(NODE("n")));
+  auto exists_sym = this->symbol_table.CreateAnonymousSymbol();
+  exists->MapTo(exists_sym);
+  auto list_sym = this->symbol_table.CreateAnonymousSymbol();
+
+  auto divide_by_zero = [&] {
+    auto y = this->symbol_table.CreateSymbol("y", true);
+    auto *one_over_zero = this->storage.template Create<DivisionOperator>(LITERAL(1), LITERAL(0));
+    return std::pair{std::make_shared<plan::Unwind>(nullptr, LIST(one_over_zero), y), y};
+  };
+  auto [exists_branch, exists_y] = divide_by_zero();
+  auto exists_fold = std::make_shared<EvaluatePatternFilter>(exists_branch, exists_sym, Fold::kBool);
+  auto [list_branch, list_y] = divide_by_zero();
+  auto collected = this->symbol_table.CreateSymbol("c", true);
+  std::shared_ptr<LogicalOperator> list_produce =
+      MakeProduce(list_branch, NEXPR("c", IDENT("y")->MapTo(list_y))->MapTo(collected));
+  auto list_fold = std::make_shared<RollUpApply>(
+      std::make_shared<Once>(), std::move(list_produce), std::vector<Symbol>{collected}, list_sym, true);
+
+  auto conditional = this->MakeConditional(i,
+                                           LIST(LITERAL(1), LITERAL(2)),
+                                           {this->When(LITERAL(true), IDENT("i")->MapTo(i)),
+                                            this->When(AND(exists, IS_NULL(IDENT("c")->MapTo(list_sym))), LITERAL(0))},
+                                           {{}, {exists_fold, list_fold}});
+  EXPECT_EQ(this->ConditionalRows(this->ReturnIX(i, conditional)), (Rows{{1, 1}, {2, 2}}));
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalClone) {
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto exists_sym = this->symbol_table.CreateAnonymousSymbol();
+  auto fold = std::make_shared<EvaluatePatternFilter>(nullptr, exists_sym, Fold::kBool);
+  auto conditional = this->MakeConditional(
+      i,
+      LIST(LITERAL(1)),
+      {this->When(EQ(IDENT("i")->MapTo(i), LITERAL(1)), LITERAL(10)), this->When(nullptr, LITERAL(20))},
+      {{fold}, {}});
+
+  AstStorage clone_storage;
+  auto clone = conditional->Clone(&clone_storage);
+  auto *cloned = dynamic_cast<Conditional *>(clone.get());
+  ASSERT_NE(cloned, nullptr);
+  ASSERT_EQ(cloned->predicates_.size(), 2);
+  ASSERT_NE(cloned->predicates_[0], nullptr);
+  EXPECT_NE(cloned->predicates_[0], conditional->predicates_[0]);
+  EXPECT_EQ(cloned->predicates_[1], nullptr);
+  ASSERT_EQ(cloned->pattern_filters_.size(), 2);
+  ASSERT_EQ(cloned->pattern_filters_[0].size(), 1);
+  EXPECT_NE(cloned->pattern_filters_[0][0], fold);
+  EXPECT_EQ(cloned->pattern_filters_[0][0]->GetTypeInfo(), EvaluatePatternFilter::kType);
+  EXPECT_TRUE(cloned->pattern_filters_[1].empty());
+  ASSERT_EQ(cloned->branches_.size(), 2);
+  EXPECT_NE(cloned->branches_[0], conditional->branches_[0]);
+  EXPECT_EQ(cloned->branches_[1]->GetTypeInfo(), Produce::kType);
+  EXPECT_EQ(cloned->branch_columns_, conditional->branch_columns_);
+  EXPECT_EQ(cloned->output_symbols_, conditional->output_symbols_);
+}
+
+TYPED_TEST(SubqueriesFeature, ConditionalModifiedSymbols) {
+  // The input's symbols and the conditional's columns; never a branch's own column or a fold's closure.
+  auto i = this->symbol_table.CreateSymbol("i", true);
+  auto exists_sym = this->symbol_table.CreateAnonymousSymbol();
+  auto fold = std::make_shared<EvaluatePatternFilter>(nullptr, exists_sym, Fold::kBool);
+  auto conditional = this->MakeConditional(i, LIST(LITERAL(1)), {this->When(LITERAL(true), LITERAL(10))}, {{fold}});
+  EXPECT_THAT(conditional->ModifiedSymbols(this->symbol_table),
+              testing::UnorderedElementsAre(i, conditional->output_symbols_[0]));
 }
 
 #ifdef MG_ENTERPRISE

@@ -325,6 +325,17 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(RollUpApply & /*unused*/) override { return true; }
 
+  bool PreVisit(Conditional &op) override {
+    op.input()->Accept(*this);
+    for (const auto &folds : op.pattern_filters_) {
+      for (const auto &fold : folds) fold->Accept(*this);
+    }
+    for (const auto &branch : op.branches_) branch->Accept(*this);
+    return false;
+  }
+
+  bool PostVisit(Conditional & /*unused*/) override { return true; }
+
   bool PreVisit(PeriodicCommit & /*unused*/) override { return true; }
 
   bool PostVisit(PeriodicCommit & /*unused*/) override { return true; }

@@ -569,6 +569,21 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Conditional &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    for (auto &folds : op.pattern_filters_) {
+      for (auto &fold : folds) RewriteBranch(&fold);
+    }
+    for (auto &branch : op.branches_) RewriteBranch(&branch);
+    return false;
+  }
+
+  bool PostVisit(Conditional &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(PeriodicCommit &op) override {
     prev_ops_.push_back(&op);
     return true;

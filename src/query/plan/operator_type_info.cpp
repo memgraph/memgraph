@@ -165,6 +165,9 @@ constexpr utils::TypeInfo query::plan::HashJoin::kType{
 constexpr utils::TypeInfo query::plan::RollUpApply::kType{
     .id = utils::TypeId::ROLLUP_APPLY, .name = "RollUpApply", .superclass = &query::plan::LogicalOperator::kType};
 
+constexpr utils::TypeInfo query::plan::Conditional::kType{
+    .id = utils::TypeId::CONDITIONAL, .name = "Conditional", .superclass = &query::plan::LogicalOperator::kType};
+
 constexpr utils::TypeInfo query::plan::PeriodicCommit::kType{
     .id = utils::TypeId::PERIODIC_COMMIT, .name = "PeriodicCommit", .superclass = &query::plan::LogicalOperator::kType};
 constexpr utils::TypeInfo query::plan::PeriodicSubquery::kType{.id = utils::TypeId::PERIODIC_SUBQUERY,

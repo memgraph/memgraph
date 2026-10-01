@@ -267,6 +267,7 @@ EXPECTED_EVENT_COUNTERS = {
     "ReplicaRecoverySkip",
     "ReplicaRecoverySuccess",
     "RollUpApplyOperator",
+    "ConditionalOperator",
     "RollbackedTransactions",
     "ScanAllByEdgeIdOperator",
     "ScanAllByEdgeOperator",

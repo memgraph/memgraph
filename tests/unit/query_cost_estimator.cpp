@@ -440,6 +440,27 @@ TEST_F(QueryCostEstimator, Union) {
   EXPECT_COST(CostParam::kUnion * (no_vertices + no_vertices));
 }
 
+TEST_F(QueryCostEstimator, Conditional) {
+  // MATCH (n) CALL (n) { WHEN true THEN MATCH (a) RETURN a WHEN true THEN MATCH (b) RETURN b } WHERE true:
+  // the branches' costs and cardinalities add up, as in a Union, and multiply the input's, as in an Apply.
+  auto no_vertices = 4;
+  AddVertices(no_vertices, 0, 0);
+  std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  std::shared_ptr<LogicalOperator> left = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  std::shared_ptr<LogicalOperator> right = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  auto conditional = std::make_shared<Conditional>(input,
+                                                   std::vector<Expression *>{Literal(true), Literal(true)},
+                                                   std::vector<std::vector<std::shared_ptr<LogicalOperator>>>(2),
+                                                   std::vector<std::shared_ptr<LogicalOperator>>{left, right},
+                                                   std::vector<std::vector<std::pair<Symbol, Symbol>>>(2),
+                                                   std::vector<Symbol>{NextSymbol()});
+  MakeOp<Filter>(conditional, std::vector<std::shared_ptr<LogicalOperator>>{}, Literal(true));
+  auto const branch_cost = 2 * no_vertices * CostParam::kScanAll;
+  auto const branch_cardinality = 2 * no_vertices;
+  EXPECT_COST(no_vertices * CostParam::kScanAll + no_vertices * CostParam::kFilter + no_vertices * branch_cost +
+              no_vertices * branch_cardinality * CostParam::kFilter);
+}
+
 // Helper for testing an operations cost and cardinality.
 // Only for operations that first increment cost, then modify cardinality.
 // Intentially a macro (instead of function) for better test feedback.
