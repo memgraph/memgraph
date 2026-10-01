@@ -1,2 +1,0 @@
-CREATE (n:RANDOM) RETURN n;
-CREATE (n:RANDOM {name:'1'}) RETURN n;
