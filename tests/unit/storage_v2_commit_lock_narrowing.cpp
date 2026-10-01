@@ -15,12 +15,14 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <semaphore>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <variant>
@@ -30,6 +32,7 @@
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/result.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
@@ -290,89 +293,6 @@ TEST(LockFreeReadSnapshot, MultipleReadersDifferentSnapshots_OldestHorizon_ON) {
   EXPECT_EQ(ReadProp(*fresh_reader, gid), 3);
 }
 
-// Stress: writers, SI readers and a concurrent GC thread race on the commit windows and watermark.
-// A repeated read within one accessor must be stable and every commit visible at the end.
-TEST(LockFreeReadSnapshot, ConcurrentReadersWritersGc_NoCrash_SnapshotStable_ON) {
-  auto store = MakeStorageManualGc(/*flag_on=*/true);
-  const auto p = store->NameToProperty("p");
-
-  constexpr int kWriters = 4;
-  constexpr int kReaders = 4;
-  constexpr int kWritesPerWriter = 500;
-
-  std::atomic<bool> stop{false};
-  std::atomic<uint64_t> committed{0};
-
-  auto writer_fn = [&](int writer_id) {
-    for (int i = 0; i < kWritesPerWriter; ++i) {
-      auto acc = store->Access(memgraph::storage::WRITE);
-      auto vertex = acc->CreateVertex();
-      const int value = writer_id * kWritesPerWriter + i;
-      ASSERT_TRUE(vertex.SetProperty(p, PropertyValue(value)).has_value());
-      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value())
-          << "concurrent fresh-vertex commit failed unexpectedly (writer " << writer_id << ", iter " << i << ")";
-      committed.fetch_add(1, std::memory_order_relaxed);
-    }
-  };
-
-  auto reader_fn = [&] {
-    while (!stop.load(std::memory_order_relaxed)) {
-      auto r = store->Access(memgraph::storage::READ);
-
-      // A frozen SI snapshot must not shift under concurrent commits/GC.
-      std::optional<memgraph::storage::VertexAccessor> first;
-      for (auto vertex : r->Vertices(View::OLD)) {
-        first.emplace(vertex);
-        break;
-      }
-      if (first.has_value()) {
-        auto v1 = first->GetProperty(p, View::OLD);
-        ASSERT_TRUE(v1.has_value());
-        const int64_t read1 = v1->ValueInt();
-        int64_t churn = 0;
-        for (int k = 0; k < 32; ++k) churn += k;
-        (void)churn;
-        auto v2 = first->GetProperty(p, View::OLD);
-        ASSERT_TRUE(v2.has_value());
-        ASSERT_EQ(read1, v2->ValueInt()) << "two reads of \"p\" within one SI accessor returned different values.";
-      }
-
-      for (auto vertex : r->Vertices(View::OLD)) {
-        auto value = vertex.GetProperty(p, View::OLD);
-        ASSERT_TRUE(value.has_value());
-        (void)value->ValueInt();
-      }
-    }
-  };
-
-  auto gc_fn = [&] {
-    while (!stop.load(std::memory_order_relaxed)) {
-      RunGc(*store);
-      std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    }
-  };
-
-  std::vector<std::thread> readers;
-  readers.reserve(kReaders);
-  for (int i = 0; i < kReaders; ++i) readers.emplace_back(reader_fn);
-  std::thread gc(gc_fn);
-
-  std::vector<std::thread> writers;
-  writers.reserve(kWriters);
-  for (int i = 0; i < kWriters; ++i) writers.emplace_back(writer_fn, i);
-  for (auto &w : writers) w.join();
-
-  stop.store(true, std::memory_order_relaxed);
-  for (auto &r : readers) r.join();
-  gc.join();
-
-  ASSERT_EQ(committed.load(), static_cast<uint64_t>(kWriters) * kWritesPerWriter);
-
-  auto final_reader = store->Access(memgraph::storage::READ);
-  EXPECT_EQ(CountVertices(*final_reader), static_cast<int64_t>(committed.load()))
-      << "fresh-snapshot vertex count differs from the number of committed transactions.";
-}
-
 // A committer that mints a ts and then aborts (UNIQUE violation, never reaching FinalizeCommitPhase)
 // must not advance last_committed_mvcc_ts_: the aborted vertex stays invisible to readers opened before
 // and after it, and later commits proceed.
@@ -383,6 +303,7 @@ TEST(LockFreeReadSnapshot, AbortAfterMint_DoesNotAdvanceWatermark_AB) {
     CreateUniquePConstraint(*store, label);
 
     const auto gid_a = CommitLabeledVertex(*store, label, 1);
+    const auto watermark_before = store->LastCommittedMvccTimestamp();
 
     auto reader_before = store->Access(memgraph::storage::READ);
     EXPECT_EQ(ReadProp(*reader_before, gid_a), 1) << "flag_on=" << flag_on;
@@ -399,6 +320,11 @@ TEST(LockFreeReadSnapshot, AbortAfterMint_DoesNotAdvanceWatermark_AB) {
       ASSERT_FALSE(res.has_value()) << "the duplicate commit must fail the UNIQUE constraint (flag_on=" << flag_on
                                     << ")";
       EXPECT_EQ(std::get<ConstraintViolation>(res.error()).type, ConstraintViolation::Type::UNIQUE);
+    }
+
+    if (flag_on) {
+      EXPECT_EQ(store->LastCommittedMvccTimestamp(), watermark_before)
+          << "the aborted commit advanced last_committed_mvcc_ts_ to its wasted commit timestamp.";
     }
 
     EXPECT_EQ(ReadProp(*reader_before, gid_a), 1) << "flag_on=" << flag_on;
@@ -436,6 +362,7 @@ TEST(LockFreeReadSnapshot, ReaderBeginsDuringAbortingCommitWindow_NeverSeesAbort
   CreateUniquePConstraint(*store, label);
 
   const auto gid_a = CommitLabeledVertex(*store, label, 1);
+  const auto watermark_before = store->LastCommittedMvccTimestamp();
 
   constexpr int kIters = 500;
   std::binary_semaphore start{0};
@@ -468,6 +395,8 @@ TEST(LockFreeReadSnapshot, ReaderBeginsDuringAbortingCommitWindow_NeverSeesAbort
   }
   committer.join();
 
+  EXPECT_EQ(store->LastCommittedMvccTimestamp(), watermark_before)
+      << "aborted commits advanced last_committed_mvcc_ts_ to a wasted commit timestamp.";
   EXPECT_TRUE(all_failed) << "every duplicate commit must fail the UNIQUE constraint";
   EXPECT_TRUE(all_unique);
 
@@ -686,7 +615,159 @@ void CommitDelete(InMemoryStorage &store, Gid gid) {
   ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
+// Creates edge E from `from` to `to` through a STRICT_SYNC replica prepare: minted, not published.
+void PrepareEdgeWithoutPublish(InMemoryStorage &store, Gid from, Gid to, PreparedCommit &out) {
+  out.durable_ts = store.LastCommittedMvccTimestamp() + 1;
+  out.writer = store.Access(memgraph::storage::WRITE);
+  auto from_vertex = out.writer->FindVertex(from, View::OLD);
+  auto to_vertex = out.writer->FindVertex(to, View::OLD);
+  ASSERT_TRUE(from_vertex.has_value());
+  ASSERT_TRUE(to_vertex.has_value());
+  ASSERT_TRUE(out.writer->CreateEdge(&*from_vertex, &*to_vertex, store.NameToEdgeType("E")).has_value());
+  ASSERT_TRUE(out.writer
+                  ->PrepareForCommitPhase(memgraph::storage::CommitArgs::make_replica_write(
+                      out.durable_ts, /*two_phase_commit=*/true, [] {}))
+                  .has_value());
+}
+
 }  // namespace
+
+// A writer that began inside commit C's window (snapshot < c) must get a serialization error writing a
+// vertex C modified, both before and after C publishes.
+TEST_F(LockFreeReadSnapshotRecovery, WindowWriter_ConflictsWithMintedCommit_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
+  const auto gid = CreateVertexWithProp(*store, 1);
+  const auto p = store->NameToProperty("p");
+
+  PreparedCommit commit;
+  PrepareWithoutPublish(*store, gid, 2, commit);
+  auto window_writer = store->Access(memgraph::storage::WRITE);
+  auto vertex = window_writer->FindVertex(gid, View::OLD);
+  ASSERT_TRUE(vertex.has_value());
+
+  auto before_publish = vertex->SetProperty(p, PropertyValue(3));
+  ASSERT_FALSE(before_publish.has_value()) << "a window writer overwrote a vertex modified by a minted, unpublished "
+                                              "commit; PrepareForWrite must reject ts > snapshot_ts.";
+  EXPECT_EQ(before_publish.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
+
+  PublishAndEnd(*store, commit);
+
+  auto after_publish = vertex->SetProperty(p, PropertyValue(3));
+  ASSERT_FALSE(after_publish.has_value()) << "publishing C must not make its ts visible to a writer whose snapshot "
+                                             "predates it.";
+  EXPECT_EQ(after_publish.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
+}
+
+// Edge creation is non-sequential: a window writer adding an edge to a vertex that a minted, unpublished commit
+// also added an edge to is allowed (PrepareForNonSequentialWrite tolerates other in-flight REMOVE_*_EDGE deltas).
+TEST_F(LockFreeReadSnapshotRecovery, WindowWriter_NonSequentialEdgeCreate_Allowed_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
+  const auto v = CreateVertexWithProp(*store, 1);
+  const auto w = CreateVertexWithProp(*store, 2);
+  const auto u = CreateVertexWithProp(*store, 3);
+
+  PreparedCommit commit;
+  PrepareEdgeWithoutPublish(*store, v, w, commit);
+  {
+    auto window_writer = store->Access(memgraph::storage::WRITE);
+    auto from_vertex = window_writer->FindVertex(v, View::OLD);
+    auto to_vertex = window_writer->FindVertex(u, View::OLD);
+    ASSERT_TRUE(from_vertex.has_value());
+    ASSERT_TRUE(to_vertex.has_value());
+    auto edge = window_writer->CreateEdge(&*from_vertex, &*to_vertex, store->NameToEdgeType("E"));
+    EXPECT_TRUE(edge.has_value()) << "a window writer's edge create on a vertex with only an in-flight edge-create "
+                                     "delta must be accepted as non-sequential, not a serialization error.";
+  }
+  PublishAndEnd(*store, commit);
+
+  auto fresh = store->Access(memgraph::storage::READ);
+  auto vertex = fresh->FindVertex(v, View::OLD);
+  ASSERT_TRUE(vertex.has_value());
+  auto out_edges = vertex->OutEdges(View::OLD);
+  ASSERT_TRUE(out_edges.has_value());
+  EXPECT_EQ(out_edges->edges.size(), 1U) << "only C's edge may be visible; the aborted window writer's edge must not.";
+}
+
+// Stress: writers update existing vertices, SI readers and a GC thread race on the commit windows (WAL storage
+// so mint->publish windows form). Reads within one accessor must be stable, never below an already-committed
+// value, and GC must not unlink versions a live reader needs.
+TEST_F(LockFreeReadSnapshotRecovery, ConcurrentReadersWritersGc_NoCrash_SnapshotStable_ON) {
+  auto store = MakeWalStorageManualGc(storage_directory);
+  const auto p = store->NameToProperty("p");
+
+  constexpr int kWriters = 4;
+  constexpr int kReaders = 4;
+  constexpr int kWritesPerWriter = 200;
+
+  std::array<Gid, kWriters> gids;
+  for (auto &gid : gids) gid = CreateVertexWithProp(*store, -1);
+
+  std::array<std::atomic<int>, kWriters> committed_upto;
+  for (auto &c : committed_upto) c.store(-1, std::memory_order_relaxed);
+  std::atomic<bool> stop{false};
+
+  auto writer_fn = [&](int writer_id) {
+    for (int i = 0; i < kWritesPerWriter; ++i) {
+      auto acc = store->Access(memgraph::storage::WRITE);
+      auto vertex = acc->FindVertex(gids[writer_id], View::OLD);
+      ASSERT_TRUE(vertex.has_value());
+      ASSERT_TRUE(vertex->SetProperty(p, PropertyValue(i)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value())
+          << "update of a writer-private vertex failed unexpectedly (writer " << writer_id << ", iter " << i << ")";
+      acc.reset();
+      committed_upto[writer_id].store(i, std::memory_order_release);
+    }
+  };
+
+  auto reader_fn = [&] {
+    std::array<int64_t, kWriters> last_seen;
+    last_seen.fill(-1);
+    while (!stop.load(std::memory_order_relaxed)) {
+      std::array<int, kWriters> floor;
+      for (int w = 0; w < kWriters; ++w) floor[w] = committed_upto[w].load(std::memory_order_acquire);
+
+      auto r = store->Access(memgraph::storage::READ);
+      for (int w = 0; w < kWriters; ++w) {
+        const int64_t first = ReadProp(*r, gids[w]);
+        int64_t churn = 0;
+        for (int k = 0; k < 32; ++k) churn += k;
+        (void)churn;
+        ASSERT_EQ(first, ReadProp(*r, gids[w]))
+            << "two reads of \"p\" within one SI accessor returned different values.";
+        ASSERT_GE(first, floor[w]) << "reader began after commit " << floor[w] << " returned but saw an older value.";
+        ASSERT_GE(first, last_seen[w]) << "a later snapshot observed an older value than an earlier one.";
+        last_seen[w] = first;
+      }
+    }
+  };
+
+  auto gc_fn = [&] {
+    while (!stop.load(std::memory_order_relaxed)) {
+      RunGc(*store);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+
+  std::vector<std::thread> readers;
+  readers.reserve(kReaders);
+  for (int i = 0; i < kReaders; ++i) readers.emplace_back(reader_fn);
+  std::thread gc(gc_fn);
+
+  std::vector<std::thread> writers;
+  writers.reserve(kWriters);
+  for (int i = 0; i < kWriters; ++i) writers.emplace_back(writer_fn, i);
+  for (auto &w : writers) w.join();
+
+  stop.store(true, std::memory_order_relaxed);
+  for (auto &r : readers) r.join();
+  gc.join();
+
+  auto final_reader = store->Access(memgraph::storage::READ);
+  for (int w = 0; w < kWriters; ++w) {
+    EXPECT_EQ(ReadProp(*final_reader, gids[w]), kWritesPerWriter - 1)
+        << "last committed update of writer " << w << " is not visible to a fresh snapshot.";
+  }
+}
 
 // A reader that BEGINs between a commit's mint and publish has snapshot < c < start; GC must keep c's
 // pre-image while it lives, and resume reclaiming once it ends.
@@ -754,8 +835,8 @@ TEST_F(LockFreeReadSnapshotRecovery, EarlierWindowReader_RetainsPreImageAcrossGc
   EXPECT_EQ(store->VertexStoreSize(), 1U) << "GC must reclaim once the window reader has ended";
 }
 
-// Under the flag every txn publishes its snapshot_ts, so an open READ_COMMITTED reader must not pin the GC
-// horizon at its floor: GC must still reclaim old versions, and the RC reader must stay valid.
+// An open READ_COMMITTED reader has no frozen snapshot, so it must not pin the GC horizon: GC must still
+// reclaim old versions, and the RC reader must stay valid.
 TEST(LockFreeReadSnapshot, NonSiReaderDoesNotPinGcFloorLow_ON) {
   auto store = MakeStorageManualGc(/*flag_on=*/true);
   const auto gid = CreateVertexWithProp(*store, 1);
@@ -803,6 +884,45 @@ TEST(LockFreeReadSnapshot, NonSiReaderDoesNotPinGcFloorLow_ON) {
 
   auto fresh_reader = store->Access(memgraph::storage::READ);
   EXPECT_EQ(ReadProp(*fresh_reader, gid), 4);
+}
+
+// A commit callback that throws after the publish store leaves a published, still-linked chain; the unwind
+// must neither finish the ts (GC would free linked deltas) nor leave the watermark behind the publish.
+// Relies on a sanitizer build to catch a use-after-free; otherwise asserts visibility + watermark.
+TEST(LockFreeReadSnapshot, ThrowingCommitCallback_PublishedCommitStaysSafe_ON) {
+  auto store = MakeStorageManualGc(/*flag_on=*/true);
+  const auto gid = CreateVertexWithProp(*store, 1);
+
+  // Older SI reader keeps the writer's deltas from being fast-discarded.
+  auto r0 = store->Access(memgraph::storage::READ);
+  const auto watermark_before = store->LastCommittedMvccTimestamp();
+
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(vertex->SetProperty(store->NameToProperty("p"), PropertyValue(2)).has_value());
+    acc->GetTransaction()->commit_callbacks_.Add(
+        [](uint64_t /*commit_ts*/) { throw std::runtime_error("callback failure"); });
+    EXPECT_THROW((void)acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()), std::runtime_error);
+  }
+
+  EXPECT_GT(store->LastCommittedMvccTimestamp(), watermark_before);
+  {
+    auto fresh = store->Access(memgraph::storage::READ);
+    EXPECT_EQ(ReadProp(*fresh, gid), 2);
+  }
+
+  r0.reset();
+  for (int i = 0; i < 3; ++i) RunGc(*store);
+
+  auto fresh = store->Access(memgraph::storage::READ);
+  EXPECT_EQ(ReadProp(*fresh, gid), 2);
+  auto vertex = fresh->FindVertex(gid, View::OLD);
+  ASSERT_TRUE(vertex.has_value());
+  auto value = vertex->GetProperty(fresh->NameToProperty("p"), View::OLD);
+  ASSERT_TRUE(value.has_value());
+  EXPECT_EQ(value->ValueInt(), 2);
 }
 
 // Recovery must reseed last_committed_mvcc_ts_ from the last durable timestamp, else SI readers freeze at 0.
