@@ -25,7 +25,7 @@ class Expression;
 using QueryLabelType = std::variant<LabelIx, Expression *>;
 
 /// A node label expression: `&`, `|`, `!`, `%` and parentheses over label leaves, or a plain conjunction
-/// such as `:A:B`. Not a `Tree`; `MakeLabelsTest` holds it in a `LabelsTest`.
+/// such as `:A:B`. Not a `Tree`; `LabelsTest::Make` holds it in a `LabelsTest`.
 ///
 /// Copying duplicates the term for the same `AstStorage`: a `Label` keeps the index it was interned at, and
 /// a `Dynamic` keeps pointing at the storage that owns its expression. Use `Clone` to duplicate into another

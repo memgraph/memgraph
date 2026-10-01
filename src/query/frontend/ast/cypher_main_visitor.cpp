@@ -3893,7 +3893,7 @@ antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aC
   auto *expression = std::any_cast<Expression *>(ctx->expression2b()->accept(this));
   if (ctx->nodeLabelExpression()) {
     expression =
-        MakeLabelsTest(*storage_, expression, std::any_cast<LabelTerm>(ctx->nodeLabelExpression()->accept(this)));
+        LabelsTest::Make(*storage_, expression, std::any_cast<LabelTerm>(ctx->nodeLabelExpression()->accept(this)));
   }
   return expression;
 }
@@ -5015,7 +5015,7 @@ Expression *CypherMainVisitor::CreateUnaryOperatorByToken(size_t token, Expressi
       if (auto *labels_test = utils::Downcast<LabelsTest>(e)) {
         const auto *term = labels_test->Term();
         if (const auto *negation = term ? term->As<LabelTerm::Not>() : nullptr) {
-          return MakeLabelsTest(*storage_, labels_test->expression_, *negation->operand);
+          return LabelsTest::Make(*storage_, labels_test->expression_, *negation->operand);
         }
       }
       return storage_->Create<NotOperator>(e);

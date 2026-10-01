@@ -1154,21 +1154,19 @@ class AllPropertiesLookup : public Expression {
   friend class AstStorage;
 };
 
-class LabelsTest;
-
-/// The test `subject:term` stands for. A conjunction of labels fills `LabelCnf::labels`, a disjunction of
-/// labels one `LabelCnf::or_labels` group (or `labels`, when it names one label), and anything else is kept
-/// whole as a `LabelTerm`.
-LabelsTest *MakeLabelsTest(AstStorage &storage, Expression *subject, LabelTerm term);
-
-/// The tests a whole-term test over an identifier stands for once `!!` is dropped and `&` flattened, so that index
-/// selection sees its labels: one test per conjunct that is a label or a disjunction of labels, in the order
-/// written, then one test with all other conjuncts. Empty when that leaves the test as it is.
-std::vector<LabelsTest *> SplitLabelsTest(AstStorage &storage, const LabelsTest &test);
-
 class LabelsTest : public Expression {
  public:
   static const utils::TypeInfo kType;
+
+  /// The test `subject:term` stands for. A conjunction of labels fills `LabelCnf::labels`, a disjunction of
+  /// labels one `LabelCnf::or_labels` group (or `labels`, when it names one label), and anything else is kept
+  /// whole as a `LabelTerm`. Which of the two a test holds is decided here and nowhere else.
+  static LabelsTest *Make(AstStorage &storage, Expression *subject, LabelTerm term);
+
+  /// The tests a whole-term test over an identifier stands for once `!!` is dropped and `&` flattened, so that
+  /// index selection sees its labels: one test per conjunct that is a label or a disjunction of labels, in the
+  /// order written, then one test with all other conjuncts. Empty when that leaves the test as it is.
+  static std::vector<LabelsTest *> Split(AstStorage &storage, const LabelsTest &test);
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
@@ -1203,7 +1201,7 @@ class LabelsTest : public Expression {
 
   Expression *expression_{nullptr};
   /// Plain labels, which index selection reads and filter collection merges into, or a label expression they
-  /// cannot express, held whole so the subject is evaluated once. See `MakeLabelsTest`.
+  /// cannot express, held whole so the subject is evaluated once. See `LabelsTest::Make`.
   std::variant<LabelCnf, LabelTerm> test_;
 
   LabelsTest *Clone(AstStorage *storage) const override {

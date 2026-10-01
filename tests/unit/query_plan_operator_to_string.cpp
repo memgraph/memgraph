@@ -487,7 +487,7 @@ TYPED_TEST(OperatorToStringTest, FilterWildcardLabel) {
   auto node = this->GetSymbol("person");
   auto node_ident = IDENT("person");
 
-  auto *labels_test = MakeLabelsTest(this->storage, node_ident, LABEL_TERM_WILDCARD());
+  auto *labels_test = LabelsTest::Make(this->storage, node_ident, LABEL_TERM_WILDCARD());
   auto label_filter_info = FilterInfo{FilterInfo::Type::Generic, labels_test, {node}};
 
   Filters filters;
@@ -503,7 +503,7 @@ TYPED_TEST(OperatorToStringTest, FilterWildcardLabel) {
 TYPED_TEST(OperatorToStringTest, FilterLabelTerm) {
   auto node = this->GetSymbol("person");
   auto filter_of = [&](LabelTerm term) {
-    auto *labels_test = MakeLabelsTest(this->storage, IDENT("person"), std::move(term));
+    auto *labels_test = LabelsTest::Make(this->storage, IDENT("person"), std::move(term));
     Filters filters;
     filters.SetFilters({FilterInfo{FilterInfo::Type::Generic, labels_test, {node}}});
     std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node);
@@ -535,10 +535,10 @@ TYPED_TEST(OperatorToStringTest, FilterLabelTypeNamesWhatItCan) {
   };
 
   // A whole-held term carries no plain labels for a `Label` filter to read, so its operators are the name.
-  EXPECT_EQ(name_of(MakeLabelsTest(this->storage, IDENT("person"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1")))),
+  EXPECT_EQ(name_of(LabelsTest::Make(this->storage, IDENT("person"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1")))),
             "NOT (person :Label1)");
   // Neither plain labels nor a subject to name them over.
-  EXPECT_EQ(name_of(MakeLabelsTest(this->storage, LITERAL(1), LABEL_TERM_WILDCARD())), "()");
+  EXPECT_EQ(name_of(LabelsTest::Make(this->storage, LITERAL(1), LABEL_TERM_WILDCARD())), "()");
   EXPECT_EQ(name_of(LITERAL(true)), "()");
 }
 

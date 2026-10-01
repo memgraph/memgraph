@@ -1240,7 +1240,7 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWildcard) {
   auto eval_on = [&](const TypedValue &value) {
     auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
     frame_writer.Write(node_symbol, value);
-    return this->Eval(MakeLabelsTest(this->storage, identifier, LabelTerm{LabelTerm::Wildcard{}}));
+    return this->Eval(LabelsTest::Make(this->storage, identifier, LabelTerm{LabelTerm::Wildcard{}}));
   };
   EXPECT_TRUE(eval_on(TypedValue(labelled)).ValueBool());
   EXPECT_FALSE(eval_on(TypedValue(bare)).ValueBool());
@@ -1270,7 +1270,7 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
   identifier->MapTo(node_symbol);
 
   auto leaf = [](LabelIx label) { return LabelTerm{LabelTerm::Label{label}}; };
-  auto test_of = [&](LabelTerm term) { return MakeLabelsTest(this->storage, identifier, std::move(term)); };
+  auto test_of = [&](LabelTerm term) { return LabelsTest::Make(this->storage, identifier, std::move(term)); };
   // (ANIMAL|PLANT)&!(ANIMAL&PLANT): each of `|`, `&` and `!` read as another operator changes a row below.
   auto term = LabelTerm{
       LabelTerm::And{{LabelTerm{LabelTerm::Or{{leaf(animal_ix), leaf(plant_ix)}}},

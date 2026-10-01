@@ -502,7 +502,7 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
     if (!conjunction) {
       // Pattern position and WHERE position have to yield the same filters, so the term goes through the
       // very analysis a WHERE expression gets.
-      CollectFilterExpression(MakeLabelsTest(storage, node->identifier_, *node->label_term_),
+      CollectFilterExpression(LabelsTest::Make(storage, node->identifier_, *node->label_term_),
                               symbol_table,
                               storage,
                               LabelTestMerging::kAllowed);
@@ -924,7 +924,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
   } else if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
     // The conjuncts of a label expression that index selection can use become tests of their own. In reverse,
     // as SplitExpression hands over the operands of an AND.
-    if (auto pieces = SplitLabelsTest(storage, *labels_test); !pieces.empty()) {
+    if (auto pieces = LabelsTest::Split(storage, *labels_test); !pieces.empty()) {
       for (auto *piece : pieces | std::views::reverse) {
         AnalyzeAndStoreFilter(piece, symbol_table, storage, merging);
       }
@@ -1470,7 +1470,7 @@ Expression *SplitLabelsTests(Expression *expression, AstStorage &storage) {
   auto *labels_test = utils::Downcast<LabelsTest>(expression);
   if (!labels_test) return expression;
   Expression *joined = nullptr;
-  for (auto *piece : SplitLabelsTest(storage, *labels_test)) {
+  for (auto *piece : LabelsTest::Split(storage, *labels_test)) {
     joined = joined ? static_cast<Expression *>(storage.Create<AndOperator>(joined, piece)) : piece;
   }
   return joined ? joined : expression;

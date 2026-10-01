@@ -53,6 +53,7 @@ using namespace memgraph::query::plan;
 using memgraph::query::AstStorage;
 using memgraph::query::CypherUnion;
 using memgraph::query::EdgeAtom;
+using memgraph::query::LabelsTest;
 using memgraph::query::SingleQuery;
 using memgraph::query::Symbol;
 using memgraph::query::SymbolTable;
@@ -5311,7 +5312,7 @@ TYPED_TEST(TestPlanner, WildcardSurvivesEdgeTypeIndexScan) {
   FakeDbAccessor dba;
   dba.SetIndexCount(dba.EdgeType("Type1"), 1);
 
-  auto *wildcard = MakeLabelsTest(this->storage, IDENT("r"), LABEL_TERM_WILDCARD());
+  auto *wildcard = LabelsTest::Make(this->storage, IDENT("r"), LABEL_TERM_WILDCARD());
   auto *query = QUERY(
       SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT), NODE("anon2"))),
                    WHERE(AND(LABELS_TEST(IDENT("r"), std::vector{this->storage.GetLabelIx("Type1")}), wildcard)),
@@ -5386,7 +5387,7 @@ TYPED_TEST(TestPlanner, MixedTermExtractsTheDisjunction) {
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_TERM("n", term()))), RETURN("n"))),
       // MATCH (n) WHERE n:(Label1|Label2)&!Label3 RETURN n
       QUERY(SINGLE_QUERY(
-          MATCH(PATTERN(NODE("n"))), WHERE(MakeLabelsTest(this->storage, IDENT("n"), term())), RETURN("n"))),
+          MATCH(PATTERN(NODE("n"))), WHERE(LabelsTest::Make(this->storage, IDENT("n"), term())), RETURN("n"))),
   };
   for (auto *query : cases) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -5568,7 +5569,7 @@ TYPED_TEST(TestPlanner, TermOverAnExpressionIsNotSplit) {
   dba.SetIndexCount(dba.Label("Label1"), 1);
 
   auto *subject = FN("head", LIST(IDENT("n")));
-  auto *where = MakeLabelsTest(
+  auto *where = LabelsTest::Make(
       this->storage, subject, LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2"))));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(where), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -5585,7 +5586,7 @@ TYPED_TEST(TestPlanner, WithWhereLabelExpressionUsesTheIndex) {
   auto label1_id = dba.Label("Label1");
   dba.SetIndexCount(label1_id, 1);
 
-  auto *where = MakeLabelsTest(
+  auto *where = LabelsTest::Make(
       this->storage, IDENT("n"), LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2"))));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("*"), WHERE(where), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -5608,9 +5609,9 @@ TYPED_TEST(TestPlanner, CallYieldWhereLabelExpressionUsesTheIndex) {
   dba.SetIndexCount(label1_id, 1);
 
   auto term = [&] {
-    return MakeLabelsTest(this->storage,
-                          IDENT("n"),
-                          LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2"))));
+    return LabelsTest::Make(this->storage,
+                            IDENT("n"),
+                            LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2"))));
   };
   auto negation = [&](memgraph::query::Expression *operand) {
     return this->storage.template Create<memgraph::query::NotOperator>(operand);
@@ -5654,7 +5655,7 @@ TYPED_TEST(TestPlanner, TermDisjunctIsNotFoldedIntoAGroup) {
   dba.SetIndexCount(dba.Label("Label1"), 1);
   dba.SetIndexCount(dba.Label("Label2"), 1);
 
-  auto *where = OR(MakeLabelsTest(this->storage, IDENT("n"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1"))),
+  auto *where = OR(LabelsTest::Make(this->storage, IDENT("n"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1"))),
                    LABELS_TEST(IDENT("n"), std::vector{this->storage.GetLabelIx("Label2")}));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(where), RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
@@ -6852,7 +6853,7 @@ TYPED_TEST(TestPlanner, SplittingAWhereLabelTermCostsTheSameForEveryPlan) {
 
   // `a:A&!B` is held whole -- no CNF expresses the negation -- and splits into the label test an index scan can
   // consume plus the remaining conjunct.
-  auto *where_test = MakeLabelsTest(
+  auto *where_test = LabelsTest::Make(
       this->storage, IDENT("a"), LABEL_TERM_AND(LABEL_TERM_LEAF("A"), LABEL_TERM_NOT(LABEL_TERM_LEAF("B"))));
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("e1"), NODE("b"), EDGE("e2"), NODE("c"))),
                                    WITH("a"),

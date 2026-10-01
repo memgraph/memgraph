@@ -109,7 +109,8 @@ void WildcardExpression(benchmark::State &state) {
   auto *identifier = ast.Create<memgraph::query::Identifier>("n", true);
   auto node_symbol = symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
-  auto *test = MakeLabelsTest(ast, identifier, memgraph::query::LabelTerm{memgraph::query::LabelTerm::Wildcard{}});
+  auto *test = memgraph::query::LabelsTest::Make(
+      ast, identifier, memgraph::query::LabelTerm{memgraph::query::LabelTerm::Wildcard{}});
 
   memgraph::utils::MonotonicBufferResource memory{kFrameMemoryBlockSize};
   memgraph::query::Frame frame(symbol_table.max_position(), &memory);
