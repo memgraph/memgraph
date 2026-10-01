@@ -10,7 +10,8 @@
 // licenses/APL.txt.
 
 #include <chrono>
-#include <latch>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 
 #include "gtest/gtest.h"
@@ -47,6 +48,9 @@ constexpr auto kClientTimeout = std::chrono::milliseconds{kClientTimeoutMs};
 // For a test whose property has nothing to do with the peer's budget: no load makes this fire, and a handler that
 // never answers is reported by the ctest timeout on the target instead.
 constexpr int kLongerThanAnyDelay{60'000};
+
+// Only stops a hang; reaching it means a step never happened, which fails the test's assertion.
+constexpr auto kStepTimeout = 30s;
 
 }  // namespace
 
@@ -97,9 +101,15 @@ TEST(ProgressHeartbeatTest, ProgressKeepsCallAliveBeyondTimeout) {
 
 // The property the whole design rests on: a handler that stalls without recording progress must NOT be kept alive.
 // If this test starts passing without the timeout, the heartbeat has become an unconditional keepalive and a wedged
-// replica would be indistinguishable from a busy one.
+// replica would be indistinguishable from a busy one. The handler is held on a condition variable the test releases
+// only after the throw has been observed, so the final response can't exist before the client gives up no matter how
+// the threads are scheduled. The signal is declared before the server so the handler is joined before it is destroyed.
 TEST(ProgressHeartbeatTest, StalledHandlerStillTimesOut) {
   Endpoint const endpoint{"localhost", port + 1};
+
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool response_released = false;
 
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
@@ -108,21 +118,27 @@ TEST(ProgressHeartbeatTest, StalledHandlerStillTimesOut) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*unused*/,
-                              uint64_t const request_version,
-                              auto *req_reader,
-                              auto *res_builder) {
+  rpc_server.Register<Sum>([&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*unused*/,
+                               uint64_t const request_version,
+                               auto *req_reader,
+                               auto *res_builder) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     ProgressHeartbeat heartbeat{res_builder, kHeartbeatInterval};
-    // Heartbeat is running and ticking, but no work is ever recorded, so it must stay silent. The stall is a lower
-    // bound on how long the peer waits, and load only lengthens it.
-    std::this_thread::sleep_for(2 * kClientTimeout);
+    // Heartbeat is running and ticking, but no work is ever recorded, so it must stay silent.
+    {
+      std::unique_lock lock{mutex};
+      cv.wait_for(lock, kStepTimeout, [&] { return response_released; });
+    }
     heartbeat.Stop();
 
-    SumRes const res{5};
-    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+    try {
+      SumRes const res{5};
+      memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+    } catch (std::exception const &) {
+      // Expected: the client has already timed out and closed the socket.
+    }
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -134,12 +150,22 @@ TEST(ProgressHeartbeatTest, StalledHandlerStillTimesOut) {
 
   auto stream = client.Stream<SumV1>(2, 3);
   EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
+
+  {
+    std::lock_guard const lock{mutex};
+    response_released = true;
+  }
+  cv.notify_all();
 }
 
 // Progress that stops partway must also stop the heartbeat: the peer's timeout has to fire from the last tick, not be
-// deferred forever by earlier work.
+// deferred forever by earlier work. As above, the handler is released only after the throw has been observed.
 TEST(ProgressHeartbeatTest, ProgressStoppingMidCallTimesOut) {
   Endpoint const endpoint{"localhost", port + 2};
+
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool response_released = false;
 
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
@@ -148,10 +174,10 @@ TEST(ProgressHeartbeatTest, ProgressStoppingMidCallTimesOut) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*unused*/,
-                              uint64_t const request_version,
-                              auto *req_reader,
-                              auto *res_builder) {
+  rpc_server.Register<Sum>([&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*unused*/,
+                               uint64_t const request_version,
+                               auto *req_reader,
+                               auto *res_builder) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
@@ -161,11 +187,18 @@ TEST(ProgressHeartbeatTest, ProgressStoppingMidCallTimesOut) {
       heartbeat.RecordProgress();
     }
     // Work stops here; the remaining wait must not be covered by heartbeats.
-    std::this_thread::sleep_for(2 * kClientTimeout);
+    {
+      std::unique_lock lock{mutex};
+      cv.wait_for(lock, kStepTimeout, [&] { return response_released; });
+    }
     heartbeat.Stop();
 
-    SumRes const res{5};
-    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+    try {
+      SumRes const res{5};
+      memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+    } catch (std::exception const &) {
+      // Expected: the client has already timed out and closed the socket.
+    }
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -177,12 +210,25 @@ TEST(ProgressHeartbeatTest, ProgressStoppingMidCallTimesOut) {
 
   auto stream = client.Stream<SumV1>(2, 3);
   EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
+
+  {
+    std::lock_guard const lock{mutex};
+    response_released = true;
+  }
+  cv.notify_all();
 }
 
 // Once the peer is gone the heartbeat latches PeerGone so long-running work can abandon early instead of finishing a
-// job whose result can no longer be delivered.
+// job whose result can no longer be delivered. The handler records no progress until the test signals that the
+// client's scope has closed, so the socket is already shut when the first tick goes out. Both signals are declared
+// before the server so the handler is joined before they are destroyed.
 TEST(ProgressHeartbeatTest, PeerGoneLatchesAfterClientDisconnects) {
   Endpoint const endpoint{"localhost", port + 3};
+
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool client_gone = false;
+  bool handler_finished = false;
 
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
@@ -191,19 +237,20 @@ TEST(ProgressHeartbeatTest, PeerGoneLatchesAfterClientDisconnects) {
     rpc_server.AwaitShutdown();
   }};
 
-  auto handler_finished = std::latch{1};
-
-  rpc_server.Register<Sum>([&handler_finished](std::optional<memgraph::rpc::FileReplicationHandler> const & /*unused*/,
-                                               uint64_t const request_version,
-                                               auto *req_reader,
-                                               auto *res_builder) {
+  rpc_server.Register<Sum>([&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*unused*/,
+                               uint64_t const request_version,
+                               auto *req_reader,
+                               auto *res_builder) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     ProgressHeartbeat heartbeat{res_builder, kHeartbeatInterval};
-    // Stall with no progress first, so the heartbeat stays silent and the client's budget expires -- that is what
-    // makes it shut the socket. Recording progress here instead would (correctly) keep the call alive forever.
-    std::this_thread::sleep_for(2 * kClientTimeout);
+    // Stall with no progress until the client has given up and shut the socket. Recording progress before that would
+    // (correctly) keep the call alive forever.
+    {
+      std::unique_lock lock{mutex};
+      cv.wait_for(lock, kStepTimeout, [&] { return client_gone; });
+    }
 
     // Now report progress. The first sends may still land in the kernel buffer, so keep going until a write
     // actually fails and PeerGone latches -- this is what a long index build would check to abandon its work.
@@ -214,7 +261,11 @@ TEST(ProgressHeartbeatTest, PeerGoneLatchesAfterClientDisconnects) {
       heartbeat.RecordProgress();
     }
     heartbeat.Stop();
-    handler_finished.count_down();
+    {
+      std::lock_guard const lock{mutex};
+      handler_finished = true;
+    }
+    cv.notify_all();
 
     try {
       SumRes const res{5};
@@ -236,7 +287,17 @@ TEST(ProgressHeartbeatTest, PeerGoneLatchesAfterClientDisconnects) {
     EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
   }
 
-  handler_finished.wait();
+  {
+    std::lock_guard const lock{mutex};
+    client_gone = true;
+  }
+  cv.notify_all();
+
+  // PeerGone must latch because the client left, not because the server is shutting down underneath the handler.
+  {
+    std::unique_lock lock{mutex};
+    EXPECT_TRUE(cv.wait_for(lock, kStepTimeout, [&] { return handler_finished; }));
+  }
 }
 
 // Stop() must be idempotent and safe without any prior progress -- handlers call it on early-return paths where no
