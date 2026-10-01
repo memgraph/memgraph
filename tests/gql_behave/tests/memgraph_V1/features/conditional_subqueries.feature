@@ -1102,3 +1102,39 @@ Feature: Conditional subqueries
             | COLLECT { WHEN true THEN RETURN 1 AS a ELSE RETURN 2 AS b }                                |
             | EXISTS { WHEN count(n) > 0 THEN RETURN 1 AS x }                                            |
             | EXISTS { WHEN n.age > 40 THEN MATCH (n)-->(m) RETURN m WHEN m IS NULL THEN RETURN 1 AS m } |
+
+    Scenario: A later subquery predicate in a WHEN inside a COUNT body is not evaluated
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        And parameters are:
+            | z | 0 |
+        When executing query:
+            """
+            MATCH (a:A)
+            RETURN a.k AS k, COUNT { WHEN a.k > 0 THEN RETURN 1 AS q WHEN COUNT { UNWIND [1 / $z] AS u RETURN u } > 0 THEN RETURN 2 AS q } AS c
+            """
+        Then the result should be:
+            | k | c |
+            | 1 | 1 |
+            | 3 | 1 |
+            | 5 | 1 |
+
+    Scenario: An EXISTS body with WHEN branches tests the chosen branch only
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            RETURN a.k AS k, EXISTS { WHEN a.k = 1 THEN MATCH (a)-->() RETURN 1 AS q ELSE MATCH (a)<--() RETURN 1 AS q } AS e
+            """
+        Then the result should be:
+            | k | e     |
+            | 1 | true  |
+            | 3 | false |
+            | 5 | false |
