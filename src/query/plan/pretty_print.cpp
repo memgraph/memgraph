@@ -340,6 +340,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(LoadParquet & /*unused*/) override;
   bool PreVisit(LoadJsonl & /*unused*/) override;
   bool PreVisit(RollUpApply & /*unused*/) override;
+  bool PreVisit(Conditional & /*unused*/) override;
   bool PreVisit(PeriodicCommit & /*unused*/) override;
   bool PreVisit(PeriodicSubquery & /*unused*/) override;
   bool PreVisit(SetNestedProperty & /*unused*/) override;
@@ -506,6 +507,17 @@ bool PlanPrinter::PreVisit(query::plan::Union &op) {
 bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
   WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   Branch(*op.list_collection_branch_);
+  op.input_->Accept(*this);
+  return false;
+}
+
+bool PlanPrinter::PreVisit(query::plan::Conditional &op) {
+  WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
+  for (size_t i = 0; i < op.branches_.size(); ++i) {
+    auto const name = op.predicates_[i] ? fmt::format("WHEN {}", i) : std::string{"ELSE"};
+    for (const auto &fold : op.pattern_filters_[i]) Branch(*fold, name);
+    Branch(*op.branches_[i], name);
+  }
   op.input_->Accept(*this);
   return false;
 }
@@ -1551,6 +1563,32 @@ bool PlanToJsonVisitor::PreVisit(RollUpApply &op) {
 
   op.list_collection_branch_->Accept(*this);
   self["list_collection_branch"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(Conditional &op) {
+  json self;
+  self["name"] = "Conditional";
+  self["output_symbols"] = ToJson(op.output_symbols_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  json branches = json::array();
+  for (size_t i = 0; i < op.branches_.size(); ++i) {
+    json branch;
+    branch["predicate"] = op.predicates_[i] ? ToJson(op.predicates_[i], *dba_) : json();
+    for (size_t j = 0; j < op.pattern_filters_[i].size(); ++j) {
+      op.pattern_filters_[i][j]->Accept(*this);
+      branch["pattern_filter" + std::to_string(j + 1)] = PopOutput();
+    }
+    op.branches_[i]->Accept(*this);
+    branch["plan"] = PopOutput();
+    branches.push_back(std::move(branch));
+  }
+  self["branches"] = std::move(branches);
 
   output_ = std::move(self);
   return false;

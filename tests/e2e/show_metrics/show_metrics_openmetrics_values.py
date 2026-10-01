@@ -74,6 +74,7 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "indexed_join_operator_total",
     "hash_join_operator_total",
     "roll_up_apply_operator_total",
+    "conditional_operator_total",
     "periodic_commit_operator_total",
     "periodic_subquery_operator_total",
     "set_nested_property_operator_total",

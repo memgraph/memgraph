@@ -200,6 +200,18 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(RollUpApply &) override { return true; }
 
+  bool PreVisit(Conditional &op) override {
+    for (auto *predicate : op.predicates_) CollectSymbolsFromExpression(predicate);
+    for (auto const &folds : op.pattern_filters_) {
+      for (auto const &fold : folds) VisitSubquery(*fold);
+    }
+    for (auto const &branch : op.branches_) VisitSubquery(*branch);
+    op.input_->Accept(*this);
+    return false;
+  }
+
+  bool PostVisit(Conditional &) override { return true; }
+
   bool PreVisit(EvaluatePatternFilter &) override { return true; }
 
   bool PreVisit(Expand &) override { return true; }

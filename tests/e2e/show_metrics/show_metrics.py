@@ -196,6 +196,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "RemoveNestedPropertyOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "RemovePropertyOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "RollUpApplyOperator", "type": "Operator", "metric type": "Counter"},
+        {"name": "ConditionalOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByEdgeIdOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByEdgeOperator", "type": "Operator", "metric type": "Counter"},
         {"name": "ScanAllByEdgePropertyOperator", "type": "Operator", "metric type": "Counter"},

@@ -97,6 +97,7 @@ EXPECTED_JSON_METRICS = {
         "IndexedJoinOperator",
         "HashJoinOperator",
         "RollUpApplyOperator",
+        "ConditionalOperator",
         "PeriodicCommitOperator",
         "PeriodicSubqueryOperator",
         "SetNestedPropertyOperator",
