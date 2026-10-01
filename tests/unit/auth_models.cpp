@@ -1346,7 +1346,11 @@ TEST(AuthModule, UserProfiles) {
   ASSERT_EQ(*profile_for_user, "profile");
 
   // Test removing username
-  ASSERT_TRUE(user_profiles.RemoveUsername("profile", "user1"));
+  ASSERT_EQ(user_profiles.RemoveUsername("profile", "user1"), memgraph::auth::UserProfiles::MembershipResult::kChanged);
+  // Removing it again, and removing from a profile that is not there, both report absence rather than failure.
+  ASSERT_EQ(user_profiles.RemoveUsername("profile", "user1"), memgraph::auth::UserProfiles::MembershipResult::kAbsent);
+  ASSERT_EQ(user_profiles.RemoveUsername("no_such_profile", "user2"),
+            memgraph::auth::UserProfiles::MembershipResult::kAbsent);
   usernames = user_profiles.GetUsernames("profile");
   ASSERT_EQ(usernames.size(), 1);
   ASSERT_TRUE(usernames.find("user2") != usernames.end());

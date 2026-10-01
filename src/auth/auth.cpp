@@ -839,22 +839,17 @@ bool Auth::CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::
     // Figure out the difference between the existing users and the new ones
     const auto existing_users = GetUsernamesForProfile(profile_name);
     const auto &new_users = usernames;
+    // A failure here is not survivable: both callers are reconciling a replica against the main, and a
+    // membership left unreconciled is a permission difference the caller cannot see. Let it throw so the batch
+    // is refused and the main sends a snapshot. A membership already in the desired state does not throw.
     for (const auto &user : existing_users) {
       if (!new_users.contains(user)) {
-        try {
-          RevokeProfile(user, system_tx);
-        } catch (const AuthException &e) {
-          spdlog::warn("Failed to revoke profile for user '{}': {}", user, e.what());
-        }
+        RevokeProfile(user, system_tx);
       }
     }
     for (const auto &user : new_users) {
       if (!existing_users.contains(user)) {
-        try {
-          SetProfile(profile_name, user, system_tx);
-        } catch (const AuthException &e) {
-          spdlog::warn("Failed to set profile for user '{}': {}", user, e.what());
-        }
+        SetProfile(profile_name, user, system_tx);
       }
     }
     if (!UpdateProfile(profile_name, defined_limits, system_tx)) {
@@ -912,9 +907,15 @@ void Auth::RevokeProfile(const std::string &name, system::Transaction *system_tx
     return;
   }
 
-  // Remove username from the profile
-  if (!user_profiles_.RemoveUsername(*profile_name, name)) {
-    throw AuthException("Couldn't revoke profile for user '{}'!", name);
+  // Remove username from the profile. A membership that is already gone leaves nothing to publish: the state
+  // asked for is the state held, which is what reconciling a replica against the main routinely finds.
+  switch (user_profiles_.RemoveUsername(*profile_name, name)) {
+    case UserProfiles::MembershipResult::kAbsent:
+      return;
+    case UserProfiles::MembershipResult::kFailed:
+      throw AuthException("Couldn't revoke profile for user '{}'!", name);
+    case UserProfiles::MembershipResult::kChanged:
+      break;
   }
 
   if (user_resources_) {
