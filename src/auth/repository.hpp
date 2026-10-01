@@ -134,7 +134,8 @@ class Repository {
     auto const prefix_str = std::string{prefix};
     return std::visit(
         [&prefix_str, &pred](auto *target) {
-          for (auto it = target->begin(prefix_str); it != target->end(prefix_str); ++it) {
+          auto const end = target->end(prefix_str);
+          for (auto it = target->begin(prefix_str); it != end; ++it) {
             if (pred(*it)) return true;
           }
           return false;
