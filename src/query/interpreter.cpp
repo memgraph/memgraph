@@ -11771,7 +11771,7 @@ void Interpreter::Commit() {
           system_transaction_->Abort();
           system_transaction_.reset();
         }
-        throw QueryException("Auth transaction conflicted with a concurrent change; nothing was committed.");
+        throw TransactionSerializationException();
       }
     }
 
