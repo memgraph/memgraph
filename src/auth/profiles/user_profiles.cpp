@@ -201,16 +201,16 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
   return *profile_it;
 }
 
-bool UserProfiles::RemoveUsername(std::string_view profile_name, std::string_view username) {
+UserProfiles::MembershipResult UserProfiles::RemoveUsername(std::string_view profile_name, std::string_view username) {
   auto l = std::unique_lock{mtx_};
   auto profile_it = profiles_.find(profile_name);
   if (profile_it == profiles_.end()) {
-    return false;
+    return MembershipResult::kAbsent;
   }
 
   auto username_it = profile_it->usernames.find(std::string{username});
   if (username_it == profile_it->usernames.end()) {
-    return false;
+    return MembershipResult::kAbsent;
   }
 
   profile_it->usernames.erase(username_it);
@@ -220,10 +220,10 @@ bool UserProfiles::RemoveUsername(std::string_view profile_name, std::string_vie
   if (!durability_->Put(Repository::ProfileKey(profile_name), json.dump())) {
     // Revert changes
     profile_it->usernames.insert(std::string{username});
-    return false;
+    return MembershipResult::kFailed;
   }
 
-  return true;
+  return MembershipResult::kChanged;
 }
 
 std::unordered_set<std::string> UserProfiles::GetUsernames(std::string_view profile_name) const {
