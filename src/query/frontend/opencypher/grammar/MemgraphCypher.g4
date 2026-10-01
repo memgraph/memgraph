@@ -437,6 +437,11 @@ conditionalBranch : WHEN expression THEN conditionalBody ;
 
 conditionalBody : '{' ( conditionalQuery | cypherQuery ) '}' | singleQuery ;
 
+subqueryBody : pattern where?
+             | conditionalQuery
+             | cypherQuery
+             ;
+
 streamQuery : checkStream
             | createStream
             | dropStream

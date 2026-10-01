@@ -4010,13 +4010,14 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
     auto *cypher_query = storage_->Create<CypherQuery>();
     cypher_query->single_query_ = single_query;
     subquery->content_ = cypher_query;
-  } else if (ctx->cypherQuery()) {
-    // Curly-brace subquery form: { cypherQuery }
+  } else if (ctx->cypherQuery() || ctx->conditionalQuery()) {
+    // Curly-brace subquery form: { cypherQuery } or { WHEN ... THEN ... }
     auto old_flag = parsing_subquery_body_;
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
     auto old_in_with = std::exchange(in_with_, false);
     parsing_subquery_body_ = true;
-    auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    auto *cypher_query = ctx->conditionalQuery() ? VisitConditionalQuery(ctx->conditionalQuery())
+                                                 : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     in_with_ = old_in_with;
     parsing_subquery_body_ = old_flag;
     subquery->content_ = cypher_query;
@@ -4046,10 +4047,19 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
         throw SyntaxException("{} subquery must end with a RETURN of exactly one column.", construct);
       }
     };
-    validate_branch(cypher_query->single_query_);
-    for (const auto *cypher_union : cypher_query->cypher_unions_) {
-      validate_branch(cypher_union->single_query_);
-    }
+    // A WHEN body is checked per branch. A branch cannot carry a memory limit or USING, so the checks below hold.
+    auto validate_query = [&](this auto const &self, const CypherQuery *query) -> void {
+      const auto &clauses = query->single_query_->clauses_;
+      if (const auto *branches = clauses.size() == 1 ? utils::Downcast<ConditionalBranches>(clauses[0]) : nullptr) {
+        for (const auto *body : branches->bodies_) self(body);
+        return;
+      }
+      validate_branch(query->single_query_);
+      for (const auto *cypher_union : query->cypher_unions_) {
+        validate_branch(cypher_union->single_query_);
+      }
+    };
+    validate_query(cypher_query);
 
     if (cypher_query->memory_limit_ != nullptr) {
       throw SyntaxException("{} subqueries cannot have a query memory limit.", construct);

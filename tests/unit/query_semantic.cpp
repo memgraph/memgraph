@@ -1471,6 +1471,42 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallOutputSymbols) {
   EXPECT_TRUE(x.user_declared()) << "a later RETURN * must see the column";
 }
 
+// An expression body folds the rows its branch returns, so a branch without RETURN is refused, even where a plain
+// body would be accepted. A diagnostic raised inside a branch still names the construct.
+TYPED_TEST(TestSymbolGenerator, ConditionalSubqueryExpressionBranches) {
+  auto const expect_error = [](CypherQuery *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected: " << message;
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+  // MATCH (n) WHERE EXISTS { WHEN n = 1 THEN MATCH (m) ELSE RETURN 1 AS x } RETURN n
+  expect_error(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                  WHERE(EXISTS_SUBQUERY(QUERY(WHEN_BRANCHES(
+                                      {EQ(IDENT("n"), LITERAL(1)), SINGLE_QUERY(MATCH(PATTERN(NODE("m"))))},
+                                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))})))),
+                                  RETURN("n"))),
+               "Every WHEN branch of EXISTS must end with RETURN.");
+  // MATCH (n) RETURN COUNT { WHEN true THEN RETURN 1 AS x ELSE MATCH (m) } AS c
+  expect_error(QUERY(SINGLE_QUERY(
+                   MATCH(PATTERN(NODE("n"))),
+                   RETURN(COUNT_SUBQUERY(QUERY(WHEN_BRANCHES({LITERAL(true), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))},
+                                                             {nullptr, SINGLE_QUERY(MATCH(PATTERN(NODE("m"))))}))),
+                          AS("c")))),
+               "Every WHEN branch of COUNT must end with RETURN.");
+  // MATCH (n) RETURN COUNT { WHEN true THEN MATCH n = (m) RETURN 1 AS x } AS c
+  expect_error(
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))),
+          RETURN(
+              COUNT_SUBQUERY(QUERY(WHEN_BRANCHES(
+                  {LITERAL(true), SINGLE_QUERY(MATCH(NAMED_PATTERN("n", NODE("m"))), RETURN(LITERAL(1), AS("x")))}))),
+              AS("c")))),
+      "Cannot name a pattern 'n' in COUNT, because that variable is already declared outside it.");
+}
+
 // `external_symbols_` must be exactly what the body reads from outside. Too few places the conjunct too low; too many
 // makes it unplantable. Asserted directly, because a scenario sees only the planner symptom.
 TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
