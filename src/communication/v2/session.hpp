@@ -305,12 +305,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoRead() {
-    // DoRead runs on a priority worker thread (after Execute()/Write()). For a plain-TCP socket the read
-    // can be armed right here under arm_lock_ — no strand hop — because async_read_some's initiation and
-    // TerminateIfIdle_'s close are the only concurrent socket touches and arm_lock_ serializes them. This
-    // removes one io-thread wake-up + handler per request (the #4577 point-query regression) on the
-    // single-io-thread priority scheduler. SSL/WebSocket async_read_some are composed ops (engine/BIO,
-    // beast idle timer) that must stay on their implicit strand, so those keep hopping onto strand_.
+    // Runs on a worker thread. Plain TCP arms here under arm_lock_ (no strand hop); SSL/WebSocket
+    // async_read_some are composed ops that must stay on their implicit strand, so they dispatch to strand_.
     if (std::holds_alternative<TCPSocket>(socket_)) {
       ArmRead_(std::bind_front(&Session::OnRead, shared_from_this()));
       return;
@@ -469,8 +465,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     DoShutdown();
   }
 
-  // Runs on strand_. Holds arm_lock_ so the read_armed_ check and the close cannot interleave with a
-  // worker arming the read (ArmRead_ under the same lock).
+  // Runs on strand_; arm_lock_ makes the read_armed_ check + close atomic against a worker's ArmRead_.
   void TerminateIfIdle_() {
     ArmGuard guard{arm_lock_};
     // Deferred: read_armed_ == false means a worker may own the socket (Execute()/Write()); leave
@@ -482,13 +477,13 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     CloseSocket_(guard);
   }
 
-  // Acquires arm_lock_; call from contexts that do NOT already hold it (OnError, DoAccept/SSL callbacks).
+  // Acquires arm_lock_; must NOT be called with it held (use CloseSocket_ there).
   void DoShutdown() {
     ArmGuard guard{arm_lock_};
     CloseSocket_(guard);
   }
 
-  // Called with arm_lock_ held; the ArmGuard parameter is proof-of-lock, not used at runtime.
+  // Requires arm_lock_ held (the guard is proof-of-lock); SpinLock is non-recursive, so never re-acquire.
   void CloseSocket_(const ArmGuard & /*arm_lock_held*/) {
     if (!IsConnected()) {
       return;
@@ -603,15 +598,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // Set by any thread via RequestTermination; only ever set, never cleared. Re-checked under arm_lock_
   // at every read-arm (ArmRead_), so a request made while a worker owns the socket can't be lost.
   std::atomic_bool terminate_requested_{false};
-  // Serializes the two contexts that can concurrently touch the socket's arm/close: the off-strand
-  // worker read-arm (plain-TCP fast path in DoRead) and TerminateIfIdle_ (strand). Every arm site
-  // funnels through ArmRead_ under this lock, and TerminateIfIdle_/CloseSocket_ hold it too, so
-  // "check read_armed_/terminate_requested_ then arm-or-close" is atomic. Strand-confined setup paths
-  // (DoAccept/DoSSLHandshake) stay serialized by the strand and need no lock. Leaf lock: never taken
-  // with any other lock held; the reactor's per-descriptor mutex is always acquired *under* it.
+  // Serializes the worker's plain-TCP read-arm (DoRead) against TerminateIfIdle_'s close (strand). Strand-confined
+  // setup (DoAccept/DoSSLHandshake) needs no lock. Leaf lock: asio's descriptor mutex is only taken under it.
   utils::SpinLock arm_lock_;
-  // Relaxed ordering is sufficient: cross-context access (worker arm vs TerminateIfIdle_) is ordered by
-  // arm_lock_; strand_ serializes OnRead/handshake writers vs TerminateIfIdle_. Atomic only removes data race.
+  // Defensive atomic: accesses are already ordered (arm_lock_: worker arm vs TerminateIfIdle_; strand_: handlers
+  // vs TerminateIfIdle_; async-completion: arm vs its handler), so relaxed suffices.
   std::atomic_bool read_armed_{false};
 };
 }  // namespace memgraph::communication::v2
