@@ -54,7 +54,7 @@ def terminate_memgraph(memgraph):
         os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False, "Memgraph process didn't exit cleanly!"
-    time.sleep(1)
+    memgraph.wait(timeout=30)
 
 
 def execute_tester(
@@ -107,7 +107,7 @@ def execute_test_analytical_mode(memgraph_binary: str, tester_binary: str) -> No
         os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False, "Memgraph process didn't exit cleanly!"
-    time.sleep(1)
+    memgraph.wait(timeout=30)
 
 
 def execute_test_switch_analytical_transactional(memgraph_binary: str, tester_binary: str) -> None:
@@ -156,7 +156,7 @@ def execute_test_switch_analytical_transactional(memgraph_binary: str, tester_bi
         os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False, "Memgraph process didn't exit cleanly!"
-    time.sleep(1)
+    memgraph.wait(timeout=30)
 
 
 def execute_test_switch_transactional_analytical(memgraph_binary: str, tester_binary: str) -> None:
@@ -202,7 +202,7 @@ def execute_test_switch_transactional_analytical(memgraph_binary: str, tester_bi
         os.kill(pid, SIGNAL_SIGTERM)
     except os.OSError:
         assert False, "Memgraph process didn't exit cleanly!"
-    time.sleep(1)
+    memgraph.wait(timeout=30)
 
 
 if __name__ == "__main__":
