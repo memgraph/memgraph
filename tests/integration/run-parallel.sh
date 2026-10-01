@@ -60,7 +60,7 @@ else
 fi
 # Fail fast if any suite would be silently skipped by run.sh's -x checks.
 for name in $(list_suites); do
-  if [ ! -x "$DIR/$name/runner.py" ] && [ ! -x "$DIR/$name/runner.sh" ]; then
+  if [[ ! -x "$DIR/$name/runner.py" && ! -x "$DIR/$name/runner.sh" ]]; then
     echo "error: $name has no executable runner.py or runner.sh (check the git file mode)" >&2
     exit 1
   fi
