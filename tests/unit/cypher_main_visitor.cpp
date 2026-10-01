@@ -10190,6 +10190,25 @@ TEST(CypherMainVisitorParameterTest, LabelExpressionParameterLeaf) {
   }
 }
 
+// Where a label expression ends is decided by what may follow it. In a node pattern nothing that can follow
+// one begins with '|', so a disjunction runs to the end of the expression whatever comes next.
+TEST_P(CypherMainVisitorTest, LabelExpressionRunsToTheEndOfAPattern) {
+  auto &ast_generator = *GetParam();
+  const std::vector<std::pair<std::string, std::string>> cases{
+      {"(n:A|B)", "|(A,B)"},
+      {"(n:A|B {p: 1})", "|(A,B)"},
+      {"(n:A|B)-[r]->(m)", "|(A,B)"},
+      {"(n:A|B)-[r]->(m:C|D)", "|(A,B)"},
+      {"(n:A&!B|C {p: 1})", "|(&(A,!B),C)"},
+      {"(n:(A|B) {p: 1})", "|(A,B)"},
+  };
+  for (const auto &[pattern, expected] : cases) {
+    auto *node = FirstMatchedNode(ast_generator.ParseQuery(fmt::format("MATCH {} RETURN 1", pattern)));
+    ASSERT_TRUE(node->label_term_) << pattern;
+    EXPECT_EQ(TermToString(*node->label_term_), expected) << pattern;
+  }
+}
+
 // In expression position a label expression is one labels test, whatever its shape: the planner splits it,
 // not the parser, and drops `!!` there.
 TEST_P(CypherMainVisitorTest, LabelExpressionInExpressionPosition) {
