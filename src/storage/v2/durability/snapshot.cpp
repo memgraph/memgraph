@@ -1068,7 +1068,7 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListD
   spdlog::info("Process of recovering {} vertices is finished.", vertices_count);
 
   if (capture && !local_capture.empty()) {
-    auto lock = std::lock_guard{*capture->mutex};
+    auto lock = std::scoped_lock{*capture->mutex};
     for (auto &[prop_id, gid_map] : local_capture) {
       auto &shared_gid_map = (*capture->map)[prop_id];
       for (auto &[gid, vec] : gid_map) {
@@ -3786,7 +3786,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
 
     const auto vertex_batches = ReadBatchInfos(snapshot);
     std::mutex vertex_capture_mutex;
-    VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+    VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
     RecoverOnMultipleThreads(
         config.durability.recovery_thread_count,
         [path,
@@ -4328,7 +4328,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -4935,7 +4935,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -5516,7 +5516,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -6098,7 +6098,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -6735,7 +6735,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -7381,7 +7381,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -8090,7 +8090,7 @@ RecoveredSnapshot LoadSnapshotVersion31(Decoder &snapshot, std::filesystem::path
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -8840,7 +8840,7 @@ RecoveredSnapshot LoadSnapshotVersion33(Decoder &snapshot, std::filesystem::path
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -9698,7 +9698,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -10532,7 +10532,7 @@ RecoveredSnapshot LoadSnapshotVersion36(Decoder &snapshot, std::filesystem::path
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -11348,7 +11348,7 @@ RecoveredSnapshot LoadSnapshotVersion34(Decoder &snapshot, std::filesystem::path
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
@@ -12147,7 +12147,7 @@ RecoveredSnapshot LoadSnapshotVersion35(Decoder &snapshot, std::filesystem::path
     const auto vertex_batches = ReadBatchInfos(snapshot);
     {
       std::mutex vertex_capture_mutex;
-      VertexVectorsCapture capture{&indices_constraints.indices.vertex_vectors, &vertex_capture_mutex};
+      VertexVectorsCapture capture{.map = &indices_constraints.indices.vertex_vectors, .mutex = &vertex_capture_mutex};
       RecoverOnMultipleThreads(
           config.durability.recovery_thread_count,
           [path,
