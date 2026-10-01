@@ -302,18 +302,20 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     // STEP 4) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      storage->repl_storage_state_.epoch_ = new_epoch;
+      auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
 
-      // Modifying storage->timestamp_ needs to be done under the engine lock.
-      // Engine lock needs to be acquired after the repl state lock
+      // repl_state -> commit_mutex_ -> engine_lock_, as in PrepareForNewEpoch: a forced MAIN->MAIN promotion runs
+      // alongside commits, which read epoch_ under commit_mutex_ alone when narrowing.
+      auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
       auto lock = std::lock_guard{storage->engine_lock_};
+      storage->repl_storage_state_.epoch_ = new_epoch;
 
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
       // We need to take bigger timestamp not to lose durability ordering
       if (auto const ldt = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
           ldt >= storage->timestamp_) {
         // Mark all txns finished with IDs in range [old_storage_ts, global_ldt]
-        static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
+        mem_storage->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
         spdlog::trace("Txn IDs in ranges [{},{}] marked as finished", storage->timestamp_, ldt);
         storage->timestamp_ = ldt + 1;
       }
