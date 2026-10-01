@@ -28,6 +28,10 @@ class UserProfiles {
   /// Whether a drop removed anything. A profile that was never there is not a failure: a replica applying a
   /// batch may be told to drop one the main created and dropped between snapshots.
   enum class DropResult : uint8_t { kDropped, kAbsent, kFailed };
+
+  /// Whether a membership change altered anything. A username that is already absent from a profile is not a
+  /// failure: reconciling a replica against the main asks for removals that may already have happened.
+  enum class MembershipResult : uint8_t { kChanged, kAbsent, kFailed };
   static constexpr std::array<std::string_view, 2> kLimits = {"sessions", "transactions_memory"};
   static_assert(kLimits.size() == static_cast<int>(Limits::kTransactionsMemory) + 1, "kLimits size mismatch");
 
@@ -62,7 +66,7 @@ class UserProfiles {
 
   // New methods for username management
   std::optional<Profile> AddUsername(std::string_view profile_name, std::string_view username);
-  bool RemoveUsername(std::string_view profile_name, std::string_view username);
+  MembershipResult RemoveUsername(std::string_view profile_name, std::string_view username);
   std::unordered_set<std::string> GetUsernames(std::string_view profile_name) const;
   std::optional<std::string> GetProfileForUsername(std::string_view username) const;
 
