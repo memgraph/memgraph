@@ -3071,7 +3071,6 @@ TYPED_TEST(TestPlanner, ConditionalSubquery) {
     auto *call = FindOpOfType<Apply>(&planner.plan());
     ASSERT_NE(call, nullptr);
     EXPECT_EQ(call->on_empty_branch_, OnEmptyBranch::kDropRow);
-    EXPECT_TRUE(call->output_symbols_.empty());
     EXPECT_STREQ(call->subquery_->GetTypeInfo().name, "Conditional");
 
     auto aggregate = ExpectAggregate({count}, {});

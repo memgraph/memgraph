@@ -1464,8 +1464,6 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallOutputSymbols) {
   auto symbol_table = MakeSymbolTable(query);
   auto *conditional = dynamic_cast<ConditionalBranches *>(branches->clauses_[0]);
   ASSERT_TRUE(conditional);
-  ASSERT_TRUE(conditional->discriminator_);
-  EXPECT_FALSE(conditional->discriminator_->user_declared());
   auto const &import = symbol_table.at(*unwind->named_expression_);
   ASSERT_EQ(conditional->output_symbols_.size(), 2U);
   auto const import_column = std::ranges::find(conditional->output_symbols_, import);

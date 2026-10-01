@@ -460,7 +460,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return if_operator.else_expression_->Accept(*this);
     }
     if (condition.type() != TypedValue::Type::Bool) {
-      // IfOperator serves CASE and the branch index of a conditional subquery.
+      // IfOperator serves CASE; the Conditional operator raises the same text for a WHEN predicate.
       throw QueryRuntimeException("CASE/WHEN expected boolean expression, got {}.", condition.type());
     }
     if (condition.ValueBool()) {

@@ -2923,8 +2923,6 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
-  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override { return output_symbols_; }
-
   bool HasSingleInput() const override { return true; }
 
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
@@ -2937,8 +2935,6 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> subquery_;
   OnEmptyBranch on_empty_branch_{OnEmptyBranch::kDropRow};
   std::vector<Symbol> null_symbols_;
-  /// The columns of a conditional body; set only on its root Apply.
-  std::vector<Symbol> output_symbols_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
