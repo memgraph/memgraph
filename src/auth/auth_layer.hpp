@@ -159,10 +159,11 @@ class AuthLayer {
   }
 
 #ifdef MG_ENTERPRISE
-  /// Apply a replicated batch as one write. A replica gets a whole auth transaction or none of it: the
-  /// operations run against an overlay in the order the main made them, and a single flush puts them in the
-  /// store. Anything throwing part-way discards the overlay, leaving the store as it was, and the false return
-  /// tells the caller to refuse the request so the main re-sends a full snapshot.
+  /// Apply a replicated batch as one write. A replica gets a whole auth transaction or none of it: the users
+  /// and roles run against an overlay in the order the main made them, and a single flush puts them in the
+  /// store. Anything throwing part-way discards the overlay, leaving them as they were, and the false return
+  /// tells the caller to refuse the request so the main re-sends a full snapshot. A profile is not in that set:
+  /// it applies durably as it is read, for the reason below, and a batch carrying one carries nothing else.
   ///
   /// A drop naming nothing is not a failure. The main may have created and dropped a record between snapshots,
   /// so a removal that finds nothing is the state the main asked for. A removal that fails is a different
