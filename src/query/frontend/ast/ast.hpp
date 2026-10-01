@@ -27,6 +27,7 @@
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/graph_access.hpp"
 #include "query/frontend/ast/query/identifier.hpp"
+#include "query/frontend/ast/query/label_term.hpp"
 #include "query/frontend/ast/query/named_expression.hpp"
 #include "query/frontend/ast/query/pattern.hpp"
 #include "query/frontend/ast/query/query.hpp"
@@ -1151,75 +1152,6 @@ class AllPropertiesLookup : public Expression {
 
  private:
   friend class AstStorage;
-};
-
-using QueryLabelType = std::variant<LabelIx, Expression *>;
-
-/// A node label expression: `&`, `|`, `!`, `%` and parentheses over label leaves, or a plain conjunction
-/// such as `:A:B`. Not a `Tree`; `MakeLabelsTest` holds it in a `LabelsTest`.
-struct LabelTerm {
-  struct Label {
-    LabelIx label;
-  };
-
-  /// The `variable.prop` that names a label, which only CREATE reads.
-  struct Dynamic {
-    Expression *expression{nullptr};
-  };
-
-  /// `%`: the node carries any label.
-  struct Wildcard {};
-
-  struct And {
-    std::vector<LabelTerm> operands;
-  };
-
-  struct Or {
-    std::vector<LabelTerm> operands;
-  };
-
-  /// Holds its one operand on the heap and copies it when copied, as `LabelTerm` is copied by value. C++26
-  /// `std::indirect<LabelTerm>` is this member; use it once the project builds as C++26.
-  struct Not {
-    explicit Not(LabelTerm operand) : operand(std::make_unique<LabelTerm>(std::move(operand))) {}
-
-    Not(const Not &other) : operand(std::make_unique<LabelTerm>(*other.operand)) {}
-
-    Not &operator=(const Not &other) {
-      if (this != &other) operand = std::make_unique<LabelTerm>(*other.operand);
-      return *this;
-    }
-
-    Not(Not &&) noexcept = default;
-    Not &operator=(Not &&) noexcept = default;
-    ~Not() = default;
-
-    std::unique_ptr<LabelTerm> operand;
-  };
-
-  template <typename T>
-  const T *As() const {
-    return std::get_if<T>(&node);
-  }
-
-  template <typename T>
-  T *As() {
-    return std::get_if<T>(&node);
-  }
-
-  LabelTerm Clone(AstStorage *storage) const;
-
-  /// The leaves of a plain conjunction -- one leaf, or an `And` of leaves -- or nullopt for any other shape.
-  /// Only a conjunction holds a `Dynamic` leaf: the grammar keeps it away from the operators.
-  std::optional<std::vector<QueryLabelType>> Conjunction() const;
-
-  std::variant<Label, Dynamic, Wildcard, And, Or, Not> node;
-};
-
-/// What a node must carry for a test of plain labels: each of `labels`, and one of each group in `or_labels`.
-struct LabelCnf {
-  std::vector<LabelIx> labels;
-  std::vector<std::vector<LabelIx>> or_labels;
 };
 
 class LabelsTest;
