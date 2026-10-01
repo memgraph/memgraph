@@ -143,7 +143,7 @@ void VectorIndex::RecoverAllVectorIndices(std::vector<VectorIndexRecoveryInfo> &
         } else {
           auto maybe_vec = TryListToVector(stored_value);
           if (!maybe_vec) continue;
-          vec = *maybe_vec;
+          vec = std::move(*maybe_vec);
           // A plain [] stays plain and is never promoted to a tag.
           if (vec.empty()) continue;
         }
@@ -151,9 +151,7 @@ void VectorIndex::RecoverAllVectorIndices(std::vector<VectorIndexRecoveryInfo> &
         utils::small_vector<uint64_t> member_ids;
         for (auto &[index_id, item_ptr] : item_list) {
           if (!item_ptr->spec.label_filter.Matches(vertex.labels)) continue;
-          if (!vec.empty()) {
-            UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, &vertex, vec, thread_id);
-          }
+          UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, &vertex, vec, thread_id);
           member_ids.push_back(index_id);
         }
 
@@ -676,8 +674,7 @@ void VectorIndexRecovery::UpdateOnSetProperty(PropertyId property, PropertyValue
 
   if (has_spec) {
     if (value.IsVectorIndexId()) {
-      auto vec = value.ValueVectorIndexList();
-      vertex_vectors[property][vertex->gid] = std::move(vec);
+      vertex_vectors[property][vertex->gid] = std::move(value.ValueVectorIndexList());
     } else if (auto it = vertex_vectors.find(property); it != vertex_vectors.end()) {
       it->second.erase(vertex->gid);
     }

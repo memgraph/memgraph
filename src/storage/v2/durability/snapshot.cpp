@@ -1021,7 +1021,7 @@ uint64_t LoadPartialVertices(const std::filesystem::path &path, utils::SkipListD
           auto prop_id = snapshot_id_map.GetProperty(*key);
           auto prop_value = ToPropertyValue(*value, name_id_mapper);
           if (capture && prop_value.IsVectorIndexId()) {
-            auto vec = prop_value.ValueVectorIndexList();
+            auto &vec = prop_value.ValueVectorIndexList();
             if (vec.empty()) {
               // Legacy on-disk form of []: nothing to index.
               prop_value = PropertyValue(std::vector<double>{});
