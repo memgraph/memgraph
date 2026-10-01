@@ -2983,7 +2983,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &vertices_,
                                                             &edges_,
                                                             uuid(),
-                                                            repl_storage_state_.epoch_.id(),
+                                                            std::string{repl_storage_state_.epoch_.id()},
                                                             repl_storage_state_.history,
                                                             &file_retainer_,
                                                             &abort_snapshot_,
@@ -4482,15 +4482,20 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   Transaction *transaction = accessor->GetTransaction();
 
   DMG_ASSERT(transaction->last_durable_ts_.has_value());
-  auto const &epoch = repl_storage_state_.epoch_;
-  auto const &epochHistory = repl_storage_state_.history;
+  // Copied under engine_lock_: a replica switches epoch when the first commit of a new main arrives, and that
+  // can happen while the snapshot is being written. The snapshot describes the state as of its start timestamp,
+  // which belongs to the epoch current at that moment.
+  auto [epoch, epoch_history] = std::invoke([this] {
+    auto const engine_guard = std::unique_lock{engine_lock_};
+    return std::pair{repl_storage_state_.epoch_, repl_storage_state_.history};
+  });
   auto const &storage_uuid = uuid();
 
   SnapshotDigest current_digest;
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     current_digest = SnapshotDigest{.epoch_ = epoch,
-                                    .history_ = epochHistory,
+                                    .history_ = epoch_history,
                                     .storage_uuid_ = storage_uuid,
                                     .last_durable_ts_ = *transaction->last_durable_ts_};
 
@@ -4506,8 +4511,8 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &vertices_,
                                                         &edges_,
                                                         storage_uuid,
-                                                        epoch.id(),
-                                                        epochHistory,
+                                                        std::string{epoch.id()},
+                                                        std::move(epoch_history),
                                                         &file_retainer_,
                                                         &abort_snapshot_,
                                                         &snapshot_progress_,

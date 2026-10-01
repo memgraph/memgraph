@@ -494,6 +494,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     auto &repl_storage_state = storage->repl_storage_state_;
 
     if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
+      // Same lock as PrepareForNewEpoch, so a snapshot being created reads the epoch and history as one unit.
+      auto const engine_guard = std::lock_guard{storage->engine_lock_};
       // We should first finalize WAL file and then update the epoch
       if (storage->wal_file_) {
         storage->wal_file_->FinalizeWal();
@@ -1188,6 +1190,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   // We trust only WAL files which contain changes we are interested in (newer changes)
   if (auto &repl_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != repl_epoch.id()) {
     spdlog::info("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
+    auto const engine_guard = std::lock_guard{storage->engine_lock_};
     storage->repl_storage_state_.SaveLatestHistory();
     repl_epoch.SetEpoch(wal_info.epoch_id);
   }
