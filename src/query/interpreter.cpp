@@ -10816,13 +10816,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     // A profile read publishes nothing, so it needs no system transaction. Taking one would hold the system mutex
     // for the rest of an explicit transaction, since the interpreter keeps it until COMMIT: every other session's
     // system query would be refused meanwhile, and a second profile read in the same transaction would find the
-    // mutex already taken and fail.
+    // mutex already taken and fail. The same applies to tenant profiles.
     auto const *user_profile_query = utils::Downcast<UserProfileQuery>(parsed_query.query);
-    bool system_queries =
-        utils::Downcast<AuthQuery>(parsed_query.query) || utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
-        utils::Downcast<ReplicationQuery>(parsed_query.query) ||
-        (user_profile_query != nullptr && IsUserProfileWrite(user_profile_query->action_)) ||
-        utils::Downcast<TenantProfileQuery>(parsed_query.query) || utils::Downcast<ParameterQuery>(parsed_query.query);
+    auto const *tenant_profile_query = utils::Downcast<TenantProfileQuery>(parsed_query.query);
+    bool system_queries = utils::Downcast<AuthQuery>(parsed_query.query) ||
+                          utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
+                          utils::Downcast<ReplicationQuery>(parsed_query.query) ||
+                          (user_profile_query != nullptr && IsUserProfileWrite(user_profile_query->action_)) ||
+                          (tenant_profile_query != nullptr && IsTenantProfileWrite(tenant_profile_query->action_)) ||
+                          utils::Downcast<ParameterQuery>(parsed_query.query);
 
 #ifdef MG_ENTERPRISE
     // Coordinator role queries are the only auth queries allowed on a coordinator and they commit through Raft, not the

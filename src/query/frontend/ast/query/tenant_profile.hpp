@@ -61,4 +61,20 @@ class TenantProfileQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+/// True for the actions that change a tenant profile. The rest only read.
+inline bool IsTenantProfileWrite(TenantProfileQuery::Action action) {
+  switch (action) {
+    case TenantProfileQuery::Action::CREATE:
+    case TenantProfileQuery::Action::ALTER:
+    case TenantProfileQuery::Action::DROP:
+    case TenantProfileQuery::Action::SET_ON_DATABASE:
+    case TenantProfileQuery::Action::REMOVE_FROM_DATABASE:
+      return true;
+    case TenantProfileQuery::Action::SHOW_ALL:
+    case TenantProfileQuery::Action::SHOW_ONE:
+      return false;
+  }
+  return false;
+}
+
 }  // namespace memgraph::query
