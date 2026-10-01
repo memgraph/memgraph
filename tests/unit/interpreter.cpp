@@ -1967,6 +1967,32 @@ TYPED_TEST(InterpreterTest, ExplainQuery) {
   EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
+// A cached plan whose index lives only inside a WHEN branch is dropped with the index.
+TYPED_TEST(InterpreterTest, ConditionalBranchIndexDropInvalidatesCachedPlan) {
+  this->Interpret("CREATE INDEX ON :L;");
+  this->Interpret("CREATE (:L {k: 1}), (:L {k: 2});");
+  auto const query =
+      "UNWIND [1, 2] AS i CALL (i) { WHEN i = 1 THEN MATCH (n:L) RETURN count(n) AS c ELSE RETURN 0 AS c } "
+      "RETURN i, c ORDER BY i;";
+  auto const explain_has_label_scan = [&] {
+    auto stream = this->Interpret(std::string("EXPLAIN ") + query);
+    return std::ranges::any_of(stream.GetResults(), [](const auto &row) {
+      return row.front().ValueString().find("ScanAllByLabel") != std::string::npos;
+    });
+  };
+  auto const rows = [&] {
+    std::vector<std::pair<int64_t, int64_t>> out;
+    for (const auto &row : this->Interpret(query).GetResults()) out.emplace_back(row[0].ValueInt(), row[1].ValueInt());
+    return out;
+  };
+  auto const expected = std::vector<std::pair<int64_t, int64_t>>{{1, 2}, {2, 0}};
+  EXPECT_EQ(rows(), expected);
+  EXPECT_TRUE(explain_has_label_scan());
+  this->Interpret("DROP INDEX ON :L;");
+  EXPECT_EQ(rows(), expected);
+  EXPECT_FALSE(explain_has_label_scan());
+}
+
 TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->AstCacheSize(), 0U);

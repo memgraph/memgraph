@@ -302,6 +302,8 @@ inline bool ProducesNoColumns(const LogicalOperator &op, const SymbolTable &symb
   if (const auto *distinct = utils::Downcast<const Distinct>(&op)) {
     return ProducesNoColumns(*distinct->input(), symbol_table);
   }
+  // The WHEN's columns, not a branch's: a branch ending in `CALL ... YIELD` reports its YIELD columns.
+  if (const auto *conditional = utils::Downcast<const Conditional>(&op)) return conditional->output_symbols_.empty();
   return op.OutputSymbols(symbol_table).empty();
 }
 
@@ -689,49 +691,50 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
  private:
-  /// `Apply(prelude, Union(Apply(Filter(Once, d = 0), branch_0), ...))`: a guard beside its branch, so an untaken
-  /// branch never runs. A write in any branch sets the body's `QueryParts::writes`.
-  std::unique_ptr<LogicalOperator> PlanConditional(std::unique_ptr<LogicalOperator> prelude,
+  /// Per row, the first true predicate's branch runs; predicate i's subquery folds are pulled only when predicate i
+  /// is reached. A write in any branch sets the body's `QueryParts::writes`.
+  std::unique_ptr<LogicalOperator> PlanConditional(std::unique_ptr<LogicalOperator> input,
                                                    const ConditionalQueryParts &conditional,
                                                    std::unordered_set<Symbol> bound_symbols) {
     SymbolTable &symbol_table = *context_->symbol_table;
     AstStorage &storage = *context_->ast_storage;
-    // The prelude projects only `d`; what was bound before it stays on the frame.
-    bound_symbols.insert(conditional.discriminator);
-    // A column named after an import keeps the caller's value, so the union writes only the new ones.
-    auto const union_symbols = conditional.output_symbols |
-                               std::views::filter([&](const Symbol &sym) { return !bound_symbols.contains(sym); }) |
-                               std::ranges::to<std::vector<Symbol>>();
-    std::unique_ptr<LogicalOperator> branches;
-    // What `branches` reports: the first branch's columns, then the union's.
-    std::vector<Symbol> left_symbols;
-    for (size_t i = 0; i < conditional.branches.size(); ++i) {
+    std::unordered_map<std::string, Symbol> output_by_name;
+    for (const auto &sym : conditional.output_symbols) output_by_name.emplace(sym.name(), sym);
+
+    std::vector<std::shared_ptr<LogicalOperator>> branches;
+    std::vector<std::vector<std::pair<Symbol, Symbol>>> branch_columns;
+    for (const auto &branch_parts : conditional.branches) {
       context_->bound_symbols = bound_symbols;
-      std::unique_ptr<LogicalOperator> branch = Plan(conditional.branches[i]);
-      auto branch_symbols = branch->OutputSymbols(symbol_table);
-      auto *guard_expr = storage.Create<EqualOperator>(
-          storage.Create<Identifier>(conditional.discriminator.name(), false)->MapTo(conditional.discriminator),
-          storage.Create<PrimitiveLiteral>(TypedValue(static_cast<int64_t>(i))));
-      auto guard = std::make_unique<Filter>(
-          std::make_unique<Once>(std::vector<Symbol>(bound_symbols.begin(), bound_symbols.end())),
-          std::vector<std::shared_ptr<LogicalOperator>>{},
-          guard_expr,
-          Filters::FromExpression(guard_expr, symbol_table, storage));
-      auto guarded = std::make_unique<Apply>(std::move(guard), std::move(branch), OnEmptyBranch::kDropRow);
-      if (!branches) {
-        branches = std::move(guarded);
-        left_symbols = std::move(branch_symbols);
-        continue;
+      std::shared_ptr<LogicalOperator> branch = Plan(branch_parts);
+      auto &columns = branch_columns.emplace_back();
+      for (const auto &branch_sym : branch->OutputSymbols(symbol_table)) {
+        auto it = output_by_name.find(branch_sym.name());
+        if (it == output_by_name.end()) continue;
+        // A column named after an import keeps the caller's value.
+        if (bound_symbols.contains(it->second) || it->second == branch_sym) continue;
+        columns.emplace_back(branch_sym, it->second);
       }
-      branches = std::make_unique<Union>(std::move(branches),
-                                         std::move(guarded),
-                                         union_symbols,
-                                         std::exchange(left_symbols, union_symbols),
-                                         std::move(branch_symbols));
+      branches.push_back(std::move(branch));
     }
-    auto root = std::make_unique<Apply>(std::move(prelude), std::move(branches), OnEmptyBranch::kDropRow);
-    root->output_symbols_ = conditional.output_symbols;
-    bound_symbols.erase(conditional.discriminator);
+
+    std::vector<std::vector<std::shared_ptr<LogicalOperator>>> pattern_filters;
+    for (auto filters : conditional.predicate_filters) {
+      for (const auto &filter : filters) {
+        bool const has_fold = !filter.subquery_matchings.empty() || !filter.pattern_comprehension_matchings.empty();
+        if (has_fold && !impl::HasBoundFilterSymbols(bound_symbols, filter)) {
+          impl::ThrowPlannerBug("A WHEN predicate reads a symbol the conditional does not bind.");
+        }
+      }
+      auto fold_bound_symbols = bound_symbols;
+      pattern_filters.push_back(ExtractPatternFilters(filters, symbol_table, storage, fold_bound_symbols));
+    }
+
+    auto root = std::make_unique<Conditional>(std::move(input),
+                                              conditional.predicates,
+                                              std::move(pattern_filters),
+                                              std::move(branches),
+                                              std::move(branch_columns),
+                                              conditional.output_symbols);
     bound_symbols.insert(conditional.output_symbols.begin(), conditional.output_symbols.end());
     context_->bound_symbols = std::move(bound_symbols);
     return root;

@@ -1116,6 +1116,8 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
 
 std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
                                                    SymbolTable &symbol_table, AstStorage &storage) {
+  // A conditional leg has no query parts of its own.
+  if (single_query_parts.empty()) return {};
   const auto &query = single_query_parts[0];
 
   if (!query.matching.expansions.empty() || query.remaining_clauses.empty()) {
