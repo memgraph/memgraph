@@ -363,7 +363,7 @@ class VariableStartPlanner {
 
         for (const auto &subquery : single_query_part.subqueries) append(*subquery);
       }
-      // The prelude is the leg's single-query parts; the branches follow it, in the order Reconstruct reads them.
+      // A conditional leg has no single-query parts; its branches follow, in the order Reconstruct reads them.
       if (query_part.conditional) {
         for (const auto &branch : query_part.conditional->branches) append(branch);
       }

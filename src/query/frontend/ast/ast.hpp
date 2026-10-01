@@ -4213,7 +4213,6 @@ class ConditionalBranches : public memgraph::query::Clause {
   std::vector<memgraph::query::Expression *> predicates_;
   std::vector<memgraph::query::CypherQuery *> bodies_;
   /// Set by the symbol generator. The columns are empty exactly for a unit body; an import column is the import.
-  std::optional<Symbol> discriminator_;
   std::vector<Symbol> output_symbols_;
 
   ConditionalBranches *Clone(AstStorage *storage) const override {
@@ -4224,7 +4223,6 @@ class ConditionalBranches : public memgraph::query::Clause {
     for (auto *body : bodies_) {
       object->bodies_.push_back(body->Clone(storage));
     }
-    object->discriminator_ = discriminator_;
     object->output_symbols_ = output_symbols_;
     return object;
   }

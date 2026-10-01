@@ -1387,7 +1387,6 @@ QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, Singl
   if (!branches) return QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), combinator};
 
   auto conditional = std::make_shared<ConditionalQueryParts>();
-  conditional->discriminator = *branches->discriminator_;
   conditional->output_symbols = branches->output_symbols_;
   for (auto *predicate : branches->predicates_) {
     conditional->predicates.push_back(predicate);

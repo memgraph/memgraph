@@ -425,7 +425,6 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   scopes_.back() = base;
   auto &scope = scopes_.back();
   scope.has_return = kinds[0] == BranchKind::kReturns;
-  branches.discriminator_ = symbol_table_->CreateAnonymousSymbol();
   if (!scope.has_return) return false;
   scope.curr_return_names = names[0];
   for (const auto &name : names[0]) {
