@@ -133,6 +133,27 @@ def test_profile_reads_are_allowed_in_a_data_transaction(cursor):
     execute(cursor, "DROP PROFILE readable")
 
 
+def test_a_profile_read_does_not_hold_the_system_lock(cursor):
+    # A read publishes nothing, so it must not take a system transaction. Taking one would hold the system mutex
+    # for the rest of the transaction: another session's system queries would be refused for that whole time, and
+    # a second read here would find the mutex already taken.
+    other = connect().cursor()
+    execute(cursor, "CREATE PROFILE held LIMIT sessions 1")
+
+    execute(cursor, "BEGIN")
+    assert any(row[0] == "held" for row in execute(cursor, "SHOW PROFILES"))
+
+    # Another session's system queries still go through.
+    execute(other, "CREATE PROFILE elsewhere LIMIT sessions 1")
+
+    # And a second read in this transaction does not need a second system transaction.
+    assert any(row[0] == "elsewhere" for row in execute(cursor, "SHOW PROFILES"))
+    execute(cursor, "COMMIT")
+
+    execute(cursor, "DROP PROFILE held")
+    execute(cursor, "DROP PROFILE elsewhere")
+
+
 def test_profile_writes_are_still_rejected_in_a_data_transaction(cursor):
     # The write half of the same guard: unchanged, and the reason the guard exists.
     execute(cursor, "BEGIN")
