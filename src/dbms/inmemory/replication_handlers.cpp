@@ -494,14 +494,15 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(
     auto &repl_storage_state = storage->repl_storage_state_;
 
     if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
-      // Same lock as PrepareForNewEpoch, so a snapshot being created reads the epoch and history as one unit.
-      auto const engine_guard = std::scoped_lock{storage->engine_lock_};
       // We should first finalize WAL file and then update the epoch
       if (storage->wal_file_) {
         storage->wal_file_->FinalizeWal();
         storage->wal_file_.reset();
       }
 
+      // A snapshot being created copies the epoch and history under this lock, so it sees them as one unit. The lock
+      // is taken only now so the WAL file's disk I/O above runs outside it.
+      auto const engine_guard = std::scoped_lock{storage->engine_lock_};
       repl_storage_state.SaveLatestHistory();
       repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
     }

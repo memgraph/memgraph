@@ -2995,6 +2995,10 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       // contents and consumers would skip it as "not newer".
       auto *txn = unique_accessor->GetTransaction();
       txn->last_durable_ts_ = txn->start_timestamp;
+      auto [epoch_id, epoch_history] = std::invoke([this] {
+        auto const engine_guard = std::unique_lock{engine_lock_};
+        return std::pair{std::string{repl_storage_state_.epoch_.id()}, repl_storage_state_.history};
+      });
       const auto snapshot_path = durability::CreateSnapshot(this,
                                                             txn,
                                                             recovery_.snapshot_directory_,
@@ -3002,8 +3006,8 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &vertices_,
                                                             &edges_,
                                                             uuid(),
-                                                            std::string{repl_storage_state_.epoch_.id()},
-                                                            repl_storage_state_.history,
+                                                            std::move(epoch_id),
+                                                            std::move(epoch_history),
                                                             &file_retainer_,
                                                             &abort_snapshot_,
                                                             &snapshot_progress_,
