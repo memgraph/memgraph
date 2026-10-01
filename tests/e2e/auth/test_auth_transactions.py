@@ -154,6 +154,23 @@ def test_a_profile_read_does_not_hold_the_system_lock(cursor):
     execute(cursor, "DROP PROFILE elsewhere")
 
 
+def test_a_tenant_profile_read_does_not_hold_the_system_lock(cursor):
+    # Same rule as the user profile read above: a read publishes nothing, so it takes no system transaction and
+    # leaves the system mutex free for the rest of the transaction.
+    other = connect().cursor()
+    execute(cursor, "CREATE TENANT PROFILE tenant_held LIMIT memory_limit 100MB")
+
+    execute(cursor, "BEGIN")
+    assert any(row[0] == "tenant_held" for row in execute(cursor, "SHOW TENANT PROFILES"))
+
+    execute(other, "CREATE PROFILE tenant_elsewhere LIMIT sessions 1")
+    assert execute(cursor, "SHOW TENANT PROFILES")
+    execute(cursor, "COMMIT")
+
+    execute(cursor, "DROP TENANT PROFILE tenant_held")
+    execute(cursor, "DROP PROFILE tenant_elsewhere")
+
+
 def test_profile_writes_are_still_rejected_in_a_data_transaction(cursor):
     # The write half of the same guard: unchanged, and the reason the guard exists.
     execute(cursor, "BEGIN")
