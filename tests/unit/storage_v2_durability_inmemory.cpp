@@ -15,6 +15,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -3328,6 +3329,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
 #endif
   pid_t pid = fork();
   if (pid == 0) {
+    prctl(PR_SET_PDEATHSIG, SIGKILL);
     // Create WALs.
     {
       memgraph::storage::Config config{
@@ -3343,8 +3345,8 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       };
       memgraph::dbms::Database db{config};
       const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-      // Create one million vertices.
-      for (uint64_t i = 0; i < 1'000'000; ++i) {
+      // Commit until the parent kills us, so the kill never races a clean exit.
+      for (;;) {
         auto acc = db.Access(memgraph::storage::WRITE);
         acc->CreateVertex();
         MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value(),
