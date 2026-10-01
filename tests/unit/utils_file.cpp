@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <climits>
 #include <cstdio>
 #include <fstream>
@@ -1344,6 +1345,28 @@ TEST_F(FileCacheHintTest, PacingDisablesItselfOnADescriptorItCannotPace) {
   EXPECT_EQ(file.PacingOffset(), after_failure) << "pacing kept running on a descriptor it cannot pace";
 
   file.Close();
+}
+
+// Whether the kernel took the advice is the one part of a release that does not depend on how much
+// memory the machine is under, and POSIX has a FIFO refuse with ESPIPE, so both answers are
+// reachable without an unusual filesystem. Acceptance is all that is claimed here, and it is weaker
+// than it sounds: a filesystem can answer zero and keep every page, which is why the tests that
+// measure eviction gate themselves on a probe rather than on this.
+TEST_F(FileCacheHintTest, DroppingReportsWhetherTheKernelTookTheAdvice) {
+  const auto path = test_dir_ / "advice.bin";
+  WriteStreaming(path, Pattern(kTotal), 0);
+
+  const int fd = ::open(path.c_str(), O_RDONLY);
+  ASSERT_NE(fd, -1);
+  const auto close_fd = memgraph::utils::OnScopeExit{[fd] { ::close(fd); }};
+  EXPECT_EQ(memgraph::utils::DropCachedPages(fd), 0) << "a regular file is a descriptor the advice applies to";
+
+  const auto fifo = test_dir_ / "fifo";
+  ASSERT_EQ(::mkfifo(fifo.c_str(), 0600), 0);
+  const int fifo_fd = ::open(fifo.c_str(), O_RDONLY | O_NONBLOCK);
+  ASSERT_NE(fifo_fd, -1);
+  const auto close_fifo = memgraph::utils::OnScopeExit{[fifo_fd] { ::close(fifo_fd); }};
+  EXPECT_EQ(memgraph::utils::DropCachedPages(fifo_fd), ESPIPE) << "a refusal must reach the caller unchanged";
 }
 
 // Recovery releases the snapshot through the same handle it read it with, once the load is done.
