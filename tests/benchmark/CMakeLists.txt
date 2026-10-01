@@ -62,6 +62,9 @@ set_tests_properties(${test_prefix}accessor_free_dispatch PROPERTIES DISABLED TR
 add_benchmark(query/stripped.cpp)
 target_link_libraries(${test_prefix}stripped mg-query)
 
+add_benchmark(query/parsing.cpp)
+target_link_libraries(${test_prefix}parsing mg-query)
+
 if (MG_ENTERPRISE)
 add_benchmark(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-rpc)
