@@ -115,7 +115,13 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
         auth->RemoveRole(req.name, /*force=*/true);
       } break;
       case PROFILE: {
-        auth->DropProfile(req.name);
+        // A profile that is not there was already dropped, which is the state the main asked for. A delete that
+        // failed is not: the store still holds a profile the main removed, so refuse rather than ack a replica
+        // that has diverged. The user and role cases above throw on a failure and return false only when the
+        // record is absent, so their return is the benign case and is discarded.
+        if (auth->DropProfile(req.name) == auth::UserProfiles::DropResult::kFailed) {
+          throw auth::AuthException("Couldn't drop profile '{}'", req.name);
+        }
       } break;
       case N:
         std::unreachable();
