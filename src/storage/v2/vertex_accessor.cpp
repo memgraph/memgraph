@@ -369,9 +369,8 @@ Result<bool> VertexAccessor::HasAnyLabel(View view) const {
     delta = vertex_->delta();
   }
 
-  // A delta adds or removes one named label, so which labels survive it decides whether any does: there is no
-  // answer short of the set itself. With no delta to apply, the vertex's own labels already answer, and
-  // emptiness is all that was asked, so the set need not be built.
+  // A delta adds or removes one named label, so which labels survive it decides whether any does: there is
+  // no answer short of the set itself.
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
     auto labels = Labels(view);
     if (!labels) return std::unexpected{labels.error()};

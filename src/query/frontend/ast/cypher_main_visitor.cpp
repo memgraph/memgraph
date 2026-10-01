@@ -3306,7 +3306,7 @@ LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermAtomContext 
 
 template <typename TSegment>
 LabelTerm CypherMainVisitor::LabelExpressionFrom(const std::vector<TSegment *> &segments) {
-  // The two rules name their term differently; everything below reads the same from either.
+  // The two rules name their term differently.
   auto term_of = [](TSegment *segment) {
     if constexpr (requires { segment->patternLabelTerm(); }) {
       return segment->patternLabelTerm();

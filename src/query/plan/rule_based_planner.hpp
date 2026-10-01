@@ -557,8 +557,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                      eligible);
             if (call_proc->where_) {
               // Split as filter collection splits, so an index scan below finds the label test it consumes.
-              // Written back because planning runs once per start node the variable-start planner tries;
-              // splitting an already-split expression returns it unchanged, so only the first builds nodes.
+              // Written back, because planning runs once per start node the variable-start planner tries.
               call_proc->where_->expression_ = SplitLabelsTests(call_proc->where_->expression_, *context.ast_storage);
               auto *filter_expr = call_proc->where_->expression_;
               auto where_filters = Filters::FromExpression(filter_expr, *context.symbol_table, *context.ast_storage);

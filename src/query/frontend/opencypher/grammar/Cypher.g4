@@ -239,8 +239,7 @@ labelTermAtom : labelLeaf
               ;
 
 // A ')' closes this one, so nothing after it can claim a '|' and the loop is greedy whichever rule invoked
-// it. That keeps leaving the loop a token test. Only `labelTerm` has to stay non-greedy, and only because in
-// expression position a '|' may begin a comprehension's projection.
+// it. That keeps leaving the loop a token test rather than a prediction.
 parenLabelTerm : labelTermAnd ( '|' labelTermAnd )* ;
 
 labelLeaf : symbolicName

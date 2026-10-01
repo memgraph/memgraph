@@ -5100,8 +5100,8 @@ std::string Filter::SingleFilterName(FilterInfo const &single_filter) {
                          utils::IterableToString(symbol_names, ", ", [](const auto &name) { return name; }));
     }
     case Type::Label: {
-      // Naming the labels is what this filter is for, but inspecting a plan only reads it. An unnamed filter
-      // beats ending the process, as for `Type::Node` below.
+      // Naming the labels is what this filter is for, but inspecting a plan only reads it, so an unnamed
+      // filter beats ending the process.
       if (single_filter.expression->GetTypeInfo() == LabelsTest::kType) {
         if (auto name = LabelsTestName(static_cast<LabelsTest *>(single_filter.expression))) return *std::move(name);
       }
