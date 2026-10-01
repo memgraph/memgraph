@@ -171,7 +171,7 @@ patternElement : ( nodePattern ( patternElementChain )* )
                | ( '(' patternElement ')' )
                ;
 
-nodePattern : '(' ( variable )? ( nodeLabelExpression )? ( properties )? ')' ;
+nodePattern : '(' ( variable )? ( patternLabelExpression )? ( properties )? ')' ;
 
 patternElementChain : relationshipPattern nodePattern ;
 
@@ -207,6 +207,13 @@ nodeLabel : ':' labelName ;
 // plain labels. The visitor rejects a mix of the two (':A|B:C').
 nodeLabelExpression : ( ':' labelSegment )+ ;
 
+// What a node pattern names. Only properties or ')' may follow it, neither of which begins with '|', so its
+// disjunction runs to the end and the loop below is greedy. `nodeLabelExpression` is the same thing in
+// expression position, where a '|' may instead begin a comprehension's projection.
+patternLabelExpression : ( ':' patternLabelSegment )+ ;
+patternLabelSegment : dynamicLabel | patternLabelTerm ;
+patternLabelTerm : labelTermAnd ( '|' labelTermAnd )* ;
+
 // A `variable.prop` label never follows an operator: after '|' it would compete with the projection in
 // '[x IN xs WHERE x:A | x.v]', and that ambiguity costs a full-context prediction per comprehension.
 labelSegment : dynamicLabel
@@ -228,8 +235,13 @@ labelTermNot : '!' labelTermNot
 
 labelTermAtom : labelLeaf
               | '%'
-              | '(' labelTerm ')'
+              | '(' parenLabelTerm ')'
               ;
+
+// A ')' closes this one, so nothing after it can claim a '|' and the loop is greedy whichever rule invoked
+// it. That keeps leaving the loop a token test. Only `labelTerm` has to stay non-greedy, and only because in
+// expression position a '|' may begin a comprehension's projection.
+parenLabelTerm : labelTermAnd ( '|' labelTermAnd )* ;
 
 labelLeaf : symbolicName
           | parameter

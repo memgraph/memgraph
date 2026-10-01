@@ -923,6 +923,13 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitNodeLabelExpression(MemgraphCypher::NodeLabelExpressionContext *ctx) override;
 
+  antlrcpp::Any visitPatternLabelExpression(MemgraphCypher::PatternLabelExpressionContext *ctx) override;
+
+  /// The label term a ':'-separated run of segments names. Shared by the two label-expression rules, which
+  /// carry the same segments and differ only in how their '|' loop decides to leave.
+  template <typename TSegment>
+  LabelTerm LabelExpressionFrom(const std::vector<TSegment *> &segments);
+
   /**
    * @return unordered_map<PropertyIx, Expression*>
    */
@@ -1523,6 +1530,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   LabelTerm LabelTermFrom(MemgraphCypher::LabelTermAndContext *ctx);
   LabelTerm LabelTermFrom(MemgraphCypher::LabelTermNotContext *ctx);
   LabelTerm LabelTermFrom(MemgraphCypher::LabelTermAtomContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::ParenLabelTermContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::PatternLabelTermContext *ctx);
 
   ParsingContext context_;
   AstStorage *storage_;
