@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <sys/socket.h>
+
+#include <cerrno>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -286,8 +289,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   // Acquires arm_lock_ itself; must NOT be called with it held. arm_lock_ serializes this
   // "terminate_requested_? close : arm" decision against TerminateIfIdle_'s check-and-close.
-  template <typename OnReadFn>
-  void ArmRead_(OnReadFn on_read) {
+  template <typename ArmFn>
+  void ArmLocked_(ArmFn arm) {
     ArmGuard guard{arm_lock_};
     if (!IsConnected()) {
       return;
@@ -297,10 +300,26 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return;
     }
     read_armed_.store(true, std::memory_order_relaxed);
-    ExecuteForSocket([&](auto &socket) {
-      auto buffer = input_buffer_.write_end()->GetBuffer();
-      socket.async_read_some(boost::asio::buffer(buffer.data, buffer.len),
-                             boost::asio::bind_executor(strand_, std::move(on_read)));
+    arm();
+  }
+
+  template <typename OnReadFn>
+  void ArmRead_(OnReadFn on_read) {
+    ArmLocked_([&] {
+      ExecuteForSocket([&](auto &socket) {
+        auto buffer = input_buffer_.write_end()->GetBuffer();
+        socket.async_read_some(boost::asio::buffer(buffer.data, buffer.len),
+                               boost::asio::bind_executor(strand_, std::move(on_read)));
+      });
+    });
+  }
+
+  // Plain TCP: the io thread only reports readiness; the worker does the recv (see OnReadable).
+  void ArmWait_() {
+    ArmLocked_([&] {
+      std::get<TCPSocket>(socket_).async_wait(
+          tcp::socket::wait_read,
+          boost::asio::bind_executor(strand_, std::bind_front(&Session::OnReadable, shared_from_this())));
     });
   }
 
@@ -308,7 +327,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     // Runs on a worker thread. Plain TCP arms here under arm_lock_ (no strand hop); SSL/WebSocket
     // async_read_some are composed ops that must stay on their implicit strand, so they dispatch to strand_.
     if (std::holds_alternative<TCPSocket>(socket_)) {
-      ArmRead_(std::bind_front(&Session::OnRead, shared_from_this()));
+      ArmWait_();
       return;
     }
     boost::asio::dispatch(strand_,
@@ -400,6 +419,42 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     DoWork();
   }
 
+  void OnReadable(const boost::system::error_code &ec) {
+    read_armed_.store(false, std::memory_order_relaxed);
+    if (ec) {
+      spdlog::trace("OnReadable error: {}", ec.message());
+      session_.HandleError();
+      return OnError(ec);
+    }
+    DoWork(true);
+  }
+
+  // Worker thread, plain TCP. Returns true if bytes were appended and the caller should Execute(); false if
+  // the read was handled here (re-armed, or routed to the error path). filled: the recv filled the whole buffer.
+  bool ReadAvailable_(bool &filled) {
+    auto buffer = input_buffer_.write_end()->GetBuffer();
+    DMG_ASSERT(buffer.len > 0, "recv into an empty buffer would be misread as EOF");
+    ssize_t n;
+    do {
+      n = ::recv(std::get<TCPSocket>(socket_).native_handle(), buffer.data, buffer.len, MSG_DONTWAIT);
+    } while (n < 0 && errno == EINTR);
+
+    if (n > 0) {
+      input_buffer_.write_end()->Written(static_cast<size_t>(n));
+      filled = static_cast<size_t>(n) == buffer.len;
+      return true;
+    }
+    if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+      DoRead();
+      return false;
+    }
+    const auto ec = n == 0 ? boost::system::error_code{boost::asio::error::eof}
+                           : boost::system::error_code{errno, boost::system::system_category()};
+    session_.HandleError();
+    OnError(ec);
+    return false;
+  }
+
   void OnReadAsio(const boost::system::error_code &ec, const size_t bytes_transferred) {
     read_armed_.store(false, std::memory_order_relaxed);
     if (ec) {
@@ -421,16 +476,26 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
   }
 
-  void DoWork() {
+  void DoWork(bool read_first = false) {
     session_context_->AddTask(
-        [shared_this = shared_from_this()](const auto thread_priority) {
+        [shared_this = shared_from_this(), read_first](const auto thread_priority) {
           try {
+            bool filled = false;
+            if (read_first && !shared_this->ReadAvailable_(filled)) {
+              return;
+            }
             while (true) {
               if (shared_this->session_.Execute()) {
                 // Check if we can just steal this task (loop through)
                 if (thread_priority > shared_this->session_.ApproximateQueryPriority()) {
                   // Task priority lower; reschedule
                   shared_this->DoWork();
+                  return;
+                }
+              } else if (filled) {
+                // Last recv filled the buffer; more is likely queued.
+                filled = false;
+                if (!shared_this->ReadAvailable_(filled)) {
                   return;
                 }
               } else {
