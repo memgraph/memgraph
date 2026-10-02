@@ -5946,7 +5946,7 @@ mgp_error mgp_execute_query(mgp_graph *graph, mgp_memory *memory, const char *qu
         auto &instance = memgraph::query::InterpreterContextHolder::GetInstance();
 
         auto *result = NewRawMgpObject<mgp_execution_result>(memory->impl, graph);
-        result->pImpl->interpreter->SetUser(graph->ctx->user_or_role);
+        result->pImpl->interpreter->SetUser(graph->ctx->user_or_role ? graph->ctx->user_or_role->clone() : nullptr);
 
         instance.interpreters.WithLock(
             [result](auto &interpreters) { interpreters.insert(result->pImpl->interpreter.get()); });
