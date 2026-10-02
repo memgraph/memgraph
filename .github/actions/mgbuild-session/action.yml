@@ -21,6 +21,10 @@ inputs:
     description: 'Set to `true` to spin the container up with ccache disabled.'
     required: false
     default: 'false'
+  check-core-dumps:
+    description: 'Set to `false` for a job that never needs a core dump, such as a lint that runs no binary.'
+    required: false
+    default: 'true'
 
 runs:
   using: 'composite'
@@ -60,6 +64,7 @@ runs:
         run --custom-mirror $USE_CUSTOM_MIRROR
 
     - name: Check core dump support
+      if: ${{ inputs.check-core-dumps == 'true' }}
       shell: bash
       env:
         OS: ${{ inputs.os }}
