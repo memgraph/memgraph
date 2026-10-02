@@ -12,6 +12,7 @@
 #pragma once
 
 #include <boost/system/detail/errc.hpp>
+#include <memory>
 #include <string>
 
 #include <fmt/format.h>
@@ -20,8 +21,10 @@
 #include <boost/asio/ip/tcp.hpp>
 
 #include "communication/context.hpp"
+#include "communication/v2/epoll_poller.hpp"
 #include "communication/v2/pool.hpp"
 #include "communication/v2/session.hpp"
+#include "flags/scheduler.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
@@ -85,10 +88,15 @@ class Server final {
   void Shutdown() {
     spdlog::info("{} io shutting down.", service_name_);
     io_thread_pool_.Shutdown();
+    if (poller_) poller_->Stop();
     spdlog::info("{} shutdown.", service_name_);
   }
 
-  void AwaitShutdown() { io_thread_pool_.AwaitShutdown(); }
+  void AwaitShutdown() {
+    io_thread_pool_.AwaitShutdown();
+    // The worker pool is joined by now (memgraph.cpp), so no session can still be running.
+    if (poller_) poller_->CloseAll();
+  }
 
   bool IsRunning() const noexcept;
 
@@ -118,11 +126,14 @@ class Server final {
 
   IOContextThreadPool io_thread_pool_;
   tcp::acceptor acceptor_{io_thread_pool_.GetIOContext()};
+  // Plain-TCP sessions leave asio after their first read and are polled here. Null: sessions stay on asio.
+  std::unique_ptr<EpollPoller> poller_;
 };
 
 template <typename TSession, typename TSessionContext>
 Server<TSession, TSessionContext>::~Server() {
   MG_ASSERT(!IsRunning(), "Server wasn't shutdown properly");
+  if (poller_ && session_context_->worker_pool_) session_context_->worker_pool_->SetIdlePoller(nullptr);
 }
 
 template <typename TSession, typename TSessionContext>
@@ -176,6 +187,14 @@ bool Server<TSession, TSessionContext>::Start() {
     return false;
   }
 
+  if (FLAGS_bolt_integrated_poller && GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR &&
+      session_context_->worker_pool_ && !server_context_->use_ssl()) {
+    poller_ = std::make_unique<EpollPoller>();
+    poller_->Start();
+    session_context_->worker_pool_->SetIdlePoller(poller_.get());
+    spdlog::info("{} using the integrated poller", service_name_);
+  }
+
   io_thread_pool_.Run();
   DoAccept();
 
@@ -190,7 +209,8 @@ inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_cod
     return OnError(ec, "accept");
   }
 
-  auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_);
+  auto session =
+      SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_, poller_.get());
   session->Start();
 
   DoAccept();
