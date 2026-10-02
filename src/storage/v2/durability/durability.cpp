@@ -429,6 +429,8 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
       indices->text_index_, indices_metadata.text_indices, "Text index", "Text indices", [](const auto &info) {
         return info.label;
       });
+  MG_ASSERT(indices_metadata.text_edge_indices.empty() || properties_on_edges,
+            "Trying to recover text edge indices while properties on edges are disabled.");
   recover_text_indices(indices->text_edge_index_,
                        indices_metadata.text_edge_indices,
                        "Text edge index",

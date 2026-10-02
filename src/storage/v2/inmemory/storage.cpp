@@ -1937,6 +1937,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Create index requires a unique or read only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (!in_memory->config_.salient.items.properties_on_edges) {
+    // Not possible to create the index, no properties on edges
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   auto updater = storage_->indices_.MakeUpdater();
   if (!mem_edge_type_index->RegisterIndex(edge_type, updater)) {

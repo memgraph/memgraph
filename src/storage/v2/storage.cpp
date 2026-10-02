@@ -720,6 +720,10 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Cre
 std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::CreateTextEdgeIndex(
     const TextEdgeIndexSpec &text_edge_index_info, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating a text edge index requires unique access to storage!");
+  if (!storage_->config_.salient.items.properties_on_edges) {
+    // Not possible to create the index, no properties on edges
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
 
   // Check for name conflicts with existing text node indexes
   if (storage_->indices_.text_index_.IndexExists(text_edge_index_info.index_name)) {
