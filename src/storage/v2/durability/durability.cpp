@@ -453,6 +453,8 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   // Vector idx on edges
   {
     spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
+    MG_ASSERT(indices_metadata.vector_edge_indices.empty() || properties_on_edges,
+              "Trying to recover vector edge indices while properties on edges are disabled.");
     auto vertices_acc = vertices->access();
     for (auto &recovery_info : indices_metadata.vector_edge_indices) {
       indices->vector_edge_index_.RecoverIndex(recovery_info, vertices_acc, name_id_mapper, updater, on_progress);

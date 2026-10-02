@@ -2086,8 +2086,14 @@ std::optional<RecoveryInfo> LoadWal(
                                                indices_constraints->indices.vector_indices,
                                                indices_constraints->indices.vertex_vectors,
                                                vertex_acc);
-        VectorEdgeIndexRecovery::UpdateOnIndexDrop(
-            data.index_name, name_id_mapper, indices_constraints->indices.vector_edge_indices, vertex_acc);
+        if (items.properties_on_edges) {
+          VectorEdgeIndexRecovery::UpdateOnIndexDrop(
+              data.index_name, name_id_mapper, indices_constraints->indices.vector_edge_indices, vertex_acc);
+        } else {
+          // Without properties on edges no edge holds a vector to restore; only forget the spec.
+          std::erase_if(indices_constraints->indices.vector_edge_indices,
+                        [&](auto const &ri) { return ri.spec.index_name == data.index_name; });
+        }
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {

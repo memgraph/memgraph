@@ -2383,6 +2383,10 @@ std::expected<void, StorageIndexDefinitionError> InMemoryStorage::InMemoryAccess
     VectorEdgeIndexSpec spec, ProgressCallback const &on_progress) {
   MG_ASSERT(type() == UNIQUE, "Creating vector edge index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  if (!in_memory->config_.salient.items.properties_on_edges) {
+    // Not possible to create the index, no properties on edges
+    return std::unexpected{IndexDefinitionConfigError{}};
+  }
   auto &vector_index = in_memory->indices_.vector_index_;
   auto &vector_edge_index = in_memory->indices_.vector_edge_index_;
   auto vertices_acc = in_memory->vertices_.access();
