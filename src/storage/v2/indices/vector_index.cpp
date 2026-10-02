@@ -206,8 +206,9 @@ void VectorIndex::AddVertexToIndex(uint64_t index_id, Vertex &vertex, const Inde
   if (!property.IsVectorIndexId() && property.IsAnyList() && property.ListSize() == 0) return;
 
   auto vector = RegisterIndexId(property, index_id);
-  vertex.properties.SetProperty(spec.property, property);
+  // Tag only after uSearch accepted the vector: a rejected one (e.g. wrong dimension) must keep its list.
   UpdateVectorIndex(item_ptr->mg_index, spec, &vertex, vector, thread_id);
+  vertex.properties.SetProperty(spec.property, property);
 }
 
 std::optional<VectorIndex::DroppedIndexCapture> VectorIndex::DropIndex(std::string_view index_name,
