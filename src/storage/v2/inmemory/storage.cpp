@@ -4626,20 +4626,21 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
   auto file_locker = file_retainer_.AddLocker();
   (void)file_locker.Access().AddPath(local_path);
 
+  // When creating a snapshot, we first lock the snapshot, then create the accessor, so no need for the snapshot lock
+  // GC could be running without the main lock, so lock it
+  // Engine lock is needed because of PrepareForNewEpoch
+  // Clear and the load share one hold so no reader observes the cleared epoch/history in between.
+  auto gc_lock = std::unique_lock{gc_lock_};
+  auto engine_lock = std::unique_lock{engine_lock_};
+
   if (force) {
-    Clear();
+    ClearLocked({});
   } else {
     if (repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ != kTimestampInitialId) {
       handler_error();
       return std::unexpected{InMemoryStorage::RecoverSnapshotError::NonEmptyStorage};
     }
   }
-
-  // When creating a snapshot, we first lock the snapshot, then create the accessor, so no need for the snapshot lock
-  // GC could be running without the main lock, so lock it
-  // Engine lock is needed because of PrepareForNewEpoch
-  auto gc_lock = std::unique_lock{gc_lock_};
-  auto engine_lock = std::unique_lock{engine_lock_};
 
   std::string loaded_snapshot_uuid;
 
@@ -5320,7 +5321,11 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
   // Engine lock is needed because of PrepareForNewEpoch
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};
+  ClearLocked(on_progress);
+}
 
+// Caller must hold gc_lock_ and engine_lock_.
+void InMemoryStorage::ClearLocked(std::function<void()> const &on_progress) {
   // Reset schema tracking before vertices_.clear(); pending_schema_updates_
   // entries hold raw Vertex* and would dangle.
   {
