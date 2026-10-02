@@ -596,37 +596,45 @@ void VectorIndex::AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, A
       }
     }
     for (auto property : properties) {
-      auto value = vertex->properties.GetProperty(property, decoder);
+      auto value = vertex->properties.GetProperty(property);
       const auto aborted = property_to_abort.find(property);
       const bool vector_changed = aborted != property_to_abort.end();
-      // A tag in the store is the oldest before-image, whose floats only the delta kept; usearch holds this
-      // transaction's write.
-      if (value.IsVectorIndexId() && vector_changed) {
-        DMG_ASSERT(aborted->second.IsVectorIndexId(), "Restored vector index tag without a tagged before-image");
-        value = aborted->second;
+      // Only a tag left untouched by this transaction's writes proves usearch already holds the restored vector.
+      const bool index_holds_value = value.IsVectorIndexId() && !vector_changed;
+      if (value.IsVectorIndexId()) {
+        // A tag in the store is the oldest before-image, whose floats only the delta kept.
+        DMG_ASSERT(!vector_changed || aborted->second.IsVectorIndexId(),
+                   "Restored vector index tag without a tagged before-image");
+        if (vector_changed) {
+          value = aborted->second;
+        } else {
+          decoder.DecodeProperty(value);
+        }
       }
       const auto vector = value.IsVectorIndexId() ? value.ValueVectorIndexList()
                                                   : TryListToVector(value).value_or(utils::small_vector<float>{});
 
       utils::small_vector<uint64_t> ids;
       for (const auto &[index_id, label_filter] : GetIndicesByProperty(property)) {
-        if (vector.empty() || !label_filter->Matches(vertex->labels)) {
-          RemoveVertexFromIndex(vertex, index_id);
-          continue;
-        }
         auto &item_ptr = index_->at(index_id);
         const bool indexed = std::invoke([&] {
           auto guard =
               utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
           return item_ptr->mg_index.index.contains(vertex);
         });
-        if (vector_changed || !indexed) UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, vertex, vector);
+        if (vector.empty() || !label_filter->Matches(vertex->labels)) {
+          if (indexed) RemoveVertexFromIndex(vertex, index_id);
+          continue;
+        }
+        if (!index_holds_value || !indexed) UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, vertex, vector);
         ids.push_back(index_id);
       }
 
       if (!ids.empty()) {
-        vertex->properties.SetProperty(
-            property, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}));
+        if (!value.IsVectorIndexId() || value.ValueVectorIndexIds() != ids) {
+          vertex->properties.SetProperty(
+              property, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}));
+        }
       } else if (value.IsVectorIndexId()) {
         vertex->properties.SetProperty(property, PropertyValue(std::vector<double>(vector.begin(), vector.end())));
       }
