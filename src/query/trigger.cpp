@@ -242,7 +242,7 @@ Trigger::PlanResult Trigger::GetPlan(DbAccessor *db_accessor, std::string_view d
     }
     effective_principal = triggering_user;
   }
-  return {trigger_plan_, std::move(effective_principal)};
+  return {.plan = trigger_plan_, .effective_principal = std::move(effective_principal)};
 }
 
 void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,

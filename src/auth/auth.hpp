@@ -251,7 +251,7 @@ class Auth final {
    * @param user
    * @param password
    */
-  void UpdatePassword(auth::User &user, const std::optional<std::string> &password);
+  void UpdatePassword(auth::User &user, const std::optional<std::string> &password) const;
 
   /// Validates plaintext password against current policy; throws AuthException on violation.
   void ValidatePassword(const std::optional<std::string> &password) const;
