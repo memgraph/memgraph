@@ -24,11 +24,21 @@
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/thread.hpp"
+#include "utils/tsc.hpp"
 
 namespace memgraph::communication::v2 {
 
 namespace {
 constexpr uint32_t kReArmEvents = EPOLLIN | EPOLLRDHUP | EPOLLONESHOT;
+constexpr double kLingerSeconds = 30e-6;
+
+inline void CpuRelax() {
+#if defined(__x86_64__) || defined(__i386__)
+  __builtin_ia32_pause();
+#elif defined(__aarch64__)
+  asm volatile("yield");
+#endif
+}
 }  // namespace
 
 EpollPoller::EpollPoller() {
@@ -108,13 +118,11 @@ bool EpollPoller::Arm(const Slot slot) {
   ev.data.u64 = slot;
   if (::epoll_ctl(epfd_, EPOLL_CTL_MOD, entry.fd, &ev) == 0) return true;
 
-  // No event can have fired for this arm, and callers serialize the non-owner close with Arm().
+  // An ERR/HUP queued while RUNNING can be claimed as soon as ARMED is published; then the claimant owns the slot
+  // and this arm counts as done.
   auto expected = Pack(gen, kArmed);
-  const bool reverted = entry.word.compare_exchange_strong(
+  return !entry.word.compare_exchange_strong(
       expected, Pack(gen, kRunning), std::memory_order_acq_rel, std::memory_order_relaxed);
-  DMG_ASSERT(reverted, "Failed re-arm raced with a claim");
-  (void)reverted;
-  return false;
 }
 
 bool EpollPoller::TryBeginClose(const Slot slot) {
@@ -192,16 +200,26 @@ std::shared_ptr<utils::IdleRunnable> EpollPoller::TryClaim() {
 void EpollPoller::Start(utils::HotMask *hot_mask) {
   std::lock_guard lock{stop_mtx_};
   if (thread_.joinable() || stopping_.load(std::memory_order_acquire)) return;
-  hot_mask_ = (hot_mask && hot_mask->SingleWord()) ? hot_mask : nullptr;
+  // Workers only poll while spinning, which needs the TSC; without it nobody else would pick events up.
+  const auto tsc_freq = utils::GetTSCFrequency();
+  hot_mask_ = (hot_mask && hot_mask->SingleWord() && tsc_freq) ? hot_mask : nullptr;
+  if (hot_mask_) hot_mask_->EnableWaiter();
   spdlog::info("Bolt poller fallback thread: {}",
                hot_mask_ ? "parks while a worker is HOT" : "always blocks in epoll_wait");
-  thread_ = std::thread([this] {
+  thread_ = std::thread([this, tsc_freq] {
     utils::ThreadSetName("bolt poll");
     std::array<std::shared_ptr<PollTarget>, kMaxEventsPerPoll> ready;
     while (!stopping_.load(std::memory_order_acquire)) {
       if (hot_mask_ && hot_mask_->AnyHot()) {
         fallback_parks_.fetch_add(1, std::memory_order_relaxed);
         hot_mask_->WaitUntilEmpty(stopping_);
+        // The last worker just left the mask; if another turns HOT within a moment, park again instead of
+        // entering epoll_wait and being woken by its first event.
+        const utils::TSCTimer linger{tsc_freq};
+        while (linger.Elapsed() < kLingerSeconds && !hot_mask_->AnyHot() &&
+               !stopping_.load(std::memory_order_relaxed)) {
+          CpuRelax();
+        }
         continue;
       }
       const auto n = PollOnce(-1, true, ready);
