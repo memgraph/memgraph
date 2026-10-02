@@ -1457,7 +1457,7 @@ Auth::Result DispatchUserOrRole(Auth &auth, const std::string &name, UserOrRoleT
 
 // Returns true iff Databases::Revoke(db) would mutate at least one field.
 bool RevokeChanges(const Databases &dbs, const std::string &db) {
-  return dbs.GetDenies().contains(db) || (!dbs.GetAllowAll() && dbs.GetGrants().contains(db)) || dbs.GetMain() == db;
+  return dbs.GetDenies().contains(db) || (!dbs.GetAllowAll() && dbs.GetGrants().contains(db)) || dbs.IsMain(db);
 }
 }  // namespace
 

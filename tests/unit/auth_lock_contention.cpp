@@ -259,4 +259,22 @@ TEST_F(AuthLockContention, CanImpersonateCompletesUnderReadLock) {
   ASSERT_EQ(status, std::future_status::ready) << "CanImpersonate blocked under ReadLock";
   EXPECT_TRUE(impersonate_fut.get());
 }
+
+// A default database that is no longer contained (GRANT narrowed access after SET MAIN) must still be cleared.
+TEST_F(AuthLockContention, DeleteDatabaseClearsUncontainedMain) {
+  {
+    auto locked = auth->Lock();
+    auto user = locked->AddUser("alice");
+    ASSERT_TRUE(user.has_value());
+    user->db_access().GrantAll();
+    ASSERT_TRUE(user->db_access().SetMain("x"));
+    user->db_access().Grant("y");
+    locked->SaveUser(*user);
+    locked->DeleteDatabase("x");
+  }
+
+  auto stored = auth->ReadLock()->GetUser("alice");
+  ASSERT_TRUE(stored.has_value());
+  EXPECT_FALSE(stored->db_access().IsMain("x"));
+}
 #endif  // MG_ENTERPRISE
