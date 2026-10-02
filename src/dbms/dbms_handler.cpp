@@ -459,7 +459,7 @@ DeleteError DbmsHandler::NotLiveDeleteError_(std::string_view db_name) const {
 
 void DbmsHandler::NotifyUuidRetired_(utils::UUID const &uuid, std::string_view name_for_log) {
   if (!on_uuid_retired_) return;
-  // The drop is already committed (husk draining or COLD removed). An exception from the hook must
+  // The retirement is already committed. An exception from the hook must
   // NOT surface as a false failure to the caller. If the hook throws, that uuid's parameter rows
   // stay orphaned — nothing reclaims them.
   try {

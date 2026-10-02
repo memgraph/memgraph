@@ -293,7 +293,6 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   // 3) Try to update databases
 
   auto &dbms = DBMS();
-  auto interpreter1 = this->NewInterpreter();
 
   // Update clean default db
   auto default_db = dbms.Get();
@@ -306,6 +305,7 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   ASSERT_EQ(default_db->storage(), new_default.value()->storage());
 
   // Add node to default
+  auto interpreter1 = this->NewInterpreter();
   RunQuery(interpreter1, "CREATE (:Node)");
 
   // Fail to update dirty default db
