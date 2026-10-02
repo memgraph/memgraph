@@ -281,28 +281,31 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     // because server has already been stopped
     dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
 
+    // All DBs should have the same epoch
+    auto const new_epoch = ReplicationEpoch();
+    spdlog::info("Generated new epoch {}", new_epoch.id());
+
     // STEP 2) bring down all REPLICA servers
-    dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+    // Remember old epoch + storage timestamp association and switch to the new epoch in the same engine lock hold
+    // that resets the WAL. Otherwise a commit that doesn't take the repl_state lock (TTL, async indexer) could open a
+    // WAL tagged with the old epoch after the reset.
+    dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      // Remember old epoch + storage timestamp association
-      storage->PrepareForNewEpoch();
+      storage->PrepareForNewEpoch(new_epoch);
     });
 
     // STEP 3) Change to MAIN
     // TODO: restore replication servers if false?
     if (!locked_repl_state->SetReplicationRoleMain(main_uuid)) {
       // TODO: Handle recovery on failure???
+      // The epoch stays switched together with the WAL reset and history entry from STEP 2. A MAIN keeps committing
+      // under the new epoch; a REPLICA reports the old one until a main's first commit sets the epoch.
       return false;
     }
 
-    // All DBs should have the same epoch
-    auto const new_epoch = ReplicationEpoch();
-    spdlog::info("Generated new epoch {}", new_epoch.id());
-
-    // STEP 4) We are now MAIN, update storage local epoch
+    // STEP 4) We are now MAIN, update storage timestamp
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      storage->repl_storage_state_.epoch_ = new_epoch;
 
       // Modifying storage->timestamp_ needs to be done under the engine lock.
       // Engine lock needs to be acquired after the repl state lock
