@@ -886,7 +886,7 @@ bool Auth::IsUserDefinedHash(const std::optional<std::string> &password) {
 std::optional<HashedPassword> Auth::ComputePasswordHash(const std::optional<std::string> &password) {
   if (!password) return std::nullopt;
   if (auto already_hashed = UserDefinedHash(*password)) {
-    return std::move(*already_hashed);
+    return already_hashed;
   }
   return HashPassword(*password);
 }
@@ -895,7 +895,7 @@ void Auth::ValidateName(const std::string &name) const {
   if (!NameRegexMatch(name)) throw AuthException("Invalid user name.");
 }
 
-void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) {
+void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) const {
   if (!IsUserDefinedHash(password)) ValidatePassword(password);
   user.SetPasswordHash(ComputePasswordHash(password));
 }
