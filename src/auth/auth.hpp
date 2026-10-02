@@ -62,6 +62,8 @@ struct SSOIdentity {
 std::optional<UserOrRole> Authenticate(SynchedAuth &auth, const std::string &username, const std::string &password);
 std::optional<UserOrRole> SSOAuthenticate(SynchedAuth &auth, const std::string &scheme,
                                           const std::string &identity_provider_response);
+// Coordinator SSO: reports the module's identity with NO kvstore validation (coordinators keep no user/role records);
+// the caller checks role names against the Raft-replicated role set. Enterprise-license gated via the module lookup.
 std::optional<SSOIdentity> SSOGetIdentity(SynchedAuth &auth, const std::string &scheme,
                                           const std::string &identity_provider_response);
 
@@ -142,53 +144,6 @@ class Auth final {
    */
   Config GetConfig() const { return config_; }
 
-  /**
-   * Calls the external auth module and validates its response.
-   *
-   * @param scheme
-   * @param module_params
-   * @param provided_username
-   *
-   * @return username + role if the module authenticated successfully and provided a valid response, nullopt otherwise
-   */
-  std::optional<UserOrRole> CallExternalModule(const std::string &scheme, nlohmann::json module_params,
-                                               std::optional<std::string> provided_username = std::nullopt);
-
-  /**
-   * Authenticates a user identified by username and password.
-   *
-   * @param username
-   * @param password
-   *
-   * @return a user when the username and password match, nullopt otherwise
-   * @throw AuthException if unable to authenticate for whatever reason.
-   */
-  std::optional<UserOrRole> Authenticate(const std::string &username, const std::string &password);
-
-  /**
-   * Authenticates a user using the identity provider response/token. Requires an external auth module.
-   *
-   * @param response
-   *
-   * @return username + role if the identity provider response is valid, nullopt otherwise
-   */
-  std::optional<UserOrRole> SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
-
-  /**
-   * Runs the SSO auth module for a coordinator connection and returns the identity it reports on success.
-   *
-   * Unlike SSOAuthenticate, this performs NO validation against the auth kvstore (no GetRole lookup, no local-user
-   * collision check): coordinators keep no user/role records in the kvstore. The caller validates the returned role
-   * names against the Raft-replicated coordinator role set. Enterprise-license gated via HasAuthModulePrerequisites.
-   *
-   * @param scheme
-   * @param identity_provider_response
-   *
-   * @return the reported username + role names on a successful authentication, nullopt on any
-   *         module/authentication/parse failure
-   */
-  std::optional<SSOIdentity> SSOGetIdentity(const std::string &scheme, const std::string &identity_provider_response);
-
   /// Returns the Module for `scheme`; nullptr if prerequisites fail. Callable under MutableSharedLock().
   Module *GetAuthModule(const std::string &scheme);
 
@@ -244,14 +199,6 @@ class Auth final {
    * @throw AuthException if unable to remove the user.
    */
   bool RemoveUser(const std::string &username, system::Transaction *system_tx = nullptr);
-
-  /**
-   * @brief
-   *
-   * @param user
-   * @param password
-   */
-  void UpdatePassword(auth::User &user, const std::optional<std::string> &password) const;
 
   /// Validates plaintext password against current policy; throws AuthException on violation.
   void ValidatePassword(const std::optional<std::string> &password) const;

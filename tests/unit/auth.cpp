@@ -41,14 +41,28 @@ class AuthWithStorage : public ::testing::Test {
   void SetUp() override {
     memgraph::utils::EnsureDir(test_folder);
     memgraph::license::global_license_checker.EnableTesting();
-    auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), auth_config);
+    ResetAuth(auth_config);
   }
 
   void TearDown() override { fs::remove_all(test_folder); }
 
+  // Auth lives inside a SynchedAuth so logins go through the production free functions. Tests are single-threaded, so
+  // `auth` is a plain pointer to the wrapped Auth.
+  void ResetAuth(Auth::Config config) {
+    auth = nullptr;
+    synched_auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
+                         std::move(config));
+    auth = &*synched_auth->Lock();
+  }
+
+  std::optional<UserOrRole> Authenticate(const std::string &username, const std::string &password) {
+    return memgraph::auth::Authenticate(*synched_auth, username, password);
+  }
+
   fs::path test_folder{fs::temp_directory_path() / "MG_tests_unit_auth"};
   Auth::Config auth_config{};
-  std::optional<Auth> auth{};
+  std::optional<SynchedAuth> synched_auth{};
+  Auth *auth{};
 };
 
 class V1Auth : public ::testing::Test {
@@ -142,53 +156,53 @@ TEST_F(AuthWithStorage, Authenticate) {
   ASSERT_NE(user, std::nullopt);
   ASSERT_TRUE(auth->HasUsers());
 
-  ASSERT_TRUE(auth->Authenticate("test", "123"));
-  ASSERT_TRUE(auth->Authenticate("test", ""));
+  ASSERT_TRUE(Authenticate("test", "123"));
+  ASSERT_TRUE(Authenticate("test", ""));
 
   user->UpdatePassword("123");
   auth->SaveUser(*user);
 
-  ASSERT_NE(auth->Authenticate("test", "123"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "123"), std::nullopt);
 
-  ASSERT_EQ(auth->Authenticate("test", "456"), std::nullopt);
-  ASSERT_NE(auth->Authenticate("test", "123"), std::nullopt);
+  ASSERT_EQ(Authenticate("test", "456"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "123"), std::nullopt);
 
   const auto bcrpyt_hash = HashPassword("456", PasswordHashAlgorithm::BCRYPT);
   user->UpdateHash(bcrpyt_hash);
   auth->SaveUser(*user);
 
-  ASSERT_NE(auth->Authenticate("test", "456"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "456"), std::nullopt);
 
-  ASSERT_EQ(auth->Authenticate("test", "123"), std::nullopt);
-  ASSERT_NE(auth->Authenticate("test", "456"), std::nullopt);
+  ASSERT_EQ(Authenticate("test", "123"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "456"), std::nullopt);
 
   const auto sha256_hash = HashPassword("789", PasswordHashAlgorithm::SHA256);
   user->UpdateHash(sha256_hash);
   auth->SaveUser(*user);
 
-  ASSERT_NE(auth->Authenticate("test", "789"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "789"), std::nullopt);
 
-  ASSERT_EQ(auth->Authenticate("test", "456"), std::nullopt);
-  ASSERT_NE(auth->Authenticate("test", "789"), std::nullopt);
+  ASSERT_EQ(Authenticate("test", "456"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "789"), std::nullopt);
 
   const auto sha256_mul_hash = HashPassword("012", PasswordHashAlgorithm::SHA256_MULTIPLE);
   user->UpdateHash(sha256_mul_hash);
   auth->SaveUser(*user);
 
-  ASSERT_NE(auth->Authenticate("test", "012"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "012"), std::nullopt);
 
-  ASSERT_EQ(auth->Authenticate("test", "567"), std::nullopt);
-  ASSERT_NE(auth->Authenticate("test", "012"), std::nullopt);
+  ASSERT_EQ(Authenticate("test", "567"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "012"), std::nullopt);
 
   user->UpdatePassword();
   auth->SaveUser(*user);
 
-  ASSERT_NE(auth->Authenticate("test", "123"), std::nullopt);
-  ASSERT_NE(auth->Authenticate("test", "456"), std::nullopt);
-  ASSERT_NE(auth->Authenticate("test", "789"), std::nullopt);
-  ASSERT_NE(auth->Authenticate("test", "012"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "123"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "456"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "789"), std::nullopt);
+  ASSERT_NE(Authenticate("test", "012"), std::nullopt);
 
-  ASSERT_EQ(auth->Authenticate("nonexistant", "123"), std::nullopt);
+  ASSERT_EQ(Authenticate("nonexistant", "123"), std::nullopt);
 }
 
 TEST_F(AuthWithStorage, UserRolePermissions) {
@@ -1066,16 +1080,16 @@ TEST_F(AuthWithStorage, UserPasswordCreation) {
   {
     auto user = auth->AddUser("test");
     ASSERT_TRUE(user);
-    ASSERT_TRUE(auth->Authenticate("test", "123"));
-    ASSERT_TRUE(auth->Authenticate("test", ""));
+    ASSERT_TRUE(Authenticate("test", "123"));
+    ASSERT_TRUE(Authenticate("test", ""));
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 
   {
     auto user = auth->AddUser("test", "123");
     ASSERT_TRUE(user);
-    ASSERT_TRUE(auth->Authenticate("test", "123"));
-    ASSERT_FALSE(auth->Authenticate("test", "456"));
+    ASSERT_TRUE(Authenticate("test", "123"));
+    ASSERT_FALSE(Authenticate("test", "456"));
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 
@@ -1083,16 +1097,16 @@ TEST_F(AuthWithStorage, UserPasswordCreation) {
     auto user =
         auth->AddUser("test", "sha256:d74ff0ee8da3b9806b18c877dbf29bbde50b5bd8e4dad7a3a725000feb82e8f1" /* pass */);
     ASSERT_TRUE(user);
-    ASSERT_TRUE(auth->Authenticate("test", "pass"));
-    ASSERT_FALSE(auth->Authenticate("test", "word"));
+    ASSERT_TRUE(Authenticate("test", "pass"));
+    ASSERT_FALSE(Authenticate("test", "word"));
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 
   {
     auto user = auth->AddUser("test", "bcrypt:$2a$12$laGNZfDIHu3t6jGr4Xm9i.siwQ78xfEb2VgXNqNGBV8FEbpHgNiQS" /* pass */);
     ASSERT_TRUE(user);
-    ASSERT_TRUE(auth->Authenticate("test", "pass"));
-    ASSERT_FALSE(auth->Authenticate("test", "word"));
+    ASSERT_TRUE(Authenticate("test", "pass"));
+    ASSERT_FALSE(Authenticate("test", "word"));
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 }
@@ -1126,52 +1140,50 @@ TEST_F(AuthWithStorage, PasswordStrength) {
   const std::string kAlmostStrongPassword = "ThisPasswordMeetsAllButOneCriterion1234";
   const std::string kStrongPassword = "ThisIsAVeryStrongPassword123$";
 
+  // Mirrors the production password-change path: policy check (skipped for pre-hashed input), then hash and set.
+  auto const update_password = [this](User &user, const std::optional<std::string> &password) {
+    if (!Auth::IsUserDefinedHash(password)) auth->ValidatePassword(password);
+    user.SetPasswordHash(Auth::ComputePasswordHash(password));
+  };
+
   {
-    auth.reset();
-    auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
-                 Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kWeakRegex, true});
+    ResetAuth(Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kWeakRegex, true});
     auto user = auth->AddUser("user1");
     ASSERT_TRUE(user);
-    ASSERT_NO_THROW(auth->UpdatePassword(*user, std::nullopt));
-    ASSERT_NO_THROW(auth->UpdatePassword(*user, kWeakPassword));
-    ASSERT_NO_THROW(auth->UpdatePassword(*user, kAlmostStrongPassword));
-    ASSERT_NO_THROW(auth->UpdatePassword(*user, kStrongPassword));
+    ASSERT_NO_THROW(update_password(*user, std::nullopt));
+    ASSERT_NO_THROW(update_password(*user, kWeakPassword));
+    ASSERT_NO_THROW(update_password(*user, kAlmostStrongPassword));
+    ASSERT_NO_THROW(update_password(*user, kStrongPassword));
   }
 
   {
-    auth.reset();
-    auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
-                 Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kWeakRegex, false});
+    ResetAuth(Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kWeakRegex, false});
     ASSERT_THROW(auth->AddUser("user2", std::nullopt), AuthException);
     auto user = auth->AddUser("user2", kWeakPassword);
     ASSERT_TRUE(user);
-    ASSERT_NO_THROW(auth->UpdatePassword(*user, kWeakPassword));
-    ASSERT_NO_THROW(auth->UpdatePassword(*user, kAlmostStrongPassword));
-    ASSERT_NO_THROW(auth->UpdatePassword(*user, kStrongPassword));
+    ASSERT_NO_THROW(update_password(*user, kWeakPassword));
+    ASSERT_NO_THROW(update_password(*user, kAlmostStrongPassword));
+    ASSERT_NO_THROW(update_password(*user, kStrongPassword));
   }
 
   {
-    auth.reset();
-    auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
-                 Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kStrongRegex, true});
+    ResetAuth(Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kStrongRegex, true});
     auto user = auth->AddUser("user3");
     ASSERT_TRUE(user);
-    ASSERT_NO_THROW(auth->UpdatePassword(*user, std::nullopt));
-    ASSERT_THROW(auth->UpdatePassword(*user, kWeakPassword), AuthException);
-    ASSERT_THROW(auth->UpdatePassword(*user, kAlmostStrongPassword), AuthException);
-    ASSERT_NO_THROW(auth->UpdatePassword(*user, kStrongPassword));
+    ASSERT_NO_THROW(update_password(*user, std::nullopt));
+    ASSERT_THROW(update_password(*user, kWeakPassword), AuthException);
+    ASSERT_THROW(update_password(*user, kAlmostStrongPassword), AuthException);
+    ASSERT_NO_THROW(update_password(*user, kStrongPassword));
   }
 
   {
-    auth.reset();
-    auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
-                 Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kStrongRegex, false});
+    ResetAuth(Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kStrongRegex, false});
     ASSERT_THROW(auth->AddUser("user4", std::nullopt);, AuthException);
     ASSERT_THROW(auth->AddUser("user4", kWeakPassword);, AuthException);
     ASSERT_THROW(auth->AddUser("user4", kAlmostStrongPassword);, AuthException);
     auto user = auth->AddUser("user4", kStrongPassword);
     ASSERT_TRUE(user);
-    ASSERT_NO_THROW(auth->UpdatePassword(*user, kStrongPassword));
+    ASSERT_NO_THROW(update_password(*user, kStrongPassword));
   }
 }
 
@@ -2663,13 +2675,13 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
 
   // Authenticate
   {
-    auto user_or_role = auth->Authenticate("alice", "alice");
+    auto user_or_role = Authenticate("alice", "alice");
     ASSERT_TRUE(user_or_role);
     const auto &user = std::get<memgraph::auth::User>(*user_or_role);
     ASSERT_EQ(user.username(), "alice");
   }
   {
-    auto user_or_role = auth->Authenticate("alICe", "alice");
+    auto user_or_role = Authenticate("alICe", "alice");
     ASSERT_TRUE(user_or_role);
     const auto &user = std::get<memgraph::auth::User>(*user_or_role);
     ASSERT_EQ(user.username(), "alice");
@@ -3001,8 +3013,14 @@ class AuthWithStorageWithVariousEncryptionAlgorithms : public ::testing::Test {
   void TearDown() override { fs::remove_all(test_folder); }
 
   fs::path test_folder{fs::temp_directory_path() / "MG_tests_unit_auth"};
+
+  std::optional<UserOrRole> Authenticate(const std::string &username, const std::string &password) {
+    return memgraph::auth::Authenticate(synched_auth, username, password);
+  }
+
   Auth::Config auth_config{};
-  Auth auth{test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), auth_config};
+  SynchedAuth synched_auth{test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), auth_config};
+  Auth &auth{*synched_auth.Lock()};
 };
 
 TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserDefault) {
@@ -3030,8 +3048,8 @@ TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserPBKDF2Sha256) {
   auto user = auth.AddUser("Alice", "alice");
   ASSERT_TRUE(user);
   ASSERT_EQ(user->username(), "alice");
-  ASSERT_TRUE(auth.Authenticate("Alice", "alice"));
-  ASSERT_FALSE(auth.Authenticate("Alice", "bob"));
+  ASSERT_TRUE(Authenticate("Alice", "alice"));
+  ASSERT_FALSE(Authenticate("Alice", "bob"));
 }
 
 TEST(Serialize, HashedPassword) {
