@@ -173,18 +173,6 @@ class Auth final {
   void SaveUser(const User &user, system::Transaction *system_tx = nullptr);
 
   /**
-   * Creates a user if the user doesn't exist.
-   *
-   * @param username
-   * @param password
-   *
-   * @return a user when the user is created, nullopt if the user exists
-   * @throw AuthException if unable to save the user.
-   */
-  std::optional<User> AddUser(const std::string &username, const std::optional<std::string> &password = std::nullopt,
-                              system::Transaction *system_tx = nullptr);
-
-  /**
    * Initializes the first user, which will be the super admin.
    */
   void InitialiseFirstUser(User &user, system::Transaction *system_tx = nullptr);
