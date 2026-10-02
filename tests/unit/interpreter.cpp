@@ -3258,7 +3258,6 @@ TYPED_TEST(InterpreterTest, VectorIndexHugeCapacityIsRejectedWithoutCreatingInde
   auto &tracker = memgraph::utils::total_memory_tracker;
   auto const prev_limit = tracker.HardLimit();
   memgraph::utils::OnScopeExit restore_limit{[&] { tracker.SetHardLimit(prev_limit); }};
-  constexpr int64_t kGiB = int64_t{1} << 30;
   constexpr int64_t kMiB = int64_t{1} << 20;
 
   for (const std::string create :
@@ -3267,8 +3266,9 @@ TYPED_TEST(InterpreterTest, VectorIndexHugeCapacityIsRejectedWithoutCreatingInde
     expect_throws(create + R"({"dimension": 2, "capacity": 4611686018427387904})",
                   "exceeds the maximum of 1099511627775");
 
-    tracker.SetHardLimit(tracker.Amount() + kGiB);
-    expect_throws(create + R"({"dimension": 2, "capacity": 1000000000000})", "would require at least");
+    // 10M members need >= 240MB, over the limit, yet stay harmless should the check regress.
+    tracker.SetHardLimit(tracker.Amount() + 64 * kMiB);
+    expect_throws(create + R"({"dimension": 2, "capacity": 10000000})", "would require at least");
   }
   tracker.SetHardLimit(prev_limit);
 
