@@ -28,8 +28,8 @@ class NameIdMapper;
 struct VectorPropertyConflict {
   std::string vector_index;       // e.g. "vector index vi" or "vector edge index ve"
   std::string vector_index_name;  // name as written in the DROP VECTOR INDEX hint
-  std::string property;           // name of the shared property
-  std::string other;              // e.g. "label+property index :L(a, emb)"
+  std::string property;
+  std::string other;  // e.g. "label+property index :L(a, emb)"
 };
 
 /// Every pair of a vector index and an ordinary index or unique constraint covering the same property.

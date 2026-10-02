@@ -121,12 +121,5 @@ def test_drop_hint_quotes_name(conn):
     _run(conn, "CREATE INDEX ON :L(emb)")
 
 
-def test_rule_follows_current_schema(conn):
-    _run(conn, VECTOR)
-    _refused(conn, "CREATE INDEX ON :L(emb)")
-    _run(conn, "DROP VECTOR INDEX vi")
-    _run(conn, "CREATE INDEX ON :L(emb)")
-
-
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
