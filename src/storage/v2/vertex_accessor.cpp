@@ -620,7 +620,11 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
                             &id_old_new_change,
                             skip_duplicate_update,
                             &schema_acc]() {
-    id_old_new_change.emplace(vertex->properties.UpdateProperties(properties));
+    // Decoded old values: undo must restore the floats, which live only in the vector index.
+    id_old_new_change.emplace(vertex->properties.UpdateProperties(
+        properties,
+        IndexedPropertyDecoder<Vertex>{
+            .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex}));
     if (!id_old_new_change) {
       return;
     }
@@ -673,7 +677,8 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   std::optional<ReturnType> properties;
   utils::AtomicMemoryBlock(
       [storage = storage_, transaction = transaction_, vertex = vertex_, &properties, &schema_acc]() {
-        properties.emplace(vertex->properties.Properties());
+        properties.emplace(vertex->properties.Properties(IndexedPropertyDecoder<Vertex>{
+            .indices = &storage->indices_, .name_id_mapper = storage->name_id_mapper_.get(), .entity = vertex}));
         if (!properties) {
           return;
         }
