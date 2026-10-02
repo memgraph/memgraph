@@ -152,6 +152,16 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
   const EvaluationContext *ctx_;
 };
 
+#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                              \
+  TypedValue Visit(OP_NODE &op) override {                                              \
+    auto val = op.expression_->Accept(*this);                                           \
+    try {                                                                               \
+      return CPP_OP val;                                                                \
+    } catch (const TypedValueException &) {                                             \
+      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), #CYPHER_OP); \
+    }                                                                                   \
+  }
+
 class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   explicit PrimitiveLiteralExpressionEvaluator(EvaluationContext const &ctx, DbAccessor *dba = nullptr)
@@ -249,25 +259,8 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(SubscriptOperator)
   INVALID_VISIT(ListSlicingOperator)
   INVALID_VISIT(IfOperator)
-
-  TypedValue Visit(UnaryPlusOperator &op) override {
-    auto val = op.expression_->Accept(*this);
-    try {
-      return +val;
-    } catch (const TypedValueException &) {
-      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), "+");
-    }
-  }
-
-  TypedValue Visit(UnaryMinusOperator &op) override {
-    auto val = op.expression_->Accept(*this);
-    try {
-      return -val;
-    } catch (const TypedValueException &) {
-      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), "-");
-    }
-  }
-
+  UNARY_OPERATOR_VISITOR(UnaryPlusOperator, +, +);
+  UNARY_OPERATOR_VISITOR(UnaryMinusOperator, -, -);
   INVALID_VISIT(IsNullOperator)
   INVALID_VISIT(MapProjectionLiteral)
   INVALID_VISIT(PropertyLookup)
@@ -357,16 +350,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     } catch (const TypedValueException &) {                                                                    \
       throw QueryRuntimeException("Invalid types: {} and {} for '{}'.", val1.type(), val2.type(), #CYPHER_OP); \
     }                                                                                                          \
-  }
-
-#define UNARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                              \
-  TypedValue Visit(OP_NODE &op) override {                                              \
-    auto val = op.expression_->Accept(*this);                                           \
-    try {                                                                               \
-      return CPP_OP val;                                                                \
-    } catch (const TypedValueException &) {                                             \
-      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), #CYPHER_OP); \
-    }                                                                                   \
   }
 
   BINARY_OPERATOR_VISITOR(XorOperator, ^, XOR);

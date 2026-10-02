@@ -386,10 +386,8 @@ inline void CheckGraphMemoryForIndexDrop(std::string_view index_name, std::size_
   }
 }
 
-/// @brief Rejects reserving `capacity` members in a usearch index before calling try_reserve, which is noexcept and
-/// zero-fills its key lookup: an oversized reserve otherwise terminates or OOM-kills the process.
-/// @throws VectorSearchException if capacity exceeds what the 40-bit slot ids can address.
-/// @throws utils::OutOfMemoryException if the reserve would exceed the total memory limit.
+/// @brief Guards usearch try_reserve (noexcept, zero-fills its key lookup): too large a reserve aborts or OOM-kills.
+/// @throws VectorSearchException beyond the 40-bit slot-id range; utils::OutOfMemoryException beyond the memory limit.
 inline void CheckVectorIndexReserve(std::string_view index_name, std::size_t capacity) {
   // uint40_t::max() is usearch's free-slot sentinel.
   constexpr std::size_t kMaxCapacity = (std::size_t{1} << 40U) - 1;
