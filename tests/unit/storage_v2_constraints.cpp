@@ -2714,9 +2714,7 @@ TEST_P(UniquePropertyTrackingTest, IdenticalConstrainedWritesKeepExistingFlagSem
     auto vertex = acc->FindVertex(gid, View::NEW);
     ASSERT_TRUE(vertex);
     ASSERT_NO_FATAL_FAILURE(Write(*vertex, prop1, PropertyValue(7), method));
-    // UpdateProperties uses the opposite flag polarity to SetProperty.
-    EXPECT_EQ(acc->GetTransaction()->constraint_verification_info->NeedsUniqueConstraintVerification(),
-              method == 0 ? GetParam() : !GetParam());
+    EXPECT_EQ(acc->GetTransaction()->constraint_verification_info->NeedsUniqueConstraintVerification(), GetParam());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }

@@ -586,7 +586,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   if (vertex_->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
-  const bool skip_duplicate_update = storage_->config_.salient.items.delta_on_identical_property_update;
+  const bool skip_duplicate_update = !storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock([storage = storage_,

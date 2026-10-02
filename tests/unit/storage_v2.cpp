@@ -3198,3 +3198,111 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   ASSERT_NE(write_acc, nullptr);
   EXPECT_NO_THROW(write_acc->Abort());
 }
+
+// An identical write must create a delta iff delta_on_identical_property_update, for every property writer.
+class StorageV2IdenticalWriteTest : public testing::Test, public testing::WithParamInterface<bool> {};
+
+INSTANTIATE_TEST_SUITE_P(DeltaOnIdenticalPropertyUpdate, StorageV2IdenticalWriteTest, testing::Bool());
+
+TEST_P(StorageV2IdenticalWriteTest, EveryWriterHonoursDeltaOnIdenticalPropertyUpdate) {
+  using namespace memgraph::storage;
+  const bool delta_expected = GetParam();
+  InMemoryStorage store{Config{
+      .salient = {.items = {.properties_on_edges = true, .delta_on_identical_property_update = delta_expected}}}};
+
+  PropertyId same_prop;
+  PropertyId other_prop;
+  Gid from_gid;
+  {
+    auto acc = store.Access(WRITE);
+    same_prop = acc->NameToProperty("same");
+    other_prop = acc->NameToProperty("other");
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    from_gid = from.Gid();
+    ASSERT_TRUE(from.SetProperty(same_prop, PropertyValue(1)).has_value());
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(edge->SetProperty(same_prop, PropertyValue(1)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto fetch_vertex = [&](auto &acc) { return *acc->FindVertex(from_gid, View::NEW); };
+  auto fetch_edge = [&](auto &acc) { return acc->FindVertex(from_gid, View::NEW)->OutEdges(View::NEW)->edges.at(0); };
+
+  auto check = [&](std::string_view writer, auto fetch, auto write_identical) {
+    SCOPED_TRACE(writer);
+    auto acc_a = store.Access(WRITE);
+    auto acc_b = store.Access(WRITE);
+    auto obj_a = fetch(acc_a);
+    auto obj_b = fetch(acc_b);
+    ASSERT_TRUE(write_identical(obj_a).has_value());
+    auto res = obj_b.SetProperty(other_prop, PropertyValue(2));
+    if (delta_expected) {
+      ASSERT_FALSE(res.has_value());
+      EXPECT_EQ(res.error(), Error::SERIALIZATION_ERROR);
+    } else {
+      EXPECT_TRUE(res.has_value());
+    }
+    acc_a->Abort();
+    acc_b->Abort();
+  };
+
+  auto identical_map = [&] { return std::map<PropertyId, PropertyValue>{{same_prop, PropertyValue(1)}}; };
+
+  check(
+      "VertexAccessor::SetProperty", fetch_vertex, [&](auto &v) { return v.SetProperty(same_prop, PropertyValue(1)); });
+  check("VertexAccessor::UpdateProperties", fetch_vertex, [&](auto &v) {
+    auto props = identical_map();
+    return v.UpdateProperties(props);
+  });
+  check("EdgeAccessor::SetProperty", fetch_edge, [&](auto &e) { return e.SetProperty(same_prop, PropertyValue(1)); });
+  check("EdgeAccessor::UpdateProperties", fetch_edge, [&](auto &e) {
+    auto props = identical_map();
+    return e.UpdateProperties(props);
+  });
+}
+
+// Default config: an equal-valued write of another type (1 -> 1.0) must still be undone by Abort.
+TEST(StorageV2EqualValueWriteTest, AbortRestoresTypeOfEqualValueUnderDefaultConfig) {
+  using namespace memgraph::storage;
+  InMemoryStorage store{Config{.salient = {.items = {.properties_on_edges = true}}}};
+
+  PropertyId prop;
+  Gid from_gid;
+  {
+    auto acc = store.Access(WRITE);
+    prop = acc->NameToProperty("p");
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    from_gid = from.Gid();
+    ASSERT_TRUE(from.SetProperty(prop, PropertyValue(1)).has_value());
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(edge->SetProperty(prop, PropertyValue(1)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto fetch_vertex = [&](auto &acc) { return *acc->FindVertex(from_gid, View::NEW); };
+  auto fetch_edge = [&](auto &acc) { return acc->FindVertex(from_gid, View::NEW)->OutEdges(View::NEW)->edges.at(0); };
+
+  auto check = [&](std::string_view writer, auto fetch) {
+    SCOPED_TRACE(writer);
+    {
+      auto acc = store.Access(WRITE);
+      auto obj = fetch(acc);
+      std::map<PropertyId, PropertyValue> props{{prop, PropertyValue(1.0)}};
+      ASSERT_TRUE(obj.UpdateProperties(props).has_value());
+      acc->Abort();
+    }
+    auto acc = store.Access(WRITE);
+    auto value = fetch(acc).GetProperty(prop, View::NEW);
+    ASSERT_TRUE(value.has_value());
+    ASSERT_TRUE(value->IsInt());
+    EXPECT_EQ(value->ValueInt(), 1);
+    acc->Abort();
+  };
+
+  check("VertexAccessor::UpdateProperties", fetch_vertex);
+  check("EdgeAccessor::UpdateProperties", fetch_edge);
+}
