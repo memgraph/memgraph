@@ -54,7 +54,7 @@ bool EvalLabelTerm(const LabelTerm &term, const HasLabel &has_label, const HasAn
       utils::Overloaded{
           [&](const LabelTerm::Label &leaf) -> bool { return has_label(leaf.label); },
           [](const LabelTerm::Dynamic &) -> bool {
-            throw QueryRuntimeException("You can't use labels in filter expressions.");
+            throw QueryRuntimeException("A label named by an expression can only be written by CREATE, not tested.");
           },
           [&](const LabelTerm::Wildcard &) -> bool { return has_any_label(); },
           [&](const LabelTerm::Not &negation) -> bool { return !holds(*negation.operand); },

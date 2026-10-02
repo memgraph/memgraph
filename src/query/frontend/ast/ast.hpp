@@ -1240,7 +1240,7 @@ class LabelsTest : public Expression {
       if (const auto *label_ix = std::get_if<LabelIx>(&label)) {
         cnf.labels.push_back(*label_ix);
       } else {
-        throw SemanticException("You can't use labels in filter expressions.");
+        throw SemanticException("A label named by an expression can only be written by CREATE, not tested.");
       }
     }
   }

@@ -10425,6 +10425,20 @@ TEST_P(CypherMainVisitorTest, LabelExpressionRejectsPropertyLookupLeaf) {
   }
 }
 
+// A label named by an expression is written, never tested, so the refusal names that rule. Labels
+// themselves are testable, and an error saying otherwise would send the reader after the wrong thing.
+TEST_P(CypherMainVisitorTest, LabelNamedByExpressionCannotBeTested) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"MATCH (n) WHERE n:x.y RETURN n", "MATCH (n) RETURN n:x.y AS v"}) {
+    try {
+      ast_generator.ParseQuery(query);
+      ADD_FAILURE() << "expected a semantic error for " << query;
+    } catch (const SemanticException &e) {
+      EXPECT_THAT(std::string{e.what()}, ::testing::HasSubstr("can only be written by CREATE")) << query;
+    }
+  }
+}
+
 // One alternative of a disjunction names no one set of labels, so it cannot hold a label named by an
 // expression. The refusal is the parser's own, because the grammar lets the two meet.
 TEST_P(CypherMainVisitorTest, LabelNamedByExpressionIsRefusedInADisjunction) {
