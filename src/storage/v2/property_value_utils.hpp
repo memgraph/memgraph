@@ -111,9 +111,7 @@ inline bool EveryValueEqualsItself(std::vector<PropertyValue> const &values) {
 }
 
 /// Whether writing `b` over `a` leaves the stored value unchanged.
-///
-/// Equality is not enough: an integer equals the double of the same number, and 0.0 equals -0.0,
-/// yet each is a different stored value. How a list is represented is not part of the value.
+/// Stricter than equality: 1 vs 1.0 and 0.0 vs -0.0 differ; a list's packed representation does not.
 bool AreIdentical(PropertyValue const &a, PropertyValue const &b);
 
 /// Compute the smallest string that is lexicographically greater than every

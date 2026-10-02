@@ -3200,7 +3200,6 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   EXPECT_NO_THROW(write_acc->Abort());
 }
 
-// An identical write must create a delta iff delta_on_identical_property_update, for every property writer.
 class StorageV2IdenticalWriteTest : public testing::Test, public testing::WithParamInterface<bool> {};
 
 INSTANTIATE_TEST_SUITE_P(DeltaOnIdenticalPropertyUpdate, StorageV2IdenticalWriteTest, testing::Bool());
