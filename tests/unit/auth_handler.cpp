@@ -23,6 +23,7 @@
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "auth_test_utils.hpp"
 #include "dbms/constants.hpp"
 #include "frontend/ast/ast_visitor.hpp"
 #include "glue/auth_global.hpp"
@@ -2171,7 +2172,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_MultipleRoles_Success) {
   ASSERT_TRUE(role3);
 
   // Create user
-  auto user = auth.value()->AddUser("multiuser");
+  auto user = AddUser(*auth->Lock(), "multiuser");
   ASSERT_TRUE(user);
 
   // Set multiple roles
@@ -2195,7 +2196,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_EmptyRoles_ClearsRoles) {
   // Create role and user
   auto role = auth.value()->AddRole("role1");
   ASSERT_TRUE(role);
-  auto user = auth.value()->AddUser("user1");
+  auto user = AddUser(*auth->Lock(), "user1");
   ASSERT_TRUE(user);
   user->AddRole(*role);
   auth.value()->SaveUser(*user);
@@ -2210,7 +2211,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_EmptyRoles_ClearsRoles) {
 
 TEST_F(AuthQueryHandlerFixture, SetRole_NonExistentRole_Throws) {
   // Create user
-  auto user = auth.value()->AddUser("user2");
+  auto user = AddUser(*auth->Lock(), "user2");
   ASSERT_TRUE(user);
   // Try to set a non-existent role
   std::vector<std::string> roles = {"doesnotexist"};
@@ -2230,7 +2231,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_DuplicateRoles_NoDuplicatesInResult) {
   auto role2 = auth.value()->AddRole("role2");
   ASSERT_TRUE(role1);
   ASSERT_TRUE(role2);
-  auto user = auth.value()->AddUser("user3");
+  auto user = AddUser(*auth->Lock(), "user3");
   ASSERT_TRUE(user);
   // Set duplicate roles
   std::vector<std::string> roles = {"role1", "role2", "role1", "role2"};

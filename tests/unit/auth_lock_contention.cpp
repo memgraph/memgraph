@@ -23,6 +23,7 @@
 #include "auth/auth.hpp"
 #include "auth/crypto.hpp"
 #include "auth/models.hpp"
+#include "auth_test_utils.hpp"
 #include "glue/auth_global.hpp"
 #include "glue/query_user.hpp"
 #include "license/license.hpp"
@@ -69,7 +70,7 @@ class AuthLockContention : public ::testing::Test {
   mg::glue::QueryUserOrRole MakeGrantedUser(const std::string &username) {
     {
       auto locked = auth->Lock();
-      auto user = locked->AddUser(username);
+      auto user = AddUser(*locked, username);
       EXPECT_TRUE(user.has_value());
       user->permissions().Grant(mg::auth::Permission::MATCH);
       locked->SaveUser(*user);
@@ -82,7 +83,7 @@ class AuthLockContention : public ::testing::Test {
   mg::glue::QueryUserOrRole MakeDeniedUser(const std::string &username) {
     {
       auto locked = auth->Lock();
-      auto user = locked->AddUser(username);
+      auto user = AddUser(*locked, username);
       EXPECT_TRUE(user.has_value());
       // No grants: AddUser already persisted the user with empty permissions.
     }
@@ -160,7 +161,7 @@ TEST_F(AuthLockContention, SessionLongPolicyIsLockFreeUnderExclusiveLock) {
 TEST_F(AuthLockContention, AuthenticateFreeFunctionCompletesUnderReadLock) {
   {
     auto locked = auth->Lock();
-    auto user = locked->AddUser("alice");
+    auto user = AddUser(*locked, "alice");
     ASSERT_TRUE(user.has_value());
     user->UpdatePassword("secret");  // bcrypt by default: IsSalted() == true → no upgrade path
     locked->SaveUser(*user);
@@ -198,7 +199,7 @@ TEST_F(AuthLockContention, LegacyHashUpgradePersists) {
       "sha256:d74ff0ee8da3b9806b18c877dbf29bbde50b5bd8e4dad7a3a725000feb82e8f1";
   {
     auto locked = auth->Lock();
-    auto user = locked->AddUser("bob", std::string{kUnsaltedSha256});
+    auto user = AddUser(*locked, "bob", std::string{kUnsaltedSha256});
     ASSERT_TRUE(user.has_value());
   }
 
@@ -223,13 +224,13 @@ TEST_F(AuthLockContention, LegacyHashUpgradePersists) {
 TEST_F(AuthLockContention, CanImpersonateCompletesUnderReadLock) {
   {
     auto locked = auth->Lock();
-    auto impersonator = locked->AddUser("impersonator");
+    auto impersonator = AddUser(*locked, "impersonator");
     ASSERT_TRUE(impersonator.has_value());
     impersonator->permissions().Grant(mg::auth::Permission::IMPERSONATE_USER);
     impersonator->GrantUserImp();
     locked->SaveUser(*impersonator);
 
-    auto target = locked->AddUser("target");
+    auto target = AddUser(*locked, "target");
     ASSERT_TRUE(target.has_value());
     locked->SaveUser(*target);
   }
@@ -264,7 +265,7 @@ TEST_F(AuthLockContention, CanImpersonateCompletesUnderReadLock) {
 TEST_F(AuthLockContention, DeleteDatabaseClearsUncontainedMain) {
   {
     auto locked = auth->Lock();
-    auto user = locked->AddUser("alice");
+    auto user = AddUser(*locked, "alice");
     ASSERT_TRUE(user.has_value());
     user->db_access().GrantAll();
     ASSERT_TRUE(user->db_access().SetMain("x"));

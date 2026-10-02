@@ -830,14 +830,6 @@ std::optional<User> Auth::AddUserWithHash(const std::string &username, std::opti
   return new_user;
 }
 
-std::optional<User> Auth::AddUser(const std::string &username, const std::optional<std::string> &password,
-                                  system::Transaction *system_tx) {
-  ValidateName(username);
-  if (GetUser(username)) return std::nullopt;
-  if (!IsUserDefinedHash(password)) ValidatePassword(password);
-  return AddUserWithHash(username, ComputePasswordHash(password), system_tx);
-}
-
 void Auth::InitialiseFirstUser(User &user, system::Transaction *system_tx) {
   spdlog::info(
       "{} is the first created user. Granting all privileges. The official advice and intention is to use this "
