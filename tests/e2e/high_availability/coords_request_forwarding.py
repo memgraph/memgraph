@@ -359,12 +359,10 @@ def test_remove_coordinator_fwd(test_name):
     ]
     mg_sleep_and_assert(leader_data, partial(show_instances, leader_cursor))
 
-    # Follower cannot remove the current leader
-    try:
+    # Follower cannot remove the current leader, and is told that rather than only that the leader declined, which
+    # is what asserting the reason here rests on.
+    with pytest.raises(Exception, match="current leader cannot be removed"):
         execute_and_fetch_all(follower_cursor, "remove coordinator 1")
-        assert False
-    except:
-        pass
 
     # Follower can send the request to remove itself
     execute_and_fetch_all(follower_cursor, "remove coordinator 2")

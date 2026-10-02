@@ -43,6 +43,20 @@
   void Load(Type::Request *self, slk::Reader *reader);
 
 namespace memgraph::coordination {
+template <utils::Enum StatusEnum>
+struct ForwardedStatus;
+}  // namespace memgraph::coordination
+
+// Declared ahead of the messages that carry a ForwardedStatus, which reach these by qualified name.
+namespace memgraph::slk {
+template <memgraph::utils::Enum StatusEnum>
+void Save(memgraph::coordination::ForwardedStatus<StatusEnum> const &self, Builder *builder);
+
+template <memgraph::utils::Enum StatusEnum>
+void Load(memgraph::coordination::ForwardedStatus<StatusEnum> *self, Reader *reader);
+}  // namespace memgraph::slk
+
+namespace memgraph::coordination {
 
 template <utils::TypeId Id, FixedString Name, uint64_t Version, typename ArgType>
 struct SingleArgMsg {
@@ -108,6 +122,50 @@ struct UpgradeableEmptyReq {
   static UpgradeableEmptyReq Upgrade(PriorVersionType const &) { return UpgradeableEmptyReq{}; }
 
   UpgradeableEmptyReq() = default;
+};
+
+// A request carried at the next version without changing what it carries. A client sends at its request's version
+// and the server answers at that same version, so a response that gains a field needs its request to move with it.
+template <rpc::RpcMessage PriorVersionType>
+struct UpgradeableSingleArgMsg {
+  static constexpr utils::TypeInfo kType{PriorVersionType::kType};
+  static constexpr uint64_t kVersion{PriorVersionType::kVersion + 1};
+
+  using ArgType = decltype(PriorVersionType::arg_);
+
+  static void Save(UpgradeableSingleArgMsg const &self, memgraph::slk::Builder *builder) {
+    memgraph::slk::Save(self.arg_, builder);
+  }
+
+  static void Load(UpgradeableSingleArgMsg *self, memgraph::slk::Reader *reader) {
+    memgraph::slk::Load(&self->arg_, reader);
+  }
+
+  static UpgradeableSingleArgMsg Upgrade(PriorVersionType const &prior) { return UpgradeableSingleArgMsg{prior.arg_}; }
+
+  UpgradeableSingleArgMsg(ArgType arg) : arg_(std::move(arg)) {}
+
+  UpgradeableSingleArgMsg() = default;
+
+  ArgType arg_;
+};
+
+/// Why a leader declined to serve a write a follower forwarded to it, or nothing if it never answered.
+///
+/// A follower cannot tell a reason that has already passed, such as a leader that was not ready, from one that will
+/// never clear, such as an id naming no coordinator, unless the reason itself travels back. A peer that predates it
+/// travelling reads a single flag instead, and every reason other than success reaches it as a failure.
+///
+/// New enumerators go last in the statuses carried this way: an older peer must keep decoding the values it knows.
+template <utils::Enum StatusEnum>
+struct ForwardedStatus {
+  std::optional<StatusEnum> status_;
+
+  bool has_value() const { return status_.has_value(); }
+
+  StatusEnum operator*() const { return *status_; }
+
+  bool Downgrade() const { return status_ == StatusEnum::SUCCESS; }
 };
 
 // PromoteToMainReq gained a `writing_enabled` flag in v2: the coordinator projects its global_read_only setting onto
@@ -497,42 +555,66 @@ struct ReplicationLagRes {
 
 using ReplicationLagRpc = rpc::RequestResponse<ReplicationLagReq, ReplicationLagRes>;
 
-using AddCoordinatorReq =
+// Each write below is served by whichever coordinator leads, so a follower forwards it and the leader's answer says
+// why it declined. Version 1 of each answer carries a single flag instead, and a peer speaking that version is sent
+// the flag.
+using AddCoordinatorReqV1 =
     SingleArgMsg<utils::TypeId::COORD_ADD_COORD_REQ, "AddCoordinatorReq", 1, CoordinatorInstanceConfig>;
-using AddCoordinatorRes = SingleArgMsg<utils::TypeId::COORD_ADD_COORD_RES, "AddCoordinatorRes", 1, bool>;
+using AddCoordinatorReq = UpgradeableSingleArgMsg<AddCoordinatorReqV1>;
+using AddCoordinatorResV1 = SingleArgMsg<utils::TypeId::COORD_ADD_COORD_RES, "AddCoordinatorRes", 1, bool>;
+using AddCoordinatorRes = DowngradeableSingleArgMsg<AddCoordinatorResV1, ForwardedStatus<AddCoordinatorInstanceStatus>>;
 using AddCoordinatorRpc = rpc::RequestResponse<AddCoordinatorReq, AddCoordinatorRes>;
 
-using RemoveCoordinatorReq = SingleArgMsg<utils::TypeId::COORD_REMOVE_COORD_REQ, "RemoveCoordinatorReq", 1, int>;
-using RemoveCoordinatorRes = SingleArgMsg<utils::TypeId::COORD_REMOVE_COORD_RES, "RemoveCoordinatorRes", 1, bool>;
+using RemoveCoordinatorReqV1 = SingleArgMsg<utils::TypeId::COORD_REMOVE_COORD_REQ, "RemoveCoordinatorReq", 1, int>;
+using RemoveCoordinatorReq = UpgradeableSingleArgMsg<RemoveCoordinatorReqV1>;
+using RemoveCoordinatorResV1 = SingleArgMsg<utils::TypeId::COORD_REMOVE_COORD_RES, "RemoveCoordinatorRes", 1, bool>;
+using RemoveCoordinatorRes =
+    DowngradeableSingleArgMsg<RemoveCoordinatorResV1, ForwardedStatus<RemoveCoordinatorInstanceStatus>>;
 using RemoveCoordinatorRpc = rpc::RequestResponse<RemoveCoordinatorReq, RemoveCoordinatorRes>;
 
-using RegisterInstanceReq =
+using RegisterInstanceReqV1 =
     SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_REQ, "RegisterInstanceReq", 1, DataInstanceConfig>;
-using RegisterInstanceRes = SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_RES, "RegisterInstanceRes", 1, bool>;
+using RegisterInstanceReq = UpgradeableSingleArgMsg<RegisterInstanceReqV1>;
+using RegisterInstanceResV1 = SingleArgMsg<utils::TypeId::COORD_REGISTER_INSTANCE_RES, "RegisterInstanceRes", 1, bool>;
+using RegisterInstanceRes =
+    DowngradeableSingleArgMsg<RegisterInstanceResV1, ForwardedStatus<RegisterInstanceCoordinatorStatus>>;
 using RegisterInstanceRpc = rpc::RequestResponse<RegisterInstanceReq, RegisterInstanceRes>;
 
-using UnregisterInstanceReq =
+using UnregisterInstanceReqV1 =
     SingleArgMsg<utils::TypeId::COORD_UNREGISTER_INSTANCE_REQ, "UnregisterInstanceReq", 1, std::string>;
-using UnregisterInstanceRes =
+using UnregisterInstanceReq = UpgradeableSingleArgMsg<UnregisterInstanceReqV1>;
+using UnregisterInstanceResV1 =
     SingleArgMsg<utils::TypeId::COORD_UNREGISTER_INSTANCE_RES, "UnregisterInstanceRes", 1, bool>;
+using UnregisterInstanceRes =
+    DowngradeableSingleArgMsg<UnregisterInstanceResV1, ForwardedStatus<UnregisterInstanceCoordinatorStatus>>;
 using UnregisterInstanceRpc = rpc::RequestResponse<UnregisterInstanceReq, UnregisterInstanceRes>;
 
-using SetInstanceToMainReq =
+using SetInstanceToMainReqV1 =
     SingleArgMsg<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_REQ, "SetInstanceToMainReq", 1, std::string>;
-using SetInstanceToMainRes =
+using SetInstanceToMainReq = UpgradeableSingleArgMsg<SetInstanceToMainReqV1>;
+using SetInstanceToMainResV1 =
     SingleArgMsg<utils::TypeId::COORD_SET_INSTANCE_TO_MAIN_RES, "SetInstanceToMainRes", 1, bool>;
+using SetInstanceToMainRes =
+    DowngradeableSingleArgMsg<SetInstanceToMainResV1, ForwardedStatus<SetInstanceToMainCoordinatorStatus>>;
 using SetInstanceToMainRpc = rpc::RequestResponse<SetInstanceToMainReq, SetInstanceToMainRes>;
 
-using DemoteInstanceReq = SingleArgMsg<utils::TypeId::COORD_DEMOTE_INSTANCE_REQ, "DemoteInstanceReq", 1, std::string>;
-using DemoteInstanceRes = SingleArgMsg<utils::TypeId::COORD_DEMOTE_INSTANCE_RES, "DemoteInstanceRes", 1, bool>;
+using DemoteInstanceReqV1 = SingleArgMsg<utils::TypeId::COORD_DEMOTE_INSTANCE_REQ, "DemoteInstanceReq", 1, std::string>;
+using DemoteInstanceReq = UpgradeableSingleArgMsg<DemoteInstanceReqV1>;
+using DemoteInstanceResV1 = SingleArgMsg<utils::TypeId::COORD_DEMOTE_INSTANCE_RES, "DemoteInstanceRes", 1, bool>;
+using DemoteInstanceRes =
+    DowngradeableSingleArgMsg<DemoteInstanceResV1, ForwardedStatus<DemoteInstanceCoordinatorStatus>>;
 using DemoteInstanceRpc = rpc::RequestResponse<DemoteInstanceReq, DemoteInstanceRes>;
 
-using ForceResetReq = EmptyReq<utils::TypeId::COORD_FORCE_RESET_REQ, "ForceResetReq", 1>;
-using ForceResetRes = SingleArgMsg<utils::TypeId::COORD_FORCE_RESET_RES, "ForceResetRes", 1, bool>;
+using ForceResetReqV1 = EmptyReq<utils::TypeId::COORD_FORCE_RESET_REQ, "ForceResetReq", 1>;
+using ForceResetReq = UpgradeableEmptyReq<ForceResetReqV1>;
+using ForceResetResV1 = SingleArgMsg<utils::TypeId::COORD_FORCE_RESET_RES, "ForceResetRes", 1, bool>;
+using ForceResetRes = DowngradeableSingleArgMsg<ForceResetResV1, ForwardedStatus<ReconcileClusterStateStatus>>;
 using ForceResetRpc = rpc::RequestResponse<ForceResetReq, ForceResetRes>;
 
-using YieldLeadershipReq = EmptyReq<utils::TypeId::COORD_YIELD_LEADERSHIP_REQ, "YieldLeadershipReq", 1>;
-using YieldLeadershipRes = SingleArgMsg<utils::TypeId::COORD_YIELD_LEADERSHIP_RES, "YieldLeadershipRes", 1, bool>;
+using YieldLeadershipReqV1 = EmptyReq<utils::TypeId::COORD_YIELD_LEADERSHIP_REQ, "YieldLeadershipReq", 1>;
+using YieldLeadershipReq = UpgradeableEmptyReq<YieldLeadershipReqV1>;
+using YieldLeadershipResV1 = SingleArgMsg<utils::TypeId::COORD_YIELD_LEADERSHIP_RES, "YieldLeadershipRes", 1, bool>;
+using YieldLeadershipRes = DowngradeableSingleArgMsg<YieldLeadershipResV1, ForwardedStatus<YieldLeadershipStatus>>;
 using YieldLeadershipRpc = rpc::RequestResponse<YieldLeadershipReq, YieldLeadershipRes>;
 
 using ShowCoordSettingsReq = EmptyReq<utils::TypeId::COORD_SHOW_COORD_SETTINGS_REQ, "ShowCoordSettingsReq", 1>;
@@ -541,9 +623,11 @@ using ShowCoordSettingsRes = SingleArgMsg<utils::TypeId::COORD_SHOW_COORD_SETTIN
                                           std::optional<std::vector<std::pair<std::string, std::string>>>>;
 using ShowCoordSettingsRpc = rpc::RequestResponse<ShowCoordSettingsReq, ShowCoordSettingsRes>;
 
-using UpdateConfigReq =
+using UpdateConfigReqV1 =
     SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_REQ, "UpdateConfigReq", 1, UpdateInstanceConfig>;
-using UpdateConfigRes = SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1, bool>;
+using UpdateConfigReq = UpgradeableSingleArgMsg<UpdateConfigReqV1>;
+using UpdateConfigResV1 = SingleArgMsg<utils::TypeId::COORD_UPDATE_CONFIG_RES, "UpdateConfigRes", 1, bool>;
+using UpdateConfigRes = DowngradeableSingleArgMsg<UpdateConfigResV1, ForwardedStatus<UpdateConfigStatus>>;
 using UpdateConfigRpc = rpc::RequestResponse<UpdateConfigReq, UpdateConfigRes>;
 
 // v1 answered with a bare map, where an empty map meant both "the leader has no lag data" and "the leader couldn't
@@ -687,6 +771,16 @@ using SetCoordinatorSettingRpc = rpc::RequestResponse<SetCoordinatorSettingReq, 
 // SLK serialization declarations
 namespace memgraph::slk {
 
+template <memgraph::utils::Enum StatusEnum>
+void Save(memgraph::coordination::ForwardedStatus<StatusEnum> const &self, Builder *builder) {
+  Save(self.status_, builder);
+}
+
+template <memgraph::utils::Enum StatusEnum>
+void Load(memgraph::coordination::ForwardedStatus<StatusEnum> *self, Reader *reader) {
+  Load(&self->status_, reader);
+}
+
 // PromoteToMainRpc
 void Save(const memgraph::coordination::PromoteToMainResV1 &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::PromoteToMainResV1 *self, memgraph::slk::Reader *reader);
@@ -759,6 +853,25 @@ DECLARE_SLK_FREE_FUNCTIONS(coordination::GrantPrivilegeRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::RevokePrivilegeRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::GetRolePrivilegesRpc)
 DECLARE_SLK_FREE_FUNCTIONS(coordination::SetCoordinatorSettingRpc)
+
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::AddCoordinatorReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::AddCoordinatorResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::RemoveCoordinatorReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::RemoveCoordinatorResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::RegisterInstanceReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::RegisterInstanceResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UnregisterInstanceReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UnregisterInstanceResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::SetInstanceToMainReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::SetInstanceToMainResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::DemoteInstanceReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::DemoteInstanceResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::ForceResetReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::ForceResetResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::YieldLeadershipReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::YieldLeadershipResV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateConfigReqV1)
+DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateConfigResV1)
 
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReqV1)
 DECLARE_SLK_SERIALIZATION_FUNCTIONS(coordination::UpdateDataInstanceConfigReq)
