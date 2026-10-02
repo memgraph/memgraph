@@ -458,8 +458,9 @@ def test_vector_edge_index_recovery_refused_without_properties_on_edges(connecti
     with pytest.raises(AssertionError):
         interactive_mg_runner.start(_props_on_edges_instance(test_name, False), "main")
 
+    refused_with_message = any(PROPS_ON_EDGES_DISABLED_MSG in log.read_text() for log in logs_dir.glob("main*.log"))
     shutil.rmtree(data_dir, ignore_errors=True)
-    assert any(PROPS_ON_EDGES_DISABLED_MSG in log.read_text() for log in logs_dir.glob("main*.log"))
+    assert refused_with_message
 
 
 def test_vector_edge_index_dropped_in_wal_without_properties_on_edges(connection, test_name):
