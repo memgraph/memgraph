@@ -30,6 +30,9 @@ test_one() {
     fi
   elif [ -x runner.sh ]; then
     ./runner.sh
+  else
+    echo "error: $integration_test_folder_name has no executable runner.py or runner.sh (check the git file mode)" >&2
+    exit 1
   fi
   echo
   popd >/dev/null
