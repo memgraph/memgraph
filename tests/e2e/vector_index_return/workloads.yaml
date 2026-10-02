@@ -6,8 +6,21 @@ omit_vector_index_properties: &omit_vector_index_properties
       setup_queries: []
       validation_queries: []
 
+vector_property_index_conflict: &vector_property_index_conflict
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=WARNING", "--storage-properties-on-edges=true"]
+      log_file: "vector_index_return.log"
+      setup_queries: []
+      validation_queries: []
+
 workloads:
   - name: "Omit vector index properties on return"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["vector_index_return/omit_vector_index_properties.py"]
     <<: *omit_vector_index_properties
+
+  - name: "Refuse property indexes on vector-indexed properties"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["vector_index_return/vector_property_index_conflict.py"]
+    <<: *vector_property_index_conflict
