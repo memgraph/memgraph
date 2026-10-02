@@ -569,9 +569,12 @@ void AuthQueryHandler::SetPassword(const std::string &username, const std::optio
   try {
     // Bcrypt runs with no auth lock; state and policy are re-checked under the exclusive lock.
     bool const user_defined = auth::Auth::IsUserDefinedHash(password);
-    if (!user_defined) {
+    {
       auto r = auth_->ReadLock();
-      r->ValidatePassword(password);
+      if (!r->GetUser(username)) {
+        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+      }
+      if (!user_defined) r->ValidatePassword(password);
     }
     std::optional<auth::HashedPassword> hash = auth::Auth::ComputePasswordHash(password);
     auto locked_auth = auth_->Lock();

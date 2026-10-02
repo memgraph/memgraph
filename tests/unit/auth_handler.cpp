@@ -3616,3 +3616,24 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesDeduplicatesUserAndRolePbacPermiss
             "GLOBAL PROPERTY PERMISSION GRANTED TO USER, GLOBAL PROPERTY PERMISSION GRANTED TO ROLE");
 }
 #endif
+
+TEST_F(AuthQueryHandlerFixture, SetPasswordForMissingUserReportsMissingUserBeforePolicy) {
+  memgraph::auth::SynchedAuth strict_auth{
+      auth_dir_ / "strict",
+      memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex},
+                                   std::string{memgraph::glue::kDefaultPasswordRegex},
+                                   /*password_permit_null=*/false}
+#ifdef MG_ENTERPRISE
+      ,
+      &resources
+#endif
+  };
+  memgraph::glue::AuthQueryHandler strict_handler{&strict_auth};
+
+  try {
+    strict_handler.SetPassword("nobody", std::nullopt, nullptr);
+    FAIL() << "expected QueryRuntimeException";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_NE(std::string{e.what()}.find("doesn't exist"), std::string::npos) << e.what();
+  }
+}
