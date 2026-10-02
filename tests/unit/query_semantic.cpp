@@ -2630,4 +2630,20 @@ TYPED_TEST(TestSymbolGenerator, NestedCreateOrMergeWithLabelTermIsRejected) {
   }
 }
 
+// Only CREATE writes a label named by an expression, and the refusal says so wherever it is raised. It
+// also says how to name a label that contains a dot, which is what a query reaching this usually meant.
+TYPED_TEST(TestSymbolGenerator, MatchingALabelNamedByAnExpressionNamesTheRule) {
+  // MATCH (x), (n:x.y) RETURN n
+  auto *dynamic = NODE_WITH_TERM("n", LABEL_TERM_DYNAMIC(PROPERTY_LOOKUP(this->dba, IDENT("x"), "y")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x")), PATTERN(dynamic)), RETURN("n")));
+  try {
+    MakeSymbolTable(query);
+    ADD_FAILURE() << "expected a semantic error";
+  } catch (const SemanticException &e) {
+    const std::string message{e.what()};
+    EXPECT_NE(message.find("can only be written by CREATE"), std::string::npos) << message;
+    EXPECT_NE(message.find("backticks"), std::string::npos) << message;
+  }
+}
+
 #undef COMPREHENSION_OVER

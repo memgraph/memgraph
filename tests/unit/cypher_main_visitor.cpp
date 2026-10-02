@@ -10425,6 +10425,18 @@ TEST_P(CypherMainVisitorTest, LabelExpressionRejectsPropertyLookupLeaf) {
   }
 }
 
+// A backticked name is one label however many dots it holds, which is the way out the refusals above
+// offer a reader who meant a dotted name rather than a property lookup.
+TEST_P(CypherMainVisitorTest, BackticksNameALabelContainingADot) {
+  auto &ast_generator = *GetParam();
+  auto *node = FirstCreatedNode(ast_generator.ParseQuery("CREATE (n:`com.example.Thing`)"));
+  ASSERT_TRUE(node->label_term_);
+  EXPECT_EQ(TermToString(*node->label_term_), "com.example.Thing");
+  EXPECT_EQ(
+      LabelsToString(FirstReturnedExpression(ast_generator.ParseQuery("MATCH (n) RETURN n:`com.example.Thing` AS v"))),
+      "com.example.Thing");
+}
+
 // A label named by an expression is written, never tested, so the refusal names that rule. Labels
 // themselves are testable, and an error saying otherwise would send the reader after the wrong thing.
 TEST_P(CypherMainVisitorTest, LabelNamedByExpressionCannotBeTested) {
@@ -10435,6 +10447,7 @@ TEST_P(CypherMainVisitorTest, LabelNamedByExpressionCannotBeTested) {
       ADD_FAILURE() << "expected a semantic error for " << query;
     } catch (const SemanticException &e) {
       EXPECT_THAT(std::string{e.what()}, ::testing::HasSubstr("can only be written by CREATE")) << query;
+      EXPECT_THAT(std::string{e.what()}, ::testing::HasSubstr("backticks")) << query;
     }
   }
 }
@@ -10449,6 +10462,7 @@ TEST_P(CypherMainVisitorTest, LabelNamedByExpressionIsRefusedInADisjunction) {
       ADD_FAILURE() << "expected a syntax error for " << query;
     } catch (const SyntaxException &e) {
       EXPECT_THAT(std::string{e.what()}, ::testing::HasSubstr("can only be joined by ':' or '&'")) << query;
+      EXPECT_THAT(std::string{e.what()}, ::testing::HasSubstr("backticks")) << query;
     }
   }
 }

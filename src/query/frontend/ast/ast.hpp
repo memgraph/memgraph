@@ -1240,7 +1240,9 @@ class LabelsTest : public Expression {
       if (const auto *label_ix = std::get_if<LabelIx>(&label)) {
         cnf.labels.push_back(*label_ix);
       } else {
-        throw SemanticException("A label named by an expression can only be written by CREATE, not tested.");
+        throw SemanticException(
+            "A label named by an expression can only be written by CREATE, not matched or tested. For a "
+            "label whose name contains a dot, put the name in backticks.");
       }
     }
   }

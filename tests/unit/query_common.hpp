@@ -321,6 +321,8 @@ inline LabelTerm LabelTermLeaf(AstStorage &storage, const std::string &label) {
 
 inline LabelTerm LabelTermWildcard() { return LabelTerm{LabelTerm::Wildcard{}}; }
 
+inline LabelTerm LabelTermDynamic(Expression *expression) { return LabelTerm{LabelTerm::Dynamic{expression}}; }
+
 inline LabelTerm LabelTermNot(LabelTerm operand) { return LabelTerm{LabelTerm::Not{std::move(operand)}}; }
 
 inline LabelTerm LabelTermAnd(std::vector<LabelTerm> operands) {
@@ -775,6 +777,7 @@ auto GetCountPattern(AstStorage &storage, Pattern *pattern) {
 #define NODE_WITH_TERM(...) memgraph::query::test_common::GetNodeWithLabelTerm(this->storage, __VA_ARGS__)
 #define LABEL_TERM_LEAF(label) memgraph::query::test_common::LabelTermLeaf(this->storage, label)
 #define LABEL_TERM_WILDCARD() memgraph::query::test_common::LabelTermWildcard()
+#define LABEL_TERM_DYNAMIC(expression) memgraph::query::test_common::LabelTermDynamic(expression)
 #define LABEL_TERM_NOT(child) memgraph::query::test_common::LabelTermNot(child)
 #define LABEL_TERM_AND(...) memgraph::query::test_common::LabelTermAnd({__VA_ARGS__})
 #define LABEL_TERM_OR(...) memgraph::query::test_common::LabelTermOr({__VA_ARGS__})

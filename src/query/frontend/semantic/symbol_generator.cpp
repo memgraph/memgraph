@@ -927,7 +927,9 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
     }
   }
   if (!scope.in_create && has_expressions) {
-    throw SemanticException("You can use expressions with labels only with CREATE!");
+    throw SemanticException(
+        "A label named by an expression can only be written by CREATE, not matched or tested. For a label "
+        "whose name contains a dot, put the name in backticks.");
   }
 
   check_node_semantic();

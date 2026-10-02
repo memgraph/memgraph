@@ -3283,7 +3283,9 @@ bool NamesALabelByExpression(const LabelTerm &term) {
 /// alternative leaves no one set of labels to write, and no label to test for.
 LabelTerm OnlyConjoined(LabelTerm term) {
   if (NamesALabelByExpression(term) && !term.Conjunction()) {
-    throw SyntaxException("A label named by an expression can only be joined by ':' or '&'.");
+    throw SyntaxException(
+        "A label named by an expression can only be joined by ':' or '&'. For a label whose name contains a "
+        "dot, put the name in backticks.");
   }
   return term;
 }
