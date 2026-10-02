@@ -1,5 +1,5 @@
 name: 'Cancel run on merge_group failure'
-description: 'Cancels the current workflow run via the GitHub API to fail fast, and emits an error annotation pointing at the job that failed. Must be used from a separate job that lists the failing job in `needs` and is gated with `if: failure() && github.event_name == ''merge_group''`. Running it as a step of the failing job cancels that job while it is still in progress, which replaces its conclusion with `cancelled` and leaves the run with no job concluding `failure`. Name the calling job after the job it guards: GitHub files an annotation under the name of the job that emitted it, and that heading is what identifies the culprit.'
+description: 'Cancels the current workflow run via the GitHub API to fail fast. Must be used from a separate job that lists the failing job in `needs` and is gated with `if: failure() && github.event_name == ''merge_group''`. Running it as a step of the failing job cancels that job while it is still in progress, which replaces its conclusion with `cancelled` and leaves the run with no job concluding `failure`.'
 
 runs:
   using: 'composite'
@@ -10,13 +10,8 @@ runs:
         GH_TOKEN: ${{ github.token }}
         GH_REPO: ${{ github.repository }}
         RUN_ID: ${{ github.run_id }}
-        RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
       run: |
         set -euo pipefail
-        # Every job still running when the cancel lands reports "cancelled", so
-        # the annotation tells a reader which conclusion distinguishes the one
-        # job that failed from the ones stopped on its behalf.
-        echo "::error title=Merge queue fail-fast::Cancelling run ${RUN_ID} to fail fast. The job concluding 'failure' is the one that failed; jobs reported as 'cancelled' were stopped as a side effect. ${RUN_URL}"
         echo "Cancelling workflow run ${RUN_ID} in ${GH_REPO} after a merge_group failure"
         curl -fsSL -X POST \
           --proto '=https' --proto-redir '=https' \
