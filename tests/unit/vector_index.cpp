@@ -637,21 +637,45 @@ TEST_F(VectorIndexTest, CreateIndexWithWrongDimensionRollsBack) {
   PropertyValue good_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
   PropertyValue bad_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0), PropertyValue(3.0)});
   Gid good_vertex_gid;
+  Gid bad_vertex_gid;
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto v1 = this->CreateVertex(acc.get(), test_property, good_vec, test_label);
     good_vertex_gid = v1.Gid();
-    [[maybe_unused]] auto v2 = this->CreateVertex(acc.get(), test_property, bad_vec, test_label);
+    auto v2 = this->CreateVertex(acc.get(), test_property, bad_vec, test_label);
+    bad_vertex_gid = v2.Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_THROW(this->CreateIndex(2, 10), std::exception);
+  auto read_property = [&](Gid gid) {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    return *acc->FindVertex(gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD);
+  };
+  // dimension 2 fails on the second vertex, dimension 3 on the first; neither may leave a tag behind
+  for (const std::uint16_t dimension : {2, 3}) {
+    EXPECT_THROW(this->CreateIndex(dimension, 10), std::exception);
+    {
+      auto acc = this->storage->Access(memgraph::storage::READ);
+      EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
+    }
+    EXPECT_EQ(read_property(good_vertex_gid), good_vec);
+    EXPECT_EQ(read_property(bad_vertex_gid), bad_vec);
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->DropVectorIndex(test_index.data()).has_value());
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    ASSERT_TRUE(acc->FindVertex(bad_vertex_gid, View::OLD)
+                    ->SetProperty(acc->NameToProperty(test_property), good_vec)
+                    .has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateIndex(2, 10);
   {
     auto acc = this->storage->Access(memgraph::storage::READ);
-    EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
-    auto v1 = acc->FindVertex(good_vertex_gid, View::OLD).value();
-    auto prop = v1.GetProperty(acc->NameToProperty(test_property), View::OLD);
-    EXPECT_TRUE(prop->IsDoubleList());
-    EXPECT_EQ(prop->ValueDoubleList().size(), 2);
+    ASSERT_EQ(acc->ListAllVectorIndices().size(), 1);
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 2);
   }
 }
 

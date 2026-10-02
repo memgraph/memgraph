@@ -100,10 +100,11 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
   }
 
   auto vector = RegisterIndexId(property, index_id);
-  edge->properties.SetProperty(spec.property, property);
 
+  // Tag only after uSearch accepted the vector: a rejected one (e.g. wrong dimension) must keep its list.
   // Lock order: uSearch mutex (inside UpdateVectorIndex) → edge_endpoints_mutex_
   UpdateVectorIndex(item_ptr->mg_index, spec, edge, vector, thread_id);
+  edge->properties.SetProperty(spec.property, property);
   {
     auto lock = std::unique_lock{edge_endpoints_mutex_};
     edge_endpoints_[edge] = EdgeEndpoints{.from_vertex = from_vertex, .to_vertex = to_vertex, .edge_type = edge_type};

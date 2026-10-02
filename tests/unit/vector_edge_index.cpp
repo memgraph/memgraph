@@ -523,21 +523,44 @@ TEST_F(VectorEdgeIndexTest, CreateIndexWithWrongDimensionRollsBack) {
   PropertyValue good_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
   PropertyValue bad_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0), PropertyValue(3.0)});
   Gid good_edge_gid;
+  Gid bad_edge_gid;
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto [fv1, tv1, e1] = this->CreateEdge(acc.get(), test_property, good_vec, test_edge_type);
     good_edge_gid = e1.Gid();
-    [[maybe_unused]] auto [fv2, tv2, e2] = this->CreateEdge(acc.get(), test_property, bad_vec, test_edge_type);
+    auto [fv2, tv2, e2] = this->CreateEdge(acc.get(), test_property, bad_vec, test_edge_type);
+    bad_edge_gid = e2.Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_THROW(this->CreateEdgeIndex(2, 10), memgraph::storage::VectorSearchException);
+  auto read_property = [&](Gid gid) {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    return *acc->FindEdge(gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD);
+  };
+  // dimension 2 fails on the second edge, dimension 3 on the first; neither may leave a tag behind
+  for (const std::uint16_t dimension : {2, 3}) {
+    EXPECT_THROW(this->CreateEdgeIndex(dimension, 10), memgraph::storage::VectorSearchException);
+    {
+      auto acc = this->storage->Access(memgraph::storage::READ);
+      EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 0);
+    }
+    EXPECT_EQ(read_property(good_edge_gid), good_vec);
+    EXPECT_EQ(read_property(bad_edge_gid), bad_vec);
+  }
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    EXPECT_FALSE(unique_acc->DropVectorIndex(test_index).has_value());
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    ASSERT_TRUE(
+        acc->FindEdge(bad_edge_gid, View::OLD)->SetProperty(acc->NameToProperty(test_property), good_vec).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateEdgeIndex(2, 10);
   {
     auto acc = this->storage->Access(memgraph::storage::READ);
-    EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 0);
-    auto e1 = acc->FindEdge(good_edge_gid, View::OLD).value();
-    auto prop = e1.GetProperty(acc->NameToProperty(test_property), View::OLD);
-    EXPECT_TRUE(prop->IsDoubleList());
-    EXPECT_EQ(prop->ValueDoubleList().size(), 2);
+    ASSERT_EQ(acc->ListAllVectorEdgeIndices().size(), 1);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 2);
   }
 }
 
