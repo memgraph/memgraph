@@ -942,7 +942,7 @@ class InMemoryStorage final : public Storage {
 
   uint64_t GetCommitTimestamp();
 
-  void PrepareForNewEpoch() override;
+  void PrepareForNewEpoch(::memgraph::replication::ReplicationEpoch new_epoch) override;
 
   EdgeInfo FindEdge(Gid edge_gid);
 

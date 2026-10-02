@@ -378,7 +378,9 @@ class Storage {
 
   virtual Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) = 0;
 
-  virtual void PrepareForNewEpoch() = 0;
+  // Finalizes the WAL, records the current epoch in the history (unless its ldt is already there) and switches to
+  // new_epoch, all in one step
+  virtual void PrepareForNewEpoch(::memgraph::replication::ReplicationEpoch new_epoch) = 0;
 
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);

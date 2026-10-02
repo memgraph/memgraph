@@ -673,7 +673,9 @@ class DiskStorage final : public Storage {
 
   void FreeMemory(utils::ResourceLockGuard /*lock*/, bool /*periodic*/) override {}
 
-  void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
+  void PrepareForNewEpoch(::memgraph::replication::ReplicationEpoch /*new_epoch*/) override {
+    throw utils::BasicException("Disk storage mode does not support replication.");
+  }
 
   bool IsAsyncIndexerIdle() const override { return true; /* Disk storage has no async indexer */ }
 
