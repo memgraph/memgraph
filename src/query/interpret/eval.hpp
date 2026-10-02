@@ -249,8 +249,25 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   INVALID_VISIT(SubscriptOperator)
   INVALID_VISIT(ListSlicingOperator)
   INVALID_VISIT(IfOperator)
-  INVALID_VISIT(UnaryPlusOperator)
-  INVALID_VISIT(UnaryMinusOperator)
+
+  TypedValue Visit(UnaryPlusOperator &op) override {
+    auto val = op.expression_->Accept(*this);
+    try {
+      return +val;
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), "+");
+    }
+  }
+
+  TypedValue Visit(UnaryMinusOperator &op) override {
+    auto val = op.expression_->Accept(*this);
+    try {
+      return -val;
+    } catch (const TypedValueException &) {
+      throw QueryRuntimeException("Invalid type {} for '{}'.", val.type(), "-");
+    }
+  }
+
   INVALID_VISIT(IsNullOperator)
   INVALID_VISIT(MapProjectionLiteral)
   INVALID_VISIT(PropertyLookup)
