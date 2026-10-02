@@ -75,7 +75,8 @@ class EpollPoller final : public utils::IdlePoller {
   std::shared_ptr<utils::IdleRunnable> TryClaim() override;
 
   // Fallback poller: one thread blocked in epoll_wait that dispatches claimed targets to the pool.
-  void Start();
+  // hot_mask (optional, <= 64 mixed workers): the thread only blocks in epoll_wait while no worker is HOT.
+  void Start(utils::HotMask *hot_mask = nullptr);
   // Idempotent; joins the fallback thread.
   void Stop();
 
@@ -84,6 +85,9 @@ class EpollPoller final : public utils::IdlePoller {
   void CloseAll();
 
   void Wake();
+
+  // POC counters, logged at INFO.
+  void LogStats() const;
 
  private:
   static constexpr uint8_t kFree = 0;
@@ -124,6 +128,11 @@ class EpollPoller final : public utils::IdlePoller {
   uint32_t next_index_{0};
 
   std::atomic_bool nb_token_{false};
+  utils::HotMask *hot_mask_{nullptr};
+  std::atomic<uint64_t> inline_claims_{0};
+  std::atomic<uint64_t> dispatched_extras_{0};
+  std::atomic<uint64_t> fallback_claims_{0};
+  std::atomic<uint64_t> fallback_parks_{0};
 
   std::mutex stop_mtx_;
   std::atomic_bool stopping_{false};

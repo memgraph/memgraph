@@ -66,7 +66,10 @@ std::optional<uint16_t> HotMask::GetHotElement() {
       res = TmpHotElement::Get(group_mask);
     }
     // Successfully updated the state | check if any hot element was available
-    if (group_mask != 0) return res.id + (group_i * kGroupSize);
+    if (group_mask != 0) {
+      if (n_groups_ == 1 && res.new_mask == 0) NotifyEmpty();
+      return res.id + (group_i * kGroupSize);
+    }
   }
   // None found
   return {};

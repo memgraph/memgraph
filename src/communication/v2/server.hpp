@@ -95,7 +95,10 @@ class Server final {
   void AwaitShutdown() {
     io_thread_pool_.AwaitShutdown();
     // The worker pool is joined by now (memgraph.cpp), so no session can still be running.
-    if (poller_) poller_->CloseAll();
+    if (poller_) {
+      poller_->CloseAll();
+      poller_->LogStats();
+    }
   }
 
   bool IsRunning() const noexcept;
@@ -190,7 +193,7 @@ bool Server<TSession, TSessionContext>::Start() {
   if (FLAGS_bolt_integrated_poller && GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR &&
       session_context_->worker_pool_ && !server_context_->use_ssl()) {
     poller_ = std::make_unique<EpollPoller>();
-    poller_->Start();
+    poller_->Start(&session_context_->worker_pool_->GetHotMask());
     session_context_->worker_pool_->SetIdlePoller(poller_.get());
     spdlog::info("{} using the integrated poller", service_name_);
   }

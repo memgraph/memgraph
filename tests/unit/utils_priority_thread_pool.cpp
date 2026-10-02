@@ -241,6 +241,51 @@ TEST(PriorityThreadPool, IdlePollerWorkRunsInlineOnAWorkerOnce) {
   EXPECT_EQ(poller.work->runs.load(), 1);
 }
 
+TEST(HotMask, WaitUntilEmptyWakesWhenLastBitIsCleared) {
+  using memgraph::utils::HotMask;
+  HotMask mask{4};
+  std::atomic_bool stop{false};
+  ASSERT_TRUE(mask.SingleWord());
+  mask.Set(1);
+  mask.Set(3);
+
+  for (int round = 0; round < 200; ++round) {
+    std::atomic_bool returned{false};
+    std::thread waiter([&] {
+      while (mask.AnyHot()) mask.WaitUntilEmpty(stop);
+      returned = true;
+    });
+    std::this_thread::sleep_for(1ms);
+    mask.Reset(1);
+    EXPECT_FALSE(returned.load() && mask.AnyHot());
+    mask.Reset(3);  // transition to empty must wake the parked waiter
+    waiter.join();
+    EXPECT_TRUE(returned.load());
+    mask.Set(1);
+    mask.Set(3);
+  }
+
+  // GetHotElement emptying the mask wakes as well.
+  std::atomic_bool returned{false};
+  std::thread waiter([&] {
+    while (mask.AnyHot()) mask.WaitUntilEmpty(stop);
+    returned = true;
+  });
+  std::this_thread::sleep_for(1ms);
+  ASSERT_TRUE(mask.GetHotElement());
+  ASSERT_TRUE(mask.GetHotElement());
+  waiter.join();
+  EXPECT_TRUE(returned.load());
+
+  // Stop wakes a waiter whose mask is still hot.
+  mask.Set(2);
+  std::thread stopped([&] { mask.WaitUntilEmpty(stop); });
+  std::this_thread::sleep_for(5ms);
+  stop = true;
+  mask.WakeWaiter();
+  stopped.join();
+}
+
 TEST(PriorityThreadPool, StartupPublishesMixedWorkers) {
   using namespace memgraph;
   constexpr uint16_t kMixed = 8;

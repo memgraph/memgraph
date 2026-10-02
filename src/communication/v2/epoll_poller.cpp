@@ -19,6 +19,8 @@
 #include <algorithm>
 #include <cerrno>
 
+#include <spdlog/spdlog.h>
+
 #include "utils/logging.hpp"
 #include "utils/priorities.hpp"
 #include "utils/thread.hpp"
@@ -187,20 +189,31 @@ std::shared_ptr<utils::IdleRunnable> EpollPoller::TryClaim() {
   nb_token_.store(false, std::memory_order_release);
   if (n == 0) return nullptr;
   // The first runs inline on the caller; the rest go through the pool like any other arrival.
+  inline_claims_.fetch_add(1, std::memory_order_relaxed);
+  dispatched_extras_.fetch_add(n - 1, std::memory_order_relaxed);
   for (size_t i = 1; i < n; ++i) {
     ready[i]->Dispatch();
   }
   return std::move(ready[0]);
 }
 
-void EpollPoller::Start() {
+void EpollPoller::Start(utils::HotMask *hot_mask) {
   std::lock_guard lock{stop_mtx_};
   if (thread_.joinable() || stopping_.load(std::memory_order_acquire)) return;
+  hot_mask_ = (hot_mask && hot_mask->SingleWord()) ? hot_mask : nullptr;
+  spdlog::info("Bolt poller fallback thread: {}",
+               hot_mask_ ? "parks while a worker is HOT" : "always blocks in epoll_wait");
   thread_ = std::thread([this] {
     utils::ThreadSetName("bolt poll");
     std::array<std::shared_ptr<PollTarget>, kMaxEventsPerPoll> ready;
     while (!stopping_.load(std::memory_order_acquire)) {
+      if (hot_mask_ && hot_mask_->AnyHot()) {
+        fallback_parks_.fetch_add(1, std::memory_order_relaxed);
+        hot_mask_->WaitUntilEmpty(stopping_);
+        continue;
+      }
       const auto n = PollOnce(-1, true, ready);
+      fallback_claims_.fetch_add(n, std::memory_order_relaxed);
       for (size_t i = 0; i < n; ++i) {
         ready[i]->Dispatch();
         ready[i].reset();
@@ -213,9 +226,19 @@ void EpollPoller::Stop() {
   std::lock_guard lock{stop_mtx_};
   stopping_.store(true, std::memory_order_release);
   if (thread_.joinable()) {
+    if (hot_mask_) hot_mask_->WakeWaiter();
     Wake();
     thread_.join();
   }
+}
+
+void EpollPoller::LogStats() const {
+  spdlog::info(
+      "Bolt poller claims: inline by workers {}, by fallback thread {}, extras dispatched {}, fallback parks {}",
+      inline_claims_.load(),
+      fallback_claims_.load(),
+      dispatched_extras_.load(),
+      fallback_parks_.load());
 }
 
 void EpollPoller::Wake() {

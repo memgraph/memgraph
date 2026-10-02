@@ -45,13 +45,44 @@ class HotMask {
 
   inline void Reset(const uint64_t id) {
     DMG_ASSERT(id < n_elements_, "Trying to reset out-of-bounds");
-    hot_masks_[GetGroup(id)].fetch_and(~GroupMask(id), std::memory_order::acq_rel);
+    const auto bit = GroupMask(id);
+    const auto prev = hot_masks_[GetGroup(id)].fetch_and(~bit, std::memory_order::acq_rel);
+    if (n_groups_ == 1 && (prev & bit) != 0 && (prev & ~bit) == 0) NotifyEmpty();
+  }
+
+  // Single-waiter parking for the poller's blocking thread; only supported with one mask word (<= 64 workers).
+  bool SingleWord() const { return n_groups_ == 1; }
+
+  // Returns once the mask may be empty (or after WakeWaiter). No lost wake-up: the waiter publishes parked_ and
+  // re-checks the mask after a seq_cst fence, the notifier fences after emptying the mask and then reads parked_,
+  // so one side sees the other; gate_.wait(g) also returns at once if gate_ moved since g was read.
+  void WaitUntilEmpty(const std::atomic_bool &stop) {
+    const auto g = gate_.load(std::memory_order::acquire);
+    waiter_parked_.store(true, std::memory_order::relaxed);
+    std::atomic_thread_fence(std::memory_order::seq_cst);
+    if (hot_masks_[0].load(std::memory_order::acquire) != 0 && !stop.load(std::memory_order::acquire)) {
+      gate_.wait(g, std::memory_order::acquire);
+    }
+    waiter_parked_.store(false, std::memory_order::relaxed);
+  }
+
+  bool AnyHot() const { return hot_masks_[0].load(std::memory_order::acquire) != 0; }
+
+  void WakeWaiter() {
+    gate_.fetch_add(1, std::memory_order::acq_rel);
+    gate_.notify_all();
   }
 
   // Returns the position of the first set bit and resets it
   std::optional<uint16_t> GetHotElement();
 
  private:
+  // Called after a transition of the mask to empty.
+  void NotifyEmpty() {
+    std::atomic_thread_fence(std::memory_order::seq_cst);
+    if (waiter_parked_.load(std::memory_order::relaxed)) WakeWaiter();
+  }
+
   static constexpr auto kGroupSize = sizeof(uint64_t) * 8;  // bits
   static constexpr auto kGroupMask = kGroupSize - 1;
 
@@ -65,6 +96,8 @@ class HotMask {
   static constexpr uint64_t GroupMask(const uint64_t id) { return 1UL << (id & kGroupMask); }
 
   std::array<std::atomic<uint64_t>, kMaxElements / kGroupSize> hot_masks_{};
+  std::atomic<uint32_t> gate_{0};
+  std::atomic_bool waiter_parked_{false};
 #ifndef NDEBUG
   const uint16_t n_elements_;
 #endif
@@ -157,6 +190,8 @@ class PriorityThreadPool {
       ScheduledAddTask(collection.WrapTask(i), Priority::LOW);
     }
   }
+
+  HotMask &GetHotMask() { return hot_threads_; }
 
   uint64_t GetNumMixedWorkers() const { return workers_.size(); }
 
