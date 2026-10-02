@@ -70,8 +70,7 @@ class EpollPoller final : public utils::IdlePoller {
   // drain_wake: consume the wake eventfd (only the blocking poller does). Returns the number claimed.
   size_t PollOnce(int timeout_ms, bool drain_wake, std::span<std::shared_ptr<PollTarget>> out);
 
-  // utils::IdlePoller: non-blocking, at most one caller polls at a time. The first claimed target is
-  // returned; the others are handed to the pool.
+  // utils::IdlePoller: non-blocking, at most one caller polls at a time. Claims at most one target.
   std::shared_ptr<utils::IdleRunnable> TryClaim() override;
 
   // Fallback poller: one thread blocked in epoll_wait that dispatches claimed targets to the pool.
@@ -130,7 +129,6 @@ class EpollPoller final : public utils::IdlePoller {
   std::atomic_bool nb_token_{false};
   utils::HotMask *hot_mask_{nullptr};
   std::atomic<uint64_t> inline_claims_{0};
-  std::atomic<uint64_t> dispatched_extras_{0};
   std::atomic<uint64_t> fallback_claims_{0};
   std::atomic<uint64_t> fallback_parks_{0};
 

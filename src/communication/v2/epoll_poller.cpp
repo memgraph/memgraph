@@ -184,16 +184,12 @@ std::shared_ptr<utils::IdleRunnable> EpollPoller::TryClaim() {
   if (nb_token_.load(std::memory_order_relaxed) || nb_token_.exchange(true, std::memory_order_acquire)) {
     return nullptr;
   }
-  std::array<std::shared_ptr<PollTarget>, 4> ready;
+  // One event at most: other ready fds stay in epoll for the other pollers instead of queueing behind this one.
+  std::array<std::shared_ptr<PollTarget>, 1> ready;
   const auto n = PollOnce(0, false, ready);
   nb_token_.store(false, std::memory_order_release);
   if (n == 0) return nullptr;
-  // The first runs inline on the caller; the rest go through the pool like any other arrival.
   inline_claims_.fetch_add(1, std::memory_order_relaxed);
-  dispatched_extras_.fetch_add(n - 1, std::memory_order_relaxed);
-  for (size_t i = 1; i < n; ++i) {
-    ready[i]->Dispatch();
-  }
   return std::move(ready[0]);
 }
 
@@ -233,12 +229,10 @@ void EpollPoller::Stop() {
 }
 
 void EpollPoller::LogStats() const {
-  spdlog::info(
-      "Bolt poller claims: inline by workers {}, by fallback thread {}, extras dispatched {}, fallback parks {}",
-      inline_claims_.load(),
-      fallback_claims_.load(),
-      dispatched_extras_.load(),
-      fallback_parks_.load());
+  spdlog::info("Bolt poller claims: inline by workers {}, by fallback thread {}, fallback parks {}",
+               inline_claims_.load(),
+               fallback_claims_.load(),
+               fallback_parks_.load());
 }
 
 void EpollPoller::Wake() {

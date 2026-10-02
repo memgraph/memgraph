@@ -185,7 +185,7 @@ TEST(EpollPoller, CloseRacingAnEventHasExactlyOneWinner) {
   }
 }
 
-TEST(EpollPoller, TryClaimReturnsFirstAndDispatchesTheRest) {
+TEST(EpollPoller, TryClaimClaimsAtMostOneReadySession) {
   EpollPoller poller;
   std::vector<std::unique_ptr<Pair>> pairs;
   std::vector<std::shared_ptr<Target>> targets;
@@ -200,11 +200,18 @@ TEST(EpollPoller, TryClaimReturnsFirstAndDispatchesTheRest) {
   EXPECT_EQ(poller.TryClaim(), nullptr);  // nothing ready
 
   for (auto &p : pairs) p->Send();
-  auto first = poller.TryClaim();
-  ASSERT_NE(first, nullptr);
-  int dispatched = 0;
-  for (auto &t : targets) dispatched += t->dispatched.load();
-  EXPECT_EQ(dispatched, kSessions - 1);
+  // Each call claims one; the others stay ready in epoll and nothing is dispatched behind the caller's back.
+  std::vector<std::shared_ptr<memgraph::utils::IdleRunnable>> claimed;
+  for (int i = 0; i < kSessions; ++i) {
+    auto one = poller.TryClaim();
+    ASSERT_NE(one, nullptr) << i;
+    claimed.push_back(std::move(one));
+  }
+  EXPECT_EQ(poller.TryClaim(), nullptr);
+  for (auto &t : targets) EXPECT_EQ(t->dispatched.load(), 0);
+  for (size_t i = 0; i < claimed.size(); ++i) {
+    for (size_t j = i + 1; j < claimed.size(); ++j) EXPECT_NE(claimed[i], claimed[j]);
+  }
 
   poller.CloseAll();
 }
