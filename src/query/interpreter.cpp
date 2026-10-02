@@ -10375,6 +10375,26 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
   return txn->deltas.empty() && txn->md_deltas.empty();
 }
 
+void Interpreter::ResetInterpreter() {
+  query_executions_.clear();
+  system_transaction_.reset();
+  transaction_queries_->clear();
+  commit_notification_.reset();
+  // A session whose current database was FORCE-dropped releases it here. Only one whose database was named in the Bolt
+  // connection metadata is closed (as the drain hook closes idle ones): it cannot switch away and would keep failing.
+  // A USE DATABASE session keeps its connection and may switch databases. RequestTermination only posts to the
+  // session's strand, so the current message still completes first.
+  [[maybe_unused]] auto const released = current_db_.ReleaseDbIfMarked();
+#ifdef MG_ENTERPRISE
+  if (released && current_db_.in_explicit_db_) {
+    auto const session = foreign_session_view_.load(std::memory_order_acquire);
+    if (session && !session->uuid.empty()) {
+      if (auto s = communication::v2::SessionRegistry::Instance().Find(session->uuid)) s->RequestTermination();
+    }
+  }
+#endif
+}
+
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   ResetInterpreter();
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
@@ -11454,7 +11474,9 @@ void Interpreter::Commit() {
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
     // No database nor db transaction; check for system transaction
     if (!system_transaction_) {
-      current_transaction_.reset();
+      // Nothing to commit (e.g. USE DATABASE), but the status must still leave ACTIVE or the idle session
+      // looks mid-transaction to foreign readers such as the deferred-drop drain hook.
+      FinishAutocommitNothing();
       return;
     }
 

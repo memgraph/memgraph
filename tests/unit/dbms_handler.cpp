@@ -987,6 +987,83 @@ TEST(Handler, DeferDeleteConvergesAfterHolderReleases) {
   EXPECT_EQ(post.load(std::memory_order_relaxed), 1) << "post_delete_step must run exactly once";
 }
 
+// The worker runs the drain hook each tick while a husk is pending; the hook drops the external pin on its 2nd call,
+// so the first tick's try_delete fails and a later one drains.
+TEST(Handler, DrainHookRunsEachTickUntilDrained) {
+  using namespace std::chrono_literals;
+
+  std::atomic<int> stop{0}, dtor{0}, post{0};
+  // Everything the hook touches is declared before h, so it outlives h's worker even if an assertion bails out early.
+  std::atomic<int> hook_calls{0};
+  std::optional<memgraph::utils::Gatekeeper<Tracked>::Accessor> holder;
+  memgraph::dbms::Handler<Tracked> h{std::chrono::milliseconds{50}};
+
+  auto result = h.New(std::piecewise_construct, "db", &stop, &dtor);
+  ASSERT_TRUE(result.has_value());
+  holder = std::move(*result);
+
+  h.SetDrainHook([&hook_calls, &holder] {
+    if (hook_calls.fetch_add(1, std::memory_order_relaxed) + 1 == 2) holder.reset();
+  });
+
+  h.DeferDelete(
+      "db",
+      std::string{"db"},
+      [](Tracked &t) { t.stop_calls->fetch_add(1, std::memory_order_relaxed); },
+      [&post] { post.fetch_add(1, std::memory_order_relaxed); });
+
+  ASSERT_TRUE(PollUntil([&] { return post.load(std::memory_order_relaxed) >= 1; }, 2s))
+      << "husk must drain once the drain hook drops the external pin";
+  EXPECT_EQ(post.load(std::memory_order_relaxed), 1);
+  EXPECT_EQ(dtor.load(std::memory_order_relaxed), 1);
+
+  // Nothing is pending any more, so the hook must not keep running.
+  const int after_drain = hook_calls.load(std::memory_order_relaxed);
+  std::this_thread::sleep_for(300ms);
+  EXPECT_EQ(hook_calls.load(std::memory_order_relaxed), after_drain);
+}
+
+// ClearDrainHook waits out a call already in progress and the hook never runs again, so what it captured may be
+// destroyed right after (InterpreterContextLifetimeControl relies on this).
+TEST(Handler, ClearDrainHookWaitsForRunningHook) {
+  using namespace std::chrono_literals;
+
+  std::atomic<int> stop{0}, dtor{0}, post{0};
+  std::atomic<int> hook_calls{0};
+  std::atomic<bool> in_hook{false};
+  std::atomic<bool> hook_finished{false};
+  std::optional<memgraph::utils::Gatekeeper<Tracked>::Accessor> holder;
+  memgraph::dbms::Handler<Tracked> h{std::chrono::milliseconds{50}};
+
+  auto result = h.New(std::piecewise_construct, "db", &stop, &dtor);
+  ASSERT_TRUE(result.has_value());
+  holder = std::move(*result);  // keeps the husk pending so the worker keeps ticking over it
+
+  h.SetDrainHook([&] {
+    hook_calls.fetch_add(1, std::memory_order_relaxed);
+    in_hook.store(true);
+    std::this_thread::sleep_for(100ms);
+    hook_finished.store(true);
+  });
+  h.DeferDelete(
+      "db",
+      std::string{"db"},
+      [](Tracked &t) { t.stop_calls->fetch_add(1, std::memory_order_relaxed); },
+      [&post] { post.fetch_add(1, std::memory_order_relaxed); });
+
+  ASSERT_TRUE(PollUntil([&] { return in_hook.load(); }, 2s));
+  h.ClearDrainHook();
+  EXPECT_TRUE(hook_finished.load()) << "ClearDrainHook returned while the hook was still running";
+
+  // The worker keeps ticking over the pinned husk, but the hook is gone.
+  const int after_clear = hook_calls.load(std::memory_order_relaxed);
+  std::this_thread::sleep_for(300ms);
+  EXPECT_EQ(hook_calls.load(std::memory_order_relaxed), after_clear);
+
+  holder.reset();
+  EXPECT_TRUE(PollUntil([&] { return post.load(std::memory_order_relaxed) >= 1; }, 2s));
+}
+
 // Tests ~Handler's drain: Stop() joins the worker jthread, then pending nodes are torn down
 // synchronously (stop_step + try_delete(kDeferTryTimeout) + ~Gatekeeper + post_delete_step) with no external holder.
 TEST(Handler, DeferDeleteDrainsOnHandlerDestruction) {

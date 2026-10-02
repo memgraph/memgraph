@@ -27,6 +27,7 @@ from common import (
     wait_until,
     wait_until_terminated,
 )
+from neo4j import GraphDatabase
 
 # Tests
 # -------------------------
@@ -284,6 +285,87 @@ def test_unprivileged_user_refused(request):
     results = execute_and_fetch_all(actor_cursor_1, f"TERMINATE SESSIONS '{target_uuid}'")
     assert results == [(target_uuid, True)]
     wait_until_terminated(target_cursor)
+
+
+def test_idle_session_on_force_dropped_database_is_closed(request):
+    """DROP DATABASE ... FORCE leaves the database draining while a session still has it as its current database.
+    An idle pooled connection may never send another query, so the deferred-drop worker closes such connections.
+
+    The victim must stay silent until the database has drained: any query on it would release the database by
+    itself and prove nothing.
+    """
+    admin = connect().cursor()
+    execute_and_fetch_all(admin, "CREATE DATABASE idle_drop_db")
+
+    def on_exit():
+        with suppress(mgclient.Error):
+            execute_and_fetch_all(admin, "DROP DATABASE idle_drop_db FORCE")
+
+    request.addfinalizer(on_exit)
+
+    victim = connect().cursor()
+    execute_and_fetch_all(victim, "USE DATABASE idle_drop_db")
+    bystander = connect().cursor()  # idle on the default database, must be left alone
+
+    execute_and_fetch_all(admin, "DROP DATABASE idle_drop_db FORCE")
+
+    def drained() -> bool:
+        return not any(row[0].startswith("idle_drop_db") for row in execute_and_fetch_all(admin, "SHOW DATABASES"))
+
+    # The deferred-drop worker ticks every 10 s: one tick closes the victim, the same or the next drains the
+    # database. 30 s leaves a tick of slack.
+    wait_until(drained, timeout=30.0, interval=0.5, message="the idle session kept the dropped database pinned")
+    with pytest.raises(mgclient.Error):
+        execute_and_fetch_all(victim, "RETURN 1")
+    assert_connection_alive(bystander)
+
+
+def test_active_session_reconnects_after_force_drop_and_recreate(request):
+    """A session that names its database in the Bolt metadata and runs a query after DROP DATABASE ... FORCE
+    releases the database itself, so the drain hook never sees it. Its connection must still be closed, or the
+    identical metadata keeps it on "Database required" even after the database is recreated.
+    """
+    admin = connect().cursor()
+    execute_and_fetch_all(admin, "CREATE DATABASE active_drop_db")
+
+    driver = GraphDatabase.driver(
+        "bolt://localhost:7687",
+        auth=None,
+        encrypted=False,
+        max_connection_pool_size=1,
+    )
+
+    def on_exit():
+        driver.close()
+        with suppress(mgclient.Error):
+            execute_and_fetch_all(admin, "DROP DATABASE active_drop_db FORCE")
+
+    request.addfinalizer(on_exit)
+
+    with driver.session(database="active_drop_db") as victim_session:
+        victim_session.run("RETURN 1").consume()
+
+        execute_and_fetch_all(admin, "DROP DATABASE active_drop_db FORCE")
+
+        # Releases the database; the reply may be an error, and the connection is closed after it.
+        with suppress(Exception):
+            victim_session.run("RETURN 1").consume()
+
+    def drained() -> bool:
+        return not any(row[0].startswith("active_drop_db") for row in execute_and_fetch_all(admin, "SHOW DATABASES"))
+
+    wait_until(drained, timeout=30.0, interval=0.5, message="the active session kept the dropped database pinned")
+
+    execute_and_fetch_all(admin, "CREATE DATABASE active_drop_db")
+
+    # The pooled connection was closed by the server; the driver may surface that once before reconnecting.
+    with driver.session(database="active_drop_db") as victim_session:
+        try:
+            row = victim_session.run("SHOW DATABASE").single()
+        except Exception:
+            row = victim_session.run("SHOW DATABASE").single()
+        assert row is not None, "SHOW DATABASE returned no rows after reconnect"
+        assert row[0] == "active_drop_db", f"expected current database 'active_drop_db' after reconnect, got {row[0]!r}"
 
 
 def _drop_force_abort_supported() -> bool:
