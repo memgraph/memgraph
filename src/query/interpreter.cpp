@@ -9896,6 +9896,7 @@ PreparedQuery PrepareTenantProfileQuery([[maybe_unused]] ParsedQuery parsed_quer
   static constexpr std::string_view kMemoryLimitKey = "memory_limit";
 
   auto *query = utils::Downcast<TenantProfileQuery>(parsed_query.query);
+
   auto *db_handler = interpreter_context->dbms_handler;
   const bool is_replica = interpreter_context->repl_state->ReadLock()->IsReplica();
 
@@ -11484,9 +11485,9 @@ void Interpreter::Commit() {
     // Flush it here, under a system transaction created only now, so the system mutex covers the flush rather than
     // the whole time the user held the transaction open.
     if (auth_transaction_) {
-      // Covers every exit of this block, a throw included. The status claim is all it gives back: the system
-      // transaction releases the system mutex through its own destructor, so an unwind that skips `clean_status`
-      // still frees it when the interpreter is reset or the session ends.
+      // Covers every exit of this block, a throw included. The status claim is all this guard gives back; it
+      // never touches `system_transaction_`, which needs no help here because it holds the system mutex in a
+      // member lock and so frees it whenever it is destroyed.
       //
       // On the way out normally, the claim is given back here only when nothing is left to replicate. With a
       // system transaction the commit is not over at this brace -- replication runs below -- and letting go here
