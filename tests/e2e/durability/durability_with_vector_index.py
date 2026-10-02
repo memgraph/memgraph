@@ -977,3 +977,271 @@ def test_durability_with_and_vector_index(connection, test_name):
     assert search[0][0] == 0.0
 
     interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
+
+
+_POST_RESTART_REMOVE_LABEL = {
+    "node_added_to_two_indexes_via_label_addition": ("MATCH (n:I) REMOVE n:I;", {"idxI": 0, "idxJ": 1}),
+}
+
+
+@pytest.mark.parametrize(
+    "scenario,queries,expected_indexes,expected_embedding,prop",
+    [
+        (
+            "index_after_node",
+            [
+                "CREATE (:A {embedding: [1.0, 2.0]});",
+                'CREATE VECTOR INDEX idx ON :A(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "MATCH (n:A) REMOVE n:A;",
+            ],
+            {"idx": 0},
+            [1.0, 2.0],
+            "embedding",
+        ),
+        (
+            "and_index_member_loses_both_labels",
+            [
+                'CREATE VECTOR INDEX idx ON :A&B(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "CREATE (:A:B {id: 1, embedding: [1.0, 2.0]});",
+                "MATCH (n {id: 1}) REMOVE n:A;",
+                "MATCH (n {id: 1}) REMOVE n:B;",
+            ],
+            {"idx": 0},
+            [1.0, 2.0],
+            "embedding",
+        ),
+        (
+            "and_index_non_member_loses_filter_label",
+            [
+                'CREATE VECTOR INDEX idx ON :A&B(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "CREATE (:A {id: 1, embedding: [1.0, 2.0]});",
+                "MATCH (n {id: 1}) REMOVE n:A;",
+            ],
+            {"idx": 0},
+            [1.0, 2.0],
+            "embedding",
+        ),
+        (
+            "control_member_created_after_index",
+            [
+                'CREATE VECTOR INDEX idx ON :A(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "CREATE (:A {embedding: [1.0, 2.0]});",
+                "MATCH (n:A) REMOVE n:A;",
+            ],
+            {"idx": 0},
+            [1.0, 2.0],
+            "embedding",
+        ),
+        (
+            "label_added_after_node_creation",
+            [
+                'CREATE VECTOR INDEX idx ON :A(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "CREATE (n {embedding: [1.0, 2.0]}) SET n:A;",
+            ],
+            {"idx": 1},
+            [1.0, 2.0],
+            "embedding",
+        ),
+        (
+            "label_cycle_with_property_update",
+            [
+                'CREATE VECTOR INDEX idx ON :A(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "CREATE (:A {embedding: [1.0, 2.0]});",
+                "MATCH (n:A) REMOVE n:A SET n.embedding = [3.0, 4.0] SET n:A;",
+            ],
+            {"idx": 1},
+            [3.0, 4.0],
+            "embedding",
+        ),
+        (
+            "and_index_label_cycle_with_property_update",
+            [
+                'CREATE VECTOR INDEX idx ON :A&B(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "CREATE (:A {id: 1, embedding: [1.0, 2.0]});",
+                "MATCH (n {id: 1}) SET n.embedding = [3.0, 4.0] REMOVE n:A SET n:B SET n:A;",
+            ],
+            {"idx": 1},
+            [3.0, 4.0],
+            "embedding",
+        ),
+        (
+            "node_added_to_two_indexes_via_label_addition",
+            [
+                'CREATE VECTOR INDEX idxI ON :I(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                'CREATE VECTOR INDEX idxJ ON :J(embedding) WITH CONFIG {"dimension": 2, "capacity": 100};',
+                "CREATE (:J {embedding: [1.0, 2.0]});",
+                "MATCH (n:J) SET n.embedding = [3.0, 4.0] SET n:I;",
+            ],
+            {"idxI": 1, "idxJ": 1},
+            [3.0, 4.0],
+            "embedding",
+        ),
+    ],
+)
+def test_durability_vector_index_membership_after_wal_replay(
+    connection, test_name, scenario, queries, expected_indexes, expected_embedding, prop
+):
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--storage-wal-file-flush-every-n-tx=1",
+                "--storage-snapshot-on-exit=false",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    for query in queries:
+        execute_and_fetch_all(cursor, query)
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == len(expected_indexes)
+    for row in index_info:
+        assert row[0] in expected_indexes, f"Unexpected index before restart: {row[0]}"
+        assert row[6] == expected_indexes[row[0]]
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == len(expected_indexes)
+    info_by_name = {row[0]: row for row in index_info}
+    for name, size in expected_indexes.items():
+        assert name in info_by_name, f"Index missing after restart: {name}"
+        assert info_by_name[name][6] == size
+
+    embedding = execute_and_fetch_all(cursor, f"MATCH (n) RETURN n.{prop};")
+    assert len(embedding) == 1
+    assert embedding[0][0] == expected_embedding
+
+    if scenario in _POST_RESTART_REMOVE_LABEL:
+        remove_query, sizes_after_removal = _POST_RESTART_REMOVE_LABEL[scenario]
+        execute_and_fetch_all(cursor, remove_query)
+        info_by_name = {row[0]: row for row in execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")}
+        assert {name: row[6] for name, row in info_by_name.items()} == sizes_after_removal
+        embedding = execute_and_fetch_all(cursor, f"MATCH (n) RETURN n.{prop};")
+        assert len(embedding) == 1
+        assert embedding[0][0] == expected_embedding
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
+
+
+_IDX_CREATE = 'CREATE VECTOR INDEX idx ON :L(emb) WITH CONFIG {"dimension": 2, "capacity": 10};'
+
+
+@pytest.mark.parametrize("mode", ["wal", "snapshot"])
+@pytest.mark.parametrize(
+    "scenario,queries,read_query,expected_indexes",
+    [
+        pytest.param(
+            "set_member_to_empty",
+            [_IDX_CREATE, "CREATE (:L {emb: [1.0, 2.0]});", "MATCH (n:L) SET n.emb = [];"],
+            "MATCH (n:L) RETURN n.emb;",
+            {"idx": 0},
+            id="set_member_to_empty",
+        ),
+        pytest.param(
+            "drop_index",
+            [_IDX_CREATE, "CREATE (:L {emb: []});", "DROP VECTOR INDEX idx;"],
+            "MATCH (n:L) RETURN n.emb;",
+            {},
+            id="drop_index",
+        ),
+        pytest.param(
+            "index_over_existing_empty",
+            ["CREATE (:L {emb: []});", _IDX_CREATE, "DROP VECTOR INDEX idx;"],
+            "MATCH (n:L) RETURN n.emb;",
+            {},
+            id="index_over_existing_empty",
+        ),
+        pytest.param(
+            "remove_label",
+            [_IDX_CREATE, "CREATE (:L {id: 1, emb: []});", "MATCH (n {id: 1}) REMOVE n:L;"],
+            "MATCH (n {id: 1}) RETURN n.emb;",
+            {"idx": 0},
+            id="remove_label",
+        ),
+        pytest.param(
+            "add_then_remove_label",
+            [
+                _IDX_CREATE,
+                "CREATE (:X {id: 1, emb: []});",
+                "MATCH (n {id: 1}) SET n:L;",
+                "MATCH (n {id: 1}) REMOVE n:L;",
+            ],
+            "MATCH (n {id: 1}) RETURN n.emb;",
+            {"idx": 0},
+            id="add_then_remove_label",
+        ),
+    ],
+)
+def test_durability_vector_index_empty_list(
+    connection, test_name, mode, scenario, queries, read_query, expected_indexes
+):
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--storage-wal-file-flush-every-n-tx=1",
+                "--storage-snapshot-on-exit=false",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    for query in queries:
+        execute_and_fetch_all(cursor, query)
+
+    emb_before = execute_and_fetch_all(cursor, read_query)
+    assert len(emb_before) == 1, f"[{scenario}/{mode}] Expected one row before restart, got {len(emb_before)}"
+    assert emb_before[0][0] == [], f"[{scenario}/{mode}] Expected [] before restart, got {emb_before[0][0]!r}"
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == len(
+        expected_indexes
+    ), f"[{scenario}/{mode}] Expected {len(expected_indexes)} index(es) before restart, got {len(index_info)}"
+    for row in index_info:
+        assert row[0] in expected_indexes, f"[{scenario}/{mode}] Unexpected index before restart: {row[0]}"
+        assert (
+            row[6] == expected_indexes[row[0]]
+        ), f"[{scenario}/{mode}] Expected index '{row[0]}' size {expected_indexes[row[0]]} before restart, got {row[6]}"
+
+    if mode == "snapshot":
+        execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    emb_after = execute_and_fetch_all(cursor, read_query)
+    assert len(emb_after) == 1, f"[{scenario}/{mode}] Expected one row after restart, got {len(emb_after)}"
+    assert emb_after[0][0] == [], f"[{scenario}/{mode}] Expected [] after restart, got {emb_after[0][0]!r}"
+
+    index_info = execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")
+    assert len(index_info) == len(
+        expected_indexes
+    ), f"[{scenario}/{mode}] Expected {len(expected_indexes)} index(es) after restart, got {len(index_info)}"
+    info_by_name = {row[0]: row for row in index_info}
+    for name, size in expected_indexes.items():
+        assert name in info_by_name, f"[{scenario}/{mode}] Index missing after restart: {name}"
+        assert (
+            info_by_name[name][6] == size
+        ), f"[{scenario}/{mode}] Expected index '{name}' size {size} after restart, got {info_by_name[name][6]}"
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
