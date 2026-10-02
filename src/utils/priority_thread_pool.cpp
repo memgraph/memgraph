@@ -35,6 +35,7 @@ namespace {
 constexpr memgraph::utils::PriorityThreadPool::TaskID kMaxLowPriorityId = std::numeric_limits<int64_t>::max();
 constexpr memgraph::utils::PriorityThreadPool::TaskID kMinHighPriorityId = kMaxLowPriorityId;
 constexpr uint16_t kMaxWorkers = memgraph::utils::HotMask::kMaxElements;
+constexpr uint32_t kPollEverySpins = 64;
 }  // namespace
 
 namespace memgraph::utils {
@@ -103,7 +104,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
         if (thread_init_callback) {
           thread_init_callback();
         }
-        slots[i]->operator()<ThreadPriority>(i, workers_, hot_threads_);
+        slots[i]->operator()<ThreadPriority>(i, workers_, hot_threads_, idle_poller_);
       });
     }
   };
@@ -221,7 +222,7 @@ void PriorityThreadPool::Worker::stop() {
 template <Priority ThreadPriority>
 void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
                                             const std::vector<std::unique_ptr<Worker>> &workers_pool,
-                                            HotMask &hot_threads) {
+                                            HotMask &hot_threads, const std::atomic<IdlePoller *> &idle_poller) {
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
 
   // Both mixed and high priority worker only steal from mixed worker
@@ -253,6 +254,8 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     task = std::move(work_.top().work);
     work_.pop();
   };
+
+  std::shared_ptr<IdleRunnable> claimed;
 
   while (run_.load(std::memory_order_acquire)) {
     // Phase 1 get scheduled work <- cold thread???
@@ -321,9 +324,33 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     const auto freq = utils::GetTSCFrequency();
     if (freq) {
       const utils::TSCTimer timer{freq};
-      yielder y;                         // NOLINT (misc-const-correctness)
+      yielder y;  // NOLINT (misc-const-correctness)
+      [[maybe_unused]] IdlePoller *poller = nullptr;
+      if constexpr (ThreadPriority != Priority::HIGH) poller = idle_poller.load(std::memory_order_acquire);
+      [[maybe_unused]] uint32_t spins = 0;
+      auto ready = [&] {
+        if (has_pending_work_.load(std::memory_order_acquire)) return true;
+        if constexpr (ThreadPriority != Priority::HIGH) {
+          if (poller && (++spins % kPollEverySpins) == 0) {
+            if (!run_.load(std::memory_order_relaxed)) return true;
+            claimed = poller->TryClaim();
+            return claimed != nullptr;
+          }
+        }
+        return false;
+      };
       while (timer.Elapsed() < 0.001) {  // 1ms
-        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
+        if (y(ready, 1024U, 0U)) break;
+      }
+    }
+
+    if constexpr (ThreadPriority != Priority::HIGH) {
+      if (claimed) {
+        hot_threads.Reset(worker_id);
+        working_.store(true, std::memory_order_release);
+        claimed->RunInline(ThreadPriority);
+        claimed.reset();
+        continue;
       }
     }
 
@@ -401,7 +428,7 @@ void TaskCollection::WaitOrSteal() {
 
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::LOW>(
     uint16_t worker_id, const std::vector<std::unique_ptr<memgraph::utils::PriorityThreadPool::Worker>> &,
-    memgraph::utils::HotMask &hot_threads);
+    memgraph::utils::HotMask &hot_threads, const std::atomic<memgraph::utils::IdlePoller *> &idle_poller);
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::HIGH>(
     uint16_t worker_id, const std::vector<std::unique_ptr<memgraph::utils::PriorityThreadPool::Worker>> &,
-    memgraph::utils::HotMask &hot_threads);
+    memgraph::utils::HotMask &hot_threads, const std::atomic<memgraph::utils::IdlePoller *> &idle_poller);

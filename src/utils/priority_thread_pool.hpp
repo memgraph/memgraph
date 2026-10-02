@@ -73,6 +73,19 @@ class HotMask {
 
 using TaskSignature = std::move_only_function<void(utils::Priority)>;
 
+// A unit of work claimed from an IdlePoller; the claimant owns it and runs it on its own thread.
+struct IdleRunnable {
+  virtual ~IdleRunnable() = default;
+  virtual void RunInline(Priority thread_priority) = 0;
+};
+
+// Event source polled by idle (spinning) mixed workers. Implemented outside utils.
+struct IdlePoller {
+  virtual ~IdlePoller() = default;
+  // Never blocks. Returns a claimed, ready unit of work or nullptr.
+  virtual std::shared_ptr<IdleRunnable> TryClaim() = 0;
+};
+
 // Collection of tasks that can be executed by the thread pool
 // The idea is to batch tasks and have the ability to wait on them
 // Also execute non scheduler tasks in the local thread
@@ -149,6 +162,9 @@ class PriorityThreadPool {
 
   uint64_t GetNumHighPriorityWorkers() const { return hp_workers_.size(); }
 
+  // The poller must outlive every worker call into it: clear it (or join the pool) before destroying it.
+  void SetIdlePoller(IdlePoller *poller) { idle_poller_.store(poller, std::memory_order_release); }
+
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
 
   // Single worker implementation
@@ -174,7 +190,8 @@ class PriorityThreadPool {
     void stop();
 
     template <Priority ThreadPriority>
-    void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads);
+    void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads,
+                    const std::atomic<IdlePoller *> &idle_poller);
 
    private:
     mutable std::mutex mtx_;
@@ -202,6 +219,7 @@ class PriorityThreadPool {
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
   utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
 
+  std::atomic<IdlePoller *> idle_poller_{nullptr};
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
 };
