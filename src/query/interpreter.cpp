@@ -117,6 +117,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
+#include "storage/v2/indices/vector_property_conflicts.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
@@ -4955,6 +4956,27 @@ std::optional<storage::IndexOrder> ResolveIndexConfigOrder(std::unordered_map<Ex
   }
   return order;
 }
+
+// Throws when `proposed` (vector indexes, or ordinary indexes / unique constraints) and what the database already
+// holds would cover one property with both kinds.
+void ThrowOnVectorPropertyConflict(
+    DbAccessor const &dba, storage::Storage &storage, storage::IndicesInfo proposed,
+    std::vector<std::pair<storage::LabelId, std::set<storage::PropertyId>>> unique = {}) {
+  auto existing = dba.ListAllIndices();
+  if (!proposed.vector_indices_spec.empty() || !proposed.vector_edge_indices_spec.empty()) {
+    existing.vector_indices_spec = std::move(proposed.vector_indices_spec);
+    existing.vector_edge_indices_spec = std::move(proposed.vector_edge_indices_spec);
+    auto const conflicts =
+        storage::FindVectorPropertyConflicts(existing, dba.ListAllConstraints().unique, *storage.name_id_mapper_);
+    if (!conflicts.empty()) throw QueryRuntimeException(storage::VectorIndexOnIndexedPropertyError(conflicts.front()));
+    return;
+  }
+  if (existing.vector_indices_spec.empty() && existing.vector_edge_indices_spec.empty()) return;
+  proposed.vector_indices_spec = std::move(existing.vector_indices_spec);
+  proposed.vector_edge_indices_spec = std::move(existing.vector_edge_indices_spec);
+  auto const conflicts = storage::FindVectorPropertyConflicts(proposed, unique, *storage.name_id_mapper_);
+  if (!conflicts.empty()) throw QueryRuntimeException(storage::OrdinaryIndexOnVectorPropertyError(conflicts.front()));
+}
 }  // namespace
 
 PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
@@ -4996,8 +5018,9 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       case IndexQuery::Action::CREATE: {
         index_notification.code = NotificationCode::CREATE_INDEX;
         index_notification.title = fmt::format("Created global vertex property index on property {}.", prop_name);
-        handler = [dba, property, prop_name, stopping_context = std::move(stopping_context)](
+        handler = [dba, storage, property, prop_name, stopping_context = std::move(stopping_context)](
                       Notification &index_notification) mutable {
+          ThrowOnVectorPropertyConflict(*dba, *storage, storage::IndicesInfo{.vertex_property = {property}});
           auto cancel_callback = make_create_index_cancel_callback(stopping_context);
           auto maybe_error = dba->CreateGlobalVertexIndex(property, std::move(cancel_callback));
           if (!maybe_error) {
@@ -5072,12 +5095,20 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
 
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba,
+                 storage,
                  label,
                  properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name,
                  properties = std::move(properties),
                  order = resolved_order.value_or(storage::IndexOrder::ASC),
                  stopping_context = std::move(stopping_context)](Notification &index_notification) mutable {
+        if (!properties.empty()) {
+          ThrowOnVectorPropertyConflict(
+              *dba,
+              *storage,
+              storage::IndicesInfo{.label_properties = {storage::LabelPropertyIndexEntry{
+                                       .label = label, .properties = properties, .order = order}}});
+        }
         auto cancel_callback = make_create_index_cancel_callback(stopping_context);
         auto maybe_index_error =
             properties.empty() ? dba->CreateIndex(label, std::move(cancel_callback))
@@ -5200,6 +5231,7 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       }
 
       handler = [dba,
+                 storage,
                  edge_type,
                  edge_type_name = index_query->edge_type_.name,
                  global_index = index_query->global_,
@@ -5207,6 +5239,16 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
                  properties = std::move(properties),
                  stopping_context = std::move(stopping_context)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
+
+        if (!properties.empty()) {
+          storage::IndicesInfo proposed;
+          if (global_index) {
+            proposed.edge_property = {properties[0]};
+          } else {
+            proposed.edge_type_property = {{edge_type, properties[0]}};
+          }
+          ThrowOnVectorPropertyConflict(*dba, *storage, std::move(proposed));
+        }
 
         const std::expected<void, storage::StorageIndexDefinitionError> maybe_index_error = std::invoke([&] {
           auto cancel_check = make_create_index_cancel_callback(stopping_context);
@@ -5429,7 +5471,7 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
         std::vector<storage::LabelId> label_ids;
         for (const auto &name : label_names) label_ids.push_back(storage->NameToLabel(name));
         auto prop_id = storage->NameToProperty(prop_name);
-        auto maybe_error = dba->CreateVectorIndex(storage::VectorIndexSpec{
+        storage::VectorIndexSpec spec{
             .index_name = index_name,
             .label_filter = storage::VectorLabelFilter{.mode = label_mode, .ids = std::move(label_ids)},
             .property = prop_id,
@@ -5438,7 +5480,9 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
             .resize_coefficient = vector_index_config.resize_coefficient,
             .capacity = vector_index_config.capacity,
             .scalar_kind = vector_index_config.scalar_kind,
-        });
+        };
+        ThrowOnVectorPropertyConflict(*dba, *storage, storage::IndicesInfo{.vector_indices_spec = {spec}});
+        auto maybe_error = dba->CreateVectorIndex(std::move(spec));
         utils::OnScopeExit const invalidator(invalidate_plan_cache);
         if (!maybe_error) {
           index_notification.title =
@@ -5540,7 +5584,7 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
     std::vector<storage::EdgeTypeId> edge_type_ids;
     for (const auto &name : edge_type_names) edge_type_ids.push_back(storage->NameToEdgeType(name));
     auto prop_id = storage->NameToProperty(prop_name);
-    auto maybe_error = dba->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
+    storage::VectorEdgeIndexSpec spec{
         .index_name = index_name,
         .edge_type_filter = storage::VectorEdgeTypeFilter{.mode = edge_type_mode, .ids = std::move(edge_type_ids)},
         .property = prop_id,
@@ -5549,7 +5593,9 @@ PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool i
         .resize_coefficient = vector_index_config.resize_coefficient,
         .capacity = vector_index_config.capacity,
         .scalar_kind = vector_index_config.scalar_kind,
-    });
+    };
+    ThrowOnVectorPropertyConflict(*dba, *storage, storage::IndicesInfo{.vector_edge_indices_spec = {spec}});
+    auto maybe_error = dba->CreateVectorEdgeIndex(std::move(spec));
     utils::OnScopeExit const invalidator(invalidate_plan_cache);
     if (!maybe_error) {
       index_notification.title =
@@ -8511,6 +8557,7 @@ PreparedQuery PrepareConstraintQuery(ParsedQuery parsed_query, bool in_explicit_
                      label_name = constraint_query->constraint_.label.name,
                      properties_stringified = std::move(properties_stringified),
                      property_set = std::move(property_set)](Notification &constraint_notification) {
+            ThrowOnVectorPropertyConflict(*dba, *storage, {}, {{label, property_set}});
             auto maybe_constraint_error = dba->CreateUniqueConstraint(label, property_set);
             if (!maybe_constraint_error) {
               const auto &error = maybe_constraint_error.error();

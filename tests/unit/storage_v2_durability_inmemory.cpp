@@ -31,6 +31,8 @@
 #include <type_traits>
 #include <utility>
 
+#include <spdlog/sinks/ostream_sink.h>
+#include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
 
 #include "dbms/database.hpp"
@@ -2550,6 +2552,147 @@ TEST_P(DurabilityTest, WalBasic) {
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+// A data dir holding a vector index next to an ordinary index / unique constraint on the same property must still
+// recover (from snapshot and from WAL), and recovery must warn once per conflicting pair.
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST_F(DurabilityTest, RecoveryWarnsOnVectorPropertyConflicts) {
+  using namespace memgraph::storage;
+  for (const bool from_snapshot : {true, false}) {
+    SCOPED_TRACE(from_snapshot ? "snapshot" : "wal");
+    const auto make_config = [&](bool recover) {
+      Config config{.durability = {.storage_directory = storage_directory,
+                                   .recover_on_startup = recover,
+                                   .snapshot_wal_mode = Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                                   .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                                   .wal_file_flush_every_n_tx = kFlushWalEvery,
+                                   .snapshot_on_exit = from_snapshot},
+                    .salient = {.items = {.properties_on_edges = true, .enable_schema_info = false}}};
+      return config;
+    };
+    const auto vector_value = [](uint64_t index_id) {
+      return PropertyValue(PropertyValue::VectorIndexIdData{memgraph::utils::small_vector<uint64_t>{index_id},
+                                                            memgraph::utils::small_vector<float>{1.0F, 2.0F}});
+    };
+
+    {
+      memgraph::dbms::Database db{make_config(false)};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+      auto *store = db.storage();
+      const auto label = store->NameToLabel("L");
+      const auto edge_type = store->NameToEdgeType("T");
+      const auto emb = store->NameToProperty("emb");
+      {
+        auto acc = store->UniqueAccess();
+        ASSERT_TRUE(
+            acc->CreateVectorIndex(VectorIndexSpec{.index_name = "vi",
+                                                   .label_filter = VectorLabelFilter{VectorMatchMode::SINGLE, {label}},
+                                                   .property = emb,
+                                                   .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                                   .dimension = 2,
+                                                   .resize_coefficient = 2,
+                                                   .capacity = 100,
+                                                   .scalar_kind = unum::usearch::scalar_kind_t::f32_k})
+                .has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      {
+        auto acc = store->UniqueAccess();
+        ASSERT_TRUE(
+            acc->CreateVectorEdgeIndex(
+                   VectorEdgeIndexSpec{.index_name = "ve",
+                                       .edge_type_filter = VectorEdgeTypeFilter{VectorMatchMode::SINGLE, {edge_type}},
+                                       .property = emb,
+                                       .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                       .dimension = 2,
+                                       .resize_coefficient = 2,
+                                       .capacity = 100,
+                                       .scalar_kind = unum::usearch::scalar_kind_t::f32_k})
+                .has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      {
+        auto acc = store->ReadOnlyAccess();
+        ASSERT_TRUE(acc->CreateIndex(label, {emb}).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      {
+        auto acc = store->ReadOnlyAccess();
+        ASSERT_TRUE(acc->CreateIndex(edge_type, emb).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      {
+        auto acc = store->ReadOnlyAccess();
+        ASSERT_TRUE(acc->CreateUniqueConstraint(label, {emb}).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      {
+        auto acc = db.Access(WRITE);
+        auto vertex = acc->CreateVertex();
+        ASSERT_TRUE(vertex.AddLabel(label).has_value());
+        const auto list = PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+        ASSERT_TRUE(vertex.SetProperty(emb, list).has_value());
+        auto edge = acc->CreateEdge(&vertex, &vertex, edge_type);
+        ASSERT_TRUE(edge.has_value());
+        ASSERT_TRUE(edge->SetProperty(emb, list).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+    }
+
+    {
+      std::ostringstream captured;
+      auto sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(captured);
+      auto logger = spdlog::default_logger();
+      const auto old_level = logger->level();
+      logger->set_level(spdlog::level::warn);
+      logger->sinks().push_back(sink);
+      const auto detach = memgraph::utils::OnScopeExit{[&] {
+        std::erase(logger->sinks(), sink);
+        logger->set_level(old_level);
+      }};
+
+      memgraph::dbms::Database db{make_config(true)};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+      logger->flush();
+
+      const auto log = captured.str();
+      const auto count_of = [&](std::string_view needle) {
+        size_t n = 0;
+        for (auto pos = log.find(needle); pos != std::string::npos; pos = log.find(needle, pos + 1)) ++n;
+        return n;
+      };
+      EXPECT_EQ(count_of("both cover property"), 3) << log;
+      EXPECT_EQ(count_of("Vector index vi and label+property index :L(emb) both cover property emb"), 1) << log;
+      EXPECT_EQ(count_of("Vector index vi and unique constraint :L(emb) both cover property emb"), 1) << log;
+      EXPECT_EQ(count_of("Vector edge index ve and edge-type+property index :T(emb) both cover property emb"), 1)
+          << log;
+
+      auto *store = db.storage();
+      const auto label = store->NameToLabel("L");
+      const auto edge_type = store->NameToEdgeType("T");
+      const auto emb = store->NameToProperty("emb");
+      auto acc = store->Access(READ);
+      const auto indices = acc->ListAllIndices();
+      ASSERT_EQ(indices.vector_indices_spec.size(), 1);
+      EXPECT_EQ(indices.vector_indices_spec[0].index_name, "vi");
+      ASSERT_EQ(indices.vector_edge_indices_spec.size(), 1);
+      EXPECT_EQ(indices.vector_edge_indices_spec[0].index_name, "ve");
+      EXPECT_THAT(indices.label_properties,
+                  UnorderedElementsAre(LabelPropertyIndexEntry{label, std::vector{PropertyPath{emb}}}));
+      EXPECT_THAT(indices.edge_type_property, UnorderedElementsAre(std::make_pair(edge_type, emb)));
+      EXPECT_THAT(acc->ListAllConstraints().unique, UnorderedElementsAre(std::make_pair(label, std::set{emb})));
+
+      auto vertices = acc->Vertices(View::OLD);
+      auto it = vertices.begin();
+      ASSERT_NE(it, vertices.end());
+      auto value = (*it).GetProperty(emb, View::OLD);
+      ASSERT_TRUE(value.has_value());
+      EXPECT_EQ(*value, vector_value(acc->GetNameIdMapper()->NameToId("vi")));
+    }
+
+    std::filesystem::remove_all(storage_directory);
   }
 }
 

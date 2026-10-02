@@ -53,6 +53,7 @@ target_sources(mg-storage-v2
         indices/text_index_utils.cpp
         indices/vector_edge_index.cpp
         indices/vector_index.cpp
+        indices/vector_property_conflicts.cpp
         indices/vertex_property_index.cpp
         inmemory/edge_property_index.cpp
         inmemory/edge_type_index.cpp
@@ -129,6 +130,7 @@ target_sources(mg-storage-v2
         indices/vector_edge_index.hpp
         indices/vector_index.hpp
         indices/vector_index_utils.hpp
+        indices/vector_property_conflicts.hpp
         inmemory/indices_mvcc.hpp
         inmemory/storage.hpp
         inmemory/storagefwd.hpp
