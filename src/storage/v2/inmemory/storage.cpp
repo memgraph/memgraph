@@ -4493,26 +4493,39 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   // stuff are mutually exclusive from each other
   auto const snapshot_guard = std::unique_lock(snapshot_lock_);
 
-  auto accessor = std::invoke([&]() {
+  auto const make_accessor = [&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       // For analytical no other write txn can be in play
       return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation?
     }
     return Access(StorageAccessType::READ, IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
-  });
+  };
+  // Read under engine_lock_: a replica switches epoch when the first commit of a new main arrives, and that
+  // can happen while the snapshot is being written.
+  auto const read_epoch_state = [this] {
+    auto const engine_guard = std::unique_lock{engine_lock_};
+    return std::pair{repl_storage_state_.epoch_, repl_storage_state_.history};
+  };
+
+  // The accessor takes its start timestamp in its own engine_lock_ hold, so an epoch switch can land between
+  // that and the read below. The snapshot would then tag data from before the switch with the epoch after
+  // it, and a main that never saw that epoch would reject the recovered replica as diverged. Reading the epoch
+  // on both sides of the accessor detects the switch; a further pass needs a further main promotion.
+  auto epoch_before = read_epoch_state().first;
+  auto accessor = make_accessor();
+  auto epoch_state = read_epoch_state();
+  while (epoch_state.first != epoch_before) {
+    epoch_before = epoch_state.first;
+    accessor.reset();
+    accessor = make_accessor();
+    epoch_state = read_epoch_state();
+  }
+  auto &[epoch, epoch_history] = epoch_state;
 
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
 
   DMG_ASSERT(transaction->last_durable_ts_.has_value());
-  // Copied under engine_lock_: a replica switches epoch when the first commit of a new main arrives, and that
-  // can happen while the snapshot is being written. The copy is taken after Access(), so it may already hold
-  // the new epoch while the snapshot's data predates that epoch's first commit. That is harmless: a main sees
-  // such a snapshot's ldt as behind in an epoch it knows, which only means catching the replica up from WAL.
-  auto [epoch, epoch_history] = std::invoke([this] {
-    auto const engine_guard = std::unique_lock{engine_lock_};
-    return std::pair{repl_storage_state_.epoch_, repl_storage_state_.history};
-  });
   auto const &storage_uuid = uuid();
 
   SnapshotDigest current_digest;
