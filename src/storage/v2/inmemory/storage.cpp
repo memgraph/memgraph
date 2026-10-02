@@ -4883,13 +4883,16 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
-void InMemoryStorage::PrepareForNewEpoch() {
+void InMemoryStorage::PrepareForNewEpoch(::memgraph::replication::ReplicationEpoch new_epoch) {
+  // Switch epoch in the same engine_lock_ hold as the WAL reset: TTL/async-indexer commits skip the repl_state lock
+  // and could otherwise open a WAL tagged with the old epoch.
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
   repl_storage_state_.SaveLatestHistory();
+  repl_storage_state_.epoch_ = std::move(new_epoch);
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {

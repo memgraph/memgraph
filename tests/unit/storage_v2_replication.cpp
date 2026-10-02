@@ -1697,6 +1697,45 @@ TEST_F(ReplicationTest, RecoveryStepsAfterPeriodicSnapshot) {
   }
 }
 
+// PrepareForNewEpoch finalizes the open WAL, records the old epoch in history and switches to the new epoch, which
+// tags the next WAL.
+TEST_F(ReplicationTest, PrepareForNewEpochSwitchesEpochWithTheWalReset) {
+  MinMemgraph main(main_conf);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+  auto &repl_state = in_mem->repl_storage_state_;
+
+  auto const create_vertex_and_commit = [&] {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+
+  auto const old_epoch = std::string{repl_state.epoch_.id()};
+  create_vertex_and_commit();
+  auto const old_epoch_ldt = repl_state.commit_ts_info_.load().ldt_;
+
+  memgraph::replication::ReplicationEpoch const new_epoch;
+  ASSERT_NE(new_epoch.id(), old_epoch);
+  main.db.storage()->PrepareForNewEpoch(new_epoch);
+
+  EXPECT_EQ(repl_state.epoch_.id(), new_epoch.id());
+  ASSERT_FALSE(repl_state.history.empty());
+  EXPECT_EQ(repl_state.history.back(), std::make_pair(old_epoch, old_epoch_ldt));
+
+  create_vertex_and_commit();
+  // Closes the WAL opened by the commit above so GetWalFiles lists it
+  main.db.storage()->PrepareForNewEpoch(memgraph::replication::ReplicationEpoch{});
+
+  auto const wal_dir = in_mem->config_.durability.storage_directory / memgraph::storage::durability::kWalDirectory;
+  auto const wals = memgraph::storage::durability::GetWalFiles(wal_dir, std::string{in_mem->uuid()});
+  ASSERT_TRUE(wals.has_value());
+  ASSERT_EQ(wals->size(), 2U);
+  EXPECT_EQ(wals->front().epoch_id, old_epoch);
+  EXPECT_EQ(wals->front().to_timestamp, old_epoch_ldt);
+  EXPECT_EQ(wals->back().epoch_id, new_epoch.id());
+}
+
 // Analytical writes are never appended to the WAL, so a storage that replicates must not be allowed to
 // enter analytical mode; registration in the other order must be refused too.
 TEST_F(ReplicationTest, AnalyticalModeAndReplicationAreMutuallyExclusive) {

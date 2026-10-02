@@ -281,34 +281,33 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     // because server has already been stopped
     dbms::InMemoryReplicationHandlers::DestroyReplAccessor();
 
+    // All DBs should have the same epoch
+    auto const new_epoch = ReplicationEpoch();
+    spdlog::info("Generated new epoch {}", new_epoch.id());
+
     // STEP 2) bring down all REPLICA servers
-    dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+    // Also switches storage to new_epoch, atomically with the WAL reset (contract at Storage::PrepareForNewEpoch)
+    dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      // Remember old epoch + storage timestamp association
-      storage->PrepareForNewEpoch();
+      storage->PrepareForNewEpoch(new_epoch);
     });
 
     // STEP 3) Change to MAIN
     // TODO: restore replication servers if false?
     if (!locked_repl_state->SetReplicationRoleMain(main_uuid)) {
       // TODO: Handle recovery on failure???
+      // No epoch rollback: a forced MAIN keeps committing under new_epoch; a REPLICA keeps reporting the old epoch
+      // until it adopts its main's
       return false;
     }
 
-    // All DBs should have the same epoch
-    auto const new_epoch = ReplicationEpoch();
-    spdlog::info("Generated new epoch {}", new_epoch.id());
-
-    // STEP 4) We are now MAIN, update storage local epoch
+    // STEP 4) We are now MAIN, update storage timestamp
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
 
       // Modifying storage->timestamp_ needs to be done under the engine lock.
       // Engine lock needs to be acquired after the repl state lock
       auto lock = std::lock_guard{storage->engine_lock_};
-
-      // Under the engine lock because commits and snapshot creation read the epoch under it.
-      storage->repl_storage_state_.epoch_ = new_epoch;
 
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
       // We need to take bigger timestamp not to lose durability ordering
