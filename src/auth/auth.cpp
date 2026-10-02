@@ -383,9 +383,9 @@ auto ParseAndMigrateJson(std::string_view str) {
 
 // Validates an auth module's response object and, on a successful authentication, returns the role names it reports.
 // Returns nullopt if the module did not authenticate, the response is malformed, or no role was returned. This is the
-// portion of the module contract shared by the data-instance path (Auth::CallExternalModule, which additionally
-// validates the roles against the auth kvstore) and the coordinator path (Auth::SSOGetIdentity, which validates them
-// against the Raft-replicated coordinator role set instead).
+// portion of the module contract shared by the data-instance path (auth::Authenticate / auth::SSOAuthenticate, via
+// Auth::ResolveModuleResponse, which additionally validates the roles against the auth kvstore) and the coordinator
+// path (auth::SSOGetIdentity, which validates them against the Raft-replicated coordinator role set instead).
 std::optional<std::vector<std::string>> ExtractAuthenticatedRoleNames(const nlohmann::json &ret) {
   auto get_errors = [&ret]() -> std::string {
     std::string default_error = "Couldn't authenticate user: check stderr for auth module error messages.";
@@ -559,13 +559,6 @@ Auth::Auth(std::string storage_directory, Config config
 #endif
 }  // namespace memgraph::auth
 
-std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, nlohmann::json module_params,
-                                                   std::optional<std::string> provided_username) {
-  spdlog::trace("Calling external auth module for scheme '{}'.", scheme);
-  return ResolveModuleResponse(modules_.at(scheme).Call(std::move(module_params), FLAGS_auth_module_timeout_ms),
-                               std::move(provided_username));
-}
-
 std::optional<UserOrRole> Auth::ResolveModuleResponse(const nlohmann::json &ret,
                                                       std::optional<std::string> provided_username) const {
   auto get_string_field = [&ret](const auto &name) -> std::optional<std::string> {
@@ -629,74 +622,6 @@ std::optional<UserOrRole> Auth::ResolveModuleResponse(const nlohmann::json &ret,
   spdlog::trace(
       "Authenticated user '{}' with roles: {}.", *username, memgraph::utils::JoinVector(roles.rolenames(), ", "));
   return UserOrRole(auth::RoleWUsername{*username, roles});
-}
-
-std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const std::string &password) {
-  if (!modules_.contains("basic")) {
-    /*
-     * LOCAL AUTH STORAGE
-     */
-    auto user = VerifyLocalPassword(GetUser(username), username, password);
-    if (!user) return std::nullopt;
-    if (user->UpgradeHash(password)) {
-      SaveUser(*user);
-    }
-    return user;
-  }
-
-  if (!HasAuthModulePrerequisites("basic")) {
-    return std::nullopt;
-  }
-
-  nlohmann::json params = nlohmann::json::object();
-  params["username"] = username;
-  params["password"] = password;
-
-  return CallExternalModule("basic", std::move(params), username);
-}
-
-std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
-                                                const std::string &identity_provider_response) {
-  spdlog::info("SSO login attempt using scheme '{}'.", scheme);
-  if (!HasAuthModulePrerequisites(scheme)) {
-    spdlog::warn("SSO login failed for scheme '{}'.", scheme);
-    return std::nullopt;
-  }
-
-  nlohmann::json params = nlohmann::json::object();
-  params["scheme"] = scheme;
-  params["response"] = identity_provider_response;
-
-  auto user_or_role = CallExternalModule(scheme, std::move(params));
-  if (!user_or_role) {
-    spdlog::warn("SSO login failed for scheme '{}'.", scheme);
-    return std::nullopt;
-  }
-  spdlog::info("SSO login succeeded for scheme '{}'.", scheme);
-  return user_or_role;
-}
-
-std::optional<SSOIdentity> Auth::SSOGetIdentity(const std::string &scheme,
-                                                const std::string &identity_provider_response) {
-  // Same enterprise-license + configured-module gate as the data-instance SSO path: a missing license or an unmapped
-  // scheme rejects (returns nullopt), so SSO on coordinators is enterprise-gated too.
-  spdlog::info("Coordinator SSO login attempt using scheme '{}'.", scheme);
-  if (!HasAuthModulePrerequisites(scheme)) {
-    spdlog::warn("Coordinator SSO login failed for scheme '{}'.", scheme);
-    return std::nullopt;
-  }
-
-  nlohmann::json params = nlohmann::json::object();
-  params["scheme"] = scheme;
-  params["response"] = identity_provider_response;
-
-  // Reuse the auth-module subprocess machinery to run the module, but only extract the identity it reports. The
-  // coordinator path deliberately does NOT validate the roles against the auth kvstore (GetRole) or check for a
-  // colliding local user -- coordinators have no user/role records in the kvstore; role existence is checked by the
-  // caller against the Raft-replicated coordinator role set.
-  spdlog::trace("Calling external auth module for coordinator SSO scheme '{}'.", scheme);
-  auto ret = modules_.at(scheme).Call(std::move(params), FLAGS_auth_module_timeout_ms);
-  return ExtractSSOIdentity(scheme, ret);
 }
 
 Module *Auth::GetAuthModule(const std::string &scheme) {
@@ -893,11 +818,6 @@ std::optional<HashedPassword> Auth::ComputePasswordHash(const std::optional<std:
 
 void Auth::ValidateName(const std::string &name) const {
   if (!NameRegexMatch(name)) throw AuthException("Invalid user name.");
-}
-
-void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &password) const {
-  if (!IsUserDefinedHash(password)) ValidatePassword(password);
-  user.SetPasswordHash(ComputePasswordHash(password));
 }
 
 std::optional<User> Auth::AddUserWithHash(const std::string &username, std::optional<HashedPassword> precomputed_hash,
