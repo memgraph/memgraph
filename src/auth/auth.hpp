@@ -58,6 +58,15 @@ struct SSOIdentity {
   std::vector<std::string> roles;
 };
 
+// Free functions: take the auth lock internally; run the module/bcrypt with no lock held.
+std::optional<UserOrRole> Authenticate(SynchedAuth &auth, const std::string &username, const std::string &password);
+std::optional<UserOrRole> SSOAuthenticate(SynchedAuth &auth, const std::string &scheme,
+                                          const std::string &identity_provider_response);
+// Coordinator SSO: reports the module's identity with NO kvstore validation (coordinators keep no user/role records);
+// the caller checks role names against the Raft-replicated role set. Enterprise-license gated via the module lookup.
+std::optional<SSOIdentity> SSOGetIdentity(SynchedAuth &auth, const std::string &scheme,
+                                          const std::string &identity_provider_response);
+
 /**
  * This class serves as the main Authentication/Authorization storage.
  * It provides functions for managing Users, Roles, Permissions and FineGrainedAccessPermissions.
@@ -135,52 +144,12 @@ class Auth final {
    */
   Config GetConfig() const { return config_; }
 
-  /**
-   * Calls the external auth module and validates its response.
-   *
-   * @param scheme
-   * @param module_params
-   * @param provided_username
-   *
-   * @return username + role if the module authenticated successfully and provided a valid response, nullopt otherwise
-   */
-  std::optional<UserOrRole> CallExternalModule(const std::string &scheme, nlohmann::json module_params,
-                                               std::optional<std::string> provided_username = std::nullopt);
+  /// Returns the Module for `scheme`; nullptr if prerequisites fail. Callable under MutableSharedLock().
+  Module *GetAuthModule(const std::string &scheme);
 
-  /**
-   * Authenticates a user identified by username and password.
-   *
-   * @param username
-   * @param password
-   *
-   * @return a user when the username and password match, nullopt otherwise
-   * @throw AuthException if unable to authenticate for whatever reason.
-   */
-  std::optional<UserOrRole> Authenticate(const std::string &username, const std::string &password);
-
-  /**
-   * Authenticates a user using the identity provider response/token. Requires an external auth module.
-   *
-   * @param response
-   *
-   * @return username + role if the identity provider response is valid, nullopt otherwise
-   */
-  std::optional<UserOrRole> SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
-
-  /**
-   * Runs the SSO auth module for a coordinator connection and returns the identity it reports on success.
-   *
-   * Unlike SSOAuthenticate, this performs NO validation against the auth kvstore (no GetRole lookup, no local-user
-   * collision check): coordinators keep no user/role records in the kvstore. The caller validates the returned role
-   * names against the Raft-replicated coordinator role set. Enterprise-license gated via HasAuthModulePrerequisites.
-   *
-   * @param scheme
-   * @param identity_provider_response
-   *
-   * @return the reported username + role names on a successful authentication, nullopt on any
-   *         module/authentication/parse failure
-   */
-  std::optional<SSOIdentity> SSOGetIdentity(const std::string &scheme, const std::string &identity_provider_response);
+  /// Validates a module response and resolves roles/user against the kvstore; callable under ReadLock().
+  std::optional<UserOrRole> ResolveModuleResponse(const nlohmann::json &ret,
+                                                  std::optional<std::string> provided_username) const;
 
   /**
    * Gets a user from the storage.
@@ -204,18 +173,6 @@ class Auth final {
   void SaveUser(const User &user, system::Transaction *system_tx = nullptr);
 
   /**
-   * Creates a user if the user doesn't exist.
-   *
-   * @param username
-   * @param password
-   *
-   * @return a user when the user is created, nullopt if the user exists
-   * @throw AuthException if unable to save the user.
-   */
-  std::optional<User> AddUser(const std::string &username, const std::optional<std::string> &password = std::nullopt,
-                              system::Transaction *system_tx = nullptr);
-
-  /**
    * Initializes the first user, which will be the super admin.
    */
   void InitialiseFirstUser(User &user, system::Transaction *system_tx = nullptr);
@@ -231,13 +188,21 @@ class Auth final {
    */
   bool RemoveUser(const std::string &username, system::Transaction *system_tx = nullptr);
 
-  /**
-   * @brief
-   *
-   * @param user
-   * @param password
-   */
-  void UpdatePassword(auth::User &user, const std::optional<std::string> &password);
+  /// Validates plaintext password against current policy; throws AuthException on violation.
+  void ValidatePassword(const std::optional<std::string> &password) const;
+
+  /// Validates a name against the configured regex; throws AuthException on mismatch.
+  void ValidateName(const std::string &name) const;
+
+  /// Returns true when password is a recognised pre-hashed encoding; never blocks on bcrypt.
+  static bool IsUserDefinedHash(const std::optional<std::string> &password);
+
+  /// Hashes password with no auth-state access; safe to call with no lock held.
+  static std::optional<HashedPassword> ComputePasswordHash(const std::optional<std::string> &password);
+
+  /// Creates a user with a precomputed hash; does NOT validate password policy — caller's responsibility.
+  std::optional<User> AddUserWithHash(const std::string &username, std::optional<HashedPassword> precomputed_hash,
+                                      system::Transaction *system_tx = nullptr);
 
   /**
    * Gets all users from the storage.

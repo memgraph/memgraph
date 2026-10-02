@@ -16,6 +16,7 @@
 
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "auth_test_utils.hpp"
 #include "disk_test_utils.hpp"
 #include "glue/auth_checker.hpp"
 
@@ -312,7 +313,7 @@ TEST(AuthChecker, Generate) {
       empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db", &memgraph::query::session_long_policy));
 
   // Add user
-  auto user = auth->AddUser("new_user");
+  auto user = AddUser(*auth.Lock(), "new_user");
   ASSERT_TRUE(user);
 
   // ~Empty user should now fail~
@@ -325,7 +326,7 @@ TEST(AuthChecker, Generate) {
 
   // Add role and new user
   auto new_role = *auth->AddRole("new_role");
-  auto new_user2 = *auth->AddUser("new_user2");
+  auto new_user2 = *AddUser(*auth.Lock(), "new_user2");
   auto role = auth_checker.GenQueryUser("anyuser", {"new_role"});
   auto user2 = auth_checker.GenQueryUser("new_user2", {});
 
@@ -669,7 +670,7 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, CachedCheckerRebuildsOnLicenseActivati
   auth::SynchedAuth synched_auth(auth_dir, auth::Auth::Config{});
   memgraph::glue::AuthChecker auth_checker(&synched_auth);
 
-  auto user = *synched_auth->AddUser("test_user");
+  auto user = *AddUser(*synched_auth.Lock(), "test_user");
   user.fine_grained_access_handler().label_permissions().Grant({"l1"}, auth::kAllLabelPermissions);
   user.fine_grained_access_handler().label_permissions().Deny({"l3"}, auth::kAllLabelPermissions);
   synched_auth->SaveUser(user);
