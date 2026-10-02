@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "coordination/coordinator_log_store.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
@@ -20,6 +21,13 @@
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
+
+#include <array>
+#include <chrono>
+#include <future>
+#include <memory>
+#include <thread>
+#include <utility>
 
 using memgraph::coordination::CoordinatorClusterStateDelta;
 using memgraph::coordination::CoordinatorInstanceContext;
@@ -441,7 +449,163 @@ auto MakeAppLogBuffer(std::string const &payload) -> std::shared_ptr<buffer> {
   bs.put_str(payload);
   return buf;
 }
+
+// Opening a store reads a bounded handful of keys, so this bound is six orders of magnitude of headroom. What it
+// catches is a recovery range that never ends, which a caller cannot otherwise distinguish from a slow start: the
+// constructor would hold the thread forever rather than fail.
+constexpr auto kOpenDeadline = std::chrono::seconds{10};
+
+// Returns nullptr, and fails the test, when construction does not finish within the bound.
+auto OpenWithLivenessBound(std::shared_ptr<memgraph::kvstore::KVStore> kv, memgraph::coordination::LoggerWrapper logger)
+    -> std::unique_ptr<CoordinatorLogStore> {
+  struct Opening {
+    std::shared_ptr<memgraph::kvstore::KVStore> kv;
+    std::unique_ptr<CoordinatorLogStore> store;
+    std::promise<void> opened;
+  };
+
+  auto opening = std::make_shared<Opening>();
+  opening->kv = std::move(kv);
+  auto opened = opening->opened.get_future();
+
+  // The worker holds its own reference to everything it touches, so a worker that never returns keeps its operands
+  // alive and this function can leave it running.
+  auto worker = std::thread{[opening, logger]() {
+    opening->store =
+        std::make_unique<CoordinatorLogStore>(logger, memgraph::coordination::LogStoreDurability{opening->kv});
+    opening->opened.set_value();
+  }};
+
+  if (opened.wait_for(kOpenDeadline) != std::future_status::ready) {
+    worker.detach();
+    ADD_FAILURE() << "Opening the log store did not finish in " << kOpenDeadline.count()
+                  << "s, so its recovery does not terminate.";
+    return nullptr;
+  }
+
+  worker.join();
+  return std::move(opening->store);
+}
 }  // namespace
+
+// NuRaft compacts a follower that takes an install-snapshot up to the leader's snapshot index, which sits above every
+// entry that follower ever stored. The log is then empty and begins after the snapshot, and reopening it must say so.
+TEST_F(CoordinatorLogStoreTests, CompactAboveEveryStoredEntryReopensAsEmptyLog) {
+  auto const path = test_folder_ / "CompactAboveEveryStoredEntry";
+  uint64_t constexpr kLeaderSnapshotIdx{10};
+
+  {
+    auto kv = std::make_shared<memgraph::kvstore::KVStore>(path);
+    memgraph::coordination::LogStoreDurability durability{kv};
+    CoordinatorLogStore log_store{CoordinatorLogStoreTests::GetLogger(), durability};
+
+    for (int i = 1; i <= 5; ++i) {
+      auto buf = MakeAppLogBuffer("entry" + std::to_string(i));
+      auto entry = nuraft::cs_new<log_entry>(i, buf, nuraft::log_val_type::app_log);
+      log_store.append(entry);
+    }
+    ASSERT_EQ(log_store.next_slot(), 6);
+
+    log_store.compact(kLeaderSnapshotIdx);
+    ASSERT_EQ(log_store.start_index(), kLeaderSnapshotIdx + 1);
+    ASSERT_EQ(log_store.next_slot(), kLeaderSnapshotIdx + 1);
+  }
+
+  auto log_store =
+      OpenWithLivenessBound(std::make_shared<memgraph::kvstore::KVStore>(path), CoordinatorLogStoreTests::GetLogger());
+  ASSERT_NE(log_store, nullptr);
+  EXPECT_EQ(log_store->start_index(), kLeaderSnapshotIdx + 1);
+  EXPECT_EQ(log_store->next_slot(), kLeaderSnapshotIdx + 1);
+}
+
+// Recovery reads the two durable indices as one range, and they are written by three operations that do not consult
+// each other. Enumerating short sequences of those operations checks the invariant against each of them in turn,
+// which a test of any single operation cannot: the pair only has to disagree once for the store to stop opening.
+TEST_F(CoordinatorLogStoreTests, EveryOperationSequenceLeavesTheDurableIndicesOrdered) {
+  enum class Op : uint8_t { Append, CompactAtLastEntry, CompactPastLastEntry, CompactAtZero, WriteAtStart };
+  constexpr std::array kOps{
+      Op::Append, Op::CompactAtLastEntry, Op::CompactPastLastEntry, Op::CompactAtZero, Op::WriteAtStart};
+
+  auto const apply = [](CoordinatorLogStore &store, Op const op, int const term) {
+    switch (op) {
+      case Op::Append: {
+        auto buf = MakeAppLogBuffer("appended");
+        auto entry = nuraft::cs_new<log_entry>(term, buf, nuraft::log_val_type::app_log);
+        store.append(entry);
+        break;
+      }
+      case Op::CompactAtLastEntry:
+        store.compact(store.next_slot() - 1);
+        break;
+      case Op::CompactPastLastEntry:
+        store.compact(store.next_slot() + 4);
+        break;
+      case Op::CompactAtZero:
+        store.compact(0);
+        break;
+      case Op::WriteAtStart: {
+        auto buf = MakeAppLogBuffer("overwritten");
+        auto entry = nuraft::cs_new<log_entry>(term, buf, nuraft::log_val_type::app_log);
+        store.write_at(store.start_index(), entry);
+        break;
+      }
+    }
+  };
+
+  auto const durable_indices = [](memgraph::kvstore::KVStore const &kv) {
+    auto const start = kv.Get(memgraph::coordination::kStartIdx);
+    auto const last = kv.Get(memgraph::coordination::kLastLogEntry);
+    EXPECT_TRUE(start.has_value() && last.has_value());
+    return std::pair{std::stoull(start.value_or("0")), std::stoull(last.value_or("0"))};
+  };
+
+  int sequence_id = 0;
+  for (auto const first : kOps) {
+    for (auto const second : kOps) {
+      for (auto const third : kOps) {
+        SCOPED_TRACE("sequence " + std::to_string(sequence_id));
+        auto const path = test_folder_ / ("Sequence" + std::to_string(sequence_id++));
+        int term = 1;
+
+        {
+          auto kv = std::make_shared<memgraph::kvstore::KVStore>(path);
+          memgraph::coordination::LogStoreDurability durability{kv};
+          CoordinatorLogStore log_store{CoordinatorLogStoreTests::GetLogger(), durability};
+
+          for (auto const op : {first, second, third}) {
+            apply(log_store, op, term++);
+            auto const [start, last] = durable_indices(*kv);
+            EXPECT_LE(start, last + 1) << "durable indices describe a range that runs backwards";
+          }
+        }
+
+        auto reopened = OpenWithLivenessBound(std::make_shared<memgraph::kvstore::KVStore>(path),
+                                              CoordinatorLogStoreTests::GetLogger());
+        ASSERT_NE(reopened, nullptr);
+        EXPECT_GE(reopened->next_slot(), reopened->start_index());
+      }
+    }
+  }
+}
+
+// The same durable state, reached by a version that advanced the start index alone. Such a directory already exists in
+// the field, so recovery has to repair the pair rather than trust it.
+TEST_F(CoordinatorLogStoreTests, StartIndexAboveLastEntryIndexReopensAsEmptyLog) {
+  auto const path = test_folder_ / "StartIndexAboveLastEntryIndex";
+  uint64_t constexpr kStartIdxValue{11};
+
+  {
+    auto kv = memgraph::kvstore::KVStore{path};
+    ASSERT_TRUE(kv.Put(memgraph::coordination::kStartIdx, std::to_string(kStartIdxValue)));
+    ASSERT_TRUE(kv.Put(memgraph::coordination::kLastLogEntry, "5"));
+  }
+
+  auto log_store =
+      OpenWithLivenessBound(std::make_shared<memgraph::kvstore::KVStore>(path), CoordinatorLogStoreTests::GetLogger());
+  ASSERT_NE(log_store, nullptr);
+  EXPECT_EQ(log_store->start_index(), kStartIdxValue);
+  EXPECT_EQ(log_store->next_slot(), kStartIdxValue);
+}
 
 // Tests that new-format conf entries (JSON-serialized cluster_config) survive a full
 // store → restart → reload → deserialize cycle, and that the data round-trips correctly.

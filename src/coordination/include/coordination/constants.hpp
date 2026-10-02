@@ -41,7 +41,10 @@ constexpr std::string_view kLastConfig = "last_config";
 constexpr std::string_view kType = "type";
 
 // logs
-constexpr std::string_view kLogEntryPrefix = "log_entry_";    // top level
+constexpr std::string_view kLogEntryPrefix = "log_entry_";  // top level
+// Recovery reads the next two as one range, the entries from kStartIdx up to and including kLastLogEntry, so every
+// write leaves kStartIdx no greater than kLastLogEntry + 1. A write that advances kStartIdx carries whatever
+// kLastLogEntry needs in the same batch: a crash between two separate writes would leave a range running backwards.
 constexpr std::string_view kLastLogEntry = "last_log_entry";  // top level
 constexpr std::string_view kStartIdx = "start_idx";           // top level
 constexpr int kInitialStartIdx = 1;
