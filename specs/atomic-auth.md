@@ -128,13 +128,9 @@ Statements that are not auth statements are refused, including profile queries
 and the rest of Cypher. A profile query is a data query, so inside an auth
 transaction it is refused by the rule in 3.1 above.
 
-User profiles are **not** transactional. A user profile write is refused inside
-any transaction, because `UserProfiles` answers from an in-memory cache that the
-transaction can neither isolate nor roll back.
-
-Tenant profile writes are not transactional either, but they are **not
-refused**: one made inside a transaction applies immediately and stays applied
-after `ROLLBACK`. Keep them out of transactions.
+Profiles are **not** transactional. A profile write, user or tenant, is refused
+inside any transaction: both are durable the moment the statement runs, so a
+transaction could neither isolate them nor roll them back.
 
 ---
 
@@ -189,11 +185,10 @@ Upgrading replicas before the main avoids that cost.
 
 ## 6. Limits
 
-- **Profiles are outside the transaction.** A user profile write is refused
-  inside one. A tenant profile write is not refused, but is not transactional
-  either: it applies immediately and survives `ROLLBACK`. Profile reads answer
-  from committed state, and inside a data transaction they are not isolated, so
-  repeating one can give a different answer.
+- **Profiles are outside the transaction.** Profile writes, user and tenant, are
+  refused inside one. Profile reads answer from committed state, and inside a
+  data transaction they are not isolated, so repeating one can give a different
+  answer.
 - **Per-user resource limits are outside the transaction.** They are
   process-wide and have no rollback. A user dropped inside a transaction keeps
   its limits until the transaction commits.
