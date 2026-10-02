@@ -75,6 +75,16 @@ jobs:
           arch: ${{ env.ARCH }}
           toolchain: ${{ env.TOOLCHAIN }}
 
+      # REVERT BEFORE MERGING. Proves the merge-queue fail-fast end to end:
+      # this job must conclude "failure" while its siblings conclude
+      # "cancelled". Gated to merge_group so pull request checks stay green,
+      # since a pull request with a failing required check cannot be queued.
+      - name: Fail on purpose to exercise merge-queue fail-fast
+        if: ${{ github.event_name == 'merge_group' }}
+        run: |
+          sleep 60
+          exit 1
+
       - name: Build community binary
         run: |
           ./release/package/mgbuild.sh \
