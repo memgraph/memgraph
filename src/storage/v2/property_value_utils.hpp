@@ -110,6 +110,12 @@ inline bool EveryValueEqualsItself(std::vector<PropertyValue> const &values) {
   return std::ranges::all_of(values, [](auto const &value) { return EqualsItself(value); });
 }
 
+/// Whether writing `b` over `a` leaves the stored value unchanged.
+///
+/// Equality is not enough: an integer equals the double of the same number, and 0.0 equals -0.0,
+/// yet each is a different stored value. How a list is represented is not part of the value.
+bool AreIdentical(PropertyValue const &a, PropertyValue const &b);
+
 /// Compute the smallest string that is lexicographically greater than every
 /// string with the given prefix.  Returns std::nullopt when no tighter bound
 /// exists (empty prefix or all-0xFF bytes).
