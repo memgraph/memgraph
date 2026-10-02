@@ -553,7 +553,7 @@ void RecoverTypeConstraints(const RecoveredIndicesAndConstraints::ConstraintsMet
 // Recovery keeps accepting a vector index next to an ordinary index or unique constraint on the same property
 // (data written before creating such a pair was rejected); it only warns.
 void WarnOnVectorPropertyConflicts(RecoveredIndicesAndConstraints const &indices_constraints,
-                                   NameIdMapper *name_id_mapper) {
+                                   NameIdMapper &name_id_mapper) {
   auto const &recovered = indices_constraints.indices;
   if (recovered.vector_indices.empty() && recovered.vector_edge_indices.empty()) return;
 
@@ -572,7 +572,7 @@ void WarnOnVectorPropertyConflicts(RecoveredIndicesAndConstraints const &indices
   for (auto const &ve : recovered.vector_edge_indices) info.vector_edge_indices_spec.push_back(ve.spec);
 
   for (auto const &conflict :
-       FindVectorPropertyConflicts(info, indices_constraints.constraints.unique, *name_id_mapper)) {
+       FindVectorPropertyConflicts(info, indices_constraints.constraints.unique, name_id_mapper)) {
     spdlog::warn(VectorPropertyConflictWarning(conflict));
   }
 }
@@ -583,7 +583,7 @@ void RecoverDerivedState(utils::SkipListDb<Vertex> *vertices, [[maybe_unused]] u
                          RecoveryInfo const &recovery_info, memory::ArenaPool *db_arena_pool,
                          RecoveredIndicesAndConstraints &indices_constraints, EdgeMetadataIndex *edges_metadata,
                          bool properties_on_edges, ProgressCallback const &on_progress) {
-  WarnOnVectorPropertyConflicts(indices_constraints, name_id_mapper);
+  WarnOnVectorPropertyConflicts(indices_constraints, *name_id_mapper);
 
   // Rebuild the edge metadata index from the fully recovered adjacency before any
   // other derived structure observes it.

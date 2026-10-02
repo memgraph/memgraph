@@ -861,6 +861,12 @@ class DbAccessor final {
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
+  /// Throws when `proposed` (vector indexes, or ordinary indexes / unique constraints) and what the database already
+  /// holds would cover one property with both kinds.
+  void ThrowOnVectorPropertyConflict(
+      storage::IndicesInfo proposed,
+      std::vector<std::pair<storage::LabelId, std::set<storage::PropertyId>>> proposed_unique = {}) const;
+
   void DropAllIndexes() { accessor_->DropAllIndexes(); }
 
   void DropAllConstraints() { accessor_->DropAllConstraints(); }

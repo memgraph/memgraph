@@ -25,24 +25,15 @@ namespace memgraph::storage {
 
 namespace {
 
-std::string PropertyName(NameIdMapper &mapper, PropertyId id) { return mapper.IdToName(id.AsUint()); }
-
-std::string LabelName(NameIdMapper &mapper, LabelId id) { return mapper.IdToName(id.AsUint()); }
-
-std::string EdgeTypeName(NameIdMapper &mapper, EdgeTypeId id) { return mapper.IdToName(id.AsUint()); }
+std::string Name(NameIdMapper &mapper, auto id) { return mapper.IdToName(id.AsUint()); }
 
 std::string JoinPaths(NameIdMapper &mapper, std::vector<PropertyPath> const &paths) {
-  std::string out;
+  std::vector<std::string> joined;
   for (auto const &path : paths) {
-    if (!out.empty()) out += ", ";
-    bool first = true;
-    for (auto const prop : path) {
-      if (!first) out += ".";
-      first = false;
-      out += PropertyName(mapper, prop);
-    }
+    auto const names = path | std::views::transform([&](PropertyId p) { return Name(mapper, p); });
+    joined.push_back(fmt::format("{}", fmt::join(names, ".")));
   }
-  return out;
+  return fmt::format("{}", fmt::join(joined, ", "));
 }
 
 }  // namespace
@@ -55,7 +46,7 @@ std::vector<VectorPropertyConflict> FindVectorPropertyConflicts(
   auto add = [&](std::string vector_index, std::string const &index_name, PropertyId property, std::string other) {
     conflicts.push_back({.vector_index = std::move(vector_index),
                          .vector_index_name = index_name,
-                         .property = PropertyName(name_id_mapper, property),
+                         .property = Name(name_id_mapper, property),
                          .other = std::move(other)});
   };
 
@@ -69,7 +60,7 @@ std::vector<VectorPropertyConflict> FindVectorPropertyConflicts(
           spec.index_name,
           spec.property,
           fmt::format("label+property index :{}({})",
-                      LabelName(name_id_mapper, entry.label),
+                      Name(name_id_mapper, entry.label),
                       JoinPaths(name_id_mapper, entry.properties)));
     }
     for (auto const property : indices.vertex_property) {
@@ -77,16 +68,15 @@ std::vector<VectorPropertyConflict> FindVectorPropertyConflicts(
       add(vector_index,
           spec.index_name,
           spec.property,
-          fmt::format("global vertex property index :({})", PropertyName(name_id_mapper, property)));
+          fmt::format("global vertex property index :({})", Name(name_id_mapper, property)));
     }
     for (auto const &[label, properties] : unique_constraints) {
       if (!properties.contains(spec.property)) continue;
-      auto const names =
-          properties | std::views::transform([&](PropertyId p) { return PropertyName(name_id_mapper, p); });
+      auto const names = properties | std::views::transform([&](PropertyId p) { return Name(name_id_mapper, p); });
       add(vector_index,
           spec.index_name,
           spec.property,
-          fmt::format("unique constraint :{}({})", LabelName(name_id_mapper, label), fmt::join(names, ", ")));
+          fmt::format("unique constraint :{}({})", Name(name_id_mapper, label), fmt::join(names, ", ")));
     }
   }
 
@@ -97,16 +87,15 @@ std::vector<VectorPropertyConflict> FindVectorPropertyConflicts(
       add(vector_index,
           spec.index_name,
           spec.property,
-          fmt::format("edge-type+property index :{}({})",
-                      EdgeTypeName(name_id_mapper, edge_type),
-                      PropertyName(name_id_mapper, property)));
+          fmt::format(
+              "edge-type+property index :{}({})", Name(name_id_mapper, edge_type), Name(name_id_mapper, property)));
     }
     for (auto const property : indices.edge_property) {
       if (property != spec.property) continue;
       add(vector_index,
           spec.index_name,
           spec.property,
-          fmt::format("global edge property index :({})", PropertyName(name_id_mapper, property)));
+          fmt::format("global edge property index :({})", Name(name_id_mapper, property)));
     }
   }
 
@@ -126,12 +115,11 @@ std::string OrdinaryIndexOnVectorPropertyError(VectorPropertyConflict const &con
 
 std::string VectorIndexOnIndexedPropertyError(VectorPropertyConflict const &conflict) {
   return fmt::format(
-      "Cannot create {}: property {} is already covered by {}. A property index or unique constraint on a "
-      "vector-indexed property returns wrong results. Drop the {} first or store the vectors in a property that is "
+      "Cannot create {0}: property {1} is already covered by {2}. A property index or unique constraint on a "
+      "vector-indexed property returns wrong results. Drop the {2} first or store the vectors in a property that is "
       "not indexed.",
       conflict.vector_index,
       conflict.property,
-      conflict.other,
       conflict.other);
 }
 
@@ -140,12 +128,11 @@ std::string VectorPropertyConflictWarning(VectorPropertyConflict const &conflict
   if (!capitalised.empty())
     capitalised[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(capitalised[0])));
   return fmt::format(
-      "{} and {} both cover property {}, so queries using the {} can return wrong results. Drop one of them, for "
-      "example DROP VECTOR INDEX {};",
+      "{0} and {1} both cover property {2}, so queries using the {1} can return wrong results. Drop one of them, for "
+      "example DROP VECTOR INDEX {3};",
       capitalised,
       conflict.other,
       conflict.property,
-      conflict.other,
       conflict.vector_index_name);
 }
 
