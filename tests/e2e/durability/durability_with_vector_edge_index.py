@@ -10,7 +10,9 @@
 # licenses/APL.txt.
 
 import os
+import shutil
 import sys
+from pathlib import Path
 
 import interactive_mg_runner
 import pytest
@@ -408,6 +410,76 @@ def test_durability_with_vector_edge_index_drop_after_snapshot(connection, test_
     property_sizes = execute_and_fetch_all(cursor, "MATCH ()-[r:REL]->() RETURN propertySize(r, 'emb');")
     for ps in property_sizes:
         assert ps[0] != 11, "Property should no longer be VectorIndexId after index drop"
+
+
+PROPS_ON_EDGES_DISABLED_MSG = "Trying to recover vector edge indices while properties on edges are disabled."
+
+
+def _props_on_edges_instance(test_name, properties_on_edges):
+    return {
+        "main": {
+            "args": [
+                f"--storage-properties-on-edges={'true' if properties_on_edges else 'false'}",
+                "--storage-wal-enabled=true",
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
+        },
+    }
+
+
+@pytest.mark.parametrize("durability", ["wal", "snapshot"])
+def test_vector_edge_index_recovery_refused_without_properties_on_edges(connection, test_name, durability):
+    """Recovering a vector edge index with properties on edges disabled aborts cleanly instead of crashing."""
+    instance = _props_on_edges_instance(test_name, True)
+    data_dir = Path(interactive_mg_runner.BUILD_DIR) / "e2e" / "data" / get_data_path(FILE, test_name)
+    logs_dir = Path(interactive_mg_runner.BUILD_DIR) / "e2e" / "logs" / get_logs_path(FILE, test_name)
+    shutil.rmtree(logs_dir, ignore_errors=True)
+
+    interactive_mg_runner.start(instance, "main")
+    cursor = connection(7687, "main").cursor()
+    execute_and_fetch_all(
+        cursor,
+        'CREATE VECTOR EDGE INDEX test_edge_index ON :REL(emb) WITH CONFIG {"dimension": 2, "capacity": 10};',
+    )
+    execute_and_fetch_all(cursor, "CREATE ({id: 1})-[:REL]->({id: 2});")
+    if durability == "snapshot":
+        execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    interactive_mg_runner.stop(instance, "main", keep_directories=True)
+
+    if durability == "snapshot":
+        shutil.rmtree(data_dir / "wal")
+        assert (data_dir / "snapshots").is_dir()
+
+    with pytest.raises(AssertionError):
+        interactive_mg_runner.start(_props_on_edges_instance(test_name, False), "main")
+
+    refused_with_message = any(PROPS_ON_EDGES_DISABLED_MSG in log.read_text() for log in logs_dir.glob("main*.log"))
+    shutil.rmtree(data_dir, ignore_errors=True)
+    assert refused_with_message
+
+
+def test_vector_edge_index_dropped_in_wal_without_properties_on_edges(connection, test_name):
+    """A vector edge index created and dropped in the WAL does not block recovery with properties on edges off."""
+    interactive_mg_runner.start(_props_on_edges_instance(test_name, True), "main")
+    cursor = connection(7687, "main").cursor()
+    execute_and_fetch_all(
+        cursor,
+        'CREATE VECTOR EDGE INDEX test_edge_index ON :REL(emb) WITH CONFIG {"dimension": 2, "capacity": 10};',
+    )
+    execute_and_fetch_all(cursor, "CREATE ({id: 1})-[:REL]->({id: 2});")
+    execute_and_fetch_all(cursor, "DROP VECTOR INDEX test_edge_index;")
+    interactive_mg_runner.stop(_props_on_edges_instance(test_name, True), "main", keep_directories=True)
+
+    interactive_mg_runner.start(_props_on_edges_instance(test_name, False), "main")
+    cursor = connection(7687, "main").cursor()
+
+    assert get_vector_index_info(cursor) == []
+    assert execute_and_fetch_all(cursor, "MATCH ()-[r:REL]->() RETURN count(r);")[0][0] == 1
 
 
 if __name__ == "__main__":

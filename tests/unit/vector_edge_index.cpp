@@ -519,6 +519,34 @@ TEST_F(VectorEdgeIndexTest, CreateIndexWhenEdgesExistsAlreadyTest) {
   }
 }
 
+TEST(VectorEdgeIndexPropertiesOnEdgesDisabled, CreateIsRefused) {
+  memgraph::storage::Config config;
+  config.salient.items.properties_on_edges = false;
+  auto storage = std::make_unique<InMemoryStorage>(config);
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    ASSERT_TRUE(acc->CreateEdge(&from, &to, acc->NameToEdgeType(test_edge_type)).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto unique_acc = storage->UniqueAccess();
+  auto spec = VectorEdgeIndexSpec{
+      .index_name = test_index.data(),
+      .edge_type_filter = VectorEdgeTypeFilter{.mode = VectorMatchMode::SINGLE,
+                                               .ids = {unique_acc->NameToEdgeType(test_edge_type.data())}},
+      .property = unique_acc->NameToProperty(test_property.data()),
+      .metric_kind = metric,
+      .dimension = 2,
+      .resize_coefficient = resize_coefficient,
+      .capacity = 10,
+      .scalar_kind = scalar_kind};
+  const auto res = unique_acc->CreateVectorEdgeIndex(spec);
+  ASSERT_FALSE(res.has_value());
+  EXPECT_TRUE(std::holds_alternative<IndexDefinitionConfigError>(res.error()));
+  EXPECT_TRUE(unique_acc->ListAllVectorEdgeIndices().empty());
+}
+
 TEST_F(VectorEdgeIndexTest, CreateIndexWithWrongDimensionRollsBack) {
   PropertyValue good_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
   PropertyValue bad_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0), PropertyValue(3.0)});
