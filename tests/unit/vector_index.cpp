@@ -19,6 +19,7 @@
 #include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -648,11 +649,11 @@ TEST_F(VectorIndexTest, CreateIndexWithWrongDimensionRollsBack) {
   }
   auto read_property = [&](Gid gid) {
     auto acc = this->storage->Access(memgraph::storage::READ);
-    return *acc->FindVertex(gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD);
+    return acc->FindVertex(gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD).value();
   };
   // dimension 2 fails on the second vertex, dimension 3 on the first; neither may leave a tag behind
   for (const std::uint16_t dimension : {2, 3}) {
-    EXPECT_THROW(this->CreateIndex(dimension, 10), std::exception);
+    EXPECT_THROW(this->CreateIndex(dimension, 10), VectorSearchException);
     {
       auto acc = this->storage->Access(memgraph::storage::READ);
       EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
@@ -677,6 +678,42 @@ TEST_F(VectorIndexTest, CreateIndexWithWrongDimensionRollsBack) {
     ASSERT_EQ(acc->ListAllVectorIndices().size(), 1);
     EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 2);
   }
+}
+
+TEST_F(VectorIndexTest, FailedCreateIndexKeepsOtherIndexTagOnly) {
+  static constexpr std::string_view other_label = "other_label";
+  PropertyValue vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = this->CreateVertex(acc.get(), test_property, vec, test_label);
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel(other_label)));
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateIndex(2, 10);
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto spec = VectorIndexSpec{.index_name = "other_index",
+                                      .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE,
+                                                                        .ids = {unique_acc->NameToLabel(other_label)}},
+                                      .property = unique_acc->NameToProperty(test_property),
+                                      .metric_kind = metric,
+                                      .dimension = 3,
+                                      .resize_coefficient = resize_coefficient,
+                                      .capacity = 10,
+                                      .scalar_kind = scalar_kind};
+    EXPECT_THROW(static_cast<void>(unique_acc->CreateVectorIndex(spec)), VectorSearchException);
+  }
+  // a dangling "other_index" id would survive this drop and make the property unreadable
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->DropVectorIndex(test_index).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_EQ(acc->FindVertex(vertex_gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD).value(),
+            vec);
 }
 
 TEST_F(VectorIndexTest, CreateIndexConvertsPropertiesToVectorIndexId) {
