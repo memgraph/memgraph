@@ -118,6 +118,7 @@ void VectorEdgeIndex::AddEdgeToIndex(uint64_t index_id, Edge *edge, EdgeTypeId e
 
 bool VectorEdgeIndex::CreateIndex(const VectorEdgeIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices,
                                   NameIdMapper *name_id_mapper, ProgressCallback const &on_progress) {
+  CheckVectorIndexReserve(spec.index_name, spec.capacity);
   try {
     const auto index_id = SetupIndex(spec, name_id_mapper);
     if (!index_id.has_value()) return false;
