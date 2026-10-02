@@ -46,8 +46,10 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "tests/test_commit_args_helper.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 
@@ -3186,4 +3188,104 @@ TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
   }
   EXPECT_EQ(failures.load(), 0);
   EXPECT_LE(cache.WithLock([](auto &c) { return c.size(); }), 1U);
+}
+
+TYPED_TEST(InterpreterTest, VectorIndexConfigRejectsOutOfRangeNumbers) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Vector indexes are not supported on disk storage.";
+  }
+
+  auto expect_error = [&](const std::string &query, EPV::map_t params, const std::string &substring) {
+    try {
+      this->Interpret(query, params);
+      ADD_FAILURE() << "Expected QueryRuntimeException for: " << query;
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_THAT(e.what(), ::testing::HasSubstr(substring)) << query;
+    }
+  };
+  auto config = [](int64_t dimension, int64_t capacity) {
+    return EPV::map_t{{"config", EPV(EPV::map_t{{"dimension", EPV(dimension)}, {"capacity", EPV(capacity)}})}};
+  };
+
+  constexpr auto kDimensionError = "'dimension' must be an integer between 1 and 65535";
+  constexpr auto kCapacityError = "'capacity' must be a positive integer";
+  for (const std::string create :
+       {"CREATE VECTOR INDEX idx ON :L(v) WITH CONFIG ", "CREATE VECTOR EDGE INDEX idx ON :R(v) WITH CONFIG "}) {
+    expect_error(create + R"({"dimension": 0, "capacity": 10})", {}, kDimensionError);
+    expect_error(create + R"({"dimension": 65536, "capacity": 10})", {}, kDimensionError);
+    expect_error(create + "$config", config(-1, 10), kDimensionError);
+    expect_error(create + R"({"dimension": 2, "capacity": 0})", {}, kCapacityError);
+    expect_error(create + "$config", config(2, -1), kCapacityError);
+    expect_error(create + R"({"dimension": 2, "capacity": 10, "resize_coefficient": 65536})",
+                 {},
+                 "'resize_coefficient' must not exceed 65535");
+    // Unquoted keys take the expression path, which must still evaluate unary minus.
+    expect_error(create + "{dimension: -1, capacity: 10}", {}, kDimensionError);
+    expect_error(create + "{dimension: 2, capacity: -1}", {}, kCapacityError);
+
+    expect_error(create + R"({"dimension": 2.5, "capacity": 10})", {}, "'dimension' must be an integer, got");
+    expect_error(create + R"({"dimension": "2", "capacity": 10})", {}, "'dimension' must be an integer, got");
+    expect_error(create + R"({"dimension": 2, "capacity": [10]})", {}, "'capacity' must be an integer, got");
+    expect_error(create + R"({"dimension": 2, "capacity": 10, "resize_coefficient": 1.5})",
+                 {},
+                 "'resize_coefficient' must be an integer, got");
+    expect_error(create + R"({"dimension": 2, "capacity": 10, "metric": 1})", {}, "'metric' must be a string, got");
+
+    expect_error(create + R"({"capacity": 10})", {}, "must have a 'dimension' field");
+    expect_error(create + R"({"dimension": 2})", {}, "must have a 'capacity' field");
+    expect_error(create + "{}", {}, "config map is empty");
+  }
+  EXPECT_EQ(this->Interpret("SHOW VECTOR INDEX INFO").GetResults().size(), 0U);
+
+  this->Interpret(R"(CREATE VECTOR INDEX idx_min ON :L1(v) WITH CONFIG {"dimension": 1, "capacity": 10})");
+  this->Interpret(R"(CREATE VECTOR INDEX idx_max ON :L2(v) WITH CONFIG {"dimension": 65535, "capacity": 10})");
+  this->Interpret(R"(CREATE VECTOR EDGE INDEX eidx_min ON :R1(v) WITH CONFIG {"dimension": 1, "capacity": 10})");
+  EXPECT_EQ(this->Interpret("SHOW VECTOR INDEX INFO").GetResults().size(), 3U);
+}
+
+TYPED_TEST(InterpreterTest, VectorIndexHugeCapacityIsRejectedWithoutCreatingIndex) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Vector indexes are not supported on disk storage.";
+  }
+
+  auto expect_throws = [&](const std::string &query, const std::string &substring) {
+    try {
+      this->Interpret(query);
+      ADD_FAILURE() << "Expected an exception for: " << query;
+    } catch (const memgraph::utils::BasicException &e) {
+      EXPECT_THAT(e.what(), ::testing::HasSubstr(substring)) << query;
+    }
+  };
+
+  auto &tracker = memgraph::utils::total_memory_tracker;
+  auto const prev_limit = tracker.HardLimit();
+  memgraph::utils::OnScopeExit restore_limit{[&] { tracker.SetHardLimit(prev_limit); }};
+  constexpr int64_t kMiB = int64_t{1} << 20;
+
+  for (const std::string create :
+       {"CREATE VECTOR INDEX huge ON :H(v) WITH CONFIG ", "CREATE VECTOR EDGE INDEX huge ON :HR(v) WITH CONFIG "}) {
+    tracker.SetHardLimit(prev_limit);
+    expect_throws(create + R"({"dimension": 2, "capacity": 4611686018427387904})",
+                  "exceeds the maximum of 1099511627775");
+
+    // 10M members need >= 240MB, over the limit, yet stay harmless should the check regress.
+    tracker.SetHardLimit(tracker.Amount() + 64 * kMiB);
+    expect_throws(create + R"({"dimension": 2, "capacity": 10000000})", "would require at least");
+  }
+  tracker.SetHardLimit(prev_limit);
+
+  this->Interpret(
+      R"(CREATE VECTOR INDEX grow ON :G(v) WITH CONFIG {"dimension": 2, "capacity": 10, "resize_coefficient": 65535})");
+  tracker.SetHardLimit(tracker.Amount() + 16 * kMiB);
+  expect_throws("UNWIND range(1, 200) AS i CREATE (:G {v: [1.0, 2.0]})", "would require at least");
+  tracker.SetHardLimit(prev_limit);
+
+  auto const info = this->Interpret("SHOW VECTOR INDEX INFO").GetResults();
+  ASSERT_EQ(info.size(), 1U);
+  EXPECT_EQ(info[0][0].ValueString(), "grow");
+
+  this->Interpret(R"(CREATE VECTOR INDEX ok ON :K(v) WITH CONFIG {"dimension": 2, "capacity": 10})");
+  this->Interpret("CREATE (:K {v: [1.0, 2.0]})");
+  EXPECT_EQ(this->Interpret("SHOW VECTOR INDEX INFO").GetResults().size(), 2U);
 }
