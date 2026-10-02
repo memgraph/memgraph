@@ -301,6 +301,24 @@ TEST_F(TextIndexTest, CreateTextEdgeIndexAbortLeavesNoGhostEntry) {
   }
 }
 
+TEST(TextEdgeIndexPropertiesOnEdgesDisabled, CreateIsRefused) {
+  Config config;
+  config.salient.items.properties_on_edges = false;
+  auto storage = std::make_unique<InMemoryStorage>(config);
+  {
+    auto acc = storage->Access(WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    ASSERT_TRUE(acc->CreateEdge(&from, &to, acc->NameToEdgeType("TEST_EDGE")).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto unique_acc = storage->UniqueAccess();
+  const auto res = unique_acc->CreateTextEdgeIndex(
+      TextEdgeIndexSpec{"test_edge_index", unique_acc->NameToEdgeType("TEST_EDGE"), {}});
+  ASSERT_FALSE(res.has_value());
+  EXPECT_TRUE(std::holds_alternative<IndexDefinitionConfigError>(res.error()));
+}
+
 TEST_F(TextIndexTest, DropTextEdgeIndexAbortRestoresIndex) {
   static constexpr std::string_view edge_index_name = "test_edge_index";
   static constexpr std::string_view edge_type_name = "TEST_EDGE";

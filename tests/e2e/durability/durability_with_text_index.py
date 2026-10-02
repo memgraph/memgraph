@@ -12,10 +12,11 @@
 import os
 import shutil
 import sys
+from pathlib import Path
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -585,6 +586,70 @@ def test_partial_text_index_folder_deletion_edges(test_name):
     )
     assert len(search_results) == 1
     assert search_results[0][0] == "beta"
+
+
+PROPS_ON_EDGES_DISABLED_MSG = "Trying to recover text edge indices while properties on edges are disabled."
+
+
+def _props_on_edges_instance(test_name, properties_on_edges):
+    return {
+        "main": {
+            "args": [
+                f"--storage-properties-on-edges={'true' if properties_on_edges else 'false'}",
+                "--storage-wal-enabled=true",
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
+        },
+    }
+
+
+@pytest.mark.parametrize("durability", ["wal", "snapshot"])
+def test_text_edge_index_recovery_refused_without_properties_on_edges(test_name, durability):
+    """Recovering a text edge index with properties on edges disabled aborts cleanly instead of crashing."""
+    instance = _props_on_edges_instance(test_name, True)
+    data_dir = Path(interactive_mg_runner.BUILD_DIR) / "e2e" / "data" / get_data_path(FILE, test_name)
+    logs_dir = Path(interactive_mg_runner.BUILD_DIR) / "e2e" / "logs" / get_logs_path(FILE, test_name)
+    shutil.rmtree(logs_dir, ignore_errors=True)
+
+    interactive_mg_runner.start(instance, "main")
+    cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(cursor, "CREATE TEXT EDGE INDEX relation_index ON :RELATES_TO(title);")
+    execute_and_fetch_all(cursor, "CREATE ()-[:RELATES_TO]->();")
+    if durability == "snapshot":
+        execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    interactive_mg_runner.stop(instance, "main", keep_directories=True)
+
+    if durability == "snapshot":
+        shutil.rmtree(data_dir / "wal")
+        assert (data_dir / "snapshots").is_dir()
+
+    with pytest.raises(AssertionError):
+        interactive_mg_runner.start(_props_on_edges_instance(test_name, False), "main")
+
+    refused_with_message = any(PROPS_ON_EDGES_DISABLED_MSG in log.read_text() for log in logs_dir.glob("main*.log"))
+    shutil.rmtree(data_dir, ignore_errors=True)
+    assert refused_with_message
+
+
+def test_text_edge_index_dropped_in_wal_without_properties_on_edges(test_name):
+    """A text edge index created and dropped in the WAL does not block recovery with properties on edges off."""
+    interactive_mg_runner.start(_props_on_edges_instance(test_name, True), "main")
+    cursor = connect(host="localhost", port=7687).cursor()
+    execute_and_fetch_all(cursor, "CREATE TEXT EDGE INDEX relation_index ON :RELATES_TO(title);")
+    execute_and_fetch_all(cursor, "CREATE ()-[:RELATES_TO]->();")
+    execute_and_fetch_all(cursor, "DROP TEXT INDEX relation_index;")
+    interactive_mg_runner.stop(_props_on_edges_instance(test_name, True), "main", keep_directories=True)
+
+    interactive_mg_runner.start(_props_on_edges_instance(test_name, False), "main")
+    cursor = connect(host="localhost", port=7687).cursor()
+
+    assert execute_and_fetch_all(cursor, "SHOW INDEX INFO;") == []
+    assert execute_and_fetch_all(cursor, "MATCH ()-[r:RELATES_TO]->() RETURN count(r);")[0][0] == 1
 
 
 if __name__ == "__main__":
