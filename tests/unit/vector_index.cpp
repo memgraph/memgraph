@@ -1547,3 +1547,149 @@ TEST_F(VectorIndexTest, AbortMapStyleWriteRestoresEmbedding) {
     EXPECT_EQ(std::get<0>(result[0]).Gid(), vertex_gid);
   }
 }
+
+// Rollback of a transaction mixing label and embedding writes must restore the vertex and both indices
+// (:L(prop), :M(prop)) to their pre-transaction state.
+TEST_F(VectorIndexTest, AbortRestoresLabelAndPropertyChanges) {
+  enum class Op : uint8_t { ADD_L, REMOVE_L, ADD_M, REMOVE_M, SET_VECTOR, SET_NULL, SET_STRING };
+
+  struct Case {
+    std::string_view name;
+    std::vector<std::string_view> labels;
+    bool has_vector;
+    std::vector<Op> ops;
+  };
+
+  const std::vector<Case> cases{
+      {"add_label_then_set", {}, true, {Op::ADD_L, Op::SET_VECTOR}},
+      {"set_then_add_label", {}, true, {Op::SET_VECTOR, Op::ADD_L}},
+      {"add_label_then_remove_property", {}, true, {Op::ADD_L, Op::SET_NULL}},
+      {"add_label_then_remove_label", {}, true, {Op::ADD_L, Op::REMOVE_L}},
+      {"add_label_only", {}, true, {Op::ADD_L}},
+      {"add_label_then_add_property", {}, false, {Op::ADD_L, Op::SET_VECTOR}},
+      {"set_only", {"L"}, true, {Op::SET_VECTOR}},
+      {"remove_label_only", {"L"}, true, {Op::REMOVE_L}},
+      {"remove_label_then_set", {"L"}, true, {Op::REMOVE_L, Op::SET_VECTOR}},
+      {"set_then_remove_label", {"L"}, true, {Op::SET_VECTOR, Op::REMOVE_L}},
+      {"remove_label_then_remove_property", {"L"}, true, {Op::REMOVE_L, Op::SET_NULL}},
+      {"remove_property_then_remove_label", {"L"}, true, {Op::SET_NULL, Op::REMOVE_L}},
+      {"set_string_then_remove_label", {"L"}, true, {Op::SET_STRING, Op::REMOVE_L}},
+      {"remove_label_then_add_label", {"L"}, true, {Op::REMOVE_L, Op::ADD_L}},
+      {"add_property_then_remove_label", {"L"}, false, {Op::SET_VECTOR, Op::REMOVE_L}},
+      {"second_index_add_label_then_set", {"L"}, true, {Op::ADD_M, Op::SET_VECTOR}},
+      {"swap_index_label_then_set", {"L"}, true, {Op::REMOVE_L, Op::ADD_M, Op::SET_VECTOR}},
+      {"both_indices_remove_one_then_set", {"L", "M"}, true, {Op::REMOVE_M, Op::SET_VECTOR}},
+      {"both_indices_remove_all", {"L", "M"}, true, {Op::REMOVE_L, Op::REMOVE_M, Op::SET_NULL}},
+      {"no_index_add_both_around_set", {}, true, {Op::ADD_L, Op::SET_VECTOR, Op::ADD_M}},
+  };
+  const auto make_list = [](double a, double b) {
+    return PropertyValue(std::vector<PropertyValue>{PropertyValue(a), PropertyValue(b)});
+  };
+
+  for (const auto &c : cases) {
+    SCOPED_TRACE(c.name);
+    storage = std::make_unique<InMemoryStorage>();
+    {
+      auto unique_acc = storage->UniqueAccess();
+      const auto property = unique_acc->NameToProperty(test_property);
+      for (const auto label : {"L", "M"}) {
+        ASSERT_TRUE(unique_acc
+                        ->CreateVectorIndex(
+                            {.index_name = std::string{"idx_"} + label,
+                             .label_filter = {.mode = VectorMatchMode::SINGLE, .ids = {unique_acc->NameToLabel(label)}},
+                             .property = property,
+                             .metric_kind = metric,
+                             .dimension = 2,
+                             .resize_coefficient = resize_coefficient,
+                             .capacity = 10,
+                             .scalar_kind = scalar_kind})
+                        .has_value());
+      }
+      ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+    Gid gid;
+    {
+      auto acc = storage->Access(WRITE);
+      auto vertex = acc->CreateVertex();
+      gid = vertex.Gid();
+      for (const auto label : c.labels) ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel(label)));
+      if (c.has_vector) ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), make_list(1.0, 2.0)));
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+    {
+      auto acc = storage->Access(WRITE);
+      auto vertex = acc->FindVertex(gid, View::OLD).value();
+      const auto property = acc->NameToProperty(test_property);
+      for (const auto op : c.ops) {
+        switch (op) {
+          case Op::ADD_L:
+            ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("L")));
+            break;
+          case Op::REMOVE_L:
+            ASSERT_NO_ERROR(vertex.RemoveLabel(acc->NameToLabel("L")));
+            break;
+          case Op::ADD_M:
+            ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("M")));
+            break;
+          case Op::REMOVE_M:
+            ASSERT_NO_ERROR(vertex.RemoveLabel(acc->NameToLabel("M")));
+            break;
+          case Op::SET_VECTOR:
+            ASSERT_NO_ERROR(vertex.SetProperty(property, make_list(3.0, 4.0)));
+            break;
+          case Op::SET_NULL:
+            ASSERT_NO_ERROR(vertex.SetProperty(property, PropertyValue()));
+            break;
+          case Op::SET_STRING:
+            ASSERT_NO_ERROR(vertex.SetProperty(property, PropertyValue("not a vector")));
+            break;
+        }
+      }
+      acc->Abort();
+    }
+
+    const auto check = [&](bool in_l, bool in_m) {
+      auto acc = storage->Access(READ);
+      auto vertex = acc->FindVertex(gid, View::OLD).value();
+      const auto value = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD).value();
+      if (!c.has_vector) {
+        EXPECT_TRUE(value.IsNull());
+      } else if (in_l || in_m) {
+        ASSERT_TRUE(value.IsVectorIndexId());
+        EXPECT_EQ(value.ValueVectorIndexList(), (memgraph::utils::small_vector<float>{1.0F, 2.0F}));
+        EXPECT_EQ(value.ValueVectorIndexIds().size(), static_cast<std::size_t>(in_l) + static_cast<std::size_t>(in_m));
+      } else {
+        EXPECT_EQ(value, make_list(1.0, 2.0));
+      }
+      std::unordered_map<std::string, std::size_t> sizes;
+      for (const auto &info : acc->ListAllVectorIndices()) sizes[info.index_name] = info.size;
+      EXPECT_EQ(sizes["idx_L"], static_cast<std::size_t>(in_l && c.has_vector));
+      EXPECT_EQ(sizes["idx_M"], static_cast<std::size_t>(in_m && c.has_vector));
+      for (const auto &[index, expected] : {std::pair{"idx_L", in_l}, std::pair{"idx_M", in_m}}) {
+        if (!expected || !c.has_vector) continue;
+        const auto hits = acc->VectorIndexSearchOnNodes(index, 1, std::vector<float>{1.0F, 2.0F});
+        ASSERT_EQ(hits.size(), 1) << index;
+        EXPECT_EQ(std::get<0>(hits[0]).Gid(), gid) << index;
+        EXPECT_FLOAT_EQ(std::get<1>(hits[0]), 0.0) << index;
+      }
+    };
+    const auto has = [&](std::string_view label) { return std::ranges::contains(c.labels, label); };
+    {
+      auto acc = storage->Access(READ);
+      auto vertex = acc->FindVertex(gid, View::OLD).value();
+      auto labels = vertex.Labels(View::OLD).value();
+      EXPECT_EQ(labels.size(), c.labels.size());
+      for (const auto label : c.labels) EXPECT_TRUE(std::ranges::contains(labels, acc->NameToLabel(label)));
+    }
+    check(has("L"), has("M"));
+
+    // A later committed write must find consistent state: dropping every index label leaves the plain list.
+    {
+      auto acc = storage->Access(WRITE);
+      auto vertex = acc->FindVertex(gid, View::OLD).value();
+      for (const auto label : c.labels) ASSERT_NO_ERROR(vertex.RemoveLabel(acc->NameToLabel(label)));
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+    check(false, false);
+  }
+}
