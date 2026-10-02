@@ -11,6 +11,8 @@
 
 #include "storage/v2/indices/vector_index.hpp"
 
+#include <set>
+
 #include <range/v3/all.hpp>
 #include "storage/v2/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
@@ -580,24 +582,61 @@ std::vector<std::pair<uint64_t, VectorLabelFilter const *>> VectorIndex::GetIndi
 }
 
 void VectorIndex::AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection) {
+  // Runs after storage abort restored labels and properties. Label hooks rewrite properties without a delta, so
+  // replay is order-dependent; reconcile every index on an affected property with the restored vertex instead.
   for (auto &[vertex, info] : cleanup_collection) {
     const IndexedPropertyDecoder<Vertex> decoder{
         .indices = indices, .name_id_mapper = name_id_mapper, .entity = vertex};
     const auto &[labels_to_add, labels_to_remove, property_to_abort] = info;
-    for (auto label : labels_to_remove) {
-      UpdateOnRemoveLabel(label, vertex, decoder);
+    std::set<PropertyId> properties;
+    for (const auto &[property, _] : property_to_abort) properties.insert(property);
+    for (const auto *labels : {&labels_to_add, &labels_to_remove}) {
+      for (auto label : *labels) {
+        for (const auto &[property, _] : GetIndicesByLabel(label)) properties.insert(property);
+      }
     }
-    for (auto label : labels_to_add) {
-      UpdateOnAddLabel(label, vertex, decoder);
-    }
-    for (const auto &[property, value] : property_to_abort) {
+    for (auto property : properties) {
+      auto value = vertex->properties.GetProperty(property);
+      const auto aborted = property_to_abort.find(property);
+      const bool vector_changed = aborted != property_to_abort.end();
+      // Only a tag left untouched by this transaction's writes proves usearch already holds the restored vector.
+      const bool index_holds_value = value.IsVectorIndexId() && !vector_changed;
       if (value.IsVectorIndexId()) {
-        UpdateOnSetProperty(property, value, vertex);
-      } else {
-        // Any non-tag before-image (null, plain list, scalar) means the vertex must not stay in the index.
-        for (const auto &[index_id, _] : GetIndicesByProperty(property)) {
-          RemoveVertexFromIndex(vertex, index_id);
+        // A tag in the store is the oldest before-image, whose floats only the delta kept.
+        DMG_ASSERT(!vector_changed || aborted->second.IsVectorIndexId(),
+                   "Restored vector index tag without a tagged before-image");
+        if (vector_changed) {
+          value = aborted->second;
+        } else {
+          decoder.DecodeProperty(value);
         }
+      }
+      const auto vector = value.IsVectorIndexId() ? value.ValueVectorIndexList()
+                                                  : TryListToVector(value).value_or(utils::small_vector<float>{});
+
+      utils::small_vector<uint64_t> ids;
+      for (const auto &[index_id, label_filter] : GetIndicesByProperty(property)) {
+        auto &item_ptr = index_->at(index_id);
+        const bool indexed = std::invoke([&] {
+          auto guard =
+              utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+          return item_ptr->mg_index.index.contains(vertex);
+        });
+        if (vector.empty() || !label_filter->Matches(vertex->labels)) {
+          if (indexed) RemoveVertexFromIndex(vertex, index_id);
+          continue;
+        }
+        if (!index_holds_value || !indexed) UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, vertex, vector);
+        ids.push_back(index_id);
+      }
+
+      if (!ids.empty()) {
+        if (!value.IsVectorIndexId() || value.ValueVectorIndexIds() != ids) {
+          vertex->properties.SetProperty(
+              property, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}));
+        }
+      } else if (value.IsVectorIndexId()) {
+        vertex->properties.SetProperty(property, PropertyValue(std::vector<double>(vector.begin(), vector.end())));
       }
     }
   }
