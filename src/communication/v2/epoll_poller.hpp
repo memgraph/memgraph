@@ -77,7 +77,7 @@ class EpollPoller final : public utils::IdlePoller {
   void Stop();
 
   // Force-closes every live slot, whatever its state. Only valid once no worker or poller thread can
-  // run a session any more (pool joined, Stop() done).
+  // run a session any more (pool joined, Stop() done). Does not decrement the session metrics.
   void CloseAll();
 
   void Wake();

@@ -136,6 +136,8 @@ class Server final {
 template <typename TSession, typename TSessionContext>
 Server<TSession, TSessionContext>::~Server() {
   MG_ASSERT(!IsRunning(), "Server wasn't shutdown properly");
+  // memgraph.cpp joins the worker pool before ~Server; that order is load-bearing: no worker may be inside the
+  // poller when it is destroyed.
   if (poller_ && session_context_->worker_pool_) session_context_->worker_pool_->SetIdlePoller(nullptr);
 }
 

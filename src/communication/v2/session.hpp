@@ -552,7 +552,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       if (!IsConnected() || !poller_->TryBeginClose(slot_)) return;
       keep = CloseRawLocked_();
     }
-    // Do not run ~Session on the terminating thread's stack.
+    // Keeps ~Session off the terminating thread's stack. During shutdown ScheduledAddTask drops the task, so there
+    // ~Session can still run on the caller.
     session_context_->AddTask([keep = std::move(keep)](const utils::Priority /*unused*/) {}, utils::Priority::LOW);
   }
 
