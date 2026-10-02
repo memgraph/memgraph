@@ -149,8 +149,14 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
       auto old_profiles = locked_auth.AllProfiles();
       // Save incoming profiles
       for (const auto &profile : profiles) {
-        // Missing profile
-        if (!locked_auth.CreateOrUpdateProfile(profile.name, profile.limits, profile.usernames)) {
+        // Missing profile. A membership write that fails throws rather than returning false, so the catch is
+        // what the sibling user and role loops below do for the same reason.
+        try {
+          if (!locked_auth.CreateOrUpdateProfile(profile.name, profile.limits, profile.usernames)) {
+            spdlog::debug("SystemRecoveryHandler: Failed to save profile");
+            return false;
+          }
+        } catch (const auth::AuthException &) {
           spdlog::debug("SystemRecoveryHandler: Failed to save profile");
           return false;
         }
