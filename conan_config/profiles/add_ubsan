@@ -13,7 +13,6 @@ tools.build:exelinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr,function"
 tools.build:sharedlinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr,function"]
 
 [options]
-# Static OpenSSL under sanitizers: an instrumented libcrypto.so on
-# LD_LIBRARY_PATH breaks the autotools configure scripts of other conan
-# dependencies during the build. Overrides "openssl/*:shared" in conanfile.py.
+# Static OpenSSL and zlib under sanitizers overrides the shared=True patterns in conanfile.py.
 openssl/*:shared=False
+zlib/*:shared=False
