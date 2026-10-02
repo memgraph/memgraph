@@ -180,19 +180,19 @@ TEST_F(ResourceLockTest, PrioritiseReadOnlyLock) {
 
   // Concurrently acquire read only lock
   auto ro_outcome = std::async(std::launch::async, [&] {
+    latch.arrive_and_wait();
     auto guard_ro = SharedResourceLockGuard(lock, SharedResourceLockGuard::READ_ONLY, std::defer_lock);
     if (guard_ro.owns_lock()) return Outcome::ErrorAcquiredButShouldBeDefered;
     if (guard_ro.try_lock()) return Outcome::ErrorAcquiredButTryShouldHaveFailed;
-    latch.arrive_and_wait();
     guard_ro.lock();
     return Outcome::Success;
   });
 
   using namespace std::chrono_literals;
-  // sync on before read only lock is asked for
+  // sync before the read only thread asks for the lock
   latch.arrive_and_wait();
 
-  // The latch only says the thread is about to call lock(); retry until it has registered, since a
+  // The latch only says the thread has started; retry until it has registered, since a
   // probe that lands first sees a gate that is legitimately still open.
   auto write_is_gated = [&] {
     auto guard_w_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::try_to_lock);
@@ -208,8 +208,8 @@ TEST_F(ResourceLockTest, PrioritiseReadOnlyLock) {
 
   guard_w_1.unlock();
 
-  EXPECT_TRUE(gated) << "a WRITE acquired while a READ_ONLY was pending: ro_pending_count priority "
-                        "not honoured";
+  EXPECT_TRUE(gated) << "a WRITE was still admitted 5s after the READ_ONLY started lock(): ro_pending_count "
+                        "priority not honoured, or the READ_ONLY thread never ran";
 
   ASSERT_EQ(ro_outcome.get(), Outcome::Success);
 }
