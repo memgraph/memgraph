@@ -682,7 +682,7 @@ def test_durability_vector_edge_index_membership_after_replay(
     ids=["replace", "clear", "update"],
 )
 def test_durability_with_vector_edge_index_rolled_back_map_write(connection, test_name, write):
-    # Goal: A rolled-back map-style write keeps the embedding, also for a reader that runs while it is open.
+    # Goal: A rolled-back map-style write keeps the embedding, both live and in a snapshot taken while it was open.
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
@@ -717,8 +717,14 @@ def test_durability_with_vector_edge_index_rolled_back_map_write(connection, tes
     writer.autocommit = False
     writer.cursor().execute(f"MATCH ()-[r:REL]->() {write};")
     assert execute_and_fetch_all(cursor, "MATCH ()-[r:REL]->() RETURN r.emb;") == [([1.0, 2.0],)]
+    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
     writer.rollback()
     writer.close()
+    assert_embedding_intact()
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
     assert_embedding_intact()
 
     interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
