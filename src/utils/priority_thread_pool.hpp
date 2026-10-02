@@ -57,6 +57,7 @@ class HotMask {
   // re-checks the mask after a seq_cst fence, the notifier fences after emptying the mask and then reads parked_,
   // so one side sees the other; gate_.wait(g) also returns at once if gate_ moved since g was read.
   void WaitUntilEmpty(const std::atomic_bool &stop) {
+    EnableWaiter();
     const auto g = gate_.load(std::memory_order::acquire);
     waiter_parked_.store(true, std::memory_order::relaxed);
     std::atomic_thread_fence(std::memory_order::seq_cst);
@@ -64,6 +65,12 @@ class HotMask {
       gate_.wait(g, std::memory_order::acquire);
     }
     waiter_parked_.store(false, std::memory_order::relaxed);
+  }
+
+  // Until a waiter exists the empty-transition path costs workers nothing. Call before the waiter's first park;
+  // a worker that reads a stale false is only possible in the instant after this store.
+  void EnableWaiter() {
+    if (!waiter_possible_.load(std::memory_order::relaxed)) waiter_possible_.store(true, std::memory_order::seq_cst);
   }
 
   bool AnyHot() const { return hot_masks_[0].load(std::memory_order::acquire) != 0; }
@@ -79,6 +86,7 @@ class HotMask {
  private:
   // Called after a transition of the mask to empty.
   void NotifyEmpty() {
+    if (!waiter_possible_.load(std::memory_order::relaxed)) return;
     std::atomic_thread_fence(std::memory_order::seq_cst);
     if (waiter_parked_.load(std::memory_order::relaxed)) WakeWaiter();
   }
@@ -96,8 +104,10 @@ class HotMask {
   static constexpr uint64_t GroupMask(const uint64_t id) { return 1UL << (id & kGroupMask); }
 
   std::array<std::atomic<uint64_t>, kMaxElements / kGroupSize> hot_masks_{};
-  std::atomic<uint32_t> gate_{0};
-  std::atomic_bool waiter_parked_{false};
+  // Each on its own cache line, away from hot_masks_ which every worker writes.
+  alignas(64) std::atomic<uint32_t> gate_{0};
+  alignas(64) std::atomic_bool waiter_parked_{false};
+  alignas(64) std::atomic_bool waiter_possible_{false};
 #ifndef NDEBUG
   const uint16_t n_elements_;
 #endif
