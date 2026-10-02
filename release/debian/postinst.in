@@ -82,6 +82,11 @@ case "$1" in
             # the deps in its python-base stage and copies them into the image.
             if [ "${MG_SKIP_PYTHON_DEPS:-}" = "1" ]; then
                 echo "NOTE: MG_SKIP_PYTHON_DEPS=1 — skipping python query module deps install." >&2
+            elif [ "@CPACK_MG_FIPS@" = "ON" ]; then
+                # Skip pip because we require custom-built Python packages dynamically linked to OpenSSL for compliance
+                echo "NOTE: FIPS build - python query module deps are not installed by this" >&2
+                echo "      package. Supply wheels linked against the system OpenSSL before" >&2
+                echo "      using python query modules or the SAML/OIDC auth modules." >&2
             else
                 pyminor="$(python3 -c 'import sys; print(sys.version_info[1])')"
                 numpy_version="1.26.4"; scipy_version="1.13.0"

@@ -61,6 +61,43 @@ MEMGRAPH_MONITORING_PORT="9002"
 MGCONSOLE_DEFAULT="$MEMGRAPH_CONSOLE_BINARY --host $MEMGRAPH_DEFAULT_HOST --port $MEMGRAPH_BOLT_PORT"
 MGCONSOLE_ADMIN="$MEMGRAPH_CONSOLE_BINARY --host $MEMGRAPH_DEFAULT_HOST --port $MEMGRAPH_BOLT_PORT --username admin --password admin1234"
 MGCONSOLE_TESTER="$MEMGRAPH_CONSOLE_BINARY --host $MEMGRAPH_DEFAULT_HOST --port $MEMGRAPH_BOLT_PORT --username tester --password tester1234"
+MEMGRAPH_SMOKE_CONTAINER="${MEMGRAPH_SMOKE_CONTAINER:-memgraph_smoke}"
+
+# Copy a file into the smoke container, run it, and take it back out again.
+#   $1 - local file, $2 - path inside the container, $3.. - argv for it
+run_python_in_container() {
+  local local_file="$1" remote="$2"
+  shift 2
+  docker cp "$local_file" "$MEMGRAPH_SMOKE_CONTAINER:$remote" >/dev/null 2>&1 || return 1
+  local rc=0
+  $MEMGRAPH_EXEC python3 "$remote" "$@" || rc=$?
+  docker exec -u root "$MEMGRAPH_SMOKE_CONTAINER" rm -f "$remote" >/dev/null 2>&1 || true
+  return $rc
+}
+
+# Print the DT_NEEDED entries of a file inside the smoke container, by copying it
+# out and reading it with the host's readelf - the images carry no binutils, and
+# installing some into the container would mean the tests after it no longer run
+# against the image as built. Returns non-zero if the file is not an ELF object.
+#
+# DT_NEEDED rather than ldd: ldd resolves transitively, so something compiled
+# into a binary can still show up via another library and hide that fact.
+container_dt_needed() {
+  local src="$1" work rc=0
+  work="$(mktemp -d)"
+  if ! docker cp "$MEMGRAPH_SMOKE_CONTAINER:$src" "$work/f" >/dev/null 2>&1; then
+    rm -rf "$work"
+    return 2
+  fi
+  if readelf -d "$work/f" >"$work/out" 2>/dev/null; then
+    sed -n 's/.*Shared library: \[\(.*\)\]/\1/p' "$work/out"
+  else
+    rc=1
+  fi
+  rm -rf "$work"
+  return $rc
+}
+
 run_query() {
   __query="$1"
   echo "$__query" | $MGCONSOLE_DEFAULT

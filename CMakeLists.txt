@@ -421,6 +421,9 @@ if (MG_PYTHON_SUPPORT)
 endif()
 message(STATUS "MG_PYTHON_SUPPORT: ${MG_PYTHON_SUPPORT}")
 
+option(MG_FIPS "Omit components whose crypto cannot come from the validated OpenSSL" OFF)
+message(STATUS "MG_FIPS: ${MG_FIPS}")
+
 option(ENABLE_JEMALLOC "Use jemalloc" ON)
 
 option(MG_MEMORY_PROFILE "If build should be setup for memory profiling" OFF)

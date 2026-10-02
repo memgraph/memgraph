@@ -11,3 +11,8 @@ tools.build:cflags+=["-fsanitize=undefined", "-fno-omit-frame-pointer", "-fno-sa
 tools.build:cxxflags+=["-fsanitize=undefined", "-fno-omit-frame-pointer", "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ ubsan_ignore_path }}"]
 tools.build:exelinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr,function"]
 tools.build:sharedlinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr,function"]
+
+[options]
+# Static OpenSSL and zlib under sanitizers overrides the shared=True patterns in conanfile.py.
+openssl/*:shared=False
+zlib/*:shared=False
