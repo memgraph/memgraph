@@ -347,6 +347,8 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   // they see the final VectorIndexIdData form, not the intermediate plain-list.
   {
     spdlog::info("Recreating {} vector edge indices.", indices_metadata.vector_edge_indices.size());
+    MG_ASSERT(indices_metadata.vector_edge_indices.empty() || properties_on_edges,
+              "Trying to recover vector edge indices while properties on edges are disabled.");
     auto vertices_acc = vertices->access();
     indices->vector_edge_index_.RecoverAllVectorEdgeIndices(indices_metadata.vector_edge_indices,
                                                             indices_metadata.edge_vectors,
