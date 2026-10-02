@@ -17,7 +17,7 @@ import time
 
 import interactive_mg_runner
 import pytest
-from common import RAFT_LOG_REFUSAL, connect
+from common import RefusesThenCommits, connect
 from common import execute_and_fetch_all as run_once
 from common import get_data_path, get_logs_path, retrying_raft_write, show_instances
 from mg_utils import mg_sleep_and_assert
@@ -679,21 +679,6 @@ def show_current_user(cursor):
 
 def show_privileges(cursor, role):
     return sorted(privilege for (privilege,) in execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR ROLE {role}"))
-
-
-class RefusesThenCommits:
-    """A coordinator that refuses a write a given number of times before committing it."""
-
-    def __init__(self, refusals, message=RAFT_LOG_REFUSAL):
-        self.refusals = refusals
-        self.message = message
-        self.calls = 0
-
-    def __call__(self):
-        self.calls += 1
-        if self.calls <= self.refusals:
-            raise Exception(self.message)
-        return [("committed",)]
 
 
 def test_a_write_refused_while_leadership_settles_is_tried_again():

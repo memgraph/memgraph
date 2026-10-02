@@ -17,14 +17,9 @@ from functools import partial
 
 import interactive_mg_runner
 import pytest
-from common import (
-    connect,
-    execute_and_fetch_all,
-    get_data_path,
-    get_logs_path,
-    show_instances,
-    wait_until_main_writeable,
-)
+from common import FORWARDED_REFUSAL, RAFT_LOG_REFUSAL, RefusesThenCommits, connect
+from common import execute_and_fetch_all as run_once
+from common import get_data_path, get_logs_path, retrying_raft_write, show_instances, wait_until_main_writeable
 from mg_utils import (
     mg_sleep_and_assert,
     mg_sleep_and_assert_collection,
@@ -42,6 +37,20 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 file = "coords_request_forwarding"
+
+
+def execute_and_fetch_all(cursor, query, params={}):
+    """Run a coordinator query, asking again while the leader declines to serve it.
+
+    A follower forwards a write to whichever coordinator it last saw leading, and the leader serves it only while
+    it is ready. Nothing holds it ready between the two, so a forwarded write can be declined for a state that has
+    already passed, and no state the caller can read beforehand settles whether the next one will be served.
+
+    Every query here asks for something the test itself has just arranged, which rules out the reasons a leader
+    declines for good and leaves only the ones that pass. Where that does not hold, as when asking a follower to
+    remove the leader, the query is run once through run_once instead.
+    """
+    return retrying_raft_write(lambda: run_once(cursor, query, params), refusals=(FORWARDED_REFUSAL, RAFT_LOG_REFUSAL))
 
 
 @pytest.fixture(autouse=True)
@@ -359,9 +368,10 @@ def test_remove_coordinator_fwd(test_name):
     ]
     mg_sleep_and_assert(leader_data, partial(show_instances, leader_cursor))
 
-    # Follower cannot remove the current leader
+    # Follower cannot remove the current leader. A leader declines this for good, so it is asked once: asking
+    # again would spend the whole budget arriving at the same answer.
     try:
-        execute_and_fetch_all(follower_cursor, "remove coordinator 1")
+        run_once(follower_cursor, "remove coordinator 1")
         assert False
     except:
         pass
@@ -372,6 +382,56 @@ def test_remove_coordinator_fwd(test_name):
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "leader"),
     ]
     mg_sleep_and_assert(leader_data, partial(show_instances, leader_cursor))
+
+
+def test_a_forwarded_write_refused_while_the_leader_settles_is_tried_again():
+    """A follower forwards a write to whichever coordinator it last saw leading, and the leader serves it only while
+    it is ready.
+
+    Nothing holds the leader ready between the follower reading that it leads and the forwarded write arriving, so
+    the write can be refused for a state that has already passed. Asking once holds the cluster to more than it
+    offers.
+    """
+    leader = RefusesThenCommits(refusals=3, message=FORWARDED_REFUSAL)
+
+    assert retrying_raft_write(leader, refusals=(FORWARDED_REFUSAL,), sleep=lambda _: None) == [("committed",)]
+    assert leader.calls == 4
+
+
+def test_a_forwarded_refusal_is_raised_at_once_where_the_caller_does_not_pass_it():
+    """The leader's reason for declining does not cross the wire, so the one text also covers reasons that will
+    never clear, such as an id that names no coordinator. A caller that cannot rule those out must not spend its
+    budget discovering that.
+    """
+    leader = RefusesThenCommits(refusals=1, message=FORWARDED_REFUSAL)
+
+    with pytest.raises(Exception, match="forwarded to the leader"):
+        retrying_raft_write(leader)
+    assert leader.calls == 1, "a refusal the caller did not pass was tried again"
+
+
+class RefusingCursor:
+    """A coordinator cursor that declines a forwarded write a given number of times before committing it."""
+
+    def __init__(self, refusals):
+        self.refusals = refusals
+        self.calls = 0
+
+    def execute(self, query, params):
+        self.calls += 1
+        if self.calls <= self.refusals:
+            raise Exception(FORWARDED_REFUSAL)
+
+    def fetchall(self):
+        return [("committed",)]
+
+
+def test_a_query_in_this_file_asks_again_while_the_leader_declines_it():
+    """Every query here is addressed to a coordinator through a follower, so they all share one seam."""
+    cursor = RefusingCursor(refusals=3)
+
+    assert execute_and_fetch_all(cursor, "remove coordinator 3") == [("committed",)]
+    assert cursor.calls == 4
 
 
 if __name__ == "__main__":
