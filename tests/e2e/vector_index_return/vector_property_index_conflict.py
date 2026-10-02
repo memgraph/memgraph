@@ -23,6 +23,8 @@ VECTOR_EDGE_2 = "CREATE VECTOR EDGE INDEX ve2 ON :T(e) WITH CONFIG {'dimension':
 VERTEX_ORDINARY = [
     ("CREATE INDEX ON :L(emb)", "label+property index :L(emb)"),
     ("CREATE INDEX ON :M(x, emb)", "label+property index :M(x, emb)"),
+    ("CREATE INDEX ON :M(emb, x)", "label+property index :M(emb, x)"),
+    ('CREATE INDEX ON :L(emb) WITH CONFIG {"order": "DESC"}', "label+property index :L(emb)"),
     ("CREATE GLOBAL INDEX ON :(emb)", "global vertex property index :(emb)"),
     ("CREATE CONSTRAINT ON (n:K) ASSERT n.emb IS UNIQUE", "unique constraint :K(emb)"),
 ]
@@ -109,6 +111,14 @@ def test_still_allowed(conn, vector_ddl, allowed):
     _run(conn, vector_ddl)
     for ddl in allowed:
         _run(conn, ddl)
+
+
+def test_drop_hint_quotes_name(conn):
+    _run(conn, "CREATE VECTOR INDEX `my-vi` ON :L(emb) WITH CONFIG {'dimension': 2, 'capacity': 10}")
+    message = _refused(conn, "CREATE INDEX ON :L(emb)")
+    assert "DROP VECTOR INDEX `my-vi`;" in message
+    _run(conn, "DROP VECTOR INDEX `my-vi`")
+    _run(conn, "CREATE INDEX ON :L(emb)")
 
 
 def test_rule_follows_current_schema(conn):

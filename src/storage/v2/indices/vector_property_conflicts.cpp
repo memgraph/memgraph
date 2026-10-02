@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cctype>
 #include <ranges>
+#include <string_view>
 
 #include <fmt/format.h>
 #include <fmt/ranges.h>
@@ -26,6 +27,17 @@ namespace memgraph::storage {
 namespace {
 
 std::string Name(NameIdMapper &mapper, auto id) { return mapper.IdToName(id.AsUint()); }
+
+// Backtick-quotes a name that is not a plain identifier so the suggested DROP statement parses.
+std::string QuoteName(std::string_view name) {
+  auto const is_plain =
+      !name.empty() && std::isdigit(static_cast<unsigned char>(name.front())) == 0 &&
+      std::ranges::all_of(name, [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_'; });
+  if (is_plain) return std::string{name};
+  std::string quoted{"`"};
+  for (auto const c : name) quoted += c == '`' ? std::string_view{"``"} : std::string_view{&c, 1};
+  return quoted + '`';
+}
 
 std::string JoinPaths(NameIdMapper &mapper, std::vector<PropertyPath> const &paths) {
   std::vector<std::string> joined;
@@ -45,7 +57,7 @@ std::vector<VectorPropertyConflict> FindVectorPropertyConflicts(
 
   auto add = [&](std::string vector_index, std::string const &index_name, PropertyId property, std::string other) {
     conflicts.push_back({.vector_index = std::move(vector_index),
-                         .vector_index_name = index_name,
+                         .vector_index_name = QuoteName(index_name),
                          .property = Name(name_id_mapper, property),
                          .other = std::move(other)});
   };

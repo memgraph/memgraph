@@ -27,7 +27,7 @@ class NameIdMapper;
 /// An ordinary property index or unique constraint on a property that a vector index also covers.
 struct VectorPropertyConflict {
   std::string vector_index;       // e.g. "vector index vi" or "vector edge index ve"
-  std::string vector_index_name;  // bare name, for the DROP VECTOR INDEX hint
+  std::string vector_index_name;  // name as written in the DROP VECTOR INDEX hint
   std::string property;           // name of the shared property
   std::string other;              // e.g. "label+property index :L(a, emb)"
 };
