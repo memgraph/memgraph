@@ -3298,6 +3298,15 @@ void ExpectSameKindAndValue(const memgraph::storage::PropertyValue &actual,
     ASSERT_TRUE(actual.IsDouble());
     EXPECT_EQ(actual.ValueDouble(), expected.ValueDouble());
     EXPECT_EQ(std::signbit(actual.ValueDouble()), std::signbit(expected.ValueDouble()));
+  } else if (expected.IsPoint2d()) {
+    ASSERT_TRUE(actual.IsPoint2d());
+    auto const a = actual.ValuePoint2d();
+    auto const e = expected.ValuePoint2d();
+    EXPECT_EQ(a.crs(), e.crs());
+    EXPECT_EQ(a.x(), e.x());
+    EXPECT_EQ(std::signbit(a.x()), std::signbit(e.x()));
+    EXPECT_EQ(a.y(), e.y());
+    EXPECT_EQ(std::signbit(a.y()), std::signbit(e.y()));
   } else {
     ASSERT_TRUE(expected.IsInt());
     ASSERT_TRUE(actual.IsInt());
@@ -3306,8 +3315,8 @@ void ExpectSameKindAndValue(const memgraph::storage::PropertyValue &actual,
 }
 }  // namespace
 
-// A write that compares equal but differs in kind (1 -> 1.0, 0.0 -> -0.0) is a change under either config:
-// it makes a delta, Abort undoes it, and the committed value is the new one exactly.
+// A write that compares equal but differs in kind (1 -> 1.0, 0.0 -> -0.0, a point's 0.0 -> -0.0) is a change under
+// either config: it makes a delta, Abort undoes it, and the committed value is the new one exactly.
 TEST_P(StorageV2IdenticalWriteTest, EqualValueOfAnotherTypeIsAChange) {
   using namespace memgraph::storage;
   InMemoryStorage store{
@@ -3337,6 +3346,9 @@ TEST_P(StorageV2IdenticalWriteTest, EqualValueOfAnotherTypeIsAChange) {
                    PropertyValue(PropertyValue::map_t{{prop, PropertyValue(1)}}),
                    PropertyValue(PropertyValue::map_t{{prop, PropertyValue(1.0)}})});
     out.push_back({"Double 0.0 -> -0.0", PropertyValue(0.0), PropertyValue(-0.0)});
+    out.push_back({"Point2d (0.0, 1.0) -> (-0.0, 1.0)",
+                   PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, 0.0, 1.0}),
+                   PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, -0.0, 1.0})});
     return out;
   }();
 

@@ -32,6 +32,8 @@ bool SameNumber(std::variant<int64_t, double> const &a, std::variant<int64_t, do
   return true;
 }
 
+bool SameSign(double a, double b) { return std::signbit(a) == std::signbit(b); }
+
 /// The value a stretch begins at.
 ///
 /// A switch rather than a table read by position, so that a stretch added to
@@ -135,6 +137,21 @@ bool AreIdentical(PropertyValue const &a, PropertyValue const &b) {
     auto const &ma = a.ValueMapUnchecked();
     auto const &mb = b.ValueMapUnchecked();
     return std::ranges::equal(ma, mb, [](auto const &x, auto const &y) { return AreIdentical(x.second, y.second); });
+  }
+  if (a.IsPoint2d()) {
+    auto const p = a.ValuePoint2dUnchecked();
+    auto const q = b.ValuePoint2dUnchecked();
+    return SameSign(p.x(), q.x()) && SameSign(p.y(), q.y());
+  }
+  if (a.IsPoint3d()) {
+    auto const p = a.ValuePoint3dUnchecked();
+    auto const q = b.ValuePoint3dUnchecked();
+    return SameSign(p.x(), q.x()) && SameSign(p.y(), q.y()) && SameSign(p.z(), q.z());
+  }
+  if (a.type() == PropertyValueType::VectorIndexId) {
+    return std::ranges::equal(a.ValueVectorIndexListUnchecked(),
+                              b.ValueVectorIndexListUnchecked(),
+                              [](float x, float y) { return SameSign(x, y); });
   }
   return true;
 }
