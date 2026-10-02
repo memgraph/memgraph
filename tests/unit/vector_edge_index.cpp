@@ -682,6 +682,28 @@ TEST_F(VectorEdgeIndexTest, CreateIndexWithWrongDimensionRollsBack) {
   EXPECT_EQ(read_property(bad_edge_gid), bad_vec);
 }
 
+TEST_F(VectorEdgeIndexTest, FailedCreateIndexKeepsOtherIndexTagOnly) {
+  PropertyValue vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto [from, to, edge] = this->CreateEdge(acc.get(), test_property, vec, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateEdgeIndex(2, 10);
+  EXPECT_THROW(this->CreateEdgeIndexNamed("other_index", VectorMatchMode::WILDCARD, 3, 10), VectorSearchException);
+  // a dangling "other_index" id would survive this drop and make the property unreadable
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->DropVectorIndex(test_index).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_EQ(acc->FindEdge(edge_gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD).value(),
+            vec);
+}
+
 TEST_F(VectorEdgeIndexTest, CreateIndexConvertsPropertiesToVectorIndexId) {
   Gid edge_gid;
   {
