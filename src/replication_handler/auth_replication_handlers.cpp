@@ -10,10 +10,12 @@
 // licenses/APL.txt.
 
 #include "replication_handler/auth_replication_handlers.hpp"
+
 #include <spdlog/spdlog.h>
 #include <utility>
 
 #include "auth/auth.hpp"
+#include "auth/auth_layer.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "auth/rpc.hpp"
 #include "license/license.hpp"
@@ -62,29 +64,13 @@ void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acc
     return;
   }
 
-  try {
-    // Update
-    if (req.user) {
-      spdlog::trace("Saving user '{}'", req.user->username());
-      auth->SaveUser(*req.user);
-    }
-    if (req.role) {
-      spdlog::trace("Saving role '{}'", req.role->rolename());
-      auth->SaveRole(*req.role);
-    }
-    if (req.profile) {
-      spdlog::trace("Saving profile '{}'", req.profile->name);
-      if (!auth->CreateOrUpdateProfile(req.profile->name, req.profile->limits, req.profile->usernames)) {
-        spdlog::warn("Failed to create or update profile '{}'", req.profile->name);
-        // silent failure
-      }
-    }
-    // Success
+  // The whole batch or none of it. AuthLayer::ApplyBatch runs the operations against an overlay, in the order
+  // the transaction made them, and flushes once; anything failing part-way leaves the store untouched. A false
+  // return leaves the response unacknowledged, and the main then marks this replica behind and re-sends a full
+  // snapshot.
+  if (auth::AuthLayer{auth}.ApplyBatch(req.ops)) {
     res = UpdateAuthDataRes(true);
-    spdlog::debug("UpdateAuthDataHandler: SUCCESS");
-  } catch (const auth::AuthException &e) {
-    // Failure
-    spdlog::warn("Saving role '{}' exception: {}", req.role->rolename(), e.what());
+    spdlog::debug("UpdateAuthDataHandler: SUCCESS, {} operation(s)", req.ops.size());
   }
 
   rpc::SendFinalResponse(res, request_version, res_builder);
@@ -129,7 +115,13 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
         auth->RemoveRole(req.name, /*force=*/true);
       } break;
       case PROFILE: {
-        auth->DropProfile(req.name);
+        // A profile that is not there was already dropped, which is the state the main asked for. A delete that
+        // failed is not: the store still holds a profile the main removed, so refuse rather than ack a replica
+        // that has diverged. The user and role cases above throw on a failure and return false only when the
+        // record is absent, so their return is the benign case and is discarded.
+        if (auth->DropProfile(req.name) == auth::UserProfiles::DropResult::kFailed) {
+          throw auth::AuthException("Couldn't drop profile '{}'", req.name);
+        }
       } break;
       case N:
         std::unreachable();
@@ -157,8 +149,14 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
       auto old_profiles = locked_auth.AllProfiles();
       // Save incoming profiles
       for (const auto &profile : profiles) {
-        // Missing profile
-        if (!locked_auth.CreateOrUpdateProfile(profile.name, profile.limits, profile.usernames)) {
+        // Missing profile. A membership write that fails throws rather than returning false, so the catch is
+        // what the sibling user and role loops below do for the same reason.
+        try {
+          if (!locked_auth.CreateOrUpdateProfile(profile.name, profile.limits, profile.usernames)) {
+            spdlog::debug("SystemRecoveryHandler: Failed to save profile");
+            return false;
+          }
+        } catch (const auth::AuthException &) {
           spdlog::debug("SystemRecoveryHandler: Failed to save profile");
           return false;
         }
@@ -166,7 +164,7 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
       }
       // Delete all the leftover profiles
       for (const auto &profile : old_profiles) {
-        if (!locked_auth.DropProfile(profile.name)) {
+        if (locked_auth.DropProfile(profile.name) != auth::UserProfiles::DropResult::kDropped) {
           spdlog::debug("SystemRecoveryHandler: Failed to remove profile \"{}\".", profile.name);
           return false;
         }

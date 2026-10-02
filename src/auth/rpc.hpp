@@ -12,36 +12,40 @@
 #pragma once
 
 #include <optional>
+#include <variant>
+#include <vector>
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "auth/ops.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "rpc/messages.hpp"
+#include "system/action.hpp"
 
 namespace memgraph::replication {
 
-struct UpdateAuthDataReq {
+struct UpdateAuthDataReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_REQ, .name = "UpdateAuthDataReq"};
   static constexpr uint64_t kVersion{1};
 
-  static void Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
-  static void Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
-  UpdateAuthDataReq() = default;
+  static void Load(UpdateAuthDataReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const UpdateAuthDataReqV1 &self, memgraph::slk::Builder *builder);
+  UpdateAuthDataReqV1() = default;
 
-  UpdateAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, auth::User user)
+  UpdateAuthDataReqV1(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, auth::User user)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         user{std::move(user)} {}
 
-  UpdateAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, auth::Role role)
+  UpdateAuthDataReqV1(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, auth::Role role)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         role{std::move(role)} {}
 
-  UpdateAuthDataReq(const utils::UUID &main_uuid, uint64_t expected_ts, uint64_t new_ts,
-                    auth::UserProfiles::Profile profile)
+  UpdateAuthDataReqV1(const utils::UUID &main_uuid, uint64_t expected_ts, uint64_t new_ts,
+                      auth::UserProfiles::Profile profile)
       : main_uuid(main_uuid),
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
@@ -53,6 +57,36 @@ struct UpdateAuthDataReq {
   std::optional<auth::User> user;
   std::optional<auth::Role> role;
   std::optional<auth::UserProfiles::Profile> profile{};
+};
+
+/// An auth transaction's operations as one request, so a replica applies all of them or none. V1 carried at most
+/// one record, which meant a transaction of several statements arrived as several requests and could be applied
+/// in part.
+struct UpdateAuthDataReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_REQ, .name = "UpdateAuthDataReq"};
+  static constexpr uint64_t kVersion{2};
+
+  static void Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
+  static void Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
+  UpdateAuthDataReq() = default;
+
+  UpdateAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts,
+                    std::vector<AuthOp> ops)
+      : main_uuid(main_uuid), expected_group_timestamp{expected_ts}, new_group_timestamp{new_ts}, ops{std::move(ops)} {}
+
+  /// An older main sends one record per request, which is a batch of one.
+  static UpdateAuthDataReq Upgrade(UpdateAuthDataReqV1 const &v1) {
+    std::vector<AuthOp> ops;
+    if (v1.user) ops.emplace_back(AuthUpdateOp{*v1.user});
+    if (v1.role) ops.emplace_back(AuthUpdateOp{*v1.role});
+    if (v1.profile) ops.emplace_back(AuthUpdateOp{*v1.profile});
+    return UpdateAuthDataReq{v1.main_uuid, v1.expected_group_timestamp, v1.new_group_timestamp, std::move(ops)};
+  }
+
+  utils::UUID main_uuid;
+  uint64_t expected_group_timestamp{};
+  uint64_t new_group_timestamp{};
+  std::vector<AuthOp> ops;
 };
 
 struct UpdateAuthDataRes {
@@ -69,6 +103,7 @@ struct UpdateAuthDataRes {
 };
 
 using UpdateAuthDataRpc = rpc::RequestResponse<UpdateAuthDataReq, UpdateAuthDataRes>;
+using UpdateAuthDataRpcV1 = rpc::RequestResponse<UpdateAuthDataReqV1, UpdateAuthDataRes>;
 
 struct DropAuthDataReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_DROP_AUTH_DATA_REQ, .name = "DropAuthDataReq"};
@@ -112,6 +147,32 @@ using DropAuthDataRpc = rpc::RequestResponse<DropAuthDataReq, DropAuthDataRes>;
 
 }  // namespace memgraph::replication
 
+#ifdef MG_ENTERPRISE
+namespace memgraph::auth {
+
+/// One auth transaction's replication, as a single request. A replica applies every operation in it or none, so
+/// it cannot be left holding part of a transaction -- a user without the grant that accompanied it, say. A
+/// statement outside a transaction takes the same path with a batch of one.
+struct BatchedAuthAction final : memgraph::system::ISystemAction {
+  explicit BatchedAuthAction(PendingActions ops) : ops_{std::move(ops)} {}
+
+  void DoDurability() override { /* Done during Auth execution */ }
+
+  bool ShouldReplicateInCommunity() const override { return false; }
+
+  // system::Transaction is only forward-declared here, so reading its timestamps happens in the .cpp.
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     memgraph::system::Transaction const &txn) const override;
+
+  void PostReplication(replication::RoleMainData & /*main_data*/) const override {}
+
+ private:
+  PendingActions ops_;
+};
+
+}  // namespace memgraph::auth
+#endif
+
 namespace memgraph::slk {
 
 void Save(const auth::Role &self, memgraph::slk::Builder *builder);
@@ -123,6 +184,12 @@ void Load(auth::UserProfiles::Profile *self, memgraph::slk::Reader *reader);
 void Save(const auth::Auth::Config &self, memgraph::slk::Builder *builder);
 void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader);
 
+void Save(const memgraph::replication::AuthUpdateOp &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::AuthUpdateOp *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::replication::AuthDropOp &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::AuthDropOp *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::replication::UpdateAuthDataReqV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::UpdateAuthDataReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder);

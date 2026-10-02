@@ -638,4 +638,131 @@ TEST(RpcVersioning, SlkLoadUser_MigratesV3FGA) {
             static_cast<uint64_t>(memgraph::auth::FineGrainedPermission::READ));
 }
 
+// UpdateAuthDataRpc V2 carries a whole auth transaction as one ordered batch, so a replica cannot apply a prefix
+// of it. V1 carried at most one user, role or profile per request; the upgrade wraps that single item into a
+// one-element batch, which is what an old main's per-statement traffic looks like to a new replica.
+TEST(RpcVersioning, UpdateAuthDataRpc_V1Request_UpgradesToASingleItemBatch) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  uint64_t seen_version = 0;
+  size_t seen_ops = 0;
+  std::string seen_username;
+  rpc_server.Register<memgraph::replication::UpdateAuthDataRpc>(
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::replication::UpdateAuthDataReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        seen_version = request_version;
+        seen_ops = req.ops.size();
+        if (!req.ops.empty()) {
+          if (auto const *update = std::get_if<memgraph::replication::AuthUpdateOp>(&req.ops.front())) {
+            if (update->user) seen_username = update->user->username();
+          }
+        }
+        memgraph::replication::UpdateAuthDataRes const res(true);
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+
+  auto stream = client.Stream<memgraph::replication::UpdateAuthDataRpcV1>(
+      memgraph::utils::UUID{}, 0, 1, memgraph::auth::User{"alice"});
+  auto reply = stream.SendAndWait();
+
+  EXPECT_TRUE(reply.success);
+  EXPECT_EQ(seen_version, 1U) << "the server must observe the V1 wire version and run the upgrade chain";
+  EXPECT_EQ(seen_ops, 1U) << "a V1 request's single item must upgrade into a one-element batch";
+  EXPECT_EQ(seen_username, "alice") << "the upgraded batch must carry the user the V1 request held";
+}
+
+// The batch is an ordered sequence, not per-kind lists: DROP USER alice then CREATE USER alice must survive the
+// round trip in that order, because applying them the other way round loses the user.
+TEST(RpcVersioning, UpdateAuthDataRpc_V2BatchKeepsOperationOrder) {
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder_obj(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  auto *builder = &builder_obj;
+
+  memgraph::replication::UpdateAuthDataReq req{
+      memgraph::utils::UUID{},
+      0,
+      1,
+      {memgraph::replication::AuthDropOp{memgraph::replication::AuthDataType::USER, "alice"},
+       memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}}}};
+  memgraph::replication::UpdateAuthDataReq::Save(req, builder);
+  builder_obj.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::replication::UpdateAuthDataReq loaded;
+  memgraph::replication::UpdateAuthDataReq::Load(&loaded, &reader);
+
+  ASSERT_EQ(loaded.ops.size(), 2U);
+  auto const *first = std::get_if<memgraph::replication::AuthDropOp>(&loaded.ops[0]);
+  ASSERT_NE(first, nullptr) << "the drop must still come first";
+  EXPECT_EQ(first->name, "alice");
+  auto const *second = std::get_if<memgraph::replication::AuthUpdateOp>(&loaded.ops[1]);
+  ASSERT_NE(second, nullptr) << "the create must still come second";
+  ASSERT_TRUE(second->user.has_value());
+  EXPECT_EQ(second->user->username(), "alice");
+}
+
+// An operation kind this build does not know must be refused by the discriminator, not decoded as the nearest
+// alternative. A drop is a kind byte and a name, so a longer payload from a future kind would read as a
+// plausible one and have a replica delete a record nobody asked it to.
+TEST(RpcVersioning, UpdateAuthDataRpc_UnknownOperationKindIsRefused) {
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+
+  memgraph::slk::Save(memgraph::utils::UUID{}, &builder);
+  memgraph::slk::Save(uint64_t{0}, &builder);
+  memgraph::slk::Save(uint64_t{1}, &builder);
+  memgraph::slk::Save(uint64_t{1}, &builder);     // one operation
+  memgraph::slk::Save(std::size_t{7}, &builder);  // of a kind that does not exist
+  // Enough trailing bytes to decode as a drop, so the test fails on the discriminator rather than on the
+  // reader running out part-way.
+  memgraph::slk::Save(uint8_t{0}, &builder);
+  memgraph::slk::Save(std::string{"victim"}, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::replication::UpdateAuthDataReq loaded;
+  EXPECT_THROW(memgraph::replication::UpdateAuthDataReq::Load(&loaded, &reader), memgraph::slk::SlkDecodeException);
+}
+
+// The kind byte inside a drop names what to remove. A value this build has no enumerator for must be refused
+// rather than cast through: the drop switch matches no case for it, so it would skip the removal and still
+// report the batch applied, leaving the replica holding a record the main dropped.
+TEST(RpcVersioning, UpdateAuthDataRpc_UnknownDropTypeIsRefused) {
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+
+  memgraph::slk::Save(memgraph::utils::UUID{}, &builder);
+  memgraph::slk::Save(uint64_t{0}, &builder);
+  memgraph::slk::Save(uint64_t{1}, &builder);
+  memgraph::slk::Save(uint64_t{1}, &builder);     // one operation
+  memgraph::slk::Save(std::size_t{1}, &builder);  // a drop, which this build does know
+  memgraph::slk::Save(uint8_t{4}, &builder);      // naming a kind it does not
+  memgraph::slk::Save(std::string{"victim"}, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  memgraph::replication::UpdateAuthDataReq loaded;
+  EXPECT_THROW(memgraph::replication::UpdateAuthDataReq::Load(&loaded, &reader), memgraph::slk::SlkReaderException);
+}
+
 #endif  // MG_ENTERPRISE
