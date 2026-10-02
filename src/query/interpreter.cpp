@@ -3025,19 +3025,36 @@ auto VectorIndexConfigFromTypedMap(std::map<std::string, TypedValue, std::less<>
   if (dimension == transformed_map.end()) {
     throw std::invalid_argument("Vector index spec must have a 'dimension' field.");
   }
-  auto dimension_value = static_cast<std::uint16_t>(dimension->second.ValueInt());
+  auto const dimension_raw = dimension->second.ValueInt();
+  if (dimension_raw < 1 || dimension_raw > std::numeric_limits<std::uint16_t>::max()) {
+    throw QueryRuntimeException(fmt::format("Vector index 'dimension' must be an integer between 1 and {}, got {}.",
+                                            std::numeric_limits<std::uint16_t>::max(),
+                                            dimension_raw));
+  }
+  auto dimension_value = static_cast<std::uint16_t>(dimension_raw);
 
   auto capacity = transformed_map.find(kCapacity);
   if (capacity == transformed_map.end()) {
     throw std::invalid_argument("Vector index spec must have a 'capacity' field.");
   }
-  auto capacity_value = static_cast<std::size_t>(capacity->second.ValueInt());
+  auto const capacity_raw = capacity->second.ValueInt();
+  if (capacity_raw < 1) {
+    throw QueryRuntimeException(
+        fmt::format("Vector index 'capacity' must be a positive integer, got {}.", capacity_raw));
+  }
+  auto capacity_value = static_cast<std::size_t>(capacity_raw);
 
   auto resize_coefficient_it = transformed_map.find(kResizeCoefficient);
-  auto resize_coefficient =
-      resize_coefficient_it != transformed_map.end() && resize_coefficient_it->second.ValueInt() > 0
-          ? static_cast<std::uint16_t>(resize_coefficient_it->second.ValueInt())
-          : kDefaultResizeCoefficient;
+  auto resize_coefficient = kDefaultResizeCoefficient;
+  if (resize_coefficient_it != transformed_map.end()) {
+    auto const resize_coefficient_raw = resize_coefficient_it->second.ValueInt();
+    if (resize_coefficient_raw > std::numeric_limits<std::uint16_t>::max()) {
+      throw QueryRuntimeException(fmt::format("Vector index 'resize_coefficient' must not exceed {}, got {}.",
+                                              std::numeric_limits<std::uint16_t>::max(),
+                                              resize_coefficient_raw));
+    }
+    if (resize_coefficient_raw > 0) resize_coefficient = static_cast<std::uint16_t>(resize_coefficient_raw);
+  }
   auto scalar_kind_it = transformed_map.find(kScalarKind);
   auto scalar_kind = storage::ScalarFromName(
       scalar_kind_it != transformed_map.end() ? scalar_kind_it->second.ValueString() : storage::kDefaultScalarKind);

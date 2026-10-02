@@ -3187,3 +3187,42 @@ TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
   EXPECT_EQ(failures.load(), 0);
   EXPECT_LE(cache.WithLock([](auto &c) { return c.size(); }), 1U);
 }
+
+TYPED_TEST(InterpreterTest, VectorIndexConfigRejectsOutOfRangeNumbers) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Vector indexes are not supported on disk storage.";
+  }
+
+  auto expect_error = [&](const std::string &query, EPV::map_t params, const std::string &substring) {
+    try {
+      this->Interpret(query, params);
+      ADD_FAILURE() << "Expected QueryRuntimeException for: " << query;
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_THAT(e.what(), ::testing::HasSubstr(substring)) << query;
+    }
+  };
+  auto config = [](int64_t dimension, int64_t capacity) {
+    return EPV::map_t{{"config", EPV(EPV::map_t{{"dimension", EPV(dimension)}, {"capacity", EPV(capacity)}})}};
+  };
+
+  constexpr auto kDimensionError = "'dimension' must be an integer between 1 and 65535";
+  constexpr auto kCapacityError = "'capacity' must be a positive integer";
+  for (const std::string create :
+       {"CREATE VECTOR INDEX idx ON :L(v) WITH CONFIG ", "CREATE VECTOR EDGE INDEX idx ON :R(v) WITH CONFIG "}) {
+    expect_error(create + R"({"dimension": 0, "capacity": 10})", {}, kDimensionError);
+    expect_error(create + R"({"dimension": 65536, "capacity": 10})", {}, kDimensionError);
+    expect_error(create + "$config", config(-1, 10), kDimensionError);
+    expect_error(create + R"({"dimension": 2, "capacity": 0})", {}, kCapacityError);
+    expect_error(create + "$config", config(2, -1), kCapacityError);
+    expect_error(create + R"({"dimension": 2, "capacity": 10, "resize_coefficient": 65536})",
+                 {},
+                 "'resize_coefficient' must not exceed 65535");
+  }
+  EXPECT_EQ(this->Interpret("SHOW VECTOR INDEX INFO").GetResults().size(), 0U);
+
+  this->Interpret(R"(CREATE VECTOR INDEX idx_min ON :L1(v) WITH CONFIG {"dimension": 1, "capacity": 10})");
+  this->Interpret(R"(CREATE VECTOR INDEX idx_max ON :L2(v) WITH CONFIG {"dimension": 65535, "capacity": 10})");
+  this->Interpret(R"(CREATE VECTOR EDGE INDEX eidx_min ON :R1(v) WITH CONFIG {"dimension": 1, "capacity": 10})");
+  EXPECT_EQ(this->Interpret("SHOW VECTOR INDEX INFO").GetResults().size(), 3U);
+}
