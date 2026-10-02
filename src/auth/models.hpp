@@ -604,6 +604,8 @@ class Databases final {
 
   bool Grants(std::string_view db_name) const { return allow_all_ || grants_dbs_.contains(db_name); }
 
+  bool IsMain(std::string_view db) const { return main_db_ == db; }
+
   bool GetAllowAll() const { return allow_all_; }
 
   const std::set<std::string, std::less<>> &GetGrants() const { return grants_dbs_; }
