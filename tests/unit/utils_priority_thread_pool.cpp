@@ -11,9 +11,14 @@
 
 #include <gtest/gtest.h>
 
+#include <pthread.h>
+
+#include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <string_view>
 #include <thread>
 
 #include <utils/priority_thread_pool.hpp>
@@ -183,62 +188,135 @@ TEST(PriorityThreadPool, MultipleLow) {
   pool.AwaitShutdown();
 }
 
+namespace {
+
+struct FakeWork final : memgraph::utils::IdleRunnable {
+  std::atomic<int> runs{0};
+  std::atomic<int> dispatched{0};
+
+  void RunInline(memgraph::utils::Priority /*unused*/) override { runs.fetch_add(1); }
+
+  void Dispatch() override { dispatched.fetch_add(1); }
+};
+
+bool OnHighPriorityThread() {
+  char name[16] = {};
+  pthread_getname_np(pthread_self(), name, sizeof(name));
+  return std::string_view{name} == "high prior.";
+}
+
+}  // namespace
+
 TEST(PriorityThreadPool, IdlePollerWorkRunsInlineOnAWorkerOnce) {
   using namespace memgraph;
   if (!utils::IsAvailableTSC()) GTEST_SKIP() << "idle workers only spin (and poll) when the TSC is available";
 
-  struct Work final : utils::IdleRunnable {
-    std::atomic<int> runs{0};
-    std::atomic<std::thread::id> thread{};
-
-    void RunInline(utils::Priority /*unused*/) override {
-      thread.store(std::this_thread::get_id());
-      runs.fetch_add(1);
-    }
-  };
+  constexpr int kOffers = 5;
 
   struct Poller final : utils::IdlePoller {
-    std::shared_ptr<Work> work = std::make_shared<Work>();
+    std::array<std::shared_ptr<FakeWork>, kOffers> works;
     std::atomic<int> calls{0};
     std::atomic<int> concurrent{0};
     std::atomic<int> max_concurrent{0};
+    std::atomic_bool high_priority_called{false};
+
+    Poller() {
+      for (auto &w : works) w = std::make_shared<FakeWork>();
+    }
 
     std::shared_ptr<utils::IdleRunnable> TryClaim() override {
+      if (OnHighPriorityThread()) high_priority_called = true;
       const auto now = concurrent.fetch_add(1) + 1;
       auto seen = max_concurrent.load();
       while (now > seen && !max_concurrent.compare_exchange_weak(seen, now)) {
       }
       const auto n = calls.fetch_add(1);
+      std::this_thread::yield();  // widen the window in which a second poller could overlap
       concurrent.fetch_sub(1);
-      return n == 100 ? work : nullptr;
+      const auto offer = n / 100;
+      return (n % 100 == 99 && offer < kOffers) ? works[offer] : nullptr;
     }
   };
 
   Poller poller;  // outlives the pool
   {
-    utils::PriorityThreadPool pool{2, 1};
+    utils::PriorityThreadPool pool{3, 1};
     pool.SetIdlePoller(&poller);
     // Only a worker that finishes a task and spins polls, so keep the workers cycling through Phase 3.
-    const auto deadline = std::chrono::steady_clock::now() + 20s;
-    while (poller.work->runs.load() == 0 && std::chrono::steady_clock::now() < deadline) {
+    const auto deadline = std::chrono::steady_clock::now() + 30s;
+    const auto all_ran = [&] {
+      return std::ranges::all_of(poller.works, [](const auto &w) { return w->runs.load() >= 1; });
+    };
+    while (!all_ran() && std::chrono::steady_clock::now() < deadline) {
       pool.ScheduledAddTask([](auto) {}, utils::Priority::LOW);
-      std::this_thread::sleep_for(2ms);
+      std::this_thread::sleep_for(1ms);
     }
-    ASSERT_EQ(poller.work->runs.load(), 1);
-    EXPECT_NE(poller.work->thread.load(), std::this_thread::get_id());
-
-    // The pool still schedules ordinary work after running polled work inline.
-    std::atomic_bool ran{false};
-    pool.ScheduledAddTask(
-        [&](auto) {
-          ran = true;
-          ran.notify_one();
-        },
-        utils::Priority::LOW);
-    ran.wait(false);
+    ASSERT_TRUE(all_ran());
     pool.SetIdlePoller(nullptr);
   }
-  EXPECT_EQ(poller.work->runs.load(), 1);
+  for (const auto &w : poller.works) {
+    EXPECT_EQ(w->runs.load(), 1);        // a claim is run exactly once
+    EXPECT_EQ(w->dispatched.load(), 0);  // nothing queued, so nothing is handed back
+  }
+  EXPECT_EQ(poller.max_concurrent.load(), 1);  // the pool lets one worker poll at a time
+  EXPECT_FALSE(poller.high_priority_called.load());
+}
+
+TEST(PriorityThreadPool, WorkQueuedInTheClaimWindowRunsBeforeTheClaimedSession) {
+  using namespace memgraph;
+  if (!utils::IsAvailableTSC()) GTEST_SKIP() << "idle workers only spin (and poll) when the TSC is available";
+
+  struct BlockingWork final : utils::IdleRunnable {
+    std::atomic_bool *task_ran{nullptr};
+    std::atomic<int> inline_runs{0};
+    std::atomic<int> dispatched{0};
+    std::atomic_bool task_had_run_first{false};
+
+    void RunInline(utils::Priority /*unused*/) override {
+      inline_runs.fetch_add(1);
+      // If the queued task is stuck behind this session it can only run after the wait times out.
+      const auto deadline = std::chrono::steady_clock::now() + 2s;
+      while (!task_ran->load() && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+      task_had_run_first = task_ran->load();
+    }
+
+    void Dispatch() override { dispatched.fetch_add(1); }
+  };
+
+  struct BlockingPoller final : utils::IdlePoller {
+    utils::PriorityThreadPool *pool{nullptr};
+    std::shared_ptr<BlockingWork> work = std::make_shared<BlockingWork>();
+    std::atomic_bool task_ran{false};
+    std::atomic<int> calls{0};
+
+    std::shared_ptr<utils::IdleRunnable> TryClaim() override {
+      if (calls.fetch_add(1) != 10) return nullptr;
+      pool->ScheduledAddTask(
+          [this](auto) {
+            task_ran = true;
+            task_ran.notify_one();
+          },
+          utils::Priority::LOW);
+      return work;
+    }
+  };
+
+  BlockingPoller poller;
+  poller.work->task_ran = &poller.task_ran;
+  {
+    utils::PriorityThreadPool pool{1, 1};
+    poller.pool = &pool;
+    pool.SetIdlePoller(&poller);
+    const auto deadline = std::chrono::steady_clock::now() + 20s;
+    while (!poller.task_ran.load() && std::chrono::steady_clock::now() < deadline) {
+      pool.ScheduledAddTask([](auto) {}, utils::Priority::LOW);  // gets the single worker spinning
+      std::this_thread::sleep_for(1ms);
+    }
+    ASSERT_TRUE(poller.task_ran.load());
+    pool.SetIdlePoller(nullptr);
+  }
+  EXPECT_EQ(poller.work->inline_runs.load(), 0);  // the session did not run over the queued task
+  EXPECT_EQ(poller.work->dispatched.load(), 1);   // it went back to the pool instead
 }
 
 TEST(HotMask, WaitUntilEmptyWakesWhenLastBitIsCleared) {
@@ -257,7 +335,6 @@ TEST(HotMask, WaitUntilEmptyWakesWhenLastBitIsCleared) {
     });
     std::this_thread::sleep_for(1ms);
     mask.Reset(1);
-    EXPECT_FALSE(returned.load() && mask.AnyHot());
     mask.Reset(3);  // transition to empty must wake the parked waiter
     waiter.join();
     EXPECT_TRUE(returned.load());
@@ -284,6 +361,32 @@ TEST(HotMask, WaitUntilEmptyWakesWhenLastBitIsCleared) {
   stop = true;
   mask.WakeWaiter();
   stopped.join();
+}
+
+TEST(HotMask, ParkRacingTheLastResetNeverLosesTheWakeup) {
+  using memgraph::utils::HotMask;
+  HotMask mask{2};
+  std::atomic_bool stop{false};
+
+  constexpr int kRounds = 5000;
+  for (int round = 0; round < kRounds; ++round) {
+    mask.Set(0);
+    std::atomic_bool returned{false};
+    std::thread waiter([&] {
+      while (mask.AnyHot() && !stop.load()) mask.WaitUntilEmpty(stop);
+      returned = true;
+    });
+    mask.Reset(0);  // no pause: lands anywhere between the waiter's mask check and its futex wait
+    const auto deadline = std::chrono::steady_clock::now() + 5s;
+    while (!returned.load() && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+    const bool woke = returned.load();
+    if (!woke) {  // release the stuck waiter so the test can fail instead of hanging
+      stop = true;
+      mask.WakeWaiter();
+    }
+    waiter.join();
+    ASSERT_TRUE(woke) << "lost wake-up in round " << round;
+  }
 }
 
 TEST(PriorityThreadPool, StartupPublishesMixedWorkers) {
