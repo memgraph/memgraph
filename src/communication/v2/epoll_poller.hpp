@@ -25,12 +25,9 @@
 
 namespace memgraph::communication::v2 {
 
-// Object a slot keeps alive and hands to whoever claims its readiness.
-class PollTarget : public utils::IdleRunnable {
- public:
-  // The caller owns the claimed target. Submits it to the worker pool, which then runs it.
-  virtual void Dispatch() = 0;
-};
+// Object a slot keeps alive and hands to whoever claims its readiness. The claimant owns it and either runs it
+// (RunInline) or submits it to the worker pool (Dispatch).
+class PollTarget : public utils::IdleRunnable {};
 
 // Epoll set over adopted fds. Exactly-once delivery: EPOLLONESHOT plus a generation-checked CAS
 // ARMED -> RUNNING. Whoever holds a target in RUNNING owns its fd until it re-arms or closes it.
@@ -70,7 +67,7 @@ class EpollPoller final : public utils::IdlePoller {
   // drain_wake: consume the wake eventfd (only the blocking poller does). Returns the number claimed.
   size_t PollOnce(int timeout_ms, bool drain_wake, std::span<std::shared_ptr<PollTarget>> out);
 
-  // utils::IdlePoller: non-blocking, at most one caller polls at a time. Claims at most one target.
+  // utils::IdlePoller: non-blocking. Callers serialize (the pool holds a token). Claims at most one target.
   std::shared_ptr<utils::IdleRunnable> TryClaim() override;
 
   // Fallback poller: one thread blocked in epoll_wait that dispatches claimed targets to the pool.
@@ -126,7 +123,6 @@ class EpollPoller final : public utils::IdlePoller {
   std::vector<uint32_t> free_;
   uint32_t next_index_{0};
 
-  std::atomic_bool nb_token_{false};
   utils::HotMask *hot_mask_{nullptr};
   std::atomic<uint64_t> inline_claims_{0};
   std::atomic<uint64_t> fallback_claims_{0};

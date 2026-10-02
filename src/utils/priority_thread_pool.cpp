@@ -107,7 +107,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
         if (thread_init_callback) {
           thread_init_callback();
         }
-        slots[i]->operator()<ThreadPriority>(i, workers_, hot_threads_, idle_poller_);
+        slots[i]->operator()<ThreadPriority>(i, workers_, hot_threads_, idle_poll_);
       });
     }
   };
@@ -225,7 +225,7 @@ void PriorityThreadPool::Worker::stop() {
 template <Priority ThreadPriority>
 void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
                                             const std::vector<std::unique_ptr<Worker>> &workers_pool,
-                                            HotMask &hot_threads, const std::atomic<IdlePoller *> &idle_poller) {
+                                            HotMask &hot_threads, IdlePollState &idle_poll) {
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
 
   // Both mixed and high priority worker only steal from mixed worker
@@ -329,14 +329,19 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
       const utils::TSCTimer timer{freq};
       yielder y;  // NOLINT (misc-const-correctness)
       [[maybe_unused]] IdlePoller *poller = nullptr;
-      if constexpr (ThreadPriority != Priority::HIGH) poller = idle_poller.load(std::memory_order_acquire);
+      if constexpr (ThreadPriority != Priority::HIGH) poller = idle_poll.poller.load(std::memory_order_acquire);
       [[maybe_unused]] uint32_t spins = 0;
       auto ready = [&] {
         if (has_pending_work_.load(std::memory_order_acquire)) return true;
         if constexpr (ThreadPriority != Priority::HIGH) {
           if (poller && (++spins % kPollEverySpins) == 0) {
             if (!run_.load(std::memory_order_relaxed)) return true;
+            if (idle_poll.token.load(std::memory_order_relaxed) ||
+                idle_poll.token.exchange(true, std::memory_order_acquire)) {
+              return false;
+            }
             claimed = poller->TryClaim();
+            idle_poll.token.store(false, std::memory_order_release);
             return claimed != nullptr;
           }
         }
@@ -350,8 +355,14 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     if constexpr (ThreadPriority != Priority::HIGH) {
       if (claimed) {
         hot_threads.Reset(worker_id);
-        working_.store(true, std::memory_order_release);
-        claimed->RunInline(ThreadPriority);
+        // A producer may have taken this worker's hot bit and queued work since the claim: that work must not
+        // wait behind the session, so the session goes back to the pool instead.
+        if (has_pending_work_.load(std::memory_order_acquire)) {
+          claimed->Dispatch();
+        } else {
+          working_.store(true, std::memory_order_release);
+          claimed->RunInline(ThreadPriority);
+        }
         claimed.reset();
         continue;
       }
@@ -431,7 +442,7 @@ void TaskCollection::WaitOrSteal() {
 
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::LOW>(
     uint16_t worker_id, const std::vector<std::unique_ptr<memgraph::utils::PriorityThreadPool::Worker>> &,
-    memgraph::utils::HotMask &hot_threads, const std::atomic<memgraph::utils::IdlePoller *> &idle_poller);
+    memgraph::utils::HotMask &hot_threads, memgraph::utils::IdlePollState &idle_poll);
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::HIGH>(
     uint16_t worker_id, const std::vector<std::unique_ptr<memgraph::utils::PriorityThreadPool::Worker>> &,
-    memgraph::utils::HotMask &hot_threads, const std::atomic<memgraph::utils::IdlePoller *> &idle_poller);
+    memgraph::utils::HotMask &hot_threads, memgraph::utils::IdlePollState &idle_poll);

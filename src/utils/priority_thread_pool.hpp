@@ -110,13 +110,20 @@ using TaskSignature = std::move_only_function<void(utils::Priority)>;
 struct IdleRunnable {
   virtual ~IdleRunnable() = default;
   virtual void RunInline(Priority thread_priority) = 0;
+  // Hands the claimed work to the pool instead of running it on the claimant's thread.
+  virtual void Dispatch() = 0;
 };
 
 // Event source polled by idle (spinning) mixed workers. Implemented outside utils.
 struct IdlePoller {
   virtual ~IdlePoller() = default;
-  // Never blocks. Returns a claimed, ready unit of work or nullptr.
+  // Never blocks; the pool allows one caller at a time. Returns a claimed, ready unit of work or nullptr.
   virtual std::shared_ptr<IdleRunnable> TryClaim() = 0;
+};
+
+struct IdlePollState {
+  std::atomic<IdlePoller *> poller{nullptr};
+  alignas(64) std::atomic_bool token{false};  // held by the one worker inside TryClaim
 };
 
 // Collection of tasks that can be executed by the thread pool
@@ -198,7 +205,7 @@ class PriorityThreadPool {
   uint64_t GetNumHighPriorityWorkers() const { return hp_workers_.size(); }
 
   // The poller must outlive every worker call into it: clear it (or join the pool) before destroying it.
-  void SetIdlePoller(IdlePoller *poller) { idle_poller_.store(poller, std::memory_order_release); }
+  void SetIdlePoller(IdlePoller *poller) { idle_poll_.poller.store(poller, std::memory_order_release); }
 
   uint64_t GetNumWorkers() const { return workers_.size() + hp_workers_.size(); }
 
@@ -226,7 +233,7 @@ class PriorityThreadPool {
 
     template <Priority ThreadPriority>
     void operator()(uint16_t worker_id, const std::vector<std::unique_ptr<Worker>> &workers_pool, HotMask &hot_threads,
-                    const std::atomic<IdlePoller *> &idle_poller);
+                    IdlePollState &idle_poll);
 
    private:
     mutable std::mutex mtx_;
@@ -254,7 +261,7 @@ class PriorityThreadPool {
   std::vector<std::jthread> pool_;  // All available threads (list so the elements are stable)
   utils::Scheduler monitoring_;     // Background task monitoring the overall throughput and rearranging
 
-  std::atomic<IdlePoller *> idle_poller_{nullptr};
+  IdlePollState idle_poll_;
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
 };

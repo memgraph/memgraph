@@ -181,13 +181,9 @@ size_t EpollPoller::PollOnce(const int timeout_ms, const bool drain_wake, std::s
 }
 
 std::shared_ptr<utils::IdleRunnable> EpollPoller::TryClaim() {
-  if (nb_token_.load(std::memory_order_relaxed) || nb_token_.exchange(true, std::memory_order_acquire)) {
-    return nullptr;
-  }
   // One event at most: other ready fds stay in epoll for the other pollers instead of queueing behind this one.
   std::array<std::shared_ptr<PollTarget>, 1> ready;
   const auto n = PollOnce(0, false, ready);
-  nb_token_.store(false, std::memory_order_release);
   if (n == 0) return nullptr;
   inline_claims_.fetch_add(1, std::memory_order_relaxed);
   return std::move(ready[0]);
