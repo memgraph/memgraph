@@ -3024,10 +3024,16 @@ bool PropertyStore::DoInitProperties(const TContainer &properties) {
   return true;
 }
 
-std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
-    std::map<PropertyId, PropertyValue> &properties) {
+namespace {
+struct NoDecode {
+  void DecodeProperty(PropertyValue & /*value*/) const {}
+};
+}  // namespace
+
+template <typename TDecoder>
+std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::DoUpdateProperties(
+    std::map<PropertyId, PropertyValue> &properties, const TDecoder &decoder) {
   auto old_properties = Properties();
-  ClearProperties();
 
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> id_old_new_change;
   id_old_new_change.reserve(properties.size() + old_properties.size());
@@ -3037,17 +3043,35 @@ std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore:
     }
   }
 
-  for (const auto &[old_key, old_value] : old_properties) {
+  for (auto &[old_key, old_value] : old_properties) {
     auto [it, inserted] = properties.emplace(old_key, old_value);
     if (!inserted) {
       auto &new_value = it->second;
-      id_old_new_change.emplace_back(it->first, old_value, new_value);
+      decoder.DecodeProperty(old_value);
+      id_old_new_change.emplace_back(it->first, std::move(old_value), new_value);
     }
   }
 
+  ClearProperties();
   MG_ASSERT(InitProperties(properties));
   return id_old_new_change;
 }
+
+std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &properties) {
+  return DoUpdateProperties(properties, NoDecode{});
+}
+
+template <typename T>
+std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &properties, const IndexedPropertyDecoder<T> &decoder) {
+  return DoUpdateProperties(properties, decoder);
+}
+
+template std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &, const IndexedPropertyDecoder<Vertex> &);
+template std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> PropertyStore::UpdateProperties(
+    std::map<PropertyId, PropertyValue> &, const IndexedPropertyDecoder<Edge> &);
 
 template bool PropertyStore::DoInitProperties<std::map<PropertyId, PropertyValue>>(
     const std::map<PropertyId, PropertyValue> &);

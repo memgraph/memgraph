@@ -14,7 +14,7 @@ import sys
 
 import interactive_mg_runner
 import pytest
-from common import execute_and_fetch_all, get_data_path, get_logs_path
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -1243,5 +1243,58 @@ def test_durability_vector_index_empty_list(
         assert (
             info_by_name[name][6] == size
         ), f"[{scenario}/{mode}] Expected index '{name}' size {size} after restart, got {info_by_name[name][6]}"
+
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
+
+
+@pytest.mark.parametrize(
+    "write",
+    ["SET n = {emb: [7.0, 7.0, 7.0]}", "SET n = {}", "SET n += {emb: [9.0, 9.0, 9.0]}"],
+    ids=["replace", "clear", "update"],
+)
+def test_durability_with_vector_index_rolled_back_map_write(connection, test_name, write):
+    # Goal: A rolled-back map-style write keeps the embedding, both live and in a snapshot taken while it was open.
+
+    MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
+        "main": {
+            "args": [
+                "--log-level=TRACE",
+                "--data-recovery-on-startup=true",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
+            ],
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
+        },
+    }
+
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+
+    execute_and_fetch_all(
+        cursor, 'CREATE VECTOR INDEX test_index ON :L1(emb) WITH CONFIG {"dimension": 3, "capacity": 10};'
+    )
+    execute_and_fetch_all(cursor, "CREATE (:L1 {emb: [1.0, 2.0, 3.0]});")
+
+    def assert_embedding_intact():
+        assert execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.emb;") == [([1.0, 2.0, 3.0],)]
+        assert execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")[0][6] == 1
+        search = execute_and_fetch_all(
+            cursor, "CALL vector_search.search('test_index', 1, [1.0, 2.0, 3.0]) YIELD * RETURN *;"
+        )
+        assert len(search) == 1
+
+    writer = connect(host="localhost", port=7687)
+    writer.autocommit = False
+    writer.cursor().execute(f"MATCH (n:L1) {write};")
+    assert execute_and_fetch_all(cursor, "MATCH (n:L1) RETURN n.emb;") == [([1.0, 2.0, 3.0],)]
+    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    writer.rollback()
+    assert_embedding_intact()
+
+    interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.start(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    cursor = connection(7687, "main").cursor()
+    assert_embedding_intact()
 
     interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)

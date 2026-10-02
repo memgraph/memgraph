@@ -1084,3 +1084,50 @@ TEST_F(VectorEdgeIndexTest, MultiTypeFilterEqualityIsOrderInsensitive) {
                                             .scalar_kind = scalar_kind})
                    .has_value());
 }
+
+TEST_F(VectorEdgeIndexTest, AbortMapStyleWriteRestoresEmbedding) {
+  // ClearProperties / UpdateProperties back SET r = {...}, SET r = {} and SET r += {...}; their undo before-image
+  // must carry the floats, which live only in usearch.
+  this->CreateEdgeIndex(2, 10);
+  const std::vector<float> original{1.0F, 2.0F};
+  Gid edge_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+    auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
+    edge_gid = edge.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto const expect_original = [&](Storage::Accessor *acc) {
+    auto value = acc->FindEdge(edge_gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(value.has_value());
+    ASSERT_TRUE(value->IsVectorIndexId());
+    EXPECT_TRUE(std::ranges::equal(value->ValueVectorIndexList(), original));
+  };
+
+  enum class Write : uint8_t { REPLACE, CLEAR, UPDATE };
+  for (auto const write : {Write::REPLACE, Write::CLEAR, Write::UPDATE}) {
+    SCOPED_TRACE(static_cast<int>(write));
+    {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      auto edge = acc->FindEdge(edge_gid, View::OLD).value();
+      std::map<PropertyId, PropertyValue> new_properties{
+          {acc->NameToProperty(test_property),
+           PropertyValue(std::vector<PropertyValue>{PropertyValue(7.0), PropertyValue(7.0)})}};
+      if (write != Write::UPDATE) ASSERT_NO_ERROR(edge.ClearProperties());
+      if (write != Write::CLEAR) ASSERT_NO_ERROR(edge.UpdateProperties(new_properties));
+      {
+        auto reader = this->storage->Access(memgraph::storage::READ);
+        expect_original(reader.get());
+      }
+      acc->Abort();
+    }
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    expect_original(acc.get());
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
+    const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, original);
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_EQ(std::get<0>(result[0]).Gid(), edge_gid);
+  }
+}
