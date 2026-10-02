@@ -82,6 +82,13 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     return;
   }
 
+  // epoch_ and history are rewritten under engine_lock_ (e.g. RECOVER SNAPSHOT): take one consistent copy under it, and
+  // release before opening the RPC stream, since a commit holds engine_lock_ while waiting for the RPC lock.
+  auto [main_epoch_id, main_history] = std::invoke([&] {
+    auto const lock = std::unique_lock{main_storage->engine_lock_};
+    return std::pair<std::string, EpochHistory>{std::string{main_repl_state.epoch_.id()}, main_repl_state.history};
+  });
+
   // stream should be destroyed so that RPC lock is released before taking engine lock
   std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
       std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
@@ -98,7 +105,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
               main_uuid_,
               main_storage->uuid(),
               main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-              std::string{main_repl_state.epoch_.id()});
+              main_epoch_id);
 
           std::optional<replication::HeartbeatRes> res;
           if (hb_stream) {
@@ -112,7 +119,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
             main_uuid_,
             main_storage->uuid(),
             main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
-            std::string{main_repl_state.epoch_.id()});
+            main_epoch_id);
         return hb_stream.SendAndWait();
       });
 
@@ -146,18 +153,16 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // different epoch id, replica was main
   // In case there is no epoch transfer, and MAIN doesn't hold all the epochs as it could have been down and miss it
   // we need then just to check commit timestamp
-  if (heartbeat_res.epoch_id_ != main_repl_state.epoch_.id() &&
-      heartbeat_res.current_commit_timestamp_ != kTimestampInitialId) {
+  if (heartbeat_res.epoch_id_ != main_epoch_id && heartbeat_res.current_commit_timestamp_ != kTimestampInitialId) {
     spdlog::trace(
         "DB: {} Replica {}: Epoch id: {}, last_durable_timestamp: {}; Main: Epoch id: {}, last_durable_timestamp: {}",
         main_db_name,
         client_.name_,
         std::string(heartbeat_res.epoch_id_),
         heartbeat_res.current_commit_timestamp_,
-        std::string(main_repl_state.epoch_.id()),
+        main_epoch_id,
         main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
 
-    auto const &main_history = main_repl_state.history;
     const auto epoch_info_iter = std::ranges::find_if(
         main_history, [&](const auto &main_epoch_info) { return main_epoch_info.first == heartbeat_res.epoch_id_; });
 

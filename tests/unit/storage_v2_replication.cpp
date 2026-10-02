@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -2134,6 +2135,79 @@ TEST_F(ReplicationTest, ConcurrentDropsOfOneIndexKeepTheStreamRunning) {
         << "the replica stopped applying the stream, which is what refusing the second drop does";
     EXPECT_THAT(racc->ListAllIndices().label, IsEmpty());
   }
+}
+
+// The replica state check reads main's epoch id and epoch history on a maintenance worker while RECOVER SNAPSHOT
+// FORCE rewrites both under engine_lock_. The check has to take its copy under that lock (TSan flags the unlocked
+// read) and a check landing between the Clear() and the LoadSnapshot must not report a false branching point, which
+// would leave the non-HA replica DIVERGED_FROM_MAIN.
+TEST_F(ReplicationTest, ReplicaStateCheckDoesNotRaceWithRecoverSnapshot) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  replica.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = "REPLICA",
+                      .mode = ReplicationMode::ASYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+
+  auto *storage = static_cast<InMemoryStorage *>(main.db.storage());
+  const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+  memgraph::storage::Gid gid;
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    gid = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // The epoch-mismatch branch is only reached once the replica holds a non-zero last durable timestamp.
+  auto const replica_has_vertex = [&] {
+    const memgraph::memory::DbArenaScope replica_scope{&replica.db.Arena()};
+    auto racc = replica.db.Access(memgraph::storage::WRITE);
+    return racc->FindVertex(gid, View::OLD).has_value();
+  };
+  for (int tries = 0; !replica_has_vertex() || main.db.storage()->GetReplicaState("REPLICA") != ReplicaState::READY;
+       ++tries) {
+    ASSERT_LT(tries, 500) << "Waited too long for the replica to receive the vertex";
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  std::atomic<bool> stop{false};
+  std::atomic<bool> diverged{false};
+  std::thread checker{[&] {
+    memgraph::dbms::DatabaseProtector const protector{main.db_acc};
+    while (!stop.load(std::memory_order_acquire)) {
+      main.db.storage()->repl_storage_state_.WithClient(
+          "REPLICA", [&](auto &client) { client.TryCheckReplicaStateAsync(main.db.storage(), protector); });
+      // A later successful check overwrites DIVERGED_FROM_MAIN, so it has to be latched as it appears.
+      if (main.db.storage()->GetReplicaState("REPLICA") == ReplicaState::DIVERGED_FROM_MAIN) {
+        diverged.store(true, std::memory_order_release);
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  }};
+  memgraph::utils::OnScopeExit const stop_checker{[&] {
+    stop.store(true, std::memory_order_release);
+    if (checker.joinable()) checker.join();
+  }};
+
+  for (int i = 0; i < 30; ++i) {
+    // A recovery moves the snapshots it replaces aside, so each round needs a fresh one.
+    auto const snapshot = storage->CreateSnapshot(/*force*/ true);
+    ASSERT_TRUE(snapshot.has_value());
+    auto const res =
+        storage->RecoverSnapshot(*snapshot, true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+    ASSERT_TRUE(res.has_value());
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  }
+  stop.store(true, std::memory_order_release);
+  checker.join();
+  EXPECT_FALSE(diverged.load(std::memory_order_acquire));
 }
 
 TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {
