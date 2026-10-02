@@ -199,7 +199,6 @@ void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader 
   uint64_t size{};
   memgraph::slk::Load(&size, reader);
   self->ops.clear();
-  self->ops.reserve(size);
   for (uint64_t i = 0; i < size; ++i) {
     std::size_t index{};
     memgraph::slk::Load(&index, reader);
