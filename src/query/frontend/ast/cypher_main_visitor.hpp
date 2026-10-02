@@ -1532,6 +1532,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   LabelTerm LabelTermFrom(MemgraphCypher::LabelTermAtomContext *ctx);
   LabelTerm LabelTermFrom(MemgraphCypher::ParenLabelTermContext *ctx);
   LabelTerm LabelTermFrom(MemgraphCypher::PatternLabelTermContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::PatternLabelAndContext *ctx);
+  LabelTerm LabelTermFrom(MemgraphCypher::PatternLabelConjunctContext *ctx);
 
   ParsingContext context_;
   AstStorage *storage_;

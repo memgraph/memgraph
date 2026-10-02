@@ -10040,6 +10040,12 @@ NodeAtom *FirstMatchedNode(Query *query) {
   return dynamic_cast<NodeAtom *>(match->patterns_[0]->atoms_[0]);
 }
 
+NodeAtom *FirstCreatedNode(Query *query) {
+  auto *single_query = dynamic_cast<CypherQuery *>(query)->single_query_;
+  auto *create = dynamic_cast<Create *>(single_query->clauses_[0]);
+  return dynamic_cast<NodeAtom *>(create->patterns_[0]->atoms_[0]);
+}
+
 Expression *FirstReturnedExpression(Query *query) {
   auto *single_query = dynamic_cast<CypherQuery *>(query)->single_query_;
   auto *ret = dynamic_cast<Return *>(single_query->clauses_.back());
@@ -10047,6 +10053,25 @@ Expression *FirstReturnedExpression(Query *query) {
 }
 
 }  // namespace
+
+// A label named by an expression is a conjunct like any other, so ':' and '&' spell one conjunction
+// between the same operands.
+TEST_P(CypherMainVisitorTest, DynamicLabelIsAConjunct) {
+  auto &ast_generator = *GetParam();
+  const std::vector<std::pair<std::string, std::string>> cases{
+      {"(n:s.lbl:Extra)", "&(<dynamic>,Extra)"},
+      {"(n:s.lbl&Extra)", "&(<dynamic>,Extra)"},
+      {"(n:Extra&s.lbl)", "&(Extra,<dynamic>)"},
+      {"(n:Extra:s.lbl)", "&(Extra,<dynamic>)"},
+      {"(n:s.lbl&Extra&More)", "&(<dynamic>,Extra,More)"},
+      {"(n:(s.lbl)&Extra)", "&(<dynamic>,Extra)"},
+  };
+  for (const auto &[pattern, expected] : cases) {
+    auto *node = FirstCreatedNode(ast_generator.ParseQuery(fmt::format("CREATE {}", pattern)));
+    ASSERT_TRUE(node->label_term_) << pattern;
+    EXPECT_EQ(TermToString(*node->label_term_), expected) << pattern;
+  }
+}
 
 // A plain conjunction, however it is spelled, reads as the same conjunction, so the planner keeps seeing
 // what ':A:B' has always produced.
@@ -10387,11 +10412,30 @@ TEST_P(CypherMainVisitorTest, LabelExpressionParenthesisedPropertyLookupLeaf) {
   }
 }
 
-// A `variable.prop` leaf is no label term, so an operator next to one is a syntax error.
+// A `variable.prop` leaf is a conjunct of a node pattern's labels and nothing else. An expression tests
+// labels it already names, so it has no use for one, and an operator that cannot take one is refused.
 TEST_P(CypherMainVisitorTest, LabelExpressionRejectsPropertyLookupLeaf) {
   auto &ast_generator = *GetParam();
-  for (const auto *query : {"CREATE (n:A&x.y)", "CREATE (n:!x.y)", "MATCH (n) RETURN n:A|x.y AS v"}) {
+  for (const auto *query : {"CREATE (n:!x.y)",
+                            "CREATE (n:(A&x.y))",
+                            "MATCH (n) RETURN n:A&x.y AS v",
+                            "MATCH (n) RETURN n:A|x.y AS v",
+                            "MATCH (n) WHERE n:A&x.y RETURN n"}) {
     EXPECT_THROW(ast_generator.ParseQuery(query), SyntaxException) << query;
+  }
+}
+
+// One alternative of a disjunction names no one set of labels, so it cannot hold a label named by an
+// expression. The refusal is the parser's own, because the grammar lets the two meet.
+TEST_P(CypherMainVisitorTest, LabelNamedByExpressionIsRefusedInADisjunction) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"CREATE (n:A|x.y)", "MATCH (n:A|x.y) RETURN n", "MERGE (n:x.y|A)"}) {
+    try {
+      ast_generator.ParseQuery(query);
+      ADD_FAILURE() << "expected a syntax error for " << query;
+    } catch (const SyntaxException &e) {
+      EXPECT_THAT(std::string{e.what()}, ::testing::HasSubstr("can only be joined by ':' or '&'")) << query;
+    }
   }
 }
 
@@ -10428,6 +10472,22 @@ TEST(CypherParserTest, ValidQueryNeedsNoFullContextPrediction) {
   for (const auto *query : {"WITH [1] AS xs RETURN [x IN xs WHERE x:A AND true | x] AS v",
                             "WITH [1] AS xs RETURN reduce(s = 0, x IN xs | s + CASE WHEN x:A THEN 1 ELSE 0 END) AS v",
                             "WITH [1] AS xs RETURN [x IN xs WHERE x:A | x AND true] AS v"}) {
+    ::frontend::opencypher::Parser parser(query);
+    ASSERT_TRUE(parser.tree()) << query;
+    EXPECT_EQ(parser.FullContextPredictions(), 0U) << query;
+  }
+}
+
+// Telling a `variable.prop` conjunct from a plain label needs the token after the name, which SLL reads
+// without the invoking context.
+TEST(CypherParserTest, DynamicLabelConjunctNeedsNoFullContextPrediction) {
+  for (const auto *query : {"CREATE (n:s.lbl&Extra)",
+                            "CREATE (n:Extra&s.lbl)",
+                            "CREATE (n:s.lbl:Extra)",
+                            "CREATE (n:(s.lbl)&Extra)",
+                            "MATCH (n:A&B) RETURN n",
+                            "MATCH (n:A|B|C) RETURN n",
+                            "MATCH (n:(A|B)&!C) RETURN n"}) {
     ::frontend::opencypher::Parser parser(query);
     ASSERT_TRUE(parser.tree()) << query;
     EXPECT_EQ(parser.FullContextPredictions(), 0U) << query;

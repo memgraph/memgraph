@@ -3202,19 +3202,47 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
 
 namespace {
 
+/// The one operand a term holds, or nullptr when it holds several, or one named by an expression. The term
+/// rules name their conjunction and its operands differently; what they hold is the same.
+template <typename TTerm>
+MemgraphCypher::LabelTermNotContext *SoleNegation(TTerm *term) {
+  auto conjunctions = std::invoke([&] {
+    if constexpr (requires { term->patternLabelAnd(); }) {
+      return term->patternLabelAnd();
+    } else {
+      return term->labelTermAnd();
+    }
+  });
+  if (conjunctions.size() != 1U) return nullptr;
+  auto *conjunction = conjunctions.front();
+  if constexpr (requires { conjunction->patternLabelConjunct(); }) {
+    if (conjunction->patternLabelConjunct().size() != 1U) return nullptr;
+    // Null for a `variable.prop` conjunct, which is no negation and no plain leaf.
+    return conjunction->patternLabelConjunct().front()->labelTermNot();
+  } else {
+    if (conjunction->labelTermNot().size() != 1U) return nullptr;
+    return conjunction->labelTermNot().front();
+  }
+}
+
 /// The single leaf a term stands for, or nullptr when the term uses an operator. Parentheses around a single
-/// label are no operator: ':(A):B' is ':A:B'. Takes either term rule, which differ only in how their '|' loop
-/// leaves and so carry the same operands.
+/// label are no operator: ':(A):B' is ':A:B'.
 template <typename TTerm>
 MemgraphCypher::LabelLeafContext *PlainLabelLeaf(TTerm *term) {
-  if (term->labelTermAnd().size() != 1U) return nullptr;
-  auto *conjunction = term->labelTermAnd().front();
-  if (conjunction->labelTermNot().size() != 1U) return nullptr;
-  auto *negation = conjunction->labelTermNot().front();
+  auto *negation = SoleNegation(term);
+  if (negation == nullptr) return nullptr;
   auto *atom = negation->labelTermAtom();
   if (atom == nullptr) return nullptr;
   if (atom->parenLabelTerm() != nullptr) return PlainLabelLeaf(atom->parenLabelTerm());
   return atom->labelLeaf();
+}
+
+/// The `variable.prop` a pattern's term names, when that is all it names.
+MemgraphCypher::DynamicLabelContext *PlainDynamicLabel(MemgraphCypher::PatternLabelTermContext *term) {
+  if (term->patternLabelAnd().size() != 1U) return nullptr;
+  auto *conjunction = term->patternLabelAnd().front();
+  if (conjunction->patternLabelConjunct().size() != 1U) return nullptr;
+  return conjunction->patternLabelConjunct().front()->dynamicLabel();
 }
 
 /// `A|(B|C)` and `A|B|C` name the same disjunction, so the tree is kept flat. Nothing else is folded:
@@ -3233,6 +3261,31 @@ template <typename Op>
 LabelTerm Combine(std::vector<LabelTerm> operands) {
   if (operands.size() == 1U) return std::move(operands.front());
   return LabelTerm{Op{std::move(operands)}};
+}
+
+bool NamesALabelByExpression(const LabelTerm &term) {
+  return std::visit(memgraph::utils::Overloaded{
+                        [](const LabelTerm::Dynamic &) { return true; },
+                        [](const LabelTerm::Label &) { return false; },
+                        [](const LabelTerm::Wildcard &) { return false; },
+                        [](const LabelTerm::Not &negation) { return NamesALabelByExpression(*negation.operand); },
+                        [](const LabelTerm::And &conjunction) {
+                          return std::ranges::any_of(conjunction.operands, NamesALabelByExpression);
+                        },
+                        [](const LabelTerm::Or &disjunction) {
+                          return std::ranges::any_of(disjunction.operands, NamesALabelByExpression);
+                        },
+                    },
+                    term.node);
+}
+
+/// A label named by an expression names one label of one node, so only a conjunction can hold one: an
+/// alternative leaves no one set of labels to write, and no label to test for.
+LabelTerm OnlyConjoined(LabelTerm term) {
+  if (NamesALabelByExpression(term) && !term.Conjunction()) {
+    throw SyntaxException("A label named by an expression can only be joined by ':' or '&'.");
+  }
+  return term;
 }
 
 /// A conjunction that repeats a label asks nothing more, and index selection expects each label once.
@@ -3277,10 +3330,23 @@ LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermNotContext *
 
 LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::PatternLabelTermContext *ctx) {
   std::vector<LabelTerm> operands;
-  for (auto *conjunction : ctx->labelTermAnd()) {
+  for (auto *conjunction : ctx->patternLabelAnd()) {
     AppendFlattened<LabelTerm::Or>(LabelTermFrom(conjunction), operands);
   }
   return Combine<LabelTerm::Or>(std::move(operands));
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::PatternLabelAndContext *ctx) {
+  std::vector<LabelTerm> operands;
+  for (auto *conjunct : ctx->patternLabelConjunct()) {
+    AppendFlattened<LabelTerm::And>(LabelTermFrom(conjunct), operands);
+  }
+  return Combine<LabelTerm::And>(std::move(operands));
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::PatternLabelConjunctContext *ctx) {
+  if (auto *dynamic = ctx->dynamicLabel()) return LabelTerm{LabelTerm::Dynamic{DynamicLabelFrom(dynamic)}};
+  return LabelTermFrom(ctx->labelTermNot());
 }
 
 LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::ParenLabelTermContext *ctx) {
@@ -3315,16 +3381,25 @@ LabelTerm CypherMainVisitor::LabelExpressionFrom(const std::vector<TSegment *> &
     }
   };
 
+  // A pattern names a `variable.prop` label through its term; an expression has it as a whole segment.
+  auto dynamic_of = [&](TSegment *segment) -> MemgraphCypher::DynamicLabelContext * {
+    if constexpr (requires { segment->dynamicLabel(); }) {
+      return segment->dynamicLabel();
+    } else {
+      return PlainDynamicLabel(term_of(segment));
+    }
+  };
+
   if (segments.size() == 1U && term_of(segments.front()) != nullptr &&
       PlainLabelLeaf(term_of(segments.front())) == nullptr) {
-    return WithoutRepeatedLabels(LabelTermFrom(term_of(segments.front())));
+    return OnlyConjoined(WithoutRepeatedLabels(LabelTermFrom(term_of(segments.front()))));
   }
 
   // A bare label, or the legacy ':A:B' chain of them, including the `variable.prop` leaf only CREATE
   // accepts. That a chain takes bare labels only is also the rule against mixing ':' with the operators.
   std::vector<LabelTerm> leaves;
   for (auto *segment : segments) {
-    if (auto *dynamic = segment->dynamicLabel()) {
+    if (auto *dynamic = dynamic_of(segment)) {
       leaves.push_back(LabelTerm{LabelTerm::Dynamic{DynamicLabelFrom(dynamic)}});
       continue;
     }

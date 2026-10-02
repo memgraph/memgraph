@@ -211,15 +211,20 @@ nodeLabelExpression : ( ':' labelSegment )+ ;
 // disjunction runs to the end and the loop below is greedy. `nodeLabelExpression` is the same thing in
 // expression position, where a '|' may instead begin a comprehension's projection.
 patternLabelExpression : ( ':' patternLabelSegment )+ ;
-patternLabelSegment : dynamicLabel | patternLabelTerm ;
-patternLabelTerm : labelTermAnd ( '|' labelTermAnd )* ;
+patternLabelSegment : patternLabelTerm ;
+patternLabelTerm : patternLabelAnd ( '|' patternLabelAnd )* ;
 
-// A `variable.prop` label never follows an operator: after '|' it would compete with the projection in
-// '[x IN xs WHERE x:A | x.v]', and that ambiguity costs a full-context prediction per comprehension.
+patternLabelAnd : patternLabelConjunct ( '&' patternLabelConjunct )* ;
+patternLabelConjunct : dynamicLabel | labelTermNot ;
+
 labelSegment : dynamicLabel
              | labelTerm
              ;
 
+// A label named by an expression. A node pattern takes one as a conjunct, so ':' and '&' join it to a
+// plain label alike, and only a conjunction may hold one. An expression takes it as a whole segment
+// only: after '|' it would compete with the projection in '[x IN xs WHERE x:A | x.v]', and that
+// ambiguity costs a full-context prediction per comprehension.
 dynamicLabel : variable ( propertyLookup )+
              | '(' dynamicLabel ')'
              ;
