@@ -9882,6 +9882,13 @@ PreparedQuery PrepareTenantProfileQuery([[maybe_unused]] ParsedQuery parsed_quer
 
   auto *query = utils::Downcast<TenantProfileQuery>(parsed_query.query);
 
+  // A tenant profile write cannot be isolated: it goes straight to the dbms handler and is durable the moment
+  // the statement runs, so nothing rolls it back. Reads carry no such risk and stay allowed, as they are
+  // outside a transaction. Same rule as a user profile write, for the same reason.
+  if (interpreter->in_explicit_transaction_ && IsTenantProfileWrite(query->action_)) {
+    throw UserModificationInMulticommandTxException();
+  }
+
   auto *db_handler = interpreter_context->dbms_handler;
   const bool is_replica = interpreter_context->repl_state->ReadLock()->IsReplica();
 
