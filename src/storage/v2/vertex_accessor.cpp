@@ -360,7 +360,7 @@ Result<bool> VertexAccessor::HasLabel(LabelId label, View view) const {
 Result<bool> VertexAccessor::HasAnyLabel(View view) const {
   bool deleted = false;
   bool has_any_label = false;
-  Delta *delta = nullptr;
+  Delta const *delta = nullptr;
   VertexReadLock read_lock{vertex_};
   {
     auto const guard = read_lock.AcquireLock();
