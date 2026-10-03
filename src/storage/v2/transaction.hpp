@@ -234,8 +234,28 @@ struct Transaction {
 
   bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !parallel_execution_; }
 
+  // Visible iff ts <= snapshot_ts (SI + narrowing ON), else ts < start_timestamp.
+  [[nodiscard]] bool CommittedBeforeSnapshot(uint64_t ts) const noexcept {
+    return commit_lock_narrowing ? ts <= snapshot_ts : ts < start_timestamp;
+  }
+
+  // EXCLUSIVE bound (in-snapshot iff ts < bound): snapshot_ts + 1 when ON (== ts <= snapshot_ts), else start_timestamp.
+  [[nodiscard]] uint64_t SchemaReconstructionBound() const noexcept {
+    return commit_lock_narrowing ? snapshot_ts + 1 : start_timestamp;
+  }
+
+  // INCLUSIVE bound (ts <= bound) for the snapshot writer: snapshot_ts when ON, NOT +1 (would over-include by one and
+  // WAL recovery would refuse the duplicate), else start_timestamp.
+  [[nodiscard]] uint64_t SnapshotVisibilityBound() const noexcept {
+    return commit_lock_narrowing ? snapshot_ts : start_timestamp;
+  }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
+  // Last-published MVCC ts frozen at BEGIN (<= start_timestamp); the SI visibility boundary when narrowing is ON.
+  uint64_t snapshot_ts{};
+  // True only for SI txns with commit-lock-narrowing ON; otherwise visibility is ts < start_timestamp.
+  bool commit_lock_narrowing{false};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
   uint64_t original_start_timestamp{};
   // The `Transaction` object is stack allocated, but the `commit_info`

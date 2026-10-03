@@ -13959,7 +13959,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     // Write label indices.
     {
       spdlog::trace("snapshot writing label indices");
-      auto label = transaction->active_indices_->label_->ListIndices(transaction->start_timestamp);
+      auto label = transaction->active_indices_->label_->ListIndices(transaction->SnapshotVisibilityBound());
       snapshot.WriteUint(label.size());
       for (const auto &item : label) {
         write_mapping(item);
@@ -13972,7 +13972,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     // Write label indices statistics.
     {
       // NOTE: On-disk does not support snapshots
-      auto labels = transaction->active_indices_->label_->ListIndices(transaction->start_timestamp);
+      auto labels = transaction->active_indices_->label_->ListIndices(transaction->SnapshotVisibilityBound());
       const auto size_pos = snapshot.GetPosition();
       snapshot.WriteUint(0);  // Just a place holder
       unsigned i = 0;
@@ -14057,8 +14057,8 @@ std::optional<std::filesystem::path> CreateSnapshot(
       }
     };
 
-    auto asc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::ASC);
-    auto desc_indices = inmem_active_indices->ListIndices(transaction->start_timestamp, IndexOrder::DESC);
+    auto asc_indices = inmem_active_indices->ListIndices(transaction->SnapshotVisibilityBound(), IndexOrder::ASC);
+    auto desc_indices = inmem_active_indices->ListIndices(transaction->SnapshotVisibilityBound(), IndexOrder::DESC);
 
     spdlog::trace("snapshot writing label-property indices");
     // Write ASC label+properties indices.
@@ -14084,7 +14084,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     snapshot.WriteMarker(Marker::SECTION_EDGE_INDICES);
     {
       spdlog::trace("snapshot writing edge-type indices");
-      auto edge_type = transaction->active_indices_->edge_type_->ListIndices(transaction->start_timestamp);
+      auto edge_type = transaction->active_indices_->edge_type_->ListIndices(transaction->SnapshotVisibilityBound());
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
         write_mapping(item);
@@ -14097,7 +14097,8 @@ std::optional<std::filesystem::path> CreateSnapshot(
     // Write edge-type + property indices.
     {
       spdlog::trace("snapshot writing edge-type-property indices");
-      auto edge_type = transaction->active_indices_->edge_type_properties_->ListIndices(transaction->start_timestamp);
+      auto edge_type =
+          transaction->active_indices_->edge_type_properties_->ListIndices(transaction->SnapshotVisibilityBound());
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
         write_mapping(item.first);
@@ -14111,7 +14112,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     // Write global edge property indices.
     {
       spdlog::trace("snapshot writing edge-property indices");
-      auto indices = transaction->active_indices_->edge_property_->ListIndices(transaction->start_timestamp);
+      auto indices = transaction->active_indices_->edge_property_->ListIndices(transaction->SnapshotVisibilityBound());
       snapshot.WriteUint(indices.size());
       for (const auto &property : indices) {
         write_mapping(property);
@@ -14121,7 +14122,8 @@ std::optional<std::filesystem::path> CreateSnapshot(
     // Write global vertex property indices.
     {
       spdlog::trace("snapshot writing vertex-property indices");
-      auto indices = transaction->active_indices_->vertex_property_->ListIndices(transaction->start_timestamp);
+      auto indices =
+          transaction->active_indices_->vertex_property_->ListIndices(transaction->SnapshotVisibilityBound());
       snapshot.WriteUint(indices.size());
       for (const auto &property : indices) {
         write_mapping(property);
@@ -14208,7 +14210,8 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write existence constraints.
     {
-      auto existence = transaction->active_constraints_->existence_->ListConstraints(transaction->start_timestamp);
+      auto existence =
+          transaction->active_constraints_->existence_->ListConstraints(transaction->SnapshotVisibilityBound());
       snapshot.WriteUint(existence.size());
       for (const auto &item : existence) {
         write_mapping(item.first);
@@ -14221,7 +14224,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write unique constraints.
     {
-      auto unique = transaction->active_constraints_->unique_->ListConstraints(transaction->start_timestamp);
+      auto unique = transaction->active_constraints_->unique_->ListConstraints(transaction->SnapshotVisibilityBound());
       snapshot.WriteUint(unique.size());
       for (const auto &item : unique) {
         write_mapping(item.first);
@@ -14236,7 +14239,8 @@ std::optional<std::filesystem::path> CreateSnapshot(
     }
     // Write type constraints
     {
-      auto type_constraints = transaction->active_constraints_->type_->ListConstraints(transaction->start_timestamp);
+      auto type_constraints =
+          transaction->active_constraints_->type_->ListConstraints(transaction->SnapshotVisibilityBound());
       snapshot.WriteUint(type_constraints.size());
       for (const auto &[label, property, type] : type_constraints) {
         write_mapping(label);

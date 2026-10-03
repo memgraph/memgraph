@@ -593,11 +593,13 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     // taking here another commit timestamp.
     auto &commit_ts = commit_accessor->GetCommitTimestamp();
     DMG_ASSERT(commit_ts.has_value(), "Commit ts without a value");
-    auto guard = std::lock_guard{mem_storage->engine_lock_};
+    // Same committer serialization as the local commit path (see Storage::commit_mutex_).
+    auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
+    auto guard = std::unique_lock{mem_storage->engine_lock_};
     // Mark the old commit ts as finished before emplacing the new one
     mem_storage->commit_log_->MarkFinished(*commit_ts);
     commit_ts.emplace(mem_storage->GetCommitTimestamp());
-    commit_accessor->FinalizeCommitPhase(req.durability_commit_timestamp);
+    commit_accessor->FinalizeCommitPhase(req.durability_commit_timestamp, guard);
     spdlog::trace("Finalized txn on replica");
   } else {
     commit_accessor->AbortAndResetCommitTs();
@@ -760,7 +762,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       storage->repl_storage_state_.epoch_.SetEpoch(std::move(snapshot_info.epoch_id));
       storage->vertex_id_ = recovery_info.next_vertex_id;
       storage->edge_id_ = recovery_info.next_edge_id;
-      storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
+      storage->SetTimestampQuiescent(std::max(storage->timestamp_, recovery_info.next_timestamp));
       storage::CommitTsInfo const new_info{.ldt_ = snapshot_info.durable_timestamp,
                                            .num_committed_txns_ = snapshot_info.num_committed_txns};
       storage->repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
