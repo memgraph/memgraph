@@ -64,6 +64,12 @@ add_benchmark(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-rpc)
 endif()
 
+add_benchmark(communication_read_arm.cpp)
+target_link_libraries(${test_prefix}communication_read_arm mg-communication)
+# Measures a latency difference between two ways of arming a session's read, so it reports a
+# comparison rather than a pass or a fail, and nothing tracks a baseline for it.
+set_tests_properties(${test_prefix}communication_read_arm PROPERTIES DISABLED TRUE)
+
 add_benchmark(skip_list_random.cpp)
 target_link_libraries(${test_prefix}skip_list_random mg-utils)
 

@@ -458,6 +458,11 @@ add_unit_test(session_registry
     LINK_TARGETS mg-communication
 )
 
+add_unit_test(read_arm_state
+    SOURCES read_arm_state.cpp
+    LINK_TARGETS mg-communication
+)
+
 # Test mg-kvstore
 add_unit_test(kvstore
     SOURCES kvstore.cpp
