@@ -23,6 +23,7 @@
 #include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
@@ -475,7 +476,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     // current code always follows the logical pattern of "create a delta" and
     // "modify in-place". Additionally, the created delta will make other
     // transactions get a SERIALIZATION_ERROR.
-    if (skip_duplicate_write && old_value == new_value) return true;
+    if (skip_duplicate_write && AreIdentical(old_value, new_value)) return true;
     CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
     vertex->properties.SetProperty(property, new_value);
     if (schema_acc) {
@@ -610,7 +611,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   if (vertex_->deleted()) return std::unexpected{Error::DELETED_OBJECT};
 
-  const bool skip_duplicate_update = storage_->config_.salient.items.delta_on_identical_property_update;
+  const bool skip_duplicate_update = !storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
   std::optional<ReturnType> id_old_new_change;
   utils::AtomicMemoryBlock([storage = storage_,
@@ -625,7 +626,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
       return;
     }
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
-      if (skip_duplicate_update && old_value == new_value) continue;
+      if (skip_duplicate_update && AreIdentical(old_value, new_value)) continue;
       CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
       storage->indices_.UpdateOnSetProperty(id, old_value, new_value, vertex, *transaction);
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
