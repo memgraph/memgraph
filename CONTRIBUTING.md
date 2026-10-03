@@ -9,11 +9,13 @@ have.
 - [How to contribute?](#how-to-contribute)
   - [Open development](#open-development)
   - [Branch organization](#branch-organization)
+  - [Building and testing](#building-and-testing)
   - [Bugs & changes](#bugs--changes)
     - [Where to find known issues?](#where-to-find-known-issues)
     - [Proposing a change](#proposing-a-change)
     - [Your first pull request](#your-first-pull-request)
     - [Sending a pull request](#sending-a-pull-request)
+    - [Commit messages](#commit-messages)
     - [Style guide](#style-guide)
   - [How to get in touch?](#how-to-get-in-touch)
   - [Code of Conduct](#code-of-conduct)
@@ -37,6 +39,25 @@ Code that lands in `master` must be compatible with the latest stable release.
 It may contain additional features but no breaking changes if it's not
 absolutely necessary. We should be able to release a new minor version from the
 tip of `master` at any time.
+
+## Building and testing
+
+Memgraph compiles with its own toolchain and resolves dependencies through
+Conan 2, so a plain `cmake` invocation will not work. The full guide, including
+system packages and the toolchain, is [Build Memgraph from
+source](https://memgraph.com/docs/getting-started/build-memgraph-from-source).
+
+Once the prerequisites are in place:
+
+```
+./init-dev                 # installs the git hooks and pre-commit
+./init-test                # prepares the test environment
+./build.sh                 # Release build; --build-type Debug and --dev are the common variants
+ctest -R unit -j$(nproc)   # run the unit tests
+```
+
+[`AGENTS.md`](AGENTS.md) collects the same commands in the form coding agents
+read on task start.
 
 ## Bugs & changes
 
@@ -84,15 +105,36 @@ and either merge it, request changes to it, or close it with an explanation.
 1. Fork [the repository](https://github.com/memgraph/memgraph) and create your
    branch from `master`.
 2. If you've fixed a bug or added code that should be tested, add tests!
-3. Use the formatter `clang-format` for C/C++ code and `flake8` for Python code.
-   `clang-format` will automatically detect the `.clang-format` file in the root
-   directory while `flake8` can be used with the default configuration.
+3. Run the formatters before committing. Formatting is enforced by
+   [pre-commit](https://pre-commit.com/): `./init-dev` installs the hooks, and
+   `pre-commit run --all-files` runs them over the whole tree. C/C++ is
+   formatted with `clang-format`, which picks up the `.clang-format` file in the
+   root directory; Python with `black` and `isort`.
+
+### Commit messages
+
+We follow [Conventional Commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>): <summary>
+```
+
+`type` is one of `fix`, `feat`, `refactor`, `test`, `perf`, `build`, `docs` or
+`chore`.
+`scope` is optional and names the area you touched, in lowercase — `query`,
+`storage`, `ci` and so on. The summary is lowercase, with no trailing full stop.
+The pull request number is appended automatically when your change is
+squash-merged, so there is no need to add it yourself.
+
+For example: `fix(storage): add unique-constraint entries only for what a commit wrote`
 
 ### Style guide
 
 Memgraph uses the [Google Style
 Guide](https://google.github.io/styleguide/cppguide.html) for C++ in most of its
 code. You should follow them whenever writing new code.
+
+Formatting, as opposed to style, is applied automatically by pre-commit — see [Building and testing](#building-and-testing).
 
 ## How to get in touch?
 
