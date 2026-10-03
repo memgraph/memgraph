@@ -13540,8 +13540,8 @@ void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::S
 std::optional<std::filesystem::path> CreateSnapshot(
     Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-    utils::UUID const &uuid, std::string_view const epoch_id,
-    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
+    utils::UUID const &uuid, std::string const epoch_id,
+    std::deque<std::pair<std::string, uint64_t>> const epoch_history, utils::FileRetainer *file_retainer,
     std::atomic_bool *abort_snapshot, SnapshotProgress *progress, std::string_view trigger) {
   utils::Timer timer;
 

@@ -2995,6 +2995,10 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       // contents and consumers would skip it as "not newer".
       auto *txn = unique_accessor->GetTransaction();
       txn->last_durable_ts_ = txn->start_timestamp;
+      auto [epoch_id, epoch_history] = std::invoke([this] {
+        auto const engine_guard = std::unique_lock{engine_lock_};
+        return std::pair{std::string{repl_storage_state_.epoch_.id()}, repl_storage_state_.history};
+      });
       const auto snapshot_path = durability::CreateSnapshot(this,
                                                             txn,
                                                             recovery_.snapshot_directory_,
@@ -3002,8 +3006,8 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &vertices_,
                                                             &edges_,
                                                             uuid(),
-                                                            repl_storage_state_.epoch_.id(),
-                                                            repl_storage_state_.history,
+                                                            std::move(epoch_id),
+                                                            std::move(epoch_history),
                                                             &file_retainer_,
                                                             &abort_snapshot_,
                                                             &snapshot_progress_,
@@ -4489,27 +4493,46 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   // stuff are mutually exclusive from each other
   auto const snapshot_guard = std::unique_lock(snapshot_lock_);
 
-  auto accessor = std::invoke([&]() {
+  auto const make_accessor = [&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       // For analytical no other write txn can be in play
       return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation?
     }
     return Access(StorageAccessType::READ, IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
-  });
+  };
+  // Read under engine_lock_: a replica switches epoch when the first commit of a new main arrives, and that
+  // can happen while the snapshot is being written.
+  auto const read_epoch_state = [this] {
+    auto const engine_guard = std::unique_lock{engine_lock_};
+    return std::pair{repl_storage_state_.epoch_, repl_storage_state_.history};
+  };
+
+  // The accessor takes its start timestamp in its own engine_lock_ hold, so an epoch switch can land between
+  // that and the read below. The snapshot would then tag data from before the switch with the epoch after
+  // it, and a main that never saw that epoch would reject the recovered replica as diverged. Reading the epoch
+  // on both sides of the accessor detects the switch; a further pass needs a further main promotion.
+  auto epoch_before = read_epoch_state().first;
+  auto accessor = make_accessor();
+  auto epoch_state = read_epoch_state();
+  while (epoch_state.first != epoch_before) {
+    epoch_before = epoch_state.first;
+    accessor.reset();
+    accessor = make_accessor();
+    epoch_state = read_epoch_state();
+  }
+  auto &[epoch, epoch_history] = epoch_state;
 
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
 
   DMG_ASSERT(transaction->last_durable_ts_.has_value());
-  auto const &epoch = repl_storage_state_.epoch_;
-  auto const &epochHistory = repl_storage_state_.history;
   auto const &storage_uuid = uuid();
 
   SnapshotDigest current_digest;
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     current_digest = SnapshotDigest{.epoch_ = epoch,
-                                    .history_ = epochHistory,
+                                    .history_ = epoch_history,
                                     .storage_uuid_ = storage_uuid,
                                     .last_durable_ts_ = *transaction->last_durable_ts_};
 
@@ -4525,8 +4548,8 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &vertices_,
                                                         &edges_,
                                                         storage_uuid,
-                                                        epoch.id(),
-                                                        epochHistory,
+                                                        std::string{epoch.id()},
+                                                        std::move(epoch_history),
                                                         &file_retainer_,
                                                         &abort_snapshot_,
                                                         &snapshot_progress_,
