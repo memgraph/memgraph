@@ -2024,6 +2024,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
         // Collect one index scan per disjoined label, then fold them into a
         // balanced Union tree with a single deduplicating Distinct on top.
+        // With several scans, each starts from its own Once, so the upstream runs once and not once per label.
+        auto const upstream = input;
+        bool const several_scans = best_group.indices.size() > 1;
+        auto const branch_input = [&]() -> std::shared_ptr<LogicalOperator> {
+          return several_scans ? std::make_shared<Once>() : upstream;
+        };
         std::vector<std::unique_ptr<LogicalOperator>> scans;
         scans.reserve(best_group.indices.size());
         metadata.labels_to_erase.reserve(best_group.indices.size());
@@ -2035,10 +2041,12 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           if (std::holds_alternative<LabelIx>(index)) {
             metadata.all_property_filters_same = false;
             metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
-            scans.push_back(
-                std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view));
+            scans.push_back(std::make_unique<ScanAllByLabel>(
+                branch_input(), node_symbol, GetLabel(std::get<LabelIx>(index)), view));
           } else {
             auto &label_property_index = std::get<LabelPropertyIndex>(index);
+            // make_unwinds chains an IN list's Unwind onto `input`, which must be this branch's own.
+            input = branch_input();
             metadata.labels_to_erase.push_back(label_property_index.label);
             if (filtered_property_ids && *filtered_property_ids != label_property_index.properties) {
               metadata.all_property_filters_same = false;
@@ -2071,7 +2079,13 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           }
         }
         metadata.is_or_label_filter = true;
-        return ScanByIndexResult{BalancedDisjunctionUnion(std::move(scans), node_symbol), std::move(metadata)};
+        std::shared_ptr<LogicalOperator> disjunction = BalancedDisjunctionUnion(std::move(scans), node_symbol);
+        // Apply runs the scans for each upstream row and resets the Distinct between rows.
+        // An upstream Once yields one row, so it needs no Apply; Union already hid its symbols.
+        if (several_scans && upstream->GetTypeInfo() != Once::kType) {
+          disjunction = std::make_shared<Apply>(upstream, std::move(disjunction), OnEmptyBranch::kDropRow);
+        }
+        return ScanByIndexResult{std::move(disjunction), std::move(metadata)};
       }
     }
     if (vertex_prop_result) return std::move(*vertex_prop_result);
@@ -2112,8 +2126,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // `max_vertex_count` controls, whether no operator should be created if the
   // vertex count in the best index exceeds this number. In such a case,
   // `nullptr` is returned and `input` is not chained.
-  // In case of a "or" expression on labels the Distinct operator will be returned with the
-  // Union operator as input. Union will have as input the ScanAll operator.
+  // In case of a "or" expression on labels the result is a Distinct over a Union of one scan
+  // per label, each on its own Once. Unless `input` is a Once, an Apply runs that for each input row.
   // TODO: Add new operator instead of Distinct + Union
   struct GenScanResult {
     std::shared_ptr<LogicalOperator> op;

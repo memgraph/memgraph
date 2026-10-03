@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <initializer_list>
 #include <unordered_set>
 #include <vector>
 
@@ -168,16 +169,14 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(Optional &) override { return true; }
 
   bool PreVisit(Cartesian &op) override {
-    VisitBranch(*op.left_op_);
-    VisitBranch(*op.right_op_);
+    VisitBranches({op.left_op_.get(), op.right_op_.get()});
     return false;
   }
 
   bool PostVisit(Cartesian &) override { return true; }
 
   bool PreVisit(Union &op) override {
-    VisitBranch(*op.left_op_);
-    VisitBranch(*op.right_op_);
+    VisitBranches({op.left_op_.get(), op.right_op_.get()});
     return false;
   }
 
@@ -246,19 +245,32 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
   }
 
-  // Fully isolated: used for Cartesian/Union where branches are independent.
-  void VisitBranch(LogicalOperator &branch) {
-    auto saved_symbols = used_symbols_;
-    auto saved_dedup = deduplicates_;
-    auto saved_blocked = rewrite_blocked_;
-    auto saved_stack = dedup_stack_;
+  // For Cartesian/Union: each branch starts from the state above the operator, so one
+  // branch does not affect its sibling. The symbols and blocks of all branches then merge
+  // out, as in VisitSubquery: under an Apply or Optional a branch reads the frame of the
+  // operators visited after it.
+  void VisitBranches(std::initializer_list<LogicalOperator *> branches) {
+    auto const saved_symbols = used_symbols_;
+    auto const saved_dedup = deduplicates_;
+    auto const saved_blocked = rewrite_blocked_;
+    auto const saved_stack = dedup_stack_;
+    auto merged_symbols = saved_symbols;
+    bool merged_blocked = saved_blocked;
 
-    branch.Accept(*this);
+    for (auto *branch : branches) {
+      used_symbols_ = saved_symbols;
+      deduplicates_ = saved_dedup;
+      rewrite_blocked_ = saved_blocked;
+      dedup_stack_ = saved_stack;
+      branch->Accept(*this);
+      merged_symbols.insert(used_symbols_.begin(), used_symbols_.end());
+      merged_blocked = merged_blocked || rewrite_blocked_;
+    }
 
-    used_symbols_ = std::move(saved_symbols);
+    used_symbols_ = std::move(merged_symbols);
     deduplicates_ = saved_dedup;
-    rewrite_blocked_ = saved_blocked;
-    dedup_stack_ = std::move(saved_stack);
+    rewrite_blocked_ = merged_blocked;
+    dedup_stack_ = saved_stack;
   }
 
   // Subquery variant: merges used_symbols_ back into the parent so that edge

@@ -695,6 +695,11 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
           return true;
         }
         break;
+      } else if (auto *union_op = dynamic_cast<Union *>(current)) {
+        if (ConflictingOperators(union_op->left_op_.get()) || ConflictingOperators(union_op->right_op_.get())) {
+          return true;
+        }
+        break;
       } else if (auto *indexed_join_op = dynamic_cast<IndexedJoin *>(current)) {
         if (ConflictingOperators(indexed_join_op->main_branch_.get()) ||
             ConflictingOperators(indexed_join_op->sub_branch_.get())) {
