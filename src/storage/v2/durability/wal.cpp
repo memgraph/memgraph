@@ -1663,7 +1663,7 @@ std::optional<RecoveryInfo> LoadWal(
 
         if (items.storage_light_edge) {
           const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-          const auto property_value = ToPropertyValue(data.value, name_id_mapper);
+          auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
           // Light edges are not in edge_acc; resolve via cache (O(1)), then out_edges scan, then find_edge.
           EdgeRef edge_ref{data.gid};
@@ -1718,9 +1718,14 @@ std::optional<RecoveryInfo> LoadWal(
                                      old_type,
                                      items.properties_on_edges);
           }
+          // Capture the vector from the decoded value before the property store drops it.
+          // UpdateOnSetEdgeProperty may mutate property_value (tag-without-spec → plain list).
+          VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(property_id,
+                                                           property_value,
+                                                           edge_raw,
+                                                           indices_constraints->indices.vector_edge_indices,
+                                                           indices_constraints->indices.edge_vectors);
           edge_raw->properties.SetProperty(property_id, property_value);
-          VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
-              property_id, property_value, edge_raw, indices_constraints->indices.vector_edge_indices);
           return;
         }
 
@@ -1728,7 +1733,7 @@ std::optional<RecoveryInfo> LoadWal(
         if (edge == edge_acc.end())
           throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        const auto property_value = ToPropertyValue(data.value, name_id_mapper);
+        auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
         if (schema_info) {
           // Fast path: use cached edge recovery info.
@@ -1802,9 +1807,12 @@ std::optional<RecoveryInfo> LoadWal(
           }
         }
 
+        VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(property_id,
+                                                         property_value,
+                                                         &*edge,
+                                                         indices_constraints->indices.vector_edge_indices,
+                                                         indices_constraints->indices.edge_vectors);
         edge->properties.SetProperty(property_id, property_value);
-        VectorEdgeIndexRecovery::UpdateOnSetEdgeProperty(
-            property_id, property_value, &*edge, indices_constraints->indices.vector_edge_indices);
       },
       [&](WalTransactionStart const &data) {
         should_commit = data.commit.value_or(true);
@@ -2078,16 +2086,18 @@ std::optional<RecoveryInfo> LoadWal(
                                         .dimension = data.dimension,
                                         .resize_coefficient = data.resize_coefficient,
                                         .capacity = data.capacity,
-                                        .scalar_kind = scalar_kind},
-            .index_entries = {}});
+                                        .scalar_kind = scalar_kind}});
       },
       [&](WalVectorIndexDrop const &data) {
         VectorIndexRecovery::UpdateOnIndexDrop(data.index_name,
                                                indices_constraints->indices.vector_indices,
                                                indices_constraints->indices.vertex_vectors,
                                                vertex_acc);
-        VectorEdgeIndexRecovery::UpdateOnIndexDrop(
-            data.index_name, name_id_mapper, indices_constraints->indices.vector_edge_indices, vertex_acc);
+        VectorEdgeIndexRecovery::UpdateOnIndexDrop(data.index_name,
+                                                   indices_constraints->indices.vector_edge_indices,
+                                                   indices_constraints->indices.edge_vectors,
+                                                   vertex_acc,
+                                                   name_id_mapper);
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {

@@ -65,6 +65,10 @@ struct RecoveredIndicesAndConstraints {
     // Vectors behind VectorIndexId tags, captured on snapshot load / WAL replay.
     // RecoverAllVectorIndices moves them out and clears the map.
     VectorIndexRecovery::VertexVectors vertex_vectors;
+
+    // Per-property map: PropertyId → (Gid → float vector) for vector-edge-indexed edge properties.
+    // Populated during snapshot/WAL replay; each vector is consumed (moved out) during the build, then cleared.
+    VectorEdgeIndexRecovery::EdgeVectors edge_vectors;
   } indices;
 
   struct ConstraintsMetadata {
