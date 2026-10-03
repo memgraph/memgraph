@@ -34,10 +34,6 @@ namespace memgraph::query::plan {
 
 namespace {
 
-bool IsConstantLiteral(const Expression *expression) {
-  return utils::Downcast<const PrimitiveLiteral>(expression) || utils::Downcast<const ParameterLookup>(expression);
-}
-
 /// Like UsedSymbolsCollector, but walks a subquery body and a comprehension's filter and result in full. Feeds the
 /// remember-lists of operators that restore rows below a branch (Accumulate, OrderBy).
 /// A superset of @c SubqueryExpression::external_symbols_ on purpose: a missing symbol loses a value, an extra one
@@ -136,10 +132,10 @@ class SubqueryResultSymbolCollector : public HierarchicalTreeVisitor {
   std::vector<Symbol> *subquery_symbols_;
 };
 
-/// Whether @p expression holds the same value for every row of a group, so it is not a grouping key of its own.
-/// Wider than @c IsConstantLiteral, which only knows a bare literal or parameter: `1 + 1`, `[]` and `size([1, 2])`
-/// are equally row-independent. A subquery or comprehension never is: its branch is planned below the Aggregate,
-/// so only a grouping key carries its value past it - on an empty input nothing else ever sets it.
+/// Whether @p expression holds the same value for every row of a group, so it is not a grouping key of its own:
+/// a literal or parameter, and equally `1 + 1`, `[]` or `size([1, 2])`. A subquery or comprehension never is: its
+/// branch is planned below the Aggregate, so only a grouping key carries its value past it - on an empty input
+/// nothing else ever sets it.
 bool IsGroupConstant(Expression *expression, const SymbolTable &symbol_table) {
   SubqueryReadSymbolsCollector collector{symbol_table};
   expression->Accept(collector);
@@ -301,55 +297,48 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
+  /// Pops the flags @p children pushed, in order, and pushes whether any of them aggregates.
+  void FoldChildren(std::span<Expression *const> children) {
+    MG_ASSERT(children.size() <= has_aggregation_.size(), "Expected a has_aggregation_ flag for every child.");
+    std::vector<ExpressionPart> parts;
+    parts.reserve(children.size());
+    auto flag = std::prev(has_aggregation_.end(), static_cast<std::ptrdiff_t>(children.size()));
+    for (auto *child : children) {
+      parts.push_back({.expression = child, .has_aggregation = *flag});
+      flag = has_aggregation_.erase(flag);
+    }
+    has_aggregation_.emplace_back(AddGroupingKeys(parts));
+  }
+
   template <typename TLiteral, typename TIteratorToExpression>
   void PostVisitCollectionLiteral(TLiteral &literal, TIteratorToExpression iterator_to_expression) {
-    // If there is an aggregation in the list, and there are group-bys, then we
-    // need to add the group-bys manually. If there are no aggregations, the
-    // whole list will be added as a group-by.
-    std::vector<Expression *> literal_group_by;
-    bool has_aggr = false;
-    auto it = has_aggregation_.end();
-    auto elements_it = literal.elements_.begin();
-    std::advance(it, -literal.elements_.size());
+    MG_ASSERT(literal.elements_.size() <= has_aggregation_.size(),
+              "Expected as many has_aggregation_ flags as there are elements.");
     if (literal.GetTypeInfo() == MapProjectionLiteral::kType) {
       // Erase the map variable. Grammar-wise, it's a variable and thus never has aggregations.
-      std::advance(it, -1);
-      it = has_aggregation_.erase(it);
+      has_aggregation_.erase(
+          std::prev(has_aggregation_.end(), static_cast<std::ptrdiff_t>(literal.elements_.size() + 1)));
     }
-    while (it != has_aggregation_.end()) {
-      if (*it) {
-        has_aggr = true;
-      } else {
-        literal_group_by.emplace_back(iterator_to_expression(elements_it));
-      }
-      elements_it++;
-      it = has_aggregation_.erase(it);
+    std::vector<Expression *> elements;
+    elements.reserve(literal.elements_.size());
+    for (auto it = literal.elements_.begin(); it != literal.elements_.end(); ++it) {
+      elements.push_back(iterator_to_expression(it));
     }
-    has_aggregation_.emplace_back(has_aggr);
-    if (has_aggr) {
-      for (auto expression_ptr : literal_group_by) group_by_.emplace_back(expression_ptr);
-    }
+    FoldChildren(elements);
   }
 
  public:
   bool PostVisit(ListLiteral &list_literal) override {
-    MG_ASSERT(list_literal.elements_.size() <= has_aggregation_.size(),
-              "Expected as many has_aggregation_ flags as there are list"
-              "elements.");
     PostVisitCollectionLiteral(list_literal, [](auto it) { return *it; });
     return true;
   }
 
   bool PostVisit(MapLiteral &map_literal) override {
-    MG_ASSERT(map_literal.elements_.size() <= has_aggregation_.size(),
-              "Expected as many has_aggregation_ flags as there are map elements.");
     PostVisitCollectionLiteral(map_literal, [](auto it) { return it->second; });
     return true;
   }
 
   bool PostVisit(MapProjectionLiteral &map_projection_literal) override {
-    MG_ASSERT(map_projection_literal.elements_.size() <= has_aggregation_.size(),
-              "Expected as many has_aggregation_ flags as there are map elements.");
     PostVisitCollectionLiteral(map_projection_literal, [](auto it) { return it->second; });
     return true;
   }
@@ -445,15 +434,7 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PostVisit(Coalesce &coalesce) override {
-    MG_ASSERT(has_aggregation_.size() >= coalesce.expressions_.size(),
-              "Expected >= {} has_aggregation_ flags for COALESCE arguments",
-              has_aggregation_.size());
-    bool has_aggr = false;
-    for (size_t i = 0; i < coalesce.expressions_.size(); ++i) {
-      has_aggr = has_aggr || has_aggregation_.back();
-      has_aggregation_.pop_back();
-    }
-    has_aggregation_.emplace_back(has_aggr);
+    FoldChildren(coalesce.expressions_);
     return true;
   }
 
@@ -483,84 +464,31 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(ListSlicingOperator &list_slicing) override {
-    list_slicing.list_->Accept(*this);
-    bool list_has_aggr = has_aggregation_.back();
-    has_aggregation_.pop_back();
-    bool has_aggr = list_has_aggr;
-    if (list_slicing.lower_bound_) {
-      list_slicing.lower_bound_->Accept(*this);
-      has_aggr = has_aggr || has_aggregation_.back();
-      has_aggregation_.pop_back();
-    }
-    if (list_slicing.upper_bound_) {
-      list_slicing.upper_bound_->Accept(*this);
-      has_aggr = has_aggr || has_aggregation_.back();
-      has_aggregation_.pop_back();
-    }
-    if (has_aggr && !list_has_aggr) {
-      // We need to group by the list expression, because it didn't have an
-      // aggregation inside.
-      group_by_.emplace_back(list_slicing.list_);
-    }
-    has_aggregation_.emplace_back(has_aggr);
+    std::vector<Expression *> children{list_slicing.list_};
+    if (list_slicing.lower_bound_) children.push_back(list_slicing.lower_bound_);
+    if (list_slicing.upper_bound_) children.push_back(list_slicing.upper_bound_);
+    for (auto *child : children) child->Accept(*this);
+    FoldChildren(children);
     return false;
   }
 
   bool PreVisit(IfOperator &if_operator) override {
-    if_operator.condition_->Accept(*this);
-    bool const condition_aggr = has_aggregation_.back();
-    has_aggregation_.pop_back();
-    if_operator.then_expression_->Accept(*this);
-    bool const then_aggr = has_aggregation_.back();
-    has_aggregation_.pop_back();
-    if_operator.else_expression_->Accept(*this);
-    bool const else_aggr = has_aggregation_.back();
-    has_aggregation_.pop_back();
-    std::array<ExpressionPart, 3> const parts{
-        {{.expression = if_operator.condition_, .has_aggregation = condition_aggr},
-         {.expression = if_operator.then_expression_, .has_aggregation = then_aggr},
-         {.expression = if_operator.else_expression_, .has_aggregation = else_aggr}}};
-    has_aggregation_.emplace_back(AddGroupingKeys(parts));
+    std::array<Expression *, 3> const children{
+        if_operator.condition_, if_operator.then_expression_, if_operator.else_expression_};
+    for (auto *child : children) child->Accept(*this);
+    FoldChildren(children);
     return false;
   }
 
   bool PostVisit(Function &function) override {
-    MG_ASSERT(function.arguments_.size() <= has_aggregation_.size(),
-              "Expected as many has_aggregation_ flags as there are"
-              "function arguments.");
-    bool has_aggr = false;
-    auto it = has_aggregation_.end();
-    std::advance(it, -function.arguments_.size());
-    while (it != has_aggregation_.end()) {
-      has_aggr = has_aggr || *it;
-      it = has_aggregation_.erase(it);
-    }
-    has_aggregation_.emplace_back(has_aggr);
+    FoldChildren(function.arguments_);
     return true;
   }
 
-#define VISIT_BINARY_OPERATOR(BinaryOperator)                                                \
-  bool PostVisit(BinaryOperator &op) override {                                              \
-    MG_ASSERT(has_aggregation_.size() >= 2U, "Expected at least 2 has_aggregation_ flags."); \
-    /* has_aggregation_ stack is reversed, last result is from the 2nd */                    \
-    /* expression. */                                                                        \
-    bool const aggr2 = has_aggregation_.back();                                              \
-    has_aggregation_.pop_back();                                                             \
-    bool const aggr1 = has_aggregation_.back();                                              \
-    has_aggregation_.pop_back();                                                             \
-    bool const has_aggr = aggr1 || aggr2;                                                    \
-    if (has_aggr && !(aggr1 && aggr2)) {                                                     \
-      /* Group by the expression which does not contain aggregation. */                      \
-      if (aggr1 && !IsConstantLiteral(op.expression2_)) {                                    \
-        group_by_.emplace_back(op.expression2_);                                             \
-      }                                                                                      \
-      if (aggr2 && !IsConstantLiteral(op.expression1_)) {                                    \
-        group_by_.emplace_back(op.expression1_);                                             \
-      }                                                                                      \
-    }                                                                                        \
-    /* Propagate that this whole expression may contain an aggregation. */                   \
-    has_aggregation_.emplace_back(has_aggr);                                                 \
-    return true;                                                                             \
+#define VISIT_BINARY_OPERATOR(BinaryOperator)                                    \
+  bool PostVisit(BinaryOperator &op) override {                                  \
+    FoldChildren(std::array<Expression *, 2>{op.expression1_, op.expression2_}); \
+    return true;                                                                 \
   }
   VISIT_BINARY_OPERATOR(OrOperator)
   VISIT_BINARY_OPERATOR(XorOperator)
@@ -650,11 +578,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     return true;
   }
 
-  bool PostVisit(RegexMatch & /*unused*/) override {
-    MG_ASSERT(has_aggregation_.size() >= 2U, "Expected 2 has_aggregation_ flags for RegexMatch arguments");
-    bool has_aggr = has_aggregation_.back();
-    has_aggregation_.pop_back();
-    has_aggregation_.back() |= has_aggr;
+  bool PostVisit(RegexMatch &regex_match) override {
+    FoldChildren(std::array<Expression *, 2>{regex_match.string_expr_, regex_match.regex_});
     return true;
   }
 

@@ -1091,3 +1091,103 @@ Feature: Aggregations
         Then the result should be:
             | g | s  | a    |
             | 1 | 3  | 1.5  |
+
+    Scenario: An argument of coalesce beside an aggregation is a grouping key
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN coalesce(n.age, count(n)) AS r
+            """
+        Then the result should be:
+            | r  |
+            | 10 |
+            | 20 |
+
+    Scenario: A function argument beside an aggregation is a grouping key
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN left(toString(n.age), count(n)) AS r
+            """
+        Then the result should be:
+            | r    |
+            | '1'  |
+            | '20' |
+
+    Scenario: A slice bound beside an aggregation is a grouping key
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Person) RETURN [1, 2, 3][n.age / 10 - 1..count(n)] AS r
+            """
+        Then the result should be:
+            | r   |
+            | [1] |
+            | [2] |
+
+    Scenario: A computed constant beside an aggregation is not a grouping key
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN (1 + 1) + count(n) AS r
+            """
+        Then the result should be:
+            | r |
+            | 2 |
+
+    Scenario: A list element constant beside an aggregation is not a grouping key
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN [1, count(n)] AS r
+            """
+        Then the result should be:
+            | r      |
+            | [1, 0] |
+
+    Scenario: A regex operand beside an aggregation is a grouping key
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Pattern {re: '1'}), (:Pattern {re: '2'}), (:Pattern {re: '2'})
+            """
+        When executing query:
+            """
+            MATCH (n:Pattern) RETURN toString(count(n)) =~ n.re AS r
+            """
+        Then the result should be:
+            | r    |
+            | true |
+            | true |
+
+    Scenario: An uncorrelated EXISTS as a coalesce argument beside an aggregation over empty input
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN coalesce(EXISTS { MATCH (:Person) }, count(n) > 0) AS r
+            """
+        Then the result should be empty
