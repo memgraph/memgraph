@@ -898,4 +898,34 @@ Feature: Aggregations
             """
             MATCH (n:Nope) RETURN coalesce(EXISTS { MATCH (:Person) }, count(n) > 0) AS r
             """
-        Then the result should be empty
+        Then the result should be:
+            | r    |
+            | true |
+
+    Scenario: An uncorrelated EXISTS as a binary operand beside an aggregation over empty input
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN EXISTS { MATCH (:Person) } OR count(n) > 0 AS r
+            """
+        Then the result should be:
+            | r    |
+            | true |
+
+    Scenario: An uncorrelated COUNT subquery beside an aggregation over empty input
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Person {name: 'a', age: 10}), (:Person {name: 'b', age: 20}), (:Person {name: 'c', age: 20})
+            """
+        When executing query:
+            """
+            MATCH (n:Nope) RETURN COUNT { MATCH (:Person) } + count(n) AS r
+            """
+        Then the result should be:
+            | r |
+            | 3 |
