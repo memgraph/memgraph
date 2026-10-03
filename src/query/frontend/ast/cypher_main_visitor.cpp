@@ -3114,14 +3114,10 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
   } else {
     anonymous_identifiers.push_back(&node->identifier_);
   }
-  if (ctx->nodeLabels()) {
-    node->labels_ = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
-  }
-  if (ctx->labelExpression()) {
-    auto labels_set = std::any_cast<std::unordered_set<LabelIx>>(ctx->labelExpression()->accept(this));
-    node->labels_.reserve(labels_set.size());
-    node->labels_.insert(node->labels_.end(), labels_set.begin(), labels_set.end());
-    node->label_expression_ = true;
+  if (ctx->patternLabelExpression()) {
+    auto term = std::any_cast<LabelTerm>(ctx->patternLabelExpression()->accept(this));
+    // A `$param` bound to an empty list names no label.
+    if (auto labels = term.Conjunction(); !labels || !labels->empty()) node->label_term_ = std::move(term);
   }
   if (ctx->properties()) {
     // This can return either properties or parameters
@@ -3134,56 +3130,300 @@ antlrcpp::Any CypherMainVisitor::visitNodePattern(MemgraphCypher::NodePatternCon
   return node;
 }
 
+std::vector<QueryLabelType> CypherMainVisitor::LabelsFromLabelName(MemgraphCypher::LabelNameContext *ctx) {
+  if (ctx->symbolicName()) {
+    return {AddLabel(std::any_cast<std::string>(ctx->symbolicName()->accept(this)))};
+  }
+  if (ctx->parameter()) {
+    auto labels = LabelsFromParameter(ctx->parameter());
+    return {labels.begin(), labels.end()};
+  }
+  return {PropertyLookupLabel(ctx->variable(), ctx->propertyLookup())};
+}
+
+std::vector<LabelIx> CypherMainVisitor::LabelsFromLabelLeaf(MemgraphCypher::LabelLeafContext *ctx) {
+  if (ctx->symbolicName()) {
+    return {AddLabel(std::any_cast<std::string>(ctx->symbolicName()->accept(this)))};
+  }
+  return LabelsFromParameter(ctx->parameter());
+}
+
+std::vector<LabelIx> CypherMainVisitor::LabelsFromParameter(MemgraphCypher::ParameterContext *ctx) {
+  const auto *param_lookup = std::any_cast<ParameterLookup *>(ctx->accept(this));
+  const auto &param_property = parameters_->AtTokenPosition(param_lookup->token_position_);
+
+  std::vector<LabelIx> labels;
+  if (param_property.IsString()) {
+    labels.emplace_back(storage_->GetLabelIx(param_property.ValueString()));
+  } else if (param_property.IsList()) {
+    const auto labels_list = param_property.ValueList();
+    for (const auto &label_name : labels_list) {
+      if (!label_name.IsString()) {
+        throw SyntaxException("Dynamic node labels must be of type STRING!");
+      }
+      labels.emplace_back(storage_->GetLabelIx(label_name.ValueString()));
+    }
+  } else {
+    throw SyntaxException("Parameter for dynamic node labels must be of type STRING or LIST[STRING]");
+  }
+
+  // We can't cache queries with label parameters because these parameters are resolved during the parsing stage.
+  // The same parameter could be resolved to different values if the user changes its value.
+  query_info_.is_cacheable = false;
+  return labels;
+}
+
+Expression *CypherMainVisitor::PropertyLookupLabel(
+    MemgraphCypher::VariableContext *variable_ctx,
+    const std::vector<MemgraphCypher::PropertyLookupContext *> &lookups) {
+  auto variable = std::any_cast<std::string>(variable_ctx->accept(this));
+  users_identifiers.insert(variable);
+  auto *expression = static_cast<Expression *>(storage_->Create<Identifier>(variable));
+  for (auto *lookup : lookups) {
+    auto key = std::any_cast<PropertyIx>(lookup->accept(this));
+    expression = storage_->Create<PropertyLookup>(expression, key);
+  }
+  return expression;
+}
+
+Expression *CypherMainVisitor::DynamicLabelFrom(MemgraphCypher::DynamicLabelContext *ctx) {
+  if (ctx->dynamicLabel() != nullptr) return DynamicLabelFrom(ctx->dynamicLabel());
+  return PropertyLookupLabel(ctx->variable(), ctx->propertyLookup());
+}
+
 antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) {
   std::vector<QueryLabelType> labels;
   for (auto *node_label : ctx->nodeLabel()) {
-    auto *label_name = node_label->labelName();
-    if (label_name->symbolicName()) {
-      labels.emplace_back(AddLabel(std::any_cast<std::string>(node_label->accept(this))));
-    } else if (label_name->parameter()) {
-      // If we have a parameter, we have to resolve it.
-      const auto *param_lookup = std::any_cast<ParameterLookup *>(node_label->accept(this));
-      const auto &param_property = parameters_->AtTokenPosition(param_lookup->token_position_);
-
-      if (param_property.IsString()) {
-        const auto &label_name = param_property.ValueString();
-        labels.emplace_back(storage_->GetLabelIx(label_name));
-      } else if (param_property.IsList()) {
-        const auto labels_list = param_property.ValueList();
-        for (const auto &label_name : labels_list) {
-          if (!label_name.IsString()) {
-            throw SyntaxException("Dynamic node labels must be of type STRING!");
-          }
-          labels.emplace_back(storage_->GetLabelIx(label_name.ValueString()));
-        }
-      } else {
-        throw SyntaxException("Parameter for dynamic node labels must be of type STRING or LIST[STRING]");
-      }
-
-      // We can't cache queries with label parameters because these parameters are resolved during the parsing stage.
-      // The same parameter could be resolved to different values if the user changes its value.
-      query_info_.is_cacheable = false;
-    } else {
-      auto variable = std::any_cast<std::string>(label_name->variable()->accept(this));
-      users_identifiers.insert(variable);
-      auto *expression = static_cast<Expression *>(storage_->Create<Identifier>(variable));
-      for (auto *lookup : label_name->propertyLookup()) {
-        auto key = std::any_cast<PropertyIx>(lookup->accept(this));
-        auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
-        expression = property_lookup;
-      }
-      labels.emplace_back(expression);
-    }
+    auto leaf_labels = LabelsFromLabelName(node_label->labelName());
+    labels.insert(labels.end(), leaf_labels.begin(), leaf_labels.end());
   }
   return labels;
 }
 
-antlrcpp::Any CypherMainVisitor::visitLabelExpression(MemgraphCypher::LabelExpressionContext *ctx) {
-  std::unordered_set<LabelIx> labels;
-  for (auto *label : ctx->symbolicName()) {
-    labels.emplace(AddLabel(std::any_cast<std::string>(label->accept(this))));
+namespace {
+
+/// The one operand a term holds, or nullptr when it holds several, or one named by an expression. The term
+/// rules name their conjunction and its operands differently; what they hold is the same.
+template <typename TTerm>
+MemgraphCypher::LabelTermNotContext *SoleNegation(TTerm *term) {
+  auto conjunctions = std::invoke([&] {
+    if constexpr (requires { term->patternLabelAnd(); }) {
+      return term->patternLabelAnd();
+    } else {
+      return term->labelTermAnd();
+    }
+  });
+  if (conjunctions.size() != 1U) return nullptr;
+  auto *conjunction = conjunctions.front();
+  if constexpr (requires { conjunction->patternLabelConjunct(); }) {
+    if (conjunction->patternLabelConjunct().size() != 1U) return nullptr;
+    // Null for a `variable.prop` conjunct, which is no negation and no plain leaf.
+    return conjunction->patternLabelConjunct().front()->labelTermNot();
+  } else {
+    if (conjunction->labelTermNot().size() != 1U) return nullptr;
+    return conjunction->labelTermNot().front();
   }
-  return labels;
+}
+
+/// The single leaf a term stands for, or nullptr when the term uses an operator. Parentheses around a single
+/// label are no operator: ':(A):B' is ':A:B'.
+template <typename TTerm>
+MemgraphCypher::LabelLeafContext *PlainLabelLeaf(TTerm *term) {
+  auto *negation = SoleNegation(term);
+  if (negation == nullptr) return nullptr;
+  auto *atom = negation->labelTermAtom();
+  if (atom == nullptr) return nullptr;
+  if (atom->parenLabelTerm() != nullptr) return PlainLabelLeaf(atom->parenLabelTerm());
+  return atom->labelLeaf();
+}
+
+/// The `variable.prop` a pattern's term names, when that is all it names.
+MemgraphCypher::DynamicLabelContext *PlainDynamicLabel(MemgraphCypher::PatternLabelTermContext *term) {
+  if (term->patternLabelAnd().size() != 1U) return nullptr;
+  auto *conjunction = term->patternLabelAnd().front();
+  if (conjunction->patternLabelConjunct().size() != 1U) return nullptr;
+  return conjunction->patternLabelConjunct().front()->dynamicLabel();
+}
+
+/// `A|(B|C)` and `A|B|C` name the same disjunction, so the tree is kept flat. Nothing else is folded:
+/// the tree stays as written so that EXPLAIN does too. `Op` is `LabelTerm::And` or `LabelTerm::Or`.
+template <typename Op>
+void AppendFlattened(LabelTerm operand, std::vector<LabelTerm> &out) {
+  auto *same = operand.As<Op>();
+  if (!same) {
+    out.push_back(std::move(operand));
+    return;
+  }
+  std::ranges::move(same->operands, std::back_inserter(out));
+}
+
+template <typename Op>
+LabelTerm Combine(std::vector<LabelTerm> operands) {
+  if (operands.size() == 1U) return std::move(operands.front());
+  return LabelTerm{Op{std::move(operands)}};
+}
+
+bool NamesALabelByExpression(const LabelTerm &term) {
+  return std::visit(memgraph::utils::Overloaded{
+                        [](const LabelTerm::Dynamic &) { return true; },
+                        [](const LabelTerm::Label &) { return false; },
+                        [](const LabelTerm::Wildcard &) { return false; },
+                        [](const LabelTerm::Not &negation) { return NamesALabelByExpression(*negation.operand); },
+                        [](const LabelTerm::And &conjunction) {
+                          return std::ranges::any_of(conjunction.operands, NamesALabelByExpression);
+                        },
+                        [](const LabelTerm::Or &disjunction) {
+                          return std::ranges::any_of(disjunction.operands, NamesALabelByExpression);
+                        },
+                    },
+                    term.node);
+}
+
+/// A label named by an expression names one label of one node, so only a conjunction can hold one: an
+/// alternative leaves no one set of labels to write, and no label to test for.
+LabelTerm OnlyConjoined(LabelTerm term) {
+  if (NamesALabelByExpression(term) && !term.Conjunction()) {
+    throw SyntaxException(
+        "A label named by an expression can only be joined by ':' or '&'. For a label whose name contains a "
+        "dot, put the name in backticks.");
+  }
+  return term;
+}
+
+/// A conjunction that repeats a label asks nothing more, and index selection expects each label once.
+LabelTerm WithoutRepeatedLabels(LabelTerm term) {
+  auto *conjunction = term.As<LabelTerm::And>();
+  if (!conjunction || !term.Conjunction()) return term;
+  std::vector<LabelTerm> operands;
+  operands.reserve(conjunction->operands.size());
+  for (auto &operand : conjunction->operands) {
+    const auto *label = operand.As<LabelTerm::Label>();
+    const bool repeated = label && std::ranges::any_of(operands, [&](const LabelTerm &kept) {
+                            const auto *kept_label = kept.As<LabelTerm::Label>();
+                            return kept_label && kept_label->label == label->label;
+                          });
+    if (!repeated) operands.push_back(std::move(operand));
+  }
+  return Combine<LabelTerm::And>(std::move(operands));
+}
+
+}  // namespace
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermContext *ctx) {
+  std::vector<LabelTerm> operands;
+  for (auto *conjunction : ctx->labelTermAnd()) {
+    AppendFlattened<LabelTerm::Or>(LabelTermFrom(conjunction), operands);
+  }
+  return Combine<LabelTerm::Or>(std::move(operands));
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermAndContext *ctx) {
+  std::vector<LabelTerm> operands;
+  for (auto *negation : ctx->labelTermNot()) {
+    AppendFlattened<LabelTerm::And>(LabelTermFrom(negation), operands);
+  }
+  return Combine<LabelTerm::And>(std::move(operands));
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermNotContext *ctx) {
+  if (ctx->labelTermNot() == nullptr) return LabelTermFrom(ctx->labelTermAtom());
+  return LabelTerm{LabelTerm::Not{LabelTermFrom(ctx->labelTermNot())}};
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::PatternLabelTermContext *ctx) {
+  std::vector<LabelTerm> operands;
+  for (auto *conjunction : ctx->patternLabelAnd()) {
+    AppendFlattened<LabelTerm::Or>(LabelTermFrom(conjunction), operands);
+  }
+  return Combine<LabelTerm::Or>(std::move(operands));
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::PatternLabelAndContext *ctx) {
+  std::vector<LabelTerm> operands;
+  for (auto *conjunct : ctx->patternLabelConjunct()) {
+    AppendFlattened<LabelTerm::And>(LabelTermFrom(conjunct), operands);
+  }
+  return Combine<LabelTerm::And>(std::move(operands));
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::PatternLabelConjunctContext *ctx) {
+  if (auto *dynamic = ctx->dynamicLabel()) return LabelTerm{LabelTerm::Dynamic{DynamicLabelFrom(dynamic)}};
+  return LabelTermFrom(ctx->labelTermNot());
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::ParenLabelTermContext *ctx) {
+  std::vector<LabelTerm> operands;
+  for (auto *conjunction : ctx->labelTermAnd()) {
+    AppendFlattened<LabelTerm::Or>(LabelTermFrom(conjunction), operands);
+  }
+  return Combine<LabelTerm::Or>(std::move(operands));
+}
+
+LabelTerm CypherMainVisitor::LabelTermFrom(MemgraphCypher::LabelTermAtomContext *ctx) {
+  if (ctx->parenLabelTerm() != nullptr) return LabelTermFrom(ctx->parenLabelTerm());
+  if (ctx->labelLeaf() == nullptr) return LabelTerm{LabelTerm::Wildcard{}};
+
+  std::vector<LabelTerm> leaves;
+  for (const auto &label : LabelsFromLabelLeaf(ctx->labelLeaf())) {
+    leaves.push_back(LabelTerm{LabelTerm::Label{label}});
+  }
+  // A `$param` bound to a list names several labels at once, which is a conjunction here just as it is
+  // in a colon chain.
+  return Combine<LabelTerm::And>(std::move(leaves));
+}
+
+template <typename TSegment>
+LabelTerm CypherMainVisitor::LabelExpressionFrom(const std::vector<TSegment *> &segments) {
+  // The two rules name their term differently.
+  auto term_of = [](TSegment *segment) {
+    if constexpr (requires { segment->patternLabelTerm(); }) {
+      return segment->patternLabelTerm();
+    } else {
+      return segment->labelTerm();
+    }
+  };
+
+  // A pattern names a `variable.prop` label through its term; an expression has it as a whole segment.
+  auto dynamic_of = [&](TSegment *segment) -> MemgraphCypher::DynamicLabelContext * {
+    if constexpr (requires { segment->dynamicLabel(); }) {
+      return segment->dynamicLabel();
+    } else {
+      return PlainDynamicLabel(term_of(segment));
+    }
+  };
+
+  if (segments.size() == 1U && term_of(segments.front()) != nullptr &&
+      PlainLabelLeaf(term_of(segments.front())) == nullptr) {
+    return OnlyConjoined(WithoutRepeatedLabels(LabelTermFrom(term_of(segments.front()))));
+  }
+
+  // A bare label, or the legacy ':A:B' chain of them, including the `variable.prop` leaf only CREATE
+  // accepts. That a chain takes bare labels only is also the rule against mixing ':' with the operators.
+  std::vector<LabelTerm> leaves;
+  for (auto *segment : segments) {
+    if (auto *dynamic = dynamic_of(segment)) {
+      leaves.push_back(LabelTerm{LabelTerm::Dynamic{DynamicLabelFrom(dynamic)}});
+      continue;
+    }
+    auto *leaf = PlainLabelLeaf(term_of(segment));
+    if (leaf == nullptr) {
+      throw SyntaxException(
+          "Labels separated by ':' can't be combined with label operators ('&', '|', '!', '%'). Use ':A:B' or "
+          "':A&B'.");
+    }
+    for (const auto &label : LabelsFromLabelLeaf(leaf)) {
+      leaves.push_back(LabelTerm{LabelTerm::Label{label}});
+    }
+  }
+  return WithoutRepeatedLabels(Combine<LabelTerm::And>(std::move(leaves)));
+}
+
+antlrcpp::Any CypherMainVisitor::visitNodeLabelExpression(MemgraphCypher::NodeLabelExpressionContext *ctx) {
+  return LabelExpressionFrom(ctx->labelSegment());
+}
+
+antlrcpp::Any CypherMainVisitor::visitPatternLabelExpression(MemgraphCypher::PatternLabelExpressionContext *ctx) {
+  return LabelExpressionFrom(ctx->patternLabelSegment());
 }
 
 antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesContext *ctx) {
@@ -3762,9 +4002,9 @@ antlrcpp::Any CypherMainVisitor::visitListIndexingOrSlicing(MemgraphCypher::List
 
 antlrcpp::Any CypherMainVisitor::visitExpression2a(MemgraphCypher::Expression2aContext *ctx) {
   auto *expression = std::any_cast<Expression *>(ctx->expression2b()->accept(this));
-  if (ctx->nodeLabels()) {
-    auto labels = std::any_cast<std::vector<QueryLabelType>>(ctx->nodeLabels()->accept(this));
-    expression = storage_->Create<LabelsTest>(expression, labels);
+  if (ctx->nodeLabelExpression()) {
+    expression =
+        LabelsTest::Make(*storage_, expression, std::any_cast<LabelTerm>(ctx->nodeLabelExpression()->accept(this)));
   }
   return expression;
 }
@@ -4882,6 +5122,13 @@ Expression *CypherMainVisitor::CreateBinaryOperatorByToken(size_t token, Express
 Expression *CypherMainVisitor::CreateUnaryOperatorByToken(size_t token, Expression *e) {
   switch (token) {
     case MemgraphCypher::NOT:
+      // `NOT s:!x` is `s:x` for any subject, null and non-nodes included, so the planner never sees the pair.
+      if (auto *labels_test = utils::Downcast<LabelsTest>(e)) {
+        const auto *term = labels_test->Term();
+        if (const auto *negation = term ? term->As<LabelTerm::Not>() : nullptr) {
+          return LabelsTest::Make(*storage_, labels_test->expression_, *negation->operand);
+        }
+      }
       return storage_->Create<NotOperator>(e);
     case MemgraphCypher::PLUS:
       return storage_->Create<UnaryPlusOperator>(e);

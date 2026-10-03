@@ -781,6 +781,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 
   const SymbolTable &symbol_table() const { return symbol_table_; }
 
+  AstStorage &storage() const { return storage_; }
+
   // Pattern comprehension symbols that appear inside aggregate expressions.
   // These must be planned BEFORE the Aggregate operator so their values are available.
   const auto &pattern_comprehensions_in_aggregations() const { return pattern_comprehensions_in_aggregations_; }
@@ -1013,8 +1015,10 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
   if (body.where()) {
     // Below the Filter, not the OrderBy: spliced lower, it would hand the Filter one frozen value per replayed row.
     splice_branches(body.branches_at(BodyPosition::kWhere));
-    last_op = std::make_unique<Filter>(
-        std::move(last_op), std::vector<std::shared_ptr<LogicalOperator>>{}, body.where()->expression_);
+    // Split as filter collection splits, so an index scan below finds the label test it consumes.
+    last_op = std::make_unique<Filter>(std::move(last_op),
+                                       std::vector<std::shared_ptr<LogicalOperator>>{},
+                                       SplitLabelsTests(body.where()->expression_, body.storage()));
   }
 
   return last_op;
@@ -1189,6 +1193,11 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
   bool const accumulate = is_write && !has_periodic_commit;
   // No need to advance the command if we only performed reads.
   bool advance_command = is_write;
+  // Split into the clause that owns the expression, because planning runs once per start node the
+  // variable-start planner tries.
+  if (with.where_) {
+    with.where_->expression_ = SplitLabelsTests(with.where_->expression_, storage);
+  }
   const ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &subquery_ctx, with.where_);
   auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
 

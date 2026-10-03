@@ -556,6 +556,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                      write_occurred || call_proc->graph_access_ == GraphAccess::Write,
                                                      eligible);
             if (call_proc->where_) {
+              // Split as filter collection splits, so an index scan below finds the label test it consumes.
+              // Written back, because planning runs once per start node the variable-start planner tries.
+              call_proc->where_->expression_ = SplitLabelsTests(call_proc->where_->expression_, *context.ast_storage);
               auto *filter_expr = call_proc->where_->expression_;
               auto where_filters = Filters::FromExpression(filter_expr, *context.symbol_table, *context.ast_storage);
               input_op = std::make_unique<Filter>(std::move(input_op),
@@ -837,13 +840,17 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
         return std::get<ParameterLookup *>(node.properties_);
       });
-      return NodeCreationInfo{node_symbol, GetLabelIds(node.labels_), properties};
+      // A write needs one label set to build, which only a conjunction names. Semantic analysis refuses the
+      // other spellings; raise the query error here too, so a miss reads as one rather than as
+      // `std::bad_optional_access`.
+      const auto labels = node.LabelConjunction();
+      if (!labels) {
+        throw QueryException("Cannot write a node whose labels are not a conjunction.");
+      }
+      return NodeCreationInfo{node_symbol, GetLabelIds(*labels), properties};
     };
 
     auto base = [&](NodeAtom *node) -> std::unique_ptr<LogicalOperator> {
-      if (node->label_expression_) {
-        throw SemanticException("Label expression not supported in CREATE and MERGE clauses.");
-      }
       const auto &node_symbol = symbol_table.at(*node->identifier_);
       if (bound_symbols.insert(node_symbol).second) {
         auto node_info = node_to_creation_info(*node);

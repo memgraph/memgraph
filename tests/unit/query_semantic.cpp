@@ -10,11 +10,13 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <functional>
 #include <iterator>
 #include <memory>
 #include <sstream>
 #include <string>
 #include <unordered_set>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -2580,6 +2582,68 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverItsOwnNodesInsideCreateI
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
 
   EXPECT_NO_THROW(MakeSymbolTable(query));
+}
+
+// CREATE and MERGE build a node, so they take a conjunction of labels and nothing else: there is no
+// node to build from '|', '!' or '%'.
+TYPED_TEST(TestSymbolGenerator, CreateOrMergeWithLabelTermIsRejected) {
+  // The check is on the term being there, not on its operator, so one CREATE and one MERGE suffice.
+  // CREATE (n:%)
+  auto *wildcard = NODE_WITH_TERM("n", LABEL_TERM_WILDCARD());
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(CREATE(PATTERN(wildcard))))), SemanticException);
+
+  // MERGE (n:!A)
+  auto *merged = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("A")));
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MERGE(PATTERN(merged))))), SemanticException);
+
+  // CREATE (n:A:B) -- a conjunction is what a write takes, and it still does.
+  auto *conjunction = NODE_WITH_LABELS("n", std::vector<std::string>{"A", "B"}, false);
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(CREATE(PATTERN(conjunction))))));
+
+  // MATCH (n:!A) -- reading with one is fine.
+  auto *matched = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("A")));
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(matched)), RETURN("n")))));
+}
+
+// The rejection reaches the far end of a written edge too. Each case also runs with a plain node, which must
+// pass, so the throw is the label term's.
+TYPED_TEST(TestSymbolGenerator, NestedCreateOrMergeWithLabelTermIsRejected) {
+  auto term = [&] { return NODE_WITH_TERM("n", LABEL_TERM_OR(LABEL_TERM_LEAF("A"), LABEL_TERM_LEAF("B"))); };
+  auto plain = [&] { return NODE("n"); };
+  using MakeNode = std::function<NodeAtom *()>;
+  const std::vector<std::pair<std::string, std::function<CypherQuery *(const MakeNode &)>>> cases{
+      // CREATE (m)-[:R]->(n:A|B)
+      {"edge endpoint",
+       [&](const MakeNode &node) {
+         return QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {"R"}), node()))));
+       }},
+      // MERGE (m)-[:R]->(n:A|B)
+      {"merged edge endpoint",
+       [&](const MakeNode &node) {
+         return QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {"R"}), node()))));
+       }},
+  };
+  for (const auto &[name, make_query] : cases) {
+    SCOPED_TRACE(name);
+    EXPECT_THROW(MakeSymbolTable(make_query(term)), SemanticException);
+    EXPECT_NO_THROW(MakeSymbolTable(make_query(plain)));
+  }
+}
+
+// Only CREATE writes a label named by an expression, and the refusal says so wherever it is raised. It
+// also says how to name a label that contains a dot, which is what a query reaching this usually meant.
+TYPED_TEST(TestSymbolGenerator, MatchingALabelNamedByAnExpressionNamesTheRule) {
+  // MATCH (x), (n:x.y) RETURN n
+  auto *dynamic = NODE_WITH_TERM("n", LABEL_TERM_DYNAMIC(PROPERTY_LOOKUP(this->dba, IDENT("x"), "y")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x")), PATTERN(dynamic)), RETURN("n")));
+  try {
+    MakeSymbolTable(query);
+    ADD_FAILURE() << "expected a semantic error";
+  } catch (const SemanticException &e) {
+    const std::string message{e.what()};
+    EXPECT_NE(message.find("can only be written by CREATE"), std::string::npos) << message;
+    EXPECT_NE(message.find("backticks"), std::string::npos) << message;
+  }
 }
 
 #undef COMPREHENSION_OVER

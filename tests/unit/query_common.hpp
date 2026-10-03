@@ -279,22 +279,57 @@ auto GetEdgeVariable(AstStorage &storage, const std::string &name, EdgeAtom::Typ
 auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::string> label = std::nullopt,
              const bool user_declared = true) {
   auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
-  if (label) node->labels_.emplace_back(storage.GetLabelIx(*label));
+  if (label) node->label_term_ = LabelTerm{LabelTerm::Label{storage.GetLabelIx(*label)}};
   return node;
 }
 
 /// Create a NodeAtom with given name and labels.
 ///
-/// Name is used to create the Identifier which is assigned to the node.
+/// Name is used to create the Identifier which is assigned to the node. `disjunction` picks how the
+/// labels combine: a disjunction ('A|B', the default) or a conjunction (':A:B').
 auto GetNodeWithMultipleLabels(AstStorage &storage, const std::string &name, std::vector<std::string> labels,
-                               bool label_expression = true, const bool user_declared = true) {
+                               bool disjunction = true, const bool user_declared = true) {
   auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
+  std::vector<LabelTerm> leaves;
   for (const auto &label : labels) {
-    node->labels_.emplace_back(storage.GetLabelIx(label));
+    leaves.push_back(LabelTerm{LabelTerm::Label{storage.GetLabelIx(label)}});
   }
-  node->label_expression_ = label_expression;
+  // As the parser builds them: no label leaves the term unset, and one label is a bare leaf.
+  if (leaves.empty()) return node;
+  if (leaves.size() == 1U) {
+    node->label_term_ = std::move(leaves.front());
+  } else if (disjunction) {
+    node->label_term_ = LabelTerm{LabelTerm::Or{std::move(leaves)}};
+  } else {
+    node->label_term_ = LabelTerm{LabelTerm::And{std::move(leaves)}};
+  }
   return node;
 }
+
+/// Create a NodeAtom whose labels are the given label term.
+auto GetNodeWithLabelTerm(AstStorage &storage, const std::string &name, LabelTerm term,
+                          const bool user_declared = true) {
+  auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
+  node->label_term_ = std::move(term);
+  return node;
+}
+
+/// Leaf/operator builders for LabelTerm, so a test states the shape it means.
+inline LabelTerm LabelTermLeaf(AstStorage &storage, const std::string &label) {
+  return LabelTerm{LabelTerm::Label{storage.GetLabelIx(label)}};
+}
+
+inline LabelTerm LabelTermWildcard() { return LabelTerm{LabelTerm::Wildcard{}}; }
+
+inline LabelTerm LabelTermDynamic(Expression *expression) { return LabelTerm{LabelTerm::Dynamic{expression}}; }
+
+inline LabelTerm LabelTermNot(LabelTerm operand) { return LabelTerm{LabelTerm::Not{std::move(operand)}}; }
+
+inline LabelTerm LabelTermAnd(std::vector<LabelTerm> operands) {
+  return LabelTerm{LabelTerm::And{std::move(operands)}};
+}
+
+inline LabelTerm LabelTermOr(std::vector<LabelTerm> operands) { return LabelTerm{LabelTerm::Or{std::move(operands)}}; }
 
 /// Create a Pattern with given atoms.
 auto GetPattern(AstStorage &storage, std::vector<PatternAtom *> atoms) {
@@ -739,6 +774,13 @@ auto GetCountPattern(AstStorage &storage, Pattern *pattern) {
 ///                      RETURN(NEXPR("new_name"), IDENT("m")));
 #define NODE(...) memgraph::query::test_common::GetNode(this->storage, __VA_ARGS__)
 #define NODE_WITH_LABELS(...) memgraph::query::test_common::GetNodeWithMultipleLabels(this->storage, __VA_ARGS__)
+#define NODE_WITH_TERM(...) memgraph::query::test_common::GetNodeWithLabelTerm(this->storage, __VA_ARGS__)
+#define LABEL_TERM_LEAF(label) memgraph::query::test_common::LabelTermLeaf(this->storage, label)
+#define LABEL_TERM_WILDCARD() memgraph::query::test_common::LabelTermWildcard()
+#define LABEL_TERM_DYNAMIC(expression) memgraph::query::test_common::LabelTermDynamic(expression)
+#define LABEL_TERM_NOT(child) memgraph::query::test_common::LabelTermNot(child)
+#define LABEL_TERM_AND(...) memgraph::query::test_common::LabelTermAnd({__VA_ARGS__})
+#define LABEL_TERM_OR(...) memgraph::query::test_common::LabelTermOr({__VA_ARGS__})
 #define EDGE(...) memgraph::query::test_common::GetEdge(this->storage, __VA_ARGS__)
 #define EDGE_VARIABLE(...) memgraph::query::test_common::GetEdgeVariable(this->storage, __VA_ARGS__)
 #define PATTERN(...) memgraph::query::test_common::GetPattern(this->storage, {__VA_ARGS__})

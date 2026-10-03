@@ -900,6 +900,12 @@ bool SymbolGenerator::PostVisit(Pattern &) {
 
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   auto &scope = scopes_.back();
+  const auto labels = node_atom.LabelConjunction();
+  if ((scope.in_create || scope.in_merge) && !labels) {
+    throw SemanticException(
+        "Only label conjunctions are allowed when creating or merging a node; '|', '!' and '%' are for MATCH and "
+        "expressions.");
+  }
   auto check_node_semantic = [&node_atom, &scope, this]() {
     const auto &node_name = node_atom.identifier_->name_;
     if ((scope.in_create || scope.in_merge) && node_atom.HasLabelsOrProperties() && HasSymbol(node_name)) {
@@ -914,14 +920,16 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   scope.in_node_atom = true;
 
   bool has_expressions = false;
-  for (auto &label : node_atom.labels_) {
-    if (auto *expression = std::get_if<Expression *>(&label)) {
+  for (const auto &label : labels.value_or(std::vector<QueryLabelType>{})) {
+    if (auto *const *expression = std::get_if<Expression *>(&label)) {
       (*expression)->Accept(*this);
       has_expressions = true;
     }
   }
   if (!scope.in_create && has_expressions) {
-    throw SemanticException("You can use expressions with labels only with CREATE!");
+    throw SemanticException(
+        "A label named by an expression can only be written by CREATE, not matched or tested. For a label "
+        "whose name contains a dot, put the name in backticks.");
   }
 
   check_node_semantic();

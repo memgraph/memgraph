@@ -10,6 +10,11 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+
+#include <algorithm>
+#include <iterator>
+#include <variant>
+
 #include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
@@ -18,6 +23,7 @@
 #include "query/frontend/ast/query/tenant_profile.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "utils/typeinfo.hpp"
+#include "utils/variant_helpers.hpp"
 
 #include "range/v3/all.hpp"
 namespace r = ranges;

@@ -264,6 +264,16 @@ using ExpectDelete = OpChecker<Delete>;
 using ExpectScanAll = OpChecker<ScanAll>;
 using ExpectScanAllByEdgeType = OpChecker<ScanAllByEdgeType>;
 
+/// `ExpectScanAll` accepts any derived scan, `ScanAllByLabel` included, so it cannot tell a full scan
+/// from an index scan. Use this where the point of the test is that no index was used.
+class ExpectScanAllAndNoIndex : public OpChecker<ScanAll> {
+ public:
+  void ExpectOp(ScanAll &scan_all, const SymbolTable &) override {
+    EXPECT_EQ(scan_all.GetTypeInfo().name, std::string_view{ScanAll::kType.name})
+        << "expected a plain ScanAll, got '" << scan_all.GetTypeInfo().name << "'";
+  }
+};
+
 /// `ExpectFilter` checks none of what a filter tests. This checks its OR label groups, each as a set of
 /// label names, for tests about which groups survive planning.
 class ExpectFilterOrLabels : public OpChecker<Filter> {
