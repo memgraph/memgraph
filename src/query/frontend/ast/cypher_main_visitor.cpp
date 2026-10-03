@@ -11,9 +11,11 @@
 
 #include <algorithm>
 #include <any>
+#include <cstdint>
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <optional>
 #include <range/v3/all.hpp>
 #include <ranges>
 #include <string>
@@ -28,9 +30,18 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_storage.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/ast/query/aggregation.hpp"
+#include "query/frontend/ast/query/binary_operator.hpp"
 #include "query/frontend/ast/query/expression.hpp"
+#include "query/frontend/ast/query/identifier.hpp"
+#include "query/frontend/ast/query/named_expression.hpp"
+#include "query/frontend/ast/query/pattern_comprehension.hpp"
+#include "query/frontend/ast/query/subquery_expression.hpp"
 #include "query/frontend/ast/query/tenant_profile.hpp"
+#include "query/frontend/ast/query/where.hpp"
 #include "query/frontend/parsing.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/procedure/callable_alias_mapper.hpp"
@@ -3036,12 +3047,150 @@ antlrcpp::Any CypherMainVisitor::visitSetMainDatabase(MemgraphCypher::SetMainDat
   return auth;
 }
 
+namespace {
+class AggregationFinder : public HierarchicalTreeVisitor {
+ public:
+  using HierarchicalTreeVisitor::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::Visit;
+
+  bool PreVisit(Aggregation & /*aggregation*/) override {
+    found_ = true;
+    return false;
+  }
+
+  bool PreVisit(SubqueryExpression & /*subquery*/) override { return false; }
+
+  bool PreVisit(PatternComprehension & /*comprehension*/) override { return false; }
+
+  bool Visit(Identifier & /*identifier*/) override { return true; }
+
+  bool Visit(PrimitiveLiteral & /*literal*/) override { return true; }
+
+  bool Visit(ParameterLookup & /*lookup*/) override { return true; }
+
+  bool Visit(EnumValueAccess & /*access*/) override { return true; }
+
+  bool found_{false};
+};
+
+bool ProjectsAggregation(ReturnBody &body) {
+  AggregationFinder finder;
+  for (auto *item : body.named_expressions) {
+    item->Accept(finder);
+  }
+  return finder.found_;
+}
+
+using ParameterNames = std::unordered_map<int32_t, std::string>;
+
+// The child slots of the expression kinds that can match a projected item. Any other kind never matches.
+std::optional<std::vector<Expression **>> MatchableChildren(Expression *expr) {
+  auto addresses = [](std::vector<Expression *> &exprs) {
+    return exprs | std::views::transform([](auto &child) { return &child; }) | std::ranges::to<std::vector>();
+  };
+  if (auto *op = utils::Downcast<BinaryOperator>(expr)) return std::vector{&op->expression1_, &op->expression2_};
+  if (auto *op = utils::Downcast<UnaryOperator>(expr)) return std::vector{&op->expression_};
+  if (auto *lookup = utils::Downcast<PropertyLookup>(expr)) return std::vector{&lookup->expression_};
+  if (auto *test = utils::Downcast<LabelsTest>(expr)) return std::vector{&test->expression_};
+  if (auto *op = utils::Downcast<IfOperator>(expr)) {
+    return std::vector{&op->condition_, &op->then_expression_, &op->else_expression_};
+  }
+  if (auto *op = utils::Downcast<ListSlicingOperator>(expr)) {
+    return std::vector{&op->list_, &op->lower_bound_, &op->upper_bound_};
+  }
+  if (auto *function = utils::Downcast<Function>(expr)) return addresses(function->arguments_);
+  if (auto *coalesce = utils::Downcast<Coalesce>(expr)) return addresses(coalesce->expressions_);
+  if (auto *list = utils::Downcast<ListLiteral>(expr)) return addresses(list->elements_);
+  if (utils::IsSubtype(*expr, Identifier::kType) || utils::IsSubtype(*expr, PrimitiveLiteral::kType) ||
+      utils::IsSubtype(*expr, ParameterLookup::kType)) {
+    return std::vector<Expression **>{};
+  }
+  return std::nullopt;
+}
+
+// Compares the fields of two expressions of the same type, other than their children. Parameters match by name, and a
+// stripped literal never matches: the AST is cached by the stripped text, which does not hold literal values.
+bool SameOwnFields(Expression &lhs, Expression &rhs, ParameterNames const &parameter_names) {
+  if (auto *l = utils::Downcast<Aggregation>(&lhs)) {
+    auto const &r = static_cast<Aggregation &>(rhs);
+    return l->op_ == r.op_ && l->distinct_ == r.distinct_;
+  }
+  if (auto *l = utils::Downcast<Identifier>(&lhs)) return l->name_ == static_cast<Identifier &>(rhs).name_;
+  if (auto *l = utils::Downcast<PrimitiveLiteral>(&lhs)) {
+    return l->value_ == static_cast<PrimitiveLiteral &>(rhs).value_;
+  }
+  if (auto *l = utils::Downcast<PropertyLookup>(&lhs)) {
+    return l->property_path_ == static_cast<PropertyLookup &>(rhs).property_path_;
+  }
+  if (auto *l = utils::Downcast<LabelsTest>(&lhs)) {
+    auto const &r = static_cast<LabelsTest &>(rhs);
+    return l->labels_ == r.labels_ && l->or_labels_ == r.or_labels_;
+  }
+  if (auto *l = utils::Downcast<Function>(&lhs)) {
+    return l->function_name_ == static_cast<Function &>(rhs).function_name_ && IsFunctionPure(l->function_name_);
+  }
+  if (auto *l = utils::Downcast<ParameterLookup>(&lhs)) {
+    auto const lhs_name = parameter_names.find(l->token_position_);
+    auto const rhs_name = parameter_names.find(static_cast<ParameterLookup &>(rhs).token_position_);
+    return lhs_name != parameter_names.end() && rhs_name != parameter_names.end() &&
+           lhs_name->second == rhs_name->second;
+  }
+  return true;
+}
+
+// An identifier named like a projected item refers to that item, not to the variable the item was computed from.
+bool IsShadowed(Expression *expr, std::vector<NamedExpression *> const &items) {
+  auto const *identifier = utils::Downcast<Identifier>(expr);
+  return identifier && std::ranges::contains(items, identifier->name_, &NamedExpression::name_);
+}
+
+bool AreEquivalent(Expression *lhs, Expression *rhs, std::vector<NamedExpression *> const &items,
+                   ParameterNames const &parameter_names) {
+  if (!lhs || !rhs) return lhs == rhs;
+  if (lhs->GetTypeInfo() != rhs->GetTypeInfo() || !SameOwnFields(*lhs, *rhs, parameter_names) ||
+      IsShadowed(lhs, items)) {
+    return false;
+  }
+  auto const lhs_children = MatchableChildren(lhs);
+  auto const rhs_children = MatchableChildren(rhs);
+  return lhs_children && std::ranges::equal(*lhs_children, *rhs_children, [&](auto *l, auto *r) {
+           return AreEquivalent(*l, *r, items, parameter_names);
+         });
+}
+
+void ReferToProjectedItems(Expression *&expr, std::vector<NamedExpression *> const &items,
+                           ParameterNames const &parameter_names, AstStorage &storage) {
+  if (!expr) return;
+  auto const item = std::ranges::find_if(
+      items, [&](auto *item) { return AreEquivalent(item->expression_, expr, items, parameter_names); });
+  if (item != items.end()) {
+    expr = storage.Create<Identifier>((*item)->name_);
+    return;
+  }
+  for (auto *child : MatchableChildren(expr).value_or(std::vector<Expression **>{})) {
+    ReferToProjectedItems(*child, items, parameter_names, storage);
+  }
+}
+
+// When a projection aggregates, ORDER BY and WHERE only see the projected items, so any part of them that repeats a
+// projected item's expression is replaced with a reference to that item.
+void ReferToProjectedItems(ReturnBody &body, Where *where, ParameterNames const &parameter_names, AstStorage &storage) {
+  if (!ProjectsAggregation(body)) return;
+  for (auto &sort_item : body.order_by) {
+    ReferToProjectedItems(sort_item.expression, body.named_expressions, parameter_names, storage);
+  }
+  if (where) ReferToProjectedItems(where->expression_, body.named_expressions, parameter_names, storage);
+}
+}  // namespace
+
 antlrcpp::Any CypherMainVisitor::visitCypherReturn(MemgraphCypher::CypherReturnContext *ctx) {
   auto *return_clause = storage_->Create<Return>();
   return_clause->body_ = std::any_cast<ReturnBody>(ctx->returnBody()->accept(this));
   if (ctx->DISTINCT()) {
     return_clause->body_.distinct = true;
   }
+  ReferToProjectedItems(return_clause->body_, nullptr, parameter_names_, *storage_);
   return return_clause;
 }
 
@@ -3925,7 +4074,9 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
 }
 
 antlrcpp::Any CypherMainVisitor::visitParameter(MemgraphCypher::ParameterContext *ctx) {
-  return storage_->Create<ParameterLookup>(ctx->getStart()->getTokenIndex());
+  auto const token_position = static_cast<int32_t>(ctx->getStart()->getTokenIndex());
+  parameter_names_.emplace(token_position, ctx->getText());
+  return storage_->Create<ParameterLookup>(token_position);
 }
 
 antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ctx) {
@@ -4350,6 +4501,7 @@ antlrcpp::Any CypherMainVisitor::visitWith(MemgraphCypher::WithContext *ctx) {
   if (ctx->where()) {
     with->where_ = std::any_cast<Where *>(ctx->where()->accept(this));
   }
+  ReferToProjectedItems(with->body_, with->where_, parameter_names_, *storage_);
   return with;
 }
 
