@@ -1183,12 +1183,12 @@ void CollectSubqueryMatchings(Filters &filters, SymbolTable &symbol_table, AstSt
     filter.pattern_comprehension_matchings = collector.getPatternComprehensionMatchings();
   }
 }
-}  // namespace
 
 void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage, Matching &matching) {
   AddMatching(match.patterns_, match.where_, symbol_table, storage, matching);
   CollectSubqueryMatchings(matching.filters, symbol_table, storage);
 }
+}  // namespace
 
 // SubqueryMatchingCollector implementation
 SubqueryMatchingCollector::SubqueryMatchingCollector(SymbolTable &symbol_table, AstStorage &storage)
