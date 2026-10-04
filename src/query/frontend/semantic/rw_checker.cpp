@@ -13,10 +13,20 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query {
 
-// CypherQuery
+bool IsWritingClause(const Clause &clause) {
+  if (const auto *call_proc = utils::Downcast<const CallProcedure>(&clause)) {
+    return call_proc->graph_access_ == GraphAccess::Write;
+  }
+  return utils::Downcast<const Create>(&clause) || utils::Downcast<const Delete>(&clause) ||
+         utils::Downcast<const SetProperty>(&clause) || utils::Downcast<const SetProperties>(&clause) ||
+         utils::Downcast<const SetLabels>(&clause) || utils::Downcast<const RemoveProperty>(&clause) ||
+         utils::Downcast<const RemoveLabels>(&clause) || utils::Downcast<const Merge>(&clause) ||
+         utils::Downcast<const Foreach>(&clause);
+}
 
 bool RWChecker::PreVisit(CypherQuery &cypher_query) {
   cypher_query.single_query_->Accept(*this);
@@ -26,55 +36,15 @@ bool RWChecker::PreVisit(CypherQuery &cypher_query) {
   return true;
 }
 
-// Clauses
-
-bool RWChecker::PreVisit(Create & /*unused*/) {
-  is_write_ = true;
-  return false;
-}
-
-bool RWChecker::PreVisit(CallProcedure &call_proc) {
-  is_write_ |= call_proc.graph_access_ == GraphAccess::Write;
-  return !is_write_;
-}
-
-bool RWChecker::PreVisit(SetProperty & /*unused*/) {
-  is_write_ = true;
-  return false;
-}
-
-bool RWChecker::PreVisit(SetProperties & /*unused*/) {
-  is_write_ = true;
-  return false;
-}
-
-bool RWChecker::PreVisit(RemoveProperty & /*unused*/) {
-  is_write_ = true;
-  return false;
-}
-
-bool RWChecker::PreVisit(SetLabels & /*unused*/) {
-  is_write_ = true;
-  return false;
-}
-
-bool RWChecker::PreVisit(RemoveLabels & /*unused*/) {
-  is_write_ = true;
-  return false;
-}
-
-bool RWChecker::PreVisit(Delete & /*unused*/) {
-  is_write_ = true;
-  return false;
-}
-
-bool RWChecker::PreVisit(Merge & /*unused*/) {
-  is_write_ = true;
-  return false;
-}
-
-bool RWChecker::PreVisit(Foreach & /*unused*/) {
-  is_write_ = true;
+bool RWChecker::PreVisit(SingleQuery &single_query) {
+  for (auto *clause : single_query.clauses_) {
+    if (IsWritingClause(*clause)) {
+      is_write_ = true;
+      return false;
+    }
+    // A read clause can still hold a write, e.g. a CALL subquery body.
+    clause->Accept(*this);
+  }
   return false;
 }
 

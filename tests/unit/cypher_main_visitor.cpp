@@ -1879,6 +1879,20 @@ TEST_P(CypherMainVisitorTest, Create) {
   CheckRWType(query, kWrite);
 }
 
+TEST_P(CypherMainVisitorTest, WriteInCallSubqueryBodyMakesQueryWrite) {
+  auto &ast_generator = *GetParam();
+  for (const auto *text : {"CALL () { CREATE (n) } RETURN 1 AS x",
+                           "CALL () { RETURN 1 AS x UNION ALL MERGE (:W) RETURN 2 AS x } RETURN x"}) {
+    SCOPED_TRACE(text);
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    ASSERT_TRUE(query);
+    CheckRWType(query, kWrite);
+  }
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL () { MATCH (n) RETURN n } RETURN n"));
+  ASSERT_TRUE(query);
+  CheckRWType(query, kRead);
+}
+
 TEST_P(CypherMainVisitorTest, Delete) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("DELETE n, m"));

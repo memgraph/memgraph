@@ -14,6 +14,11 @@
 
 namespace memgraph::query {
 
+class Clause;
+
+/// A clause that changes the graph: a write clause, MERGE, FOREACH or a write procedure.
+bool IsWritingClause(const Clause &clause);
+
 /// Visits the AST and generates symbols for variables.
 ///
 /// During the process of symbol generation, simple semantic checks are
@@ -31,17 +36,7 @@ class RWChecker : public HierarchicalTreeVisitor {
   // CypherQuery
   bool PreVisit(CypherQuery &cypher_query) override;
 
-  // Clauses
-  bool PreVisit(Create & /*unused*/) override;
-  bool PreVisit(CallProcedure &call_proc) override;
-  bool PreVisit(SetProperty & /*unused*/) override;
-  bool PreVisit(SetProperties & /*unused*/) override;
-  bool PreVisit(SetLabels & /*unused*/) override;
-  bool PreVisit(RemoveLabels & /*unused*/) override;
-  bool PreVisit(RemoveProperty & /*unused*/) override;
-  bool PreVisit(Delete & /*unused*/) override;
-  bool PreVisit(Merge & /*unused*/) override;
-  bool PreVisit(Foreach & /*unused*/) override;
+  bool PreVisit(SingleQuery &single_query) override;
 
   ReturnType Visit(Identifier & /*unused*/) override { return true; }
 
