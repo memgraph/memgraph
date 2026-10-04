@@ -11,11 +11,13 @@
 
 #include <algorithm>
 #include <climits>
+#include <initializer_list>
 #include <limits>
 #include <optional>
 #include <string>
 #include <type_traits>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -1901,12 +1903,18 @@ TEST_P(CypherMainVisitorTest, RWCheckerVisitsEachSubqueryBodyOnce) {
   };
 
   auto &ast_generator = *GetParam();
-  auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL () { CALL () { RETURN 1 AS x } RETURN x } RETURN x"));
-  ASSERT_TRUE(query);
-  CountingRWChecker rw_checker;
-  query->Accept(rw_checker);
-  EXPECT_EQ(rw_checker.visits, 3);
+  // A query and the number of single queries it holds.
+  for (const auto &[text, single_queries] : std::initializer_list<std::pair<const char *, int>>{
+           {"CALL () { CALL () { RETURN 1 AS x } RETURN x } RETURN x", 3},
+           {"UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN { WHEN true THEN RETURN 1 AS x } ELSE RETURN 2 AS x } RETURN x",
+            5}}) {
+    SCOPED_TRACE(text);
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    ASSERT_TRUE(query);
+    CountingRWChecker rw_checker;
+    query->Accept(rw_checker);
+    EXPECT_EQ(rw_checker.visits, single_queries);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, Delete) {

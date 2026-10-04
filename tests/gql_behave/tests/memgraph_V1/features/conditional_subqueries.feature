@@ -334,8 +334,45 @@ Feature: Conditional subqueries
             | WHEN i = 1 THEN CREATE (:W) RETURN 1 AS x WHEN i = 2 THEN MERGE (:W {v: i}) RETURN 1 AS x ELSE RETURN 2 AS x |
             | WHEN i < 3 THEN { WHEN true THEN CREATE (:W) RETURN 1 AS x ELSE RETURN 3 AS x } ELSE RETURN 2 AS x       |
             | WHEN i < 3 THEN { CREATE (:W) RETURN 1 AS x UNION ALL RETURN 1 AS x LIMIT 0 } ELSE RETURN 2 AS x          |
+            | WHEN i < 3 THEN FOREACH (k IN [1] \| CREATE (:W)) RETURN 1 AS x ELSE RETURN 2 AS x                        |
             # Control: a write in the last branch.
             | WHEN i = 3 THEN RETURN 2 AS x ELSE CREATE (:W) RETURN 1 AS x                                             |
+
+    Scenario: A write procedure in a branch is visible after the CALL
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CALL (i) {
+              WHEN i < 3 THEN CALL example_c.write_procedure('v') YIELD created_vertex RETURN 1 AS x
+              ELSE RETURN 2 AS x
+            }
+            MATCH (n)
+            RETURN i, x, count(n) AS c
+            ORDER BY i
+            """
+        Then the result should be:
+            | i | x | c |
+            | 1 | 1 | 2 |
+            | 2 | 1 | 2 |
+            | 3 | 2 | 2 |
+
+    Scenario: A MERGE before a WITH in a branch is visible to every outer row
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [0, 1] AS i
+            CALL (i) {
+              WHEN i < 5 THEN MERGE (n:R {id: 1}) ON CREATE SET n.k = 0 ON MATCH SET n.k = 1 WITH n RETURN n
+              ELSE RETURN null AS n
+            }
+            RETURN i, n.k AS k
+            ORDER BY i
+            """
+        Then the result should be:
+            | i | k |
+            | 0 | 1 |
+            | 1 | 1 |
 
     Scenario: A MERGE in a branch that runs for some rows only
         Given an empty graph
