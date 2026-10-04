@@ -1413,7 +1413,10 @@ QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, Singl
                            bool is_subquery, Expression *commit_frequency) {
   auto *branches =
       single_query->clauses_.size() == 1 ? utils::Downcast<ConditionalBranches>(single_query->clauses_[0]) : nullptr;
-  if (!branches) return QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), combinator};
+  if (!branches) {
+    return QueryPart{.single_query_parts = CollectSingleQueryParts(symbol_table, storage, single_query),
+                     .query_combinator = combinator};
+  }
 
   auto conditional = std::make_shared<ConditionalQueryParts>();
   conditional->output_symbols = branches->output_symbols_;
@@ -1432,7 +1435,7 @@ QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, Singl
   for (auto *body : branches->bodies_) {
     conditional->branches.push_back(CollectQueryParts(symbol_table, storage, body, is_subquery, commit_frequency));
   }
-  return QueryPart{{}, combinator, std::move(conditional)};
+  return QueryPart{.query_combinator = combinator, .conditional = std::move(conditional)};
 }
 
 /// A conditional branch has no directives of its own and inherits the enclosing `IN TRANSACTIONS` frequency.
