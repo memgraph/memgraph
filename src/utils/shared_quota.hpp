@@ -58,6 +58,8 @@ class QuotaCoordinator {
   };
 
   void Initialize(uint64_t limit);
+  // Starts the next execution: the next Initialize sets the limit again. No handle may be outstanding.
+  void Rearm();
   std::optional<QuotaHandle> Acquire(uint64_t desired_batch_size, std::function<void()> release_other_plan_quotas = {});
 
  private:
@@ -104,6 +106,8 @@ class SharedQuota {
   explicit SharedQuota(uint64_t limit, uint64_t n_batches = 1);
   // Used to setup the objects, but not initialize the quota.
   explicit SharedQuota(Preload /*unused*/);
+  // A preloaded share of a coordinator that other shares also draw from.
+  explicit SharedQuota(std::shared_ptr<QuotaCoordinator> coord);
 
   ~SharedQuota() {
     Free();

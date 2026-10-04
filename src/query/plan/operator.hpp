@@ -24,6 +24,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
+#include "query/plan/row_quota.hpp"
 #include "query/procedure/module_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
@@ -2249,7 +2250,7 @@ class Skip : public memgraph::query::plan::LogicalOperator {
     // init to_skip_ to -1, indicating
     // that it's still unknown (input has not been Pulled yet)
     int64_t to_skip_{-1};
-    std::optional<utils::SharedQuota> shared_quota_{std::nullopt};
+    RowQuota quota_;
   };
 };
 
@@ -2352,7 +2353,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
     // init limit_ to -1, indicating
     // that it's still unknown (Cursor has not been Pulled yet)
     int64_t limit_{-1};
-    std::optional<utils::SharedQuota> shared_quota_{std::nullopt};
+    RowQuota quota_;
   };
 };
 

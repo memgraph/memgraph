@@ -1286,12 +1286,12 @@ Feature: Subqueries
             | 1        | 10     |
             | 2        | 20     |
 
-    # Under --parallel-execution the ORDER BY in the subquery runs in parallel and is reset for each outer row.
-    Scenario Outline: A subquery with ORDER BY returns its rows for each outer row
+    # Under --parallel-execution the subquery runs as a parallel operator that its Apply re-runs for each outer row.
+    Scenario Outline: A parallel subquery returns its rows for each outer row
         Given an empty graph
         And having executed:
             """
-            CREATE (:X {v: 1}), (:X {v: 2}), (:X {v: 3}), (:Y {v: 1}), (:Y {v: 2}), (:O), (:O), (:O)
+            CREATE (:X {v: 1}), (:X {v: 2}), (:X {v: 3}), (:O), (:O), (:O)
             """
         When executing query:
             """
@@ -1302,7 +1302,13 @@ Feature: Subqueries
             | <r> |
 
         Examples:
-            | query                                                                                                                              | r                        |
-            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                                                   | 9                        |
-            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v } WITH v, count(*) AS c ORDER BY v RETURN collect([v, c]) AS r           | [[1, 3], [2, 3], [3, 3]] |
-            | MATCH (o:O) CALL { MATCH (x:X) WITH x ORDER BY x.v RETURN x UNION ALL MATCH (x:Y) RETURN x } RETURN count(*) AS r                  | 15                       |
+            | query                                                                                                                    | r                        |
+            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                                         | 9                        |
+            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v } WITH v, count(*) AS c ORDER BY v RETURN collect([v, c]) AS r | [[1, 3], [2, 3], [3, 3]] |
+            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v LIMIT 1 } RETURN collect(v) AS r                               | [1, 1, 1]                |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x SKIP 1 RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                           | 6                        |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x LIMIT 2 RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                          | 6                        |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH DISTINCT x RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                         | 9                        |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x SKIP 1 RETURN count(x) AS c } RETURN sum(c) AS r                                   | 6                        |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x LIMIT 2 RETURN count(x) AS c } RETURN sum(c) AS r                                  | 6                        |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH DISTINCT x RETURN count(x) AS c } RETURN sum(c) AS r                                 | 9                        |

@@ -687,11 +687,14 @@ class SharedDistinctState {
 
 // State the branches of one parallel operator share. The parallel operator owns it and resets it between executions.
 struct BranchSharedState {
-  std::map<const LogicalOperator *, utils::SharedQuota> quotas;  // Skip/Limit cursors need to use the same quota
+  std::map<const LogicalOperator *, std::shared_ptr<utils::QuotaCoordinator>>
+      quotas;  // Skip/Limit cursors need to use the same quota
   std::map<const LogicalOperator *, std::shared_ptr<SharedDistinctState>>
       distinct_states;  // Distinct cursors share deduplication state
 
+  // Call only after the branch cursors are reset, so that they hold no quota.
   void Reset() {
+    for (const auto &[_, coord] : quotas) coord->Rearm();
     for (const auto &[_, state] : distinct_states) state->Clear();
   }
 };
@@ -703,9 +706,13 @@ struct CreationHelper {
   BranchSharedState shared_state_;
   std::shared_ptr<std::vector<utils::SharedQuota *>> shared_plan_quotas_{nullptr};
 
-  utils::SharedQuota GetSharedQuota(const LogicalOperator *op) {
-    auto [it, _] = shared_state_.quotas.try_emplace(op, utils::SharedQuota(utils::SharedQuota::preload));
-    return it->second;
+  /// The quota of a parallel Skip/Limit: this branch's share of the count all branches draw from.
+  RowQuota GetRowQuota(const LogicalOperator *op, size_t num_workers) {
+    auto [it, inserted] = shared_state_.quotas.try_emplace(op, nullptr);
+    if (inserted) it->second = std::make_shared<utils::QuotaCoordinator>();
+    utils::SharedQuota share(it->second);
+    share.SetPlanQuotas(shared_plan_quotas_);
+    return {std::move(share), num_workers};
   }
 
   /// Get or create shared distinct state for a given Distinct operator.
@@ -8256,6 +8263,9 @@ class DistinctParallelCursor : public Cursor {
     local_cache_.clear();
     local_seen_.clear();
     local_batch_.clear();
+    unique_count_ = 0;
+    current_index_ = 0;
+    pulled_all_ = false;
   }
 
  private:
@@ -12146,9 +12156,7 @@ Skip::SkipCursor::SkipCursor(const Skip &self, utils::MemoryResource *mem,
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
 #ifdef MG_ENTERPRISE
   if (self_.parallel_execution_) {
-    // Use a globally defined quota for parallel execution
-    shared_quota_ = plan_creation_helper_().GetSharedQuota(&self_);
-    shared_quota_->SetPlanQuotas(plan_creation_helper_().shared_plan_quotas_);
+    quota_ = plan_creation_helper_().GetRowQuota(&self_, *self_.parallel_execution_);
   }
 #endif
 }
@@ -12173,21 +12181,14 @@ bool Skip::SkipCursor::Pull(Frame &frame, ExecutionContext &context) {
 
       to_skip_ = to_skip.ValueInt();
       if (to_skip_ < 0) throw QueryRuntimeException("Number of elements to skip must be non-negative.");
-      // Single threaded and parallel execution quota setup
-      if (self_.parallel_execution_) {
-        MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
-        shared_quota_->Initialize(static_cast<uint64_t>(to_skip_),
-                                  utils::SharedQuota::WorkersToBatch(*self_.parallel_execution_));
-      } else {
-        shared_quota_.emplace(static_cast<uint64_t>(to_skip_));
-      }
+      quota_.Arm(static_cast<uint64_t>(to_skip_));
     }
     // Skip until we skipped the quota
-    if (shared_quota_ && shared_quota_->Decrement() > 0) continue;
-    shared_quota_.reset();  // consumed all quota, reset the shared quota
+    if (quota_.IsArmed() && quota_.Decrement() > 0) continue;
+    quota_.Release();  // consumed all quota
     return true;
   }
-  shared_quota_.reset();  // Important to release any remaining resource for other threads
+  quota_.Release();  // Important to release any remaining resource for other threads
   return false;
 }
 
@@ -12196,7 +12197,7 @@ void Skip::SkipCursor::Shutdown() { input_cursor_->Shutdown(); }
 void Skip::SkipCursor::Reset() {
   input_cursor_->Reset();
   to_skip_ = -1;
-  shared_quota_.reset();
+  quota_.Release();
 }
 
 Limit::Limit(const std::shared_ptr<LogicalOperator> &input, Expression *expression)
@@ -12230,9 +12231,7 @@ Limit::LimitCursor::LimitCursor(const Limit &self, utils::MemoryResource *mem,
     : self_(self), input_cursor_(self_.input_->MakeCursor(mem, metric_handles)) {
 #ifdef MG_ENTERPRISE
   if (self_.parallel_execution_) {
-    // Use a globally defined quota for parallel execution
-    shared_quota_ = plan_creation_helper_().GetSharedQuota(&self_);
-    shared_quota_->SetPlanQuotas(plan_creation_helper_().shared_plan_quotas_);
+    quota_ = plan_creation_helper_().GetRowQuota(&self_, *self_.parallel_execution_);
   }
 #endif
 }
@@ -12259,26 +12258,19 @@ bool Limit::LimitCursor::Pull(Frame &frame, ExecutionContext &context) {
 
     limit_ = limit.ValueInt();
     if (limit_ < 0) throw QueryRuntimeException("Limit on number of returned elements must be non-negative.");
-    // Initialize the quota for parallel execution or single threaded execution
-    if (self_.parallel_execution_) {
-      MG_ASSERT(shared_quota_, "Shared quota should be preset in parallel execution");
-      shared_quota_->Initialize(static_cast<uint64_t>(limit_),
-                                utils::SharedQuota::WorkersToBatch(*self_.parallel_execution_));
-    } else {
-      shared_quota_.emplace(static_cast<uint64_t>(limit_));
-    }
+    quota_.Arm(static_cast<uint64_t>(limit_));
   }
 
   // check we have not exceeded the limit before pulling
-  if (shared_quota_->Decrement() == 0) {
-    shared_quota_.reset();  // Important to release any remaining resource for other threads
+  if (!quota_.IsArmed() || quota_.Decrement() == 0) {
+    quota_.Release();  // Important to release any remaining resource for other threads
     return false;
   }
 
   const auto res = input_cursor_->Pull(frame, context);
   if (!res) {
-    shared_quota_->Increment();  // We failed to pull, so we need to return the last quota
-    shared_quota_.reset();       // Important to release any remaining resource for other threads
+    quota_.Increment();  // We failed to pull, so we need to return the last quota
+    quota_.Release();    // Important to release any remaining resource for other threads
   }
   return res;
 }
@@ -12288,7 +12280,7 @@ void Limit::LimitCursor::Shutdown() { input_cursor_->Shutdown(); }
 void Limit::LimitCursor::Reset() {
   input_cursor_->Reset();
   limit_ = -1;
-  shared_quota_.reset();
+  quota_.Release();
 }
 
 }  // namespace memgraph::query::plan

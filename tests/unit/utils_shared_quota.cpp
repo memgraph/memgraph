@@ -537,6 +537,24 @@ TEST(SharedQuotaTest, ZeroLimitPreloadInit) {
   ASSERT_EQ(quota.Decrement(1), 0);
 }
 
+// Shares of one coordinator draw one limit per execution; Rearm starts the next execution.
+TEST(SharedQuotaTest, RearmedCoordinatorTakesTheNextLimit) {
+  auto coord = std::make_shared<QuotaCoordinator>();
+  auto run = [&](uint64_t limit) {
+    SharedQuota first(coord);
+    SharedQuota second(coord);
+    first.Initialize(limit, 4);
+    second.Initialize(limit, 4);
+    uint64_t taken = 0;
+    while (first.Decrement() > 0) ++taken;
+    while (second.Decrement() > 0) ++taken;
+    return taken;
+  };
+  EXPECT_EQ(run(3), 3);
+  coord->Rearm();
+  EXPECT_EQ(run(5), 5);
+}
+
 // 13. Increment from Zero
 TEST(SharedQuotaTest, IncrementFromZero) {
   SharedQuota quota(1, 1);

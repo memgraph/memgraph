@@ -31,6 +31,12 @@ void QuotaCoordinator::Initialize(uint64_t limit) {
   remaining_quota_.store(limit, std::memory_order_release);
 }
 
+void QuotaCoordinator::Rearm() {
+  DMG_ASSERT(active_handlers_.load(std::memory_order_acquire) == 0, "Rearm while a quota handle is outstanding");
+  remaining_quota_.store(0, std::memory_order_relaxed);
+  initialized_.store(false, std::memory_order_release);
+}
+
 std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(
     uint64_t desired_batch_size, std::function<void()> release_other_plan_quotas) {
   while (true) {
@@ -134,6 +140,9 @@ SharedQuota::SharedQuota(uint64_t limit, uint64_t n_batches)
 
 SharedQuota::SharedQuota(Preload)
     : coord_(std::make_shared<QuotaCoordinator>()), desired_batch_size_(0), handle_(std::nullopt) {}
+
+SharedQuota::SharedQuota(std::shared_ptr<QuotaCoordinator> coord)
+    : coord_(std::move(coord)), desired_batch_size_(0), handle_(std::nullopt) {}
 
 void SharedQuota::ReleaseOtherPlanQuotas() {
   if (!plan_quotas_) return;
