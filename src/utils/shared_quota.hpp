@@ -27,7 +27,9 @@ class QuotaCoordinator {
   std::atomic<uint64_t> active_handlers_{0};
   // Incremented whenever the state changes in a way waiters care about (quota returned or holders finished).
   std::atomic<uint32_t> epoch_{0};
-  std::atomic<uint8_t> initialized_{false};
+  // Initialize stores the limit before the state turns kReady; shares that lose the race wait for kReady.
+  enum class State : uint8_t { kUninitialized, kInitializing, kReady };
+  std::atomic<State> state_{State::kUninitialized};
 
  public:
   explicit QuotaCoordinator(uint64_t total_limit);

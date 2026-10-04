@@ -571,6 +571,28 @@ TEST(SharedQuotaTest, SetPlanQuotasRegistersInOneList) {
   EXPECT_EQ(*second_list, std::vector<SharedQuota *>{&copy});
 }
 
+// Shares that initialize at the same time all see the limit, not an empty quota.
+TEST(SharedQuotaTest, ConcurrentInitializeSeesTheLimit) {
+  constexpr int kShares = 8;
+  for (int round = 0; round < 2000; ++round) {
+    auto coord = std::make_shared<QuotaCoordinator>();
+    std::latch start(kShares);
+    std::atomic<int> empty_shares{0};
+    {
+      std::vector<std::jthread> threads;
+      for (int i = 0; i < kShares; ++i) {
+        threads.emplace_back([&] {
+          SharedQuota quota(coord);
+          start.arrive_and_wait();
+          quota.Initialize(1000, kShares);
+          if (quota.Decrement() == 0) empty_shares.fetch_add(1);
+        });
+      }
+    }
+    ASSERT_EQ(empty_shares.load(), 0) << "round " << round;
+  }
+}
+
 // 13. Increment from Zero
 TEST(SharedQuotaTest, IncrementFromZero) {
   SharedQuota quota(1, 1);

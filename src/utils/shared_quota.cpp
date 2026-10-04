@@ -21,20 +21,28 @@ namespace memgraph::utils {
 // --- QuotaCoordinator Implementation ---
 
 QuotaCoordinator::QuotaCoordinator(uint64_t total_limit)
-    : remaining_quota_(total_limit), active_handlers_(0), initialized_(true) {}
+    : remaining_quota_(total_limit), active_handlers_(0), state_(State::kReady) {}
 
 void QuotaCoordinator::Initialize(uint64_t limit) {
-  // Use acq_rel to establish a barrier so the store is not visible before the flag.
-  const auto prev = initialized_.fetch_or(true, std::memory_order_acq_rel);
-  if (prev) return;
-  // Release store ensures Acquire() sees this value after reading the flag.
-  remaining_quota_.store(limit, std::memory_order_release);
+  auto state = State::kUninitialized;
+  if (state_.compare_exchange_strong(
+          state, State::kInitializing, std::memory_order_acq_rel, std::memory_order_acquire)) {
+    remaining_quota_.store(limit, std::memory_order_relaxed);
+    // Release publishes the limit to every share that reads kReady.
+    state_.store(State::kReady, std::memory_order_release);
+    state_.notify_all();
+    return;
+  }
+  while (state == State::kInitializing) {
+    state_.wait(State::kInitializing, std::memory_order_acquire);
+    state = state_.load(std::memory_order_acquire);
+  }
 }
 
 void QuotaCoordinator::Rearm() {
   DMG_ASSERT(active_handlers_.load(std::memory_order_acquire) == 0, "Rearm while a quota handle is outstanding");
   remaining_quota_.store(0, std::memory_order_relaxed);
-  initialized_.store(false, std::memory_order_release);
+  state_.store(State::kUninitialized, std::memory_order_release);
 }
 
 std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(
