@@ -141,14 +141,7 @@ bool ReadWriteTypeChecker::PreVisit(RollUpApply &op) {
   return false;
 }
 
-bool ReadWriteTypeChecker::PreVisit(Conditional &op) {
-  op.input_->Accept(*this);
-  for (const auto &branch : op.branches_) {
-    for (const auto &fold : branch.pattern_filters) fold->Accept(*this);
-  }
-  for (const auto &branch : op.branches_) branch.plan->Accept(*this);
-  return false;
-}
+PRE_VISIT(Conditional, RWType::NONE, true)
 
 PRE_VISIT(AggregateParallel, RWType::NONE, true)
 PRE_VISIT(OrderByParallel, RWType::NONE, true)

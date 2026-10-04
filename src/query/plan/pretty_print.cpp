@@ -14,6 +14,8 @@
 #include <stdexcept>
 #include <string>
 
+#include <fmt/format.h>
+
 #include "query/db_accessor.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"

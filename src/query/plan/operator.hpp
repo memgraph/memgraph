@@ -3109,6 +3109,7 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
 
+  /// The WHEN's columns, not a branch's: a branch ending in `CALL ... YIELD` reports its YIELD columns.
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override { return output_symbols_; }
 
   bool HasSingleInput() const override { return true; }

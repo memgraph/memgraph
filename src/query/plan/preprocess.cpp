@@ -1173,16 +1173,21 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
   }
 }
 
-void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage, Matching &matching) {
-  AddMatching(match.patterns_, match.where_, symbol_table, storage, matching);
-
-  // If there are any pattern filters, we add those as well
-  for (auto &filter : matching.filters) {
+namespace {
+/// Attaches to each filter the subqueries and pattern comprehensions its expression holds.
+void CollectSubqueryMatchings(Filters &filters, SymbolTable &symbol_table, AstStorage &storage) {
+  for (auto &filter : filters) {
     SubqueryMatchingCollector collector(symbol_table, storage);
     filter.expression->Accept(collector);
     filter.subquery_matchings = collector.getSubqueryMatchings();
     filter.pattern_comprehension_matchings = collector.getPatternComprehensionMatchings();
   }
+}
+}  // namespace
+
+void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage, Matching &matching) {
+  AddMatching(match.patterns_, match.where_, symbol_table, storage, matching);
+  CollectSubqueryMatchings(matching.filters, symbol_table, storage);
 }
 
 // SubqueryMatchingCollector implementation
@@ -1425,12 +1430,7 @@ QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, Singl
     auto &filters = conditional->predicate_filters.emplace_back();
     if (!predicate) continue;
     filters = Filters::FromExpression(predicate, symbol_table, storage);
-    for (auto &filter : filters) {
-      SubqueryMatchingCollector collector(symbol_table, storage);
-      filter.expression->Accept(collector);
-      filter.subquery_matchings = collector.getSubqueryMatchings();
-      filter.pattern_comprehension_matchings = collector.getPatternComprehensionMatchings();
-    }
+    CollectSubqueryMatchings(filters, symbol_table, storage);
   }
   for (auto *body : branches->bodies_) {
     conditional->branches.push_back(CollectQueryParts(symbol_table, storage, body, is_subquery, commit_frequency));

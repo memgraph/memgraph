@@ -15,9 +15,15 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <ranges>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include "flags/run_time_configurable.hpp"
 #include "query/plan/operator.hpp"
@@ -302,8 +308,6 @@ inline bool ProducesNoColumns(const LogicalOperator &op, const SymbolTable &symb
   if (const auto *distinct = utils::Downcast<const Distinct>(&op)) {
     return ProducesNoColumns(*distinct->input(), symbol_table);
   }
-  // The WHEN's columns, not a branch's: a branch ending in `CALL ... YIELD` reports its YIELD columns.
-  if (const auto *conditional = utils::Downcast<const Conditional>(&op)) return conditional->output_symbols_.empty();
   return op.OutputSymbols(symbol_table).empty();
 }
 
@@ -691,8 +695,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
  private:
-  /// Per row, the first true predicate's branch runs; predicate i's subquery folds are pulled only when predicate i
-  /// is reached. A write in any branch sets the body's `QueryParts::writes`.
+  /// Plans each branch from @p bound_symbols alone, then each predicate's folds, and binds the output symbols.
   std::unique_ptr<LogicalOperator> PlanConditional(std::unique_ptr<LogicalOperator> input,
                                                    const ConditionalQueryParts &conditional,
                                                    std::unordered_set<Symbol> bound_symbols) {
@@ -716,6 +719,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     }
 
     for (size_t i = 0; i < branches.size(); ++i) {
+      // A copy: ExtractPatternFilters takes a non-const reference.
       auto filters = conditional.predicate_filters[i];
       for (const auto &filter : filters) {
         bool const has_fold = !filter.subquery_matchings.empty() || !filter.pattern_comprehension_matchings.empty();

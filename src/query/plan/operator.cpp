@@ -10208,12 +10208,9 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
     if (active_) {
       auto const i = *active_;
       if (branches_[i].plan->Pull(frame, context)) {
-        const auto &columns = self_.branches_[i].columns;
-        if (!columns.empty()) {
-          auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-          for (const auto &[from, to] : columns) {
-            frame_writer.Write(to, frame[from]);
-          }
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        for (const auto &[from, to] : self_.branches_[i].columns) {
+          frame_writer.Write(to, frame[from]);
         }
         return true;
       }

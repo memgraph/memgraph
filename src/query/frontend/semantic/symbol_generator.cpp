@@ -398,11 +398,11 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   std::vector<std::unordered_set<std::string>> names;
   std::vector<std::unordered_set<std::string>> written;
   for (auto *body : branches.bodies_) {
-    Scope scope{.in_subquery_body = base.in_subquery_body, .in_call_subquery = base.in_call_subquery};
-    scope.call_subquery_base = base.call_subquery_base;
-    scope.call_subquery_imports = base.call_subquery_imports;
-    scope.symbols = base.call_subquery_imports;
-    scopes_.back() = std::move(scope);
+    scopes_.back() = Scope{.in_subquery_body = base.in_subquery_body,
+                           .in_call_subquery = base.in_call_subquery,
+                           .symbols = base.call_subquery_imports,
+                           .call_subquery_imports = base.call_subquery_imports,
+                           .call_subquery_base = base.call_subquery_base};
     body->Accept(*this);
     auto const kind = std::invoke([&] {
       if (scopes_.back().has_return) return BranchKind::kReturns;
