@@ -213,6 +213,24 @@ Feature: Conditional subqueries
             | WHEN i = 1 THEN RETURN i WHEN i = 3 THEN RETURN i       |
             | WHEN i = 2 THEN UNWIND [] AS z RETURN i ELSE RETURN i   |
 
+    Scenario: A CASE expression may sit in a predicate and in a branch's RETURN
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CALL (i) {
+              WHEN CASE WHEN i = 1 THEN true WHEN i = 2 THEN false ELSE null END THEN RETURN CASE i WHEN 1 THEN 'a' ELSE 'b' END AS x
+              ELSE RETURN CASE WHEN i = 2 THEN 'c' ELSE 'd' END AS x
+            }
+            RETURN i, x
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | x   |
+            | 1 | 'a' |
+            | 2 | 'c' |
+            | 3 | 'd' |
+
     Scenario: A branch nests a conditional directly or in its own CALL
         Given an empty graph
         When executing query:

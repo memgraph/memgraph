@@ -19,11 +19,13 @@
 #include <optional>
 #include <set>
 #include <sstream>
+#include <string>
 #include <tuple>
 #include <typeinfo>
 #include <unordered_map>
 #include <unordered_set>
 #include <variant>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -32,8 +34,10 @@
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
+#include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
+#include "query/plan/rewrite/parallel_rewrite.hpp"
 
 #include "query_common.hpp"
 #include "utils/bound.hpp"
@@ -930,6 +934,106 @@ TYPED_TEST(TestPlanner, ConditionalBranchScanStaysSerial) {
   }
   EXPECT_THAT(names, testing::Contains("ScanAll"));
   for (const auto &name : names) EXPECT_FALSE(name.starts_with("ScanParallel")) << name;
+}
+
+/// Operator names down the main chain, not into subqueries.
+std::vector<std::string> MainChain(LogicalOperator *root) {
+  std::vector<std::string> names;
+  for (auto *op = root; op; op = op->HasSingleInput() ? op->input().get() : nullptr) {
+    names.emplace_back(op->GetTypeInfo().name);
+  }
+  return names;
+}
+
+TYPED_TEST(TestPlanner, ConditionalBranchAggregateKeepsOuterScanSerial) {
+  LicenseWrapper license_wrapper;
+  // USING PARALLEL EXECUTION MATCH (n) CALL (n) { WHEN true THEN <branch> ELSE RETURN 0 AS c } RETURN count(*) AS cn
+  auto outer_chain = [this](SingleQuery *branch) {
+    FakeDbAccessor dba;
+    auto *branches = WHEN_BRANCHES({LITERAL(true), branch}, {nullptr, SINGLE_QUERY(RETURN(LITERAL(0), AS("c")))});
+    auto *query = PARALLEL_QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                              CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"n"}),
+                                              RETURN(COUNT(nullptr, false), AS("cn"))));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    return MainChain(&planner.plan());
+  };
+  // RETURN 1 AS c: nothing in the branch conflicts.
+  EXPECT_THAT(outer_chain(SINGLE_QUERY(RETURN(LITERAL(1), AS("c")))), testing::Contains("ScanParallel"));
+  // MATCH (m) RETURN count(m) AS c: the branch's Aggregate conflicts.
+  auto const chain = outer_chain(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), RETURN(COUNT(IDENT("m"), false), AS("c"))));
+  EXPECT_THAT(chain, testing::Contains("ScanAll"));
+  EXPECT_THAT(chain, testing::Not(testing::Contains("ScanParallel")));
+  EXPECT_THAT(chain, testing::Not(testing::Contains("AggregateParallel")));
+}
+
+// A Conditional on the main chain itself, below an Aggregate: Produce <- Aggregate <- Conditional <- ScanAll.
+class ParallelConditionalOnMainChain : public ::testing::Test {
+ protected:
+  AstStorage storage;
+  SymbolTable symbol_table;
+
+  /// MATCH (m) RETURN count(m)
+  std::shared_ptr<LogicalOperator> CountM() {
+    auto m = symbol_table.CreateSymbol("m", true);
+    auto scan = std::make_shared<ScanAll>(std::make_shared<Once>(), m);
+    return std::make_shared<Aggregate>(
+        scan,
+        std::vector<Aggregate::Element>{{.arg1 = storage.Create<memgraph::query::Identifier>("m")->MapTo(m),
+                                         .arg2 = nullptr,
+                                         .op = memgraph::query::Aggregation::Op::COUNT,
+                                         .output_sym = symbol_table.CreateSymbol("c", true)}},
+        std::vector<memgraph::query::Expression *>{},
+        std::vector<Symbol>{});
+  }
+
+  /// [input] RETURN 1 AS x
+  std::shared_ptr<LogicalOperator> ReturnOne(std::shared_ptr<LogicalOperator> input = nullptr) {
+    auto *named =
+        storage.Create<memgraph::query::NamedExpression>("x", storage.Create<memgraph::query::PrimitiveLiteral>(1))
+            ->MapTo(symbol_table.CreateSymbol("x", true));
+    return std::make_shared<Produce>(std::move(input), std::vector<memgraph::query::NamedExpression *>{named});
+  }
+
+  std::vector<std::string> RewrittenChain(std::vector<Conditional::Branch> branches) {
+    auto n = symbol_table.CreateSymbol("n", true);
+    auto conditional = std::make_shared<Conditional>(
+        std::make_shared<ScanAll>(std::make_shared<Once>(), n), std::move(branches), std::vector<Symbol>{});
+    auto count = symbol_table.CreateSymbol("count", true);
+    auto aggregate = std::make_shared<Aggregate>(
+        conditional,
+        std::vector<Aggregate::Element>{
+            {.arg1 = nullptr, .arg2 = nullptr, .op = memgraph::query::Aggregation::Op::COUNT, .output_sym = count}},
+        std::vector<memgraph::query::Expression *>{},
+        std::vector<Symbol>{});
+    auto *named = storage
+                      .Create<memgraph::query::NamedExpression>(
+                          "count", storage.Create<memgraph::query::Identifier>("count")->MapTo(count))
+                      ->MapTo(symbol_table.CreateSymbol("count", true));
+    std::unique_ptr<LogicalOperator> root =
+        std::make_unique<Produce>(aggregate, std::vector<memgraph::query::NamedExpression *>{named});
+    memgraph::query::PreQueryDirectives directives;
+    directives.parallel_execution_ = true;
+    FakeDbAccessor dba;
+    memgraph::query::Parameters const parameters;
+    root = RewriteParallelExecution(std::move(root), &symbol_table, &storage, &dba, directives, parameters);
+    return MainChain(root.get());
+  }
+};
+
+TEST_F(ParallelConditionalOnMainChain, ConflictInABranchOrAFoldKeepsTheScanSerial) {
+  LicenseWrapper license_wrapper;
+  // Nothing conflicts: the scan below the conditional goes parallel.
+  EXPECT_THAT(RewrittenChain({{.plan = ReturnOne()}}), testing::Contains("ScanParallel"));
+  // An Aggregate in a branch.
+  auto const branch_chain = RewrittenChain({{.plan = ReturnOne(CountM())}});
+  EXPECT_THAT(branch_chain, testing::Contains("ScanAll"));
+  EXPECT_THAT(branch_chain, testing::Not(testing::Contains("ScanParallel")));
+  // An Aggregate in a fold only.
+  auto fold = std::make_shared<EvaluatePatternFilter>(CountM(), symbol_table.CreateAnonymousSymbol(), Fold::kBool);
+  auto const fold_chain = RewrittenChain({{.pattern_filters = {fold}, .plan = ReturnOne()}});
+  EXPECT_THAT(fold_chain, testing::Contains("ScanAll"));
+  EXPECT_THAT(fold_chain, testing::Not(testing::Contains("ScanParallel")));
 }
 
 }  // namespace

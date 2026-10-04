@@ -4726,6 +4726,54 @@ TYPED_TEST(SubqueriesFeature, ConditionalModifiedSymbols) {
 }
 
 #ifdef MG_ENTERPRISE
+TYPED_TEST(SubqueriesFeature, ConditionalExistsPredicateSkipsADeniedLabel) {
+  // MATCH (n) CALL (n) { WHEN EXISTS { (n)-->() } THEN RETURN 10 AS x ELSE RETURN 20 AS x } RETURN x
+  auto n = MakeScanAll(this->storage, this->symbol_table, "n");
+  auto exists_sym = this->symbol_table.CreateAnonymousSymbol();
+  auto *exists = EXISTS(PATTERN(NODE("n")));
+  exists->MapTo(exists_sym);
+  auto expand = MakeExpand(this->storage,
+                           this->symbol_table,
+                           std::make_shared<Once>(),
+                           n.sym_,
+                           "r",
+                           EdgeAtom::Direction::OUT,
+                           {},
+                           "m",
+                           false,
+                           memgraph::storage::View::NEW);
+  auto fold = std::make_shared<EvaluatePatternFilter>(expand.op_, exists_sym, Fold::kBool);
+  auto taken = this->When(exists, LITERAL(10));
+  auto other = this->When(nullptr, LITERAL(20));
+  auto x = this->symbol_table.CreateSymbol("x", true);
+  auto conditional = std::make_shared<Conditional>(
+      n.op_,
+      std::vector<Conditional::Branch>{
+          {.predicate = exists, .pattern_filters = {fold}, .plan = taken.plan, .columns = {{taken.column, x}}},
+          {.plan = other.plan, .columns = {{other.column, x}}}},
+      std::vector<Symbol>{x});
+  auto produce =
+      MakeProduce(conditional, NEXPR("x", IDENT("x")->MapTo(x))->MapTo(this->symbol_table.CreateSymbol("x", true)));
+
+  auto xs = [&](const memgraph::auth::User &user) {
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &this->dba};
+    auto context = MakeContextWithFineGrainedChecker(this->storage, this->symbol_table, &this->dba, &auth_checker);
+    std::vector<int64_t> values;
+    for (const auto &row : CollectProduce(*produce, &context)) values.push_back(row[0].ValueInt());
+    return values;
+  };
+  auto user = memgraph::auth::User{"reader"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  // (:l1)-[:Edge]->(:l2): only :l1 has an outgoing edge.
+  EXPECT_THAT(xs(user), testing::UnorderedElementsAre(10, 20));
+  // With :l2 denied, the scan skips the :l2 node and the :l1 node's pattern has no match.
+  user.fine_grained_access_handler().label_permissions().Deny({"l2"}, memgraph::auth::kAllLabelPermissions);
+  EXPECT_THAT(xs(user), testing::ElementsAre(20));
+}
+#endif
+
+#ifdef MG_ENTERPRISE
 TYPED_TEST(MatchReturnFixture, PropertyFGANoPropertyRulesMeansAccessDenied) {
   auto v = this->dba.InsertVertex();
   ASSERT_TRUE(v.AddLabel(this->dba.NameToLabel("Employee")).has_value());
