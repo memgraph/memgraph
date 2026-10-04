@@ -1397,7 +1397,11 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
              std::ranges::any_of(single_part.subqueries, [](const auto &subquery) { return subquery->writes; });
     });
   });
-  return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_, is_subquery, writes};
+  return QueryParts{.query_parts = query_parts,
+                    .distinct = distinct,
+                    .commit_frequency = query->pre_query_directives_.commit_frequency_,
+                    .is_subquery = is_subquery,
+                    .writes = writes};
 }
 
 // TODO: Think about converting all filtering expression into CNF to improve
