@@ -4239,7 +4239,8 @@ class ConditionalBranches : public memgraph::query::Clause {
 
   std::vector<memgraph::query::Expression *> predicates_;
   std::vector<memgraph::query::CypherQuery *> bodies_;
-  /// Set by the symbol generator. The columns are empty exactly for a unit body; an import column is the import.
+  /// Set by the symbol generator: one symbol per RETURN column, empty when no branch has a RETURN.
+  /// A column named after an import is the import's own symbol.
   std::vector<Symbol> output_symbols_;
 
   ConditionalBranches *Clone(AstStorage *storage) const override {

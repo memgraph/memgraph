@@ -12,7 +12,7 @@
 Feature: Conditional subqueries
     CALL (...) { WHEN p THEN body [WHEN ...] [ELSE body] } runs the first branch whose predicate holds.
 
-    Scenario: A unit body keeps every row and runs only the matching branch
+    Scenario: A RETURN-less body keeps every row and runs only the matching branch
         Given an empty graph
         When executing query:
             """

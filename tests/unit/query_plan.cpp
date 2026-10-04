@@ -3122,7 +3122,7 @@ TYPED_TEST(TestPlanner, ConditionalSubquery) {
     EXPECT_TRUE(dynamic_cast<PeriodicCommit *>(branch->input().get()));
   }
 
-  // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN CREATE (n) } RETURN i - a unit body keeps every outer row.
+  // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN CREATE (n) } RETURN i - a RETURN-less body keeps every outer row.
   {
     auto *branches = WHEN_BRANCHES({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))))});
     auto *query = QUERY(SINGLE_QUERY(

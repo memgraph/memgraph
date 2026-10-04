@@ -1454,8 +1454,8 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateSeesOnlyImports) {
 }
 
 // The columns of a conditional body: one symbol per name shared by every branch, except that a column named after
-// an import is the import itself. Were the import left out, a body returning only it would look unit, and an outer
-// row no branch matches would be kept.
+// an import is the import itself. Were the import left out, a body returning only it would look RETURN-less, and an
+// outer row no branch matches would be kept.
 TYPED_TEST(TestSymbolGenerator, ConditionalCallOutputSymbols) {
   auto *branches = WHEN_BRANCHES({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(RETURN("i", LITERAL(1), AS("x")))},
                                  {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("x"), "i"))});

@@ -101,7 +101,7 @@ Feature: Conditional subqueries
             | 2 | null |
             | 3 | null |
 
-    Scenario: A unit body keeps every row and runs only the matching branch
+    Scenario: A RETURN-less body keeps every row and runs only the matching branch
         Given an empty graph
         When executing query:
             """
@@ -277,7 +277,7 @@ Feature: Conditional subqueries
             | (n)-[:LOVES]->()                    | 'lover' |
             | COUNT { (n)-[:LOVES]->() } >= 2     | 'no'    |
 
-    Scenario: A unit body runs IN TRANSACTIONS
+    Scenario: A RETURN-less body runs IN TRANSACTIONS
         Given an empty graph
         When executing query:
             """
@@ -472,7 +472,7 @@ Feature: Conditional subqueries
             | 2 | 2 | 'two'   |
             | 3 | 3 | 'three' |
 
-    Scenario: A branch ending in a standalone procedure call is a unit branch
+    Scenario: A branch ending in a standalone procedure call is RETURN-less
         Given an empty graph
         When executing query:
             """

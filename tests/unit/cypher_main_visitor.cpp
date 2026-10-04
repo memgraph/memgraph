@@ -8647,7 +8647,7 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
   }
 
   {
-    // A query ending in a unit body is accepted because a branch writes, and a write in any branch makes it a write.
+    // A query may end in a RETURN-less body because a branch writes; any writing branch makes the query a write.
     auto const [query, branches] =
         parse_branches("UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN SET i.p = 1 WHEN i = 2 THEN CREATE (:T) }");
     ASSERT_TRUE(branches);
