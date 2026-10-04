@@ -1397,38 +1397,61 @@ TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoun
   QUERY(SINGLE_QUERY(               \
       UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(WHEN_BRANCHES(__VA_ARGS__), {"i"}), RETURN("i")))
 
+namespace {
+void ExpectSemanticError(CypherQuery *query, std::string_view message) {
+  try {
+    MakeSymbolTable(query);
+    FAIL() << "expected: " << message;
+  } catch (const SemanticException &e) {
+    EXPECT_EQ(std::string_view{e.what()}, message);
+  }
+}
+}  // namespace
+
 TYPED_TEST(TestSymbolGenerator, ConditionalCallBranchesMustAgree) {
-  auto const expect_error = [](CypherQuery *query, std::string_view message) {
-    try {
-      MakeSymbolTable(query);
-      FAIL() << "expected: " << message;
-    } catch (const SemanticException &e) {
-      EXPECT_EQ(std::string_view{e.what()}, message);
-    }
-  };
   // WHEN true THEN RETURN 1 AS x ELSE RETURN 2 AS y
-  expect_error(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))},
-                                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("y")))}),
-               "All WHEN branches must have the same column names.");
+  ExpectSemanticError(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))},
+                                             {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("y")))}),
+                      "All WHEN branches must have the same column names.");
   // WHEN true THEN RETURN 1 AS x, 2 AS y ELSE RETURN 2 AS x
-  expect_error(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN(LITERAL(1), AS("x"), LITERAL(2), AS("y")))},
-                                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("x")))}),
-               "All WHEN branches must return the same number of columns.");
+  ExpectSemanticError(
+      CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN(LITERAL(1), AS("x"), LITERAL(2), AS("y")))},
+                             {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("x")))}),
+      "All WHEN branches must return the same number of columns.");
   // WHEN i = 1 THEN RETURN i ELSE RETURN i * 10 AS j - one column each; the import counts as written.
-  expect_error(CONDITIONAL_CALL_QUERY(
-                   {EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(RETURN("i"))},
-                   {nullptr,
-                    SINGLE_QUERY(RETURN(
-                        this->storage.template Create<memgraph::query::MultiplicationOperator>(IDENT("i"), LITERAL(10)),
-                        AS("j")))}),
-               "All WHEN branches must have the same column names.");
+  ExpectSemanticError(CONDITIONAL_CALL_QUERY(
+                          {EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(RETURN("i"))},
+                          {nullptr,
+                           SINGLE_QUERY(RETURN(this->storage.template Create<memgraph::query::MultiplicationOperator>(
+                                                   IDENT("i"), LITERAL(10)),
+                                               AS("j")))}),
+                      "All WHEN branches must have the same column names.");
   // WHEN true THEN CREATE (n) ELSE RETURN 1 AS x
-  expect_error(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))))},
-                                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}),
-               "All WHEN branches must either return rows or update the graph.");
+  ExpectSemanticError(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))))},
+                                             {nullptr, SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}),
+                      "All WHEN branches must either return rows or update the graph.");
   // WHEN true THEN RETURN * ELSE RETURN i - `*` writes no import.
-  expect_error(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN("*"))}, {nullptr, SINGLE_QUERY(RETURN("i"))}),
-               "All WHEN branches must return the same number of columns.");
+  ExpectSemanticError(
+      CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN("*"))}, {nullptr, SINGLE_QUERY(RETURN("i"))}),
+      "All WHEN branches must return the same number of columns.");
+
+  // CALL proc() YIELD name [WHERE ...] - a standalone call.
+  auto const standalone_call = [this](Where *where) {
+    auto *call = this->storage.template Create<CallProcedure>();
+    call->procedure_name_ = "proc";
+    call->result_fields_.emplace_back("name");
+    call->result_identifiers_.push_back(IDENT("name"));
+    call->where_ = where;
+    return call;
+  };
+  // WHEN true THEN CALL proc() YIELD name WHERE name = 'x'
+  ExpectSemanticError(
+      CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(standalone_call(WHERE(EQ(IDENT("name"), LITERAL("x")))))}),
+      "Cannot use a standalone CALL with WHERE in a WHEN branch.");
+  // WHEN true THEN CALL proc() YIELD name ELSE CREATE (n)
+  ExpectSemanticError(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(standalone_call(nullptr))},
+                                             {nullptr, SINGLE_QUERY(CREATE(PATTERN(NODE("n"))))}),
+                      "All WHEN branches must either return rows or update the graph.");
 }
 
 TYPED_TEST(TestSymbolGenerator, ConditionalCallStarSkipsImports) {
@@ -1440,27 +1463,28 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallStarSkipsImports) {
 
 TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateSeesOnlyImports) {
   // WHEN count(i) > 0 THEN RETURN 1 AS x
-  EXPECT_THROW(MakeSymbolTable(CONDITIONAL_CALL_QUERY(
-                   {GREATER(COUNT(IDENT("i"), false), LITERAL(0)), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))})),
-               SemanticException);
+  ExpectSemanticError(CONDITIONAL_CALL_QUERY(
+                          {GREATER(COUNT(IDENT("i"), false), LITERAL(0)), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}),
+                      "Aggregation functions are only allowed in WITH and RETURN.");
   // UNWIND [1] AS i WITH i, 1 AS k CALL (i) { WHEN k = 1 THEN RETURN 1 AS x } RETURN x
-  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
-                   UNWIND(LIST(LITERAL(1)), AS("i")),
-                   WITH("i", LITERAL(1), AS("k")),
-                   CALL_SUBQUERY_SCOPED(
-                       WHEN_BRANCHES({EQ(IDENT("k"), LITERAL(1)), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}), {"i"}),
-                   RETURN("x")))),
-               UnboundVariableError);
+  ExpectSemanticError(
+      QUERY(SINGLE_QUERY(
+          UNWIND(LIST(LITERAL(1)), AS("i")),
+          WITH("i", LITERAL(1), AS("k")),
+          CALL_SUBQUERY_SCOPED(WHEN_BRANCHES({EQ(IDENT("k"), LITERAL(1)), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}),
+                               {"i"}),
+          RETURN("x"))),
+      "Unbound variable: k.");
   // MATCH (n) CALL (n) { WHEN (n)-->(z) THEN RETURN 1 AS x } RETURN x - a predicate pattern binds nothing.
-  EXPECT_THROW(
-      MakeSymbolTable(QUERY(SINGLE_QUERY(
+  ExpectSemanticError(
+      QUERY(SINGLE_QUERY(
           MATCH(PATTERN(NODE("n"))),
           CALL_SUBQUERY_SCOPED(
               WHEN_BRANCHES({EXISTS(PATTERN(NODE("n"), EDGE("", EdgeAtom::Direction::OUT, {}, false), NODE("z"))),
                              SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}),
               {"n"}),
-          RETURN("x")))),
-      SemanticException);
+          RETURN("x"))),
+      "Unbounded variables are not allowed in EXISTS!");
 }
 
 // The columns of a conditional body: one symbol per name shared by every branch, except that a column named after

@@ -31,7 +31,7 @@ Feature: Conditional subqueries
             RETURN n.name AS name, finalOutput
             ORDER BY name
             """
-        Then the result should be:
+        Then the result should be, in order:
             | name      | finalOutput |
             | 'Alice'   | 'old'       |
             | 'Bob'     | 'young'     |
@@ -52,7 +52,7 @@ Feature: Conditional subqueries
             RETURN i, x
             ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x      |
             | 0 | 'zero' |
             | 1 | 'one'  |
@@ -95,7 +95,7 @@ Feature: Conditional subqueries
             RETURN i, x
             ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x    |
             | 1 | 'a'  |
             | 2 | null |
@@ -137,7 +137,7 @@ Feature: Conditional subqueries
             RETURN i, x
             ORDER BY i, x
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x  |
             | 1 | 10 |
             | 1 | 20 |
@@ -159,7 +159,7 @@ Feature: Conditional subqueries
             RETURN n.name AS name, c
             ORDER BY name
             """
-        Then the result should be:
+        Then the result should be, in order:
             | name      | c  |
             | 'Alice'   | 1  |
             | 'Bob'     | -1 |
@@ -175,7 +175,7 @@ Feature: Conditional subqueries
             RETURN i, x, y
             ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x  | y        |
             | 1 | 1  | 2        |
             | 2 | 10 | 'twenty' |
@@ -228,7 +228,7 @@ Feature: Conditional subqueries
             RETURN i, x
             ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x       |
             | 1 | 'one'   |
             | 2 | 'two'   |
@@ -244,7 +244,7 @@ Feature: Conditional subqueries
             RETURN i, x
             ORDER BY i, x
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x   |
             | 1 | 'a' |
             | 1 | 'b' |
@@ -266,7 +266,7 @@ Feature: Conditional subqueries
             RETURN n.name AS name, x
             ORDER BY name
             """
-        Then the result should be:
+        Then the result should be, in order:
             | name      | x       |
             | 'Alice'   | 'no'    |
             | 'Bob'     | <bob>   |
@@ -311,7 +311,7 @@ Feature: Conditional subqueries
             RETURN i, v
             ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | v |
             | 1 | 1 |
             | 3 | 3 |
@@ -326,7 +326,7 @@ Feature: Conditional subqueries
             RETURN i, x, count(w) AS c
             ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x | c |
             | 1 | 1 | 2 |
             | 2 | 1 | 2 |
@@ -354,7 +354,7 @@ Feature: Conditional subqueries
             RETURN i, x, count(n) AS c
             ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x | c |
             | 1 | 1 | 2 |
             | 2 | 1 | 2 |
@@ -372,7 +372,7 @@ Feature: Conditional subqueries
             RETURN i, n.k AS k
             ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | k |
             | 0 | 1 |
             | 1 | 1 |
@@ -445,16 +445,16 @@ Feature: Conditional subqueries
             CALL (i) { WHEN i = 1 THEN RETURN 10 AS a, 'x' AS b ELSE RETURN 'y' AS b, 20 AS a }
             <tail>
             """
-        Then the result should be:
-            | i | a  | b   |
-            | 1 | 10 | 'x' |
-            | 2 | 20 | 'y' |
+        Then the result should be, in order:
+            | a  | b   | i |
+            | 10 | 'x' | 1 |
+            | 20 | 'y' | 2 |
 
         Examples:
             | tail                                                              |
             | RETURN * ORDER BY i                                               |
-            | WITH * RETURN i, a, b ORDER BY i                                  |
-            | CALL (*) { RETURN a + i AS s } RETURN i, s - i AS a, b ORDER BY i |
+            | WITH * RETURN a, b, i ORDER BY i                                  |
+            | CALL (*) { RETURN a + i AS s } RETURN s - i AS a, b, i ORDER BY i |
 
     Scenario: A branch ending in a standalone procedure call is RETURN-less
         Given an empty graph
@@ -500,8 +500,9 @@ Feature: Conditional subqueries
             MATCH (a:A)
             CALL (a) { WHEN a.k > 0 THEN RETURN 'pos' AS x WHEN <predicate> THEN RETURN 'other' AS x }
             RETURN a.k AS k, x
+            ORDER BY k
             """
-        Then the result should be:
+        Then the result should be, in order:
             | k | x     |
             | 1 | 'pos' |
             | 3 | 'pos' |
@@ -527,12 +528,13 @@ Feature: Conditional subqueries
             MATCH (a:A)
             CALL (a) { WHEN a.k > 0 OR EXISTS { MATCH (a)-[:R]->(b) WHERE b.k / $z > 0 } THEN RETURN 'pos' AS x }
             RETURN a.k AS k, x
+            ORDER BY k
             """
-        Then the result should be:
+        Then the result should be, in order:
             | k | x     |
+            | 1 | 'pos' |
             | 3 | 'pos' |
             | 5 | 'pos' |
-            | 1 | 'pos' |
 
     Scenario: A reached subquery predicate still raises its error
         Given an empty graph
@@ -562,12 +564,13 @@ Feature: Conditional subqueries
             MATCH (a:A)
             CALL (a) { WHEN COUNT { (a)-->() } = 1 AND a.k > 4 THEN RETURN 'far' AS x WHEN EXISTS { (a)-->() } THEN RETURN 'near' AS x ELSE RETURN 'none' AS x }
             RETURN a.k AS k, x
+            ORDER BY k
             """
-        Then the result should be:
+        Then the result should be, in order:
             | k | x      |
+            | 1 | 'near' |
             | 3 | 'none' |
             | 5 | 'far'  |
-            | 1 | 'near' |
 
     Scenario: A property predicate sees a property an earlier row's branch set
         Given an empty graph
@@ -581,8 +584,9 @@ Feature: Conditional subqueries
             UNWIND [1, 2, 3] AS i
             CALL (c, i) { WHEN c.v < 2 THEN SET c.v = c.v + 1 RETURN 'inc' AS x ELSE RETURN 'skip' AS x }
             RETURN i, x
+            ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x      |
             | 1 | 'inc'  |
             | 2 | 'inc'  |
@@ -598,8 +602,9 @@ Feature: Conditional subqueries
                        WHEN i % 10 = 6 THEN RETURN 6 AS x WHEN i % 10 = 7 THEN RETURN 7 AS x WHEN i % 10 = 8 THEN RETURN 8 AS x
                        ELSE RETURN 9 AS x }
             RETURN x, count(*) AS c
+            ORDER BY x
             """
-        Then the result should be:
+        Then the result should be, in order:
             | x | c |
             | 0 | 2 |
             | 1 | 2 |
@@ -619,8 +624,9 @@ Feature: Conditional subqueries
             UNWIND [1, 2, 3] AS i
             CALL (i) { WHEN i = 1 THEN RETURN 'b' AS y, 1 AS x WHEN i = 2 THEN RETURN 2 AS x, 'c' AS y ELSE RETURN 3 AS x, null AS y }
             RETURN i, x, y
+            ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x | y    |
             | 1 | 1 | 'b'  |
             | 2 | 2 | 'c'  |
@@ -637,8 +643,9 @@ Feature: Conditional subqueries
             MATCH (a:A)
             CALL (a) { WHEN a.k = 1 THEN MATCH (b:B) RETURN count(b) AS c WHEN a.k = 3 THEN MATCH (b:Nope) RETURN count(b) AS c }
             RETURN a.k AS k, c
+            ORDER BY k
             """
-        Then the result should be:
+        Then the result should be, in order:
             | k | c |
             | 1 | 2 |
             | 3 | 0 |
@@ -671,8 +678,9 @@ Feature: Conditional subqueries
             MATCH (n:P)
             CALL (n) { WHEN n.k < 10 THEN MATCH (m:Q) RETURN count(m) AS c ELSE RETURN -1 AS c }
             RETURN n.k AS k, c
+            ORDER BY k
             """
-        Then the result should be:
+        Then the result should be, in order:
             | k  | c   |
             | 1  | 200 |
             | 2  | 200 |
@@ -692,8 +700,9 @@ Feature: Conditional subqueries
             MATCH (a:A)
             CALL (a) { WHEN $<param> THEN RETURN 'yes' AS x ELSE RETURN 'no' AS x }
             RETURN a.k AS k, x
+            ORDER BY k
             """
-        Then the result should be:
+        Then the result should be, in order:
             | k | x   |
             | 1 | <x> |
             | 3 | <x> |

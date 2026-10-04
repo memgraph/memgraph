@@ -4645,7 +4645,8 @@ TYPED_TEST(SubqueriesFeature, ConditionalResetAfterAbandon) {
 
 TYPED_TEST(SubqueriesFeature, ConditionalSkipsLaterFolds) {
   // UNWIND [1, 2] AS i CALL (i) { WHEN true THEN RETURN i AS x WHEN EXISTS {...} AND [...] IS NULL THEN RETURN 0 AS x }
-  // Predicate 1's folds both read `UNWIND [1 / 0]`: pulling either one, or evaluating predicate 1, raises.
+  // Predicate 1's folds both read `UNWIND [1 / 0]`. Pulling the EXISTS fold only writes a closure; pulling the list
+  // fold (RollUpApply) or evaluating predicate 1 raises.
   auto i = this->symbol_table.CreateSymbol("i", true);
   auto *exists = EXISTS(PATTERN(NODE("n")));
   auto exists_sym = this->symbol_table.CreateAnonymousSymbol();

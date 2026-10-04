@@ -45,7 +45,7 @@ Feature: Conditional subqueries
             RETURN i, x, count(w) AS c
             ORDER BY i
             """
-        Then the result should be:
+        Then the result should be, in order:
             | i | x | c |
             | 1 | 1 | 2 |
             | 2 | 1 | 2 |
