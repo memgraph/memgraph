@@ -112,7 +112,6 @@ struct PlanningContext {
   /// These outlive a WITH inside the body, so a later pattern must not re-scan them. `GenWith`
   /// re-adds them on the non-EXISTS path; the EXISTS branch already keeps every re-scannable type.
   std::unordered_set<Symbol> scoped_call_imports{};
-  bool is_write_query{false};
   bool in_subquery_body{false};
 };
 
@@ -358,7 +357,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             std::make_unique<Once>(std::vector<Symbol>(initial_bound_symbols.begin(), initial_bound_symbols.end()));
       }
 
-      context.is_write_query = false;
+      // Whether this UNION part wrote since its last WITH.
+      bool wrote_since_with = false;
       for (const auto &single_query_part : query_part.single_query_parts) {
         // Installed before HandleMatching, which plans MATCH-clause comprehensions through the same member.
         auto const restore_symbols = utils::OnScopeExit{
@@ -478,11 +478,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                        .write_occurred = branch_sees_write()};
 
           if (auto *ret = utils::Downcast<Return>(clause)) {
-            CheckSubqueryBodyInvariants(context, query_parts.commit_frequency);
+            CheckSubqueryBodyInvariants(context, wrote_since_with, query_parts.commit_frequency);
             input_op = impl::GenReturn(*ret,
                                        std::move(input_op),
                                        *context.symbol_table,
-                                       context.is_write_query,
+                                       wrote_since_with,
                                        context.bound_symbols,
                                        *context.ast_storage,
                                        subquery_ctx,
@@ -500,7 +500,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             // A MERGE may create, so it counts as a write - marked before its own drain, as at every other write
             // site, so a comprehension in its pattern sees what earlier rows created. Only an all-anonymous one
             // reaches here; a user-declared atom fails earlier in filter generation (pre-existing, MATCH too).
-            context.is_write_query = true;
+            wrote_since_with = true;
             write_occurred = true;
             plan_and_apply_comprehensions(eligible);
             input_op = GenMerge(*merge,
@@ -509,11 +509,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                 pending_comprehensions,
                                 wrote_before_merge);
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
-            CheckSubqueryBodyInvariants(context, /*commit_frequency=*/nullptr);
+            CheckSubqueryBodyInvariants(context, wrote_since_with, /*commit_frequency=*/nullptr);
             input_op = impl::GenWith(*with,
                                      std::move(input_op),
                                      *context.symbol_table,
-                                     context.is_write_query,
+                                     wrote_since_with,
                                      context.bound_symbols,
                                      *context.ast_storage,
                                      subquery_ctx,
@@ -521,9 +521,9 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                      context.in_subquery_body,
                                      context.scoped_call_imports);
             // WITH clause advances the command, so reset the flag.
-            context.is_write_query = false;
+            wrote_since_with = false;
           } else if (IsWriteClause(clause)) {
-            context.is_write_query = true;
+            wrote_since_with = true;
             write_occurred = true;
             plan_and_apply_comprehensions(impl::OriginatingIn(clause, pending_comprehensions));
             auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols);
@@ -600,7 +600,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
             input_op = std::make_unique<plan::LoadJsonl>(
                 std::move(input_op), load_jsonl->file_, load_jsonl->configs_, row_sym);
           } else if (auto *foreach = utils::Downcast<query::Foreach>(clause)) {
-            context.is_write_query = true;
+            wrote_since_with = true;
             write_occurred = true;
             // One set gates both chains, whichever binds the symbols first. Forced: `ForeachCursor::Pull` evaluates
             // the list expression before writing the loop variable, so a list comprehension must drain here, and
@@ -638,16 +638,20 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                      }) |
                      std::ranges::to<std::unordered_set<Symbol>>();
             });
+            auto const &subquery = single_query_part.subqueries[subquery_id++];
             input_op = HandleSubquery(std::move(input_op),
-                                      single_query_part.subqueries[subquery_id++],
+                                      subquery,
                                       *context.symbol_table,
                                       *context_->ast_storage,
                                       call_sub->cypher_query_->pre_query_directives_.commit_frequency_,
                                       call_sub->optional_,
                                       scoped_variables);
-            if (context.is_write_query && !has_periodic_commit) {
-              input_op = std::make_unique<Accumulate>(
-                  std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
+            if (subquery->writes) {
+              wrote_since_with = true;
+              if (!has_periodic_commit) {
+                input_op = std::make_unique<Accumulate>(
+                    std::move(input_op), input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
+              }
             }
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
@@ -916,9 +920,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   /// A subquery body is read-only and carries no periodic commit: `BuildSubqueryFold` allows only MATCH, UNWIND,
   /// WHERE, WITH and RETURN - in every UNION branch - and rejects a body-level commit directive. Reaching either here
   /// means that validation has a hole.
-  static void CheckSubqueryBodyInvariants(const TPlanningContext &context, Expression *commit_frequency) {
+  static void CheckSubqueryBodyInvariants(const TPlanningContext &context, bool wrote_since_with,
+                                          Expression *commit_frequency) {
     if (!context.in_subquery_body) return;
-    if (context.is_write_query) {
+    if (wrote_since_with) {
       impl::ThrowPlannerBug("A write clause reached the body of an EXISTS subquery, which may only read.");
     }
     if (commit_frequency != nullptr) {

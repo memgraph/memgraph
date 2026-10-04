@@ -1331,3 +1331,128 @@ Feature: Subqueries
             | union     |
             | UNION ALL |
             | UNION     |
+
+    Scenario Outline: A write in any UNION part of a CALL body is visible after the CALL
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CALL (i) { <body> }
+            MATCH (w:W)
+            WITH i, x, count(w) AS c
+            RETURN count(*) AS rows, collect(DISTINCT c) AS cs
+            """
+        Then the result should be:
+            | rows   | cs   |
+            | <rows> | [3]  |
+
+        Examples:
+            | body                                                                                  | rows |
+            | CREATE (:W {v: i}) RETURN 1 AS x UNION ALL RETURN 2 AS x                              | 6    |
+            | MERGE (:W {v: i}) RETURN 1 AS x UNION ALL RETURN 2 AS x                               | 6    |
+            | FOREACH (k IN [1] \| CREATE (:W {v: i})) RETURN 1 AS x UNION ALL RETURN 2 AS x         | 6    |
+            | CREATE (:W {v: i}) WITH i RETURN 1 AS x                                               | 3    |
+            | CREATE (:W {v: i}) CALL () { RETURN 1 AS y } RETURN y AS x                            | 3    |
+            | CALL (i) { CREATE (:W {v: i}) RETURN 1 AS y UNION ALL RETURN 2 AS y } RETURN y AS x   | 6    |
+            # Control: a write in the last part already worked before the fix.
+            | RETURN 1 AS x UNION ALL CREATE (:W {v: i}) RETURN 2 AS x                              | 6    |
+
+    Scenario: A MERGE before a WITH in a CALL body is visible to every outer row
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [0, 1] AS i
+            CALL (*) {
+              MERGE (n:R {id: 1}) ON CREATE SET n.k = 0 ON MATCH SET n.k = 1
+              WITH n
+              RETURN n
+            }
+            RETURN i, n.k AS k
+            ORDER BY i
+            """
+        Then the result should be:
+            | i | k |
+            | 0 | 1 |
+            | 1 | 1 |
+
+    Scenario: A write in the first UNION part of a CALL IN TRANSACTIONS body is visible after the CALL
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { CREATE (:W) RETURN 1 AS x UNION ALL RETURN 2 AS x } IN TRANSACTIONS OF 1 ROWS
+            MATCH (w:W)
+            RETURN i, x, count(w) AS c
+            ORDER BY i, x
+            """
+        Then the result should be:
+            | i | x | c |
+            | 1 | 1 | 2 |
+            | 1 | 2 | 2 |
+            | 2 | 1 | 2 |
+            | 2 | 2 | 2 |
+
+    Scenario: A write in a nested CALL is visible after the outer CALL across a WITH
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { CALL (i) { CREATE (:A) } WITH 1 AS a RETURN a }
+            MATCH (n:A)
+            RETURN i, count(n) AS c
+            ORDER BY i
+            """
+        Then the result should be:
+            | i | c |
+            | 1 | 2 |
+            | 2 | 2 |
+
+    Scenario: A read-only CALL after a write keeps the write barrier before RETURN
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND range(1, 100) AS i
+            CREATE (:Q)
+            CALL () { RETURN 1 AS x }
+            RETURN i
+            LIMIT 1
+            """
+        When executing query:
+            """
+            MATCH (q:Q) RETURN count(q) AS c
+            """
+        Then the result should be:
+            | c   |
+            | 100 |
+
+    Scenario: A read-only CALL after a write keeps the write barrier before WITH
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CREATE (:Q)
+            CALL () { RETURN 1 AS x }
+            WITH i
+            MATCH (q:Q)
+            RETURN i, count(q) AS c
+            ORDER BY i
+            """
+        Then the result should be:
+            | i | c |
+            | 1 | 3 |
+            | 2 | 3 |
+            | 3 | 3 |
+
+    Scenario: A write procedure in a CALL body is visible after the CALL
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CALL (i) { CALL example_c.write_procedure('v') YIELD created_vertex RETURN 1 AS x }
+            MATCH (n)
+            WITH i, x, count(n) AS c
+            RETURN count(*) AS rows, collect(DISTINCT c) AS cs
+            """
+        Then the result should be:
+            | rows | cs  |
+            | 3    | [3] |

@@ -23,6 +23,7 @@
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/semantic/rw_checker.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/plan/preprocess.hpp"
@@ -1390,7 +1391,13 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
     query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
   }
 
-  return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_, is_subquery};
+  bool const writes = std::ranges::any_of(query_parts, [](const QueryPart &part) {
+    return std::ranges::any_of(part.single_query_parts, [](const SingleQueryPart &single_part) {
+      return std::ranges::any_of(single_part.remaining_clauses, [](const Clause *c) { return IsWritingClause(*c); }) ||
+             std::ranges::any_of(single_part.subqueries, [](const auto &subquery) { return subquery->writes; });
+    });
+  });
+  return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_, is_subquery, writes};
 }
 
 // TODO: Think about converting all filtering expression into CNF to improve

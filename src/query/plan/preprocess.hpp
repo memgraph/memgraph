@@ -777,6 +777,8 @@ struct QueryParts {
   /// Commit frequency for periodic commit
   Expression *commit_frequency = nullptr;
   bool is_subquery = false;
+  /// Whether any part writes, nested CALL bodies included.
+  bool writes = false;
 };
 
 /// @brief Convert the AST to multiple @c QueryParts.
