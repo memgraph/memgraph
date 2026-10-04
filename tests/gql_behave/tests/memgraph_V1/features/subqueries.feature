@@ -1501,3 +1501,35 @@ Feature: Subqueries
             | a | b  |
             | 1 | 11 |
             | 2 | 12 |
+
+    Scenario Outline: A UNION column that rebinds a scoped import still keeps its rows distinct
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { UNWIND [1, 2, 3] AS k <rebind> UNION RETURN 5 AS i }
+            RETURN count(*) AS c
+            """
+        Then the result should be:
+            | c   |
+            | <c> |
+
+        Examples:
+            | rebind               | c |
+            | RETURN k AS i        | 8 |
+            | WITH k AS i RETURN i | 8 |
+
+    Scenario: RETURN * after a UNION body that returns a scoped import lists the import once
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { RETURN i, 1 AS a UNION ALL RETURN i, 2 AS a }
+            RETURN *
+            """
+        Then the result should be:
+            | a | i |
+            | 1 | 1 |
+            | 2 | 1 |
+            | 1 | 2 |
+            | 2 | 2 |

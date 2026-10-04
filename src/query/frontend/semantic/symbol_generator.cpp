@@ -235,11 +235,10 @@ bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
     throw SemanticException("All subqueries in an UNION must have the same column names.");
   }
 
-  // The union's columns are the user's RETURN names, so a later `*` sees them. A scoped CALL import is not one:
-  // every RETURN re-injects it, and the caller already binds it.
+  // The union's columns are the user's RETURN names, so a later `*` sees them. A column named like a scoped CALL
+  // import stays a column, so a distinct UNION keys on it, but is hidden: after the CALL that name is the import.
   for (const auto &name : scope.curr_return_names) {
-    if (scope.call_subquery_imports.contains(name)) continue;
-    auto symbol = CreateSymbol(name, true);
+    auto symbol = CreateSymbol(name, !scope.call_subquery_imports.contains(name));
     cypher_union.union_symbols_.push_back(symbol);
   }
 
