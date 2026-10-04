@@ -144,6 +144,12 @@ SharedQuota::SharedQuota(Preload)
 SharedQuota::SharedQuota(std::shared_ptr<QuotaCoordinator> coord)
     : coord_(std::move(coord)), desired_batch_size_(0), handle_(std::nullopt) {}
 
+void SharedQuota::LeavePlanQuotas() {
+  if (!plan_quotas_) return;
+  auto it = std::find(plan_quotas_->begin(), plan_quotas_->end(), this);
+  if (it != plan_quotas_->end()) plan_quotas_->erase(it);
+}
+
 void SharedQuota::ReleaseOtherPlanQuotas() {
   if (!plan_quotas_) return;
   for (auto *q : *plan_quotas_) {
@@ -154,18 +160,13 @@ void SharedQuota::ReleaseOtherPlanQuotas() {
 SharedQuota::SharedQuota(const SharedQuota &other) noexcept
     : coord_(other.coord_),
       desired_batch_size_(other.desired_batch_size_),
-      handle_(std::nullopt),  // Handle is acquired lazily on first Decrement.
-      plan_quotas_(other.plan_quotas_) {
-  if (plan_quotas_) plan_quotas_->push_back(this);
-}
+      handle_(std::nullopt) {}  // Handle is acquired lazily on first Decrement.
 
 SharedQuota &SharedQuota::operator=(const SharedQuota &other) noexcept {
   if (this != &other) {
     handle_.reset();
     coord_ = other.coord_;
     desired_batch_size_ = other.desired_batch_size_;
-    plan_quotas_ = other.plan_quotas_;
-    if (plan_quotas_) plan_quotas_->push_back(this);
     // Do not acquire a new handle here, it will lazily acquire on first Decrement.
   }
   return *this;
@@ -189,6 +190,7 @@ SharedQuota &SharedQuota::operator=(SharedQuota &&other) noexcept {
     coord_ = std::exchange(other.coord_, nullptr);
     desired_batch_size_ = std::exchange(other.desired_batch_size_, 0);
     handle_ = std::exchange(other.handle_, std::nullopt);
+    LeavePlanQuotas();
     plan_quotas_ = std::exchange(other.plan_quotas_, nullptr);
     if (plan_quotas_) {
       plan_quotas_->push_back(this);

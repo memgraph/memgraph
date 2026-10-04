@@ -710,9 +710,7 @@ struct CreationHelper {
   RowQuota GetRowQuota(const LogicalOperator *op, size_t num_workers) {
     auto [it, inserted] = shared_state_.quotas.try_emplace(op, nullptr);
     if (inserted) it->second = std::make_shared<utils::QuotaCoordinator>();
-    utils::SharedQuota share(it->second);
-    share.SetPlanQuotas(shared_plan_quotas_);
-    return {std::move(share), num_workers};
+    return {utils::SharedQuota(it->second), shared_plan_quotas_, num_workers};
   }
 
   /// Get or create shared distinct state for a given Distinct operator.
@@ -11424,9 +11422,15 @@ class ParallelBranchCursor : public Cursor {
     // Execute branch 0 on the main thread
     // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
     // shared quotas are used)
+    std::shared_ptr<std::vector<utils::SharedQuota *>> outer_plan_quotas;
     if (branch_plan_quotas_[0] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
+      outer_plan_quotas = context.hops_limit.shared_quota_->PlanQuotas();
       context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[0]);
     }
+    // The main hops quota belongs to branch 0's list only while branch 0 runs
+    const auto restore_plan_quotas = utils::OnScopeExit([&] {
+      if (context.hops_limit.shared_quota_) context.hops_limit.shared_quota_->SetPlanQuotas(outer_plan_quotas);
+    });
     const auto &cursor = branch_cursors_[0];
     try {
       pre_pull_func(cursor.get());

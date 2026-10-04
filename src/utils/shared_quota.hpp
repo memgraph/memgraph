@@ -98,6 +98,7 @@ class SharedQuota {
   std::shared_ptr<std::vector<SharedQuota *>> plan_quotas_{nullptr};
 
   void ReleaseOtherPlanQuotas();
+  void LeavePlanQuotas();
 
  public:
   constexpr static struct Preload {
@@ -111,12 +112,10 @@ class SharedQuota {
 
   ~SharedQuota() {
     Free();
-    if (plan_quotas_) {
-      auto it = std::find(plan_quotas_->begin(), plan_quotas_->end(), this);
-      if (it != plan_quotas_->end()) plan_quotas_->erase(it);
-    }
+    LeavePlanQuotas();
   }
 
+  // A copy shares the coordinator but joins no plan list; its owner places it with SetPlanQuotas.
   SharedQuota(const SharedQuota &other) noexcept;
   SharedQuota &operator=(const SharedQuota &other) noexcept;
   SharedQuota(SharedQuota &&other) noexcept;
@@ -124,9 +123,13 @@ class SharedQuota {
 
   /// Associate this quota with the plan's quota list (same list for all quotas in one branch).
   void SetPlanQuotas(std::shared_ptr<std::vector<SharedQuota *>> list) {
-    plan_quotas_ = list;
+    if (list == plan_quotas_) return;
+    LeavePlanQuotas();
+    plan_quotas_ = std::move(list);
     if (plan_quotas_) plan_quotas_->push_back(this);
   }
+
+  auto PlanQuotas() const -> const std::shared_ptr<std::vector<SharedQuota *>> & { return plan_quotas_; }
 
   // Primary entry point for workers to consume quota.
   // When batch is exhausted, releases other plan quotas then reacquires (if plan_quotas_ is set).

@@ -13,8 +13,10 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <utility>
+#include <vector>
 
 #include "utils/shared_quota.hpp"
 
@@ -26,12 +28,16 @@ class RowQuota {
  public:
   RowQuota() = default;
 
-  RowQuota(utils::SharedQuota branch_share, size_t num_workers)
-      : branch_share_(std::move(branch_share)), num_batches_(utils::SharedQuota::WorkersToBatch(num_workers)) {}
+  RowQuota(utils::SharedQuota branch_share, std::shared_ptr<std::vector<utils::SharedQuota *>> plan_quotas,
+           size_t num_workers)
+      : branch_share_(std::move(branch_share)),
+        plan_quotas_(std::move(plan_quotas)),
+        num_batches_(utils::SharedQuota::WorkersToBatch(num_workers)) {}
 
   void Arm(uint64_t count) {
     if (branch_share_) {
       quota_.emplace(*branch_share_);
+      quota_->SetPlanQuotas(plan_quotas_);
       quota_->Initialize(count, num_batches_);
     } else {
       quota_.emplace(count);
@@ -48,7 +54,10 @@ class RowQuota {
   void Release() { quota_.reset(); }
 
  private:
-  std::optional<utils::SharedQuota> branch_share_;  // Never armed itself; each execution arms a copy
+  // Never armed itself; each execution arms a copy
+  std::optional<utils::SharedQuota> branch_share_;
+  // The branch's plan list, which the armed copy joins
+  std::shared_ptr<std::vector<utils::SharedQuota *>> plan_quotas_;
   uint64_t num_batches_{1};
   std::optional<utils::SharedQuota> quota_;
 };

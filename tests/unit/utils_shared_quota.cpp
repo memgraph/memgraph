@@ -555,6 +555,22 @@ TEST(SharedQuotaTest, RearmedCoordinatorTakesTheNextLimit) {
   EXPECT_EQ(run(5), 5);
 }
 
+// A quota is in at most one plan list, once; a copy starts in none.
+TEST(SharedQuotaTest, SetPlanQuotasRegistersInOneList) {
+  auto first_list = std::make_shared<std::vector<SharedQuota *>>();
+  auto second_list = std::make_shared<std::vector<SharedQuota *>>();
+  SharedQuota quota(SharedQuota::preload);
+  quota.SetPlanQuotas(first_list);
+  quota.SetPlanQuotas(first_list);
+  EXPECT_EQ(*first_list, std::vector<SharedQuota *>{&quota});
+
+  SharedQuota copy(quota);  // Joins no list
+  EXPECT_EQ(*first_list, std::vector<SharedQuota *>{&quota});
+  copy.SetPlanQuotas(second_list);
+  EXPECT_EQ(*first_list, std::vector<SharedQuota *>{&quota});
+  EXPECT_EQ(*second_list, std::vector<SharedQuota *>{&copy});
+}
+
 // 13. Increment from Zero
 TEST(SharedQuotaTest, IncrementFromZero) {
   SharedQuota quota(1, 1);
