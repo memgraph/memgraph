@@ -10203,7 +10203,7 @@ Conditional::ConditionalCursor::ConditionalCursor(const Conditional &self, utils
 }
 
 bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
+  const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   while (true) {

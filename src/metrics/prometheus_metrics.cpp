@@ -1591,7 +1591,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back({"IndexedJoinOperator", "Operator", "Counter", static_cast<int64_t>(h.indexed_join_operator.Value())});
   out.push_back({"HashJoinOperator", "Operator", "Counter", static_cast<int64_t>(h.hash_join_operator.Value())});
   out.push_back({"RollUpApplyOperator", "Operator", "Counter", static_cast<int64_t>(h.roll_up_apply_operator.Value())});
-  out.push_back({"ConditionalOperator", "Operator", "Counter", static_cast<int64_t>(h.conditional_operator.Value())});
+  out.push_back({.name = "ConditionalOperator",
+                 .type = "Operator",
+                 .metric_type = "Counter",
+                 .value = static_cast<int64_t>(h.conditional_operator.Value())});
   out.push_back(
       {"PeriodicCommitOperator", "Operator", "Counter", static_cast<int64_t>(h.periodic_commit_operator.Value())});
   out.push_back(
@@ -1950,7 +1953,10 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"IndexedJoinOperator", "Operator", "Counter", total_indexed_join_operator});
   out.push_back({"HashJoinOperator", "Operator", "Counter", total_hash_join_operator});
   out.push_back({"RollUpApplyOperator", "Operator", "Counter", total_roll_up_apply_operator});
-  out.push_back({"ConditionalOperator", "Operator", "Counter", total_conditional_operator});
+  out.push_back({.name = "ConditionalOperator",
+                 .type = "Operator",
+                 .metric_type = "Counter",
+                 .value = total_conditional_operator});
   out.push_back({"PeriodicCommitOperator", "Operator", "Counter", total_periodic_commit_operator});
   out.push_back({"PeriodicSubqueryOperator", "Operator", "Counter", total_periodic_subquery_operator});
   out.push_back({"SetNestedPropertyOperator", "Operator", "Counter", total_set_nested_property_operator});
