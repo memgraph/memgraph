@@ -127,8 +127,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
 
 #undef DEFAULT_VISITS
 
-  // Only the input side is parallelizable: the list branch is rewound per input row and shares the
-  // enclosing frame, and ScanParallel overwrites that frame while OrderByParallel never rewinds.
+  // Only the input side is parallelized; the list branch, re-run for each input row, stays serial.
   bool PreVisit(RollUpApply &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
