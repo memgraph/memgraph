@@ -10692,7 +10692,12 @@ class ScanParallelCursor : public Cursor {
       const std::unique_lock lock(mutex_);
       if (all_pulled_) return false;  // Everything was pulled
       if (index_ == 0 || index_ >= self_.num_threads_) {
-        if (!frame_) frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+        if (!frame_) {
+          // Start from the caller's row, so that the copy below keeps its variables. Branch 0 pulls first, on the
+          // caller's frame; the other branches start after it.
+          frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
+          *frame_ = frame;
+        }
         chunks_.reset();
         const bool res = input_cursor_->Pull(*frame_, context);
         if (!res) {
