@@ -10238,7 +10238,7 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
         if (value.IsNull()) {
           taken = false;
         } else if (value.type() != TypedValue::Type::Bool) {
-          throw QueryRuntimeException("CASE/WHEN expected boolean expression, got {}.", value.type());
+          throw QueryRuntimeException("WHEN expected boolean expression, got {}.", value.type());
         } else {
           taken = value.ValueBool();
         }

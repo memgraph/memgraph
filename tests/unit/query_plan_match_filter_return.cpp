@@ -4688,7 +4688,7 @@ TYPED_TEST(SubqueriesFeature, ConditionalNonBoolPredicateRaises) {
     this->ConditionalRows(this->ReturnIX(i, conditional));
     FAIL() << "expected a QueryRuntimeException";
   } catch (const QueryRuntimeException &e) {
-    EXPECT_STREQ(e.what(), "CASE/WHEN expected boolean expression, got int.");
+    EXPECT_STREQ(e.what(), "WHEN expected boolean expression, got int.");
   }
 }
 

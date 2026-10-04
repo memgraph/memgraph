@@ -1162,7 +1162,7 @@ TYPED_TEST(ExpressionEvaluatorTest, IfOperator) {
       this->Eval(op);
       FAIL() << "expected a non-boolean condition to throw";
     } catch (const QueryRuntimeException &e) {
-      EXPECT_EQ(std::string_view{e.what()}, "CASE/WHEN expected boolean expression, got int.");
+      EXPECT_EQ(std::string_view{e.what()}, "CASE expected boolean expression, got int.");
     }
   }
 }
