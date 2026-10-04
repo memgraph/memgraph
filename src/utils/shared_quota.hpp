@@ -85,8 +85,8 @@ class QuotaCoordinator {
  *   SharedQuota quota(100);  // 100 total quota
  *   while (quota.Decrement() > 0) { process(); }
  *
- * Example (parallel - preloaded):
- *   SharedQuota quota(SharedQuota::preload);  // Create uninitialized
+ * Example (parallel - shares of one coordinator):
+ *   SharedQuota quota(coord);  // Create uninitialized
  *   // Later, when limit is known:
  *   quota.Initialize(limit, num_threads);
  *   while (quota.Decrement() > 0) { process(); }
@@ -103,13 +103,8 @@ class SharedQuota {
   void LeavePlanQuotas();
 
  public:
-  constexpr static struct Preload {
-  } preload;
-
   explicit SharedQuota(uint64_t limit, uint64_t n_batches = 1);
-  // Used to setup the objects, but not initialize the quota.
-  explicit SharedQuota(Preload /*unused*/);
-  // A preloaded share of a coordinator that other shares also draw from.
+  // An uninitialized share of a coordinator that other shares also draw from; Initialize sets the limit.
   explicit SharedQuota(std::shared_ptr<QuotaCoordinator> coord);
 
   ~SharedQuota() {

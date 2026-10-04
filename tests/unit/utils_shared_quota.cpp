@@ -530,9 +530,9 @@ TEST(SharedQuotaTest, ZeroLimitInit) {
   ASSERT_EQ(quota.Decrement(1), 0);
 }
 
-// 12. Zero Limit Preload Edge Case
-TEST(SharedQuotaTest, ZeroLimitPreloadInit) {
-  SharedQuota quota(SharedQuota::preload);
+// 12. Zero Limit Edge Case for an uninitialized share
+TEST(SharedQuotaTest, ZeroLimitShareInit) {
+  SharedQuota quota(std::make_shared<QuotaCoordinator>());
   quota.Initialize(0, 1);
   ASSERT_EQ(quota.Decrement(1), 0);
 }
@@ -559,7 +559,7 @@ TEST(SharedQuotaTest, RearmedCoordinatorTakesTheNextLimit) {
 TEST(SharedQuotaTest, SetPlanQuotasRegistersInOneList) {
   auto first_list = std::make_shared<std::vector<SharedQuota *>>();
   auto second_list = std::make_shared<std::vector<SharedQuota *>>();
-  SharedQuota quota(SharedQuota::preload);
+  SharedQuota quota(std::make_shared<QuotaCoordinator>());
   quota.SetPlanQuotas(first_list);
   quota.SetPlanQuotas(first_list);
   EXPECT_EQ(*first_list, std::vector<SharedQuota *>{&quota});

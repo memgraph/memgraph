@@ -50,7 +50,7 @@ class RowQuota {
 
   void Increment() { quota_->Increment(); }
 
-  // Returns the unused count, so that the other branches can draw it.
+  // Drops the armed copy, which returns its unused count to the coordinator.
   void Release() { quota_.reset(); }
 
  private:

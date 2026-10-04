@@ -693,7 +693,7 @@ struct BranchSharedState {
       distinct_states;  // Distinct cursors share deduplication state
 
   // Call only after the branch cursors are reset, so that they hold no quota.
-  void Reset() {
+  void Rearm() {
     for (const auto &[_, coord] : quotas) coord->Rearm();
     for (const auto &[_, state] : distinct_states) state->Clear();
   }
@@ -10691,8 +10691,7 @@ class ScanParallelCursor : public Cursor {
       if (all_pulled_) return false;  // Everything was pulled
       if (index_ == 0 || index_ >= self_.num_threads_) {
         if (!frame_) {
-          // Start from the caller's row, so that the copy below keeps its variables. Branch 0 pulls first, on the
-          // caller's frame; the other branches start after it.
+          // Seed with the caller's row; branch 0 pulls first, on the caller's frame.
           frame_.emplace(context.symbol_table.max_position(), context.evaluation_context.memory);
           *frame_ = frame;
         }
@@ -11271,7 +11270,7 @@ class ParallelBranchCursor : public Cursor {
   // A parent such as Apply re-runs this operator for each of its rows.
   void Reset() final {
     for (const auto &cursor : branch_cursors_) cursor->Reset();
-    shared_state_.Reset();
+    shared_state_.Rearm();
     ResetMerge();
   }
 
@@ -11422,14 +11421,16 @@ class ParallelBranchCursor : public Cursor {
     // Execute branch 0 on the main thread
     // Set plan quotas for the hops limit (this is needed for parallel execution to avoid deadlock in case multiple
     // shared quotas are used)
-    std::shared_ptr<std::vector<utils::SharedQuota *>> outer_plan_quotas;
+    // The main hops quota belongs to branch 0's list only while branch 0 runs
+    std::optional<std::shared_ptr<std::vector<utils::SharedQuota *>>> outer_plan_quotas;
     if (branch_plan_quotas_[0] && context.hops_limit.IsUsed() && context.hops_limit.shared_quota_) {
       outer_plan_quotas = context.hops_limit.shared_quota_->PlanQuotas();
       context.hops_limit.shared_quota_->SetPlanQuotas(branch_plan_quotas_[0]);
     }
-    // The main hops quota belongs to branch 0's list only while branch 0 runs
-    const auto restore_plan_quotas = utils::OnScopeExit([&] {
-      if (context.hops_limit.shared_quota_) context.hops_limit.shared_quota_->SetPlanQuotas(outer_plan_quotas);
+    const auto restore_plan_quotas = utils::OnScopeExit([&]() noexcept {
+      if (outer_plan_quotas && context.hops_limit.shared_quota_) {
+        context.hops_limit.shared_quota_->SetPlanQuotas(*outer_plan_quotas);
+      }
     });
     const auto &cursor = branch_cursors_[0];
     try {
@@ -11571,7 +11572,7 @@ class ParallelBranchCursor : public Cursor {
 
   std::shared_ptr<utils::CollectionScheduler> collection_scheduler_;
   std::vector<std::shared_ptr<std::vector<utils::SharedQuota *>>> branch_plan_quotas_;
-  // Filled while the branch cursors are created
+  // Declared before branch_cursors_, whose construction fills it
   BranchSharedState shared_state_;
   const std::vector<UniqueCursorPtr> branch_cursors_;  // NOLINT(cppcoreguidelines-avoid-const-or-ref-data-members)
 };
@@ -11931,6 +11932,7 @@ class AggregateParallelCursor : public ParallelBranchCursor {
     return true;
   }
 
+  // main_aggregation_ points into a branch, which the branch reset cleared.
   void ResetMerge() override {
     initialized_ = false;
     main_aggregation_ = nullptr;
