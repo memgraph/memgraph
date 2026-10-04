@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -362,14 +363,19 @@ const CallProcedure *TrailingCall(const CypherQuery &query) {
   return utils::Downcast<const CallProcedure>(last);
 }
 
-/// The columns a body's RETURN writes, `*` expanded. `all` also holds every import, which each RETURN re-injects.
-std::unordered_set<std::string> WrittenColumns(const CypherQuery &query, const std::unordered_set<std::string> &all) {
+/// The columns a body's RETURN writes. `all` also holds every import, which each RETURN re-injects; `*` writes none.
+std::unordered_set<std::string> WrittenColumns(const CypherQuery &query, const std::unordered_set<std::string> &all,
+                                               const std::map<std::string, Symbol> &imports) {
   const auto *last = query.single_query_->clauses_.back();
   if (const auto *nested = utils::Downcast<const ConditionalBranches>(last)) {
-    return WrittenColumns(*nested->bodies_[0], all);
+    return WrittenColumns(*nested->bodies_[0], all, imports);
   }
   const auto *ret = utils::Downcast<const Return>(last);
-  if (!ret || ret->body_.all_identifiers) return all;
+  if (!ret) return all;
+  if (ret->body_.all_identifiers) {
+    return all | std::views::filter([&](const auto &name) { return !imports.contains(name); }) |
+           std::ranges::to<std::unordered_set<std::string>>();
+  }
   return ret->body_.named_expressions | std::views::transform([](const auto *expr) { return expr->name_; }) |
          std::ranges::to<std::unordered_set<std::string>>();
 }
@@ -405,7 +411,7 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
     });
     kinds.push_back(kind);
     names.push_back(scopes_.back().curr_return_names);
-    written.push_back(WrittenColumns(*body, names.back()));
+    written.push_back(WrittenColumns(*body, names.back(), base.call_subquery_imports));
   }
   for (size_t i = 1; i < kinds.size(); ++i) {
     if (kinds[i] != kinds[0]) {

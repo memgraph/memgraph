@@ -192,6 +192,20 @@ Feature: Conditional subqueries
             | 1 | 1  | 2        |
             | 2 | 10 | 'twenty' |
 
+    Scenario: A star in one branch names the same columns as an explicit RETURN, without the imports
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { WHEN i = 1 THEN WITH i, 2 AS z RETURN * ELSE RETURN 3 AS z }
+            RETURN i, z
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | z |
+            | 1 | 2 |
+            | 2 | 3 |
+
     Scenario Outline: A body that returns only imports still drops a row no branch yields
         Given an empty graph
         When executing query:

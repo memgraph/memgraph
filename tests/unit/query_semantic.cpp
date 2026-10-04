@@ -1426,6 +1426,16 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallBranchesMustAgree) {
   expect_error(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))))},
                                       {nullptr, SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}),
                "All WHEN branches must either return rows or update the graph.");
+  // WHEN true THEN RETURN * ELSE RETURN i - `*` writes no import.
+  expect_error(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN("*"))}, {nullptr, SINGLE_QUERY(RETURN("i"))}),
+               "All WHEN branches must return the same number of columns.");
+}
+
+TYPED_TEST(TestSymbolGenerator, ConditionalCallStarSkipsImports) {
+  // WHEN i = 1 THEN WITH 2 AS z RETURN * ELSE RETURN 3 AS z
+  EXPECT_NO_THROW(MakeSymbolTable(
+      CONDITIONAL_CALL_QUERY({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(WITH(LITERAL(2), AS("z")), RETURN("*"))},
+                             {nullptr, SINGLE_QUERY(RETURN(LITERAL(3), AS("z")))})));
 }
 
 TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateSeesOnlyImports) {
