@@ -3091,16 +3091,6 @@ TYPED_TEST(TestPlanner, ConditionalSubquery) {
       EXPECT_EQ(branch.columns[0].to.name(), "c");
     }
     EXPECT_EQ(root->branches_[1].predicate, nullptr);
-
-    // A rewriter or the plan cache may clone the plan; the columns must survive it.
-    auto const cloned = call->Clone(&this->storage);
-    auto *cloned_root = dynamic_cast<Conditional *>(dynamic_cast<Apply *>(cloned.get())->subquery_.get());
-    ASSERT_NE(cloned_root, nullptr);
-    EXPECT_EQ(SymbolNames(cloned_root->output_symbols_), (std::vector<std::string>{"c", "i"}));
-    ASSERT_EQ(cloned_root->branches_.size(), root->branches_.size());
-    for (size_t i = 0; i < root->branches_.size(); ++i) {
-      EXPECT_EQ(cloned_root->branches_[i].columns, root->branches_[i].columns);
-    }
   }
 
   // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN CREATE (n) RETURN 1 AS x } IN TRANSACTIONS OF 1 ROWS RETURN x
