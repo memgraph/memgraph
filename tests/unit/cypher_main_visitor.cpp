@@ -1893,6 +1893,27 @@ TEST_P(CypherMainVisitorTest, WriteInCallSubqueryBodyMakesQueryWrite) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, RWCheckerVisitsEachSubqueryBodyOnce) {
+  struct CountingRWChecker : memgraph::query::RWChecker {
+    using RWChecker::PreVisit;
+
+    bool PreVisit(SingleQuery &single_query) override {
+      ++visits;
+      return RWChecker::PreVisit(single_query);
+    }
+
+    int visits{0};
+  };
+
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL () { CALL () { RETURN 1 AS x } RETURN x } RETURN x"));
+  ASSERT_TRUE(query);
+  CountingRWChecker rw_checker;
+  query->Accept(rw_checker);
+  EXPECT_EQ(rw_checker.visits, 3);
+}
+
 TEST_P(CypherMainVisitorTest, Delete) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("DELETE n, m"));

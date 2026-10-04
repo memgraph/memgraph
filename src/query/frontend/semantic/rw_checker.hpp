@@ -33,9 +33,6 @@ class RWChecker : public HierarchicalTreeVisitor {
   using HierarchicalTreeVisitor::Visit;
   using typename HierarchicalTreeVisitor::ReturnType;
 
-  // CypherQuery
-  bool PreVisit(CypherQuery &cypher_query) override;
-
   bool PreVisit(SingleQuery &single_query) override;
 
   ReturnType Visit(Identifier & /*unused*/) override { return true; }

@@ -28,14 +28,6 @@ bool IsWritingClause(const Clause &clause) {
          utils::Downcast<const Foreach>(&clause);
 }
 
-bool RWChecker::PreVisit(CypherQuery &cypher_query) {
-  cypher_query.single_query_->Accept(*this);
-  for (auto &cypher_union : cypher_query.cypher_unions_) {
-    cypher_union->Accept(*this);
-  }
-  return true;
-}
-
 bool RWChecker::PreVisit(SingleQuery &single_query) {
   for (auto *clause : single_query.clauses_) {
     if (IsWritingClause(*clause)) {
