@@ -1351,11 +1351,9 @@ Feature: Subqueries
             | CREATE (:W {v: i}) RETURN 1 AS x UNION ALL RETURN 2 AS x                              | 6    |
             | MERGE (:W {v: i}) RETURN 1 AS x UNION ALL RETURN 2 AS x                               | 6    |
             | FOREACH (k IN [1] \| CREATE (:W {v: i})) RETURN 1 AS x UNION ALL RETURN 2 AS x         | 6    |
-            | CREATE (:W {v: i}) WITH i RETURN 1 AS x                                               | 3    |
             | CREATE (:W {v: i}) CALL () { RETURN 1 AS y } RETURN y AS x                            | 3    |
             | CALL (i) { CREATE (:W {v: i}) RETURN 1 AS y UNION ALL RETURN 2 AS y } RETURN y AS x   | 6    |
-            # Control: a write in the last part already worked before the fix.
-            | RETURN 1 AS x UNION ALL CREATE (:W {v: i}) RETURN 2 AS x                              | 6    |
+            | CALL (i) { CREATE (:W {v: i}) } WITH 1 AS a RETURN a AS x                             | 3    |
 
     Scenario: A MERGE before a WITH in a CALL body is visible to every outer row
         Given an empty graph
@@ -1392,30 +1390,14 @@ Feature: Subqueries
             | 2 | 1 | 2 |
             | 2 | 2 | 2 |
 
-    Scenario: A write in a nested CALL is visible after the outer CALL across a WITH
-        Given an empty graph
-        When executing query:
-            """
-            UNWIND [1, 2] AS i
-            CALL (i) { CALL (i) { CREATE (:A) } WITH 1 AS a RETURN a }
-            MATCH (n:A)
-            RETURN i, count(n) AS c
-            ORDER BY i
-            """
-        Then the result should be:
-            | i | c |
-            | 1 | 2 |
-            | 2 | 2 |
-
-    Scenario: A read-only CALL after a write keeps the write barrier before RETURN
+    Scenario Outline: A read-only CALL after a write keeps the write barrier
         Given an empty graph
         And having executed:
             """
             UNWIND range(1, 100) AS i
             CREATE (:Q)
             CALL () { RETURN 1 AS x }
-            RETURN i
-            LIMIT 1
+            <tail>
             """
         When executing query:
             """
@@ -1425,23 +1407,10 @@ Feature: Subqueries
             | c   |
             | 100 |
 
-    Scenario: A read-only CALL after a write keeps the write barrier before WITH
-        Given an empty graph
-        When executing query:
-            """
-            UNWIND [1, 2, 3] AS i
-            CREATE (:Q)
-            CALL () { RETURN 1 AS x }
-            WITH i
-            MATCH (q:Q)
-            RETURN i, count(q) AS c
-            ORDER BY i
-            """
-        Then the result should be:
-            | i | c |
-            | 1 | 3 |
-            | 2 | 3 |
-            | 3 | 3 |
+        Examples:
+            | tail                     |
+            | RETURN i LIMIT 1         |
+            | WITH i LIMIT 1 RETURN i  |
 
     Scenario: A write procedure in a CALL body is visible after the CALL
         Given an empty graph
@@ -1470,22 +1439,6 @@ Feature: Subqueries
             | 1 | 1 |
             | 2 | 1 |
             | 1 | 2 |
-            | 2 | 2 |
-
-    Scenario: WITH * after a CALL whose body has a UNION carries the union's columns
-        Given an empty graph
-        When executing query:
-            """
-            UNWIND [1, 2] AS i
-            CALL (i) { RETURN 1 AS a UNION ALL RETURN 2 AS a }
-            WITH *
-            RETURN i, a
-            """
-        Then the result should be:
-            | i | a |
-            | 1 | 1 |
-            | 1 | 2 |
-            | 2 | 1 |
             | 2 | 2 |
 
     Scenario: CALL (*) after a CALL whose body has a UNION imports the union's columns

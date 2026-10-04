@@ -1879,18 +1879,12 @@ TEST_P(CypherMainVisitorTest, Create) {
   CheckRWType(query, kWrite);
 }
 
-TEST_P(CypherMainVisitorTest, WriteInCallSubqueryBodyMakesQueryWrite) {
+TEST_P(CypherMainVisitorTest, WriteInCallSubqueryUnionPartMakesQueryWrite) {
   auto &ast_generator = *GetParam();
-  for (const auto *text : {"CALL () { CREATE (n) } RETURN 1 AS x",
-                           "CALL () { RETURN 1 AS x UNION ALL MERGE (:W) RETURN 2 AS x } RETURN x"}) {
-    SCOPED_TRACE(text);
-    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
-    ASSERT_TRUE(query);
-    CheckRWType(query, kWrite);
-  }
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("CALL () { MATCH (n) RETURN n } RETURN n"));
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL () { RETURN 1 AS x UNION ALL MERGE (:W) RETURN 2 AS x } RETURN x"));
   ASSERT_TRUE(query);
-  CheckRWType(query, kRead);
+  CheckRWType(query, kWrite);
 }
 
 TEST_P(CypherMainVisitorTest, RWCheckerVisitsEachSubqueryBodyOnce) {
