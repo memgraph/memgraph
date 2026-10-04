@@ -180,7 +180,7 @@ bool PlanPrinter::PreVisit(query::plan::Conditional &op) {
   for (size_t i = 0; i < op.branches_.size(); ++i) {
     const auto &branch = op.branches_[i];
     auto const name = branch.predicate ? fmt::format("WHEN {}", i) : std::string{"ELSE"};
-    for (const auto &fold : branch.pattern_filters) Branch(*fold, name);
+    for (const auto &fold : branch.pattern_filters) Branch(*fold, fmt::format("{} predicate", name));
     Branch(*branch.plan, name);
   }
   op.input_->Accept(*this);
