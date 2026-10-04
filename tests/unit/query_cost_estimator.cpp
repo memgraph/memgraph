@@ -448,12 +448,11 @@ TEST_F(QueryCostEstimator, Conditional) {
   std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   std::shared_ptr<LogicalOperator> left = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   std::shared_ptr<LogicalOperator> right = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
-  auto conditional = std::make_shared<Conditional>(input,
-                                                   std::vector<Expression *>{Literal(true), Literal(true)},
-                                                   std::vector<std::vector<std::shared_ptr<LogicalOperator>>>(2),
-                                                   std::vector<std::shared_ptr<LogicalOperator>>{left, right},
-                                                   std::vector<std::vector<std::pair<Symbol, Symbol>>>(2),
-                                                   std::vector<Symbol>{NextSymbol()});
+  auto conditional =
+      std::make_shared<Conditional>(input,
+                                    std::vector<Conditional::Branch>{{.predicate = Literal(true), .plan = left},
+                                                                     {.predicate = Literal(true), .plan = right}},
+                                    std::vector<Symbol>{NextSymbol()});
   MakeOp<Filter>(conditional, std::vector<std::shared_ptr<LogicalOperator>>{}, Literal(true));
   auto const branch_cost = 2 * no_vertices * CostParam::kScanAll;
   auto const branch_cardinality = 2 * no_vertices;

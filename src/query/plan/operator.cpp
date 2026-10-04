@@ -10136,25 +10136,24 @@ std::string RollUpApply::ToString(const DbAccessor * /*dba*/) const {
   LOG_FATAL("Unhandled RollUpApply fold");
 }
 
-Conditional::Conditional(std::shared_ptr<LogicalOperator> input, std::vector<Expression *> predicates,
-                         std::vector<std::vector<std::shared_ptr<LogicalOperator>>> pattern_filters,
-                         std::vector<std::shared_ptr<LogicalOperator>> branches,
-                         std::vector<std::vector<std::pair<Symbol, Symbol>>> branch_columns,
+Conditional::Conditional(std::shared_ptr<LogicalOperator> input, std::vector<Branch> branches,
                          std::vector<Symbol> output_symbols)
     : input_(input ? std::move(input) : std::make_shared<Once>()),
-      predicates_(std::move(predicates)),
-      pattern_filters_(std::move(pattern_filters)),
       branches_(std::move(branches)),
-      branch_columns_(std::move(branch_columns)),
-      output_symbols_(std::move(output_symbols)) {}
+      output_symbols_(std::move(output_symbols)) {
+  DMG_ASSERT(!branches_.empty(), "A conditional needs at least one branch.");
+  DMG_ASSERT(std::ranges::all_of(branches_ | std::views::take(branches_.size() - 1),
+                                 [](const auto &branch) { return branch.predicate != nullptr; }),
+             "Only the last conditional branch may be an ELSE.");
+}
 
 bool Conditional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
     input_->Accept(visitor);
-    for (const auto &folds : pattern_filters_) {
-      for (const auto &fold : folds) fold->Accept(visitor);
+    for (const auto &branch : branches_) {
+      for (const auto &fold : branch.pattern_filters) fold->Accept(visitor);
     }
-    for (const auto &branch : branches_) branch->Accept(visitor);
+    for (const auto &branch : branches_) branch.plan->Accept(visitor);
   }
   return visitor.PostVisit(*this);
 }
@@ -10179,15 +10178,13 @@ std::string Conditional::ToString(const DbAccessor * /*dba*/) const {
 std::unique_ptr<LogicalOperator> Conditional::Clone(AstStorage *storage) const {
   auto object = std::make_unique<Conditional>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  for (auto *predicate : predicates_) {
-    object->predicates_.push_back(predicate ? predicate->Clone(storage) : nullptr);
+  for (const auto &branch : branches_) {
+    auto &cloned = object->branches_.emplace_back();
+    cloned.predicate = branch.predicate ? branch.predicate->Clone(storage) : nullptr;
+    for (const auto &fold : branch.pattern_filters) cloned.pattern_filters.push_back(fold->Clone(storage));
+    cloned.plan = branch.plan->Clone(storage);
+    cloned.columns = branch.columns;
   }
-  for (const auto &folds : pattern_filters_) {
-    auto &cloned = object->pattern_filters_.emplace_back();
-    for (const auto &fold : folds) cloned.push_back(fold->Clone(storage));
-  }
-  for (const auto &branch : branches_) object->branches_.push_back(branch->Clone(storage));
-  object->branch_columns_ = branch_columns_;
   object->output_symbols_ = output_symbols_;
   return object;
 }
@@ -10195,11 +10192,11 @@ std::unique_ptr<LogicalOperator> Conditional::Clone(AstStorage *storage) const {
 Conditional::ConditionalCursor::ConditionalCursor(const Conditional &self, utils::MemoryResource *mem,
                                                   metrics::DatabaseMetricHandles &metric_handles)
     : self_(self), input_(self.input_->MakeCursor(mem, metric_handles)) {
-  pattern_filter_cursors_.reserve(self.pattern_filters_.size());
-  for (const auto &folds : self.pattern_filters_) {
-    pattern_filter_cursors_.push_back(MakeCursorVector(folds, mem, metric_handles));
+  branches_.reserve(self.branches_.size());
+  for (const auto &branch : self.branches_) {
+    branches_.push_back({.pattern_filters = MakeCursorVector(branch.pattern_filters, mem, metric_handles),
+                         .plan = branch.plan->MakeCursor(mem, metric_handles)});
   }
-  branch_cursors_ = MakeCursorVector(self.branches_, mem, metric_handles);
 }
 
 bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &context) {
@@ -10210,12 +10207,12 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
     AbortCheck(context);
     if (active_) {
       auto const i = *active_;
-      if (branch_cursors_[i]->Pull(frame, context)) {
-        const auto &columns = self_.branch_columns_[i];
+      if (branches_[i].plan->Pull(frame, context)) {
+        const auto &columns = self_.branches_[i].columns;
         if (!columns.empty()) {
           auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-          for (const auto &[branch_symbol, output_symbol] : columns) {
-            frame_writer.Write(output_symbol, frame[branch_symbol]);
+          for (const auto &[from, to] : columns) {
+            frame_writer.Write(to, frame[from]);
           }
         }
         return true;
@@ -10227,11 +10224,11 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
 
     ExpressionEvaluator evaluator{
         &frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops};
-    for (size_t i = 0; i < self_.predicates_.size(); ++i) {
-      for (const auto &fold : pattern_filter_cursors_[i]) {
+    for (size_t i = 0; i < self_.branches_.size(); ++i) {
+      for (const auto &fold : branches_[i].pattern_filters) {
         fold->Pull(frame, context);
       }
-      auto *predicate = self_.predicates_[i];
+      auto *predicate = self_.branches_[i].predicate;
       bool taken = true;
       if (predicate) {
         TypedValue value = predicate->Accept(evaluator);
@@ -10244,7 +10241,7 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
         }
       }
       if (taken) {
-        branch_cursors_[i]->Reset();
+        branches_[i].plan->Reset();
         active_ = i;
         break;
       }
@@ -10254,19 +10251,19 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
 
 void Conditional::ConditionalCursor::Shutdown() {
   input_->Shutdown();
-  for (const auto &folds : pattern_filter_cursors_) {
-    for (const auto &fold : folds) fold->Shutdown();
+  for (const auto &branch : branches_) {
+    for (const auto &fold : branch.pattern_filters) fold->Shutdown();
   }
-  for (const auto &branch : branch_cursors_) branch->Shutdown();
+  for (const auto &branch : branches_) branch.plan->Shutdown();
 }
 
 void Conditional::ConditionalCursor::Reset() {
   active_.reset();
   input_->Reset();
-  for (const auto &folds : pattern_filter_cursors_) {
-    for (const auto &fold : folds) fold->Reset();
+  for (const auto &branch : branches_) {
+    for (const auto &fold : branch.pattern_filters) fold->Reset();
   }
-  for (const auto &branch : branch_cursors_) branch->Reset();
+  for (const auto &branch : branches_) branch.plan->Reset();
 }
 
 PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)

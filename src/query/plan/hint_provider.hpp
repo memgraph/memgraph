@@ -327,10 +327,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Conditional &op) override {
     op.input()->Accept(*this);
-    for (const auto &folds : op.pattern_filters_) {
-      for (const auto &fold : folds) fold->Accept(*this);
+    for (const auto &branch : op.branches_) {
+      for (const auto &fold : branch.pattern_filters) fold->Accept(*this);
     }
-    for (const auto &branch : op.branches_) branch->Accept(*this);
+    for (const auto &branch : op.branches_) branch.plan->Accept(*this);
     return false;
   }
 

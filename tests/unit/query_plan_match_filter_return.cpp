@@ -4225,21 +4225,16 @@ class SubqueriesFeature : public testing::Test {
                                                const std::vector<WhenBranch> &whens,
                                                std::vector<std::vector<std::shared_ptr<LogicalOperator>>> folds = {}) {
     auto x = this->symbol_table.CreateSymbol("x", true);
-    std::vector<Expression *> predicates;
-    std::vector<std::shared_ptr<LogicalOperator>> branches;
-    std::vector<std::vector<std::pair<Symbol, Symbol>>> columns;
-    for (const auto &when : whens) {
-      predicates.push_back(when.predicate);
-      branches.push_back(when.plan);
-      columns.push_back({{when.column, x}});
-    }
     folds.resize(whens.size());
-    return std::make_shared<Conditional>(std::make_shared<plan::Unwind>(nullptr, values, i),
-                                         std::move(predicates),
-                                         std::move(folds),
-                                         std::move(branches),
-                                         std::move(columns),
-                                         std::vector<Symbol>{x});
+    std::vector<Conditional::Branch> branches;
+    for (size_t b = 0; b < whens.size(); ++b) {
+      branches.push_back({.predicate = whens[b].predicate,
+                          .pattern_filters = std::move(folds[b]),
+                          .plan = whens[b].plan,
+                          .columns = {{.from = whens[b].column, .to = x}}});
+    }
+    return std::make_shared<Conditional>(
+        std::make_shared<plan::Unwind>(nullptr, values, i), std::move(branches), std::vector<Symbol>{x});
   }
 
   /// `RETURN i, x` over the conditional.
@@ -4608,10 +4603,9 @@ TYPED_TEST(SubqueriesFeature, ConditionalMapsColumnsBySymbol) {
   auto branch1 = MakeProduce(nullptr, NEXPR("a", IDENT("i")->MapTo(i))->MapTo(a1), NEXPR("b", LITERAL(200))->MapTo(b1));
   auto conditional = std::make_shared<Conditional>(
       std::make_shared<plan::Unwind>(nullptr, LIST(LITERAL(1), LITERAL(2)), i),
-      std::vector<Expression *>{EQ(IDENT("i")->MapTo(i), LITERAL(1)), nullptr},
-      std::vector<std::vector<std::shared_ptr<LogicalOperator>>>(2),
-      std::vector<std::shared_ptr<LogicalOperator>>{branch0, branch1},
-      std::vector<std::vector<std::pair<Symbol, Symbol>>>{{{b0, b}, {a0, a}}, {{a1, a}, {b1, b}}},
+      std::vector<Conditional::Branch>{
+          {.predicate = EQ(IDENT("i")->MapTo(i), LITERAL(1)), .plan = branch0, .columns = {{b0, b}, {a0, a}}},
+          {.plan = branch1, .columns = {{a1, a}, {b1, b}}}},
       std::vector<Symbol>{a, b});
   auto produce = MakeProduce(conditional,
                              NEXPR("i", IDENT("i")->MapTo(i))->MapTo(this->symbol_table.CreateSymbol("i", true)),
@@ -4706,19 +4700,17 @@ TYPED_TEST(SubqueriesFeature, ConditionalClone) {
   auto clone = conditional->Clone(&clone_storage);
   auto *cloned = dynamic_cast<Conditional *>(clone.get());
   ASSERT_NE(cloned, nullptr);
-  ASSERT_EQ(cloned->predicates_.size(), 2);
-  ASSERT_NE(cloned->predicates_[0], nullptr);
-  EXPECT_NE(cloned->predicates_[0], conditional->predicates_[0]);
-  EXPECT_EQ(cloned->predicates_[1], nullptr);
-  ASSERT_EQ(cloned->pattern_filters_.size(), 2);
-  ASSERT_EQ(cloned->pattern_filters_[0].size(), 1);
-  EXPECT_NE(cloned->pattern_filters_[0][0], fold);
-  EXPECT_EQ(cloned->pattern_filters_[0][0]->GetTypeInfo(), EvaluatePatternFilter::kType);
-  EXPECT_TRUE(cloned->pattern_filters_[1].empty());
   ASSERT_EQ(cloned->branches_.size(), 2);
-  EXPECT_NE(cloned->branches_[0], conditional->branches_[0]);
-  EXPECT_EQ(cloned->branches_[1]->GetTypeInfo(), Produce::kType);
-  EXPECT_EQ(cloned->branch_columns_, conditional->branch_columns_);
+  ASSERT_NE(cloned->branches_[0].predicate, nullptr);
+  EXPECT_NE(cloned->branches_[0].predicate, conditional->branches_[0].predicate);
+  EXPECT_EQ(cloned->branches_[1].predicate, nullptr);
+  ASSERT_EQ(cloned->branches_[0].pattern_filters.size(), 1);
+  EXPECT_NE(cloned->branches_[0].pattern_filters[0], fold);
+  EXPECT_EQ(cloned->branches_[0].pattern_filters[0]->GetTypeInfo(), EvaluatePatternFilter::kType);
+  EXPECT_TRUE(cloned->branches_[1].pattern_filters.empty());
+  EXPECT_NE(cloned->branches_[0].plan, conditional->branches_[0].plan);
+  EXPECT_EQ(cloned->branches_[1].plan->GetTypeInfo(), Produce::kType);
+  for (size_t b = 0; b < 2; ++b) EXPECT_EQ(cloned->branches_[b].columns, conditional->branches_[b].columns);
   EXPECT_EQ(cloned->output_symbols_, conditional->output_symbols_);
 }
 

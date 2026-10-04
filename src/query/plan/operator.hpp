@@ -3084,11 +3084,26 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
+  /// Writes a branch's column into the conditional's output column.
+  struct ColumnMapping {
+    Symbol from;
+    Symbol to;
+
+    bool operator==(const ColumnMapping &) const = default;
+  };
+
+  /// One `WHEN p THEN body`, or `ELSE body` with a null predicate.
+  struct Branch {
+    Expression *predicate{nullptr};
+    /// The predicate's subquery folds, pulled just before the predicate is evaluated.
+    std::vector<std::shared_ptr<LogicalOperator>> pattern_filters;
+    std::shared_ptr<LogicalOperator> plan;
+    std::vector<ColumnMapping> columns;
+  };
+
   Conditional() = default;
-  Conditional(std::shared_ptr<LogicalOperator> input, std::vector<Expression *> predicates,
-              std::vector<std::vector<std::shared_ptr<LogicalOperator>>> pattern_filters,
-              std::vector<std::shared_ptr<LogicalOperator>> branches,
-              std::vector<std::vector<std::pair<Symbol, Symbol>>> branch_columns, std::vector<Symbol> output_symbols);
+  /// Only the last branch may be an ELSE.
+  Conditional(std::shared_ptr<LogicalOperator> input, std::vector<Branch> branches, std::vector<Symbol> output_symbols);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
@@ -3107,12 +3122,7 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  /// nullptr = ELSE (last only).
-  std::vector<Expression *> predicates_;
-  std::vector<std::vector<std::shared_ptr<memgraph::query::plan::LogicalOperator>>> pattern_filters_;
-  std::vector<std::shared_ptr<memgraph::query::plan::LogicalOperator>> branches_;
-  /// Per branch: (branch symbol, output symbol).
-  std::vector<std::vector<std::pair<Symbol, Symbol>>> branch_columns_;
+  std::vector<Branch> branches_;
   std::vector<Symbol> output_symbols_;
 
  private:
@@ -3124,10 +3134,14 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
+    struct BranchCursors {
+      std::vector<UniqueCursorPtr> pattern_filters;
+      UniqueCursorPtr plan;
+    };
+
     const Conditional &self_;
     UniqueCursorPtr input_;
-    std::vector<std::vector<UniqueCursorPtr>> pattern_filter_cursors_;
-    std::vector<UniqueCursorPtr> branch_cursors_;
+    std::vector<BranchCursors> branches_;
     std::optional<size_t> active_;
   };
 };

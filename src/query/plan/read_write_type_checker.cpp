@@ -143,10 +143,10 @@ bool ReadWriteTypeChecker::PreVisit(RollUpApply &op) {
 
 bool ReadWriteTypeChecker::PreVisit(Conditional &op) {
   op.input_->Accept(*this);
-  for (const auto &folds : op.pattern_filters_) {
-    for (const auto &fold : folds) fold->Accept(*this);
+  for (const auto &branch : op.branches_) {
+    for (const auto &fold : branch.pattern_filters) fold->Accept(*this);
   }
-  for (const auto &branch : op.branches_) branch->Accept(*this);
+  for (const auto &branch : op.branches_) branch.plan->Accept(*this);
   return false;
 }
 

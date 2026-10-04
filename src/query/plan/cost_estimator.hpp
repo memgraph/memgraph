@@ -436,8 +436,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Conditional &op) override {
     op.input_->Accept(*this);
     auto total_fold_cost = 0.0;
-    for (auto const &folds : op.pattern_filters_) {
-      for (auto const &fold : folds) {
+    for (auto const &branch : op.branches_) {
+      for (auto const &fold : branch.pattern_filters) {
         total_fold_cost += EstimateCostOnBranch(&fold, scopes_.back()).cost;
       }
     }
@@ -445,7 +445,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     double branch_cost = 0.0;
     double branch_cardinality = 0.0;
     for (auto const &branch : op.branches_) {
-      auto const estimation = EstimateCostOnBranch(&branch, scopes_.back());
+      auto const estimation = EstimateCostOnBranch(&branch.plan, scopes_.back());
       branch_cost += estimation.cost;
       branch_cardinality += estimation.cardinality;
     }

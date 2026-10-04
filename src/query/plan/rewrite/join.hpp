@@ -572,10 +572,10 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(Conditional &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
-    for (auto &folds : op.pattern_filters_) {
-      for (auto &fold : folds) RewriteBranch(&fold);
+    for (auto &branch : op.branches_) {
+      for (auto &fold : branch.pattern_filters) RewriteBranch(&fold);
     }
-    for (auto &branch : op.branches_) RewriteBranch(&branch);
+    for (auto &branch : op.branches_) RewriteBranch(&branch.plan);
     return false;
   }
 

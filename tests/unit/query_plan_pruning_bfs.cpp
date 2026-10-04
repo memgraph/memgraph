@@ -111,14 +111,12 @@ TEST_F(PruningBFSRewriteTest, DoesNotRewriteWhenAConditionalPredicateReadsTheEdg
     auto *reads_edges = storage.Create<IsNullOperator>(storage.Create<Identifier>("edges")->MapTo(edge_sym));
     auto x = symbol_table.CreateSymbol("x", true);
     auto *named = storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(1))->MapTo(x);
-    return std::static_pointer_cast<LogicalOperator>(
-        std::make_shared<Conditional>(input,
-                                      std::vector<Expression *>{reads_edges},
-                                      std::vector<std::vector<std::shared_ptr<LogicalOperator>>>(1),
-                                      std::vector<std::shared_ptr<LogicalOperator>>{
-                                          std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})},
-                                      std::vector<std::vector<std::pair<Symbol, Symbol>>>(1),
-                                      std::vector<Symbol>{x}));
+    return std::static_pointer_cast<LogicalOperator>(std::make_shared<Conditional>(
+        input,
+        std::vector<Conditional::Branch>{
+            {.predicate = reads_edges,
+             .plan = std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})}},
+        std::vector<Symbol>{x}));
   });
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
 }
@@ -128,14 +126,12 @@ TEST_F(PruningBFSRewriteTest, RewritesBelowAConditionalThatReadsNoEdges) {
   auto const type = RewrittenType([this](auto input) {
     auto x = symbol_table.CreateSymbol("x", true);
     auto *named = storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(1))->MapTo(x);
-    return std::static_pointer_cast<LogicalOperator>(
-        std::make_shared<Conditional>(input,
-                                      std::vector<Expression *>{storage.Create<PrimitiveLiteral>(true)},
-                                      std::vector<std::vector<std::shared_ptr<LogicalOperator>>>(1),
-                                      std::vector<std::shared_ptr<LogicalOperator>>{
-                                          std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})},
-                                      std::vector<std::vector<std::pair<Symbol, Symbol>>>(1),
-                                      std::vector<Symbol>{x}));
+    return std::static_pointer_cast<LogicalOperator>(std::make_shared<Conditional>(
+        input,
+        std::vector<Conditional::Branch>{
+            {.predicate = storage.Create<PrimitiveLiteral>(true),
+             .plan = std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})}},
+        std::vector<Symbol>{x}));
   });
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
 }

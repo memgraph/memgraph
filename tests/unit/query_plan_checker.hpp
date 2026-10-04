@@ -552,7 +552,7 @@ class ExpectConditional : public OpChecker<Conditional> {
     ASSERT_EQ(op.branches_.size(), branches_.size());
     for (size_t i = 0; i < branches_.size(); ++i) {
       PlanChecker check_branch(branches_[i], symbol_table);
-      op.branches_[i]->Accept(check_branch);
+      op.branches_[i].plan->Accept(check_branch);
     }
   }
 

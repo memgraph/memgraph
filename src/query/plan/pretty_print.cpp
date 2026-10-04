@@ -176,9 +176,10 @@ bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
 bool PlanPrinter::PreVisit(query::plan::Conditional &op) {
   WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   for (size_t i = 0; i < op.branches_.size(); ++i) {
-    auto const name = op.predicates_[i] ? fmt::format("WHEN {}", i) : std::string{"ELSE"};
-    for (const auto &fold : op.pattern_filters_[i]) Branch(*fold, name);
-    Branch(*op.branches_[i], name);
+    const auto &branch = op.branches_[i];
+    auto const name = branch.predicate ? fmt::format("WHEN {}", i) : std::string{"ELSE"};
+    for (const auto &fold : branch.pattern_filters) Branch(*fold, name);
+    Branch(*branch.plan, name);
   }
   op.input_->Accept(*this);
   return false;

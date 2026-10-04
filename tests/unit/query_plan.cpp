@@ -3020,10 +3020,10 @@ std::vector<std::string> OpNames(LogicalOperator *root) {
     if (!op) continue;
     names.emplace_back(op->GetTypeInfo().name);
     if (auto *conditional = dynamic_cast<Conditional *>(op)) {
-      for (const auto &folds : conditional->pattern_filters_) {
-        for (const auto &fold : folds) stack.push_back(fold.get());
+      for (const auto &branch : conditional->branches_) {
+        for (const auto &fold : branch.pattern_filters) stack.push_back(fold.get());
       }
-      for (const auto &branch : conditional->branches_) stack.push_back(branch.get());
+      for (const auto &branch : conditional->branches_) stack.push_back(branch.plan.get());
     } else if (auto *apply = dynamic_cast<Apply *>(op)) {
       stack.push_back(apply->subquery_.get());
     } else if (auto *filter = dynamic_cast<Filter *>(op)) {
@@ -3085,19 +3085,22 @@ TYPED_TEST(TestPlanner, ConditionalSubquery) {
     ASSERT_NE(root, nullptr);
     // The body returns the import too, as its own symbol: nothing writes it, so the caller keeps its value.
     EXPECT_EQ(SymbolNames(root->output_symbols_), (std::vector<std::string>{"c", "i"}));
-    ASSERT_EQ(root->branch_columns_.size(), 2);
-    for (const auto &columns : root->branch_columns_) {
-      ASSERT_EQ(columns.size(), 1);
-      EXPECT_EQ(columns[0].second.name(), "c");
+    ASSERT_EQ(root->branches_.size(), 2);
+    for (const auto &branch : root->branches_) {
+      ASSERT_EQ(branch.columns.size(), 1);
+      EXPECT_EQ(branch.columns[0].to.name(), "c");
     }
-    EXPECT_EQ(root->predicates_[1], nullptr);
+    EXPECT_EQ(root->branches_[1].predicate, nullptr);
 
     // A rewriter or the plan cache may clone the plan; the columns must survive it.
     auto const cloned = call->Clone(&this->storage);
     auto *cloned_root = dynamic_cast<Conditional *>(dynamic_cast<Apply *>(cloned.get())->subquery_.get());
     ASSERT_NE(cloned_root, nullptr);
     EXPECT_EQ(SymbolNames(cloned_root->output_symbols_), (std::vector<std::string>{"c", "i"}));
-    EXPECT_EQ(cloned_root->branch_columns_, root->branch_columns_);
+    ASSERT_EQ(cloned_root->branches_.size(), root->branches_.size());
+    for (size_t i = 0; i < root->branches_.size(); ++i) {
+      EXPECT_EQ(cloned_root->branches_[i].columns, root->branches_[i].columns);
+    }
   }
 
   // UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN CREATE (n) RETURN 1 AS x } IN TRANSACTIONS OF 1 ROWS RETURN x
@@ -3117,7 +3120,7 @@ TYPED_TEST(TestPlanner, ConditionalSubquery) {
     auto *root = dynamic_cast<Conditional *>(periodic->subquery_.get());
     ASSERT_NE(root, nullptr);
     ASSERT_EQ(root->branches_.size(), 1);
-    auto *branch = dynamic_cast<Produce *>(root->branches_[0].get());
+    auto *branch = dynamic_cast<Produce *>(root->branches_[0].plan.get());
     ASSERT_NE(branch, nullptr);
     EXPECT_TRUE(dynamic_cast<PeriodicCommit *>(branch->input().get()));
   }
@@ -3154,10 +3157,10 @@ TYPED_TEST(TestPlanner, ConditionalPredicateSubqueryIsDeferred) {
 
   auto *root = CallConditional(planner.plan());
   ASSERT_NE(root, nullptr);
-  ASSERT_EQ(root->pattern_filters_.size(), 2);
-  EXPECT_TRUE(root->pattern_filters_[0].empty());
-  ASSERT_EQ(root->pattern_filters_[1].size(), 1);
-  auto *fold = dynamic_cast<EvaluatePatternFilter *>(root->pattern_filters_[1][0].get());
+  ASSERT_EQ(root->branches_.size(), 2);
+  EXPECT_TRUE(root->branches_[0].pattern_filters.empty());
+  ASSERT_EQ(root->branches_[1].pattern_filters.size(), 1);
+  auto *fold = dynamic_cast<EvaluatePatternFilter *>(root->branches_[1].pattern_filters[0].get());
   ASSERT_NE(fold, nullptr);
   EXPECT_EQ(fold->output_symbol_, symbol_table.at(*exists));
   EXPECT_EQ(fold->fold_, Fold::kBool);

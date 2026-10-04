@@ -919,7 +919,7 @@ TYPED_TEST(TestPlanner, ConditionalBranchScanStaysSerial) {
     stack.pop_back();
     names.emplace_back(op->GetTypeInfo().name);
     if (auto *conditional = dynamic_cast<Conditional *>(op)) {
-      for (const auto &branch : conditional->branches_) stack.push_back(branch.get());
+      for (const auto &branch : conditional->branches_) stack.push_back(branch.plan.get());
     } else if (auto *apply = dynamic_cast<Apply *>(op)) {
       stack.push_back(apply->subquery_.get());
     } else if (auto *union_op = dynamic_cast<Union *>(op)) {

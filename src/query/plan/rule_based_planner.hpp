@@ -701,24 +701,22 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     std::unordered_map<std::string, Symbol> output_by_name;
     for (const auto &sym : conditional.output_symbols) output_by_name.emplace(sym.name(), sym);
 
-    std::vector<std::shared_ptr<LogicalOperator>> branches;
-    std::vector<std::vector<std::pair<Symbol, Symbol>>> branch_columns;
-    for (const auto &branch_parts : conditional.branches) {
+    std::vector<Conditional::Branch> branches(conditional.branches.size());
+    for (size_t i = 0; i < branches.size(); ++i) {
       context_->bound_symbols = bound_symbols;
-      std::shared_ptr<LogicalOperator> branch = Plan(branch_parts);
-      auto &columns = branch_columns.emplace_back();
-      for (const auto &branch_sym : branch->OutputSymbols(symbol_table)) {
+      auto &branch = branches[i];
+      branch.plan = Plan(conditional.branches[i]);
+      for (const auto &branch_sym : branch.plan->OutputSymbols(symbol_table)) {
         auto it = output_by_name.find(branch_sym.name());
         if (it == output_by_name.end()) continue;
         // A column named after an import keeps the caller's value.
         if (bound_symbols.contains(it->second) || it->second == branch_sym) continue;
-        columns.emplace_back(branch_sym, it->second);
+        branch.columns.push_back({.from = branch_sym, .to = it->second});
       }
-      branches.push_back(std::move(branch));
     }
 
-    std::vector<std::vector<std::shared_ptr<LogicalOperator>>> pattern_filters;
-    for (auto filters : conditional.predicate_filters) {
+    for (size_t i = 0; i < branches.size(); ++i) {
+      auto filters = conditional.predicate_filters[i];
       for (const auto &filter : filters) {
         bool const has_fold = !filter.subquery_matchings.empty() || !filter.pattern_comprehension_matchings.empty();
         if (has_fold && !impl::HasBoundFilterSymbols(bound_symbols, filter)) {
@@ -726,15 +724,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       }
       auto fold_bound_symbols = bound_symbols;
-      pattern_filters.push_back(ExtractPatternFilters(filters, symbol_table, storage, fold_bound_symbols));
+      branches[i].predicate = conditional.predicates[i];
+      branches[i].pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, fold_bound_symbols);
     }
 
-    auto root = std::make_unique<Conditional>(std::move(input),
-                                              conditional.predicates,
-                                              std::move(pattern_filters),
-                                              std::move(branches),
-                                              std::move(branch_columns),
-                                              conditional.output_symbols);
+    auto root = std::make_unique<Conditional>(std::move(input), std::move(branches), conditional.output_symbols);
     bound_symbols.insert(conditional.output_symbols.begin(), conditional.output_symbols.end());
     context_->bound_symbols = std::move(bound_symbols);
     return root;

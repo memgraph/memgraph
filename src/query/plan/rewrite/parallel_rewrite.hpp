@@ -665,13 +665,13 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
       std::array{Aggregate::kType, AggregateParallel::kType, OrderBy::kType, OrderByParallel::kType};
 
   bool ConditionalConflicts(Conditional &op) {
-    for (const auto &folds : op.pattern_filters_) {
-      for (const auto &fold : folds) {
+    for (const auto &branch : op.branches_) {
+      for (const auto &fold : branch.pattern_filters) {
         if (ConflictingOperators(fold.get())) return true;
       }
     }
     for (const auto &branch : op.branches_) {
-      if (ConflictingOperators(branch.get())) return true;
+      if (ConflictingOperators(branch.plan.get())) return true;
     }
     return false;
   }
