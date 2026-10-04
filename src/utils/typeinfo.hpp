@@ -98,7 +98,6 @@ enum class TypeId : uint64_t {
   INDEXED_JOIN,
   HASH_JOIN,
   ROLLUP_APPLY,
-  CONDITIONAL,
   PERIODIC_COMMIT,
   PERIODIC_SUBQUERY,
   SET_NESTED_PROPERTY,
@@ -108,6 +107,7 @@ enum class TypeId : uint64_t {
   AGGREGATE_PARALLEL,
   PARALLEL_MERGE,
   ORDERBY_PARALLEL,
+  CONDITIONAL,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
