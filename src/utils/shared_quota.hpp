@@ -27,7 +27,9 @@ class QuotaCoordinator {
   std::atomic<uint64_t> active_handlers_{0};
   // Incremented whenever the state changes in a way waiters care about (quota returned or holders finished).
   std::atomic<uint32_t> epoch_{0};
-  std::atomic<uint8_t> initialized_{false};
+  // Initialize stores the limit before the state turns kReady; shares that lose the race wait for kReady.
+  enum class State : uint8_t { kUninitialized, kInitializing, kReady };
+  std::atomic<State> state_{State::kUninitialized};
 
  public:
   explicit QuotaCoordinator(uint64_t total_limit);
@@ -58,6 +60,8 @@ class QuotaCoordinator {
   };
 
   void Initialize(uint64_t limit);
+  // Starts the next execution: the next Initialize sets the limit again. No handle may be outstanding.
+  void Rearm();
   std::optional<QuotaHandle> Acquire(uint64_t desired_batch_size, std::function<void()> release_other_plan_quotas = {});
 
  private:
@@ -81,8 +85,8 @@ class QuotaCoordinator {
  *   SharedQuota quota(100);  // 100 total quota
  *   while (quota.Decrement() > 0) { process(); }
  *
- * Example (parallel - preloaded):
- *   SharedQuota quota(SharedQuota::preload);  // Create uninitialized
+ * Example (parallel - shares of one coordinator):
+ *   SharedQuota quota(coord);  // Create uninitialized
  *   // Later, when limit is known:
  *   quota.Initialize(limit, num_threads);
  *   while (quota.Decrement() > 0) { process(); }
@@ -96,23 +100,19 @@ class SharedQuota {
   std::shared_ptr<std::vector<SharedQuota *>> plan_quotas_{nullptr};
 
   void ReleaseOtherPlanQuotas();
+  void LeavePlanQuotas();
 
  public:
-  constexpr static struct Preload {
-  } preload;
-
   explicit SharedQuota(uint64_t limit, uint64_t n_batches = 1);
-  // Used to setup the objects, but not initialize the quota.
-  explicit SharedQuota(Preload /*unused*/);
+  // An uninitialized share of a coordinator that other shares also draw from; Initialize sets the limit.
+  explicit SharedQuota(std::shared_ptr<QuotaCoordinator> coord);
 
   ~SharedQuota() {
     Free();
-    if (plan_quotas_) {
-      auto it = std::find(plan_quotas_->begin(), plan_quotas_->end(), this);
-      if (it != plan_quotas_->end()) plan_quotas_->erase(it);
-    }
+    LeavePlanQuotas();
   }
 
+  // A copy shares the coordinator but joins no plan list; its owner places it with SetPlanQuotas.
   SharedQuota(const SharedQuota &other) noexcept;
   SharedQuota &operator=(const SharedQuota &other) noexcept;
   SharedQuota(SharedQuota &&other) noexcept;
@@ -120,9 +120,13 @@ class SharedQuota {
 
   /// Associate this quota with the plan's quota list (same list for all quotas in one branch).
   void SetPlanQuotas(std::shared_ptr<std::vector<SharedQuota *>> list) {
-    plan_quotas_ = list;
+    if (list == plan_quotas_) return;
+    LeavePlanQuotas();
+    plan_quotas_ = std::move(list);
     if (plan_quotas_) plan_quotas_->push_back(this);
   }
+
+  auto PlanQuotas() const -> const std::shared_ptr<std::vector<SharedQuota *>> & { return plan_quotas_; }
 
   // Primary entry point for workers to consume quota.
   // When batch is exhausted, releases other plan quotas then reacquires (if plan_quotas_ is set).

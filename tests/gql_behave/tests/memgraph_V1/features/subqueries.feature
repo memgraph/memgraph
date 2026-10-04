@@ -1285,3 +1285,68 @@ Feature: Subqueries
             | optional | scaled |
             | 1        | 10     |
             | 2        | 20     |
+
+    # Under --parallel-execution the subquery runs as a parallel operator that its Apply re-runs for each outer row.
+    Scenario Outline: A parallel subquery returns its rows for each outer row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:X {v: 1}), (:X {v: 2}), (:X {v: 3}), (:O {k: 1}), (:O {k: 2}), (:O {k: 3})
+            """
+        When executing query:
+            """
+            <query>
+            """
+        Then the result should be:
+            | r   |
+            | <r> |
+
+        Examples:
+            | query                                                                                                                          | r            |
+            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                                               | 9            |
+            | MATCH (o:O) CALL { WITH o MATCH (x:X) RETURN x.v + o.k * 10 AS v ORDER BY v LIMIT 1 } WITH v ORDER BY v RETURN collect(v) AS r | [11, 21, 31] |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x SKIP 1 RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                                 | 6            |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x LIMIT 2 RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                                | 6            |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH DISTINCT x RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                               | 9            |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x SKIP 1 RETURN count(x) AS c } RETURN sum(c) AS r                                         | 6            |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x LIMIT 2 RETURN count(x) AS c } RETURN sum(c) AS r                                        | 6            |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH DISTINCT x RETURN count(x) AS c } RETURN sum(c) AS r                                       | 9            |
+
+    Scenario: A parallel subquery keeps the outer row on the frame
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:X {v: 1}), (:X {v: 2}), (:X {v: 3}), (:Y {v: 1}), (:Y {v: 2}), (:O {k: 1}), (:O {k: 2})
+            """
+        When executing query:
+            """
+            MATCH (o:O) CALL { MATCH (x:X) WITH x ORDER BY x.v RETURN x UNION ALL MATCH (x:Y) RETURN x } RETURN o.k AS k, x.v AS v
+            """
+        Then the result should be:
+            | k | v |
+            | 1 | 1 |
+            | 1 | 2 |
+            | 1 | 3 |
+            | 1 | 1 |
+            | 1 | 2 |
+            | 2 | 1 |
+            | 2 | 2 |
+            | 2 | 3 |
+            | 2 | 1 |
+            | 2 | 2 |
+
+    Scenario: A parallel correlated subquery reads the outer row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:X {v: 1}), (:X {v: 2}), (:X {v: 3}), (:O {k: 1}), (:O {k: 2}), (:O {k: 3})
+            """
+        When executing query:
+            """
+            MATCH (o:O) CALL { WITH o MATCH (x:X) WHERE x.v <= o.k RETURN x.v AS v ORDER BY v } RETURN o.k AS k, collect(v) AS vs
+            """
+        Then the result should be:
+            | k | vs        |
+            | 1 | [1]       |
+            | 2 | [1, 2]    |
+            | 3 | [1, 2, 3] |

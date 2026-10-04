@@ -1,0 +1,65 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#pragma once
+
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <optional>
+#include <utility>
+#include <vector>
+
+#include "utils/shared_quota.hpp"
+
+namespace memgraph::query::plan {
+
+/// The row count of a SKIP or LIMIT, armed once per execution. A serial cursor counts alone. The branches of a
+/// parallel operator draw from one coordinator, which that operator re-arms between executions.
+class RowQuota {
+ public:
+  RowQuota() = default;
+
+  RowQuota(utils::SharedQuota branch_share, std::shared_ptr<std::vector<utils::SharedQuota *>> plan_quotas,
+           size_t num_workers)
+      : branch_share_(std::move(branch_share)),
+        plan_quotas_(std::move(plan_quotas)),
+        num_batches_(utils::SharedQuota::WorkersToBatch(num_workers)) {}
+
+  void Arm(uint64_t count) {
+    if (branch_share_) {
+      quota_.emplace(*branch_share_);
+      quota_->SetPlanQuotas(plan_quotas_);
+      quota_->Initialize(count, num_batches_);
+    } else {
+      quota_.emplace(count);
+    }
+  }
+
+  bool IsArmed() const { return quota_.has_value(); }
+
+  uint64_t Decrement() { return quota_->Decrement(); }
+
+  void Increment() { quota_->Increment(); }
+
+  // Drops the armed copy, which returns its unused count to the coordinator.
+  void Release() { quota_.reset(); }
+
+ private:
+  // Never armed itself; each execution arms a copy
+  std::optional<utils::SharedQuota> branch_share_;
+  // The branch's plan list, which the armed copy joins
+  std::shared_ptr<std::vector<utils::SharedQuota *>> plan_quotas_;
+  uint64_t num_batches_{1};
+  std::optional<utils::SharedQuota> quota_;
+};
+
+}  // namespace memgraph::query::plan

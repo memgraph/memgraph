@@ -21,14 +21,28 @@ namespace memgraph::utils {
 // --- QuotaCoordinator Implementation ---
 
 QuotaCoordinator::QuotaCoordinator(uint64_t total_limit)
-    : remaining_quota_(total_limit), active_handlers_(0), initialized_(true) {}
+    : remaining_quota_(total_limit), active_handlers_(0), state_(State::kReady) {}
 
 void QuotaCoordinator::Initialize(uint64_t limit) {
-  // Use acq_rel to establish a barrier so the store is not visible before the flag.
-  const auto prev = initialized_.fetch_or(true, std::memory_order_acq_rel);
-  if (prev) return;
-  // Release store ensures Acquire() sees this value after reading the flag.
-  remaining_quota_.store(limit, std::memory_order_release);
+  auto state = State::kUninitialized;
+  if (state_.compare_exchange_strong(
+          state, State::kInitializing, std::memory_order_acq_rel, std::memory_order_acquire)) {
+    remaining_quota_.store(limit, std::memory_order_relaxed);
+    // Release publishes the limit to every share that reads kReady.
+    state_.store(State::kReady, std::memory_order_release);
+    state_.notify_all();
+    return;
+  }
+  while (state == State::kInitializing) {
+    state_.wait(State::kInitializing, std::memory_order_acquire);
+    state = state_.load(std::memory_order_acquire);
+  }
+}
+
+void QuotaCoordinator::Rearm() {
+  DMG_ASSERT(active_handlers_.load(std::memory_order_acquire) == 0, "Rearm while a quota handle is outstanding");
+  remaining_quota_.store(0, std::memory_order_relaxed);
+  state_.store(State::kUninitialized, std::memory_order_release);
 }
 
 std::optional<QuotaCoordinator::QuotaHandle> QuotaCoordinator::Acquire(
@@ -132,8 +146,14 @@ SharedQuota::SharedQuota(uint64_t limit, uint64_t n_batches)
   MG_ASSERT(n_batches > 0, "Number of batches has to be greater than 0");
 }
 
-SharedQuota::SharedQuota(Preload)
-    : coord_(std::make_shared<QuotaCoordinator>()), desired_batch_size_(0), handle_(std::nullopt) {}
+SharedQuota::SharedQuota(std::shared_ptr<QuotaCoordinator> coord)
+    : coord_(std::move(coord)), desired_batch_size_(0), handle_(std::nullopt) {}
+
+void SharedQuota::LeavePlanQuotas() {
+  if (!plan_quotas_) return;
+  auto it = std::find(plan_quotas_->begin(), plan_quotas_->end(), this);
+  if (it != plan_quotas_->end()) plan_quotas_->erase(it);
+}
 
 void SharedQuota::ReleaseOtherPlanQuotas() {
   if (!plan_quotas_) return;
@@ -145,18 +165,13 @@ void SharedQuota::ReleaseOtherPlanQuotas() {
 SharedQuota::SharedQuota(const SharedQuota &other) noexcept
     : coord_(other.coord_),
       desired_batch_size_(other.desired_batch_size_),
-      handle_(std::nullopt),  // Handle is acquired lazily on first Decrement.
-      plan_quotas_(other.plan_quotas_) {
-  if (plan_quotas_) plan_quotas_->push_back(this);
-}
+      handle_(std::nullopt) {}  // Handle is acquired lazily on first Decrement.
 
 SharedQuota &SharedQuota::operator=(const SharedQuota &other) noexcept {
   if (this != &other) {
     handle_.reset();
     coord_ = other.coord_;
     desired_batch_size_ = other.desired_batch_size_;
-    plan_quotas_ = other.plan_quotas_;
-    if (plan_quotas_) plan_quotas_->push_back(this);
     // Do not acquire a new handle here, it will lazily acquire on first Decrement.
   }
   return *this;
@@ -180,6 +195,7 @@ SharedQuota &SharedQuota::operator=(SharedQuota &&other) noexcept {
     coord_ = std::exchange(other.coord_, nullptr);
     desired_batch_size_ = std::exchange(other.desired_batch_size_, 0);
     handle_ = std::exchange(other.handle_, std::nullopt);
+    LeavePlanQuotas();
     plan_quotas_ = std::exchange(other.plan_quotas_, nullptr);
     if (plan_quotas_) {
       plan_quotas_->push_back(this);

@@ -530,11 +530,107 @@ TEST(SharedQuotaTest, ZeroLimitInit) {
   ASSERT_EQ(quota.Decrement(1), 0);
 }
 
-// 12. Zero Limit Preload Edge Case
-TEST(SharedQuotaTest, ZeroLimitPreloadInit) {
-  SharedQuota quota(SharedQuota::preload);
+// 12. Zero Limit Edge Case for an uninitialized share
+TEST(SharedQuotaTest, ZeroLimitShareInit) {
+  SharedQuota quota(std::make_shared<QuotaCoordinator>());
   quota.Initialize(0, 1);
   ASSERT_EQ(quota.Decrement(1), 0);
+}
+
+// Shares of one coordinator draw one limit per execution; Rearm starts the next execution.
+TEST(SharedQuotaTest, RearmedCoordinatorTakesTheNextLimit) {
+  auto coord = std::make_shared<QuotaCoordinator>();
+  auto run = [&](uint64_t limit) {
+    SharedQuota first(coord);
+    SharedQuota second(coord);
+    first.Initialize(limit, 4);
+    second.Initialize(limit, 4);
+    uint64_t taken = 0;
+    while (first.Decrement() > 0) ++taken;
+    while (second.Decrement() > 0) ++taken;
+    return taken;
+  };
+  EXPECT_EQ(run(3), 3);
+  coord->Rearm();
+  EXPECT_EQ(run(5), 5);
+}
+
+using PlanQuotas = std::vector<SharedQuota *>;
+
+// A quota is in at most one plan list, and in it once.
+TEST(SharedQuotaTest, SetPlanQuotasTwiceRegistersOnce) {
+  auto list = std::make_shared<PlanQuotas>();
+  SharedQuota quota(std::make_shared<QuotaCoordinator>());
+  quota.SetPlanQuotas(list);
+  quota.SetPlanQuotas(list);
+  EXPECT_EQ(*list, PlanQuotas{&quota});
+}
+
+TEST(SharedQuotaTest, SetPlanQuotasLeavesTheOldList) {
+  auto first_list = std::make_shared<PlanQuotas>();
+  auto second_list = std::make_shared<PlanQuotas>();
+  SharedQuota quota(std::make_shared<QuotaCoordinator>());
+  quota.SetPlanQuotas(first_list);
+  quota.SetPlanQuotas(second_list);
+  EXPECT_TRUE(first_list->empty());
+  EXPECT_EQ(*second_list, PlanQuotas{&quota});
+}
+
+TEST(SharedQuotaTest, CopyJoinsNoPlanList) {
+  auto list = std::make_shared<PlanQuotas>();
+  SharedQuota quota(std::make_shared<QuotaCoordinator>());
+  quota.SetPlanQuotas(list);
+  const SharedQuota copy(quota);
+  EXPECT_EQ(*list, PlanQuotas{&quota});
+}
+
+TEST(SharedQuotaTest, CopyAssignmentKeepsItsOwnPlanList) {
+  auto first_list = std::make_shared<PlanQuotas>();
+  auto second_list = std::make_shared<PlanQuotas>();
+  SharedQuota quota(std::make_shared<QuotaCoordinator>());
+  SharedQuota other(std::make_shared<QuotaCoordinator>());
+  quota.SetPlanQuotas(first_list);
+  other.SetPlanQuotas(second_list);
+  other = quota;
+  EXPECT_EQ(*first_list, PlanQuotas{&quota});
+  EXPECT_EQ(*second_list, PlanQuotas{&other});
+}
+
+TEST(SharedQuotaTest, MoveAssignmentLeavesItsOldPlanList) {
+  auto first_list = std::make_shared<PlanQuotas>();
+  auto second_list = std::make_shared<PlanQuotas>();
+  SharedQuota quota(std::make_shared<QuotaCoordinator>());
+  SharedQuota other(std::make_shared<QuotaCoordinator>());
+  quota.SetPlanQuotas(first_list);
+  other.SetPlanQuotas(second_list);
+  other = std::move(quota);
+  EXPECT_EQ(*first_list, PlanQuotas{&other});
+  EXPECT_TRUE(second_list->empty());
+}
+
+// Shares that initialize at the same time all see the limit. The limit exceeds every share's batch, so a share that
+// draws nothing saw an empty quota.
+TEST(SharedQuotaTest, ConcurrentInitializeSeesTheLimit) {
+  constexpr int kShares = 8;
+  constexpr int kRounds = 2000;
+  constexpr uint64_t kLimit = 1000;
+  for (int round = 0; round < kRounds; ++round) {
+    auto coord = std::make_shared<QuotaCoordinator>();
+    std::latch start(kShares);
+    std::atomic<int> empty_shares{0};
+    {
+      std::vector<std::jthread> threads;
+      for (int i = 0; i < kShares; ++i) {
+        threads.emplace_back([&] {
+          SharedQuota quota(coord);
+          start.arrive_and_wait();
+          quota.Initialize(kLimit, kShares);
+          if (quota.Decrement() == 0) empty_shares.fetch_add(1);
+        });
+      }
+    }
+    ASSERT_EQ(empty_shares.load(), 0) << "round " << round;
+  }
 }
 
 // 13. Increment from Zero
