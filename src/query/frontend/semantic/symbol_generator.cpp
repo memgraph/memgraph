@@ -383,6 +383,8 @@ std::unordered_set<std::string> WrittenColumns(const CypherQuery &query, const s
 }  // namespace
 
 bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
+  // A trigger that is not cacheable analyses the same AST again on every firing.
+  branches.output_symbols_.clear();
   auto const base = scopes_.back();
   // Predicates see only the imports, under WHERE rules (no aggregation, patterns bind nothing).
   scopes_.back().in_where = true;

@@ -1481,6 +1481,10 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallOutputSymbols) {
   auto const &x = conditional->output_symbols_[import_column == conditional->output_symbols_.begin() ? 1 : 0];
   EXPECT_EQ(x.name(), "x");
   EXPECT_TRUE(x.user_declared()) << "a later RETURN * must see the column";
+
+  // A trigger that is not cacheable analyses the same AST on every firing.
+  MakeSymbolTable(query);
+  EXPECT_EQ(conditional->output_symbols_.size(), 2U);
 }
 
 // `external_symbols_` must be exactly what the body reads from outside. Too few places the conjunct too low; too many
