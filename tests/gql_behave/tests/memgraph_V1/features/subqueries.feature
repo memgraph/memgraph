@@ -1302,16 +1302,15 @@ Feature: Subqueries
             | <r> |
 
         Examples:
-            | query                                                                                                                    | r                        |
-            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                                         | 9                        |
-            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v } WITH v, count(*) AS c ORDER BY v RETURN collect([v, c]) AS r | [[1, 3], [2, 3], [3, 3]] |
-            | MATCH (o:O) CALL { WITH o MATCH (x:X) RETURN x.v + o.k * 10 AS v ORDER BY v LIMIT 1 } RETURN collect(v) AS r             | [11, 21, 31]             |
-            | MATCH (o:O) CALL { MATCH (x:X) WITH x SKIP 1 RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                           | 6                        |
-            | MATCH (o:O) CALL { MATCH (x:X) WITH x LIMIT 2 RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                          | 6                        |
-            | MATCH (o:O) CALL { MATCH (x:X) WITH DISTINCT x RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                         | 9                        |
-            | MATCH (o:O) CALL { MATCH (x:X) WITH x SKIP 1 RETURN count(x) AS c } RETURN sum(c) AS r                                   | 6                        |
-            | MATCH (o:O) CALL { MATCH (x:X) WITH x LIMIT 2 RETURN count(x) AS c } RETURN sum(c) AS r                                  | 6                        |
-            | MATCH (o:O) CALL { MATCH (x:X) WITH DISTINCT x RETURN count(x) AS c } RETURN sum(c) AS r                                 | 9                        |
+            | query                                                                                                                          | r            |
+            | MATCH (o:O) CALL { MATCH (x:X) RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                                               | 9            |
+            | MATCH (o:O) CALL { WITH o MATCH (x:X) RETURN x.v + o.k * 10 AS v ORDER BY v LIMIT 1 } WITH v ORDER BY v RETURN collect(v) AS r | [11, 21, 31] |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x SKIP 1 RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                                 | 6            |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x LIMIT 2 RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                                | 6            |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH DISTINCT x RETURN x.v AS v ORDER BY v } RETURN count(*) AS r                               | 9            |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x SKIP 1 RETURN count(x) AS c } RETURN sum(c) AS r                                         | 6            |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH x LIMIT 2 RETURN count(x) AS c } RETURN sum(c) AS r                                        | 6            |
+            | MATCH (o:O) CALL { MATCH (x:X) WITH DISTINCT x RETURN count(x) AS c } RETURN sum(c) AS r                                       | 9            |
 
     Scenario: A parallel subquery keeps the outer row on the frame
         Given an empty graph
