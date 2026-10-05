@@ -147,6 +147,36 @@ TYPED_TEST(PrintToJsonTest, ScanAllByIndexDisjunction) {
         })");
 }
 
+// An IN branch seeks each element of its list; the JSON shows the list, not only the element.
+TYPED_TEST(PrintToJsonTest, ScanAllByIndexDisjunctionInList) {
+  auto element = this->GetSymbol("element");
+  auto *element_ident = this->storage.template Create<Identifier>(element.name())->MapTo(element);
+  auto *list = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
+      this->storage.template Create<PrimitiveLiteral>(1), this->storage.template Create<PrimitiveLiteral>(2)});
+  std::vector<IndexDisjunctionBranch> branches{{.label = this->dba.NameToLabel("A")},
+                                               {.label = this->dba.NameToLabel("B"),
+                                                .properties = {ms::PropertyPath{this->dba.NameToProperty("prop")}},
+                                                .expression_ranges = {ExpressionRange::In(element_ident, list)},
+                                                .membership_slots = {{.list = list, .element = element}}}};
+  auto last_op = std::make_shared<ScanAllByIndexDisjunction>(nullptr, this->GetSymbol("node"), std::move(branches));
+
+  this->Check(last_op.get(), R"json(
+        {
+          "name": "ScanAllByIndexDisjunction",
+          "output_symbol": "node",
+          "branches": [
+            {"label": "A"},
+            {
+              "label": "B",
+              "properties": ["prop"],
+              "expression_ranges": [{"type": "In", "expression": "(Identifier \"element\")"}],
+              "membership_lists": ["(ListLiteral [1, 2])"]
+            }
+          ],
+          "input": {"name": "Once"}
+        })json");
+}
+
 TYPED_TEST(PrintToJsonTest, ScanAllByIndexDisjunctionText) {
   auto last_op = MakeIndexDisjunction(this->dba, this->storage, this->GetSymbol("node"));
 

@@ -693,6 +693,13 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByIndexDisjunction &op) {
     if (!branch.IsLabelOnly()) {
       branch_json["properties"] = ToJson(branch.properties, *dba_);
       branch_json["expression_ranges"] = ToJson(branch.expression_ranges, *dba_);
+      // An IN range names only the element; the list it is drawn from lives in the branch.
+      if (!branch.membership_slots.empty()) {
+        branch_json["membership_lists"] = json::array();
+        for (auto const &slot : branch.membership_slots) {
+          branch_json["membership_lists"].push_back(ToJson(slot.list, *dba_));
+        }
+      }
     }
     self["branches"].push_back(std::move(branch_json));
   }
