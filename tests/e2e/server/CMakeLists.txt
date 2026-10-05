@@ -17,6 +17,7 @@ endfunction()
 copy_server_e2e_python_files(common.py)
 copy_server_e2e_python_files(test_ssl_hot_reload.py)
 copy_server_e2e_python_files(test_ssl_reload_no_ssl.py)
+copy_server_e2e_python_files(test_bolt_integrated_poller.py)
 copy_server_e2e_python_files(test_ssl_hot_reload_coordinator.py)
 # Copy the entire tls_certs/ directory (self-signed certs used by SSL
 # hot-reload tests) to the build dir. Tests resolve paths via SCRIPT_DIR

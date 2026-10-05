@@ -59,3 +59,6 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["server/test_ssl_reload_no_ssl.py"]
     <<: *template_cluster
+  - name: "Server Bolt integrated poller"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["server/test_bolt_integrated_poller.py"]
