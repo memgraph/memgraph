@@ -3691,3 +3691,38 @@ TEST_F(AuthQueryHandlerFixture, ChangePasswordWrongOldPasswordReportedBeforeWeak
     EXPECT_STREQ(e.what(), "Old password is not correct.");
   }
 }
+
+TEST_F(AuthQueryHandlerFixture, PasswordPolicyRejectsWeakNewPassword) {
+  memgraph::auth::SynchedAuth strict_auth{
+      test_folder_ / "strict_policy_weak",
+      memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, "^.{12,}$", true}
+#ifdef MG_ENTERPRISE
+      ,
+      &resources
+#endif
+  };
+  memgraph::glue::AuthQueryHandler strict_handler{&strict_auth};
+  auto const old_password = std::string{"a-long-enough-password"};
+  ASSERT_TRUE(strict_handler.CreateUser("alice", old_password, nullptr).created);
+
+  auto const message_of = [](auto &&fn) -> std::string {
+    try {
+      fn();
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      return e.what();
+    }
+    ADD_FAILURE() << "expected QueryRuntimeException";
+    return {};
+  };
+
+  EXPECT_THAT(message_of([&] { strict_handler.ChangePassword("alice", old_password, "weak", nullptr); }),
+              testing::HasSubstr("doesn't conform to the required strength"));
+  // Nothing was saved: the old password still verifies.
+  auto alice = strict_auth.ReadLock()->GetUser("alice");
+  ASSERT_TRUE(alice);
+  EXPECT_TRUE(alice->CheckPasswordExplicit(old_password));
+
+  EXPECT_THAT(message_of([&] { strict_handler.CreateUser("bob", "weak", nullptr); }),
+              testing::HasSubstr("doesn't conform to the required strength"));
+  EXPECT_FALSE(strict_auth.ReadLock()->GetUser("bob"));
+}

@@ -2297,6 +2297,26 @@ TEST_F(AuthWithStorage, DeleteDatabaseSkipsUnaffectedUsers) {
   EXPECT_FALSE(stored->db_access().Grants("y"));
 }
 
+TEST_F(AuthWithStorage, DeleteDatabaseSkipsUnaffectedRoles) {
+  {
+    auto role = auth->AddRole("readers");
+    ASSERT_TRUE(role.has_value());
+    role->db_access().Grant("y");
+    auth->SaveRole(*role);
+  }
+  Auth::Epoch epoch;
+  auth->UpToDate(epoch);
+
+  auth->DeleteDatabase("z");
+  EXPECT_TRUE(auth->UpToDate(epoch)) << "unaffected role was rewritten";
+
+  auth->DeleteDatabase("y");
+  EXPECT_FALSE(auth->UpToDate(epoch));
+  auto stored = auth->GetRole("readers");
+  ASSERT_TRUE(stored.has_value());
+  EXPECT_FALSE(stored->db_access().Grants("y"));
+}
+
 TEST(AuthWithFineGrainedTest, NoPermissionsNeededForUnlabelledNodes) {
   FineGrainedAccessPermissions label_perms, edge_perms;
 
