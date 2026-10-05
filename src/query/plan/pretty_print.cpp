@@ -693,11 +693,12 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByIndexDisjunction &op) {
     if (!branch.IsLabelOnly()) {
       branch_json["properties"] = ToJson(branch.properties, *dba_);
       branch_json["expression_ranges"] = ToJson(branch.expression_ranges, *dba_);
-      // An IN range names only the element; the list it is drawn from lives in the branch.
+      // An IN range names only its element symbol; each slot pairs that symbol with its list.
       if (!branch.membership_slots.empty()) {
-        branch_json["membership_lists"] = json::array();
+        branch_json["membership_slots"] = json::array();
         for (auto const &slot : branch.membership_slots) {
-          branch_json["membership_lists"].push_back(ToJson(slot.list, *dba_));
+          branch_json["membership_slots"].push_back(
+              {{"symbol", ToJson(slot.symbol)}, {"list", ToJson(slot.list, *dba_)}});
         }
       }
     }

@@ -163,7 +163,10 @@ TYPED_TEST(PrintToJsonTest, ScanAllByIndexDisjunctionInList) {
               "label": "B",
               "properties": ["prop"],
               "expression_ranges": [{"type": "In", "expression": "(Identifier \"anon1\")"}],
-              "membership_lists": ["(Function \"TOSET\" [(Coalesce [(ListLiteral [1, 2]), (ListLiteral [])])])"]
+              "membership_slots": [{
+                "symbol": "anon1",
+                "list": "(Function \"TOSET\" [(Coalesce [(ListLiteral [1, 2]), (ListLiteral [])])])"
+              }]
             }
           ],
           "input": {"name": "Once"}
