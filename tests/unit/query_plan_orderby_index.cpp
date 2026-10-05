@@ -118,6 +118,28 @@ TYPED_TEST(OrderByIndexTest, IndexDisjunctionKeepsOrderBy) {
   EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "two seeks are not one ordered seek";
 }
 
+// A disjunction that names one label scans that label's index, which provides the order.
+TYPED_TEST(OrderByIndexTest, OneLabelDisjunctionEliminatesOrderBy) {
+  // MATCH (n) WHERE (n:L OR n:L) AND n.prop > 5 RETURN n ORDER BY n.prop
+  FakeDbAccessor dba;
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(dba.Label("L"), property.second, 1);
+
+  auto *node_identifier = IDENT("n");
+  auto *one_label_or = OR(LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("L")}),
+                          LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("L")}));
+  auto *query =
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                         WHERE(AND(one_label_or, GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5)))),
+                         RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByLabelProperties::kType));
+  EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy should be eliminated";
+}
+
 // Composite prefix - ORDER BY n.a with index (a, b)
 TYPED_TEST(OrderByIndexTest, CompositePrefix) {
   // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a RETURN n
