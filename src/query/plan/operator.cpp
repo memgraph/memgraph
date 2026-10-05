@@ -29,6 +29,7 @@
 #include <queue>
 #include <ranges>
 #include <regex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -1504,10 +1505,11 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeTypeProperty::Clone(AstStorage *st
 
 namespace {
 
-// Helper function to evaluate expression ranges and check for null bounds.
-// Returns nullopt if any bound is null.
-std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRangesAndCheckNull(
-    const std::vector<ExpressionRange> &expression_ranges, ExpressionEvaluator &evaluator) {
+// Evaluates the seek ranges for the current row and carries each range's value predicate.
+// Returns nullopt if no vertex can match.
+std::optional<std::vector<storage::PropertyValueRange>> EvaluateSeekRanges(
+    const std::vector<ExpressionRange> &expression_ranges, ExpressionEvaluator &evaluator,
+    std::span<ValuePredicateForRow> value_predicates) {
   auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
   auto prop_value_ranges = expression_ranges | rv::transform(to_property_value_range) | ranges::to_vector;
 
@@ -1520,6 +1522,13 @@ std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRanges
   // already known to be empty - settles the whole composite.
   if (ranges::any_of(prop_value_ranges, matches_nothing)) {
     return std::nullopt;
+  }
+
+  // Without the predicate every value in the band is handed to the filter above, which is most
+  // of the column for a search term.
+  for (auto &&[range, expression_range, value_predicate] :
+       rv::zip(prop_value_ranges, expression_ranges, value_predicates)) {
+    if (auto term = value_predicate.Get(expression_range, evaluator)) range.SetValuePredicate(std::move(term));
   }
 
   return prop_value_ranges;
@@ -1665,14 +1674,9 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
-    auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
+    auto maybe_prop_value_ranges = EvaluateSeekRanges(expression_ranges_, evaluator, value_predicates);
     if (!maybe_prop_value_ranges) {
       return std::nullopt;
-    }
-
-    for (auto &&[range, expression_range, value_predicate] :
-         rv::zip(*maybe_prop_value_ranges, expression_ranges_, value_predicates)) {
-      if (auto term = value_predicate.Get(expression_range, evaluator)) range.SetValuePredicate(std::move(term));
     }
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
@@ -10864,17 +10868,10 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
-    auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
+    auto maybe_prop_value_ranges = EvaluateSeekRanges(expression_ranges_, evaluator, value_predicates);
     if (!maybe_prop_value_ranges) {
       return db->ChunkedVertices(
           view_, label_, properties_, std::vector<storage::PropertyValueRange>{}, 0, index_order_);
-    }
-
-    // Carried on the range exactly as the serial scan carries it. Without it every value in the
-    // band is handed to the filter above, which is most of the column for a search term.
-    for (auto &&[range, expression_range, value_predicate] :
-         rv::zip(*maybe_prop_value_ranges, expression_ranges_, value_predicates)) {
-      if (auto term = value_predicate.Get(expression_range, evaluator)) range.SetValuePredicate(std::move(term));
     }
 
     return db->ChunkedVertices(view_, label_, properties_, *maybe_prop_value_ranges, num_threads_, index_order_);
