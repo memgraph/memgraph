@@ -4105,6 +4105,58 @@ TEST(MigrateAuthJson, MigratingCurrentVersionIsIdempotent) {
   EXPECT_EQ(data, original);
 }
 
+TEST_F(AuthWithStorage, DeleteDatabaseClearsMultiTenantRoleLinks) {
+  ASSERT_TRUE(auth->AddRole("r"));
+  auto r = auth->GetRole("r");
+  ASSERT_NE(r, std::nullopt);
+  r->db_access().Grant("db1");
+  auth->SaveRole(*r);
+
+  ASSERT_TRUE(auth->AddUser("u"));
+  auto u = auth->GetUser("u");
+  ASSERT_NE(u, std::nullopt);
+  u->AddMultiTenantRole(*r, "db1");
+  auth->SaveUser(*u);
+  ASSERT_EQ(auth->GetUser("u")->GetMultiTenantRoles("db1").size(), 1);
+
+  auth->DeleteDatabase("db1");
+
+  auto r_reloaded = auth->GetRole("r");
+  ASSERT_NE(r_reloaded, std::nullopt);
+  auth->GrantDatabase("db1", *r_reloaded);
+
+  auto after = auth->GetUser("u");
+  ASSERT_NE(after, std::nullopt);
+  EXPECT_TRUE(after->GetMultiTenantRoles("db1").empty());
+  EXPECT_EQ(after->GetMultiTenantRoleMappings().count("db1"), 0);
+}
+
+TEST_F(AuthWithStorage, DeleteDatabaseKeepsAllowAllRoleLinksOnOtherDatabases) {
+  ASSERT_TRUE(auth->AddRole("ra"));
+  auto ra = auth->GetRole("ra");
+  ASSERT_NE(ra, std::nullopt);
+  ra->db_access().GrantAll();
+  auth->SaveRole(*ra);
+
+  ASSERT_TRUE(auth->AddUser("u"));
+  auto u = auth->GetUser("u");
+  ASSERT_NE(u, std::nullopt);
+  u->AddMultiTenantRole(*ra, "db2");
+  u->AddMultiTenantRole(*ra, "db3");
+  auth->SaveUser(*u);
+
+  auth->DeleteDatabase("db2");
+
+  auto after = auth->GetUser("u");
+  ASSERT_NE(after, std::nullopt);
+  EXPECT_EQ(after->GetMultiTenantRoleMappings().count("db2"), 0);
+  EXPECT_TRUE(after->GetMultiTenantRoles("db2").empty());
+  const auto db3_roles = after->GetMultiTenantRoles("db3");
+  ASSERT_EQ(db3_roles.size(), 1);
+  EXPECT_EQ(db3_roles.begin()->rolename(), "ra");
+  EXPECT_TRUE(db3_roles.begin()->HasAccess("db3"));
+}
+
 #endif  // MG_ENTERPRISE
 
 namespace {
