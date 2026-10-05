@@ -498,24 +498,34 @@ class TypedValue {
 
   Type type() const { return type_; }
 
+// These stay in the header: the check is one comparison, and a call to reach it
+// costs more. ThrowTypeMismatch holds the formatting, which is far larger.
 #define DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(type_param, type_enum, field) \
-  /** Gets the value of type field. Throws if value is not field*/             \
-  type_param &Value##type_enum();                                              \
-  /** Gets the value of type field. Throws if value is not field*/             \
-  type_param Value##type_enum() const;                                         \
-  /** Checks if it's the value is of the given type */                         \
-  bool Is##type_enum() const;                                                  \
-  /** Get the value of the type field. Unchecked */                            \
+  type_param &Value##type_enum() {                                             \
+    if (type_ != Type::type_enum) [[unlikely]]                                 \
+      ThrowTypeMismatch(Type::type_enum);                                      \
+    return field;                                                              \
+  }                                                                            \
+  type_param Value##type_enum() const {                                        \
+    if (type_ != Type::type_enum) [[unlikely]]                                 \
+      ThrowTypeMismatch(Type::type_enum);                                      \
+    return field;                                                              \
+  }                                                                            \
+  bool Is##type_enum() const { return type_ == Type::type_enum; }              \
   type_param UnsafeValue##type_enum() const { return field; }
 
 #define DECLARE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field) \
-  /** Gets the value of type field. Throws if value is not field*/   \
-  type_param &Value##type_enum();                                    \
-  /** Gets the value of type field. Throws if value is not field*/   \
-  const type_param &Value##type_enum() const;                        \
-  /** Checks if it's the value is of the given type */               \
-  bool Is##type_enum() const;                                        \
-  /** Get the value of the type field. Unchecked */                  \
+  type_param &Value##type_enum() {                                   \
+    if (type_ != Type::type_enum) [[unlikely]]                       \
+      ThrowTypeMismatch(Type::type_enum);                            \
+    return field;                                                    \
+  }                                                                  \
+  const type_param &Value##type_enum() const {                       \
+    if (type_ != Type::type_enum) [[unlikely]]                       \
+      ThrowTypeMismatch(Type::type_enum);                            \
+    return field;                                                    \
+  }                                                                  \
+  bool Is##type_enum() const { return type_ == Type::type_enum; }    \
   type_param const &UnsafeValue##type_enum() const { return field; }
 
   DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
@@ -723,6 +733,9 @@ class TypedValue {
   friend auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem>;
 
  private:
+  /** Out of line so the getters inline without the message formatting. */
+  [[noreturn]] void ThrowTypeMismatch(Type expected) const;
+
   [[no_unique_address]] allocator_type alloc_{};
 
   // storage for the value of the property

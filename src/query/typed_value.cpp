@@ -977,58 +977,9 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
   }
 }
 
-// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
-#define DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(type_param, type_enum, field)                    \
-  type_param &TypedValue::Value##type_enum() {                                                   \
-    if (type_ != Type::type_enum) [[unlikely]]                                                   \
-      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
-    return field;                                                                                \
-  }                                                                                              \
-  type_param TypedValue::Value##type_enum() const {                                              \
-    if (type_ != Type::type_enum) [[unlikely]]                                                   \
-      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
-    return field;                                                                                \
-  }                                                                                              \
-  bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
-
-#define DEFINE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)                              \
-  type_param &TypedValue::Value##type_enum() {                                                   \
-    if (type_ != Type::type_enum) [[unlikely]]                                                   \
-      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
-    return field;                                                                                \
-  }                                                                                              \
-  const type_param &TypedValue::Value##type_enum() const {                                       \
-    if (type_ != Type::type_enum) [[unlikely]]                                                   \
-      throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, Type::type_enum); \
-    return field;                                                                                \
-  }                                                                                              \
-  bool TypedValue::Is##type_enum() const { return type_ == Type::type_enum; }
-
-DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
-DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
-DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TString, String, string_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TVector, List, list_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(TypedValue::TMap, Map, map_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, *virtual_edge_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, *virtual_node_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, enum_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, point_2d_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
-DEFINE_VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
-
-#undef DEFINE_VALUE_AND_TYPE_GETTERS
-#undef DEFINE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
+__attribute__((cold, noinline)) void TypedValue::ThrowTypeMismatch(Type expected) const {
+  throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, expected);
+}
 
 bool TypedValue::ContainsDeleted() const {
   switch (type_) {
