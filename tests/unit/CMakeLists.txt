@@ -374,6 +374,11 @@ add_unit_test(query_eval_slots
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_eval_slot_liveness
+    SOURCES query_eval_slot_liveness.cpp
+    LINK_TARGETS mg-query
+)
+
 add_unit_test(query_graph_free
     SOURCES query_graph_free.cpp
     LINK_TARGETS mg-query
