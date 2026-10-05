@@ -306,6 +306,8 @@ add_compile_options($<$<COMPILE_LANGUAGE:C,CXX>:-ffile-prefix-map=${PROJECT_SOUR
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
+# lld otherwise folds .text.unlikely into .text, undoing every cold marking.
+add_link_options(LINKER:-z,keep-text-section-prefix)
 if (MG_TOOLCHAIN_LINK_DIR)
     link_directories("${MG_TOOLCHAIN_LINK_DIR}")
 endif ()
