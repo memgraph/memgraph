@@ -442,12 +442,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       }
     }
     IncrementCost(std::max(total_fold_cost, CostParam::kFilter));
+    // Only one body runs per row, so the costliest and the widest body bound it.
     double branch_cost = 0.0;
     double branch_cardinality = 0.0;
     for (auto const &branch : op.branches_) {
       auto const estimation = EstimateCostOnBranch(&branch.plan, scopes_.back());
-      branch_cost += estimation.cost;
-      branch_cardinality += estimation.cardinality;
+      branch_cost = std::max(branch_cost, estimation.cost);
+      branch_cardinality = std::max(branch_cardinality, estimation.cardinality);
     }
     IncrementCost(!utils::ApproxEqualDecimal(branch_cost, 0.0) ? branch_cost : 1);
     cardinality_ *= !utils::ApproxEqualDecimal(branch_cardinality, 0.0) ? branch_cardinality : 1;

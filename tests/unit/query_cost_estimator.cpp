@@ -441,21 +441,23 @@ TEST_F(QueryCostEstimator, Union) {
 }
 
 TEST_F(QueryCostEstimator, Conditional) {
-  // MATCH (n) CALL (n) { WHEN true THEN MATCH (a) RETURN a WHEN true THEN MATCH (b) RETURN b } WHERE true:
-  // the branches' costs and cardinalities add up, as in a Union, and multiply the input's, as in an Apply.
+  // MATCH (n) CALL (n) { WHEN true THEN MATCH (a) RETURN a WHEN true THEN MATCH (b), (c) RETURN b } WHERE true:
+  // only one body runs per row, so the costliest and widest body multiply the input's, as in an Apply.
   auto no_vertices = 4;
   AddVertices(no_vertices, 0, 0);
   std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   std::shared_ptr<LogicalOperator> left = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
-  std::shared_ptr<LogicalOperator> right = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  std::shared_ptr<LogicalOperator> right =
+      std::make_shared<ScanAll>(std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol()), NextSymbol());
   auto conditional =
       std::make_shared<Conditional>(input,
                                     std::vector<Conditional::Branch>{{.predicate = Literal(true), .plan = left},
                                                                      {.predicate = Literal(true), .plan = right}},
                                     std::vector<Symbol>{NextSymbol()});
   MakeOp<Filter>(conditional, std::vector<std::shared_ptr<LogicalOperator>>{}, Literal(true));
-  auto const branch_cost = 2 * no_vertices * CostParam::kScanAll;
-  auto const branch_cardinality = 2 * no_vertices;
+  // The right body: its first scan costs 4 rows, its second 4 * 4 rows.
+  auto const branch_cost = (no_vertices + no_vertices * no_vertices) * CostParam::kScanAll;
+  auto const branch_cardinality = no_vertices * no_vertices;
   EXPECT_COST(no_vertices * CostParam::kScanAll + no_vertices * CostParam::kFilter + no_vertices * branch_cost +
               no_vertices * branch_cardinality * CostParam::kFilter);
 }
