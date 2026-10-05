@@ -430,8 +430,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   // Worker thread, plain TCP. Returns true if bytes were appended and the caller should Execute(); false if
-  // the read was handled here (re-armed, or routed to the error path). filled: the recv filled the whole buffer.
-  bool ReadAvailable_(bool &filled) {
+  // the read was handled here (re-armed, or routed to the error path). more: set if the recv filled the buffer.
+  bool ReadAvailable_(bool &more) {
     auto buffer = input_buffer_.write_end()->GetBuffer();
     DMG_ASSERT(buffer.len > 0, "recv into an empty buffer would be misread as EOF");
     ssize_t n;
@@ -441,7 +441,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
     if (n > 0) {
       input_buffer_.write_end()->Written(static_cast<size_t>(n));
-      filled = static_cast<size_t>(n) == buffer.len;
+      more = static_cast<size_t>(n) == buffer.len;
       return true;
     }
     if (n < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
@@ -476,12 +476,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }
   }
 
-  void DoWork(bool read_first = false) {
+  // recv_first: the socket is readable but nothing has been read yet (plain TCP, from OnReadable); recv before
+  // Execute. Otherwise input_buffer_ already holds the bytes.
+  void DoWork(bool recv_first = false) {
     session_context_->AddTask(
-        [shared_this = shared_from_this(), read_first](const auto thread_priority) {
+        [shared_this = shared_from_this(), recv_first](const auto thread_priority) {
           try {
-            bool filled = false;
-            if (read_first && !shared_this->ReadAvailable_(filled)) {
+            bool more = false;
+            if (recv_first && !shared_this->ReadAvailable_(more)) {
               return;
             }
             while (true) {
@@ -492,10 +494,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                   shared_this->DoWork();
                   return;
                 }
-              } else if (filled) {
+              } else if (more) {
                 // Last recv filled the buffer; more is likely queued.
-                filled = false;
-                if (!shared_this->ReadAvailable_(filled)) {
+                more = false;
+                if (!shared_this->ReadAvailable_(more)) {
                   return;
                 }
               } else {
