@@ -4628,7 +4628,9 @@ class IndexDisjunctionScan : public testing::Test {
   }
 
   // The number of rows for each value of x.
-  std::map<int64_t, int> RowsPerX(std::shared_ptr<LogicalOperator> const &op, memgraph::query::DbAccessor &dba) {
+  std::map<int64_t, int> RowsPerX(std::shared_ptr<LogicalOperator> const &op) {
+    auto acc = db->Access(memgraph::storage::WRITE);
+    memgraph::query::DbAccessor dba(acc.get());
     auto produce = MakeProduce(op, NEXPR("x", IDENT("x")->MapTo(x))->MapTo(symbol_table.CreateSymbol("out", true)));
     auto context = MakeContext(storage, symbol_table, &dba);
     std::map<int64_t, int> rows;
@@ -4637,26 +4639,10 @@ class IndexDisjunctionScan : public testing::Test {
   }
 };
 
+// Each input row, equal ones included, reads every branch; the vertex with both labels comes out once per row.
 TEST_F(IndexDisjunctionScan, LabelBranchesPerInputRow) {
   AddVertices({{label_a}, {label_a}, {label_b}, {label_a, label_b}});
-  auto acc = db->Access(memgraph::storage::WRITE);
-  memgraph::query::DbAccessor dba(acc.get());
-  EXPECT_EQ(RowsPerX(ScanAOrB(UnwindX({1, 2})), dba), (std::map<int64_t, int>{{1, 4}, {2, 4}}));
-}
-
-TEST_F(IndexDisjunctionScan, EqualInputRowsStaySeparate) {
-  AddVertices({{label_a}, {label_a}, {label_b}, {label_a, label_b}});
-  auto acc = db->Access(memgraph::storage::WRITE);
-  memgraph::query::DbAccessor dba(acc.get());
-  EXPECT_EQ(RowsPerX(ScanAOrB(UnwindX({1, 1})), dba), (std::map<int64_t, int>{{1, 8}}));
-}
-
-TEST_F(IndexDisjunctionScan, VertexWithBothLabelsOnce) {
-  AddVertices({{label_a}, {label_b}, {label_a, label_b}});
-  auto acc = db->Access(memgraph::storage::WRITE);
-  memgraph::query::DbAccessor dba(acc.get());
-  auto context = MakeContext(storage, symbol_table, &dba);
-  EXPECT_EQ(PullAll(*ScanAOrB(std::make_shared<Once>()), &context), 3);
+  EXPECT_EQ(RowsPerX(ScanAOrB(UnwindX({1, 1, 2}))), (std::map<int64_t, int>{{1, 8}, {2, 4}}));
 }
 
 // Under View::NEW a write above the scan runs between its pulls; a dedup by label would let `(:A:B)` out of the
@@ -4748,9 +4734,7 @@ TEST_F(IndexDisjunctionScan, PropertyBranchBoundToInputRow) {
       n,
       std::vector<IndexDisjunctionBranch>{{.label = label_a},
                                           PropertyBranch(label_b, ExpressionRange::Equal(IDENT("x")->MapTo(x)))});
-  auto acc = db->Access(memgraph::storage::WRITE);
-  memgraph::query::DbAccessor dba(acc.get());
-  EXPECT_EQ(RowsPerX(scan, dba), (std::map<int64_t, int>{{1, 2}, {2, 3}, {3, 1}}));
+  EXPECT_EQ(RowsPerX(scan), (std::map<int64_t, int>{{1, 2}, {2, 3}, {3, 1}}));
 }
 
 // A null IN element matches nothing; the elements after it are still sought.
@@ -4779,9 +4763,7 @@ TEST_F(IndexDisjunctionScan, InListPerInputRow) {
   auto list = [&] { return LIST(IDENT("x")->MapTo(x), LITERAL(3), LITERAL(3)); };
   auto scan = std::make_shared<ScanAllByIndexDisjunction>(
       UnwindX({1, 2}), n, std::vector<IndexDisjunctionBranch>{InBranch(label_a, list()), InBranch(label_b, list())});
-  auto acc = db->Access(memgraph::storage::WRITE);
-  memgraph::query::DbAccessor dba(acc.get());
-  EXPECT_EQ(RowsPerX(scan, dba), (std::map<int64_t, int>{{1, 2}, {2, 3}}));
+  EXPECT_EQ(RowsPerX(scan), (std::map<int64_t, int>{{1, 2}, {2, 3}}));
 }
 
 // A vertex a property branch yields is not yielded again by a later label branch.

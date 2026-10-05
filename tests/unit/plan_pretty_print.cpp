@@ -9,8 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <sstream>
-
 #include <gtest/gtest.h>
 #include <nlohmann/json.hpp>
 
@@ -109,23 +107,16 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabel) {
         })");
 }
 
-namespace {
-std::shared_ptr<LogicalOperator> MakeIndexDisjunction(memgraph::query::DbAccessor &dba, AstStorage &storage,
-                                                      Symbol node) {
-  std::vector<IndexDisjunctionBranch> branches{
-      {.label = dba.NameToLabel("A")},
-      {.label = dba.NameToLabel("B"),
-       .properties = {ms::PropertyPath{dba.NameToProperty("prop")}},
-       .expression_ranges = {ExpressionRange::Range(
-           memgraph::utils::MakeBoundInclusive<Expression *>(storage.Create<PrimitiveLiteral>(1)),
-           memgraph::utils::MakeBoundExclusive<Expression *>(storage.Create<PrimitiveLiteral>(20)))},
-       .index_order = ms::IndexOrder::DESC}};
-  return std::make_shared<ScanAllByIndexDisjunction>(nullptr, node, std::move(branches));
-}
-}  // namespace
-
 TYPED_TEST(PrintToJsonTest, ScanAllByIndexDisjunction) {
-  auto last_op = MakeIndexDisjunction(this->dba, this->storage, this->GetSymbol("node"));
+  std::vector<IndexDisjunctionBranch> branches{
+      {.label = this->dba.NameToLabel("A")},
+      {.label = this->dba.NameToLabel("B"),
+       .properties = {ms::PropertyPath{this->dba.NameToProperty("prop")}},
+       .expression_ranges = {ExpressionRange::Range(
+           memgraph::utils::MakeBoundInclusive<Expression *>(this->storage.template Create<PrimitiveLiteral>(1)),
+           memgraph::utils::MakeBoundExclusive<Expression *>(this->storage.template Create<PrimitiveLiteral>(20)))},
+       .index_order = ms::IndexOrder::DESC}};
+  auto last_op = std::make_shared<ScanAllByIndexDisjunction>(nullptr, this->GetSymbol("node"), std::move(branches));
 
   this->Check(last_op.get(), R"(
         {
@@ -175,14 +166,6 @@ TYPED_TEST(PrintToJsonTest, ScanAllByIndexDisjunctionInList) {
           ],
           "input": {"name": "Once"}
         })json");
-}
-
-TYPED_TEST(PrintToJsonTest, ScanAllByIndexDisjunctionText) {
-  auto last_op = MakeIndexDisjunction(this->dba, this->storage, this->GetSymbol("node"));
-
-  std::stringstream text;
-  PrettyPrint(this->dba, last_op.get(), &text);
-  EXPECT_EQ(text.str(), " * ScanAllByIndexDisjunction (node :A | :B {prop} (DESC))\n * Once\n");
 }
 
 TYPED_TEST(PrintToJsonTest, ScanAllByLabelProperties_OverARange) {

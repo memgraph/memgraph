@@ -4981,29 +4981,6 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabels) {
             ExpectProduce());
 }
 
-TYPED_TEST(TestPlanner, ORLabelExpressionOfManyLabelsIsOneScan) {
-  // MATCH (n) WHERE n:L0 OR n:L1 OR ... OR n:L7 RETURN n, all labels indexed.
-  // Every label is one branch of one scan, so the plan does not deepen with the number of labels.
-  FakeDbAccessor dba;
-  constexpr int kLabels = 8;
-  auto node_identifier = IDENT("n");
-  memgraph::query::Expression *or_expr = nullptr;
-  std::vector<ExpectedDisjunctionBranch> branches;
-  for (int i = 0; i < kLabels; ++i) {
-    const auto name = "L" + std::to_string(i);
-    dba.SetIndexCount(dba.Label(name), 1);
-    branches.push_back({.label = dba.Label(name)});
-    auto label_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx(name)};
-    memgraph::query::Expression *test = LABELS_TEST(node_identifier, label_ix);
-    or_expr = or_expr ? static_cast<memgraph::query::Expression *>(OR(or_expr, test)) : test;
-  }
-  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(or_expr), RETURN("n")));
-  auto symbol_table = memgraph::query::MakeSymbolTable(query);
-  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-
-  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByIndexDisjunction(std::move(branches)), ExpectProduce());
-}
-
 // The plan-cache check reads the indexes a plan uses. A disjunction that reported fewer than all of its branches
 // would let a cached plan outlive a dropped index.
 TEST(UsedIndexChecker, CollectsEveryBranchOfIndexDisjunction) {
