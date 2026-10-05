@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gflags/gflags.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 #include <chrono>
@@ -519,9 +520,11 @@ TYPED_TEST(TTLFixture, Edge) {
 }
 
 // Needs user-defined timezone
-TEST(TtlInfo, PersistentTimezone) {
+TEST(TtlInfo, TimezoneNotPersisted) {
   memgraph::utils::OnScopeExit clean_up([] { std::filesystem::remove_all(GetDataDirectory()); });
   {
+    // Restores the gflags state afterwards so the second block starts like a fresh process.
+    gflags::FlagSaver flag_saver;
     memgraph::utils::Settings settings(GetDataDirectory());
     memgraph::flags::run_time::Initialize(settings);
     // Default value
@@ -531,10 +534,10 @@ TEST(TtlInfo, PersistentTimezone) {
     EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Europe/Rome");
   }
   {
-    // Recover previous value
+    // A run-time change does not survive a restart
     memgraph::utils::Settings settings(GetDataDirectory());
     memgraph::flags::run_time::Initialize(settings);
-    EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Europe/Rome");
+    EXPECT_EQ(memgraph::flags::run_time::GetTimezone()->name(), "Etc/UTC");
   }
 }
 

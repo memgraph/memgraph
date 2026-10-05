@@ -126,13 +126,16 @@ void RegisterLicenseSettings(LicenseChecker &license_checker, utils::Settings &s
     return {};
   };
 
+  // The license is the only setting that survives a restart.
   settings.RegisterSetting(
       std::string{kEnterpriseLicenseSettingKey},
       "",
+      utils::Settings::Persistence::kPersisted,
       [&] { license_checker.RevalidateLicense(settings); },
       validate_license_key);
-  settings.RegisterSetting(
-      std::string{kOrganizationNameSettingKey}, "", [&] { license_checker.RevalidateLicense(settings); });
+  settings.RegisterSetting(std::string{kOrganizationNameSettingKey}, "", utils::Settings::Persistence::kPersisted, [&] {
+    license_checker.RevalidateLicense(settings);
+  });
 }
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
