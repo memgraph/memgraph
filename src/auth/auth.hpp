@@ -145,6 +145,8 @@ class Auth final {
   Config GetConfig() const { return config_; }
 
   /// Returns the Module for `scheme`; nullptr if prerequisites fail. Callable under MutableSharedLock().
+  /// The pointer stays valid for Auth's lifetime (modules_ is set only in the constructor) and may be used after the
+  /// lock is released; Module::Call serializes itself.
   Module *GetAuthModule(const std::string &scheme);
 
   /// Validates a module response and resolves roles/user against the kvstore; callable under ReadLock().
@@ -515,7 +517,7 @@ class Auth final {
   UserProfiles user_profiles_{storage_};
   utils::ResourceMonitoring *user_resources_;
 #endif
-  std::unordered_map<std::string, auth::Module> modules_;
+  std::unordered_map<std::string, auth::Module> modules_;  // set only in the constructor; never mutated afterwards
   Config config_;
   Epoch epoch_{kStartEpoch};
 };

@@ -526,27 +526,35 @@ query::CreateUserResult AuthQueryHandler::CreateUser(const std::string &username
 
     std::optional<auth::HashedPassword> hash;
     if (!existed) hash = auth::Auth::ComputePasswordHash(password);
+    bool hashed = !existed;
 
-    auto locked_auth = auth_->Lock();
-    const auto first_user = !locked_auth->HasUsers();
+    for (;;) {
+      {
+        auto locked_auth = auth_->Lock();
+        const auto first_user = !locked_auth->HasUsers();
+        const bool present = locked_auth->HasUser(username);
+        if (!present && !user_defined) locked_auth->ValidatePassword(password);
 
-    if (!locked_auth->HasUser(username)) {
-      if (!user_defined) locked_auth->ValidatePassword(password);
-      if (existed) hash = auth::Auth::ComputePasswordHash(password);  // rare: user dropped between read and write
-    }
-
-    auto new_user = locked_auth->AddUserWithHash(username, std::move(hash), system_tx);
-    if (first_user && new_user) {
+        if (present || hashed) {
+          auto new_user = locked_auth->AddUserWithHash(username, std::move(hash), system_tx);
+          if (first_user && new_user) {
 #ifdef MG_ENTERPRISE
-      bool const builtin_roles_created = locked_auth->CreateBuiltinRoles(system_tx);
-      locked_auth->InitialiseFirstUser(*new_user, system_tx);
-      return {
-          .created = new_user.has_value(), .first_user = first_user, .builtin_roles_created = builtin_roles_created};
+            bool const builtin_roles_created = locked_auth->CreateBuiltinRoles(system_tx);
+            locked_auth->InitialiseFirstUser(*new_user, system_tx);
+            return {.created = new_user.has_value(),
+                    .first_user = first_user,
+                    .builtin_roles_created = builtin_roles_created};
 #else
-      locked_auth->InitialiseFirstUser(*new_user, system_tx);
+            locked_auth->InitialiseFirstUser(*new_user, system_tx);
 #endif
+          }
+          return {.created = new_user.has_value(), .first_user = first_user};
+        }
+      }
+      // User was dropped between the read and write phases: hash outside the lock, then retry.
+      hash = auth::Auth::ComputePasswordHash(password);
+      hashed = true;
     }
-    return {.created = new_user.has_value(), .first_user = first_user};
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
