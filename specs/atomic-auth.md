@@ -2,11 +2,11 @@
 
 **Status:** Implemented (PR #4524), preview
 **Author:** Colin Barry
-**Last updated:** 2026-10-02
+**Last updated:** 2026-10-05
 
 > Auth statements run inside `BEGIN` .. `COMMIT`. Everything the transaction
-> changes becomes visible at once, to this instance and to every replica, or
-> not at all.
+> changes becomes visible on this instance at once, or not at all. Each replica
+> then applies it at once too, or is marked behind and catches up by snapshot.
 
 ---
 
@@ -59,7 +59,7 @@ Wrapping them in a transaction makes the whole sequence one change.
 ## 2. Core principle
 
 > An auth transaction is isolated until it commits, atomic when it does, and
-> atomic again on every replica.
+> applied whole, or not at all, on every replica.
 
 Nothing it writes is visible to another session, or to a replica, until
 `COMMIT`. `ROLLBACK` discards it. A concurrent change by another transaction to
@@ -174,12 +174,15 @@ replica applies all of it or none of it, so it cannot be left holding a user
 without the grant that accompanied it.
 
 The system lock is taken at `COMMIT` for the duration of the flush and
-replication, not for the life of the transaction. An open auth transaction does
-not block other sessions' system queries.
+replication, not for the life of the transaction, and only when the transaction
+has changes to replicate. An open auth transaction does not block other
+sessions' system queries.
 
-A replica running an older version that cannot decode the batch is marked
-behind and recovers by full snapshot, so a mixed-version cluster converges.
-Upgrading replicas before the main avoids that cost.
+A replica that misses the commit, or runs an older version that cannot decode
+the batch, is marked behind and recovers by full snapshot. The main sends only
+the batched format, but an upgraded replica still accepts the earlier
+per-record format from an older main. Upgrade replicas before the main, as
+section 7 says, and a version mismatch never forces a snapshot.
 
 ---
 
@@ -195,12 +198,12 @@ Upgrading replicas before the main avoids that cost.
 - **Auth transactions are not counted in a database's commit or rollback
   metrics.** Those count data transactions; an auth transaction never touches a
   database.
-- **A committed change does not reach sessions that are already connected.** A
-  session authorises against the permissions it cached when it authenticated, so
-  a `REVOKE` takes effect on that session when it reconnects, not at `COMMIT`.
-  This is existing behaviour, unchanged here, but it bounds what the atomicity
-  above buys you: the transaction closes the window for sessions that connect
-  after it, not for sessions already holding a grant.
+- **Fine-grained permissions do not reach sessions that are already
+  connected.** A connected session picks up a committed change to its
+  privileges on its next authorisation check. Label, edge-type, and property
+  permissions are cached when the session authenticates, so a `REVOKE` of one of
+  those takes effect on that session when it reconnects, not at `COMMIT`. This
+  is existing behaviour, unchanged here.
 - **A commit can fail for a reason other than a conflict.** If another session
   holds the system lock for more than 100ms, the commit is refused with
   "Multiple concurrent system queries are not supported." Unlike a conflict, that
