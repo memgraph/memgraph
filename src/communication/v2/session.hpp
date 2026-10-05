@@ -530,11 +530,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     DoShutdown();
   }
 
-  // Runs on strand_; arm_lock_ makes the read_armed_ check + close atomic against a worker's ArmRead_.
+  // Runs on strand_; arm_lock_ makes the read_armed_ check + close atomic against a worker's ArmLocked_.
   void TerminateIfIdle_() {
     ArmGuard guard{arm_lock_};
     // Deferred: read_armed_ == false means a worker may own the socket (Execute()/Write()); leave
-    // terminate_requested_ set and let ArmRead_ close it on the next read-arm instead of racing here.
+    // terminate_requested_ set and let ArmLocked_ close it on the next read-arm instead of racing here.
     if (!read_armed_.load(std::memory_order_relaxed)) {
       return;
     }
@@ -594,7 +594,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return;
     }
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
-      // Mirror ArmRead_: honour a terminate requested during the SSL handshake before arming. The handshake
+      // Mirror ArmLocked_: honour a terminate requested during the SSL handshake before arming. The handshake
       // wait is otherwise unbounded (no application-level timer), so a session terminated mid-handshake would
       // only close on the OS TCP timeout. IsConnected() above guarantees DoShutdown() acts on the SSL socket.
       if (terminate_requested_.load(std::memory_order_acquire)) {
@@ -661,7 +661,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
   // Set by any thread via RequestTermination; only ever set, never cleared. Re-checked under arm_lock_
-  // at every read-arm (ArmRead_), so a request made while a worker owns the socket can't be lost.
+  // at every read-arm (ArmLocked_), so a request made while a worker owns the socket can't be lost.
   std::atomic_bool terminate_requested_{false};
   // Serializes the worker's plain-TCP read-arm (DoRead) against TerminateIfIdle_'s close (strand). Strand-confined
   // setup (DoAccept/DoSSLHandshake) needs no lock. Leaf lock: asio's descriptor mutex is only taken under it.
