@@ -1539,10 +1539,11 @@ std::optional<UserOrRole> Authenticate(SynchedAuth &auth, const std::string &use
         "Couldn't authenticate user '{}' because the password is not correct.", username, "https://memgr.ph/auth"));
     return std::nullopt;
   }
-  // Hash upgrade: capture the pre-upgrade hash to detect a concurrent SET PASSWORD or replica recovery.
+  // Hash upgrade: capture the pre-upgrade hash to detect a concurrent upgrade by another login, SET PASSWORD or
+  // replica recovery.
   auto const hash_before_upgrade = user->password_hash();
   if (user->UpgradeHash(password)) {
-    // UpgradeHash computed a new salted hash on the local copy; reuse it to avoid a second bcrypt run.
+    // UpgradeHash already salted-and-hashed the local copy; reuse that hash so nothing is hashed under the lock.
     auto locked = auth.Lock();
     auto current = locked->GetUser(username);
     if (current && current->password_hash() == hash_before_upgrade) {

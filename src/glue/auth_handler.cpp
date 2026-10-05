@@ -599,6 +599,7 @@ void AuthQueryHandler::ChangePassword(const std::string &username, const std::op
     if (!user_snap->CheckPasswordExplicit(*oldPassword)) {
       throw memgraph::query::QueryRuntimeException("Old password is not correct.");
     }
+    auth_->ReadLock()->ValidatePassword(newPassword);
     std::optional<auth::HashedPassword> hash = auth::Auth::ComputePasswordHash(newPassword);
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
