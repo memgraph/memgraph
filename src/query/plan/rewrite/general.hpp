@@ -37,7 +37,6 @@ struct ExpressionRemovalResult {
   bool did_remove{false};
 };
 
-/// A membership list lowered to an Unwind for a per-element index scan.
 /// toSet(coalesce(list_expr, [])) and a fresh symbol, with an identifier mapped to it, for each of its elements.
 struct MembershipList {
   Expression *deduped;
@@ -47,6 +46,7 @@ struct MembershipList {
 
 MembershipList MakeMembershipList(SymbolTable &symbol_table, AstStorage *ast_storage, Expression *list_expr);
 
+/// A membership list lowered to an Unwind for a per-element index scan.
 struct UnwoundMembershipList {
   /// Unwind(toSet(coalesce(list, []))) wrapping the caller's input.
   std::shared_ptr<LogicalOperator> op;
