@@ -179,6 +179,29 @@ TEST_F(SystemReplicationHandlersTest, RecoveryNotOlderThanDeltasIsApplied) {
   EXPECT_EQ(Lcts(), 1);
 }
 
+TEST_F(SystemReplicationHandlersTest, DeltaRejectedForTsMismatchStillMakesOlderRecoveryStale) {
+  ASSERT_EQ(Lcts(), 0);
+  EXPECT_FALSE(UpdateAuth(main_uuid_, 7, 9, "alice"));
+
+  EXPECT_EQ(Recover(main_uuid_, 8), SystemRecoveryRes::Result::FAILURE);
+  EXPECT_EQ(Lcts(), 0);
+
+  EXPECT_EQ(Recover(main_uuid_, 9), SystemRecoveryRes::Result::SUCCESS);
+  EXPECT_EQ(Lcts(), 9);
+}
+
+TEST_F(SystemReplicationHandlersTest, NoteFollowsCurrentMain) {
+  ASSERT_TRUE(Finalize(main_uuid_, 0, 5));
+
+  UUID const new_main;
+  current_main_ = new_main;
+  ASSERT_TRUE(Finalize(new_main, 5, 6));
+  ASSERT_EQ(Lcts(), 6);
+
+  EXPECT_EQ(Recover(new_main, 5), SystemRecoveryRes::Result::FAILURE);
+  EXPECT_EQ(Recover(new_main, 6), SystemRecoveryRes::Result::SUCCESS);
+}
+
 }  // namespace
 
 #endif  // MG_ENTERPRISE
