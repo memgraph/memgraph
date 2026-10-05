@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cmath>
+#include <optional>
 
 #include "query/parameters.hpp"
 #include "query/plan/cost_constants.hpp"
@@ -147,15 +148,33 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanAllByIndexDisjunction &logical_op) override {
     // Each input row runs every branch once: the output is the sum of the branches, the cost one scan of it.
     double branches_cardinality = 0;
+    // The output's stats are the branches' counts summed and their degrees weighted by count, when every branch has
+    // stats.
+    std::optional<SymbolStatistics> stats = SymbolStatistics{.count = 0, .degree = 0};
+    auto add_stats = [&](auto const &index_stats) {
+      if (!stats) return;
+      if (!index_stats) {
+        stats.reset();
+        return;
+      }
+      stats->count += index_stats->count;
+      stats->degree += static_cast<double>(index_stats->count) * index_stats->avg_degree;
+    };
     for (auto const &branch : logical_op.branches_) {
       if (branch.IsLabelOnly()) {
+        add_stats(db_accessor_->GetIndexStats(branch.label));
         branches_cardinality += db_accessor_->VerticesCount(branch.label);
         if (index_hints_.HasLabelIndex(db_accessor_, branch.label)) use_index_hints_ = true;
         continue;
       }
+      add_stats(db_accessor_->GetIndexStats(branch.label, branch.properties));
       branches_cardinality += EstimateLabelPropertiesCardinality(
           branch.label, branch.properties, branch.expression_ranges, /*in_lists_unwound=*/false);
       if (index_hints_.HasLabelPropertiesIndex(db_accessor_, branch.label, branch.properties)) use_index_hints_ = true;
+    }
+    if (stats) {
+      if (stats->count > 0) stats->degree /= static_cast<double>(stats->count);
+      scopes_.back().symbol_stats[logical_op.output_symbol_.name()] = *stats;
     }
     cardinality_ *= branches_cardinality;
     IncrementCost(CostParam::kScanAllByLabel);
