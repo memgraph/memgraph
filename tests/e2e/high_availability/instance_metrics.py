@@ -157,6 +157,12 @@ def default_db_uuids():
     return uuids
 
 
+def show_instances_count():
+    match = re.search(r"^memgraph_show_instances_total (\S+)$", scrape_metrics(), re.MULTILINE)
+    assert match, "memgraph_show_instances_total not in scrape"
+    return float(match.group(1))
+
+
 def test_instance_metrics_present(test_name):
     cursor = setup_test(test_name)
 
@@ -169,11 +175,6 @@ def test_instance_metrics_present(test_name):
         assert f'memgraph_instance_last_response_seconds{{mg_instance="{instance}"}}' in metrics
 
     assert 'memgraph_instance_is_leader{mg_instance="coordinator_1"}' in metrics
-
-
-def show_instances_count():
-    match = re.search(r"^memgraph_show_instances_total (\S+)$", scrape_metrics(), re.MULTILINE)
-    return float(match.group(1))
 
 
 def test_show_instances_counter_counts_only_queries(test_name):
