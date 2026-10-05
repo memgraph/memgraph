@@ -430,6 +430,12 @@ std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
   return {};
 }
 
+bool IsUserDefinedHashFormat(std::string_view password) {
+  static constexpr std::array kAlgos{
+      PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE};
+  return std::ranges::any_of(kAlgos, [password](auto const algo) { return UsesAlgo(password, algo).has_value(); });
+}
+
 // The `--password-encryption-algorithm` flag is the single source of truth. It is
 // set only at startup (gflags parse, or `EnableFipsMode`) before any session thread
 // exists, and read through the gflags lock here, so no data race is possible.

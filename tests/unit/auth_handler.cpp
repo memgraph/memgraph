@@ -31,6 +31,8 @@
 #include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
 #include "utils/file.hpp"
+#include "utils/fips.hpp"
+#include "utils/on_scope_exit.hpp"
 #include "utils/resource_monitoring.hpp"
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -3636,4 +3638,35 @@ TEST_F(AuthQueryHandlerFixture, SetPasswordForMissingUserReportsMissingUserBefor
   } catch (const memgraph::query::QueryRuntimeException &e) {
     EXPECT_NE(std::string{e.what()}.find("doesn't exist"), std::string::npos) << e.what();
   }
+}
+
+TEST_F(AuthQueryHandlerFixture, FipsLegacyHashLiteralReportsSameErrorsAsBeforeHashing) {
+  auto const literal =
+      std::optional<std::string>{"bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"};
+  auto const message_of = [](auto &&fn) -> std::string {
+    try {
+      fn();
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      return e.what();
+    }
+    ADD_FAILURE() << "expected QueryRuntimeException";
+    return {};
+  };
+
+  // FIPS status is process-global; reset it even when an assertion fails.
+  memgraph::utils::OnScopeExit const reset_fips{[] { memgraph::utils::SetFipsStatus({}); }};
+
+  ASSERT_TRUE(auth_handler.CreateUser("alice", std::nullopt, nullptr).created);
+  memgraph::utils::SetFipsStatus({.enabled = true});
+
+  EXPECT_THAT(message_of([&] { auth_handler.CreateUser("in valid", literal, nullptr); }),
+              testing::HasSubstr("Invalid user name"));
+
+  EXPECT_FALSE(auth_handler.CreateUser("alice", literal, nullptr).created);
+
+  EXPECT_THAT(message_of([&] { auth_handler.SetPassword("nobody", literal, nullptr); }),
+              testing::HasSubstr("doesn't exist"));
+
+  EXPECT_THAT(message_of([&] { auth_handler.CreateUser("bob", literal, nullptr); }),
+              testing::HasSubstr("not permitted in FIPS mode"));
 }

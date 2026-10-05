@@ -194,7 +194,7 @@ class Auth final {
   /// Validates a name against the configured regex; throws AuthException on mismatch.
   void ValidateName(const std::string &name) const;
 
-  /// Returns true when password is a recognised pre-hashed encoding; never blocks on bcrypt.
+  /// Returns true when password is a recognised pre-hashed encoding; never blocks on bcrypt, no FIPS check.
   static bool IsUserDefinedHash(const std::optional<std::string> &password);
 
   /// Hashes password with no auth-state access; safe to call with no lock held.

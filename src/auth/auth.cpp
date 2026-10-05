@@ -805,7 +805,7 @@ void Auth::ValidatePassword(const std::optional<std::string> &password) const {
 }
 
 bool Auth::IsUserDefinedHash(const std::optional<std::string> &password) {
-  return password.has_value() && UserDefinedHash(*password).has_value();
+  return password.has_value() && IsUserDefinedHashFormat(*password);
 }
 
 std::optional<HashedPassword> Auth::ComputePasswordHash(const std::optional<std::string> &password) {
