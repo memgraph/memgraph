@@ -674,9 +674,9 @@ def test_drop_database_clears_multi_tenant_role_links(memgraph):
         assert list(memgraph.execute_and_fetch("SHOW ROLES FOR mt_u ON DATABASE db_y;")) == []
 
         # Role assignment on a non-existent database is rejected; CLEAR stays permissive
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="unknown database"):
             memgraph.execute("SET ROLE FOR mt_u TO mt_ra ON no_such_db;")
-        with pytest.raises(Exception):
+        with pytest.raises(Exception, match="unknown database"):
             memgraph.execute("GRANT ROLE mt_ra TO mt_u ON no_such_db;")
         memgraph.execute("CLEAR ROLE FOR mt_u ON no_such_db;")
     finally:
