@@ -2820,6 +2820,7 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
       callback.header = {
           "name", "bolt_server", "coordinator_server", "management_server", "health", "role", "last_succ_resp_ms"};
       callback.fn = [handler = CoordQueryHandler{*coordinator_state}, notifications]() mutable {
+        metrics::Metrics().global.show_instances->Increment();
         auto const instances = handler.ShowInstances();
         if (!instances.has_value()) {
           notifications->emplace_back(SeverityLevel::WARNING,

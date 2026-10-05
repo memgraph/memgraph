@@ -171,6 +171,23 @@ def test_instance_metrics_present(test_name):
     assert 'memgraph_instance_is_leader{mg_instance="coordinator_1"}' in metrics
 
 
+def show_instances_count():
+    match = re.search(r"^memgraph_show_instances_total (\S+)$", scrape_metrics(), re.MULTILINE)
+    return float(match.group(1))
+
+
+def test_show_instances_counter_counts_only_queries(test_name):
+    cursor = setup_test(test_name)
+
+    mg_sleep_and_assert(EXPECTED_INSTANCES, partial(show_instances, cursor))
+
+    before = show_instances_count()
+    assert show_instances_count() == before
+
+    show_instances(cursor)
+    assert show_instances_count() == before + 1
+
+
 # A data instance joining the cluster adopts the main's default-database uuid, so every instance must
 # present the same uuid label for database="memgraph". Before this was fixed each instance kept the
 # uuid of its own discarded local default database, which made the series impossible to aggregate.

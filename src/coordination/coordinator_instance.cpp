@@ -341,7 +341,6 @@ auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
 }
 
 auto CoordinatorInstance::ShowInstances() const -> std::optional<std::vector<InstanceStatus>> {
-  metrics::Metrics().global.show_instances->Increment();
   if (auto leader_results = ShowInstancesAsLeader(); leader_results.has_value()) {
     return leader_results;
   }
