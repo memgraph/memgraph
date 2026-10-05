@@ -2031,42 +2031,6 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           return std::move(*vertex_prop_result);
         }
         metadata.is_or_label_filter = true;
-        if (best_group.indices.size() == 1) {
-          // A disjunction that names one label is that label: the bare scan keeps order-by elimination, the ST
-          // shortest path and parallel scans.
-          auto &index = best_group.indices.front();
-          if (std::holds_alternative<LabelIx>(index)) {
-            metadata.all_property_filters_same = false;
-            metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
-            return ScanByIndexResult{
-                std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view),
-                std::move(metadata)};
-          }
-          auto &label_property_index = std::get<LabelPropertyIndex>(index);
-          metadata.labels_to_erase.push_back(label_property_index.label);
-          metadata.all_property_filters_same = true;
-          for (auto const &filter_info : label_property_index.filters) {
-            if (!PropertyFilter::RequiresPostFilterOnNodeScan(filter_info.property_filter->type_)) {
-              metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
-            }
-          }
-          auto membership_lists =
-              label_property_index.filters | ranges::views::transform(capture_membership_list) | ranges::to_vector;
-          auto value_expressions =
-              label_property_index.filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
-          auto expr_ranges =
-              ranges::views::zip(value_expressions, membership_lists) |
-              ranges::views::transform([&](auto const &pair) { return to_expression_range(pair.first, pair.second); }) |
-              ranges::to_vector;
-          auto scan = std::make_unique<ScanAllByLabelProperties>(input,
-                                                                 node_symbol,
-                                                                 GetLabel(label_property_index.label),
-                                                                 std::move(label_property_index.properties),
-                                                                 std::move(expr_ranges),
-                                                                 view);
-          scan->index_order_ = label_property_index.order;
-          return ScanByIndexResult{std::move(scan), std::move(metadata)};
-        }
         // One branch per disjoined label, all in one scan that reads each input row once.
         std::vector<IndexDisjunctionBranch> branches;
         branches.reserve(best_group.indices.size());
@@ -2108,6 +2072,26 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             branch.membership_slots.push_back({.list = membership.deduped, .symbol = membership.symbol});
           }
           branches.push_back(std::move(branch));
+        }
+        if (branches.size() == 1) {
+          // A disjunction that names one label is that label: the bare scan keeps order-by elimination, the ST
+          // shortest path and parallel scans. Its IN lists go back to an Unwind each.
+          auto &branch = branches.front();
+          if (branch.IsLabelOnly()) {
+            return ScanByIndexResult{std::make_unique<ScanAllByLabel>(input, node_symbol, branch.label, view),
+                                     std::move(metadata)};
+          }
+          for (auto const &slot : branch.membership_slots) {
+            input = std::make_shared<Unwind>(std::move(input), slot.list, slot.symbol);
+          }
+          auto scan = std::make_unique<ScanAllByLabelProperties>(input,
+                                                                 node_symbol,
+                                                                 branch.label,
+                                                                 std::move(branch.properties),
+                                                                 std::move(branch.expression_ranges),
+                                                                 view);
+          scan->index_order_ = branch.index_order;
+          return ScanByIndexResult{std::move(scan), std::move(metadata)};
         }
         return ScanByIndexResult{
             std::make_unique<ScanAllByIndexDisjunction>(input, node_symbol, std::move(branches), view),
