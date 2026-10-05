@@ -17,9 +17,9 @@
 #include "query/frontend/semantic/symbol.hpp"
 
 namespace memgraph::query {
-class NamedExpression : public memgraph::query::Tree,
+class NamedExpression : public utils::Visitable<ExpressionVisitor<TypedValue>>,
+                        public memgraph::query::Tree,
                         public utils::Visitable<HierarchicalTreeVisitor>,
-                        public utils::Visitable<ExpressionVisitor<TypedValue>>,
                         public utils::Visitable<ExpressionVisitor<TypedValue const *>>,
                         public utils::Visitable<ExpressionVisitor<void>> {
  public:
