@@ -17,9 +17,12 @@
 namespace memgraph::query {
 class TypedValue;
 
-class Expression : public memgraph::query::Tree,
+// The evaluator's visitor comes first so it is the primary base and its Accept
+// dispatches without a this-adjusting thunk. It runs per row; the rest run
+// once per query.
+class Expression : public utils::Visitable<ExpressionVisitor<TypedValue>>,
+                   public memgraph::query::Tree,
                    public utils::Visitable<HierarchicalTreeVisitor>,
-                   public utils::Visitable<ExpressionVisitor<TypedValue>>,
                    public utils::Visitable<ExpressionVisitor<TypedValue const *>>,
                    public utils::Visitable<ExpressionVisitor<void>> {
  public:
