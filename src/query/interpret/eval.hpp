@@ -339,8 +339,70 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   using ExpressionVisitor<TypedValue>::Visit;
 
+  /// Evaluates an expression, leaving its value in the slot that expression
+  /// owns, and hands back a reference to it. The caller may read the value
+  /// until it evaluates something else, since that could grow the scratch and
+  /// move what is in it.
+  TypedValue &EvalIntoSlot(Expression *expr) {
+    switch (expr->GetTypeInfo().id) {
+      case utils::TypeId::AST_IDENTIFIER: {
+        auto const position = static_cast<Identifier *>(expr)->symbol_pos_;
+        auto &slot = frame_->EvalSlot(expr->eval_slot_);
+        // Assigning rather than building a value means the slot keeps whatever
+        // storage it already had, which is the whole saving on a frame holding
+        // strings or lists.
+        slot = frame_->elems()[position];
+        return slot;
+      }
+      case utils::TypeId::AST_EQUAL_OPERATOR: {
+        auto &op = *static_cast<EqualOperator *>(expr);
+        return BinaryIntoSlot(
+            expr, op.expression1_, op.expression2_, [](TypedValue &out, TypedValue const &a, TypedValue const &b) {
+              EqualInto(out, a, b);
+            });
+      }
+      case utils::TypeId::AST_AND_OPERATOR: {
+        auto &op = *static_cast<AndOperator *>(expr);
+        auto const &first = EvalIntoSlot(op.expression1_);
+        if (first.IsBool() && !first.ValueBool()) {
+          auto &slot = frame_->EvalSlot(expr->eval_slot_);
+          slot = frame_->EvalSlot(op.expression1_->eval_slot_);
+          return slot;
+        }
+        return BinaryIntoSlot(
+            expr, op.expression1_, op.expression2_, [](TypedValue &out, TypedValue const &a, TypedValue const &b) {
+              out = a && b;
+            });
+      }
+      default: {
+        // Anything not yet taught to write into a slot still answers the old
+        // way, so an unconverted expression costs speed and never correctness.
+        auto value = expr->Accept(*this);
+        auto &slot = frame_->EvalSlot(expr->eval_slot_);
+        slot = std::move(value);
+        return slot;
+      }
+    }
+  }
+
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
+ private:
+  /// Evaluates both operands into their slots, then combines them into this
+  /// node's. The destination is taken before the operand references, because
+  /// taking it can grow the scratch and move what the operands point at.
+  template <typename Combine>
+  TypedValue &BinaryIntoSlot(Expression *expr, Expression *lhs, Expression *rhs, Combine combine) {
+    EvalIntoSlot(lhs);
+    EvalIntoSlot(rhs);
+    auto &slot = frame_->EvalSlot(expr->eval_slot_);
+    auto const &a = frame_->EvalSlot(lhs->eval_slot_);
+    auto const &b = frame_->EvalSlot(rhs->eval_slot_);
+    combine(slot, a, b);
+    return slot;
+  }
+
+ public:
   /// A query that opened no storage transaction evaluates with no accessor. No vertex, edge or path can
   /// exist in one, since those come from a scan, an expand, or a procedure holding a graph, so the sites
   /// below are unreachable rather than merely unused. They check instead of relying on that.
