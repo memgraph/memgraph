@@ -384,6 +384,11 @@ add_unit_test(query_slot_eval
     LINK_TARGETS mg-query disk_test_utils
 )
 
+add_unit_test(query_expression_fuzz
+    SOURCES query_expression_fuzz.cpp
+    LINK_TARGETS mg-query typed_value_shapes disk_test_utils
+)
+
 add_unit_test(query_graph_free
     SOURCES query_graph_free.cpp
     LINK_TARGETS mg-query

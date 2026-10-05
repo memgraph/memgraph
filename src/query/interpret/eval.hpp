@@ -382,7 +382,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         auto &slot = frame_->EvalSlot(expr->eval_slot_);
         auto const &a = frame_->EvalSlot(left);
         auto const &b = frame_->EvalSlot(op.expression2_->eval_slot_);
-        slot = a && b;
+        // The operator complains in its own words; a query has always been
+        // told the clause's. Translating here keeps the two paths saying the
+        // same thing for the same operands.
+        try {
+          slot = a && b;
+        } catch (TypedValueException const &) {
+          throw QueryRuntimeException("Invalid types: {} and {} for AND.", a.type(), b.type());
+        }
         return slot;
       }
       default: {
