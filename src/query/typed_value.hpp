@@ -801,4 +801,13 @@ void from_json(nlohmann::json const &j, TypedValue &value);
 void to_json(nlohmann::json &j, TypedValue::TVector const &value);
 void to_json(nlohmann::json &j, TypedValue::TMap const &value);
 
+/// Writes `a == b` into `out`. The operator form returns a value the caller
+/// then has to move into place, which costs a TypedValue built and torn down
+/// per operator; writing into a destination the caller already owns lets that
+/// value's storage be reused instead.
+///
+/// `out` may be either operand. It keeps its own allocator, so a destination
+/// built from a query's memory stays on that memory whatever it is handed.
+void EqualInto(TypedValue &out, const TypedValue &a, const TypedValue &b);
+
 }  // namespace memgraph::query

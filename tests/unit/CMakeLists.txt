@@ -379,6 +379,11 @@ add_unit_test(query_eval_slot_liveness
     LINK_TARGETS mg-query
 )
 
+add_unit_test(query_typed_value_in_place
+    SOURCES query_typed_value_in_place.cpp
+    LINK_TARGETS mg-query typed_value_shapes
+)
+
 add_unit_test(query_graph_free
     SOURCES query_graph_free.cpp
     LINK_TARGETS mg-query
