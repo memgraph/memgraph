@@ -20,6 +20,7 @@
 #include <unordered_set>
 
 #include "query/frontend/ast/query/expression.hpp"
+#include "query/frontend/semantic/symbol.hpp"
 
 namespace memgraph::query {
 class AstStorage;
@@ -37,6 +38,15 @@ struct ExpressionRemovalResult {
 };
 
 /// A membership list lowered to an Unwind for a per-element index scan.
+/// toSet(coalesce(list_expr, [])) and a fresh symbol, with an identifier mapped to it, for each of its elements.
+struct MembershipList {
+  Expression *deduped;
+  Symbol symbol;
+  Identifier *element;
+};
+
+MembershipList MakeMembershipList(SymbolTable &symbol_table, AstStorage *ast_storage, Expression *list_expr);
+
 struct UnwoundMembershipList {
   /// Unwind(toSet(coalesce(list, []))) wrapping the caller's input.
   std::shared_ptr<LogicalOperator> op;
