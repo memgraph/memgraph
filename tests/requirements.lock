@@ -160,7 +160,7 @@ pyflakes==3.4.0
     # via flake8
 pygments==2.21.0
     # via pytest
-pyjwt==2.13.0
+pyjwt==2.15.1
     # via
     #   -r requirements.txt
     #   msal

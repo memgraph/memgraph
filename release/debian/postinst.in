@@ -97,7 +97,7 @@ case "$1" in
                 elif [ "$pyminor" -eq 13 ]; then
                     numpy_version="2.1.0"; scipy_version="1.15.0"
                 fi
-                pip_packages="cryptography==49.0.0 PyJWT==2.13.0 requests==2.32.5 \
+                pip_packages="cryptography==50.0.0 PyJWT==2.15.1 requests==2.34.2 \
     ldap3==2.6 pyyaml==$pyyaml_version python3-saml==1.16.0 lxml==6.1.0 \
     xmlsec==$xmlsec_version numpy==$numpy_version scipy==$scipy_version \
     networkx==3.4.2"
