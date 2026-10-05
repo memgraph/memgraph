@@ -381,11 +381,9 @@ auto ParseAndMigrateJson(std::string_view str) {
   return data;
 }
 
-// Validates an auth module's response object and, on a successful authentication, returns the role names it reports.
-// Returns nullopt if the module did not authenticate, the response is malformed, or no role was returned. This is the
-// portion of the module contract shared by the data-instance path (auth::Authenticate / auth::SSOAuthenticate, via
-// Auth::ResolveModuleResponse, which additionally validates the roles against the auth kvstore) and the coordinator
-// path (auth::SSOGetIdentity, which validates them against the Raft-replicated coordinator role set instead).
+// Returns the role names of a successful auth-module response; nullopt if not authenticated, malformed, or no roles.
+// Shared by Auth::ResolveModuleResponse (data instances; roles checked in kvstore) and auth::SSOGetIdentity
+// (coordinator).
 std::optional<std::vector<std::string>> ExtractAuthenticatedRoleNames(const nlohmann::json &ret) {
   auto get_errors = [&ret]() -> std::string {
     std::string default_error = "Couldn't authenticate user: check stderr for auth module error messages.";
@@ -1528,7 +1526,7 @@ std::optional<UserOrRole> Authenticate(SynchedAuth &auth, const std::string &use
     return auth.ReadLock()->ResolveModuleResponse(*ret, username);
   }
   // Local password auth: GetUser under a read lock, then bcrypt runs with no lock held.
-  auto user = auth.ReadLock()->GetUser(username);  // lock released at end of statement
+  auto user = auth.ReadLock()->GetUser(username);
   if (!user) {
     spdlog::warn(utils::MessageWithLink(
         "Couldn't authenticate user '{}' because the user doesn't exist.", username, "https://memgr.ph/auth"));
@@ -1539,11 +1537,10 @@ std::optional<UserOrRole> Authenticate(SynchedAuth &auth, const std::string &use
         "Couldn't authenticate user '{}' because the password is not correct.", username, "https://memgr.ph/auth"));
     return std::nullopt;
   }
-  // Hash upgrade: capture the pre-upgrade hash to detect a concurrent upgrade by another login, SET PASSWORD or
-  // replica recovery.
   auto const hash_before_upgrade = user->password_hash();
   if (user->UpgradeHash(password)) {
-    // UpgradeHash already salted-and-hashed the local copy; reuse that hash so nothing is hashed under the lock.
+    // Reuse the locally computed hash (nothing hashed under the lock); write only if the stored hash is unchanged since
+    // read, so a concurrent login, SET PASSWORD or replica recovery isn't overwritten.
     auto locked = auth.Lock();
     auto current = locked->GetUser(username);
     if (current && current->password_hash() == hash_before_upgrade) {

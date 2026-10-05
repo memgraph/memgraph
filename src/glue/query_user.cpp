@@ -25,7 +25,6 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
     return true;
   }
   auto locked_auth = auth_->ReadLock();
-  // Update if behind
   if (!locked_auth->UpToDate(auth_epoch_)) {
     if (user_) user_ = locked_auth->GetUser(user_->username());
     if (roles_) {
