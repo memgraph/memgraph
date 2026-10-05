@@ -10648,8 +10648,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     bool system_queries = utils::Downcast<AuthQuery>(parsed_query.query) ||
                           utils::Downcast<MultiDatabaseQuery>(parsed_query.query) ||
                           utils::Downcast<ReplicationQuery>(parsed_query.query) ||
-                          (user_profile_query != nullptr && IsUserProfileWrite(user_profile_query->action_)) ||
-                          (tenant_profile_query != nullptr && IsTenantProfileWrite(tenant_profile_query->action_)) ||
+                          (!in_explicit_transaction_ && user_profile_query != nullptr &&
+                           IsUserProfileWrite(user_profile_query->action_)) ||
+                          (!in_explicit_transaction_ && tenant_profile_query != nullptr &&
+                           IsTenantProfileWrite(tenant_profile_query->action_)) ||
                           utils::Downcast<ParameterQuery>(parsed_query.query);
 
 #ifdef MG_ENTERPRISE
