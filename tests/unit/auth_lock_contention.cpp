@@ -9,22 +9,27 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Pins auth lock-narrowing: (a) session_long_policy is lock-free; (b) up_to_date_policy and
-// CanImpersonate take ReadLock, not the exclusive lock; (c) Authenticate takes ReadLock for
-// GetUser, bcrypt runs lock-free; (d) legacy SHA256 hash upgrade persists.
+// Pins auth lock-narrowing: (a) session_long_policy takes no auth lock; (b) up_to_date_policy, CanImpersonate,
+// Authenticate and CREATE USER of an existing name take no exclusive lock; (c) CREATE USER is atomic under
+// concurrency; (d) legacy SHA256 hash upgrade persists.
+
+#include <unistd.h>
 
 #include <chrono>
+#include <cstdint>
+#include <filesystem>
 #include <future>
 #include <latch>
+#include <optional>
 #include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
 #include "auth/auth.hpp"
-#include "auth/crypto.hpp"
 #include "auth/models.hpp"
 #include "auth_test_utils.hpp"
-#include "glue/auth_global.hpp"
+#include "glue/auth_handler.hpp"
 #include "glue/query_user.hpp"
 #include "license/license.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
@@ -39,6 +44,57 @@ namespace mg = memgraph;
 using mg::query::AuthQuery;
 
 namespace {
+
+constexpr auto kBound = std::chrono::seconds(10);
+
+enum class LockMode : uint8_t { kShared, kExclusive };
+
+// Holds an auth lock on a background thread until Release() or destruction.
+class LockHolder {
+ public:
+  LockHolder(mg::auth::SynchedAuth &auth, LockMode mode)
+      : future_{std::async(std::launch::async, [this, &auth, mode] {
+          if (mode == LockMode::kShared) {
+            auto const guard = auth.ReadLock();
+            Hold();
+          } else {
+            auto const guard = auth.Lock();
+            Hold();
+          }
+        })} {
+    held_.wait();
+  }
+
+  ~LockHolder() { Release(); }
+
+  LockHolder(const LockHolder &) = delete;
+  LockHolder &operator=(const LockHolder &) = delete;
+
+  void Release() {
+    if (!future_.valid()) return;
+    release_.count_down();
+    future_.get();
+  }
+
+ private:
+  void Hold() {
+    held_.count_down();
+    release_.wait();
+  }
+
+  std::latch held_{1};
+  std::latch release_{1};
+  std::future<void> future_;
+};
+
+// Waits (bounded) for every future, then releases the holder so a blocked op can finish before its future's
+// destructor joins it.
+template <typename... Ts>
+bool CompleteWhileHeld(LockHolder &holder, std::future<Ts> &...futures) {
+  bool const all_ready = ((futures.wait_for(kBound) == std::future_status::ready) && ...);
+  holder.Release();
+  return all_ready;
+}
 
 class AuthLockContention : public ::testing::Test {
  protected:
@@ -59,6 +115,7 @@ class AuthLockContention : public ::testing::Test {
                                             &resources_
 #endif
   };
+  mg::glue::AuthQueryHandler auth_handler_{&*auth};
 
   void SetUp() override {
     mg::utils::EnsureDir(test_folder_);
@@ -67,25 +124,16 @@ class AuthLockContention : public ::testing::Test {
 
   void TearDown() override { std::filesystem::remove_all(test_folder_); }
 
-  mg::glue::QueryUserOrRole MakeGrantedUser(const std::string &username) {
+  // The user is persisted by AddUser; the grant is only added when requested.
+  mg::glue::QueryUserOrRole MakeUser(const std::string &username, bool grant_match) {
     {
       auto locked = auth->Lock();
       auto user = AddUser(*locked, username);
       EXPECT_TRUE(user.has_value());
-      user->permissions().Grant(mg::auth::Permission::MATCH);
-      locked->SaveUser(*user);
-    }
-    auto stored = auth->ReadLock()->GetUser(username);
-    EXPECT_TRUE(stored.has_value());
-    return mg::glue::QueryUserOrRole{&*auth, mg::auth::UserOrRole{std::move(*stored)}};
-  }
-
-  mg::glue::QueryUserOrRole MakeDeniedUser(const std::string &username) {
-    {
-      auto locked = auth->Lock();
-      auto user = AddUser(*locked, username);
-      EXPECT_TRUE(user.has_value());
-      // No grants: AddUser already persisted the user with empty permissions.
+      if (grant_match) {
+        user->permissions().Grant(mg::auth::Permission::MATCH);
+        locked->SaveUser(*user);
+      }
     }
     auto stored = auth->ReadLock()->GetUser(username);
     EXPECT_TRUE(stored.has_value());
@@ -97,67 +145,42 @@ class AuthLockContention : public ::testing::Test {
 
 // ReadLock is shared-compatible with an existing ReadLock — up_to_date_policy must complete.
 TEST_F(AuthLockContention, IsAuthorizedUpToDatePolicyCompletesUnderReadLock) {
-  auto subject = MakeGrantedUser("match_user");
+  auto subject = MakeUser("match_user", true);
 
-  std::latch lock_held{1};
-  std::latch op_done{1};
-
-  auto holder = std::async(std::launch::async, [&] {
-    auto guard = auth->ReadLock();
-    lock_held.count_down();
-    op_done.wait();
-  });
-
-  lock_held.wait();
-
-  auto op_fut = std::async(std::launch::async, [&] {
+  LockHolder holder{*auth, LockMode::kShared};
+  auto fut = std::async(std::launch::async, [&] {
     return subject.IsAuthorized({AuthQuery::Privilege::MATCH}, std::nullopt, &mg::query::up_to_date_policy);
   });
 
-  auto status = op_fut.wait_for(std::chrono::seconds(10));
-  op_done.count_down();  // always release the holder so its latch is never destroyed while blocked
-  holder.get();
-
-  ASSERT_EQ(status, std::future_status::ready) << "IsAuthorized(up_to_date_policy) blocked under ReadLock";
-  EXPECT_TRUE(op_fut.get());
+  ASSERT_TRUE(CompleteWhileHeld(holder, fut)) << "IsAuthorized(up_to_date_policy) blocked under ReadLock";
+  EXPECT_TRUE(fut.get());
 }
 
-// session_long_policy reads only the cached principal — must complete under an exclusive write lock.
+// session_long_policy reads only the cached principal — must complete under an exclusive write lock, including for
+// an anonymous session that has no cached principal.
 TEST_F(AuthLockContention, SessionLongPolicyIsLockFreeUnderExclusiveLock) {
-  auto granted = MakeGrantedUser("granted_user");
-  auto denied = MakeDeniedUser("denied_user");
+  auto granted = MakeUser("granted_user", true);
+  auto denied = MakeUser("denied_user", false);
+  mg::glue::QueryUserOrRole anonymous{&*auth};
 
-  std::latch lock_held{1};
-  std::latch op_done{1};
+  LockHolder holder{*auth, LockMode::kExclusive};
+  auto const authorized = [](mg::glue::QueryUserOrRole &subject) {
+    return std::async(std::launch::async, [&subject] {
+      return subject.IsAuthorized({AuthQuery::Privilege::MATCH}, std::nullopt, &mg::query::session_long_policy);
+    });
+  };
+  auto granted_fut = authorized(granted);
+  auto denied_fut = authorized(denied);
+  auto anonymous_fut = authorized(anonymous);
 
-  auto holder = std::async(std::launch::async, [&] {
-    auto guard = auth->Lock();
-    lock_held.count_down();
-    op_done.wait();
-  });
-
-  lock_held.wait();
-
-  auto granted_fut = std::async(std::launch::async, [&] {
-    return granted.IsAuthorized({AuthQuery::Privilege::MATCH}, std::nullopt, &mg::query::session_long_policy);
-  });
-  auto denied_fut = std::async(std::launch::async, [&] {
-    return denied.IsAuthorized({AuthQuery::Privilege::MATCH}, std::nullopt, &mg::query::session_long_policy);
-  });
-
-  auto gs = granted_fut.wait_for(std::chrono::seconds(10));
-  auto ds = denied_fut.wait_for(std::chrono::seconds(10));
-
-  op_done.count_down();
-  holder.get();
-
-  ASSERT_EQ(gs, std::future_status::ready) << "session_long_policy (granted) blocked under exclusive lock";
-  ASSERT_EQ(ds, std::future_status::ready) << "session_long_policy (denied) blocked under exclusive lock";
+  ASSERT_TRUE(CompleteWhileHeld(holder, granted_fut, denied_fut, anonymous_fut))
+      << "session_long_policy blocked under exclusive lock";
   EXPECT_TRUE(granted_fut.get());
   EXPECT_FALSE(denied_fut.get());
+  EXPECT_TRUE(anonymous_fut.get());
 }
 
-// Authenticate takes ReadLock for GetUser; bcrypt runs lock-free — must complete under ReadLock.
+// Authenticate takes no exclusive lock on the success and failure paths — must complete under ReadLock.
 TEST_F(AuthLockContention, AuthenticateFreeFunctionCompletesUnderReadLock) {
   {
     auto locked = auth->Lock();
@@ -167,30 +190,72 @@ TEST_F(AuthLockContention, AuthenticateFreeFunctionCompletesUnderReadLock) {
     locked->SaveUser(*user);
   }
 
-  std::latch lock_held{1};
-  std::latch op_done{1};
-
-  auto holder = std::async(std::launch::async, [&] {
-    auto guard = auth->ReadLock();
-    lock_held.count_down();
-    op_done.wait();
-  });
-
-  lock_held.wait();
-
+  LockHolder holder{*auth, LockMode::kShared};
   auto ok_fut = std::async(std::launch::async, [&] { return mg::auth::Authenticate(*auth, "alice", "secret"); });
   auto bad_fut = std::async(std::launch::async, [&] { return mg::auth::Authenticate(*auth, "alice", "wrong"); });
 
-  auto ok_s = ok_fut.wait_for(std::chrono::seconds(10));
-  auto bad_s = bad_fut.wait_for(std::chrono::seconds(10));
-
-  op_done.count_down();
-  holder.get();
-
-  ASSERT_EQ(ok_s, std::future_status::ready) << "Authenticate (correct pw) blocked under ReadLock";
-  ASSERT_EQ(bad_s, std::future_status::ready) << "Authenticate (wrong pw) blocked under ReadLock";
+  ASSERT_TRUE(CompleteWhileHeld(holder, ok_fut, bad_fut)) << "Authenticate blocked under ReadLock";
   EXPECT_TRUE(ok_fut.get().has_value());
   EXPECT_FALSE(bad_fut.get().has_value());
+}
+
+// CREATE USER of an existing name is decided under the shared lock — no exclusive lock is taken.
+TEST_F(AuthLockContention, CreateExistingUserCompletesUnderReadLock) {
+  ASSERT_TRUE(auth_handler_.CreateUser("existing", std::nullopt, nullptr).created);
+
+  LockHolder holder{*auth, LockMode::kShared};
+  auto fut = std::async(std::launch::async, [&] { return auth_handler_.CreateUser("existing", "password1", nullptr); });
+
+  ASSERT_TRUE(CompleteWhileHeld(holder, fut)) << "CreateUser of an existing name blocked under ReadLock";
+  auto const result = fut.get();
+  EXPECT_FALSE(result.created);
+  EXPECT_FALSE(result.first_user);
+}
+
+// Passwords are hashed outside the lock, so racing creators all reach the exclusive phase; only one may win.
+TEST_F(AuthLockContention, ConcurrentCreateUserSameNameCreatesOnce) {
+  constexpr int kThreads = 8;
+  std::latch start{kThreads};
+  std::vector<std::future<mg::query::CreateUserResult>> futures;
+  futures.reserve(kThreads);
+  for (int i = 0; i < kThreads; ++i) {
+    futures.push_back(std::async(std::launch::async, [&] {
+      start.arrive_and_wait();
+      return auth_handler_.CreateUser("racer", "password1", nullptr);
+    }));
+  }
+
+  int created = 0;
+  for (auto &f : futures) {
+    ASSERT_EQ(f.wait_for(kBound), std::future_status::ready);
+    created += f.get().created ? 1 : 0;
+  }
+  EXPECT_EQ(created, 1);
+}
+
+// first_user is decided under the exclusive lock: of N racing creators on an empty auth, exactly one is first.
+TEST_F(AuthLockContention, ConcurrentCreateUserDifferentNamesHasOneFirstUser) {
+  constexpr int kThreads = 8;
+  std::latch start{kThreads};
+  std::vector<std::future<mg::query::CreateUserResult>> futures;
+  futures.reserve(kThreads);
+  for (int i = 0; i < kThreads; ++i) {
+    futures.push_back(std::async(std::launch::async, [&, name = "user" + std::to_string(i)] {
+      start.arrive_and_wait();
+      return auth_handler_.CreateUser(name, "password1", nullptr);
+    }));
+  }
+
+  int created = 0;
+  int first = 0;
+  for (auto &f : futures) {
+    ASSERT_EQ(f.wait_for(kBound), std::future_status::ready);
+    auto const result = f.get();
+    created += result.created ? 1 : 0;
+    first += result.first_user ? 1 : 0;
+  }
+  EXPECT_EQ(created, kThreads);
+  EXPECT_EQ(first, 1);
 }
 
 // Authenticate upgrades a legacy unsalted SHA256 hash to salted bcrypt and persists it.
@@ -220,7 +285,7 @@ TEST_F(AuthLockContention, LegacyHashUpgradePersists) {
 }
 
 #ifdef MG_ENTERPRISE
-// CanImpersonate takes ReadLock internally — must complete while another thread holds ReadLock.
+// CanImpersonate takes no exclusive lock — must complete while another thread holds ReadLock.
 TEST_F(AuthLockContention, CanImpersonateCompletesUnderReadLock) {
   {
     auto locked = auth->Lock();
@@ -239,43 +304,11 @@ TEST_F(AuthLockContention, CanImpersonateCompletesUnderReadLock) {
   ASSERT_TRUE(stored_imp.has_value());
   mg::glue::QueryUserOrRole subject{&*auth, mg::auth::UserOrRole{std::move(*stored_imp)}};
 
-  std::latch lock_held{1};
-  std::latch op_done{1};
-
-  auto holder = std::async(std::launch::async, [&] {
-    auto guard = auth->ReadLock();
-    lock_held.count_down();
-    op_done.wait();
-  });
-
-  lock_held.wait();
-
-  auto impersonate_fut =
+  LockHolder holder{*auth, LockMode::kShared};
+  auto fut =
       std::async(std::launch::async, [&] { return subject.CanImpersonate("target", &mg::query::up_to_date_policy); });
 
-  auto status = impersonate_fut.wait_for(std::chrono::seconds(10));
-  op_done.count_down();
-  holder.get();
-
-  ASSERT_EQ(status, std::future_status::ready) << "CanImpersonate blocked under ReadLock";
-  EXPECT_TRUE(impersonate_fut.get());
-}
-
-// A default database that is no longer contained (GRANT narrowed access after SET MAIN) must still be cleared.
-TEST_F(AuthLockContention, DeleteDatabaseClearsUncontainedMain) {
-  {
-    auto locked = auth->Lock();
-    auto user = AddUser(*locked, "alice");
-    ASSERT_TRUE(user.has_value());
-    user->db_access().GrantAll();
-    ASSERT_TRUE(user->db_access().SetMain("x"));
-    user->db_access().Grant("y");
-    locked->SaveUser(*user);
-    locked->DeleteDatabase("x");
-  }
-
-  auto stored = auth->ReadLock()->GetUser("alice");
-  ASSERT_TRUE(stored.has_value());
-  EXPECT_FALSE(stored->db_access().IsMain("x"));
+  ASSERT_TRUE(CompleteWhileHeld(holder, fut)) << "CanImpersonate blocked under ReadLock";
+  EXPECT_TRUE(fut.get());
 }
 #endif  // MG_ENTERPRISE

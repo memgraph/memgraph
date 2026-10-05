@@ -26,7 +26,7 @@ inline std::optional<User> AddUser(Auth &auth, const std::string &username,
                                    system::Transaction *system_tx = nullptr) {
   auth.ValidateName(username);
   if (auth.GetUser(username)) return std::nullopt;
-  if (!Auth::IsUserDefinedHash(password)) auth.ValidatePassword(password);
+  auth.ValidatePassword(password);
   return auth.AddUserWithHash(username, Auth::ComputePasswordHash(password), system_tx);
 }
 

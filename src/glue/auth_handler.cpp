@@ -515,46 +515,32 @@ query::CreateUserResult AuthQueryHandler::CreateUser(const std::string &username
                                                      system::Transaction *system_tx) {
   try {
     // Bcrypt runs with no auth lock; state and policy are re-checked under the exclusive lock.
-    bool const user_defined = auth::Auth::IsUserDefinedHash(password);
-    bool existed = false;
     {
       auto const locked = auth_->ReadLock();
       locked->ValidateName(username);
-      existed = locked->HasUser(username);
-      if (!existed && !user_defined) locked->ValidatePassword(password);
+      if (locked->GetUser(username)) return {.created = false, .first_user = false};
+      locked->ValidatePassword(password);
     }
 
-    std::optional<auth::HashedPassword> hash;
-    if (!existed) hash = auth::Auth::ComputePasswordHash(password);
-    bool hashed = !existed;
+    auto hash = auth::Auth::ComputePasswordHash(password);
 
-    for (;;) {
-      {
-        auto locked_auth = auth_->Lock();
-        const auto first_user = !locked_auth->HasUsers();
-        const bool present = locked_auth->HasUser(username);
-        if (!present && !user_defined) locked_auth->ValidatePassword(password);
+    auto locked_auth = auth_->Lock();
+    const auto first_user = !locked_auth->HasUsers();
+    if (locked_auth->GetUser(username)) return {.created = false, .first_user = false};
+    locked_auth->ValidatePassword(password);
 
-        if (present || hashed) {
-          auto new_user = locked_auth->AddUserWithHash(username, std::move(hash), system_tx);
-          if (first_user && new_user) {
+    auto new_user = locked_auth->AddUserWithHash(username, std::move(hash), system_tx);
+    if (first_user && new_user) {
 #ifdef MG_ENTERPRISE
-            bool const builtin_roles_created = locked_auth->CreateBuiltinRoles(system_tx);
-            locked_auth->InitialiseFirstUser(*new_user, system_tx);
-            return {.created = new_user.has_value(),
-                    .first_user = first_user,
-                    .builtin_roles_created = builtin_roles_created};
+      bool const builtin_roles_created = locked_auth->CreateBuiltinRoles(system_tx);
+      locked_auth->InitialiseFirstUser(*new_user, system_tx);
+      return {
+          .created = new_user.has_value(), .first_user = first_user, .builtin_roles_created = builtin_roles_created};
 #else
-            locked_auth->InitialiseFirstUser(*new_user, system_tx);
+      locked_auth->InitialiseFirstUser(*new_user, system_tx);
 #endif
-          }
-          return {.created = new_user.has_value(), .first_user = first_user};
-        }
-      }
-      // User was dropped between the read and write phases: hash outside the lock, then retry.
-      hash = auth::Auth::ComputePasswordHash(password);
-      hashed = true;
     }
+    return {.created = new_user.has_value(), .first_user = first_user};
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -576,13 +562,12 @@ void AuthQueryHandler::SetPassword(const std::string &username, const std::optio
                                    system::Transaction *system_tx) {
   try {
     // Bcrypt runs with no auth lock; state and policy are re-checked under the exclusive lock.
-    bool const user_defined = auth::Auth::IsUserDefinedHash(password);
     {
       auto r = auth_->ReadLock();
       if (!r->GetUser(username)) {
         throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
       }
-      if (!user_defined) r->ValidatePassword(password);
+      r->ValidatePassword(password);
     }
     std::optional<auth::HashedPassword> hash = auth::Auth::ComputePasswordHash(password);
     auto locked_auth = auth_->Lock();
@@ -590,7 +575,7 @@ void AuthQueryHandler::SetPassword(const std::string &username, const std::optio
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    if (!user_defined) locked_auth->ValidatePassword(password);
+    locked_auth->ValidatePassword(password);
     user->SetPasswordHash(std::move(hash));
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
@@ -604,32 +589,29 @@ void AuthQueryHandler::ChangePassword(const std::string &username, const std::op
     // bcrypt runs without the auth lock; if the stored hash changed meanwhile, the old password is re-verified under
     // the lock.
     std::optional<auth::User> user_snap;
-    std::optional<auth::HashedPassword> hash_before;
     {
       auto r = auth_->ReadLock();
       user_snap = r->GetUser(username);
       if (!user_snap) {
         throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
       }
-      hash_before = user_snap->password_hash();
     }
     if (!user_snap->CheckPasswordExplicit(*oldPassword)) {
       throw memgraph::query::QueryRuntimeException("Old password is not correct.");
     }
-    bool const user_defined = auth::Auth::IsUserDefinedHash(newPassword);
     std::optional<auth::HashedPassword> hash = auth::Auth::ComputePasswordHash(newPassword);
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    if (user->password_hash() != hash_before) {
+    if (user->password_hash() != user_snap->password_hash()) {
       // Rare: hash upgraded concurrently (e.g. legacy→salted); re-verify before rejecting.
       if (!user->CheckPasswordExplicit(*oldPassword)) {
         throw memgraph::query::QueryRuntimeException("Old password is not correct.");
       }
     }
-    if (!user_defined) locked_auth->ValidatePassword(newPassword);
+    locked_auth->ValidatePassword(newPassword);
     user->SetPasswordHash(std::move(hash));
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {

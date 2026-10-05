@@ -78,7 +78,7 @@ struct Trigger {
 
   struct PlanResult {
     std::shared_ptr<TriggerPlan> plan;
-    // Point-in-time snapshot; no plan_lock_ needed after return.
+    // DEFINER: private clone of the creator taken under plan_lock_; INVOKER: the caller's own principal.
     std::shared_ptr<QueryUserOrRole> effective_principal;
   };
 

@@ -190,14 +190,11 @@ class Auth final {
    */
   bool RemoveUser(const std::string &username, system::Transaction *system_tx = nullptr);
 
-  /// Validates plaintext password against current policy; throws AuthException on violation.
+  /// Throws AuthException if the password violates the policy; pre-hashed literals are exempt.
   void ValidatePassword(const std::optional<std::string> &password) const;
 
   /// Validates a name against the configured regex; throws AuthException on mismatch.
   void ValidateName(const std::string &name) const;
-
-  /// Returns true when password is a recognised pre-hashed encoding; never blocks on bcrypt, no FIPS check.
-  static bool IsUserDefinedHash(const std::optional<std::string> &password);
 
   /// Hashes password with no auth-state access; safe to call with no lock held.
   static std::optional<HashedPassword> ComputePasswordHash(const std::optional<std::string> &password);

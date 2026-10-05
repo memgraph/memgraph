@@ -569,8 +569,9 @@ class Databases final {
    * @note allow_all_ is not changed
    *
    * @param db name of the database to grant access to
+   * @return true iff any field changed
    */
-  void Revoke(const std::string &db);
+  bool Revoke(const std::string &db);
 
   /**
    * @brief Set allow_all_ to true and clears grants and denied sets.
@@ -603,8 +604,6 @@ class Databases final {
   bool Denies(std::string_view db_name) const { return denies_dbs_.contains(db_name); }
 
   bool Grants(std::string_view db_name) const { return allow_all_ || grants_dbs_.contains(db_name); }
-
-  bool IsMain(std::string_view db) const { return main_db_ == db; }
 
   bool GetAllowAll() const { return allow_all_; }
 

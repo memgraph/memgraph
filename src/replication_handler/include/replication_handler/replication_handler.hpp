@@ -117,6 +117,8 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
       conn_guard.emplace(client.rpc_client_.LockConnection());
       if constexpr (REQUIRE_LOCK) {
         // A system tx still committing may already have delivered part of its deltas; retry once it is done.
+        // A tx beginning after this probe may already be in the auth snapshot; its deltas, queued behind the held
+        // connection, are re-applied after recovery, which is safe because replica auth deltas are idempotent.
         if (system.TransactionInFlight()) {
           client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
           return;

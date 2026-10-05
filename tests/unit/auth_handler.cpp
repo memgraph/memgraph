@@ -3670,3 +3670,24 @@ TEST_F(AuthQueryHandlerFixture, FipsLegacyHashLiteralReportsSameErrorsAsBeforeHa
   EXPECT_THAT(message_of([&] { auth_handler.CreateUser("bob", literal, nullptr); }),
               testing::HasSubstr("not permitted in FIPS mode"));
 }
+
+// A wrong old password is reported before the new password is checked against the policy.
+TEST_F(AuthQueryHandlerFixture, ChangePasswordWrongOldPasswordReportedBeforeWeakNewPassword) {
+  memgraph::auth::SynchedAuth strict_auth{
+      test_folder_ / "strict_policy",
+      memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, "^.{12,}$", true}
+#ifdef MG_ENTERPRISE
+      ,
+      &resources
+#endif
+  };
+  memgraph::glue::AuthQueryHandler strict_handler{&strict_auth};
+  ASSERT_TRUE(strict_handler.CreateUser("alice", "a-long-enough-password", nullptr).created);
+
+  try {
+    strict_handler.ChangePassword("alice", "wrong-old-password", "weak", nullptr);
+    FAIL() << "expected QueryRuntimeException";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_STREQ(e.what(), "Old password is not correct.");
+  }
+}

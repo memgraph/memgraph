@@ -19,13 +19,14 @@ namespace memgraph::glue {
 bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
                                    std::optional<std::string_view> db_name, query::UserPolicy *policy) const {
   // The session-long policy only consults the cached principal; no Auth state is read.
-  if (!policy->DoUpdate() && (user_ || roles_)) {
+  if (!policy->DoUpdate()) {
     if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
-    return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
+    if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
+    return true;
   }
   auto locked_auth = auth_->ReadLock();
-  // Check policy and update if behind (and policy permits it)
-  if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
+  // Update if behind
+  if (!locked_auth->UpToDate(auth_epoch_)) {
     if (user_) user_ = locked_auth->GetUser(user_->username());
     if (roles_) {
       // For backward compatibility, update the first role
@@ -44,7 +45,7 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
   if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
   if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
 
-  return !policy->DoUpdate() || !locked_auth->AccessControlled();
+  return !locked_auth->AccessControlled();
 }
 
 std::shared_ptr<query::QueryUserOrRole> QueryUserOrRole::clone() const {

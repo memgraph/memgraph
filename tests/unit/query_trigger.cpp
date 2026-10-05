@@ -41,6 +41,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/gatekeeper.hpp"
 #include "utils/memory.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace {
 const std::unordered_set<memgraph::query::TriggerEventType> kAllEventTypes{
@@ -1904,6 +1905,11 @@ TEST(TriggerDefinerConcurrency, ConcurrentExecutionsDoNotShareCreator) {
 
   const auto data_directory = std::filesystem::temp_directory_path() / "MG_test_unit_query_trigger_definer_race";
   std::filesystem::remove_all(data_directory);
+  // Declared before the database so cleanup runs after it is destroyed, including on an early ASSERT.
+  const memgraph::utils::OnScopeExit cleanup{[&] {
+    memgraph::license::global_license_checker.DisableTesting();
+    std::filesystem::remove_all(data_directory);
+  }};
   memgraph::storage::Config config;
   config.durability.storage_directory = data_directory;
   config.disk.main_storage_directory = data_directory / "disk";
@@ -1981,8 +1987,5 @@ TEST(TriggerDefinerConcurrency, ConcurrentExecutionsDoNotShareCreator) {
   for (const auto *principal : seen) {
     EXPECT_NE(principal, trigger.Creator().get()) << "execution used the shared creator instead of a snapshot";
   }
-
-  memgraph::license::global_license_checker.DisableTesting();
-  std::filesystem::remove_all(data_directory);
 }
 #endif

@@ -481,22 +481,6 @@ std::optional<std::vector<std::string>> ExtractAuthenticatedRoleNames(const nloh
   return role_names;
 }
 
-// Verifies a local user's password with no lock held (bcrypt may be expensive).
-std::optional<auth::User> VerifyLocalPassword(std::optional<auth::User> user, const std::string &username,
-                                              const std::string &password) {
-  if (!user) {
-    spdlog::warn(utils::MessageWithLink(
-        "Couldn't authenticate user '{}' because the user doesn't exist.", username, "https://memgr.ph/auth"));
-    return std::nullopt;
-  }
-  if (!user->CheckPassword(password)) {
-    spdlog::warn(utils::MessageWithLink(
-        "Couldn't authenticate user '{}' because the password is not correct.", username, "https://memgr.ph/auth"));
-    return std::nullopt;
-  }
-  return user;
-}
-
 std::optional<auth::SSOIdentity> ExtractSSOIdentity(const std::string &scheme, const nlohmann::json &ret) {
   auto role_names = ExtractAuthenticatedRoleNames(ret);
   if (!role_names) {
@@ -780,6 +764,7 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
 }
 
 void Auth::ValidatePassword(const std::optional<std::string> &password) const {
+  if (password && IsUserDefinedHashFormat(*password)) return;
   if (!password) {
     if (!config_.password_permit_null) {
       throw AuthException("Null passwords aren't permitted!");
@@ -802,10 +787,6 @@ void Auth::ValidatePassword(const std::optional<std::string> &password) const {
         "\"{}\"",
         config_.password_regex_str);
   }
-}
-
-bool Auth::IsUserDefinedHash(const std::optional<std::string> &password) {
-  return password.has_value() && IsUserDefinedHashFormat(*password);
 }
 
 std::optional<HashedPassword> Auth::ComputePasswordHash(const std::optional<std::string> &password) {
@@ -1366,11 +1347,6 @@ Auth::Result DispatchUserOrRole(Auth &auth, const std::string &name, UserOrRoleT
   }
   return NO_USER_ROLE;
 }
-
-// Returns true iff Databases::Revoke(db) would mutate at least one field.
-bool RevokeChanges(const Databases &dbs, const std::string &db) {
-  return dbs.GetDenies().contains(db) || (!dbs.GetAllowAll() && dbs.GetGrants().contains(db)) || dbs.IsMain(db);
-}
 }  // namespace
 
 Auth::Result Auth::GrantDatabase(const std::string &db, const std::string &name, UserOrRoleType type,
@@ -1462,9 +1438,8 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
     auto username = it->first.substr(kUserPrefix.size());
     try {
       User user = auth::User::Deserialize(ParseAndMigrateJson(it->second));
-      if (!RevokeChanges(user.db_access(), db)) continue;
+      if (!user.db_access().Revoke(db)) continue;
       LinkUser(user);
-      user.db_access().Revoke(db);
       SaveUser(user, system_tx);
     } catch (AuthException &) {
       continue;
@@ -1474,8 +1449,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
     auto rolename = it->first.substr(kRolePrefix.size());
     try {
       auto role = memgraph::auth::Role::Deserialize(ParseAndMigrateJson(it->second));
-      if (!RevokeChanges(role.db_access(), db)) continue;
-      role.db_access().Revoke(db);
+      if (!role.db_access().Revoke(db)) continue;
       LinkRole(role);
       SaveRole(role, system_tx);
     } catch (AuthException &) {
@@ -1554,9 +1528,17 @@ std::optional<UserOrRole> Authenticate(SynchedAuth &auth, const std::string &use
     return auth.ReadLock()->ResolveModuleResponse(*ret, username);
   }
   // Local password auth: GetUser under a read lock, then bcrypt runs with no lock held.
-  auto user_opt = auth.ReadLock()->GetUser(username);  // lock released at end of statement
-  auto user = VerifyLocalPassword(std::move(user_opt), username, password);
-  if (!user) return std::nullopt;
+  auto user = auth.ReadLock()->GetUser(username);  // lock released at end of statement
+  if (!user) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate user '{}' because the user doesn't exist.", username, "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
+  if (!user->CheckPassword(password)) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate user '{}' because the password is not correct.", username, "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
   // Hash upgrade: capture the pre-upgrade hash to detect a concurrent SET PASSWORD or replica recovery.
   auto const hash_before_upgrade = user->password_hash();
   if (user->UpgradeHash(password)) {

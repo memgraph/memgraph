@@ -1142,9 +1142,10 @@ TEST_F(AuthWithStorage, PasswordStrength) {
   const std::string kAlmostStrongPassword = "ThisPasswordMeetsAllButOneCriterion1234";
   const std::string kStrongPassword = "ThisIsAVeryStrongPassword123$";
 
-  // Mirrors the production password-change path: policy check (skipped for pre-hashed input), then hash and set.
+  // Mirrors the production password-change path: policy check (ValidatePassword exempts pre-hashed input), then hash
+  // and set.
   auto const update_password = [this](User &user, const std::optional<std::string> &password) {
-    if (!Auth::IsUserDefinedHash(password)) auth->ValidatePassword(password);
+    auth->ValidatePassword(password);
     user.SetPasswordHash(Auth::ComputePasswordHash(password));
   };
 
@@ -2254,6 +2255,46 @@ TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
     ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, kVertexLabelUpdatePermissions), PermissionLevel::DENY);
     ASSERT_EQ(fga_permissions3.Has(std::array{any_label}, FineGrainedPermission::DELETE), PermissionLevel::DENY);
   }
+}
+
+// A default database that is no longer contained (GRANT narrowed access after SET MAIN) must still be cleared.
+TEST_F(AuthWithStorage, DeleteDatabaseClearsUncontainedMain) {
+  {
+    auto user = AddUser(*auth, "alice");
+    ASSERT_TRUE(user.has_value());
+    user->db_access().GrantAll();
+    ASSERT_TRUE(user->db_access().SetMain("x"));
+    user->db_access().Grant("y");  // narrows access: "x" is still main but no longer contained
+    auth->SaveUser(*user);
+  }
+
+  auth->DeleteDatabase("x");
+
+  auto stored = auth->GetUser("alice");
+  ASSERT_TRUE(stored.has_value());
+  EXPECT_EQ(stored->db_access().Serialize().at("default"), "");
+}
+
+// DROP DATABASE of a database a user has no grant, deny or main for must not rewrite that user's record.
+TEST_F(AuthWithStorage, DeleteDatabaseSkipsUnaffectedUsers) {
+  {
+    auto user = AddUser(*auth, "alice");
+    ASSERT_TRUE(user.has_value());
+    user->db_access().Grant("y");
+    auth->SaveUser(*user);
+  }
+  Auth::Epoch epoch;
+  auth->UpToDate(epoch);
+
+  auth->DeleteDatabase("z");
+  EXPECT_TRUE(auth->UpToDate(epoch)) << "unaffected user was rewritten";
+
+  // Control: an affected database does rewrite the record, so the epoch check above can detect a rewrite.
+  auth->DeleteDatabase("y");
+  EXPECT_FALSE(auth->UpToDate(epoch));
+  auto stored = auth->GetUser("alice");
+  ASSERT_TRUE(stored.has_value());
+  EXPECT_FALSE(stored->db_access().Grants("y"));
 }
 
 TEST(AuthWithFineGrainedTest, NoPermissionsNeededForUnlabelledNodes) {
