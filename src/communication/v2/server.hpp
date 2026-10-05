@@ -12,6 +12,7 @@
 #pragma once
 
 #include <boost/system/detail/errc.hpp>
+#include <memory>
 #include <string>
 
 #include <fmt/format.h>
@@ -22,8 +23,10 @@
 
 #include "communication/accept_retry.hpp"
 #include "communication/context.hpp"
+#include "communication/v2/epoll_poller.hpp"
 #include "communication/v2/pool.hpp"
 #include "communication/v2/session.hpp"
+#include "flags/scheduler.hpp"
 #include "utils/logging.hpp"
 #include "utils/message.hpp"
 
@@ -90,7 +93,16 @@ class Server final {
     spdlog::info("{} shutdown.", service_name_);
   }
 
-  void AwaitShutdown() { io_thread_pool_.AwaitShutdown(); }
+  void AwaitShutdown() {
+    io_thread_pool_.AwaitShutdown();
+    // Called after worker_pool_->AwaitShutdown() (memgraph.cpp), so no session task runs. poller_ lives until ~Server:
+    // closed sessions still hold the raw pointer.
+    if (poller_) {
+      session_context_->worker_pool_->ClearIdlePoller();
+      poller_->CloseAll();
+      poller_->LogStats();
+    }
+  }
 
   bool IsRunning() const noexcept;
 
@@ -125,6 +137,8 @@ class Server final {
   tcp::acceptor acceptor_{io_thread_pool_.GetIOContext()};
   boost::asio::steady_timer retry_timer_{io_thread_pool_.GetIOContext()};
   AcceptRetryLogThrottle accept_log_throttle_;
+  // Plain-TCP sessions move here after their first read; null: sessions stay on asio.
+  std::unique_ptr<EpollPoller> poller_;
 };
 
 template <typename TSession, typename TSessionContext>
@@ -132,6 +146,8 @@ Server<TSession, TSessionContext>::~Server() {
   MG_ASSERT(!IsRunning(), "Server wasn't shutdown properly");
   // Join the io threads before members are destroyed so no handler can touch retry_timer_/acceptor_ after they die.
   io_thread_pool_.AwaitShutdown();
+  // Quiescing detach: no worker or monitor may be inside the poller when it is destroyed.
+  if (poller_ && session_context_->worker_pool_) session_context_->worker_pool_->ClearIdlePoller();
 }
 
 template <typename TSession, typename TSessionContext>
@@ -185,6 +201,14 @@ bool Server<TSession, TSessionContext>::Start() {
     return false;
   }
 
+  if (FLAGS_bolt_integrated_poller && GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR &&
+      session_context_->worker_pool_ && !server_context_->use_ssl()) {
+    MG_ASSERT(!poller_, "Server::Start() must not be called twice; the pool still references the existing poller");
+    poller_ = std::make_unique<EpollPoller>();
+    session_context_->worker_pool_->SetIdlePoller(poller_.get());
+    spdlog::info("{} using the integrated poller", service_name_);
+  }
+
   io_thread_pool_.Run();
   DoAccept();
 
@@ -199,7 +223,8 @@ inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_cod
     return OnAcceptError(ec);
   }
 
-  auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_);
+  auto session =
+      SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_, poller_.get());
   session->Start();
 
   DoAccept();

@@ -11,8 +11,12 @@
 
 #pragma once
 
+#include <fcntl.h>
+#include <poll.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
+#include <atomic>
 #include <cerrno>
 #include <concepts>
 #include <cstddef>
@@ -25,6 +29,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <utility>
 #include <variant>
 
@@ -50,9 +55,11 @@
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
 #include "communication/fmt.hpp"
+#include "communication/v2/epoll_poller.hpp"
 #include "communication/v2/session_registry.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/priorities.hpp"
 #include "utils/priority_thread_pool.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/variant_helpers.hpp"
@@ -104,7 +111,8 @@ class OutputStream final {
  */
 template <typename TSession, typename TSessionContext>
 class Session final : public std::enable_shared_from_this<Session<TSession, TSessionContext>>,
-                      public TerminableSession {
+                      public TerminableSession,
+                      public PollTarget {
   using TCPSocket = tcp::socket;
   using SSLSocket = boost::asio::ssl::stream<TCPSocket>;
   using WebSocket = boost::beast::websocket::stream<boost::beast::tcp_stream>;
@@ -154,6 +162,9 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) {
       return false;
     }
+    if (raw_.load(std::memory_order_acquire)) {
+      return RawWrite_(data, len, have_more);
+    }
     return std::visit(
         utils::Overloaded{[shared_this = shared_from_this(), data, len, have_more](TCPSocket &socket) mutable {
                             boost::system::error_code ec;
@@ -201,29 +212,46 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   bool IsConnected() const {
+    if (raw_.load(std::memory_order_acquire)) {
+      return execution_active_ && raw_fd_.load(std::memory_order_acquire) >= 0;
+    }
     return execution_active_ &&
            std::visit(utils::Overloaded{[](const WebSocket &ws) { return ws.is_open(); },
                                         [](const auto &socket) { return socket.lowest_layer().is_open(); }},
                       socket_);
   }
 
+  void RunInline(const utils::Priority thread_priority) override { RunReady_(thread_priority, true); }
+
+  void Dispatch() override { DispatchWork_(true); }
+
+  void OnForceClosed() override {
+    execution_active_ = false;
+    raw_fd_.store(-1, std::memory_order_release);
+  }
+
   // Callable from any thread. post, not dispatch: the caller here is foreign to the session (an
   // admin command thread), so it must never run session code inline on its own stack.
   void RequestTermination() override {
     terminate_requested_.store(true, std::memory_order_release);
+    if (raw_.load(std::memory_order_acquire)) {
+      RawTerminate_();
+      return;
+    }
     boost::asio::post(strand_, [shared_this = shared_from_this()] { shared_this->TerminateIfIdle_(); });
   }
 
  private:
   explicit Session(tcp::socket &&socket, TSessionContext *session_context, ServerContext &server_context,
-                   std::string_view service_name)
+                   std::string_view service_name, EpollPoller *poller = nullptr)
       : socket_(CreateSocket(std::move(socket), server_context)),
         strand_{boost::asio::make_strand(GetExecutor())},
         output_stream_([this](const uint8_t *data, size_t len, bool have_more) { return Write(data, len, have_more); }),
         session_{*session_context, input_buffer_.read_end(), &output_stream_},
         session_context_{session_context},
         remote_endpoint_{GetRemoteEndpoint()},
-        service_name_{service_name} {
+        service_name_{service_name},
+        poller_{poller} {
     std::visit(utils::Overloaded{[](WebSocket & /* unused */) { DMG_ASSERT(false, "Shouldn't get here..."); },
                                  [](auto &socket) {
                                    socket.lowest_layer().set_option(tcp::no_delay(true));  // enable PSH
@@ -386,10 +414,214 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         OnReadAsio(ec, bytes_transferred);
         break;
       case PRIORITY_QUEUE_WITH_SIDECAR:
+        if (poller_ && TryAdopt_(bytes_transferred)) return;
         OnRead(ec, bytes_transferred);
         break;
     }
   }
+
+  // Strand, plain TCP, right after the first read (no asio op outstanding). Moves the fd into the poller and
+  // dispatches the buffered bytes; returns false if asio still owns the session.
+  bool TryAdopt_(const size_t bytes_transferred) {
+    auto *tcp_socket = std::get_if<TCPSocket>(&socket_);
+    if (!tcp_socket) return false;
+    boost::system::error_code ec;
+    const auto protocol = tcp_socket->local_endpoint(ec).protocol();
+    if (ec) return false;
+    const int fd = tcp_socket->release(ec);
+    if (ec) return false;
+
+    const int flags = ::fcntl(fd, F_GETFL, 0);
+    const bool set_nonblock = flags >= 0 && !(flags & O_NONBLOCK);
+    auto slot = EpollPoller::kInvalid;
+    if (flags >= 0 && (!set_nonblock || ::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0)) {
+      try {
+        slot = poller_->Adopt(fd, shared_from_this());
+      } catch (const std::exception &) {
+        // bad_alloc: nothing was registered; fall back to asio below.
+        slot = EpollPoller::kInvalid;
+      }
+    }
+    if (slot == EpollPoller::kInvalid) {
+      // Adopt leaves fd untouched on failure: give it back to asio.
+      if (set_nonblock) ::fcntl(fd, F_SETFL, flags);
+      boost::system::error_code assign_ec;
+      tcp_socket->assign(protocol, fd, assign_ec);
+      if (!assign_ec) {
+        spdlog::warn("Failed to hand {} over to the poller; staying on asio", remote_endpoint_);
+        return false;
+      }
+      spdlog::error("Failed to hand {} over to the poller; closing", remote_endpoint_);
+      ::shutdown(fd, SHUT_RDWR);
+      ::close(fd);
+      execution_active_ = false;
+      metrics::Metrics().global.active_tcp_sessions->Decrement();
+      metrics::Metrics().global.active_sessions->Decrement();
+      return true;
+    }
+    slot_ = slot;
+    raw_fd_.store(fd, std::memory_order_release);
+    raw_.store(true, std::memory_order_release);
+    input_buffer_.write_end()->Written(bytes_transferred);
+    DispatchWork_(false);
+    return true;
+  }
+
+  // Submits the session's next run to the pool. The caller is the owner and this is its last touch of the stream.
+  void DispatchWork_(const bool read_first) {
+    ClearOwner_();
+    session_context_->AddTask(
+        [self = shared_from_this(), read_first](const utils::Priority thread_priority) {
+          self->RunReady_(thread_priority, read_first);
+        },
+        session_.ApproximateQueryPriority());
+  }
+
+  // Runs on the owning thread; nothing else may touch the stream until RawArm_/close/re-submit.
+  void RunReady_(const utils::Priority thread_priority, const bool read_first) {
+    SetOwner_();
+    try {
+      bool filled = false;
+      if (read_first && !RawReadAvailable_(filled)) {
+        return;
+      }
+      while (true) {
+        if (session_.Execute()) {
+          if (thread_priority > session_.ApproximateQueryPriority()) {
+            DispatchWork_(false);
+            return;
+          }
+        } else if (filled) {
+          filled = false;
+          if (!RawReadAvailable_(filled)) {
+            return;
+          }
+        } else {
+          RawArm_();
+          return;
+        }
+      }
+    } catch (const std::exception & /* unused */) {
+      HandleException(std::current_exception());
+    }
+  }
+
+  // Owner only. Returns true if bytes were appended and the caller should Execute(); false if the read was
+  // handled here (re-armed, or routed to the error path). filled: the recv filled the whole buffer.
+  bool RawReadAvailable_(bool &filled) {
+    if (!IsConnected()) return false;
+    AssertOwner_();
+    auto buffer = input_buffer_.write_end()->GetBuffer();
+    DMG_ASSERT(buffer.len > 0, "recv into an empty buffer would be misread as EOF");
+    ssize_t n;
+    do {
+      n = ::recv(raw_fd_.load(std::memory_order_relaxed), buffer.data, buffer.len, MSG_DONTWAIT);
+    } while (n < 0 && errno == EINTR);
+    const int err = errno;
+
+    if (n > 0) {
+      input_buffer_.write_end()->Written(static_cast<size_t>(n));
+      filled = static_cast<size_t>(n) == buffer.len;
+      return true;
+    }
+    if (n < 0 && (err == EAGAIN || err == EWOULDBLOCK)) {
+      RawArm_();
+      return false;
+    }
+    const auto ec = n == 0 ? boost::system::error_code{boost::asio::error::eof}
+                           : boost::system::error_code{err, boost::system::system_category()};
+    session_.HandleError();
+    OnError(ec);
+    return false;
+  }
+
+  // Owner only. Blocking send: the fd stays O_NONBLOCK, so wait for POLLOUT on EAGAIN.
+  bool RawWrite_(const uint8_t *data, size_t len, const bool have_more) {
+    AssertOwner_();
+    const int fd = raw_fd_.load(std::memory_order_relaxed);
+    while (len > 0) {
+      const auto sent = ::send(fd, data, len, MSG_NOSIGNAL | (have_more ? MSG_MORE : 0));
+      if (sent < 0) {
+        int err = errno;
+        if (err == EINTR) continue;
+        if (err == EAGAIN || err == EWOULDBLOCK) {
+          pollfd pfd{.fd = fd, .events = POLLOUT, .revents = 0};
+          const int r = ::poll(&pfd, 1, -1);
+          if (r >= 0 || errno == EINTR) continue;
+          err = errno;
+        }
+        const boost::system::error_code ec{err, boost::system::system_category()};
+        spdlog::trace("Failed to write to TCP socket: {}", ec.message());
+        OnError(ec);
+        return false;
+      }
+      data += sent;
+      len -= static_cast<size_t>(sent);
+    }
+    std::this_thread::yield();
+    return true;
+  }
+
+  // Owner only. Re-arms readiness under arm_lock_ (so a foreign RequestTermination cannot be lost), or closes
+  // if termination was requested. After the arm the owner must not touch the stream again.
+  void RawArm_() {
+    // Declared before the guard: the poller's reference must drop after arm_lock_ is released.
+    std::shared_ptr<PollTarget> keep;
+    ArmGuard guard{arm_lock_};
+    if (!IsConnected()) return;
+    if (terminate_requested_.load(std::memory_order_acquire)) {
+      keep = CloseRawLocked_();
+      DMG_ASSERT(!keep || keep.use_count() > 1, "The owner must hold its own reference across a raw close");
+      return;
+    }
+    ClearOwner_();
+    if (!poller_->Arm(slot_)) {
+      spdlog::error("Failed to re-arm {} in the poller; closing", remote_endpoint_);
+      keep = CloseRawLocked_();
+      DMG_ASSERT(!keep || keep.use_count() > 1, "The owner must hold its own reference across a raw close");
+    }
+  }
+
+  // Requires arm_lock_ and IsConnected(); caller is the owner (RUNNING) or the TryBeginClose winner (CLOSING).
+  // The returned reference must outlive the arm_lock_ guard: dropping the last one runs ~Session, destroying the lock.
+  [[nodiscard]] std::shared_ptr<PollTarget> CloseRawLocked_() {
+    execution_active_ = false;
+    raw_fd_.store(-1, std::memory_order_release);
+    ClearOwner_();
+    metrics::Metrics().global.active_tcp_sessions->Decrement();
+    metrics::Metrics().global.active_sessions->Decrement();
+    return poller_->Close(slot_);
+  }
+
+  // Any thread. Closes only if the session is ARMED; a RUNNING owner honours terminate_requested_ at RawArm_.
+  void RawTerminate_() {
+    std::shared_ptr<PollTarget> keep;
+    {
+      ArmGuard guard{arm_lock_};
+      if (!IsConnected() || !poller_->TryBeginClose(slot_)) return;
+      keep = CloseRawLocked_();
+    }
+    // ~Session runs on the strand (or on the caller if its own ref is last), not on a worker. At shutdown the handler
+    // dies with the io_context; ~Session touches neither poller_ nor session_context_.
+    boost::asio::post(strand_, [keep = std::move(keep)] {});
+  }
+
+#ifndef NDEBUG
+  void SetOwner_() { owner_.store(std::this_thread::get_id(), std::memory_order_relaxed); }
+
+  void ClearOwner_() { owner_.store(std::thread::id{}, std::memory_order_relaxed); }
+
+  void AssertOwner_() const {
+    DMG_ASSERT(owner_.load(std::memory_order_relaxed) == std::this_thread::get_id(),
+               "Raw TCP stream touched by a thread that does not own the session");
+  }
+#else
+  void SetOwner_() {}
+
+  void ClearOwner_() {}
+
+  void AssertOwner_() const {}
+#endif
 
   void HandleException(const std::exception_ptr eptr) {
     DMG_ASSERT(eptr, "No exception to handle");
@@ -534,6 +766,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   // Runs on strand_; arm_lock_ makes the read_armed_ check + close atomic against a worker's ArmLocked_.
   void TerminateIfIdle_() {
+    if (raw_.load(std::memory_order_acquire)) {
+      RawTerminate_();
+      return;
+    }
     ArmGuard guard{arm_lock_};
     // Deferred: read_armed_ == false means a worker may own the socket (Execute()/Write()); leave
     // terminate_requested_ set and let ArmLocked_ close it on the next read-arm instead of racing here.
@@ -546,12 +782,22 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   // Acquires arm_lock_; must NOT be called with it held (use CloseSocket_ there).
   void DoShutdown() {
+    // Declared before the guard: a raw close's poller reference must drop after arm_lock_ is released.
+    std::shared_ptr<PollTarget> keep;
     ArmGuard guard{arm_lock_};
-    CloseSocket_(guard);
+    if (raw_.load(std::memory_order_acquire)) {
+      if (IsConnected()) {
+        keep = CloseRawLocked_();
+        DMG_ASSERT(keep.use_count() > 1, "The owner must hold its own reference across a raw close");
+      }
+    } else {
+      CloseSocket_(guard);
+    }
   }
 
   // Requires arm_lock_ held (the guard is proof-of-lock); SpinLock is non-recursive, so never re-acquire.
   void CloseSocket_(const ArmGuard & /*arm_lock_held*/) {
+    DMG_ASSERT(!raw_.load(std::memory_order_acquire), "Raw sessions close via CloseRawLocked_");
     if (!IsConnected()) {
       return;
     }
@@ -661,15 +907,24 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   TSessionContext *session_context_;
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
+  EpollPoller *poller_;  // null: the session stays on asio
   std::atomic_bool execution_active_{false};
   // Set by any thread via RequestTermination; only ever set, never cleared. Re-checked under arm_lock_
   // at every read-arm (ArmLocked_), so a request made while a worker owns the socket can't be lost.
   std::atomic_bool terminate_requested_{false};
-  // Serializes the worker's plain-TCP read-arm (DoRead) against TerminateIfIdle_'s close (strand). Strand-confined
-  // setup (DoAccept/DoSSLHandshake) needs no lock. Leaf lock: asio's descriptor mutex is only taken under it.
+  // asio: DoRead's read-arm vs TerminateIfIdle_'s close. Raw: owner's RawArm_/DoShutdown vs foreign RawTerminate_;
+  // held across the close syscalls. Order: arm_lock_ -> poller alloc_mtx_ (Close); Adopt takes alloc_mtx_ alone.
   utils::SpinLock arm_lock_;
   // Defensive atomic: accesses are already ordered (arm_lock_: worker arm vs TerminateIfIdle_; strand_: handlers
   // vs TerminateIfIdle_; async-completion: arm vs its handler), so relaxed suffices.
   std::atomic_bool read_armed_{false};
+  // Raw-TCP mode (fd owned by poller_, set once on the strand by TryAdopt_). slot_ is written before raw_ is
+  // published and never changes after; raw_fd_ turns -1 when the session closes.
+  std::atomic_bool raw_{false};
+  std::atomic<int> raw_fd_{-1};
+  EpollPoller::Slot slot_{EpollPoller::kInvalid};
+#ifndef NDEBUG
+  std::atomic<std::thread::id> owner_{};
+#endif
 };
 }  // namespace memgraph::communication::v2
