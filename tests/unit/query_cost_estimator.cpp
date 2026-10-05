@@ -505,13 +505,18 @@ TEST_F(QueryCostEstimator, ConditionalCheaperOtherBranchBreaksATie) {
             cost_with_else(std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol())));
 }
 
-// For a Once input the disjunction costs one label scan of each branch.
+// For a Once input the disjunction costs one label scan over what all of its branches yield.
 TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionCostsOneScanPerBranch) {
   AddVertices(100, 30, 20);
-  // Both branches read the one indexed label, so each branch counts its 30 vertices.
+  // The label branch counts its 30 vertices, the property branch the one vertex with a = 1.
   MakeOp<ScanAllByIndexDisjunction>(
-      last_op_, NextSymbol(), std::vector<IndexDisjunctionBranch>{{.label = label}, {.label = label}});
-  EXPECT_COST(2 * 30 * CostParam::kScanAllByLabel);
+      last_op_,
+      NextSymbol(),
+      std::vector<IndexDisjunctionBranch>{{.label = label},
+                                          {.label = label,
+                                           .properties = {ms::PropertyPath{prop_a}},
+                                           .expression_ranges = {ExpressionRange::Equal(Literal(1))}}});
+  EXPECT_COST((30 + 1) * CostParam::kScanAllByLabel);
 }
 
 // An IN branch seeks every element itself: its estimate is the whole list's, not one element's.
