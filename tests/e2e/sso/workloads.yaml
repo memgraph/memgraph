@@ -30,7 +30,3 @@ workloads:
   - name: "SSO Kerberos"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["sso/test_kerberos.py"]
-
-  - name: "SSO auth-lock contention"
-    binary: "tests/e2e/pytest_runner.sh"
-    args: ["sso/test_sso_auth_lock_contention.py"]

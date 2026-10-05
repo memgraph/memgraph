@@ -16,6 +16,9 @@
 #include <openssl/x509_vfy.h>
 #include <algorithm>
 #include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <future>
 #include <latch>
 #include <thread>
 #include <variant>
@@ -28,7 +31,10 @@
 #include "frontend/ast/ast_visitor.hpp"
 #include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
+#include "glue/query_user.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/query/auth_query.hpp"
+#include "query/query_user.hpp"
 #include "query/typed_value.hpp"
 #include "utils/file.hpp"
 #include "utils/fips.hpp"
@@ -3619,39 +3625,72 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesDeduplicatesUserAndRolePbacPermiss
 }
 #endif
 
-TEST_F(AuthQueryHandlerFixture, SetPasswordForMissingUserReportsMissingUserBeforePolicy) {
-  memgraph::auth::SynchedAuth strict_auth{
-      auth_dir_ / "strict",
-      memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex},
-                                   std::string{memgraph::glue::kDefaultPasswordRegex},
-                                   /*password_permit_null=*/false}
-#ifdef MG_ENTERPRISE
-      ,
-      &resources
-#endif
-  };
-  memgraph::glue::AuthQueryHandler strict_handler{&strict_auth};
-
+namespace {
+std::string MessageOf(auto &&fn) {
   try {
-    strict_handler.SetPassword("nobody", std::nullopt, nullptr);
-    FAIL() << "expected QueryRuntimeException";
+    fn();
   } catch (const memgraph::query::QueryRuntimeException &e) {
-    EXPECT_NE(std::string{e.what()}.find("doesn't exist"), std::string::npos) << e.what();
+    return e.what();
   }
+  ADD_FAILURE() << "expected QueryRuntimeException";
+  return {};
 }
+
+constexpr auto kBound = std::chrono::seconds(10);
+
+enum class LockMode : uint8_t { kShared, kExclusive };
+
+// Holds an auth lock on a background thread until Release() or destruction.
+class LockHolder {
+ public:
+  LockHolder(memgraph::auth::SynchedAuth &auth, LockMode mode)
+      : future_{std::async(std::launch::async, [this, &auth, mode] {
+          if (mode == LockMode::kShared) {
+            auto const guard = auth.ReadLock();
+            Hold();
+          } else {
+            auto const guard = auth.Lock();
+            Hold();
+          }
+        })} {
+    held_.wait();
+  }
+
+  ~LockHolder() { Release(); }
+
+  LockHolder(const LockHolder &) = delete;
+  LockHolder &operator=(const LockHolder &) = delete;
+
+  void Release() {
+    if (!future_.valid()) return;
+    release_.count_down();
+    future_.get();
+  }
+
+ private:
+  void Hold() {
+    held_.count_down();
+    release_.wait();
+  }
+
+  std::latch held_{1};
+  std::latch release_{1};
+  std::future<void> future_;
+};
+
+// Waits (bounded) for every future, then releases the holder so a blocked op can finish before its future's
+// destructor joins it.
+template <typename... Ts>
+bool CompleteWhileHeld(LockHolder &holder, std::future<Ts> &...futures) {
+  bool const all_ready = ((futures.wait_for(kBound) == std::future_status::ready) && ...);
+  holder.Release();
+  return all_ready;
+}
+}  // namespace
 
 TEST_F(AuthQueryHandlerFixture, FipsLegacyHashLiteralReportsSameErrorsAsBeforeHashing) {
   auto const literal =
       std::optional<std::string>{"bcrypt:$2a$12$ueWpo7FfYrBwoFwBhaCD1ucO4hbwKtOtr9MvxCELJaNq746xhvqYy"};
-  auto const message_of = [](auto &&fn) -> std::string {
-    try {
-      fn();
-    } catch (const memgraph::query::QueryRuntimeException &e) {
-      return e.what();
-    }
-    ADD_FAILURE() << "expected QueryRuntimeException";
-    return {};
-  };
 
   // FIPS status is process-global; reset it even when an assertion fails.
   memgraph::utils::OnScopeExit const reset_fips{[] { memgraph::utils::SetFipsStatus({}); }};
@@ -3659,43 +3698,25 @@ TEST_F(AuthQueryHandlerFixture, FipsLegacyHashLiteralReportsSameErrorsAsBeforeHa
   ASSERT_TRUE(auth_handler.CreateUser("alice", std::nullopt, nullptr).created);
   memgraph::utils::SetFipsStatus({.enabled = true});
 
-  EXPECT_THAT(message_of([&] { auth_handler.CreateUser("in valid", literal, nullptr); }),
+  EXPECT_THAT(MessageOf([&] { auth_handler.CreateUser("in valid", literal, nullptr); }),
               testing::HasSubstr("Invalid user name"));
 
   EXPECT_FALSE(auth_handler.CreateUser("alice", literal, nullptr).created);
 
-  EXPECT_THAT(message_of([&] { auth_handler.SetPassword("nobody", literal, nullptr); }),
+  EXPECT_THAT(MessageOf([&] { auth_handler.SetPassword("nobody", literal, nullptr); }),
               testing::HasSubstr("doesn't exist"));
 
-  EXPECT_THAT(message_of([&] { auth_handler.CreateUser("bob", literal, nullptr); }),
+  EXPECT_THAT(MessageOf([&] { auth_handler.CreateUser("bob", literal, nullptr); }),
               testing::HasSubstr("not permitted in FIPS mode"));
 }
 
-// A wrong old password is reported before the new password is checked against the policy.
-TEST_F(AuthQueryHandlerFixture, ChangePasswordWrongOldPasswordReportedBeforeWeakNewPassword) {
+// Missing user, wrong old password and weak new password are each reported ahead of the strength policy.
+TEST_F(AuthQueryHandlerFixture, StrictPolicyErrorOrder) {
   memgraph::auth::SynchedAuth strict_auth{
       test_folder_ / "strict_policy",
-      memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, "^.{12,}$", true}
-#ifdef MG_ENTERPRISE
-      ,
-      &resources
-#endif
-  };
-  memgraph::glue::AuthQueryHandler strict_handler{&strict_auth};
-  ASSERT_TRUE(strict_handler.CreateUser("alice", "a-long-enough-password", nullptr).created);
-
-  try {
-    strict_handler.ChangePassword("alice", "wrong-old-password", "weak", nullptr);
-    FAIL() << "expected QueryRuntimeException";
-  } catch (const memgraph::query::QueryRuntimeException &e) {
-    EXPECT_STREQ(e.what(), "Old password is not correct.");
-  }
-}
-
-TEST_F(AuthQueryHandlerFixture, PasswordPolicyRejectsWeakNewPassword) {
-  memgraph::auth::SynchedAuth strict_auth{
-      test_folder_ / "strict_policy_weak",
-      memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, "^.{12,}$", true}
+      memgraph::auth::Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex},
+                                   "^.{12,}$",
+                                   /*password_permit_null=*/false}
 #ifdef MG_ENTERPRISE
       ,
       &resources
@@ -3705,24 +3726,123 @@ TEST_F(AuthQueryHandlerFixture, PasswordPolicyRejectsWeakNewPassword) {
   auto const old_password = std::string{"a-long-enough-password"};
   ASSERT_TRUE(strict_handler.CreateUser("alice", old_password, nullptr).created);
 
-  auto const message_of = [](auto &&fn) -> std::string {
-    try {
-      fn();
-    } catch (const memgraph::query::QueryRuntimeException &e) {
-      return e.what();
-    }
-    ADD_FAILURE() << "expected QueryRuntimeException";
-    return {};
-  };
+  EXPECT_THAT(MessageOf([&] { strict_handler.SetPassword("nobody", std::nullopt, nullptr); }),
+              testing::HasSubstr("doesn't exist"));
 
-  EXPECT_THAT(message_of([&] { strict_handler.ChangePassword("alice", old_password, "weak", nullptr); }),
+  EXPECT_EQ(MessageOf([&] { strict_handler.ChangePassword("alice", "wrong-old-password", "weak", nullptr); }),
+            "Old password is not correct.");
+
+  EXPECT_THAT(MessageOf([&] { strict_handler.ChangePassword("alice", old_password, "weak", nullptr); }),
               testing::HasSubstr("doesn't conform to the required strength"));
   // Nothing was saved: the old password still verifies.
   auto alice = strict_auth.ReadLock()->GetUser("alice");
   ASSERT_TRUE(alice);
   EXPECT_TRUE(alice->CheckPasswordExplicit(old_password));
+}
 
-  EXPECT_THAT(message_of([&] { strict_handler.CreateUser("bob", "weak", nullptr); }),
-              testing::HasSubstr("doesn't conform to the required strength"));
-  EXPECT_FALSE(strict_auth.ReadLock()->GetUser("bob"));
+// Each of these takes at most the shared lock, so it must complete while another thread holds it shared.
+TEST_F(AuthQueryHandlerFixture, ReadPathsDoNotTakeExclusiveAuthLock) {
+  {
+    auto locked = auth->Lock();
+    auto match_user = AddUser(*locked, "match_user");
+    ASSERT_TRUE(match_user.has_value());
+    match_user->permissions().Grant(memgraph::auth::Permission::MATCH);
+    locked->SaveUser(*match_user);
+
+    auto alice = AddUser(*locked, "alice");
+    ASSERT_TRUE(alice.has_value());
+    alice->UpdatePassword("secret");  // bcrypt by default: IsSalted() == true -> no upgrade path
+    locked->SaveUser(*alice);
+  }
+  ASSERT_TRUE(auth_handler.CreateUser("existing", std::nullopt, nullptr).created);
+
+  auto stored = auth->ReadLock()->GetUser("match_user");
+  ASSERT_TRUE(stored.has_value());
+  memgraph::glue::QueryUserOrRole subject{&*auth, memgraph::auth::UserOrRole{std::move(*stored)}};
+
+#ifdef MG_ENTERPRISE
+  {
+    auto locked = auth->Lock();
+    auto impersonator = AddUser(*locked, "impersonator");
+    ASSERT_TRUE(impersonator.has_value());
+    impersonator->permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+    impersonator->GrantUserImp();
+    locked->SaveUser(*impersonator);
+
+    auto target = AddUser(*locked, "target");
+    ASSERT_TRUE(target.has_value());
+    locked->SaveUser(*target);
+  }
+  auto stored_imp = auth->ReadLock()->GetUser("impersonator");
+  ASSERT_TRUE(stored_imp.has_value());
+  memgraph::glue::QueryUserOrRole impersonator_subject{&*auth, memgraph::auth::UserOrRole{std::move(*stored_imp)}};
+#endif
+
+  // Bump the auth epoch so the subject's cached epoch is stale and IsAuthorized takes the refresh branch.
+  ASSERT_TRUE(auth_handler.CreateUser("epoch_bump", std::nullopt, nullptr).created);
+  LockHolder holder{*auth, LockMode::kShared};
+  auto authorized_fut = std::async(std::launch::async, [&] {
+    return subject.IsAuthorized(
+        {memgraph::query::AuthQuery::Privilege::MATCH}, std::nullopt, &memgraph::query::up_to_date_policy);
+  });
+  auto ok_fut = std::async(std::launch::async, [&] { return memgraph::auth::Authenticate(*auth, "alice", "secret"); });
+  auto bad_fut = std::async(std::launch::async, [&] { return memgraph::auth::Authenticate(*auth, "alice", "wrong"); });
+  auto create_fut =
+      std::async(std::launch::async, [&] { return auth_handler.CreateUser("existing", "password1", nullptr); });
+#ifdef MG_ENTERPRISE
+  auto impersonate_fut = std::async(std::launch::async, [&] {
+    return impersonator_subject.CanImpersonate("target", &memgraph::query::up_to_date_policy);
+  });
+  ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut, create_fut, impersonate_fut))
+      << "a read path blocked under the shared auth lock";
+  EXPECT_TRUE(impersonate_fut.get());
+#else
+  ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut, create_fut))
+      << "a read path blocked under the shared auth lock";
+#endif
+  EXPECT_TRUE(authorized_fut.get());
+  EXPECT_TRUE(ok_fut.get().has_value());
+  EXPECT_FALSE(bad_fut.get().has_value());
+  auto const create_result = create_fut.get();
+  EXPECT_FALSE(create_result.created);
+  EXPECT_FALSE(create_result.first_user);
+}
+
+// session_long_policy reads only the cached principal, so it completes under an exclusive write lock, including for
+// an anonymous session that has no cached principal.
+TEST_F(AuthQueryHandlerFixture, SessionLongPolicyIsLockFreeUnderExclusiveLock) {
+  auto const make_user = [&](const std::string &username, bool grant_match) {
+    {
+      auto locked = auth->Lock();
+      auto user = AddUser(*locked, username);
+      EXPECT_TRUE(user.has_value());
+      if (grant_match) {
+        user->permissions().Grant(memgraph::auth::Permission::MATCH);
+        locked->SaveUser(*user);
+      }
+    }
+    auto stored = auth->ReadLock()->GetUser(username);
+    EXPECT_TRUE(stored.has_value());
+    return memgraph::glue::QueryUserOrRole{&*auth, memgraph::auth::UserOrRole{std::move(*stored)}};
+  };
+  auto granted = make_user("granted_user", true);
+  auto denied = make_user("denied_user", false);
+  memgraph::glue::QueryUserOrRole anonymous{&*auth};
+
+  LockHolder holder{*auth, LockMode::kExclusive};
+  auto const authorized = [](memgraph::glue::QueryUserOrRole &subject) {
+    return std::async(std::launch::async, [&subject] {
+      return subject.IsAuthorized(
+          {memgraph::query::AuthQuery::Privilege::MATCH}, std::nullopt, &memgraph::query::session_long_policy);
+    });
+  };
+  auto granted_fut = authorized(granted);
+  auto denied_fut = authorized(denied);
+  auto anonymous_fut = authorized(anonymous);
+
+  ASSERT_TRUE(CompleteWhileHeld(holder, granted_fut, denied_fut, anonymous_fut))
+      << "session_long_policy blocked under exclusive lock";
+  EXPECT_TRUE(granted_fut.get());
+  EXPECT_FALSE(denied_fut.get());
+  EXPECT_TRUE(anonymous_fut.get());
 }

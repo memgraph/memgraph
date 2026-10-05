@@ -50,7 +50,6 @@ class AuthWithStorage : public ::testing::Test {
   // Auth lives inside a SynchedAuth so logins go through the production free functions. Tests are single-threaded, so
   // `auth` is a plain pointer to the wrapped Auth.
   void ResetAuth(Auth::Config config) {
-    auth = nullptr;
     synched_auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
                          std::move(config));
     auth = &*synched_auth->Lock();
@@ -1100,6 +1099,7 @@ TEST_F(AuthWithStorage, UserPasswordCreation) {
     ASSERT_TRUE(user);
     ASSERT_TRUE(Authenticate("test", "pass"));
     ASSERT_FALSE(Authenticate("test", "word"));
+    ASSERT_TRUE(auth->GetUser("test")->password_hash()->IsSalted());  // legacy hash upgraded on login
     ASSERT_TRUE(auth->RemoveUser(user->username()));
   }
 
@@ -1142,41 +1142,29 @@ TEST_F(AuthWithStorage, PasswordStrength) {
   const std::string kAlmostStrongPassword = "ThisPasswordMeetsAllButOneCriterion1234";
   const std::string kStrongPassword = "ThisIsAVeryStrongPassword123$";
 
-  // Mirrors the production password-change path: policy check (ValidatePassword exempts pre-hashed input), then hash
-  // and set.
-  auto const update_password = [this](User &user, const std::optional<std::string> &password) {
-    auth->ValidatePassword(password);
-    user.SetPasswordHash(Auth::ComputePasswordHash(password));
-  };
-
   {
     ResetAuth(Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kWeakRegex, true});
-    auto user = AddUser(*auth, "user1");
-    ASSERT_TRUE(user);
-    ASSERT_NO_THROW(update_password(*user, std::nullopt));
-    ASSERT_NO_THROW(update_password(*user, kWeakPassword));
-    ASSERT_NO_THROW(update_password(*user, kAlmostStrongPassword));
-    ASSERT_NO_THROW(update_password(*user, kStrongPassword));
+    ASSERT_NO_THROW(auth->ValidatePassword(std::nullopt));
+    ASSERT_NO_THROW(auth->ValidatePassword(kWeakPassword));
+    ASSERT_NO_THROW(auth->ValidatePassword(kAlmostStrongPassword));
+    ASSERT_NO_THROW(auth->ValidatePassword(kStrongPassword));
   }
 
   {
     ResetAuth(Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kWeakRegex, false});
     ASSERT_THROW(AddUser(*auth, "user2", std::nullopt), AuthException);
-    auto user = AddUser(*auth, "user2", kWeakPassword);
-    ASSERT_TRUE(user);
-    ASSERT_NO_THROW(update_password(*user, kWeakPassword));
-    ASSERT_NO_THROW(update_password(*user, kAlmostStrongPassword));
-    ASSERT_NO_THROW(update_password(*user, kStrongPassword));
+    ASSERT_TRUE(AddUser(*auth, "user2", kWeakPassword));
+    ASSERT_NO_THROW(auth->ValidatePassword(kWeakPassword));
+    ASSERT_NO_THROW(auth->ValidatePassword(kAlmostStrongPassword));
+    ASSERT_NO_THROW(auth->ValidatePassword(kStrongPassword));
   }
 
   {
     ResetAuth(Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kStrongRegex, true});
-    auto user = AddUser(*auth, "user3");
-    ASSERT_TRUE(user);
-    ASSERT_NO_THROW(update_password(*user, std::nullopt));
-    ASSERT_THROW(update_password(*user, kWeakPassword), AuthException);
-    ASSERT_THROW(update_password(*user, kAlmostStrongPassword), AuthException);
-    ASSERT_NO_THROW(update_password(*user, kStrongPassword));
+    ASSERT_NO_THROW(auth->ValidatePassword(std::nullopt));
+    ASSERT_THROW(auth->ValidatePassword(kWeakPassword), AuthException);
+    ASSERT_THROW(auth->ValidatePassword(kAlmostStrongPassword), AuthException);
+    ASSERT_NO_THROW(auth->ValidatePassword(kStrongPassword));
   }
 
   {
@@ -1184,9 +1172,8 @@ TEST_F(AuthWithStorage, PasswordStrength) {
     ASSERT_THROW(AddUser(*auth, "user4", std::nullopt);, AuthException);
     ASSERT_THROW(AddUser(*auth, "user4", kWeakPassword);, AuthException);
     ASSERT_THROW(AddUser(*auth, "user4", kAlmostStrongPassword);, AuthException);
-    auto user = AddUser(*auth, "user4", kStrongPassword);
-    ASSERT_TRUE(user);
-    ASSERT_NO_THROW(update_password(*user, kStrongPassword));
+    ASSERT_TRUE(AddUser(*auth, "user4", kStrongPassword));
+    ASSERT_NO_THROW(auth->ValidatePassword(kStrongPassword));
   }
 }
 
@@ -2257,64 +2244,41 @@ TEST_F(AuthWithStorage, FineGrainedAccessCheckerMerge) {
   }
 }
 
-// A default database that is no longer contained (GRANT narrowed access after SET MAIN) must still be cleared.
-TEST_F(AuthWithStorage, DeleteDatabaseClearsUncontainedMain) {
+// DROP DATABASE rewrites only principals that reference the database; "x" is carol's main but no longer contained.
+TEST_F(AuthWithStorage, DeleteDatabaseRewritesOnlyAffectedPrincipals) {
   {
-    auto user = AddUser(*auth, "alice");
-    ASSERT_TRUE(user.has_value());
-    user->db_access().GrantAll();
-    ASSERT_TRUE(user->db_access().SetMain("x"));
-    user->db_access().Grant("y");  // narrows access: "x" is still main but no longer contained
-    auth->SaveUser(*user);
-  }
+    auto alice = AddUser(*auth, "alice");
+    ASSERT_TRUE(alice.has_value());
+    alice->db_access().Grant("y");
+    auth->SaveUser(*alice);
 
-  auth->DeleteDatabase("x");
-
-  auto stored = auth->GetUser("alice");
-  ASSERT_TRUE(stored.has_value());
-  EXPECT_EQ(stored->db_access().Serialize().at("default"), "");
-}
-
-// DROP DATABASE of a database a user has no grant, deny or main for must not rewrite that user's record.
-TEST_F(AuthWithStorage, DeleteDatabaseSkipsUnaffectedUsers) {
-  {
-    auto user = AddUser(*auth, "alice");
-    ASSERT_TRUE(user.has_value());
-    user->db_access().Grant("y");
-    auth->SaveUser(*user);
-  }
-  Auth::Epoch epoch;
-  auth->UpToDate(epoch);
-
-  auth->DeleteDatabase("z");
-  EXPECT_TRUE(auth->UpToDate(epoch)) << "unaffected user was rewritten";
-
-  // Control: an affected database does rewrite the record, so the epoch check above can detect a rewrite.
-  auth->DeleteDatabase("y");
-  EXPECT_FALSE(auth->UpToDate(epoch));
-  auto stored = auth->GetUser("alice");
-  ASSERT_TRUE(stored.has_value());
-  EXPECT_FALSE(stored->db_access().Grants("y"));
-}
-
-TEST_F(AuthWithStorage, DeleteDatabaseSkipsUnaffectedRoles) {
-  {
     auto role = auth->AddRole("readers");
     ASSERT_TRUE(role.has_value());
     role->db_access().Grant("y");
     auth->SaveRole(*role);
+
+    auto carol = AddUser(*auth, "carol");
+    ASSERT_TRUE(carol.has_value());
+    carol->db_access().GrantAll();
+    ASSERT_TRUE(carol->db_access().SetMain("x"));
+    carol->db_access().Grant("y");
+    auth->SaveUser(*carol);
   }
   Auth::Epoch epoch;
   auth->UpToDate(epoch);
 
   auth->DeleteDatabase("z");
-  EXPECT_TRUE(auth->UpToDate(epoch)) << "unaffected role was rewritten";
+  EXPECT_TRUE(auth->UpToDate(epoch)) << "unaffected principal was rewritten";
 
   auth->DeleteDatabase("y");
   EXPECT_FALSE(auth->UpToDate(epoch));
-  auto stored = auth->GetRole("readers");
-  ASSERT_TRUE(stored.has_value());
-  EXPECT_FALSE(stored->db_access().Grants("y"));
+  EXPECT_FALSE(auth->GetUser("alice")->db_access().Grants("y"));
+  EXPECT_FALSE(auth->GetRole("readers")->db_access().Grants("y"));
+
+  auth->DeleteDatabase("x");
+  auto carol = auth->GetUser("carol");
+  ASSERT_TRUE(carol.has_value());
+  EXPECT_EQ(carol->db_access().Serialize().at("default"), "");
 }
 
 TEST(AuthWithFineGrainedTest, NoPermissionsNeededForUnlabelledNodes) {
