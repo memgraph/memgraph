@@ -636,3 +636,14 @@ Feature: Indexed label disjunction scan
         Then the result should be:
             | h | c |
             | 1 | 6 |
+
+    Scenario: A property raised in a writing subquery does not repeat a node within its branch (indexes :A(p), :B(p))
+        Given with new index :A(p)
+        And with new index :B(p)
+        When executing query:
+            """
+            MATCH (n:A|B) WHERE n.p > 0 CALL { WITH n SET n.p = n.p + 10 WITH n MATCH (m:O) RETURN count(m) AS k } RETURN count(*) AS c
+            """
+        Then the result should be:
+            | c |
+            | 6 |
