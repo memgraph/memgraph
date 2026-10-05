@@ -1736,13 +1736,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
  public:
   ScanAllByIndexDisjunctionCursor(const ScanAllByIndexDisjunction &self, UniqueCursorPtr input_cursor,
                                   utils::MemoryResource *mem)
-      : self_(self),
-        input_cursor_(std::move(input_cursor)),
-        // Under OLD a vertex that an earlier label branch yields has that label, so checking it is exact. Under NEW
-        // a write above this scan can change labels between pulls; only the Gid set is exact there.
-        dedup_by_label_(self.view_ == storage::View::OLD),
-        next_branch_(self.branches_.size()),
-        seen_(mem) {
+      : self_(self), input_cursor_(std::move(input_cursor)), next_branch_(self.branches_.size()), seen_(mem) {
     value_predicates_.reserve(self_.branches_.size());
     for (auto const &branch : self_.branches_) value_predicates_.emplace_back(branch.expression_ranges.size());
   }
@@ -1770,9 +1764,9 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
         continue;
       }
 #endif
-      if (IsDuplicate(vertex)) continue;
-      // A label branch under OLD is answered by the label check alone; everything else is remembered.
-      if (!dedup_by_label_ || !self_.branches_[branch_].IsLabelOnly()) seen_.insert(vertex.Gid());
+      // A vertex comes out of the first branch that yields it. Labels can change between pulls even under OLD (a
+      // writing subquery advances the command, a periodic commit starts a new snapshot), so only the Gid is exact.
+      if (!seen_.insert(vertex.Gid()).second) continue;
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       frame_writer.Write(self_.output_symbol_, vertex);
       return true;
@@ -1792,16 +1786,6 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
   }
 
  private:
-  // A vertex comes out of the first branch that yields it.
-  bool IsDuplicate(const VertexAccessor &vertex) const {
-    if (dedup_by_label_) {
-      for (auto const &earlier : self_.branches_ | rv::take(branch_)) {
-        if (earlier.IsLabelOnly() && vertex.HasLabel(self_.view_, earlier.label).value_or(false)) return true;
-      }
-    }
-    return seen_.contains(vertex.Gid());
-  }
-
   // Starts the next branch, after the last one on a new input row. False once the input is exhausted.
   bool StartNextBranch(Frame &frame, ExecutionContext &context) {
     if (next_branch_ == self_.branches_.size()) {
@@ -1863,7 +1847,6 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
 
   const ScanAllByIndexDisjunction &self_;
   const UniqueCursorPtr input_cursor_;
-  const bool dedup_by_label_;
   size_t next_branch_;
   size_t branch_{0};
   std::optional<VerticesIterable> vertices_;

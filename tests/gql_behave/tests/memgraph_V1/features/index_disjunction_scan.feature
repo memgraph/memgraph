@@ -1051,3 +1051,71 @@ Feature: Indexed label disjunction scan
             | 1 | true  |
             | 3 | true  |
             | 9 | false |
+
+    Scenario: A label removed in a writing subquery does not repeat a node (indexes :A, :B)
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And having executed:
+            """
+            CREATE (a1:A {n: 'a1', p: 1}), (a2:A {n: 'a2', p: 2}), (b1:B {n: 'b1', p: 1}), (ab:A:B {n: 'ab', p: 2}),
+                   (c1:C {n: 'c1', p: 1}), (ac:A:C {n: 'ac', p: 3}), (bc:B:C {n: 'bc', p: 3}), (o:O {n: 'o', p: 1}),
+                   (z1:Z {n: 'z1'}), (z2:Z {n: 'z2'})
+            CREATE (z1)-[:R]->(a1), (z1)-[:R]->(ab), (z2)-[:R]->(ab), (z2)-[:R]->(b1), (z2)-[:R]->(bc), (ab)-[:R]->(c1)
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) CALL { WITH n REMOVE n:A WITH n MATCH (m:O) RETURN count(m) AS k } RETURN count(*) AS c
+            """
+        Then the result should be:
+            | c |
+            | 6 |
+
+    Scenario: A label added in a writing subquery does not drop a later node (indexes :A, :B)
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And having executed:
+            """
+            CREATE (a1:A {n: 'a1', p: 1}), (a2:A {n: 'a2', p: 2}), (b1:B {n: 'b1', p: 1}), (ab:A:B {n: 'ab', p: 2}),
+                   (c1:C {n: 'c1', p: 1}), (ac:A:C {n: 'ac', p: 3}), (bc:B:C {n: 'bc', p: 3}), (o:O {n: 'o', p: 1}),
+                   (z1:Z {n: 'z1'}), (z2:Z {n: 'z2'})
+            CREATE (z1)-[:R]->(a1), (z1)-[:R]->(ab), (z2)-[:R]->(ab), (z2)-[:R]->(b1), (z2)-[:R]->(bc), (ab)-[:R]->(c1)
+            """
+        When executing query:
+            """
+            MATCH (n:A|B)
+            CALL { WITH n WITH n WHERE n:B AND NOT n:A MATCH (x:B) WHERE NOT x:A AND x <> n SET x:A WITH x MATCH (m:O) RETURN count(m) AS k }
+            RETURN n.n AS v ORDER BY v
+            """
+        Then the result should be, in order:
+            | v    |
+            | 'a1' |
+            | 'a2' |
+            | 'ab' |
+            | 'ac' |
+            | 'b1' |
+            | 'bc' |
+
+    Scenario: A label removed in a batch committed mid-scan does not repeat a write (indexes :A, :B)
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And having executed:
+            """
+            CREATE (a1:A {n: 'a1', p: 1}), (a2:A {n: 'a2', p: 2}), (b1:B {n: 'b1', p: 1}), (ab:A:B {n: 'ab', p: 2}),
+                   (c1:C {n: 'c1', p: 1}), (ac:A:C {n: 'ac', p: 3}), (bc:B:C {n: 'bc', p: 3}), (o:O {n: 'o', p: 1}),
+                   (z1:Z {n: 'z1'}), (z2:Z {n: 'z2'})
+            CREATE (z1)-[:R]->(a1), (z1)-[:R]->(ab), (z2)-[:R]->(ab), (z2)-[:R]->(b1), (z2)-[:R]->(bc), (ab)-[:R]->(c1)
+            """
+        And having executed:
+            """
+            MATCH (n:A|B) CALL { WITH n REMOVE n:A SET n.hits = coalesce(n.hits, 0) + 1 } IN TRANSACTIONS OF 1 ROWS
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n.hits IS NOT NULL RETURN n.hits AS h, count(*) AS c
+            """
+        Then the result should be:
+            | h | c |
+            | 1 | 6 |

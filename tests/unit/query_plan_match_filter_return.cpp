@@ -4659,7 +4659,7 @@ TEST_F(IndexDisjunctionScan, VertexWithBothLabelsOnce) {
   EXPECT_EQ(PullAll(*ScanAOrB(std::make_shared<Once>()), &context), 3);
 }
 
-// Under View::NEW a write above the scan runs between its pulls; the label check would let `(:A:B)` out of the
+// Under View::NEW a write above the scan runs between its pulls; a dedup by label would let `(:A:B)` out of the
 // :B branch once REMOVE n:A has run on it.
 TEST_F(IndexDisjunctionScan, LabelRemovedBetweenPullsUnderNew) {
   AddVertices({{label_a, label_b}});
@@ -4669,6 +4669,42 @@ TEST_F(IndexDisjunctionScan, LabelRemovedBetweenPullsUnderNew) {
   auto remove = std::make_shared<plan::RemoveLabels>(scan, n, std::vector<StorageLabelType>{label_a});
   auto context = MakeContext(storage, symbol_table, &dba);
   EXPECT_EQ(PullAll(*remove, &context), 1);
+}
+
+// A command advance between pulls (a writing subquery, a periodic commit) makes OLD show a label removed after the
+// vertex was yielded; the :B branch must not yield it again.
+TEST_F(IndexDisjunctionScan, LabelRemovedAfterCommandAdvanceUnderOld) {
+  AddVertices({{label_a, label_b}});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto cursor =
+      ScanAOrB(std::make_shared<Once>())->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  Frame frame(symbol_table.max_position());
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  auto vertex = frame[n].ValueVertex();
+  ASSERT_TRUE(vertex.RemoveLabel(label_a).has_value());
+  dba.AdvanceCommand();
+  EXPECT_FALSE(cursor->Pull(frame, context));
+}
+
+// The same advance makes OLD show a label added to a vertex no earlier branch yielded; it is still yielded.
+TEST_F(IndexDisjunctionScan, LabelAddedAfterCommandAdvanceUnderOld) {
+  AddVertices({{label_b}, {label_b}});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto cursor =
+      ScanAOrB(std::make_shared<Once>())->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  Frame frame(symbol_table.max_position());
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  auto const first = frame[n].ValueVertex().Gid();
+  for (auto vertex : dba.Vertices(memgraph::storage::View::OLD)) {
+    if (vertex.Gid() != first) ASSERT_TRUE(vertex.AddLabel(label_a).has_value());
+  }
+  dba.AdvanceCommand();
+  EXPECT_TRUE(cursor->Pull(frame, context));
+  EXPECT_FALSE(cursor->Pull(frame, context));
 }
 
 #ifdef MG_ENTERPRISE
