@@ -144,6 +144,18 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PostVisit(ScanAllByIndexDisjunction &logical_op) override {
+    // Each input row runs every branch once: the output is the sum of the branches, the cost one scan of it.
+    double branches_cardinality = 0;
+    for (auto const &branch : logical_op.branches_) {
+      branches_cardinality += db_accessor_->VerticesCount(branch.label);
+      if (index_hints_.HasLabelIndex(db_accessor_, branch.label)) use_index_hints_ = true;
+    }
+    cardinality_ *= branches_cardinality;
+    IncrementCost(CostParam::kScanAllByLabel);
+    return true;
+  }
+
   bool PostVisit(ScanAllByPointDistance &logical_op) override {
     // FYI, no stats for point types
     cardinality_ *= EstimatePointQueryCardinality(logical_op.label_, logical_op.property_);

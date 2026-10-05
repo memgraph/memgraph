@@ -39,6 +39,11 @@ constexpr utils::TypeInfo query::plan::ScanAllByLabel::kType{
 constexpr utils::TypeInfo query::plan::ScanAllByLabelProperties::kType{
     utils::TypeId::SCAN_ALL_BY_LABEL_PROPERTIES, "ScanAllByLabelProperties", &query::plan::ScanAll::kType};
 
+constexpr utils::TypeInfo query::plan::ScanAllByIndexDisjunction::kType{
+    .id = utils::TypeId::SCAN_ALL_BY_INDEX_DISJUNCTION,
+    .name = "ScanAllByIndexDisjunction",
+    .superclass = &query::plan::ScanAll::kType};
+
 constexpr utils::TypeInfo query::plan::ScanAllById::kType{
     .id = utils::TypeId::SCAN_ALL_BY_ID, .name = "ScanAllById", .superclass = &query::plan::ScanAll::kType};
 

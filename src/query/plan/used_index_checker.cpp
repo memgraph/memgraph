@@ -40,6 +40,17 @@ bool UsedIndexChecker::PreVisit(ScanAllByLabelProperties &op) {
   return true;
 }
 
+bool UsedIndexChecker::PreVisit(ScanAllByIndexDisjunction &op) {
+  for (auto const &branch : op.branches_) {
+    if (branch.IsLabelOnly()) {
+      required_indices_.label_.emplace_back(branch.label);
+    } else {
+      required_indices_.label_properties_.emplace_back(branch.label, branch.properties);
+    }
+  }
+  return true;
+}
+
 bool UsedIndexChecker::PreVisit(ScanAllByEdgeType &op) {
   required_indices_.edge_type_.emplace_back(op.common_.edge_types[0]);
   return true;

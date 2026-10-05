@@ -188,11 +188,12 @@ class OrderByEliminator {
 
   static bool IsScanAllVariant(const utils::TypeInfo &type_info) {
     return type_info == ScanAll::kType || type_info == ScanAllByLabel::kType ||
-           type_info == ScanAllByLabelProperties::kType || type_info == ScanAllById::kType ||
-           type_info == ScanAllByPointDistance::kType || type_info == ScanAllByPointWithinbbox::kType ||
-           type_info == ScanAllByEdge::kType || type_info == ScanAllByEdgeType::kType ||
-           type_info == ScanAllByEdgeTypeProperty::kType || type_info == ScanAllByEdgeProperty::kType ||
-           type_info == ScanAllByEdgeId::kType || type_info == ScanAllByVertexProperty::kType;
+           type_info == ScanAllByLabelProperties::kType || type_info == ScanAllByIndexDisjunction::kType ||
+           type_info == ScanAllById::kType || type_info == ScanAllByPointDistance::kType ||
+           type_info == ScanAllByPointWithinbbox::kType || type_info == ScanAllByEdge::kType ||
+           type_info == ScanAllByEdgeType::kType || type_info == ScanAllByEdgeTypeProperty::kType ||
+           type_info == ScanAllByEdgeProperty::kType || type_info == ScanAllByEdgeId::kType ||
+           type_info == ScanAllByVertexProperty::kType;
   }
 
   /// Check if a mutation operator (SetProperty, RemoveProperty) modifies a property
