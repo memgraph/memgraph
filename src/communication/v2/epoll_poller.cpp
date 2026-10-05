@@ -59,7 +59,7 @@ EpollPoller::Entry *EpollPoller::Lookup(const uint32_t index) const {
 }
 
 EpollPoller::Slot EpollPoller::Adopt(const int fd, std::shared_ptr<PollTarget> target) {
-  std::lock_guard lock{alloc_mtx_};
+  const std::scoped_lock lock{alloc_mtx_};
   uint32_t index;
   if (!free_.empty()) {
     index = free_.back();
@@ -130,7 +130,7 @@ std::shared_ptr<PollTarget> EpollPoller::CloseEntry(Entry &entry, const uint32_t
   entry.fd = -1;
   auto keep = std::move(entry.keep);
   entry.word.store(Pack(gen + 1, kFree), std::memory_order_release);
-  std::lock_guard lock{alloc_mtx_};
+  const std::scoped_lock lock{alloc_mtx_};
   free_.push_back(index);
   return keep;
 }
@@ -202,7 +202,7 @@ void EpollPoller::Wake() {
 void EpollPoller::CloseAll() {
   uint32_t end;
   {
-    std::lock_guard lock{alloc_mtx_};
+    const std::scoped_lock lock{alloc_mtx_};
     end = next_index_;
   }
   for (uint32_t index = 0; index < end; ++index) {

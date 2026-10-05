@@ -53,7 +53,7 @@ bool FutexWait(std::atomic<uint32_t> &word, uint32_t expected, std::chrono::nano
               .tv_nsec = static_cast<long>(timeout.count() % 1'000'000'000)};
   const auto rc =
       syscall(SYS_futex, reinterpret_cast<uint32_t *>(&word), FUTEX_WAIT_PRIVATE, expected, &ts, nullptr, 0);
-  return !(rc == -1 && errno == ETIMEDOUT);  // EAGAIN (gate moved) and EINTR: caller re-checks
+  return rc != -1 || errno != ETIMEDOUT;  // EAGAIN (gate moved) and EINTR: caller re-checks
 }
 
 void FutexWakeAll(std::atomic<uint32_t> &word) {
@@ -376,7 +376,7 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     work_.pop();
   };
 
-  std::shared_ptr<IdleRunnable> claimed;
+  std::shared_ptr<IdleRunnable> claimed;  // NOLINT (misc-const-correctness)
 
   while (run_.load(std::memory_order_acquire)) {
     // Phase 1 get scheduled work <- cold thread???
@@ -446,11 +446,11 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     if (freq) {
       const utils::TSCTimer timer{freq};
       yielder y;                                 // NOLINT (misc-const-correctness)
-      [[maybe_unused]] bool has_poller = false;  // hint only; re-checked under the token
+      [[maybe_unused]] bool has_poller = false;  // NOLINT (misc-const-correctness) hint only; re-checked under token
       if constexpr (ThreadPriority != Priority::HIGH) {
         has_poller = idle_poll.poller.load(std::memory_order_acquire) != nullptr;
       }
-      [[maybe_unused]] uint32_t spins = 0;
+      [[maybe_unused]] uint32_t spins = 0;  // NOLINT (misc-const-correctness)
       auto ready = [&] {
         if (has_pending_work_.load(std::memory_order_acquire)) return true;
         if constexpr (ThreadPriority != Priority::HIGH) {
