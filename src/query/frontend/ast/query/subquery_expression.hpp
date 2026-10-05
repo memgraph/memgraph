@@ -34,7 +34,6 @@ class SubqueryExpression : public memgraph::query::Expression {
   SubqueryExpression() = default;
 
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
-  DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue const *>);
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);

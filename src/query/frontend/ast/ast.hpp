@@ -89,7 +89,6 @@ class OrOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -121,7 +120,6 @@ class XorOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -153,7 +151,6 @@ class AndOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -185,7 +182,6 @@ class AdditionOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -217,7 +213,6 @@ class SubtractionOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -249,7 +244,6 @@ class MultiplicationOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -281,7 +275,6 @@ class DivisionOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -313,7 +306,6 @@ class ModOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -345,7 +337,6 @@ class ExponentiationOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -377,7 +368,6 @@ class NotEqualOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -409,7 +399,6 @@ class EqualOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -441,7 +430,6 @@ class LessOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -473,7 +461,6 @@ class GreaterOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -505,7 +492,6 @@ class LessEqualOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -537,7 +523,6 @@ class GreaterEqualOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -572,7 +557,6 @@ class RangeOperator : public Expression {
   Expression *expression2_{};
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -601,7 +585,6 @@ class InListOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -633,7 +616,6 @@ class SubscriptOperator : public memgraph::query::BinaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -665,7 +647,6 @@ class NotOperator : public memgraph::query::UnaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -696,7 +677,6 @@ class UnaryPlusOperator : public memgraph::query::UnaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -727,7 +707,6 @@ class UnaryMinusOperator : public memgraph::query::UnaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -758,7 +737,6 @@ class IsNullOperator : public memgraph::query::UnaryOperator {
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -791,7 +769,6 @@ class ListSlicingOperator : public Expression {
   ListSlicingOperator() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -837,7 +814,6 @@ class IfOperator : public Expression {
   IfOperator() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -893,7 +869,6 @@ class PrimitiveLiteral : public memgraph::query::BaseLiteral {
   PrimitiveLiteral() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   DEFVISITABLE(HierarchicalTreeVisitor);
@@ -930,7 +905,6 @@ class ListLiteral : public memgraph::query::BaseLiteral {
   ListLiteral() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -969,7 +943,6 @@ class MapLiteral : public memgraph::query::BaseLiteral {
   MapLiteral() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1014,7 +987,6 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   MapProjectionLiteral() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1080,7 +1052,6 @@ class PropertyLookup : public Expression {
       : expression_(expression), property_(property), property_path_{property} {}
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1128,7 +1099,6 @@ class AllPropertiesLookup : public Expression {
   AllPropertiesLookup() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1173,7 +1143,6 @@ class LabelsTest : public Expression {
   LabelsTest() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1262,7 +1231,6 @@ class EdgeTypesTest : public Expression {
   EdgeTypesTest() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1300,7 +1268,6 @@ class Function : public Expression {
   Function() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1361,7 +1328,6 @@ class Reduce : public Expression {
   Reduce() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1416,7 +1382,6 @@ class Coalesce : public Expression {
   Coalesce() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1456,7 +1421,6 @@ class Extract : public Expression {
   Extract() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1499,7 +1463,6 @@ class All : public Expression {
   All() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1539,7 +1502,6 @@ class Single : public Expression {
   Single() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1579,7 +1541,6 @@ class Any : public Expression {
   Any() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1619,7 +1580,6 @@ class None : public Expression {
   None() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1659,7 +1619,6 @@ class ListComprehension : public Expression {
   ListComprehension() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -1712,7 +1671,6 @@ class ParameterLookup : public Expression {
   ParameterLookup() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   DEFVISITABLE(HierarchicalTreeVisitor);
@@ -1743,7 +1701,6 @@ class RegexMatch : public Expression {
   RegexMatch() = default;
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
 
@@ -4352,7 +4309,6 @@ class EnumValueAccess : public Expression {
       : enum_name_(std::move(enum_name)), enum_value_(std::move(enum_value)) {}
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
-  DEFVISITABLE(ExpressionVisitor<TypedValue *>);
   DEFVISITABLE(ExpressionVisitor<TypedValue const *>);
   DEFVISITABLE(ExpressionVisitor<void>);
   DEFVISITABLE(HierarchicalTreeVisitor);
