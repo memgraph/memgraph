@@ -8607,6 +8607,7 @@ TEST_P(CypherMainVisitorTest, CallSubqueryOptional) {
 }
 
 TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
+  AddProc(*mock_module, "proc", {}, {"res"}, GraphAccess::Read);
   auto &ast_generator = *GetParam();
   auto const parse_branches = [&](const std::string &query) {
     const auto *cypher_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
@@ -8675,6 +8676,18 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
       "UNWIND [1] AS i CALL (i) { WHEN true THEN { USING PERIODIC COMMIT 1 CREATE (:T) } }",
       ast_generator,
       "USING cannot be put in a WHEN branch.");
+  // Every branch returns rows, every branch updates the graph, or every branch is a standalone procedure call.
+  for (auto const *query :
+       {"UNWIND [1] AS i CALL (i) { WHEN true THEN CREATE (:T) ELSE RETURN 1 AS x } RETURN i",
+        "UNWIND [1] AS i CALL (i) { WHEN true THEN CALL mock_module.proc() YIELD res ELSE CREATE (:T) } RETURN i",
+        "UNWIND [1] AS i CALL (i) { WHEN true THEN CREATE (:T) ELSE { WHEN true THEN RETURN 1 AS x } } RETURN i"}) {
+    TestInvalidQueryWithMessage<SemanticException>(
+        query, ast_generator, "All WHEN branches must either return rows or update the graph.");
+  }
+  TestInvalidQueryWithMessage<SemanticException>(
+      "UNWIND [1] AS i CALL (i) { WHEN true THEN CALL mock_module.proc() YIELD res WHERE res > 0 } RETURN i",
+      ast_generator,
+      "Cannot use a standalone CALL with WHERE in a WHEN branch.");
   // WHEN is the whole body, and a branch with UNION needs braces.
   TestInvalidQuery<SyntaxException>("UNWIND [1] AS i CALL (i) { WITH i WHEN true THEN RETURN 1 AS x } RETURN x",
                                     ast_generator);

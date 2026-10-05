@@ -16,8 +16,6 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 
 #include <algorithm>
-#include <cstdint>
-#include <functional>
 #include <map>
 #include <optional>
 #include <ranges>
@@ -353,16 +351,6 @@ bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
 
 namespace {
 
-/// What a WHEN branch yields. All branches of one conditional must agree.
-enum class BranchKind : uint8_t { kReturns, kUpdates, kStandaloneCall };
-
-/// The procedure call a body ends in, looking through a nested WHEN, whose branches agree.
-const CallProcedure *TrailingCall(const CypherQuery &query) {
-  const auto *last = query.single_query_->clauses_.back();
-  if (const auto *nested = utils::Downcast<const ConditionalBranches>(last)) return TrailingCall(*nested->bodies_[0]);
-  return utils::Downcast<const CallProcedure>(last);
-}
-
 /// The columns a body's RETURN writes. `all` also holds every import, which each RETURN re-injects; `*` writes none.
 std::unordered_set<std::string> WrittenColumns(const CypherQuery &query, const std::unordered_set<std::string> &all,
                                                const std::map<std::string, Symbol> &imports) {
@@ -391,8 +379,8 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
     if (predicate) predicate->Accept(*this);
   }
 
-  // Each branch starts from the imports alone, as a UNION part does.
-  std::vector<BranchKind> kinds;
+  // Each branch starts from the imports alone, as a UNION part does. The parser checked that all branches agree on
+  // whether they return rows.
   std::vector<std::unordered_set<std::string>> names;
   std::vector<std::unordered_set<std::string>> written;
   for (auto *body : branches.bodies_) {
@@ -402,21 +390,10 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
                            .call_subquery_imports = base.call_subquery_imports,
                            .call_subquery_base = base.call_subquery_base};
     body->Accept(*this);
-    auto const kind = std::invoke([&] {
-      if (scopes_.back().has_return) return BranchKind::kReturns;
-      const auto *call = TrailingCall(*body);
-      if (!call) return BranchKind::kUpdates;
-      if (call->where_) throw SemanticException("Cannot use a standalone CALL with WHERE in a WHEN branch.");
-      return BranchKind::kStandaloneCall;
-    });
-    kinds.push_back(kind);
     names.push_back(scopes_.back().curr_return_names);
     written.push_back(WrittenColumns(*body, names.back(), base.call_subquery_imports));
   }
-  for (size_t i = 1; i < kinds.size(); ++i) {
-    if (kinds[i] != kinds[0]) {
-      throw SemanticException("All WHEN branches must either return rows or update the graph.");
-    }
+  for (size_t i = 1; i < written.size(); ++i) {
     if (written[i].size() != written[0].size()) {
       throw SemanticException("All WHEN branches must return the same number of columns.");
     }
@@ -426,10 +403,11 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   }
 
   // Only a single branch reads its own column symbols, so take the last branch's before restoring the scope.
+  auto const has_return = scopes_.back().has_return;
   auto const last_branch_symbols = std::move(scopes_.back().symbols);
   scopes_.back() = base;
   auto &scope = scopes_.back();
-  scope.has_return = kinds[0] == BranchKind::kReturns;
+  scope.has_return = has_return;
   if (!scope.has_return) return false;
   scope.curr_return_names = names[0];
   for (const auto &name : names[0]) {

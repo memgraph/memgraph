@@ -1426,32 +1426,10 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallBranchesMustAgree) {
                                                    IDENT("i"), LITERAL(10)),
                                                AS("j")))}),
                       "All WHEN branches must have the same column names.");
-  // WHEN true THEN CREATE (n) ELSE RETURN 1 AS x
-  ExpectSemanticError(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))))},
-                                             {nullptr, SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))}),
-                      "All WHEN branches must either return rows or update the graph.");
   // WHEN true THEN RETURN * ELSE RETURN i - `*` writes no import.
   ExpectSemanticError(
       CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN("*"))}, {nullptr, SINGLE_QUERY(RETURN("i"))}),
       "All WHEN branches must return the same number of columns.");
-
-  // CALL proc() YIELD name [WHERE ...] - a standalone call.
-  auto const standalone_call = [this](Where *where) {
-    auto *call = this->storage.template Create<CallProcedure>();
-    call->procedure_name_ = "proc";
-    call->result_fields_.emplace_back("name");
-    call->result_identifiers_.push_back(IDENT("name"));
-    call->where_ = where;
-    return call;
-  };
-  // WHEN true THEN CALL proc() YIELD name WHERE name = 'x'
-  ExpectSemanticError(
-      CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(standalone_call(WHERE(EQ(IDENT("name"), LITERAL("x")))))}),
-      "Cannot use a standalone CALL with WHERE in a WHEN branch.");
-  // WHEN true THEN CALL proc() YIELD name ELSE CREATE (n)
-  ExpectSemanticError(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(standalone_call(nullptr))},
-                                             {nullptr, SINGLE_QUERY(CREATE(PATTERN(NODE("n"))))}),
-                      "All WHEN branches must either return rows or update the graph.");
 }
 
 TYPED_TEST(TestSymbolGenerator, ConditionalCallStarSkipsImports) {

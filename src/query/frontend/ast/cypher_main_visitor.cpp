@@ -14,6 +14,7 @@
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <optional>
 #include <range/v3/all.hpp>
 #include <ranges>
 #include <string>
@@ -4749,7 +4750,7 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   }
 
   call_subquery->cypher_query_ = ctx->conditionalQuery()
-                                     ? VisitConditionalQuery(ctx->conditionalQuery())
+                                     ? VisitConditionalQuery(ctx->conditionalQuery()).query
                                      : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
 
   PreQueryDirectives pre_query_directives;
@@ -4769,15 +4770,21 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   return call_subquery;
 }
 
-CypherQuery *CypherMainVisitor::VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx) {
+CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
+    MemgraphCypher::ConditionalQueryContext *ctx) {
   auto *branches = storage_->Create<ConditionalBranches>();
   auto *single_query = storage_->Create<SingleQuery>();
+  std::optional<ConditionalKind> kind;
   auto const add_branch = [&](Where *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
-    auto *body = VisitConditionalBody(body_ctx);
+    auto const body = VisitConditionalBody(body_ctx);
+    if (kind && *kind != body.kind) {
+      throw SemanticException("All WHEN branches must either return rows or update the graph.");
+    }
+    kind = body.kind;
     branches->predicates_.push_back(predicate);
-    branches->bodies_.push_back(body);
-    single_query->has_update |= body->single_query_->has_update;
-    for (auto *cypher_union : body->cypher_unions_) {
+    branches->bodies_.push_back(body.query);
+    single_query->has_update |= body.query->single_query_->has_update;
+    for (auto *cypher_union : body.query->cypher_unions_) {
       single_query->has_update |= cypher_union->single_query_->has_update;
     }
   };
@@ -4791,23 +4798,34 @@ CypherQuery *CypherMainVisitor::VisitConditionalQuery(MemgraphCypher::Conditiona
   single_query->clauses_.push_back(branches);
   auto *cypher_query = storage_->Create<CypherQuery>();
   cypher_query->single_query_ = single_query;
-  return cypher_query;
+  return {.query = cypher_query, .kind = *kind};
 }
 
-CypherQuery *CypherMainVisitor::VisitConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx) {
+CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalBody(
+    MemgraphCypher::ConditionalBodyContext *ctx) {
   if (ctx->conditionalQuery()) return VisitConditionalQuery(ctx->conditionalQuery());
-  if (ctx->cypherQuery()) {
-    if (ctx->cypherQuery()->queryMemoryLimit()) {
-      throw SyntaxException("Memory limit cannot be set on subqueries!");
+  auto *cypher_query = std::invoke([&] {
+    if (ctx->cypherQuery()) {
+      if (ctx->cypherQuery()->queryMemoryLimit()) {
+        throw SyntaxException("Memory limit cannot be set on subqueries!");
+      }
+      if (ctx->cypherQuery()->preQueryDirectives()) {
+        throw SyntaxException("USING cannot be put in a WHEN branch.");
+      }
+      return std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     }
-    if (ctx->cypherQuery()->preQueryDirectives()) {
-      throw SyntaxException("USING cannot be put in a WHEN branch.");
-    }
-    return std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
-  }
-  auto *cypher_query = storage_->Create<CypherQuery>();
-  cypher_query->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
-  return cypher_query;
+    auto *query = storage_->Create<CypherQuery>();
+    query->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
+    return query;
+  });
+  // `visitSingleQuery` already put RETURN last, and rejected a RETURN-less body that neither updates nor is a lone
+  // call.
+  auto const *last = cypher_query->single_query_->clauses_.back();
+  if (utils::IsSubtype(*last, Return::kType)) return {.query = cypher_query, .kind = ConditionalKind::kReturns};
+  const auto *call = utils::Downcast<const CallProcedure>(last);
+  if (!call) return {.query = cypher_query, .kind = ConditionalKind::kUpdates};
+  if (call->where_) throw SemanticException("Cannot use a standalone CALL with WHERE in a WHEN branch.");
+  return {.query = cypher_query, .kind = ConditionalKind::kStandaloneCall};
 }
 
 LabelIx CypherMainVisitor::AddLabel(const std::string &name) { return storage_->GetLabelIx(name); }

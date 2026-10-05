@@ -23,6 +23,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
+#include <cstdint>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -1325,9 +1326,17 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;
 
+  /// What a WHEN body yields. All branches of one conditional must agree.
+  enum class ConditionalKind : uint8_t { kReturns, kUpdates, kStandaloneCall };
+
+  struct ConditionalQuery {
+    CypherQuery *query;
+    ConditionalKind kind;
+  };
+
   /// `WHEN ... THEN ... ELSE ...` as a query holding one ConditionalBranches clause.
-  CypherQuery *VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx);
-  CypherQuery *VisitConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx);
+  ConditionalQuery VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx);
+  ConditionalQuery VisitConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx);
 
   /**
    * @return MultiDatabaseQuery*
