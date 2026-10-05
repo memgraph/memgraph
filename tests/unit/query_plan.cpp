@@ -4984,26 +4984,35 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabels) {
 // The plan-cache check reads the indexes a plan uses. A disjunction that reported fewer than all of its branches
 // would let a cached plan outlive a dropped index.
 TEST(UsedIndexChecker, CollectsEveryBranchOfIndexDisjunction) {
+  using memgraph::query::plan::ExpressionRange;
   using memgraph::query::plan::IndexDisjunctionBranch;
-  using memgraph::query::plan::LogicalOperator;
   using memgraph::query::plan::Once;
   using memgraph::query::plan::ScanAllByIndexDisjunction;
   using memgraph::query::plan::UsedIndexChecker;
 
   FakeDbAccessor dba;
+  memgraph::query::AstStorage storage;
   const memgraph::query::Symbol node_symbol{"n", 0, /*user_declared=*/false};
   std::vector<memgraph::storage::LabelId> labels;
   std::vector<IndexDisjunctionBranch> branches;
-  for (const auto *name : {"L0", "L1", "L2", "L3"}) {
+  for (const auto *name : {"L0", "L1", "L2"}) {
     labels.push_back(dba.Label(name));
-    branches.push_back({.label = labels.back()});
+    branches.push_back(IndexDisjunctionBranch::Label(labels.back()));
   }
+  auto const property_label = dba.Label("P");
+  std::vector<memgraph::storage::PropertyPath> const properties{memgraph::storage::PropertyPath{dba.Property("p")}};
+  auto property_branch = IndexDisjunctionBranch::LabelProperties(property_label, properties);
+  property_branch.expression_ranges.push_back(
+      ExpressionRange::Equal(storage.Create<memgraph::query::PrimitiveLiteral>(1)));
+  branches.push_back(std::move(property_branch));
   auto root = std::make_shared<ScanAllByIndexDisjunction>(std::make_shared<Once>(), node_symbol, std::move(branches));
 
   UsedIndexChecker checker;
   root->Accept(checker);
 
   EXPECT_THAT(checker.required_indices_.label_, ::testing::UnorderedElementsAreArray(labels));
+  EXPECT_THAT(checker.required_indices_.label_properties_,
+              ::testing::ElementsAre(::testing::Pair(property_label, properties)));
 }
 
 // A clone owns its range and IN list expressions: changing the original's does not reach it.
@@ -5061,7 +5070,7 @@ TYPED_TEST(TestPlanner, IndexDisjunctionInListHasNoUnwind) {
     return ExpectedDisjunctionBranch{.label = label,
                                      .properties = {ms::PropertyPath{property.second}},
                                      .expression_ranges = {ExpressionRange::In(IDENT("element"), list)},
-                                     .membership_slots = 1};
+                                     .membership_slot_count = 1};
   };
   CheckPlan(planner.plan(),
             symbol_table,

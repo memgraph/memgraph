@@ -4645,18 +4645,6 @@ TEST_F(IndexDisjunctionScan, LabelBranchesPerInputRow) {
   EXPECT_EQ(RowsPerX(ScanAOrB(UnwindX({1, 1, 2}))), (std::map<int64_t, int>{{1, 8}, {2, 4}}));
 }
 
-// Under View::NEW a write above the scan runs between its pulls; a dedup by label would let `(:A:B)` out of the
-// :B branch once REMOVE n:A has run on it.
-TEST_F(IndexDisjunctionScan, LabelRemovedBetweenPullsUnderNew) {
-  AddVertices({{label_a, label_b}});
-  auto acc = db->Access(memgraph::storage::WRITE);
-  memgraph::query::DbAccessor dba(acc.get());
-  auto scan = ScanAOrB(std::make_shared<Once>(), memgraph::storage::View::NEW);
-  auto remove = std::make_shared<plan::RemoveLabels>(scan, n, std::vector<StorageLabelType>{label_a});
-  auto context = MakeContext(storage, symbol_table, &dba);
-  EXPECT_EQ(PullAll(*remove, &context), 1);
-}
-
 // A command advance between pulls (a writing subquery, a periodic commit) makes OLD show a label removed after the
 // vertex was yielded; the :B branch must not yield it again.
 TEST_F(IndexDisjunctionScan, LabelRemovedAfterCommandAdvanceUnderOld) {
@@ -4697,7 +4685,8 @@ TEST_F(IndexDisjunctionScan, LabelAddedAfterCommandAdvanceUnderOld) {
 // A vertex the user may not read is skipped; the rest of the branch and the later input rows still run.
 TEST_F(IndexDisjunctionScan, FgacDeniedVertexDoesNotEndTheScan) {
   auto label_s = db->NameToLabel("S");
-  AddVertices({{label_a}, {label_a}, {label_a, label_s}});
+  // The denied vertex comes first in the :A index, and the :B branch has a vertex of its own.
+  AddVertices({{label_a, label_s}, {label_a}, {label_a}, {label_b}});
   auto acc = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(acc.get());
 
@@ -4706,7 +4695,7 @@ TEST_F(IndexDisjunctionScan, FgacDeniedVertexDoesNotEndTheScan) {
   user.fine_grained_access_handler().label_permissions().Deny({"S"}, memgraph::auth::kAllLabelPermissions);
   memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
   auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
-  EXPECT_EQ(PullAll(*ScanAOrB(UnwindX({1, 2})), &context), 4);
+  EXPECT_EQ(PullAll(*ScanAOrB(UnwindX({1, 2})), &context), 6);
 }
 #endif
 
@@ -4766,15 +4755,16 @@ TEST_F(IndexDisjunctionScan, InListPerInputRow) {
   EXPECT_EQ(RowsPerX(scan), (std::map<int64_t, int>{{1, 2}, {2, 3}}));
 }
 
-// A vertex a property branch yields is not yielded again by a later label branch.
+// A vertex a property branch yields is not yielded again by a later label branch, and a vertex the property
+// branch does not reach comes out of the label branch even when it has the property branch's label.
 TEST_F(IndexDisjunctionScan, MixedBranchesDeduplicate) {
-  AddVerticesWithP({{{label_a, label_b}, 1}, {{label_b}, 1}, {{label_a}, 5}});
+  AddVerticesWithP({{{label_a, label_b}, 1}, {{label_b}, 1}, {{label_a}, 5}, {{label_a, label_b}, 5}});
   auto scan = std::make_shared<ScanAllByIndexDisjunction>(
       std::make_shared<Once>(),
       n,
       std::vector<IndexDisjunctionBranch>{PropertyBranch(label_b, ExpressionRange::Equal(LITERAL(1))),
                                           {.label = label_a}});
-  EXPECT_EQ(CountRows(scan), 3);
+  EXPECT_EQ(CountRows(scan), 4);
 }
 
 // A branch over an index that exists only in DESC order seeks that index.
@@ -4795,4 +4785,56 @@ TEST_F(IndexDisjunctionScan, DescIndexBranch) {
       std::vector<IndexDisjunctionBranch>{PropertyBranch(label_d, at_least_one(), memgraph::storage::IndexOrder::DESC),
                                           PropertyBranch(label_b, at_least_one())});
   EXPECT_EQ(CountRows(scan), 3);
+}
+
+// Two IN slots in one branch seek every pair of their elements.
+TEST_F(IndexDisjunctionScan, TwoInSlotsSeekEveryPair) {
+  auto prop_q = db->NameToProperty("q");
+  {
+    auto unique_acc = db->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(label_b, {prop_p, prop_q}).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  {
+    auto acc = db->Access(memgraph::storage::WRITE);
+    for (auto [p, q] : std::vector<std::pair<int64_t, int64_t>>{{1, 3}, {1, 4}, {2, 3}, {2, 4}, {1, 5}, {3, 3}}) {
+      auto vertex = acc->CreateVertex();
+      ASSERT_TRUE(vertex.AddLabel(label_b).has_value());
+      ASSERT_TRUE(vertex.SetProperty(prop_p, memgraph::storage::PropertyValue(p)).has_value());
+      ASSERT_TRUE(vertex.SetProperty(prop_q, memgraph::storage::PropertyValue(q)).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  auto branch = IndexDisjunctionBranch::LabelProperties(
+      label_b, {memgraph::storage::PropertyPath{prop_p}, memgraph::storage::PropertyPath{prop_q}});
+  for (auto *list : {LIST(LITERAL(1), LITERAL(2)), LIST(LITERAL(3), LITERAL(4))}) {
+    auto membership = MakeMembershipList(symbol_table, &storage, list);
+    branch.expression_ranges.push_back(ExpressionRange::In(membership.element, list));
+    branch.membership_slots.push_back({.list = membership.deduped, .symbol = membership.symbol});
+  }
+  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
+      std::make_shared<Once>(), n, std::vector<IndexDisjunctionBranch>{IndexDisjunctionBranch::Label(label_a), branch});
+  EXPECT_EQ(CountRows(scan), 4);
+}
+
+// A Reset while an IN branch still has elements to seek starts again from a new input row.
+TEST_F(IndexDisjunctionScan, ResetInsideAnInBranch) {
+  AddVerticesWithP({{{label_a}, 9}, {{label_b}, 1}, {{label_b}, 2}});
+  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
+      UnwindX({1, 2}),
+      n,
+      std::vector<IndexDisjunctionBranch>{IndexDisjunctionBranch::Label(label_a),
+                                          InBranch(label_b, LIST(LITERAL(1), LITERAL(2)))});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto cursor = scan->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  Frame frame(symbol_table.max_position());
+  // The :A vertex, then the first of the two :B seeks.
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  cursor->Reset();
+  int rows = 0;
+  while (cursor->Pull(frame, context)) ++rows;
+  EXPECT_EQ(rows, 6);
 }

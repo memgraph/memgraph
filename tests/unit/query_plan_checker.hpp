@@ -709,7 +709,7 @@ struct ExpectedDisjunctionBranch {
   std::vector<memgraph::storage::PropertyPath> properties{};
   std::vector<ExpressionRange> expression_ranges{};
   memgraph::storage::IndexOrder index_order{memgraph::storage::IndexOrder::ASC};
-  size_t membership_slots{0};
+  size_t membership_slot_count{0};
 };
 
 class ExpectScanAllByIndexDisjunction : public OpChecker<ScanAllByIndexDisjunction> {
@@ -728,7 +728,7 @@ class ExpectScanAllByIndexDisjunction : public OpChecker<ScanAllByIndexDisjuncti
       ASSERT_EQ(actual.expression_ranges.size(), expected.expression_ranges.size());
       EXPECT_TRUE(ranges::equal(actual.expression_ranges, expected.expression_ranges, ExpressionRangesMatch));
       EXPECT_EQ(actual.index_order, expected.index_order);
-      EXPECT_EQ(actual.membership_slots.size(), expected.membership_slots);
+      EXPECT_EQ(actual.membership_slots.size(), expected.membership_slot_count);
     }
   }
 
