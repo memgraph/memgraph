@@ -63,7 +63,7 @@ class AtomicAuthOverlay {
 
    private:
     friend class AtomicAuthOverlay;
-    iterator(AtomicAuthOverlay const *overlay, std::string prefix, bool at_end);
+    iterator(AtomicAuthOverlay const &overlay, std::string prefix, bool at_end);
 
     void Advance();
 

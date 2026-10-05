@@ -139,11 +139,11 @@ bool AtomicAuthOverlay::Flush() {
 
 // --- Iterator ---
 
-AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const *overlay, std::string prefix, bool at_end)
-    : overlay_(overlay),
+AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const &overlay, std::string prefix, bool at_end)
+    : overlay_(&overlay),
       prefix_(std::move(prefix)),
-      base_it_(overlay->base_.begin(prefix_)),
-      base_end_(overlay->base_.end(prefix_)),
+      base_it_(overlay.base_.begin(prefix_)),
+      base_end_(overlay.base_.end(prefix_)),
       at_end_(at_end) {
   if (!at_end_) {
     // Emptiness is read from base before any Advance, since Advance consumes the first entry. A scan is assumed to
@@ -251,8 +251,8 @@ AtomicAuthOverlay::iterator::reference AtomicAuthOverlay::iterator::operator*() 
 
 AtomicAuthOverlay::iterator::pointer AtomicAuthOverlay::iterator::operator->() const { return &*current_; }
 
-AtomicAuthOverlay::iterator AtomicAuthOverlay::begin(std::string const &prefix) const { return {this, prefix, false}; }
+AtomicAuthOverlay::iterator AtomicAuthOverlay::begin(std::string const &prefix) const { return {*this, prefix, false}; }
 
-AtomicAuthOverlay::iterator AtomicAuthOverlay::end(std::string const &prefix) const { return {this, prefix, true}; }
+AtomicAuthOverlay::iterator AtomicAuthOverlay::end(std::string const &prefix) const { return {*this, prefix, true}; }
 
 }  // namespace memgraph::auth
