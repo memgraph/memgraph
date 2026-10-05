@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "query/typed_value.hpp"
+#include "utils/memory.hpp"
 
 namespace {
 
@@ -39,6 +40,37 @@ using Frame = std::vector<TypedValue>;
 //                                       cost is value lifetime, not allocation
 //                                       inside the operator)
 enum class Shape { Int, Str, StrVar };
+
+// Which memory the values are built from. Production evaluates against a pool
+// over a monotonic arena, where a free returns a block to a list rather than
+// going to the allocator, so a saving measured against new and delete is not
+// the saving a query gets.
+enum class Alloc { NewDelete, Pool };
+
+struct QueryMemory {
+  memgraph::utils::MonotonicBufferResource monotonic{4UL * 1024UL};
+  memgraph::utils::PoolResource<> pool{64, &monotonic};
+};
+
+// The benchmarks run one at a time, so the resource in force can be file-level.
+QueryMemory *g_memory = nullptr;
+Alloc g_alloc = Alloc::NewDelete;
+
+TypedValue::allocator_type CurrentAlloc() {
+  if (g_alloc == Alloc::Pool && g_memory != nullptr) {
+    return TypedValue::allocator_type{&g_memory->pool};
+  }
+  return TypedValue::allocator_type{};
+}
+
+// A scratch array whose slots already carry the allocator, so assigning into a
+// slot reuses whatever that slot holds rather than taking the source's memory.
+std::vector<TypedValue> MakeScratch(int slots) {
+  std::vector<TypedValue> v;
+  v.reserve(slots);
+  for (int i = 0; i < slots; ++i) v.emplace_back(CurrentAlloc());
+  return v;
+}
 
 // ---------------------------------------------------------------- strategy A
 // Virtual double dispatch: a virtual Accept to recover the node type, then a
@@ -303,7 +335,7 @@ struct Instr {
 
 class MiniVm {
  public:
-  explicit MiniVm(size_t depth) : stack_(depth) {}
+  explicit MiniVm(size_t depth) : stack_(MakeScratch(static_cast<int>(depth))) {}
 
   // Returns a reference into the stack: the caller reads it before the next Run.
   TypedValue &Run(const std::vector<Instr> &code, Frame &f) {
@@ -377,10 +409,10 @@ std::vector<Frame> MakeFrames(Shape shape) {
   };
   for (int i = 0; i < 5; ++i) {
     Frame f;
-    f.emplace_back(pool[i % 5]);
-    f.emplace_back(pool[i % 5]);
-    f.emplace_back(pool[(i + 1) % 5]);
-    f.emplace_back(pool[(i + 1) % 5]);
+    f.emplace_back(pool[i % 5], CurrentAlloc());
+    f.emplace_back(pool[i % 5], CurrentAlloc());
+    f.emplace_back(pool[(i + 1) % 5], CurrentAlloc());
+    f.emplace_back(pool[(i + 1) % 5], CurrentAlloc());
     frames.push_back(std::move(f));
   }
   return frames;
@@ -389,17 +421,17 @@ std::vector<Frame> MakeFrames(Shape shape) {
 Frame MakeFrame(Shape shape) {
   Frame f;
   if (shape == Shape::Int) {
-    f.emplace_back(int64_t{3});
-    f.emplace_back(int64_t{4});
-    f.emplace_back(int64_t{7});
-    f.emplace_back(int64_t{3});
+    f.emplace_back(int64_t{3}, CurrentAlloc());
+    f.emplace_back(int64_t{4}, CurrentAlloc());
+    f.emplace_back(int64_t{7}, CurrentAlloc());
+    f.emplace_back(int64_t{3}, CurrentAlloc());
   } else {
     // Long enough that the string owns a heap buffer rather than living inside
     // the object, so destruction has to free.
-    f.emplace_back("a sufficiently long string value to force allocation 0");
-    f.emplace_back("a sufficiently long string value to force allocation 0");
-    f.emplace_back("a sufficiently long string value to force allocation 1");
-    f.emplace_back("a sufficiently long string value to force allocation 1");
+    f.emplace_back("a sufficiently long string value to force allocation 0", CurrentAlloc());
+    f.emplace_back("a sufficiently long string value to force allocation 0", CurrentAlloc());
+    f.emplace_back("a sufficiently long string value to force allocation 1", CurrentAlloc());
+    f.emplace_back("a sufficiently long string value to force allocation 1", CurrentAlloc());
   }
   return f;
 }
@@ -483,11 +515,11 @@ bool SameAnswers(Shape shape) {
     if (bexpr->Eval(frame).ValueBool() != want) return false;
     if (CEval(cexpr, frame).ValueBool() != want) return false;
 
-    DEvaluator dev{std::vector<TypedValue>(slots), &frame};
+    DEvaluator dev{MakeScratch(slots), &frame};
     dev.Eval(cexpr);
     if (dev.scratch[cexpr->idx].ValueBool() != want) return false;
 
-    FEvaluator fev{std::vector<TypedValue>(slots), &frame};
+    FEvaluator fev{MakeScratch(slots), &frame};
     fev.Eval(cexpr);
     if (fev.scratch[cexpr->idx].ValueBool() != want) return false;
 
@@ -504,6 +536,9 @@ bool SameAnswers(Shape shape) {
 
 static void Dispatch_A_VirtualDouble(benchmark::State &state) {
   const auto shape = static_cast<Shape>(state.range(0));
+  QueryMemory memory;
+  g_memory = &memory;
+  g_alloc = static_cast<Alloc>(state.range(1));
   auto frames = MakeFrames(shape);
   size_t fi = 0;
   auto frame = frames[0];
@@ -529,6 +564,9 @@ static void Dispatch_A_VirtualDouble(benchmark::State &state) {
 
 static void Dispatch_B_VirtualSingle(benchmark::State &state) {
   const auto shape = static_cast<Shape>(state.range(0));
+  QueryMemory memory;
+  g_memory = &memory;
+  g_alloc = static_cast<Alloc>(state.range(1));
   auto frames = MakeFrames(shape);
   size_t fi = 0;
   Arena<BNode> arena;
@@ -585,6 +623,9 @@ int AssignSlots(CNode *n, int next) {
 
 static void Dispatch_C_SwitchByValue(benchmark::State &state) {
   const auto shape = static_cast<Shape>(state.range(0));
+  QueryMemory memory;
+  g_memory = &memory;
+  g_alloc = static_cast<Alloc>(state.range(1));
   auto frames = MakeFrames(shape);
   size_t fi = 0;
   Arena<CNode> arena;
@@ -600,12 +641,15 @@ static void Dispatch_C_SwitchByValue(benchmark::State &state) {
 
 static void Dispatch_D_ScratchSlots(benchmark::State &state) {
   const auto shape = static_cast<Shape>(state.range(0));
+  QueryMemory memory;
+  g_memory = &memory;
+  g_alloc = static_cast<Alloc>(state.range(1));
   auto frames = MakeFrames(shape);
   size_t fi = 0;
   Arena<CNode> arena;
   auto *expr = BuildC(arena, shape);
   const int slots = AssignSlots(expr, 0);
-  DEvaluator ev{std::vector<TypedValue>(slots), &frames[0]};
+  DEvaluator ev{MakeScratch(slots), &frames[0]};
   for (auto _ : state) {
     ev.frame = &frames[fi];
     if (++fi == frames.size()) fi = 0;
@@ -617,12 +661,15 @@ static void Dispatch_D_ScratchSlots(benchmark::State &state) {
 
 static void Dispatch_F_InPlaceOps(benchmark::State &state) {
   const auto shape = static_cast<Shape>(state.range(0));
+  QueryMemory memory;
+  g_memory = &memory;
+  g_alloc = static_cast<Alloc>(state.range(1));
   auto frames = MakeFrames(shape);
   size_t fi = 0;
   Arena<CNode> arena;
   auto *expr = BuildC(arena, shape);
   const int slots = AssignSlots(expr, 0);
-  FEvaluator ev{std::vector<TypedValue>(slots), &frames[0]};
+  FEvaluator ev{MakeScratch(slots), &frames[0]};
   for (auto _ : state) {
     ev.frame = &frames[fi];
     if (++fi == frames.size()) fi = 0;
@@ -634,6 +681,9 @@ static void Dispatch_F_InPlaceOps(benchmark::State &state) {
 
 static void Dispatch_E_MiniVm(benchmark::State &state) {
   const auto shape = static_cast<Shape>(state.range(0));
+  QueryMemory memory;
+  g_memory = &memory;
+  g_alloc = static_cast<Alloc>(state.range(1));
   auto frames = MakeFrames(shape);
   size_t fi = 0;
   std::vector<Instr> code;
@@ -670,6 +720,9 @@ static void Dispatch_E_MiniVm(benchmark::State &state) {
 
 static void Dispatch_G_NativeSpecialised(benchmark::State &state) {
   const auto shape = static_cast<Shape>(state.range(0));
+  QueryMemory memory;
+  g_memory = &memory;
+  g_alloc = static_cast<Alloc>(state.range(1));
   auto frames = MakeFrames(shape);
   size_t fi = 0;
   const bool ints = shape == Shape::Int;
@@ -682,11 +735,19 @@ static void Dispatch_G_NativeSpecialised(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
-#define SHAPES \
-  Arg(static_cast<int>(Shape::Int))->Arg(static_cast<int>(Shape::Str))->Arg(static_cast<int>(Shape::StrVar))
+#define SHAPES                                                                      \
+  Args({static_cast<int>(Shape::Int), static_cast<int>(Alloc::NewDelete)})          \
+      ->Args({static_cast<int>(Shape::Int), static_cast<int>(Alloc::Pool)})         \
+      ->Args({static_cast<int>(Shape::Str), static_cast<int>(Alloc::NewDelete)})    \
+      ->Args({static_cast<int>(Shape::Str), static_cast<int>(Alloc::Pool)})         \
+      ->Args({static_cast<int>(Shape::StrVar), static_cast<int>(Alloc::NewDelete)}) \
+      ->Args({static_cast<int>(Shape::StrVar), static_cast<int>(Alloc::Pool)})
 
 static void Dispatch_000_AgreementCheck(benchmark::State &state) {
   const auto shape = static_cast<Shape>(state.range(0));
+  QueryMemory memory;
+  g_memory = &memory;
+  g_alloc = static_cast<Alloc>(state.range(1));
   if (!SameAnswers(shape)) {
     state.SkipWithError("strategies disagree on the result; timings below are meaningless");
   }
