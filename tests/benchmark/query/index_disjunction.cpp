@@ -13,6 +13,7 @@
 // label-property branches sought for every input row. Parsing and planning happen once, outside the loop.
 
 #include <cstdint>
+#include <initializer_list>
 #include <memory>
 #include <string>
 
@@ -26,6 +27,7 @@
 #include "query/plan/planner.hpp"
 
 #include "metrics/metric_handles.hpp"
+#include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"

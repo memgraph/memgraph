@@ -1508,7 +1508,7 @@ namespace {
 // Evaluates the seek ranges for the current row and carries each range's value predicate.
 // Returns nullopt if no vertex can match.
 std::optional<std::vector<storage::PropertyValueRange>> EvaluateSeekRanges(
-    const std::vector<ExpressionRange> &expression_ranges, ExpressionEvaluator &evaluator,
+    std::span<const ExpressionRange> expression_ranges, ExpressionEvaluator &evaluator,
     std::span<ValuePredicateForRow> value_predicates) {
   auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
   auto prop_value_ranges = expression_ranges | rv::transform(to_property_value_range) | ranges::to_vector;
@@ -1690,21 +1690,30 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
                                                                 "ScanAllByLabelProperties");
 }
 
-std::string ScanAllByLabelProperties::ToString(const DbAccessor *dba) const {
-  // TODO: better diagnostics...info about expression_ranges_?
+namespace {
+// `{a, b.c}` for the properties of an index.
+std::string IndexPropertiesToString(const DbAccessor *dba, std::vector<storage::PropertyPath> const &properties) {
   auto const property_names =
-      properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
+      properties | rv::transform([&](storage::PropertyPath const &property_path) {
         return utils::Join(
             property_path | rv::transform([&](storage::PropertyId prop) { return dba->PropertyToName(prop); }), ".");
       }) |
       ranges::to_vector;
-  auto const properties_stringified = utils::Join(property_names, ", ");
-  std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
-  return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}}){3}",
+  return fmt::format("{{{}}}", utils::Join(property_names, ", "));
+}
+
+std::string_view IndexOrderSuffix(storage::IndexOrder order) {
+  return order == storage::IndexOrder::DESC ? " (DESC)" : "";
+}
+}  // namespace
+
+std::string ScanAllByLabelProperties::ToString(const DbAccessor *dba) const {
+  // TODO: better diagnostics...info about expression_ranges_?
+  return fmt::format("ScanAllByLabelProperties ({0} :{1} {2}){3}",
                      output_symbol_.name(),
                      dba->LabelToName(label_),
-                     properties_stringified,
-                     suffix);
+                     IndexPropertiesToString(dba, properties_),
+                     IndexOrderSuffix(index_order_));
 }
 
 std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *storage) const {
@@ -1726,6 +1735,21 @@ ScanAllByIndexDisjunction::ScanAllByIndexDisjunction(const std::shared_ptr<Logic
                                                      storage::View view)
     : ScanAll(input, std::move(output_symbol), view), branches_(std::move(branches)) {
   DMG_ASSERT(!branches_.empty(), "A disjunction needs a branch.");
+  for ([[maybe_unused]] auto const &branch : branches_) {
+    DMG_ASSERT(branch.IsLabelOnly() == branch.expression_ranges.empty(), "A property branch needs its ranges.");
+    DMG_ASSERT(std::ranges::count(branch.expression_ranges, PropertyFilter::Type::IN, &ExpressionRange::type_) ==
+                   std::ssize(branch.membership_slots),
+               "Every IN range of a branch needs its slot.");
+  }
+}
+
+IndexDisjunctionBranch IndexDisjunctionBranch::Clone(AstStorage &storage) const {
+  auto copy = *this;
+  copy.expression_ranges = expression_ranges |
+                           rv::transform([&](auto const &range) { return ExpressionRange(range, storage); }) |
+                           ranges::to_vector;
+  for (auto &slot : copy.membership_slots) slot.list = slot.list->Clone(&storage);
+  return copy;
 }
 
 ACCEPT_WITH_INPUT(ScanAllByIndexDisjunction)
@@ -1756,7 +1780,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
         vertices_.reset();
         continue;
       }
-      auto vertex = **vertices_it_;
+      auto const vertex = **vertices_it_;
       ++*vertices_it_;
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
@@ -1816,26 +1840,28 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
   // Seeks the current branch's index for its next tuple of IN elements. False when no tuple is left.
   bool NextSeek(Frame &frame, ExecutionContext &context) {
     auto const &branch = self_.branches_[branch_];
+    ExpressionEvaluator evaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
     while (tuple_pending_) {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       for (auto const &[slot, values, position] : rv::zip(branch.membership_slots, membership_values_, tuple_)) {
         frame_writer.Write(slot.symbol, values[position]);
       }
-      tuple_pending_ = false;
-      for (auto i = tuple_.size(); i-- > 0;) {
-        if (++tuple_[i] < membership_values_[i].size()) {
-          tuple_pending_ = true;
-          break;
-        }
-        tuple_[i] = 0;
-      }
-      ExpressionEvaluator evaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
+      tuple_pending_ = AdvanceTuple();
       // A null bound or a null, NaN or list element matches nothing: skip this tuple only.
       auto ranges = EvaluateSeekRanges(branch.expression_ranges, evaluator, value_predicates_[branch_]);
       if (!ranges) continue;
       SetVertices(
           context.db_accessor->Vertices(self_.view_, branch.label, branch.properties, *ranges, branch.index_order));
       return true;
+    }
+    return false;
+  }
+
+  // Steps `tuple_` to the next tuple of IN elements, the last position fastest. False after the last tuple.
+  bool AdvanceTuple() {
+    for (auto i = tuple_.size(); i-- > 0;) {
+      if (++tuple_[i] < membership_values_[i].size()) return true;
+      tuple_[i] = 0;
     }
     return false;
   }
@@ -1873,14 +1899,8 @@ std::string ScanAllByIndexDisjunction::ToString(const DbAccessor *dba) const {
   auto const branch_text = [&](IndexDisjunctionBranch const &branch) {
     auto label = fmt::format(":{}", dba->LabelToName(branch.label));
     if (branch.IsLabelOnly()) return label;
-    auto const property_names =
-        branch.properties | rv::transform([&](storage::PropertyPath const &path) {
-          return utils::Join(path | rv::transform([&](storage::PropertyId prop) { return dba->PropertyToName(prop); }),
-                             ".");
-        }) |
-        ranges::to_vector;
-    std::string_view suffix = branch.index_order == storage::IndexOrder::DESC ? " (DESC)" : "";
-    return fmt::format("{} {{{}}}{}", label, utils::Join(property_names, ", "), suffix);
+    return fmt::format(
+        "{} {}{}", label, IndexPropertiesToString(dba, branch.properties), IndexOrderSuffix(branch.index_order));
   };
   auto const branches = branches_ | rv::transform(branch_text) | ranges::to_vector;
   return fmt::format("ScanAllByIndexDisjunction ({} {})", output_symbol_.name(), utils::Join(branches, " | "));
@@ -1891,14 +1911,8 @@ std::unique_ptr<LogicalOperator> ScanAllByIndexDisjunction::Clone(AstStorage *st
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
   object->view_ = view_;
-  object->branches_.reserve(branches_.size());
-  for (auto const &branch : branches_) {
-    auto &copy = object->branches_.emplace_back(branch);
-    copy.expression_ranges = branch.expression_ranges |
-                             rv::transform([&](auto &&range) { return ExpressionRange(range, *storage); }) |
-                             ranges::to_vector;
-    for (auto &slot : copy.membership_slots) slot.list = slot.list->Clone(storage);
-  }
+  object->branches_ =
+      branches_ | rv::transform([&](auto const &branch) { return branch.Clone(*storage); }) | ranges::to_vector;
   return object;
 }
 

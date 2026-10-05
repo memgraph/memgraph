@@ -839,6 +839,15 @@ struct IndexDisjunctionBranch {
     Symbol symbol;
   };
 
+  /// A label-index branch.
+  static IndexDisjunctionBranch Label(storage::LabelId label) { return {.label = label}; }
+
+  /// A label-property-index branch; its ranges and IN slots are added after.
+  static IndexDisjunctionBranch LabelProperties(storage::LabelId label, std::vector<storage::PropertyPath> properties,
+                                                storage::IndexOrder order = storage::IndexOrder::ASC) {
+    return {.label = label, .properties = std::move(properties), .index_order = order};
+  }
+
   storage::LabelId label;
   std::vector<storage::PropertyPath> properties;
   std::vector<ExpressionRange> expression_ranges;
@@ -846,6 +855,9 @@ struct IndexDisjunctionBranch {
   storage::IndexOrder index_order{storage::IndexOrder::ASC};
 
   bool IsLabelOnly() const { return properties.empty(); }
+
+  /// A copy whose expressions live in @p storage.
+  IndexDisjunctionBranch Clone(AstStorage &storage) const;
 };
 
 /// Produces, for each input row, every vertex that at least one branch yields, once.

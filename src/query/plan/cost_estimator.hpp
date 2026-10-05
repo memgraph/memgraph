@@ -136,8 +136,10 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     if (index_stats) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }
-    cardinality_ *=
-        EstimateLabelPropertiesCardinality(logical_op.label_, logical_op.properties_, logical_op.expression_ranges_);
+    cardinality_ *= EstimateLabelPropertiesCardinality(logical_op.label_,
+                                                       logical_op.properties_,
+                                                       logical_op.expression_ranges_,
+                                                       /*in_lists_unwound=*/true);
     if (index_hints_.HasLabelPropertiesIndex(db_accessor_, logical_op.label_, logical_op.properties_)) {
       use_index_hints_ = true;
     }
@@ -292,7 +294,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanParallelByLabelProperties &op) override {
     auto index_stats = db_accessor_->GetIndexStats(op.label_, op.properties_);
     last_index_stats_ = index_stats ? std::make_optional(std::move(index_stats.value())) : std::nullopt;
-    cardinality_ *= EstimateLabelPropertiesCardinality(op.label_, op.properties_, op.expression_ranges_);
+    cardinality_ *=
+        EstimateLabelPropertiesCardinality(op.label_, op.properties_, op.expression_ranges_, /*in_lists_unwound=*/true);
     if (index_hints_.HasLabelPropertiesIndex(db_accessor_, op.label_, op.properties_)) {
       use_index_hints_ = true;
     }
@@ -832,14 +835,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return EstimateInListSum(db_accessor_, label, properties, list, slot, pvrs, parameters);
   }
 
-  // Helper function to estimate cardinality for label properties queries.
-  // Used by both single-threaded and parallel scan operators.
+  /// Estimates the cardinality of a label-property scan, serial or parallel.
   /// @param in_lists_unwound true when an Unwind above the scan feeds each IN element, false when the scan seeks
   /// every element itself.
   double EstimateLabelPropertiesCardinality(storage::LabelId label,
                                             std::vector<storage::PropertyPath> const &properties,
                                             std::vector<ExpressionRange> const &expression_ranges,
-                                            bool in_lists_unwound = true) {
+                                            bool in_lists_unwound) {
     auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
 
     auto maybe_ranges =

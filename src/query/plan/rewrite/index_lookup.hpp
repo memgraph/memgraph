@@ -2043,7 +2043,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           if (std::holds_alternative<LabelIx>(index)) {
             metadata.all_property_filters_same = false;
             metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
-            branches.push_back({.label = GetLabel(std::get<LabelIx>(index))});
+            branches.push_back(IndexDisjunctionBranch::Label(GetLabel(std::get<LabelIx>(index))));
             continue;
           }
           auto &label_property_index = std::get<LabelPropertyIndex>(index);
@@ -2052,9 +2052,9 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             metadata.all_property_filters_same = false;
           }
           filtered_property_ids = label_property_index.properties;
-          IndexDisjunctionBranch branch{.label = GetLabel(label_property_index.label),
-                                        .properties = std::move(label_property_index.properties),
-                                        .index_order = label_property_index.order};
+          auto branch = IndexDisjunctionBranch::LabelProperties(GetLabel(label_property_index.label),
+                                                                std::move(label_property_index.properties),
+                                                                label_property_index.order);
           for (auto const &filter_info : label_property_index.filters) {
             if (!PropertyFilter::RequiresPostFilterOnNodeScan(filter_info.property_filter->type_)) {
               metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
@@ -2136,7 +2136,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // `max_vertex_count` controls, whether no operator should be created if the
   // vertex count in the best index exceeds this number. In such a case,
   // `nullptr` is returned and `input` is not chained.
-  // A disjunction of indexed labels gives one ScanAllByIndexDisjunction.
+  // A disjunction of two or more indexed labels gives one ScanAllByIndexDisjunction.
   struct GenScanResult {
     std::shared_ptr<LogicalOperator> op;
     bool has_in_filter = false;
