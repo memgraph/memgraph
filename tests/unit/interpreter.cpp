@@ -1967,6 +1967,22 @@ TYPED_TEST(InterpreterTest, ExplainQuery) {
   EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
+// Index hints on every label of a disjunction make the plan that starts at the disjunction a hinted plan, even
+// where starting at the other end is cheaper.
+TYPED_TEST(InterpreterTest, ExplainIndexDisjunctionHonoursIndexHints) {
+  this->Interpret("CREATE INDEX ON :Z;");
+  this->Interpret("CREATE INDEX ON :A;");
+  this->Interpret("CREATE INDEX ON :B;");
+  this->Interpret("CREATE (:Z);");
+  this->Interpret("UNWIND range(1, 50) AS i CREATE (:A), (:B);");
+
+  auto stream = this->Interpret("EXPLAIN USING INDEX :A, :B MATCH (z:Z)-->(n:A|B) RETURN n;");
+  auto const &rows = stream.GetResults();
+  ASSERT_GE(rows.size(), 2U);
+  // The row above Once is the scan the plan starts with.
+  EXPECT_EQ(rows[rows.size() - 2].front().ValueString(), " * ScanAllByIndexDisjunction (n :A | :B)");
+}
+
 TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->AstCacheSize(), 0U);

@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cmath>
+#include <optional>
 
 #include "query/parameters.hpp"
 #include "query/plan/cost_constants.hpp"
@@ -135,12 +136,50 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     if (index_stats) {
       SaveStatsFor(logical_op.output_symbol_, index_stats.value());
     }
-    cardinality_ *=
-        EstimateLabelPropertiesCardinality(logical_op.label_, logical_op.properties_, logical_op.expression_ranges_);
+    cardinality_ *= EstimateLabelPropertiesCardinality(logical_op.label_,
+                                                       logical_op.properties_,
+                                                       logical_op.expression_ranges_,
+                                                       /*in_lists_unwound=*/true);
     if (index_hints_.HasLabelPropertiesIndex(db_accessor_, logical_op.label_, logical_op.properties_)) {
       use_index_hints_ = true;
     }
     IncrementCost(CostParam::kScanAllByLabelProperties);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByIndexDisjunction &logical_op) override {
+    // Each input row runs every branch once: the output is the sum of the branches, the cost one scan of it.
+    double branches_cardinality = 0;
+    // The output's stats are the branches' counts summed and their degrees weighted by count, when every branch has
+    // stats.
+    std::optional<SymbolStatistics> stats = SymbolStatistics{.count = 0, .degree = 0};
+    auto add_stats = [&](auto const &index_stats) {
+      if (!stats) return;
+      if (!index_stats) {
+        stats.reset();
+        return;
+      }
+      stats->count += index_stats->count;
+      stats->degree += static_cast<double>(index_stats->count) * index_stats->avg_degree;
+    };
+    for (auto const &branch : logical_op.branches_) {
+      if (branch.IsLabelOnly()) {
+        add_stats(db_accessor_->GetIndexStats(branch.label));
+        branches_cardinality += db_accessor_->VerticesCount(branch.label);
+        if (index_hints_.HasLabelIndex(db_accessor_, branch.label)) use_index_hints_ = true;
+        continue;
+      }
+      add_stats(db_accessor_->GetIndexStats(branch.label, branch.properties));
+      branches_cardinality += EstimateLabelPropertiesCardinality(
+          branch.label, branch.properties, branch.expression_ranges, /*in_lists_unwound=*/false);
+      if (index_hints_.HasLabelPropertiesIndex(db_accessor_, branch.label, branch.properties)) use_index_hints_ = true;
+    }
+    if (stats) {
+      if (stats->count > 0) stats->degree /= static_cast<double>(stats->count);
+      scopes_.back().symbol_stats[logical_op.output_symbol_.name()] = *stats;
+    }
+    cardinality_ *= branches_cardinality;
+    IncrementCost(CostParam::kScanAllByLabel);
     return true;
   }
 
@@ -255,7 +294,8 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(ScanParallelByLabelProperties &op) override {
     auto index_stats = db_accessor_->GetIndexStats(op.label_, op.properties_);
     last_index_stats_ = index_stats ? std::make_optional(std::move(index_stats.value())) : std::nullopt;
-    cardinality_ *= EstimateLabelPropertiesCardinality(op.label_, op.properties_, op.expression_ranges_);
+    cardinality_ *=
+        EstimateLabelPropertiesCardinality(op.label_, op.properties_, op.expression_ranges_, /*in_lists_unwound=*/true);
     if (index_hints_.HasLabelPropertiesIndex(db_accessor_, op.label_, op.properties_)) {
       use_index_hints_ = true;
     }
@@ -795,11 +835,13 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return EstimateInListSum(db_accessor_, label, properties, list, slot, pvrs, parameters);
   }
 
-  // Helper function to estimate cardinality for label properties queries.
-  // Used by both single-threaded and parallel scan operators.
+  /// Estimates the cardinality of a label-property scan, serial or parallel.
+  /// @param in_lists_unwound true when an Unwind above the scan feeds each IN element, false when the scan seeks
+  /// every element itself.
   double EstimateLabelPropertiesCardinality(storage::LabelId label,
                                             std::vector<storage::PropertyPath> const &properties,
-                                            std::vector<ExpressionRange> const &expression_ranges) {
+                                            std::vector<ExpressionRange> const &expression_ranges,
+                                            bool in_lists_unwound) {
     auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
 
     auto maybe_ranges =
@@ -840,6 +882,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       unwind_factor *= static_cast<double>(expression_ranges[slot].membership_list_->elements_.size());
     }
     if (unwind_factor == 0) return 0.0;
+    if (!in_lists_unwound) unwind_factor = 1.0;
 
     if (in_slots.size() == 1) {
       auto sum = EstimateInListCardinality(

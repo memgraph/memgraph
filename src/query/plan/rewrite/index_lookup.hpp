@@ -37,7 +37,6 @@
 #include "query/plan/cost_constants.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
-#include "query/plan/rewrite/balanced_union.hpp"
 #include "query/plan/rewrite/general.hpp"
 #include "query/plan/rewrite/order_by_elimination.hpp"
 #include "storage/v2/id_types.hpp"
@@ -577,6 +576,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   }
 
   bool PostVisit(ScanAllByLabelProperties &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
+  bool PreVisit(ScanAllByIndexDisjunction &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByIndexDisjunction &) override {
     prev_ops_.pop_back();
     return true;
   }
@@ -2015,63 +2024,78 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
     if (!or_labels.empty()) {
       auto best_group = FindBestIndexGroup(node_symbol, bound_symbols, or_labels);
-      // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain
-      // it in unions
+      // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it
       if ((!max_vertex_count || best_group.vertex_count <= *max_vertex_count) && !best_group.indices.empty()) {
-        // Prefer vertex-property scan only if it has a lower estimated count than the OR-labels union
+        // Prefer vertex-property scan only if it has a lower estimated count than the OR-labels scan
         if (vertex_prop_result && vertex_prop_result->estimated_count < best_group.vertex_count) {
           return std::move(*vertex_prop_result);
         }
-        // Collect one index scan per disjoined label, then fold them into a
-        // balanced Union tree with a single deduplicating Distinct on top.
-        std::vector<std::unique_ptr<LogicalOperator>> scans;
-        scans.reserve(best_group.indices.size());
+        metadata.is_or_label_filter = true;
+        // One branch per disjoined label, all in one scan that reads each input row once.
+        std::vector<IndexDisjunctionBranch> branches;
+        branches.reserve(best_group.indices.size());
         metadata.labels_to_erase.reserve(best_group.indices.size());
         std::optional<std::vector<storage::PropertyPath>>
             filtered_property_ids;  // Used to check if all indices uses the same filter
         metadata.all_property_filters_same =
             true;  // Used to check if all indices uses the same filter -> if yes we can remove the filter
-        for (const auto &index : best_group.indices) {
+        for (auto &index : best_group.indices) {
           if (std::holds_alternative<LabelIx>(index)) {
             metadata.all_property_filters_same = false;
             metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
-            scans.push_back(
-                std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(std::get<LabelIx>(index)), view));
-          } else {
-            auto &label_property_index = std::get<LabelPropertyIndex>(index);
-            metadata.labels_to_erase.push_back(label_property_index.label);
-            if (filtered_property_ids && *filtered_property_ids != label_property_index.properties) {
-              metadata.all_property_filters_same = false;
-            }
-            filtered_property_ids = label_property_index.properties;
-            // Filter cleanup, track which expressions to remove
-            for (auto const &filter_info : label_property_index.filters) {
-              const PropertyFilter prop_filter = *filter_info.property_filter;
-              if (!PropertyFilter::RequiresPostFilterOnNodeScan(prop_filter.type_)) {
-                metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
-              }
-            }
-            auto or_membership_lists =
-                label_property_index.filters | ranges::views::transform(capture_membership_list) | ranges::to_vector;
-            auto value_expressions =
-                label_property_index.filters | ranges::views::transform(make_unwinds) | ranges::to_vector;
-            auto expr_ranges = ranges::views::zip(value_expressions, or_membership_lists) |
-                               ranges::views::transform(
-                                   [&](auto const &pair) { return to_expression_range(pair.first, pair.second); }) |
-                               ranges::to_vector;
-            auto label_property_index_scan =
-                std::make_unique<ScanAllByLabelProperties>(input,
-                                                           node_symbol,
-                                                           GetLabel(label_property_index.label),
-                                                           std::move(label_property_index.properties),
-                                                           std::move(expr_ranges),
-                                                           view);
-            label_property_index_scan->index_order_ = label_property_index.order;
-            scans.push_back(std::move(label_property_index_scan));
+            branches.push_back(IndexDisjunctionBranch::Label(GetLabel(std::get<LabelIx>(index))));
+            continue;
           }
+          auto &label_property_index = std::get<LabelPropertyIndex>(index);
+          metadata.labels_to_erase.push_back(label_property_index.label);
+          if (filtered_property_ids && *filtered_property_ids != label_property_index.properties) {
+            metadata.all_property_filters_same = false;
+          }
+          filtered_property_ids = label_property_index.properties;
+          auto branch = IndexDisjunctionBranch::LabelProperties(GetLabel(label_property_index.label),
+                                                                std::move(label_property_index.properties),
+                                                                label_property_index.order);
+          for (auto const &filter_info : label_property_index.filters) {
+            if (!PropertyFilter::RequiresPostFilterOnNodeScan(filter_info.property_filter->type_)) {
+              metadata.expressions_to_mark_for_removal.push_back(filter_info.expression);
+            }
+            if (filter_info.property_filter->type_ != PropertyFilter::Type::IN) {
+              branch.expression_ranges.push_back(to_expression_range(filter_info));
+              continue;
+            }
+            // The branch evaluates the list for each input row; an Unwind below the scan would multiply every branch.
+            auto membership = MakeMembershipList(*symbol_table_, ast_storage_, filter_info.property_filter->value_);
+            FilterInfo element_filter = filter_info;
+            element_filter.property_filter->value_ = membership.element;
+            branch.expression_ranges.push_back(
+                to_expression_range(element_filter, capture_membership_list(filter_info)));
+            branch.membership_slots.push_back({.list = membership.deduped, .symbol = membership.symbol});
+          }
+          branches.push_back(std::move(branch));
         }
-        metadata.is_or_label_filter = true;
-        return ScanByIndexResult{BalancedDisjunctionUnion(std::move(scans), node_symbol), std::move(metadata)};
+        if (branches.size() == 1) {
+          // A disjunction that names one label is that label: the bare scan keeps order-by elimination, the ST
+          // shortest path and parallel scans. Its IN lists go back to an Unwind each.
+          auto &branch = branches.front();
+          if (branch.IsLabelOnly()) {
+            return ScanByIndexResult{std::make_unique<ScanAllByLabel>(input, node_symbol, branch.label, view),
+                                     std::move(metadata)};
+          }
+          for (auto const &slot : branch.membership_slots) {
+            input = std::make_shared<Unwind>(std::move(input), slot.list, slot.symbol);
+          }
+          auto scan = std::make_unique<ScanAllByLabelProperties>(input,
+                                                                 node_symbol,
+                                                                 branch.label,
+                                                                 std::move(branch.properties),
+                                                                 std::move(branch.expression_ranges),
+                                                                 view);
+          scan->index_order_ = branch.index_order;
+          return ScanByIndexResult{std::move(scan), std::move(metadata)};
+        }
+        return ScanByIndexResult{
+            std::make_unique<ScanAllByIndexDisjunction>(input, node_symbol, std::move(branches), view),
+            std::move(metadata)};
       }
     }
     if (vertex_prop_result) return std::move(*vertex_prop_result);
@@ -2112,9 +2136,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // `max_vertex_count` controls, whether no operator should be created if the
   // vertex count in the best index exceeds this number. In such a case,
   // `nullptr` is returned and `input` is not chained.
-  // In case of a "or" expression on labels the Distinct operator will be returned with the
-  // Union operator as input. Union will have as input the ScanAll operator.
-  // TODO: Add new operator instead of Distinct + Union
+  // A disjunction of two or more indexed labels gives one ScanAllByIndexDisjunction.
   struct GenScanResult {
     std::shared_ptr<LogicalOperator> op;
     bool has_in_filter = false;

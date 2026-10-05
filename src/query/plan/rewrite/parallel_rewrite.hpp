@@ -103,6 +103,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   DEFAULT_VISITS(ScanAll)
   DEFAULT_VISITS(ScanAllByLabel)
   DEFAULT_VISITS(ScanAllByLabelProperties)
+  DEFAULT_VISITS(ScanAllByIndexDisjunction)
   DEFAULT_VISITS(ScanAllById)
   DEFAULT_VISITS(ScanAllByEdge)
   DEFAULT_VISITS(ScanAllByEdgeType)
@@ -499,6 +500,10 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                              scan->properties_,
                                                              scan->expression_ranges_,
                                                              scan->index_order_);
+    }
+    if (scan_type == ScanAllByIndexDisjunction::kType) {
+      // Its branches are read one after the other for each input row; there is no chunked variant.
+      return nullptr;
     }
     if (scan_type == ScanAllByPointDistance::kType) {
       // Not supported at the moment

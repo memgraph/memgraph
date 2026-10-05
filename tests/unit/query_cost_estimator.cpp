@@ -440,6 +440,87 @@ TEST_F(QueryCostEstimator, Union) {
   EXPECT_COST(CostParam::kUnion * (no_vertices + no_vertices));
 }
 
+// For a Once input the disjunction costs one label scan over what all of its branches yield.
+TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionCostsOneScanPerBranch) {
+  AddVertices(100, 30, 20);
+  // The label branch counts its 30 vertices, the property branch the one vertex with a = 1.
+  MakeOp<ScanAllByIndexDisjunction>(
+      last_op_,
+      NextSymbol(),
+      std::vector<IndexDisjunctionBranch>{{.label = label},
+                                          {.label = label,
+                                           .properties = {ms::PropertyPath{prop_a}},
+                                           .expression_ranges = {ExpressionRange::Equal(Literal(1))}}});
+  EXPECT_COST((30 + 1) * CostParam::kScanAllByLabel);
+}
+
+// An IN branch seeks every element itself: its estimate is the whole list's, not one element's.
+TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionInBranchCountsTheWholeList) {
+  AddVertices(100, 30, 20);
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(1), Literal(2), Literal(3)});
+  auto element = NextSymbol();
+  auto *element_ident = storage_.Create<Identifier>(element.name())->MapTo(element);
+  std::vector<IndexDisjunctionBranch> branches{{.label = label},
+                                               {.label = label,
+                                                .properties = {ms::PropertyPath{prop_a}},
+                                                .expression_ranges = {ExpressionRange::In(element_ident, list)},
+                                                .membership_slots = {{.list = list, .symbol = element}}}};
+  MakeOp<ScanAllByIndexDisjunction>(last_op_, NextSymbol(), branches);
+  // 30 labeled vertices, and one vertex for each of the three values of a.
+  EXPECT_COST((30 + 3) * CostParam::kScanAllByLabel);
+}
+
+class QueryCostEstimatorDisjunctionStats : public QueryCostEstimator {
+ protected:
+  // A label branch and a label-property branch on `a`; the expansion's cost per input row is the degree.
+  double ExpandCostPerRow() {
+    AddVertices(100, 30, 20);
+    auto node = NextSymbol();
+    MakeOp<ScanAllByIndexDisjunction>(
+        last_op_,
+        node,
+        std::vector<IndexDisjunctionBranch>{{.label = label},
+                                            {.label = label,
+                                             .properties = {ms::PropertyPath{prop_a}},
+                                             .expression_ranges = {ExpressionRange::Equal(Literal(1))}}});
+    auto const scan_cost = Cost();
+    auto const cardinality = scan_cost / CostParam::kScanAllByLabel;
+    MakeOp<Expand>(last_op_,
+                   node,
+                   NextSymbol(),
+                   NextSymbol(),
+                   EdgeAtom::Direction::IN,
+                   std::vector<ms::EdgeTypeId>{},
+                   false,
+                   ms::View::OLD);
+    return (Cost() - scan_cost) / (cardinality * CostParam::kExpand);
+  }
+
+  void SetPropertyStats(uint64_t count, double avg_degree) {
+    (*storage_dba)
+        ->SetIndexStats(label,
+                        std::vector<ms::PropertyPath>{ms::PropertyPath{prop_a}},
+                        ms::LabelPropertyIndexStats{.count = count,
+                                                    .distinct_values_count = count,
+                                                    .statistic = 0,
+                                                    .avg_group_size = 1,
+                                                    .avg_degree = avg_degree});
+  }
+};
+
+// An expansion above the disjunction uses the branches' degrees, weighted by their counts.
+TEST_F(QueryCostEstimatorDisjunctionStats, DegreeIsWeightedByCount) {
+  (*storage_dba)->SetIndexStats(label, ms::LabelIndexStats{.count = 30, .avg_degree = 5});
+  SetPropertyStats(10, 3);
+  EXPECT_FLOAT_EQ(ExpandCostPerRow(), (30 * 5 + 10 * 3) / 40.0);
+}
+
+// Without stats for every branch the expansion keeps the default degree.
+TEST_F(QueryCostEstimatorDisjunctionStats, OneBranchWithoutStatsKeepsTheDefault) {
+  (*storage_dba)->SetIndexStats(label, ms::LabelIndexStats{.count = 30, .avg_degree = 5});
+  EXPECT_FLOAT_EQ(ExpandCostPerRow(), CardParam::kExpand);
+}
+
 // Helper for testing an operations cost and cardinality.
 // Only for operations that first increment cost, then modify cardinality.
 // Intentially a macro (instead of function) for better test feedback.

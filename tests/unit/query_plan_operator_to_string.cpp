@@ -118,6 +118,18 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabel) {
   EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
 }
 
+TYPED_TEST(OperatorToStringTest, ScanAllByIndexDisjunction) {
+  std::vector<IndexDisjunctionBranch> branches{{.label = this->dba.NameToLabel("A")},
+                                               {.label = this->dba.NameToLabel("B"),
+                                                .properties = {ms::PropertyPath{this->dba.NameToProperty("prop")}},
+                                                .expression_ranges = {ExpressionRange::Equal(LITERAL(1))},
+                                                .index_order = ms::IndexOrder::DESC}};
+  auto last_op = std::make_shared<ScanAllByIndexDisjunction>(nullptr, this->GetSymbol("node"), std::move(branches));
+
+  std::string expected_string{"ScanAllByIndexDisjunction (node :A | :B {prop} (DESC))"};
+  EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
+}
+
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_OverARange) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(

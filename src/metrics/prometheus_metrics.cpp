@@ -193,6 +193,11 @@ PrometheusMetrics::PrometheusMetrics()
               .Name("memgraph_scan_all_by_label_properties_operator_total")
               .Help("Number of times ScanAllByLabelProperties operator was used")
               .Register(registry_)},
+      scan_all_by_index_disjunction_operator_family_{
+          prometheus::BuildCounter()
+              .Name("memgraph_scan_all_by_index_disjunction_operator_total")
+              .Help("Number of times ScanAllByIndexDisjunction operator was used")
+              .Register(registry_)},
       scan_all_by_id_operator_family_{prometheus::BuildCounter()
                                           .Name("memgraph_scan_all_by_id_operator_total")
                                           .Help("Number of times ScanAllById operator was used")
@@ -956,6 +961,7 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, ui
       .scan_all_operator = {&scan_all_operator_family_.Add(labels)},
       .scan_all_by_label_operator = {&scan_all_by_label_operator_family_.Add(labels)},
       .scan_all_by_label_properties_operator = {&scan_all_by_label_properties_operator_family_.Add(labels)},
+      .scan_all_by_index_disjunction_operator = {&scan_all_by_index_disjunction_operator_family_.Add(labels)},
       .scan_all_by_id_operator = {&scan_all_by_id_operator_family_.Add(labels)},
       .scan_all_by_edge_operator = {&scan_all_by_edge_operator_family_.Add(labels)},
       .scan_all_by_edge_type_operator = {&scan_all_by_edge_type_operator_family_.Add(labels)},
@@ -1119,6 +1125,7 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   scan_all_operator_family_.Remove(h.scan_all_operator.get());
   scan_all_by_label_operator_family_.Remove(h.scan_all_by_label_operator.get());
   scan_all_by_label_properties_operator_family_.Remove(h.scan_all_by_label_properties_operator.get());
+  scan_all_by_index_disjunction_operator_family_.Remove(h.scan_all_by_index_disjunction_operator.get());
   scan_all_by_id_operator_family_.Remove(h.scan_all_by_id_operator.get());
   scan_all_by_edge_operator_family_.Remove(h.scan_all_by_edge_operator.get());
   scan_all_by_edge_type_operator_family_.Remove(h.scan_all_by_edge_type_operator.get());
@@ -1510,6 +1517,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
                  "Operator",
                  "Counter",
                  static_cast<int64_t>(h.scan_all_by_label_properties_operator.Value())});
+  out.push_back({"ScanAllByIndexDisjunctionOperator",
+                 "Operator",
+                 "Counter",
+                 static_cast<int64_t>(h.scan_all_by_index_disjunction_operator.Value())});
   out.push_back(
       {"ScanAllByIdOperator", "Operator", "Counter", static_cast<int64_t>(h.scan_all_by_id_operator.Value())});
   out.push_back(
@@ -1707,6 +1718,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_scan_all_operator = 0;
   int64_t total_scan_all_by_label_operator = 0;
   int64_t total_scan_all_by_label_properties_operator = 0;
+  int64_t total_scan_all_by_index_disjunction_operator = 0;
   int64_t total_scan_all_by_id_operator = 0;
   int64_t total_scan_all_by_edge_operator = 0;
   int64_t total_scan_all_by_edge_type_operator = 0;
@@ -1801,6 +1813,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_scan_all_by_label_operator += static_cast<int64_t>(h.scan_all_by_label_operator.Value());
       total_scan_all_by_label_properties_operator +=
           static_cast<int64_t>(h.scan_all_by_label_properties_operator.Value());
+      total_scan_all_by_index_disjunction_operator +=
+          static_cast<int64_t>(h.scan_all_by_index_disjunction_operator.Value());
       total_scan_all_by_id_operator += static_cast<int64_t>(h.scan_all_by_id_operator.Value());
       total_scan_all_by_edge_operator += static_cast<int64_t>(h.scan_all_by_edge_operator.Value());
       total_scan_all_by_edge_type_operator += static_cast<int64_t>(h.scan_all_by_edge_type_operator.Value());
@@ -1900,6 +1914,8 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"ScanAllByLabelOperator", "Operator", "Counter", total_scan_all_by_label_operator});
   out.push_back(
       {"ScanAllByLabelPropertiesOperator", "Operator", "Counter", total_scan_all_by_label_properties_operator});
+  out.push_back(
+      {"ScanAllByIndexDisjunctionOperator", "Operator", "Counter", total_scan_all_by_index_disjunction_operator});
   out.push_back({"ScanAllByIdOperator", "Operator", "Counter", total_scan_all_by_id_operator});
   out.push_back({"ScanAllByEdgeOperator", "Operator", "Counter", total_scan_all_by_edge_operator});
   out.push_back({"ScanAllByEdgeTypeOperator", "Operator", "Counter", total_scan_all_by_edge_type_operator});
@@ -2245,6 +2261,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
   int64_t scan_all_op = 0;
   int64_t scan_all_label_op = 0;
   int64_t scan_all_label_props_op = 0;
+  int64_t scan_all_index_disjunction_op = 0;
   int64_t scan_all_id_op = 0;
   int64_t scan_all_edge_op = 0;
   int64_t scan_all_edge_type_op = 0;
@@ -2339,6 +2356,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
       scan_all_op += static_cast<int64_t>(h.scan_all_operator.Value());
       scan_all_label_op += static_cast<int64_t>(h.scan_all_by_label_operator.Value());
       scan_all_label_props_op += static_cast<int64_t>(h.scan_all_by_label_properties_operator.Value());
+      scan_all_index_disjunction_op += static_cast<int64_t>(h.scan_all_by_index_disjunction_operator.Value());
       scan_all_id_op += static_cast<int64_t>(h.scan_all_by_id_operator.Value());
       scan_all_edge_op += static_cast<int64_t>(h.scan_all_by_edge_operator.Value());
       scan_all_edge_type_op += static_cast<int64_t>(h.scan_all_by_edge_type_operator.Value());
@@ -2435,6 +2453,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"ScanAllOperator", scan_all_op},
     {"ScanAllByLabelOperator", scan_all_label_op},
     {"ScanAllByLabelPropertiesOperator", scan_all_label_props_op},
+    {"ScanAllByIndexDisjunctionOperator", scan_all_index_disjunction_op},
     {"ScanAllByIdOperator", scan_all_id_op},
     {"ScanAllByEdgeOperator", scan_all_edge_op},
     {"ScanAllByEdgeTypeOperator", scan_all_edge_type_op},

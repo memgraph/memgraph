@@ -34,6 +34,7 @@ EXPECTED_OPENMETRICS_PER_DB_FAMILIES = {
     "scan_all_operator_total",
     "scan_all_by_label_operator_total",
     "scan_all_by_label_properties_operator_total",
+    "scan_all_by_index_disjunction_operator_total",
     "scan_all_by_id_operator_total",
     "scan_all_by_edge_operator_total",
     "scan_all_by_edge_type_operator_total",

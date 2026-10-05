@@ -39,6 +39,9 @@ target_link_libraries(${test_prefix}execution mg-query mg-communication)
 add_benchmark(query/aggregation.cpp)
 target_link_libraries(${test_prefix}aggregation mg-query)
 
+add_benchmark(query/index_disjunction.cpp)
+target_link_libraries(${test_prefix}index_disjunction mg-query)
+
 add_benchmark(query/typed_value_ops.cpp)
 target_link_libraries(${test_prefix}typed_value_ops mg-query)
 

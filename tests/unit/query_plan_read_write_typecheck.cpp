@@ -99,6 +99,15 @@ TYPED_TEST(ReadWriteTypeCheckTest, ScanAllBy) {
   this->CheckPlanType(last_op.get(), RWType::R);
 }
 
+TYPED_TEST(ReadWriteTypeCheckTest, ScanAllByIndexDisjunction) {
+  std::shared_ptr<LogicalOperator> scan = std::make_shared<ScanAllByIndexDisjunction>(
+      std::make_shared<Once>(),
+      this->GetSymbol("node"),
+      std::vector<IndexDisjunctionBranch>{{.label = this->dba.NameToLabel("A")},
+                                          {.label = this->dba.NameToLabel("B")}});
+  this->CheckPlanType(scan.get(), RWType::R);
+}
+
 TYPED_TEST(ReadWriteTypeCheckTest, OrderByAndLimit) {
   // We build an operator tree that would result from e.g.
   // MATCH (node:label)

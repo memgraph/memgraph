@@ -17,6 +17,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/pretty_print.hpp"
+#include "query/plan/rewrite/general.hpp"
 
 #include "query_common.hpp"
 #include "storage/v2/disk/storage.hpp"
@@ -105,6 +106,71 @@ TYPED_TEST(PrintToJsonTest, ScanAllByLabel) {
           "output_symbol" : "node",
           "input" : { "name" : "Once" }
         })");
+}
+
+TYPED_TEST(PrintToJsonTest, ScanAllByIndexDisjunction) {
+  std::vector<IndexDisjunctionBranch> branches{
+      {.label = this->dba.NameToLabel("A")},
+      {.label = this->dba.NameToLabel("B"),
+       .properties = {ms::PropertyPath{this->dba.NameToProperty("prop")}},
+       .expression_ranges = {ExpressionRange::Range(
+           memgraph::utils::MakeBoundInclusive<Expression *>(this->storage.template Create<PrimitiveLiteral>(1)),
+           memgraph::utils::MakeBoundExclusive<Expression *>(this->storage.template Create<PrimitiveLiteral>(20)))},
+       .index_order = ms::IndexOrder::DESC}};
+  auto last_op = std::make_shared<ScanAllByIndexDisjunction>(nullptr, this->GetSymbol("node"), std::move(branches));
+
+  this->Check(last_op.get(), R"(
+        {
+          "name": "ScanAllByIndexDisjunction",
+          "output_symbol": "node",
+          "branches": [
+            {"label": "A"},
+            {
+              "label": "B",
+              "properties": ["prop"],
+              "expression_ranges": [{
+                "type": "Range",
+                "lower_bound": { "type": "inclusive", "value": "1" },
+                "upper_bound": { "type": "exclusive", "value": "20"}
+              }]
+            }
+          ],
+          "input": {"name": "Once"}
+        })");
+}
+
+// An IN branch seeks each element of its list; the JSON shows the list, not only the element.
+TYPED_TEST(PrintToJsonTest, ScanAllByIndexDisjunctionInList) {
+  auto *list = this->storage.template Create<ListLiteral>(std::vector<Expression *>{
+      this->storage.template Create<PrimitiveLiteral>(1), this->storage.template Create<PrimitiveLiteral>(2)});
+  // The list in the form the planner builds.
+  auto membership = MakeMembershipList(this->symbol_table, &this->storage, list);
+  std::vector<IndexDisjunctionBranch> branches{
+      {.label = this->dba.NameToLabel("A")},
+      {.label = this->dba.NameToLabel("B"),
+       .properties = {ms::PropertyPath{this->dba.NameToProperty("prop")}},
+       .expression_ranges = {ExpressionRange::In(membership.element, list)},
+       .membership_slots = {{.list = membership.deduped, .symbol = membership.symbol}}}};
+  auto last_op = std::make_shared<ScanAllByIndexDisjunction>(nullptr, this->GetSymbol("node"), std::move(branches));
+
+  this->Check(last_op.get(), R"json(
+        {
+          "name": "ScanAllByIndexDisjunction",
+          "output_symbol": "node",
+          "branches": [
+            {"label": "A"},
+            {
+              "label": "B",
+              "properties": ["prop"],
+              "expression_ranges": [{"type": "In", "expression": "(Identifier \"anon1\")"}],
+              "membership_slots": [{
+                "symbol": "anon1",
+                "list": "(Function \"TOSET\" [(Coalesce [(ListLiteral [1, 2]), (ListLiteral [])])])"
+              }]
+            }
+          ],
+          "input": {"name": "Once"}
+        })json");
 }
 
 TYPED_TEST(PrintToJsonTest, ScanAllByLabelProperties_OverARange) {

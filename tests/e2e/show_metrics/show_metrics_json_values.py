@@ -58,6 +58,7 @@ EXPECTED_JSON_METRICS = {
         "ScanAllOperator",
         "ScanAllByLabelOperator",
         "ScanAllByLabelPropertiesOperator",
+        "ScanAllByIndexDisjunctionOperator",
         "ScanAllByIdOperator",
         "ScanAllByEdgeOperator",
         "ScanAllByEdgeTypeOperator",

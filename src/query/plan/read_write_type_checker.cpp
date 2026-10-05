@@ -36,6 +36,7 @@ PRE_VISIT(RemoveLabels, RWType::W, true)
 PRE_VISIT(ScanAll, RWType::R, true)
 PRE_VISIT(ScanAllByLabel, RWType::R, true)
 PRE_VISIT(ScanAllByLabelProperties, RWType::R, true)
+PRE_VISIT(ScanAllByIndexDisjunction, RWType::R, true)
 PRE_VISIT(ScanAllById, RWType::R, true)
 
 PRE_VISIT(ScanAllByEdge, RWType::R, true)

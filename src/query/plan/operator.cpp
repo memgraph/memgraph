@@ -29,6 +29,7 @@
 #include <queue>
 #include <ranges>
 #include <regex>
+#include <span>
 #include <string>
 #include <string_view>
 #include <tuple>
@@ -1504,10 +1505,11 @@ std::unique_ptr<LogicalOperator> ScanAllByEdgeTypeProperty::Clone(AstStorage *st
 
 namespace {
 
-// Helper function to evaluate expression ranges and check for null bounds.
-// Returns nullopt if any bound is null.
-std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRangesAndCheckNull(
-    const std::vector<ExpressionRange> &expression_ranges, ExpressionEvaluator &evaluator) {
+// Evaluates the seek ranges for the current row and carries each range's value predicate.
+// Returns nullopt if no vertex can match.
+std::optional<std::vector<storage::PropertyValueRange>> EvaluateSeekRanges(
+    std::span<const ExpressionRange> expression_ranges, ExpressionEvaluator &evaluator,
+    std::span<ValuePredicateForRow> value_predicates) {
   auto to_property_value_range = [&](auto &&expression_range) { return expression_range.Evaluate(evaluator); };
   auto prop_value_ranges = expression_ranges | rv::transform(to_property_value_range) | ranges::to_vector;
 
@@ -1520,6 +1522,13 @@ std::optional<std::vector<storage::PropertyValueRange>> EvaluateExpressionRanges
   // already known to be empty - settles the whole composite.
   if (ranges::any_of(prop_value_ranges, matches_nothing)) {
     return std::nullopt;
+  }
+
+  // Without the predicate every value in the band is handed to the filter above, which is most
+  // of the column for a search term.
+  for (auto &&[range, expression_range, value_predicate] :
+       rv::zip(prop_value_ranges, expression_ranges, value_predicates)) {
+    if (auto term = value_predicate.Get(expression_range, evaluator)) range.SetValuePredicate(std::move(term));
   }
 
   return prop_value_ranges;
@@ -1665,14 +1674,9 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
-    auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
+    auto maybe_prop_value_ranges = EvaluateSeekRanges(expression_ranges_, evaluator, value_predicates);
     if (!maybe_prop_value_ranges) {
       return std::nullopt;
-    }
-
-    for (auto &&[range, expression_range, value_predicate] :
-         rv::zip(*maybe_prop_value_ranges, expression_ranges_, value_predicates)) {
-      if (auto term = value_predicate.Get(expression_range, evaluator)) range.SetValuePredicate(std::move(term));
     }
 
     return std::make_optional(db->Vertices(view_, label_, properties_, *maybe_prop_value_ranges, index_order_));
@@ -1686,21 +1690,30 @@ UniqueCursorPtr ScanAllByLabelProperties::MakeCursor(utils::MemoryResource *mem,
                                                                 "ScanAllByLabelProperties");
 }
 
-std::string ScanAllByLabelProperties::ToString(const DbAccessor *dba) const {
-  // TODO: better diagnostics...info about expression_ranges_?
+namespace {
+// `{a, b.c}` for the properties of an index.
+std::string IndexPropertiesToString(const DbAccessor *dba, std::vector<storage::PropertyPath> const &properties) {
   auto const property_names =
-      properties_ | rv::transform([&](storage::PropertyPath const &property_path) {
+      properties | rv::transform([&](storage::PropertyPath const &property_path) {
         return utils::Join(
             property_path | rv::transform([&](storage::PropertyId prop) { return dba->PropertyToName(prop); }), ".");
       }) |
       ranges::to_vector;
-  auto const properties_stringified = utils::Join(property_names, ", ");
-  std::string_view suffix = index_order_ == storage::IndexOrder::DESC ? " (DESC)" : "";
-  return fmt::format("ScanAllByLabelProperties ({0} :{1} {{{2}}}){3}",
+  return fmt::format("{{{}}}", utils::Join(property_names, ", "));
+}
+
+std::string_view IndexOrderSuffix(storage::IndexOrder order) {
+  return order == storage::IndexOrder::DESC ? " (DESC)" : "";
+}
+}  // namespace
+
+std::string ScanAllByLabelProperties::ToString(const DbAccessor *dba) const {
+  // TODO: better diagnostics...info about expression_ranges_?
+  return fmt::format("ScanAllByLabelProperties ({0} :{1} {2}){3}",
                      output_symbol_.name(),
                      dba->LabelToName(label_),
-                     properties_stringified,
-                     suffix);
+                     IndexPropertiesToString(dba, properties_),
+                     IndexOrderSuffix(index_order_));
 }
 
 std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *storage) const {
@@ -1714,6 +1727,192 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
                                rv::transform([&](auto &&expr) { return ExpressionRange(expr, *storage); }) |
                                ranges::to_vector;
   object->index_order_ = index_order_;
+  return object;
+}
+
+ScanAllByIndexDisjunction::ScanAllByIndexDisjunction(const std::shared_ptr<LogicalOperator> &input,
+                                                     Symbol output_symbol, std::vector<IndexDisjunctionBranch> branches,
+                                                     storage::View view)
+    : ScanAll(input, std::move(output_symbol), view), branches_(std::move(branches)) {
+  DMG_ASSERT(!branches_.empty(), "A disjunction needs a branch.");
+  for ([[maybe_unused]] auto const &branch : branches_) {
+    DMG_ASSERT(branch.IsLabelOnly() == branch.expression_ranges.empty(), "A property branch needs its ranges.");
+    DMG_ASSERT(std::ranges::count(branch.expression_ranges, PropertyFilter::Type::IN, &ExpressionRange::type_) ==
+                   std::ssize(branch.membership_slots),
+               "Every IN range of a branch needs its slot.");
+  }
+}
+
+IndexDisjunctionBranch IndexDisjunctionBranch::Clone(AstStorage &storage) const {
+  auto copy = *this;
+  copy.expression_ranges = expression_ranges |
+                           rv::transform([&](auto const &range) { return ExpressionRange(range, storage); }) |
+                           ranges::to_vector;
+  for (auto &slot : copy.membership_slots) slot.list = slot.list->Clone(&storage);
+  return copy;
+}
+
+ACCEPT_WITH_INPUT(ScanAllByIndexDisjunction)
+
+namespace {
+
+class ScanAllByIndexDisjunctionCursor : public Cursor {
+ public:
+  ScanAllByIndexDisjunctionCursor(const ScanAllByIndexDisjunction &self, UniqueCursorPtr input_cursor,
+                                  utils::MemoryResource *mem)
+      : self_(self), input_cursor_(std::move(input_cursor)), branch_(self.branches_.size() - 1), seen_(mem) {
+    value_predicates_.reserve(self_.branches_.size());
+    for (auto const &branch : self_.branches_) value_predicates_.emplace_back(branch.expression_ranges.size());
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    while (true) {
+      AbortCheck(context);
+      if (!vertices_) {
+        if (NextSeek(frame, context)) continue;
+        if (!StartNextBranch(frame, context)) return false;
+        continue;
+      }
+      if (*vertices_it_ == *vertices_end_it_) {
+        vertices_.reset();
+        continue;
+      }
+      auto const vertex = **vertices_it_;
+      ++*vertices_it_;
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !context.auth_checker->Has(vertex, self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+        continue;
+      }
+#endif
+      // A vertex comes out of the first branch that yields it. Labels can change between pulls even under OLD (a
+      // writing subquery advances the command, a periodic commit starts a new snapshot), so only the Gid is exact.
+      if (!seen_.insert(vertex.Gid()).second) continue;
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      frame_writer.Write(self_.output_symbol_, vertex);
+      return true;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    branch_ = self_.branches_.size() - 1;
+    tuple_pending_ = false;
+    vertices_.reset();
+    vertices_it_.reset();
+    vertices_end_it_.reset();
+    seen_.clear();
+  }
+
+ private:
+  // Starts the next branch, after the last one on a new input row. False once the input is exhausted.
+  bool StartNextBranch(Frame &frame, ExecutionContext &context) {
+    if (branch_ + 1 == self_.branches_.size()) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      seen_.clear();
+      branch_ = 0;
+    } else {
+      ++branch_;
+    }
+    auto const &branch = self_.branches_[branch_];
+    if (branch.IsLabelOnly()) {
+      SetVertices(context.db_accessor->Vertices(self_.view_, branch.label));
+      return true;
+    }
+    // Each IN list is evaluated once for this row; every tuple of their elements is one seek.
+    ExpressionEvaluator evaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
+    membership_values_.clear();
+    for (auto const &slot : branch.membership_slots) {
+      auto list = slot.list->Accept(evaluator);
+      auto &values = membership_values_.emplace_back(std::move(list.ValueList()));
+      if (values.empty()) return true;
+    }
+    tuple_.assign(branch.membership_slots.size(), 0);
+    tuple_pending_ = true;
+    return true;
+  }
+
+  // Seeks the current branch's index for its next tuple of IN elements. False when no tuple is left.
+  bool NextSeek(Frame &frame, ExecutionContext &context) {
+    auto const &branch = self_.branches_[branch_];
+    ExpressionEvaluator evaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
+    while (tuple_pending_) {
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      for (auto const &[slot, values, position] : rv::zip(branch.membership_slots, membership_values_, tuple_)) {
+        frame_writer.Write(slot.symbol, values[position]);
+      }
+      tuple_pending_ = AdvanceTuple();
+      // A null bound or a null, NaN or list element matches nothing: skip this tuple only.
+      auto ranges = EvaluateSeekRanges(branch.expression_ranges, evaluator, value_predicates_[branch_]);
+      if (!ranges) continue;
+      SetVertices(
+          context.db_accessor->Vertices(self_.view_, branch.label, branch.properties, *ranges, branch.index_order));
+      return true;
+    }
+    return false;
+  }
+
+  // Steps `tuple_` to the next tuple of IN elements, the last position fastest. False after the last tuple.
+  bool AdvanceTuple() {
+    for (auto i = tuple_.size(); i-- > 0;) {
+      if (++tuple_[i] < membership_values_[i].size()) return true;
+      tuple_[i] = 0;
+    }
+    return false;
+  }
+
+  void SetVertices(VerticesIterable vertices) {
+    vertices_.emplace(std::move(vertices));
+    vertices_it_.emplace(vertices_->begin());
+    vertices_end_it_.emplace(vertices_->end());
+  }
+
+  const ScanAllByIndexDisjunction &self_;
+  const UniqueCursorPtr input_cursor_;
+  // The branch being read; the last one until the first input row is pulled.
+  size_t branch_;
+  std::optional<VerticesIterable> vertices_;
+  std::optional<decltype(vertices_->begin())> vertices_it_;
+  std::optional<decltype(vertices_->end())> vertices_end_it_;
+  utils::pmr::unordered_set<storage::Gid> seen_;
+  std::vector<std::vector<ValuePredicateForRow>> value_predicates_;
+  // The current branch's IN elements, one list per slot, and the next tuple of positions into them.
+  std::vector<TypedValue::TVector> membership_values_;
+  std::vector<size_t> tuple_;
+  bool tuple_pending_{false};
+};
+
+}  // namespace
+
+UniqueCursorPtr ScanAllByIndexDisjunction::MakeCursor(utils::MemoryResource *mem,
+                                                      metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.scan_all_by_index_disjunction_operator.Increment();
+  return MakeUniqueCursorPtr<ScanAllByIndexDisjunctionCursor>(mem, *this, input_->MakeCursor(mem, metric_handles), mem);
+}
+
+std::string ScanAllByIndexDisjunction::ToString(const DbAccessor *dba) const {
+  auto const branch_text = [&](IndexDisjunctionBranch const &branch) {
+    auto label = fmt::format(":{}", dba->LabelToName(branch.label));
+    if (branch.IsLabelOnly()) return label;
+    return fmt::format(
+        "{} {}{}", label, IndexPropertiesToString(dba, branch.properties), IndexOrderSuffix(branch.index_order));
+  };
+  auto const branches = branches_ | rv::transform(branch_text) | ranges::to_vector;
+  return fmt::format("ScanAllByIndexDisjunction ({} {})", output_symbol_.name(), utils::Join(branches, " | "));
+}
+
+std::unique_ptr<LogicalOperator> ScanAllByIndexDisjunction::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanAllByIndexDisjunction>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->branches_ =
+      branches_ | rv::transform([&](auto const &branch) { return branch.Clone(*storage); }) | ranges::to_vector;
   return object;
 }
 
@@ -10864,17 +11063,10 @@ UniqueCursorPtr ScanParallelByLabelProperties::MakeCursor(utils::MemoryResource 
     auto *db = context.db_accessor;
     ExpressionEvaluator evaluator = ExpressionEvaluator{&frame, context, view_, nullptr, &context.number_of_hops};
 
-    auto maybe_prop_value_ranges = EvaluateExpressionRangesAndCheckNull(expression_ranges_, evaluator);
+    auto maybe_prop_value_ranges = EvaluateSeekRanges(expression_ranges_, evaluator, value_predicates);
     if (!maybe_prop_value_ranges) {
       return db->ChunkedVertices(
           view_, label_, properties_, std::vector<storage::PropertyValueRange>{}, 0, index_order_);
-    }
-
-    // Carried on the range exactly as the serial scan carries it. Without it every value in the
-    // band is handed to the filter above, which is most of the column for a search term.
-    for (auto &&[range, expression_range, value_predicate] :
-         rv::zip(*maybe_prop_value_ranges, expression_ranges_, value_predicates)) {
-      if (auto term = value_predicate.Get(expression_range, evaluator)) range.SetValuePredicate(std::move(term));
     }
 
     return db->ChunkedVertices(view_, label_, properties_, *maybe_prop_value_ranges, num_threads_, index_order_);
