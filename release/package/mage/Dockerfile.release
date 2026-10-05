@@ -1,4 +1,24 @@
-FROM ubuntu:24.04 AS python-base
+FROM ubuntu:24.04 AS ubuntu-updated
+ARG CUSTOM_MIRROR=false
+
+RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
+    cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
+  fi && \
+  /mirrors/retry.sh -- apt-get update && \
+  DEBIAN_FRONTEND=noninteractive /mirrors/retry.sh -- apt-get upgrade -y && \
+  rm -rf /var/lib/apt/lists/* /var/tmp/* && \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
+  fi
+
+FROM ubuntu-updated AS python-base
 # This stage will create the python venv used for the runtime in `prod`
 ARG CUSTOM_MIRROR=false
 ARG TARGETARCH
@@ -42,7 +62,7 @@ RUN cd $HOME && \
     rm /home/memgraph/install_python_requirements.sh && \
     rm -rf /tmp/wheels
 
-FROM ubuntu:24.04 AS base
+FROM ubuntu-updated AS base
 
 USER root
 

@@ -16,7 +16,7 @@ parse==1.18.0
 parse-type==0.5.2
 pulsar-client==3.5.0
 pyarrow==24.0.0
-PyJWT==2.13.0
+PyJWT==2.15.1
 pymgclient==1.5.2
 pyopenssl==26.4.0
 pytest==9.0.3

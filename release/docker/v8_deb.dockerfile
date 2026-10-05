@@ -11,10 +11,30 @@
 # common memgraph install isn't redone — we only add the symbols and the
 # debugging tooling. Build the variant you want with `docker build --target`.
 
+FROM ubuntu:24.04 AS ubuntu-updated
+ARG CUSTOM_MIRROR=false
+
+RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false \
+  --mount=type=bind,source=./mirrors,target=/mirrors,ro \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /ubuntu.sources ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources.backup; \
+    cp -v /ubuntu.sources /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh apply; \
+  fi && \
+  /mirrors/retry.sh -- apt-get update && \
+  DEBIAN_FRONTEND=noninteractive /mirrors/retry.sh -- apt-get upgrade -y && \
+  rm -rf /var/lib/apt/lists/* /var/tmp/* && \
+  if [ "$CUSTOM_MIRROR" = "true" ] && [ -f /etc/apt/sources.list.d/ubuntu.sources.backup ]; then \
+    mv -v /etc/apt/sources.list.d/ubuntu.sources.backup /etc/apt/sources.list.d/ubuntu.sources; \
+  else \
+    /mirrors/pin_mirrors.sh restore; \
+  fi
+
 ###############################################################################
 # python-base: shared runtime venv for both image flavours.
 ###############################################################################
-FROM ubuntu:24.04 AS python-base
+FROM ubuntu-updated AS python-base
 ARG CUSTOM_MIRROR=false
 ARG TARGETARCH
 ARG CACHE_PRESENT=false
@@ -52,7 +72,7 @@ RUN pip3 install --no-cache-dir --break-system-packages --find-links=/tmp/wheels
 ###############################################################################
 # prod: shipping image. Stripped memgraph binary + runtime dependencies only.
 ###############################################################################
-FROM ubuntu:24.04 AS prod
+FROM ubuntu-updated AS prod
 # NOTE: If you change the base distro update release/package as well.
 
 ARG BINARY_NAME
@@ -189,7 +209,7 @@ USER memgraph
 #   3. The Memgraph package itself is a -DMG_PYTHON_SUPPORT=OFF build, so its
 #      dependency set and postinst differ from prod's.
 ###############################################################################
-FROM ubuntu:24.04 AS prod-fips
+FROM ubuntu-updated AS prod-fips
 
 ARG BINARY_NAME
 ARG EXTENSION
