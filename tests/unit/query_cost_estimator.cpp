@@ -465,22 +465,55 @@ TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionInBranchCountsTheWholeList) 
   EXPECT_COST((30 + 3) * CostParam::kScanAllByLabel);
 }
 
-// An expansion above the disjunction uses the branches' degree, weighted by their counts.
-TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionKeepsIndexStats) {
-  AddVertices(100, 30, 20);
+class QueryCostEstimatorDisjunctionStats : public QueryCostEstimator {
+ protected:
+  // A label branch and a label-property branch on `a`; the expansion's cost per input row is the degree.
+  double ExpandCostPerRow() {
+    AddVertices(100, 30, 20);
+    auto node = NextSymbol();
+    MakeOp<ScanAllByIndexDisjunction>(
+        last_op_,
+        node,
+        std::vector<IndexDisjunctionBranch>{{.label = label},
+                                            {.label = label,
+                                             .properties = {ms::PropertyPath{prop_a}},
+                                             .expression_ranges = {ExpressionRange::Equal(Literal(1))}}});
+    auto const scan_cost = Cost();
+    auto const cardinality = scan_cost / CostParam::kScanAllByLabel;
+    MakeOp<Expand>(last_op_,
+                   node,
+                   NextSymbol(),
+                   NextSymbol(),
+                   EdgeAtom::Direction::IN,
+                   std::vector<ms::EdgeTypeId>{},
+                   false,
+                   ms::View::OLD);
+    return (Cost() - scan_cost) / (cardinality * CostParam::kExpand);
+  }
+
+  void SetPropertyStats(uint64_t count, double avg_degree) {
+    (*storage_dba)
+        ->SetIndexStats(label,
+                        std::vector<ms::PropertyPath>{ms::PropertyPath{prop_a}},
+                        ms::LabelPropertyIndexStats{.count = count,
+                                                    .distinct_values_count = count,
+                                                    .statistic = 0,
+                                                    .avg_group_size = 1,
+                                                    .avg_degree = avg_degree});
+  }
+};
+
+// An expansion above the disjunction uses the branches' degrees, weighted by their counts.
+TEST_F(QueryCostEstimatorDisjunctionStats, DegreeIsWeightedByCount) {
   (*storage_dba)->SetIndexStats(label, ms::LabelIndexStats{.count = 30, .avg_degree = 5});
-  auto node = NextSymbol();
-  MakeOp<ScanAllByIndexDisjunction>(
-      last_op_, node, std::vector<IndexDisjunctionBranch>{{.label = label}, {.label = label}});
-  MakeOp<Expand>(last_op_,
-                 node,
-                 NextSymbol(),
-                 NextSymbol(),
-                 EdgeAtom::Direction::IN,
-                 std::vector<ms::EdgeTypeId>{},
-                 false,
-                 ms::View::OLD);
-  EXPECT_COST(60 * CostParam::kScanAllByLabel + 60 * 5 * CostParam::kExpand);
+  SetPropertyStats(10, 3);
+  EXPECT_FLOAT_EQ(ExpandCostPerRow(), (30 * 5 + 10 * 3) / 40.0);
+}
+
+// Without stats for every branch the expansion keeps the default degree.
+TEST_F(QueryCostEstimatorDisjunctionStats, OneBranchWithoutStatsKeepsTheDefault) {
+  (*storage_dba)->SetIndexStats(label, ms::LabelIndexStats{.count = 30, .avg_degree = 5});
+  EXPECT_FLOAT_EQ(ExpandCostPerRow(), CardParam::kExpand);
 }
 
 // Helper for testing an operations cost and cardinality.
