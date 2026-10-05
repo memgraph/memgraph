@@ -990,6 +990,8 @@ Feature: Aggregations
             """
         Then an error should be raised
 
+    # Neo4j accepts this query. A literal never matches a projected item, because the AST and plan caches are keyed
+    # on the stripped query, which does not hold literal values.
     Scenario: Order by a returned item that contains a literal
         Given an empty graph
         And having executed
