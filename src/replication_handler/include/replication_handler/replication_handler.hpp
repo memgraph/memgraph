@@ -106,6 +106,35 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
   try {
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
+#ifdef MG_ENTERPRISE
+    std::optional<std::unique_lock<utils::ResourceLock>> conn_guard;
+    auth::Auth::Config auth_config;
+    std::vector<auth::User> auth_users;
+    std::vector<auth::Role> auth_roles;
+    std::vector<auth::UserProfiles::Profile> auth_profiles;
+    if (is_enterprise) {
+      // Lock the connection before the auth snapshot so no delta reaches the replica before the recovery message.
+      conn_guard.emplace(client.rpc_client_.LockConnection());
+      if constexpr (REQUIRE_LOCK) {
+        // A system tx still committing may already have delivered part of its deltas; retry once it is done.
+        if (system.TransactionInFlight()) {
+          client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+          return;
+        }
+      }
+      auth.WithReadLock([&](const auto &locked_auth) {
+        auth_config = locked_auth.GetConfig();
+        auth_users = locked_auth.AllUsers();
+        auth_roles = locked_auth.AllRoles();
+        auth_profiles = locked_auth.AllProfiles();
+      });
+      // A system tx committed after DbInfo was taken: the snapshot may be newer than its timestamp, so retry.
+      if (system.LastCommittedSystemTimestamp() != db_info.last_committed_timestamp) {
+        client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+        return;
+      }
+    }
+#endif
     auto stream = std::invoke([&]() {
 #ifdef MG_ENTERPRISE
       if (!is_enterprise) {
@@ -118,18 +147,6 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             std::vector<auth::UserProfiles::Profile>{},
                                                             params_snapshot);
       }
-      // conn guard before auth read lock — no auth delta can slip between snapshot and recovery send.
-      auto conn_guard = client.rpc_client_.LockConnection();
-      auth::Auth::Config auth_config;
-      std::vector<auth::User> auth_users;
-      std::vector<auth::Role> auth_roles;
-      std::vector<auth::UserProfiles::Profile> auth_profiles;
-      auth.WithReadLock([&](const auto &locked_auth) {
-        auth_config = locked_auth.GetConfig();
-        auth_users = locked_auth.AllUsers();
-        auth_roles = locked_auth.AllRoles();
-        auth_profiles = locked_auth.AllProfiles();
-      });
       return client.rpc_client_.StreamWithLoad<SystemRecoveryRpc>(
           [](auto *reader) {
             SystemRecoveryRes response;
