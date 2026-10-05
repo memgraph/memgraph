@@ -1012,6 +1012,11 @@ add_unit_test(storage_v2_replication
     LINK_TARGETS mg::storage mg-dbms fmt::fmt mg-repl_coord_glue storage_test_utils mg-replication_handler
 )
 
+add_unit_test(system_replication_handlers
+    SOURCES system_replication_handlers.cpp
+    LINK_TARGETS mg::storage mg-dbms mg-replication_handler
+)
+
 add_unit_test(storage_v2_error
     SOURCES storage_v2_error.cpp
     LINK_TARGETS mg::storage

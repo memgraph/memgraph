@@ -45,7 +45,7 @@ void SetParameterHandler(system::ReplicaHandlerAccessToState &system_state_acces
     return;
   }
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("SetParameterHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
@@ -76,7 +76,7 @@ void UnsetParameterHandler(system::ReplicaHandlerAccessToState &system_state_acc
     return;
   }
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("UnsetParameterHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
@@ -106,7 +106,7 @@ void DeleteAllParametersHandler(system::ReplicaHandlerAccessToState &system_stat
     return;
   }
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("DeleteAllParametersHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
@@ -172,6 +172,14 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
     return;
   }
 
+  if (system_state_access.RefuseStaleRecovery(req.main_uuid, req.forced_group_timestamp)) {
+    spdlog::warn(
+        "SystemRecoveryHandler: recovery ts {} is older than a delta already received from this MAIN; refusing so "
+        "MAIN re-snapshots",
+        req.forced_group_timestamp);
+    return;
+  }
+
 #ifdef MG_ENTERPRISE
   if (!dbms::SystemRecoveryHandler(dbms_handler, req.database_configs, req.cold_databases)) {
     return;
@@ -207,7 +215,7 @@ void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &syst
   //       of the set of databases. Hence no history exists to maintain regarding epoch change.
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::error("Received system delta with expected ts: {} != last commited ts: {}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());

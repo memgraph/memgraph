@@ -74,7 +74,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
@@ -130,7 +130,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
@@ -183,7 +183,7 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("RenameDatabaseHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
@@ -233,7 +233,7 @@ void SuspendDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &syste
     return;
   }
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("SuspendDatabaseHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
@@ -293,7 +293,7 @@ void ResumeDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     return;
   }
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("ResumeDatabaseHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
@@ -572,7 +572,7 @@ void TenantProfileHandler(system::ReplicaHandlerAccessToState &system_state_acce
     return;
   }
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("TenantProfileHandler: bad expected timestamp");
     rpc::SendFinalResponse(res, request_version, res_builder);
     return;

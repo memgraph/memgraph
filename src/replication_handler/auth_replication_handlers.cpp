@@ -54,7 +54,7 @@ void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acc
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("UpdateAuthDataHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
@@ -110,7 +110,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   //       If MAIN has changed we need to check this new group_timestamp is consistent with
   //       what we have so far.
 
-  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+  if (!system_state_access.CheckDelta(req.main_uuid, req.expected_group_timestamp, req.new_group_timestamp)) {
     spdlog::debug("DropAuthDataHandler: bad expected timestamp {},{}",
                   req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());

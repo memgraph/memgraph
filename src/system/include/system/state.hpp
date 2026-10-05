@@ -11,14 +11,18 @@
 
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
 
 #include "kvstore/kvstore.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::system {
 
@@ -49,7 +53,34 @@ struct State {
 };
 
 struct ReplicaHandlerAccessToState {
-  explicit ReplicaHandlerAccessToState(memgraph::system::State &state) : state_{&state} {}
+  explicit ReplicaHandlerAccessToState(memgraph::system::State &state)
+      : state_{&state}, note_{std::make_shared<DeltaNote>()} {}
+
+  // Records the ts the current MAIN announced, then validates expected_ts against our LCTS.
+  bool CheckDelta(utils::UUID const &main_uuid, uint64_t expected_ts, uint64_t new_ts) {
+    {
+      std::lock_guard const lock{note_->mtx};
+      if (note_->main_uuid != main_uuid) {
+        note_->main_uuid = main_uuid;
+        note_->ts = new_ts;
+      } else {
+        note_->ts = std::max(note_->ts, new_ts);
+      }
+    }
+    return expected_ts == LastCommitedTS();
+  }
+
+  // True if a recovery from this MAIN is older than a delta already received from it (stale snapshot).
+  // The note is reset so a later attempt from the same MAIN can go through.
+  bool RefuseStaleRecovery(utils::UUID const &main_uuid, uint64_t forced_ts) {
+    std::lock_guard const lock{note_->mtx};
+    if (note_->main_uuid == main_uuid && forced_ts < note_->ts) {
+      note_->main_uuid.reset();
+      note_->ts = 0;
+      return true;
+    }
+    return false;
+  }
 
   auto LastCommitedTS() const -> uint64_t {
     return state_->last_committed_system_timestamp_.load(std::memory_order_acquire);
@@ -60,7 +91,15 @@ struct ReplicaHandlerAccessToState {
   }
 
  private:
+  // Leaf lock: never held across any apply.
+  struct DeltaNote {
+    std::mutex mtx;
+    std::optional<utils::UUID> main_uuid;
+    uint64_t ts{};
+  };
+
   State *state_;
+  std::shared_ptr<DeltaNote> note_;
 };
 
 }  // namespace memgraph::system
