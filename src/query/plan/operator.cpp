@@ -554,9 +554,7 @@ struct TypedValueVectorEqual {
 // Returns boolean result of evaluating filter expression. Null is treated as
 // false. Other non boolean values raise a QueryRuntimeException.
 bool EvaluateFilter(ExpressionEvaluator &evaluator, Expression *filter) {
-  // Into the filter's own slot, so the value is reused from row to row rather
-  // than built and torn down for each. Nothing else runs before it is read.
-  TypedValue const &result = evaluator.EvalIntoSlot(filter);
+  TypedValue const result = filter->Accept(evaluator);
   // Null is treated like false.
   if (result.IsNull()) return false;
   if (result.type() != TypedValue::Type::Bool)

@@ -80,3 +80,32 @@ TEST_F(SlotEval, TheSlotPathDoesNotCarryTheLastAnswerOver) {
   EXPECT_TRUE(evaluator.EvalIntoSlot(same).ValueBool());
   EXPECT_FALSE(evaluator.EvalIntoSlot(equal).ValueBool());
 }
+
+// A conjunction reads each operand from the slot it already filled rather than
+// asking for it again. Nesting is where that matters: re-running an operand
+// doubles the work per level, so a chain this deep would be unusable. The
+// assertion here is on the answer; the cost is what the benchmark watches.
+TEST_F(SlotEval, NestedConjunctionsAgreeWithAccept) {
+  constexpr int kDepth = 24;
+
+  Expression *all_true = storage_.Create<memgraph::query::EqualOperator>(Int(1), Int(1));
+  for (int i = 0; i < kDepth; ++i) {
+    all_true = storage_.Create<memgraph::query::AndOperator>(
+        all_true, storage_.Create<memgraph::query::EqualOperator>(Int(i), Int(i)));
+  }
+
+  auto evaluator = MakeEvaluator();
+  TypedValue const by_accept = all_true->Accept(evaluator);
+  EXPECT_TRUE(TypedValue::BoolEqual{}(by_accept, evaluator.EvalIntoSlot(all_true)));
+  EXPECT_TRUE(evaluator.EvalIntoSlot(all_true).ValueBool());
+
+  // One false operand buried in the chain has to carry out to the top.
+  Expression *with_false = storage_.Create<memgraph::query::EqualOperator>(Int(1), Int(1));
+  for (int i = 0; i < kDepth; ++i) {
+    auto *operand = i == kDepth / 2 ? storage_.Create<memgraph::query::EqualOperator>(Int(0), Int(1))
+                                    : storage_.Create<memgraph::query::EqualOperator>(Int(i), Int(i));
+    with_false = storage_.Create<memgraph::query::AndOperator>(with_false, operand);
+  }
+  EXPECT_TRUE(TypedValue::BoolEqual{}(with_false->Accept(evaluator), evaluator.EvalIntoSlot(with_false)));
+  EXPECT_FALSE(evaluator.EvalIntoSlot(with_false).ValueBool());
+}
