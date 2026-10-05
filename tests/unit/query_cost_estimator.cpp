@@ -440,6 +440,24 @@ TEST_F(QueryCostEstimator, Union) {
   EXPECT_COST(CostParam::kUnion * (no_vertices + no_vertices));
 }
 
+// For a Once input the disjunction costs what the Union of its branch scans costs.
+TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionCostsLikeTheUnionOfItsScans) {
+  AddVertices(100, 30, 20);
+  // Both branches read the one indexed label, so each branch counts its 30 vertices.
+  MakeOp<ScanAllByIndexDisjunction>(
+      last_op_, NextSymbol(), std::vector<IndexDisjunctionBranch>{{.label = label}, {.label = label}});
+  auto const disjunction_cost = Cost();
+
+  auto node = NextSymbol();
+  MakeOp<memgraph::query::plan::Union>(std::make_shared<ScanAllByLabel>(std::make_shared<Once>(), node, label),
+                                       std::make_shared<ScanAllByLabel>(std::make_shared<Once>(), node, label),
+                                       std::vector<Symbol>{node},
+                                       std::vector<Symbol>{node},
+                                       std::vector<Symbol>{node});
+  EXPECT_FLOAT_EQ(disjunction_cost, Cost());
+  EXPECT_FLOAT_EQ(disjunction_cost, 2 * 30 * CostParam::kScanAllByLabel);
+}
+
 // Helper for testing an operations cost and cardinality.
 // Only for operations that first increment cost, then modify cardinality.
 // Intentially a macro (instead of function) for better test feedback.

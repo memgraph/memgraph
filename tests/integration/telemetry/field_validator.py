@@ -274,6 +274,7 @@ EXPECTED_EVENT_COUNTERS = {
     "ScanAllByEdgeTypeOperator",
     "ScanAllByEdgeTypePropertyOperator",
     "ScanAllByIdOperator",
+    "ScanAllByIndexDisjunctionOperator",
     "ScanAllByLabelOperator",
     "ScanAllByLabelPropertiesOperator",
     "ScanAllByPointDistanceOperator",

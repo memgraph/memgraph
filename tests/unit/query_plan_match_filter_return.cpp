@@ -14,6 +14,7 @@
 #include "query_plan_common.hpp"
 
 #include <iterator>
+#include <map>
 #include <memory>
 #include <optional>
 #include <unordered_map>
@@ -4545,3 +4546,123 @@ TYPED_TEST(MatchReturnFixture, PropertyFGALicenseDisabledMeansNoRestriction) {
 }
 
 #endif
+
+// ScanAllByIndexDisjunction built by hand over an in-memory storage with label indexes on :A and :B.
+class IndexDisjunctionScan : public testing::Test {
+ protected:
+  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage(config)};
+  memgraph::storage::LabelId label_a = db->NameToLabel("A");
+  memgraph::storage::LabelId label_b = db->NameToLabel("B");
+  AstStorage storage;
+  SymbolTable symbol_table;
+  Symbol n = symbol_table.CreateSymbol("n", true);
+  Symbol x = symbol_table.CreateSymbol("x", true);
+
+  void SetUp() override {
+    memgraph::license::global_license_checker.EnableTesting();
+    for (auto label : {label_a, label_b}) {
+      auto unique_acc = db->UniqueAccess();
+      ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+      ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+  }
+
+  // Commits one vertex per entry, each with the given labels.
+  void AddVertices(std::vector<std::vector<memgraph::storage::LabelId>> const &vertices) {
+    auto acc = db->Access(memgraph::storage::WRITE);
+    for (auto const &labels : vertices) {
+      auto vertex = acc->CreateVertex();
+      for (auto label : labels) ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  std::shared_ptr<LogicalOperator> UnwindX(std::vector<int64_t> values) {
+    std::vector<Expression *> literals;
+    for (auto value : values) literals.push_back(storage.Create<PrimitiveLiteral>(value));
+    return std::make_shared<plan::Unwind>(std::make_shared<Once>(), storage.Create<ListLiteral>(literals), x);
+  }
+
+  std::shared_ptr<ScanAllByIndexDisjunction> ScanAOrB(std::shared_ptr<LogicalOperator> input,
+                                                      memgraph::storage::View view = memgraph::storage::View::OLD) {
+    return std::make_shared<ScanAllByIndexDisjunction>(
+        std::move(input), n, std::vector<IndexDisjunctionBranch>{{.label = label_a}, {.label = label_b}}, view);
+  }
+
+  // The number of rows for each value of x.
+  std::map<int64_t, int> RowsPerX(std::shared_ptr<LogicalOperator> const &op, memgraph::query::DbAccessor &dba) {
+    auto produce = MakeProduce(op, NEXPR("x", IDENT("x")->MapTo(x))->MapTo(symbol_table.CreateSymbol("out", true)));
+    auto context = MakeContext(storage, symbol_table, &dba);
+    std::map<int64_t, int> rows;
+    for (auto const &row : CollectProduce(*produce, &context)) ++rows[row[0].ValueInt()];
+    return rows;
+  }
+};
+
+TEST_F(IndexDisjunctionScan, LabelBranchesPerInputRow) {
+  AddVertices({{label_a}, {label_a}, {label_b}, {label_a, label_b}});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  EXPECT_EQ(RowsPerX(ScanAOrB(UnwindX({1, 2})), dba), (std::map<int64_t, int>{{1, 4}, {2, 4}}));
+}
+
+TEST_F(IndexDisjunctionScan, EqualInputRowsStaySeparate) {
+  AddVertices({{label_a}, {label_a}, {label_b}, {label_a, label_b}});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  EXPECT_EQ(RowsPerX(ScanAOrB(UnwindX({1, 1})), dba), (std::map<int64_t, int>{{1, 8}}));
+}
+
+TEST_F(IndexDisjunctionScan, VertexWithBothLabelsOnce) {
+  AddVertices({{label_a}, {label_b}, {label_a, label_b}});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  auto context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(PullAll(*ScanAOrB(std::make_shared<Once>()), &context), 3);
+}
+
+// Under View::NEW a write above the scan runs between its pulls; the label check would let `(:A:B)` out of the
+// :B branch once REMOVE n:A has run on it.
+TEST_F(IndexDisjunctionScan, LabelRemovedBetweenPullsUnderNew) {
+  AddVertices({{label_a, label_b}});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  auto scan = ScanAOrB(std::make_shared<Once>(), memgraph::storage::View::NEW);
+  auto remove = std::make_shared<plan::RemoveLabels>(scan, n, std::vector<StorageLabelType>{label_a});
+  auto context = MakeContext(storage, symbol_table, &dba);
+  EXPECT_EQ(PullAll(*remove, &context), 1);
+}
+
+#ifdef MG_ENTERPRISE
+// A vertex the user may not read is skipped; the rest of the branch and the later input rows still run.
+TEST_F(IndexDisjunctionScan, FgacDeniedVertexDoesNotEndTheScan) {
+  auto label_s = db->NameToLabel("S");
+  AddVertices({{label_a}, {label_a}, {label_a, label_s}});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+
+  auto user = memgraph::auth::User{"deny_s"};
+  user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+  user.fine_grained_access_handler().label_permissions().Deny({"S"}, memgraph::auth::kAllLabelPermissions);
+  memgraph::glue::FineGrainedAuthChecker auth_checker{user, &dba};
+  auto context = MakeContextWithFineGrainedChecker(storage, symbol_table, &dba, &auth_checker);
+  EXPECT_EQ(PullAll(*ScanAOrB(UnwindX({1, 2})), &context), 4);
+}
+#endif
+
+TEST_F(IndexDisjunctionScan, ResetRestartsInput) {
+  AddVertices({{label_a}, {label_a}, {label_b}, {label_a, label_b}});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  auto context = MakeContext(storage, symbol_table, &dba);
+  auto scan = ScanAOrB(UnwindX({1, 2}));
+  auto cursor = scan->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
+  Frame frame(symbol_table.max_position());
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  ASSERT_TRUE(cursor->Pull(frame, context));
+  cursor->Reset();
+  int rows = 0;
+  while (cursor->Pull(frame, context)) ++rows;
+  EXPECT_EQ(rows, 8);
+}

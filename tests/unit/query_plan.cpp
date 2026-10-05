@@ -4901,16 +4901,10 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWithIndex) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectUnion(left_subquery_part, right_subquery_part),
-            ExpectDistinct(),
+            ExpectScanAllByIndexDisjunction({{.label = label1}, {.label = label2}}),
             ExpectProduce());
-
-  DeleteListContent(&left_subquery_part);
-  DeleteListContent(&right_subquery_part);
 }
 
 TYPED_TEST(TestPlanner, ORLabelExpressionWithMultipleLabels) {
@@ -4928,24 +4922,10 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWithMultipleLabels) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  // expect union of union and scan all by label
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  // Single deduplicating Distinct sits at the top of the whole Union tree; the
-  // intermediate Union has no Distinct of its own.
-  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
-  std::list<BaseOpChecker *> second_subquery_plan{new ExpectScanAllByLabel()};
-
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectUnion(first_subquery_plan, second_subquery_plan),
-            ExpectDistinct(),
+            ExpectScanAllByIndexDisjunction({{.label = label1}, {.label = label2}, {.label = label3}}),
             ExpectProduce());
-
-  DeleteListContent(&left_subquery_part);
-  DeleteListContent(&right_subquery_part);
-  DeleteListContent(&first_subquery_plan);
-  DeleteListContent(&second_subquery_plan);
 }
 
 TYPED_TEST(TestPlanner, ORLabelExpressionWhereClause) {
@@ -4967,17 +4947,10 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClause) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectUnion(left_subquery_part, right_subquery_part),
-            ExpectDistinct(),
+            ExpectScanAllByIndexDisjunction({{.label = label1_id}, {.label = label2_id}}),
             ExpectProduce());
-
-  DeleteListContent(&left_subquery_part);
-  DeleteListContent(&right_subquery_part);
 }
 
 TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabels) {
@@ -5003,23 +4976,10 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabels) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  // Single deduplicating Distinct sits at the top of the whole Union tree; the
-  // intermediate Union has no Distinct of its own.
-  std::list<BaseOpChecker *> first_subquery_plan{new ExpectUnion(left_subquery_part, right_subquery_part)};
-  std::list<BaseOpChecker *> second_subquery_plan{new ExpectScanAllByLabel()};
-
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectUnion(first_subquery_plan, second_subquery_plan),
-            ExpectDistinct(),
+            ExpectScanAllByIndexDisjunction({{.label = label1_id}, {.label = label2_id}, {.label = label3_id}}),
             ExpectProduce());
-
-  DeleteListContent(&first_subquery_plan);
-  DeleteListContent(&second_subquery_plan);
-  DeleteListContent(&left_subquery_part);
-  DeleteListContent(&right_subquery_part);
 }
 
 // Collects the shape of an index-disjunction plan: how many Distinct operators
@@ -5058,18 +5018,18 @@ struct UnionPlanShape : public memgraph::query::plan::HierarchicalLogicalOperato
   }
 };
 
-TYPED_TEST(TestPlanner, ORLabelExpressionBalancedUnionTree) {
+TYPED_TEST(TestPlanner, ORLabelExpressionOfManyLabelsIsOneScan) {
   // MATCH (n) WHERE n:L0 OR n:L1 OR ... OR n:L7 RETURN n, all labels indexed.
-  // The disjunction compiles to a single Distinct over a balanced Union tree,
-  // so its depth is O(log N) (ceil(log2(8)) == 3), not the N-1 == 7 of a
-  // left-deep chain. Deep left-deep trees overflow the executor stack.
+  // Every label is one branch of one scan, so the plan does not deepen with the number of labels.
   FakeDbAccessor dba;
   constexpr int kLabels = 8;
   auto node_identifier = IDENT("n");
   memgraph::query::Expression *or_expr = nullptr;
+  std::vector<ExpectedDisjunctionBranch> branches;
   for (int i = 0; i < kLabels; ++i) {
     const auto name = "L" + std::to_string(i);
     dba.SetIndexCount(dba.Label(name), 1);
+    branches.push_back({.label = dba.Label(name)});
     auto label_ix = std::vector<memgraph::query::LabelIx>{this->storage.GetLabelIx(name)};
     memgraph::query::Expression *test = LABELS_TEST(node_identifier, label_ix);
     or_expr = or_expr ? static_cast<memgraph::query::Expression *>(OR(or_expr, test)) : test;
@@ -5078,10 +5038,7 @@ TYPED_TEST(TestPlanner, ORLabelExpressionBalancedUnionTree) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  UnionPlanShape shape;
-  planner.plan().Accept(shape);
-  EXPECT_EQ(shape.distinct_count, 1);
-  EXPECT_EQ(shape.max_union_depth, 3);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByIndexDisjunction(std::move(branches)), ExpectProduce());
 }
 
 // Direct unit test of the disjunction-lowering fold, independent of the planner:
@@ -5125,40 +5082,72 @@ TEST(BalancedDisjunctionUnion, ShapeByScanCount) {
   }
 }
 
-// UsedIndexChecker validates a cached plan by collecting the indices it relies
-// on, then checking they are all still ready. For composite operators it relies
-// on Accept to descend into every branch (it must not traverse manually). This
-// asserts that contract holds across a balanced Union tree: every label scan, on
-// both sides at every level, must be collected. A skipped branch would drop a
-// label, letting a stale plan that references a since-dropped index survive
-// validation -- the crash this guards against.
-TEST(UsedIndexChecker, CollectsEveryBranchOfDisjunctionUnion) {
-  using memgraph::query::plan::BalancedDisjunctionUnion;
+// The plan-cache check reads the indexes a plan uses. A disjunction that reported fewer than all of its branches
+// would let a cached plan outlive a dropped index.
+TEST(UsedIndexChecker, CollectsEveryBranchOfIndexDisjunction) {
+  using memgraph::query::plan::IndexDisjunctionBranch;
   using memgraph::query::plan::LogicalOperator;
   using memgraph::query::plan::Once;
-  using memgraph::query::plan::ScanAllByLabel;
+  using memgraph::query::plan::ScanAllByIndexDisjunction;
   using memgraph::query::plan::UsedIndexChecker;
 
   FakeDbAccessor dba;
   const memgraph::query::Symbol node_symbol{"n", 0, /*user_declared=*/false};
-  const std::shared_ptr<LogicalOperator> input = std::make_shared<Once>();
-
-  // Four labels => a depth-2 balanced Union tree, so both branches at both
-  // levels must be traversed for all labels to be collected.
   std::vector<memgraph::storage::LabelId> labels;
-  std::vector<std::unique_ptr<LogicalOperator>> scans;
+  std::vector<IndexDisjunctionBranch> branches;
   for (const auto *name : {"L0", "L1", "L2", "L3"}) {
-    auto label = dba.Label(name);
-    labels.push_back(label);
-    scans.push_back(std::make_unique<ScanAllByLabel>(input, node_symbol, label));
+    labels.push_back(dba.Label(name));
+    branches.push_back({.label = labels.back()});
   }
-
-  auto root = BalancedDisjunctionUnion(std::move(scans), node_symbol);
+  auto root = std::make_shared<ScanAllByIndexDisjunction>(std::make_shared<Once>(), node_symbol, std::move(branches));
 
   UsedIndexChecker checker;
   root->Accept(checker);
 
   EXPECT_THAT(checker.required_indices_.label_, ::testing::UnorderedElementsAreArray(labels));
+}
+
+// The upstream of an indexed disjunction runs once: one Unwind below one scan, not one copy per label.
+TYPED_TEST(TestPlanner, IndexDisjunctionRunsUpstreamOnce) {
+  // UNWIND [1, 2] AS x MATCH (n:Label1|Label2) RETURN n
+  FakeDbAccessor dba;
+  auto label1 = dba.Label("Label1");
+  auto label2 = dba.Label("Label2");
+  dba.SetIndexCount(label1, 1);
+  dba.SetIndexCount(label2, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1), LITERAL(2)), AS("x")),
+                                   MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
+                                   RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectUnwind(),
+            ExpectScanAllByIndexDisjunction({{.label = label1}, {.label = label2}}),
+            ExpectProduce());
+}
+
+// A disjunction destination does not count as an indexed endpoint, so BFS stays single-source.
+TYPED_TEST(TestPlanner, IndexDisjunctionDestinationIsNotStShortest) {
+  // MATCH (a:Z)-[r *bfs]->(b:Label1|Label2) RETURN r
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Z"), 2);
+  dba.SetIndexCount(dba.Label("Label1"), 3);
+  dba.SetIndexCount(dba.Label("Label2"), 3);
+
+  auto *bfs = this->storage.template Create<memgraph::query::EdgeAtom>(
+      IDENT("r"), memgraph::query::EdgeAtom::Type::BREADTH_FIRST, Direction::OUT);
+  bfs->filter_lambda_.inner_edge = IDENT("ie");
+  bfs->filter_lambda_.inner_node = IDENT("in");
+  bfs->filter_lambda_.expression = LITERAL(true);
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("a", "Z"), bfs, NODE_WITH_LABELS("b", {"Label1", "Label2"}))), RETURN("r")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(), ExpectExpandBfs(), ExpectFilter(), ExpectProduce());
 }
 
 // Whether a plan can run with no storage transaction. An operator's classification comes from the
@@ -5248,18 +5237,11 @@ TYPED_TEST(TestPlanner, ORLabelExpressionMatchWhereCombination) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel(label1_id)};
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel(label2_id)};
-
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectUnion(left_subquery_part, right_subquery_part),
-            ExpectDistinct(),
+            ExpectScanAllByIndexDisjunction({{.label = label1_id}, {.label = label2_id}}),
             ExpectFilter(),
             ExpectProduce());
-
-  DeleteListContent(&left_subquery_part);
-  DeleteListContent(&right_subquery_part);
 }
 
 TYPED_TEST(TestPlanner, LabelExpressionCombination) {
@@ -5344,15 +5326,10 @@ TYPED_TEST(TestPlanner, RepeatedDisjunctionLabelIsScannedOnce) {
         QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2", "Label1"}))), RETURN("n")));
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel(label1_id)};
-    std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel(label2_id)};
     CheckPlan(planner.plan(),
               symbol_table,
-              ExpectUnion(left_subquery_part, right_subquery_part),
-              ExpectDistinct(),
+              ExpectScanAllByIndexDisjunction({{.label = label1_id}, {.label = label2_id}}),
               ExpectProduce());
-    DeleteListContent(&left_subquery_part);
-    DeleteListContent(&right_subquery_part);
   }
 }
 
@@ -5394,17 +5371,11 @@ TYPED_TEST(TestPlanner, MixedTermExtractsTheDisjunction) {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
     // The index scans consume the disjunction, so the filter left above them tests only the negation.
-    std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
-    std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
     CheckPlan(planner.plan(),
               symbol_table,
-              ExpectUnion(left_subquery_part, right_subquery_part),
-              ExpectDistinct(),
+              ExpectScanAllByIndexDisjunction({{.label = dba.Label("Label1")}, {.label = dba.Label("Label2")}}),
               ExpectFilterOrLabels({}),
               ExpectProduce());
-
-    DeleteListContent(&left_subquery_part);
-    DeleteListContent(&right_subquery_part);
   }
 }
 
@@ -5503,16 +5474,11 @@ TYPED_TEST(TestPlanner, SplitTermMergesWithWhereGroup) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectUnion(left_subquery_part, right_subquery_part),
-            ExpectDistinct(),
+            ExpectScanAllByIndexDisjunction({{.label = dba.Label("Label1")}, {.label = dba.Label("Label2")}}),
             ExpectFilterOrLabels(Groups{{"Label1", "Label2"}, {"Label3", "Label1"}}),
             ExpectProduce());
-  DeleteListContent(&left_subquery_part);
-  DeleteListContent(&right_subquery_part);
 }
 
 /// Checks how many filters one Filter operator holds.
@@ -5959,16 +5925,10 @@ TYPED_TEST(TestPlanner, RepeatedDisjunctionIsTestedOnce) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-    std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
-    std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
     CheckPlan(planner.plan(),
               symbol_table,
-              ExpectUnion(left_subquery_part, right_subquery_part),
-              ExpectDistinct(),
+              ExpectScanAllByIndexDisjunction({{.label = dba.Label("Label1")}, {.label = dba.Label("Label2")}}),
               ExpectProduce());
-
-    DeleteListContent(&left_subquery_part);
-    DeleteListContent(&right_subquery_part);
   }
 }
 
@@ -6036,15 +5996,14 @@ TYPED_TEST(TestPlanner, PlanningOneAstTwiceGivesTheSamePlan) {
                                   LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label2")}))),
                          RETURN("n")));
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto const disjunction = [&] {
+    return ExpectScanAllByIndexDisjunction({{.label = dba.Label("Label1")}, {.label = dba.Label("Label2")}});
+  };
 
   for (int planning = 1; planning <= 2; ++planning) {
     SCOPED_TRACE("planning number " + std::to_string(planning));
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
-    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
-    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
-    CheckPlan(planner.plan(), symbol_table, ExpectUnion(left, right), ExpectDistinct(), ExpectProduce());
-    DeleteListContent(&left);
-    DeleteListContent(&right);
+    CheckPlan(planner.plan(), symbol_table, disjunction(), ExpectProduce());
   }
 
   // The same two conjuncts the other way round in the query. Which of them the collection reaches first decides
@@ -6061,16 +6020,7 @@ TYPED_TEST(TestPlanner, PlanningOneAstTwiceGivesTheSamePlan) {
   for (int planning = 1; planning <= 2; ++planning) {
     SCOPED_TRACE("reversed-conjunct planning number " + std::to_string(planning));
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, reversed_symbol_table, reversed);
-    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
-    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
-    CheckPlan(planner.plan(),
-              reversed_symbol_table,
-              ExpectUnion(left, right),
-              ExpectDistinct(),
-              ExpectFilter(),
-              ExpectProduce());
-    DeleteListContent(&left);
-    DeleteListContent(&right);
+    CheckPlan(planner.plan(), reversed_symbol_table, disjunction(), ExpectFilter(), ExpectProduce());
   }
 
   // A disjunction beside another conjunct over the same variable. Both reach the same filter, so a collection
@@ -6087,16 +6037,7 @@ TYPED_TEST(TestPlanner, PlanningOneAstTwiceGivesTheSamePlan) {
   for (int planning = 1; planning <= 2; ++planning) {
     SCOPED_TRACE("beside-conjunct planning number " + std::to_string(planning));
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, conjunct_symbol_table, beside_conjunct);
-    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
-    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
-    CheckPlan(planner.plan(),
-              conjunct_symbol_table,
-              ExpectUnion(left, right),
-              ExpectDistinct(),
-              ExpectFilter(),
-              ExpectProduce());
-    DeleteListContent(&left);
-    DeleteListContent(&right);
+    CheckPlan(planner.plan(), conjunct_symbol_table, disjunction(), ExpectFilter(), ExpectProduce());
   }
 
   // The same disjunction where the node's pattern already states a label: the group is merged into the test
@@ -6112,16 +6053,7 @@ TYPED_TEST(TestPlanner, PlanningOneAstTwiceGivesTheSamePlan) {
   for (int planning = 1; planning <= 2; ++planning) {
     SCOPED_TRACE("pattern-label planning number " + std::to_string(planning));
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, pattern_symbol_table, with_pattern_label);
-    std::list<BaseOpChecker *> left{new ExpectScanAllByLabel()};
-    std::list<BaseOpChecker *> right{new ExpectScanAllByLabel()};
-    CheckPlan(planner.plan(),
-              pattern_symbol_table,
-              ExpectUnion(left, right),
-              ExpectDistinct(),
-              ExpectFilter(),
-              ExpectProduce());
-    DeleteListContent(&left);
-    DeleteListContent(&right);
+    CheckPlan(planner.plan(), pattern_symbol_table, disjunction(), ExpectFilter(), ExpectProduce());
   }
 }
 

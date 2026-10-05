@@ -581,6 +581,16 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(ScanAllByIndexDisjunction &op) override {
+    prev_ops_.push_back(&op);
+    return true;
+  }
+
+  bool PostVisit(ScanAllByIndexDisjunction &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(ScanAllById &op) override {
     prev_ops_.push_back(&op);
     return true;
@@ -2021,6 +2031,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         // Prefer vertex-property scan only if it has a lower estimated count than the OR-labels union
         if (vertex_prop_result && vertex_prop_result->estimated_count < best_group.vertex_count) {
           return std::move(*vertex_prop_result);
+        }
+        auto const label_only = std::ranges::all_of(
+            best_group.indices, [](auto const &index) { return std::holds_alternative<LabelIx>(index); });
+        if (label_only && best_group.indices.size() > 1) {
+          // One branch per label in one scan, which reads each input row once.
+          std::vector<IndexDisjunctionBranch> branches;
+          branches.reserve(best_group.indices.size());
+          for (auto const &index : best_group.indices) {
+            metadata.labels_to_erase.push_back(std::get<LabelIx>(index));
+            branches.push_back({.label = GetLabel(std::get<LabelIx>(index))});
+          }
+          metadata.all_property_filters_same = false;
+          metadata.is_or_label_filter = true;
+          return ScanByIndexResult{
+              std::make_unique<ScanAllByIndexDisjunction>(input, node_symbol, std::move(branches), view),
+              std::move(metadata)};
         }
         // Collect one index scan per disjoined label, then fold them into a
         // balanced Union tree with a single deduplicating Distinct on top.

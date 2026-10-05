@@ -301,6 +301,7 @@ struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAll & /*unused*/) override;
   bool PreVisit(ScanAllByLabel & /*unused*/) override;
   bool PreVisit(ScanAllByLabelProperties & /*unused*/) override;
+  bool PreVisit(ScanAllByIndexDisjunction & /*unused*/) override;
   bool PreVisit(ScanAllById & /*unused*/) override;
 
   bool PreVisit(ScanAllByEdge & /*unused*/) override;
@@ -385,6 +386,7 @@ PRE_VISIT(Delete);
 PRE_VISIT_TS(ScanAll);
 PRE_VISIT_TS(ScanAllByLabel);
 PRE_VISIT_TS(ScanAllByLabelProperties);
+PRE_VISIT_TS(ScanAllByIndexDisjunction);
 PRE_VISIT_TS(ScanAllById);
 PRE_VISIT_TS(ScanAllByEdge);
 PRE_VISIT_TS(ScanAllByEdgeType);
@@ -672,6 +674,28 @@ bool PlanToJsonVisitor::PreVisit(ScanAllByLabelProperties &op) {
   self["properties"] = ToJson(op.properties_, *dba_);
   self["expression_ranges"] = ToJson(op.expression_ranges_, *dba_);
   self["output_symbol"] = ToJson(op.output_symbol_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(ScanAllByIndexDisjunction &op) {
+  json self;
+  self["name"] = "ScanAllByIndexDisjunction";
+  self["output_symbol"] = ToJson(op.output_symbol_);
+  self["branches"] = json::array();
+  for (auto const &branch : op.branches_) {
+    json branch_json;
+    branch_json["label"] = ToJson(branch.label, *dba_);
+    if (!branch.IsLabelOnly()) {
+      branch_json["properties"] = ToJson(branch.properties, *dba_);
+      branch_json["expression_ranges"] = ToJson(branch.expression_ranges, *dba_);
+    }
+    self["branches"].push_back(std::move(branch_json));
+  }
 
   op.input_->Accept(*this);
   self["input"] = PopOutput();

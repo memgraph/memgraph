@@ -95,6 +95,7 @@ struct DatabaseMetricHandles {
   CounterHandle scan_all_operator;
   CounterHandle scan_all_by_label_operator;
   CounterHandle scan_all_by_label_properties_operator;
+  CounterHandle scan_all_by_index_disjunction_operator;
   CounterHandle scan_all_by_id_operator;
   CounterHandle scan_all_by_edge_operator;
   CounterHandle scan_all_by_edge_type_operator;

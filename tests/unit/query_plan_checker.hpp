@@ -118,6 +118,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(ScanAll);
   PRE_VISIT(ScanAllByLabel);
   PRE_VISIT(ScanAllByLabelProperties);
+  PRE_VISIT(ScanAllByIndexDisjunction);
   PRE_VISIT(ScanAllByEdgeType);
   PRE_VISIT(ScanAllByEdgeTypeProperty);
   PRE_VISIT(ScanAllByEdgeProperty);
@@ -700,6 +701,37 @@ class ExpectScanAllByLabelProperties : public OpChecker<ScanAllByLabelProperties
   memgraph::storage::LabelId label_;
   std::vector<memgraph::storage::PropertyPath> properties_;
   std::vector<ExpressionRange> expression_ranges_;
+};
+
+/// One expected branch of a ScanAllByIndexDisjunction; no properties means a label index.
+struct ExpectedDisjunctionBranch {
+  memgraph::storage::LabelId label;
+  std::vector<memgraph::storage::PropertyPath> properties{};
+  std::vector<ExpressionRange> expression_ranges{};
+  memgraph::storage::IndexOrder index_order{memgraph::storage::IndexOrder::ASC};
+};
+
+class ExpectScanAllByIndexDisjunction : public OpChecker<ScanAllByIndexDisjunction> {
+ public:
+  explicit ExpectScanAllByIndexDisjunction(std::vector<ExpectedDisjunctionBranch> branches)
+      : branches_(std::move(branches)) {}
+
+  // Branches match by label, which is unique within one disjunction; their order is not pinned.
+  void ExpectOp(ScanAllByIndexDisjunction &scan, const SymbolTable &) override {
+    ASSERT_EQ(scan.branches_.size(), branches_.size());
+    for (auto const &expected : branches_) {
+      auto found = std::ranges::find(scan.branches_, expected.label, &IndexDisjunctionBranch::label);
+      ASSERT_NE(found, scan.branches_.end()) << "no branch for label " << expected.label.AsUint();
+      auto const &actual = *found;
+      EXPECT_EQ(actual.properties, expected.properties);
+      ASSERT_EQ(actual.expression_ranges.size(), expected.expression_ranges.size());
+      EXPECT_TRUE(ranges::equal(actual.expression_ranges, expected.expression_ranges, ExpressionRangesMatch));
+      EXPECT_EQ(actual.index_order, expected.index_order);
+    }
+  }
+
+ private:
+  std::vector<ExpectedDisjunctionBranch> branches_;
 };
 
 class ExpectScanAllByEdgeTypeProperty : public OpChecker<ScanAllByEdgeTypeProperty> {

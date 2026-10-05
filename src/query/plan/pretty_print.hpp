@@ -65,6 +65,7 @@ struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanAll & /*unused*/) override;
   bool PreVisit(ScanAllByLabel & /*unused*/) override;
   bool PreVisit(ScanAllByLabelProperties & /*unused*/) override;
+  bool PreVisit(ScanAllByIndexDisjunction & /*unused*/) override;
   bool PreVisit(ScanAllById & /*unused*/) override;
   bool PreVisit(ScanAllByEdge & /*unused*/) override;
   bool PreVisit(ScanAllByEdgeType & /*unused*/) override;

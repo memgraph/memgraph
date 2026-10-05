@@ -1721,6 +1721,149 @@ std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *sto
   return object;
 }
 
+ScanAllByIndexDisjunction::ScanAllByIndexDisjunction(const std::shared_ptr<LogicalOperator> &input,
+                                                     Symbol output_symbol, std::vector<IndexDisjunctionBranch> branches,
+                                                     storage::View view)
+    : ScanAll(input, std::move(output_symbol), view), branches_(std::move(branches)) {
+  DMG_ASSERT(branches_.size() > 1, "A disjunction needs at least two branches.");
+}
+
+ACCEPT_WITH_INPUT(ScanAllByIndexDisjunction)
+
+namespace {
+
+class ScanAllByIndexDisjunctionCursor : public Cursor {
+ public:
+  ScanAllByIndexDisjunctionCursor(const ScanAllByIndexDisjunction &self, UniqueCursorPtr input_cursor,
+                                  utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(std::move(input_cursor)),
+        // Under OLD a vertex that an earlier label branch yields has that label, so checking it is exact. Under NEW
+        // a write above this scan can change labels between pulls; only the Gid set is exact there.
+        dedup_by_label_(self.view_ == storage::View::OLD),
+        next_branch_(self.branches_.size()),
+        seen_(mem) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    while (true) {
+      AbortCheck(context);
+      if (!vertices_) {
+        if (!StartNextBranch(frame, context)) return false;
+        continue;
+      }
+      if (*vertices_it_ == *vertices_end_it_) {
+        vertices_.reset();
+        continue;
+      }
+      auto vertex = **vertices_it_;
+      ++*vertices_it_;
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !context.auth_checker->Has(vertex, self_.view_, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+        continue;
+      }
+#endif
+      if (IsDuplicate(vertex)) continue;
+      if (!dedup_by_label_) seen_.insert(vertex.Gid());
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      frame_writer.Write(self_.output_symbol_, vertex);
+      return true;
+    }
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    next_branch_ = self_.branches_.size();
+    vertices_.reset();
+    vertices_it_.reset();
+    vertices_end_it_.reset();
+    seen_.clear();
+  }
+
+ private:
+  // A vertex comes out of the first branch that yields it.
+  bool IsDuplicate(const VertexAccessor &vertex) const {
+    if (dedup_by_label_) {
+      for (auto const &earlier : self_.branches_ | rv::take(branch_)) {
+        if (earlier.IsLabelOnly() && vertex.HasLabel(self_.view_, earlier.label).value_or(false)) return true;
+      }
+    }
+    return seen_.contains(vertex.Gid());
+  }
+
+  // Starts the next branch, after the last one on a new input row. False once the input is exhausted.
+  bool StartNextBranch(Frame &frame, ExecutionContext &context) {
+    if (next_branch_ == self_.branches_.size()) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      seen_.clear();
+      next_branch_ = 0;
+    }
+    branch_ = next_branch_++;
+    auto const &branch = self_.branches_[branch_];
+    DMG_ASSERT(branch.IsLabelOnly(), "Label-property branches are not supported yet.");
+    vertices_.emplace(context.db_accessor->Vertices(self_.view_, branch.label));
+    vertices_it_.emplace(vertices_->begin());
+    vertices_end_it_.emplace(vertices_->end());
+    return true;
+  }
+
+  const ScanAllByIndexDisjunction &self_;
+  const UniqueCursorPtr input_cursor_;
+  const bool dedup_by_label_;
+  size_t next_branch_;
+  size_t branch_{0};
+  std::optional<VerticesIterable> vertices_;
+  std::optional<decltype(vertices_->begin())> vertices_it_;
+  std::optional<decltype(vertices_->end())> vertices_end_it_;
+  utils::pmr::unordered_set<storage::Gid> seen_;
+};
+
+}  // namespace
+
+UniqueCursorPtr ScanAllByIndexDisjunction::MakeCursor(utils::MemoryResource *mem,
+                                                      metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.scan_all_by_index_disjunction_operator.Increment();
+  return MakeUniqueCursorPtr<ScanAllByIndexDisjunctionCursor>(mem, *this, input_->MakeCursor(mem, metric_handles), mem);
+}
+
+std::string ScanAllByIndexDisjunction::ToString(const DbAccessor *dba) const {
+  auto const branch_text = [&](IndexDisjunctionBranch const &branch) {
+    auto label = fmt::format(":{}", dba->LabelToName(branch.label));
+    if (branch.IsLabelOnly()) return label;
+    auto const property_names =
+        branch.properties | rv::transform([&](storage::PropertyPath const &path) {
+          return utils::Join(path | rv::transform([&](storage::PropertyId prop) { return dba->PropertyToName(prop); }),
+                             ".");
+        }) |
+        ranges::to_vector;
+    std::string_view suffix = branch.index_order == storage::IndexOrder::DESC ? " (DESC)" : "";
+    return fmt::format("{} {{{}}}{}", label, utils::Join(property_names, ", "), suffix);
+  };
+  auto const branches = branches_ | rv::transform(branch_text) | ranges::to_vector;
+  return fmt::format("ScanAllByIndexDisjunction ({} {})", output_symbol_.name(), utils::Join(branches, " | "));
+}
+
+std::unique_ptr<LogicalOperator> ScanAllByIndexDisjunction::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<ScanAllByIndexDisjunction>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->output_symbol_ = output_symbol_;
+  object->view_ = view_;
+  object->branches_.reserve(branches_.size());
+  for (auto const &branch : branches_) {
+    auto &copy = object->branches_.emplace_back(branch);
+    copy.expression_ranges = branch.expression_ranges |
+                             rv::transform([&](auto &&range) { return ExpressionRange(range, *storage); }) |
+                             ranges::to_vector;
+    for (auto &slot : copy.membership_slots) slot.list = slot.list->Clone(storage);
+  }
+  return object;
+}
+
 namespace {
 // Extracts the looked-up id from an evaluated id()/elementId() comparison
 // value; nullopt if the value can't match any id.

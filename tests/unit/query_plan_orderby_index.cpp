@@ -12,8 +12,10 @@
 #include "query_plan_checker.hpp"
 
 #include <memory>
+#include <string>
 #include <vector>
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 
 #include "query/frontend/ast/ast.hpp"
@@ -1734,6 +1736,37 @@ TYPED_TEST(OrderByIndexTest, EdgeTypePropertyRangeEliminated) {
       << "Plan should use ScanAllByEdgeTypeProperty";
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType))
       << "OrderBy should be eliminated -- edge type property index provides order";
+}
+
+// A disjunction scan above an ordered edge scan keeps the edge order per input row, like a one-label scan.
+TYPED_TEST(OrderByIndexTest, EdgeTypePropertyOrderSurvivesIndexDisjunction) {
+  // MATCH ()-[e:KNOWS]->() WHERE e.since > 2020 WITH e MATCH (n:L1|L2) RETURN e.since AS es ORDER BY e.since
+  FakeDbAccessor dba;
+  const auto *const edge_type_name = "KNOWS";
+  const auto edge_type = dba.EdgeType(edge_type_name);
+  const auto since_prop = PROPERTY_PAIR(dba, "since");
+  dba.SetIndexCount(edge_type, since_prop.second, 1);
+  dba.SetIndexCount(dba.Label("L1"), 1);
+  dba.SetIndexCount(dba.Label("L2"), 1);
+
+  for (std::vector<std::string> labels : {std::vector<std::string>{"L1"}, std::vector<std::string>{"L1", "L2"}}) {
+    auto *match_e = MATCH(PATTERN(NODE("anon1"), EDGE("e", Direction::OUT, {edge_type_name}), NODE("anon2")));
+    match_e->where_ = WHERE(GREATER(PROPERTY_LOOKUP(dba, "e", since_prop.second), LITERAL(2020)));
+    auto *query = QUERY(SINGLE_QUERY(match_e,
+                                     WITH("e"),
+                                     MATCH(PATTERN(NODE_WITH_LABELS("n", labels))),
+                                     RETURN(PROPERTY_LOOKUP(dba, "e", since_prop.second),
+                                            AS("es"),
+                                            ORDER_BY(PROPERTY_LOOKUP(dba, "e", since_prop.second)))));
+
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+    SCOPED_TRACE(fmt::format("{} label(s)", labels.size()));
+    EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByEdgeTypeProperty::kType));
+    EXPECT_EQ(PlanContainsOp(planner.plan(), ScanAllByIndexDisjunction::kType), labels.size() > 1);
+    EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "the scan of n keeps the order of e";
+  }
 }
 
 // MATCH ()-[e:KNOWS]->() WHERE e.since > 2020 RETURN e ORDER BY e.name -- different property, not eliminated.

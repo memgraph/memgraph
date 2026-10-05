@@ -136,6 +136,28 @@ TYPED_TEST(TestPlanner, ParallelExecutionAggregation) {
             ExpectProduce());
 }
 
+// The disjunction scan has no chunked variant: under parallel execution it stays one serial scan.
+TYPED_TEST(TestPlanner, ParallelIndexDisjunctionStaysSerial) {
+  LicenseWrapper license_wrapper;
+  // Test USING PARALLEL EXECUTION MATCH (n:Label1|Label2) RETURN count(*)
+  FakeDbAccessor dba;
+  auto label1 = dba.Label("Label1");
+  auto label2 = dba.Label("Label2");
+  dba.SetIndexCount(label1, 1);
+  dba.SetIndexCount(label2, 1);
+  auto count_agg = COUNT(nullptr, false);
+  auto *query = PARALLEL_QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))), RETURN(NEXPR("count", count_agg))));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAllByIndexDisjunction({{.label = label1}, {.label = label2}}),
+            ExpectAggregate({count_agg}, {}),
+            ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, CountWithFilter) {
   LicenseWrapper license_wrapper;
   // Test MATCH (n) WHERE n.p < 100 RETURN count(n)

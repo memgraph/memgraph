@@ -339,6 +339,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &scan_all_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_label_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_label_properties_operator_family_;
+  prometheus::Family<prometheus::Counter> &scan_all_by_index_disjunction_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_id_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_operator_family_;
   prometheus::Family<prometheus::Counter> &scan_all_by_edge_type_operator_family_;
