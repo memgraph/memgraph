@@ -617,9 +617,18 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) no
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
+    // Sampled before Abort(), which moves commit_info into the graveyard. One CommitInfo is shared
+    // by every delta a transaction writes, so publishing restamps all of them at once.
+    bool const published =
+        commit_timestamp_ && transaction_.commit_info != nullptr &&
+        transaction_.commit_info->timestamp.load(std::memory_order_acquire) != transaction_.transaction_id;
     InMemoryAccessor::Abort();
-    // We didn't actually commit
-    commit_timestamp_.reset();
+    // An unpublished timestamp goes to FinalizeTransaction below to be marked finished; left
+    // unmarked it counts as an active transaction for the life of the process and stops all
+    // reclamation. A published one is dropped here and stays unmarked instead: Abort() undid none
+    // of its deltas, so they are still linked into the version chains while their storage sits in
+    // the graveyard, and marking it would let a collection pass free that storage under a reader.
+    if (published) commit_timestamp_.reset();
   }
 
   InMemoryAccessor::FinalizeTransaction();
