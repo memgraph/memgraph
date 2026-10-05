@@ -40,7 +40,7 @@ namespace memgraph::metrics {
 namespace {
 
 // Label that keys a per-database family entry. Internal: CollectForScrape replaces it with the
-// entry's current uuid, so it must never reach a scrape.
+// entry's current name and uuid, so it must never reach a scrape.
 constexpr auto kEntryLabel = "mgentry";
 
 bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
@@ -936,11 +936,11 @@ PrometheusMetrics::Registration PrometheusMetrics::AddDatabase(utils::UUID const
 }
 
 // Unsafe variants assume the caller already holds databases_.mutex.
-DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, uint64_t entry_id) {
-  // Keyed on the entry id, not the uuid: a family entry's label set is its map key and so is fixed for
-  // the entry's life, whereas the default database's uuid changes on cluster join. CollectForScrape
-  // substitutes the current uuid, so the scrape output is unchanged.
-  prometheus::Labels const labels{{"database", std::string(name)}, {kEntryLabel, std::to_string(entry_id)}};
+DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
+  // Keyed on the entry id alone: a family entry's label set is its map key and so is fixed for the
+  // entry's life, whereas a database's name and uuid can both change. CollectForScrape substitutes the
+  // current ones.
+  prometheus::Labels const labels{{kEntryLabel, std::to_string(entry_id)}};
   return DatabaseMetricHandles{
       .vertex_count = {&vertex_count_family_.Add(labels)},
       .edge_count = {&edge_count_family_.Add(labels)},
@@ -1046,7 +1046,7 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, ui
 
 DatabaseMetricHandles PrometheusMetrics::AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name) {
   auto const entry_id = databases_.next_entry_id++;
-  auto handles = CreateHandles(name, entry_id);
+  auto handles = CreateHandles(entry_id);
   databases_.entries.push_back({
       .id = entry_id,
       .uuid = uuid,
@@ -1094,6 +1094,18 @@ void PrometheusMetrics::RebindRegistration(uint64_t entry_id, utils::UUID const 
     default_db_uuid_ = new_uuid;
   }
   it->uuid = new_uuid;
+}
+
+void PrometheusMetrics::Registration::Rename(std::string_view new_name) {
+  if (registry_ == nullptr) return;
+  registry_->RenameRegistration(entry_id_, new_name);
+}
+
+void PrometheusMetrics::RenameRegistration(uint64_t entry_id, std::string_view new_name) {
+  std::scoped_lock const lock{databases_.mutex};
+  auto it = r::find_if(databases_.entries, [entry_id](auto const &e) { return e.id == entry_id; });
+  if (it == databases_.entries.end()) return;
+  it->db_name = new_name;
 }
 
 void PrometheusMetrics::ReleaseRegistration(uint64_t entry_id) {
@@ -1228,28 +1240,33 @@ DatabaseMetricHandles PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID c
 }
 
 std::vector<prometheus::MetricFamily> PrometheusMetrics::CollectForScrape() {
-  std::unordered_map<std::string, std::string> uuid_by_entry;
+  struct Presented {
+    std::string name;
+    std::string uuid;
+  };
+
+  std::unordered_map<std::string, Presented> by_entry;
   {
     std::shared_lock const lock{databases_.mutex};
     for (auto const &entry : databases_.entries) {
-      uuid_by_entry.emplace(std::to_string(entry.id), std::string(entry.uuid));
+      by_entry.emplace(std::to_string(entry.id), Presented{entry.db_name, std::string(entry.uuid)});
     }
   }
   auto families = registry_.Collect();
   for (auto &family : families) {
     // A series whose entry is missing from the snapshot, such as one registered after it, has no
-    // uuid to present. Drop the whole metric: blanking the label would collapse two such series onto
-    // one label set, and a scrape carrying a duplicate label set is rejected in its entirety.
+    // name or uuid to present. Drop the whole metric: blanking the labels would collapse two such
+    // series onto one label set, and a scrape carrying a duplicate label set is rejected in its entirety.
     std::erase_if(family.metric, [&](auto const &metric) {
       auto const label = r::find(metric.label, kEntryLabel, &prometheus::ClientMetric::Label::name);
-      return label != metric.label.end() && !uuid_by_entry.contains(label->value);
+      return label != metric.label.end() && !by_entry.contains(label->value);
     });
     for (auto &metric : family.metric) {
-      for (auto &label : metric.label) {
-        if (label.name != kEntryLabel) continue;
-        label.name = "uuid";
-        label.value = uuid_by_entry.at(label.value);
-      }
+      auto const label = r::find(metric.label, kEntryLabel, &prometheus::ClientMetric::Label::name);
+      if (label == metric.label.end()) continue;
+      auto const &[name, uuid] = by_entry.at(label->value);
+      *label = {.name = "uuid", .value = uuid};
+      metric.label.insert(label, {.name = "database", .value = name});
     }
   }
   return families;

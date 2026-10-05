@@ -117,6 +117,11 @@ std::string Database::name() const { return storage_->name(); }
 
 utils::SafeString::ConstSafeWrapper Database::name_view() const { return storage_->name_view(); }
 
+void Database::Rename(std::string_view new_name) {
+  storage_->config_.salient.name = new_name;
+  metrics_.Rename(new_name);
+}
+
 const utils::UUID &Database::uuid() const { return storage_->uuid(); }
 
 const storage::Config &Database::config() const { return storage_->config_; }

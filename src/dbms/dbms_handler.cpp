@@ -607,7 +607,7 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
   // Update current db config
   auto new_db = db_handler_.Get(new_name);
   MG_ASSERT(new_db, "Database {} not found after rename.", new_name);
-  (*new_db)->storage()->config_.salient.name = new_name;
+  (*new_db)->Rename(new_name);
 
   // Update durability metadata
   if (durability_) {
@@ -634,7 +634,7 @@ DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::st
         // old_name to undo the in-memory rename above (arg/param names legitimately mismatch).
         // NOLINTNEXTLINE(readability-suspicious-call-argument)
         [[maybe_unused]] auto rolled_back = db_handler_.Rename(new_name, old_name);
-        (*new_db)->storage()->config_.salient.name = old_name;
+        (*new_db)->Rename(old_name);
         return std::unexpected{RenameError::FAIL};
       }
     }
