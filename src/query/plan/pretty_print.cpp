@@ -175,12 +175,31 @@ bool PlanPrinter::PreVisit(query::plan::RollUpApply &op) {
   return false;
 }
 
+namespace {
+/// What a WHEN predicate's fold computes. The folds are not in the predicate's order, so they are named, not numbered.
+std::string_view PredicateFoldName(const LogicalOperator &fold) {
+  const auto *subquery = utils::Downcast<const EvaluatePatternFilter>(&fold);
+  if (!subquery) return "pattern comprehension";
+  switch (subquery->fold_) {
+    case Fold::kBool:
+      return "EXISTS";
+    case Fold::kCount:
+      return "COUNT";
+    case Fold::kList:
+      return "COLLECT";
+  }
+  LOG_FATAL("Unhandled EvaluatePatternFilter fold");
+}
+}  // namespace
+
 bool PlanPrinter::PreVisit(query::plan::Conditional &op) {
   WithPrintLn([this, &op](auto &out) { out << StartSymbol() << " " << op.ToString(dba_); });
   for (size_t i = 0; i < op.branches_.size(); ++i) {
     const auto &branch = op.branches_[i];
     auto const name = branch.predicate ? fmt::format("WHEN {}", i) : std::string{"ELSE"};
-    for (const auto &fold : branch.pattern_filters) Branch(*fold, fmt::format("{} predicate", name));
+    for (const auto &fold : branch.pattern_filters) {
+      Branch(*fold, fmt::format("{} predicate {}", name, PredicateFoldName(*fold)));
+    }
     Branch(*branch.plan, name);
   }
   op.input_->Accept(*this);
