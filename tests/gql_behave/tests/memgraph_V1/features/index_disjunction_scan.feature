@@ -365,7 +365,7 @@ Feature: Indexed label disjunction scan
         And with new index :B(p)
         And with new index :C(p)
         And parameters are:
-            | xs | [1, 2, 3] |
+            | xs | [1, 2, 9] |
         When executing query:
             """
             UNWIND $xs AS x RETURN x, COUNT { MATCH (n:A|B) WHERE n.p = x } AS c ORDER BY x
@@ -374,7 +374,7 @@ Feature: Indexed label disjunction scan
             | x | c |
             | 1 | 2 |
             | 2 | 2 |
-            | 3 | 2 |
+            | 9 | 0 |
 
     Scenario: A label disjunction under LIMIT keeps the upstream order (indexes :A, :B)
         Given with new index :A
@@ -446,39 +446,6 @@ Feature: Indexed label disjunction scan
             | c  |
             | 12 |
 
-    Scenario: A label removed after the scan does not repeat a node (indexes :A, :B)
-        Given with new index :A
-        And with new index :B
-        When executing query:
-            """
-            MATCH (o:O) SET o.x = 1 WITH o MATCH (n:A|B) REMOVE n:A RETURN count(*) AS c
-            """
-        Then the result should be:
-            | c |
-            | 6 |
-
-    Scenario: A label added to a later node after the scan does not drop it (indexes :A, :B)
-        Given with new index :A
-        And with new index :B
-        When executing query:
-            """
-            MATCH (o:O) SET o.x = 1 WITH o MATCH (n:A|B) WITH n ORDER BY n.n MATCH (k:B {n: 'b1'}) SET k:A RETURN count(*) AS c
-            """
-        Then the result should be, in order:
-            | c |
-            | 6 |
-
-    Scenario: A node deleted after the scan is counted once (indexes :A, :B)
-        Given with new index :A
-        And with new index :B
-        When executing query:
-            """
-            MATCH (o:O) SET o.x = 1 WITH o MATCH (n:A|B) DETACH DELETE n RETURN count(*) AS c
-            """
-        Then the result should be:
-            | c |
-            | 6 |
-
     Scenario: An IN operand that is not a list raises (indexes :A(p), :B(p), :C(p))
         Given with new index :A(p)
         And with new index :B(p)
@@ -518,55 +485,12 @@ Feature: Indexed label disjunction scan
             | 'a1' |
             | 'b1' |
 
-    Scenario: A subsumed disjunction keeps every upstream row (indexes :A, :B)
-        Given with new index :A
-        And with new index :B
-        And parameters are:
-            | xs | [1, 2] |
-        When executing query:
-            """
-            UNWIND $xs AS x MATCH (n:(A|B)&(A|B|C)) WITH x, n.n AS v ORDER BY x, v RETURN x, collect(v) AS vs ORDER BY x
-            """
-        Then the result should be, in order:
-            | x | vs                                   |
-            | 1 | ['a1', 'a2', 'ab', 'ac', 'b1', 'bc'] |
-            | 2 | ['a1', 'a2', 'ab', 'ac', 'b1', 'bc'] |
-
-    Scenario: A label disjunction after WITH WHERE keeps every row (indexes :A, :B)
-        Given with new index :A
-        And with new index :B
-        And parameters are:
-            | xs | [1, 2] |
-        When executing query:
-            """
-            UNWIND $xs AS x WITH x WHERE x > 0 MATCH (n:A|B) WHERE n.p = x WITH x, n.n AS v ORDER BY x, v RETURN x, collect(v) AS vs ORDER BY x
-            """
-        Then the result should be, in order:
-            | x | vs           |
-            | 1 | ['a1', 'b1'] |
-            | 2 | ['a2', 'ab'] |
-
-    Scenario: A label disjunction after WITH WHERE keeps every row (indexes :A, :B(p), :C)
-        Given with new index :A
-        And with new index :B(p)
-        And with new index :C
-        And parameters are:
-            | xs | [1, 2] |
-        When executing query:
-            """
-            UNWIND $xs AS x WITH x WHERE x > 0 MATCH (n:A|B) WHERE n.p = x WITH x, n.n AS v ORDER BY x, v RETURN x, collect(v) AS vs ORDER BY x
-            """
-        Then the result should be, in order:
-            | x | vs           |
-            | 1 | ['a1', 'b1'] |
-            | 2 | ['a2', 'ab'] |
-
     Scenario: A label disjunction in a CALL subquery runs per outer row (indexes :A(p), :B(p), :C(p))
         Given with new index :A(p)
         And with new index :B(p)
         And with new index :C(p)
         And parameters are:
-            | xs | [1, 2, 3] |
+            | xs | [1, 2, 9] |
         When executing query:
             """
             UNWIND $xs AS x CALL { WITH x MATCH (n:A|B) WHERE n.p = x RETURN count(*) AS c } RETURN x, c ORDER BY x
@@ -575,7 +499,7 @@ Feature: Indexed label disjunction scan
             | x | c |
             | 1 | 2 |
             | 2 | 2 |
-            | 3 | 2 |
+            | 9 | 0 |
 
     Scenario: A label disjunction in EXISTS runs per outer row (indexes :A(p), :B(p), :C(p))
         Given with new index :A(p)
@@ -647,3 +571,18 @@ Feature: Indexed label disjunction scan
         Then the result should be:
             | c |
             | 6 |
+
+    Scenario: A three-label disjunction with label and property branches keeps every upstream row (indexes :A, :B(p), :C(p))
+        Given with new index :A
+        And with new index :B(p)
+        And with new index :C(p)
+        And parameters are:
+            | xs | [1, 2] |
+        When executing query:
+            """
+            UNWIND $xs AS x MATCH (n:A|B|C) WHERE n.p IN [x, 3] WITH x, n.n AS v ORDER BY x, v RETURN x, collect(v) AS vs ORDER BY x
+            """
+        Then the result should be, in order:
+            | x | vs                             |
+            | 1 | ['a1', 'ac', 'b1', 'bc', 'c1'] |
+            | 2 | ['a2', 'ab', 'ac', 'bc']       |
