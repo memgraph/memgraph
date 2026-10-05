@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <functional>
 #include <optional>
+#include <ranges>
 #include <stack>
 #include <string_view>
 #include <unordered_map>
@@ -240,35 +241,43 @@ void AddAndLabels(std::vector<LabelIx> &and_labels, std::vector<std::vector<Labe
   });
 }
 
-/// The single label a test contributes to a disjunction over one variable, or nothing if it demands anything
-/// else of the variable.
+/// The labels a test contributes to a disjunction over one variable -- a single label, or a single OR group as
+/// `n:A|B` has -- or nothing if it demands anything else of the variable.
 auto DisjunctLabels(const LabelsTest &labels_test) -> const std::vector<LabelIx> * {
-  if (labels_test.labels_.size() == 1 && labels_test.or_labels_.empty()) return &labels_test.labels_;
+  const auto *cnf = labels_test.Cnf();
+  if (!cnf) return nullptr;
+  if (cnf->labels.size() == 1 && cnf->or_labels.empty()) return &cnf->labels;
+  if (cnf->labels.empty() && cnf->or_labels.size() == 1) return &cnf->or_labels.front();
   return nullptr;
+}
+
+/// The plain labels a label filter's test holds. A whole term is always a generic filter, so a label filter
+/// never holds one.
+LabelCnf &FilterLabels(const FilterInfo &filter) {
+  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
+  MG_ASSERT(labels_test && labels_test->Cnf(), "A label filter tests plain labels");
+  return *labels_test->Cnf();
 }
 
 /// Records what index selection may use of a label filter: whatever its test demands. The two part company
 /// only where a scan absorbs a label, which every collection then re-derives from the test.
 void DeriveLabelView(FilterInfo &filter) {
-  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
-  MG_ASSERT(labels_test, "A label filter tests labels");
-  filter.labels = labels_test->labels_;
-  filter.or_labels = labels_test->or_labels_;
+  const auto &cnf = FilterLabels(filter);
+  filter.labels = cnf.labels;
+  filter.or_labels = cnf.or_labels;
 }
 
 /// Adds `group` as one more OR group of the filter's label test.
 void AddOrLabelGroup(FilterInfo &filter, std::vector<LabelIx> group) {
-  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
-  MG_ASSERT(labels_test, "A label filter tests labels");
-  AddOrLabelGroup(labels_test->or_labels_, labels_test->labels_, std::move(group));
+  auto &cnf = FilterLabels(filter);
+  AddOrLabelGroup(cnf.or_labels, cnf.labels, std::move(group));
   DeriveLabelView(filter);
 }
 
 /// Adds `labels` to the AND labels of the filter's label test.
 void AddAndLabels(FilterInfo &filter, const std::vector<LabelIx> &labels) {
-  auto *labels_test = utils::Downcast<LabelsTest>(filter.expression);
-  MG_ASSERT(labels_test, "A label filter tests labels");
-  AddAndLabels(labels_test->labels_, labels_test->or_labels_, labels);
+  auto &cnf = FilterLabels(filter);
+  AddAndLabels(cnf.labels, cnf.or_labels, labels);
   DeriveLabelView(filter);
 }
 
@@ -489,8 +498,19 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
   };
   auto add_node_filter = [&](NodeAtom *node) {
     const auto &node_symbol = symbol_table.at(*node->identifier_);
+    const auto conjunction = node->LabelConjunction();
+    if (!conjunction) {
+      // Pattern position and WHERE position have to yield the same filters, so the term goes through the
+      // very analysis a WHERE expression gets.
+      CollectFilterExpression(LabelsTest::Make(storage, node->identifier_, *node->label_term_),
+                              symbol_table,
+                              storage,
+                              LabelTestMerging::kAllowed);
+      add_properties(node);
+      return;
+    }
     std::vector<LabelIx> labels;
-    for (auto label : node->labels_) {
+    for (const auto &label : *conjunction) {
       if (std::get_if<Expression *>(&label)) {
         throw SemanticException("Property lookup not supported in MATCH/MERGE clause!");
       }
@@ -501,20 +521,13 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(node->identifier_));
       if (it == all_filters_.end()) {
         // No existing LabelTest for this identifier
-        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels, node->label_expression_);
+        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
         auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
         DeriveLabelView(label_filter);
         all_filters_.emplace_back(label_filter);
       } else {
-        // Add to existing LabelsTest
-        // First cover OR expressions in LabelsTest
-        // A disjunction is one more OR group of the test already collected. Each group is a conjunct of its
-        // own, so it is kept whole; a conjunction adds to the labels the node must carry.
-        if (node->label_expression_) {
-          AddOrLabelGroup(*it, labels);
-        } else {
-          AddAndLabels(*it, labels);
-        }
+        // Add these labels to the existing LabelsTest.
+        AddAndLabels(*it, labels);
       }
     }
     add_properties(node);
@@ -909,11 +922,26 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
+    // The conjuncts of a label expression that index selection can use become tests of their own. In reverse,
+    // as SplitExpression hands over the operands of an AND.
+    if (auto pieces = LabelsTest::Split(storage, *labels_test); !pieces.empty()) {
+      for (auto *piece : pieces | std::views::reverse) {
+        AnalyzeAndStoreFilter(piece, symbol_table, storage, merging);
+      }
+      return;
+    }
     // Since LabelsTest may contain any expression, we can only use the
     // simplest test on an identifier.
     if (auto *identifier = utils::Downcast<Identifier>(labels_test->expression_)) {
       if (labels_test->IsNodeTest()) {
         all_filters_.emplace_back(make_filter(FilterInfo::Type::Node));
+        return;
+      }
+      // Index selection reads only the labels a test demands outright. A whole term demands none: an index scan
+      // must never absorb it, `%` included, which a node scan implies but an edge scan does not.
+      const auto *cnf = labels_test->Cnf();
+      if (!cnf) {
+        all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
         return;
       }
       auto it = std::ranges::find_if(all_filters_, MatchesIdentifier(identifier));
@@ -926,10 +954,10 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       } else {
         // Each disjunction this test names is a conjunct of its own, so it is kept whole; the labels it
         // requires outright are added to those the test already requires.
-        for (const auto &group : labels_test->or_labels_) {
+        for (const auto &group : cnf->or_labels) {
           AddOrLabelGroup(*it, group);
         }
-        AddAndLabels(*it, labels_test->labels_);
+        AddAndLabels(*it, cnf->labels);
       }
     } else {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
@@ -1054,8 +1082,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
   } else if (auto *or_operator = utils::Downcast<OrOperator>(expr)) {
     auto filters = SplitExpression(or_operator, SplitExpressionMode::OR);
-    // Fold an OR of single-label tests on one variable into one OR group of its LabelsTest. Any other
-    // OR stays generic: `n:A OR m:B` is not a group of either variable.
+    // Fold an OR of label choices on one variable into one OR group of a LabelsTest. A choice is what
+    // DisjunctLabels accepts. Any other OR stays generic: `n:A OR m:B` is not a group of either variable.
     std::optional<int32_t> symbol_pos;
     auto is_each_labels_test = std::ranges::all_of(filters, [&](auto &filter) {
       auto *labels_test = utils::Downcast<LabelsTest>(filter);
@@ -1087,7 +1115,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       if (it == all_filters_.end() || merging == LabelTestMerging::kForbidden) {
         // The group gets a test of its own. Rewriting a disjunct's test would leave the query holding a test
         // it was not parsed with, and a later collection of the same query reading something else.
-        auto *group_test = storage.Create<LabelsTest>(identifier, std::move(group), /*label_expression=*/true);
+        auto *group_test = storage.Create<LabelsTest>(identifier, std::move(group), /*or_group=*/true);
         auto filter_info = FilterInfo{FilterInfo::Type::Label, group_test, collector.symbols_};
         DeriveLabelView(filter_info);
         all_filters_.emplace_back(std::move(filter_info));
@@ -1421,6 +1449,31 @@ std::vector<Expression *> SplitExpression(Expression *expression, SplitExpressio
   }
 
   return expressions;
+}
+
+Expression *SplitLabelsTests(Expression *expression, AstStorage &storage) {
+  if (auto *conjunction = utils::Downcast<AndOperator>(expression)) {
+    auto *lhs = SplitLabelsTests(conjunction->expression1_, storage);
+    auto *rhs = SplitLabelsTests(conjunction->expression2_, storage);
+    if (lhs == conjunction->expression1_ && rhs == conjunction->expression2_) return expression;
+    return storage.Create<AndOperator>(lhs, rhs);
+  }
+  if (auto *outer = utils::Downcast<NotOperator>(expression)) {
+    // Filter collection reads `NOT NOT x` as `x`, so the result holds what it collects. The negations go: an index
+    // scan removes only a test among the AND operands.
+    if (auto *inner = utils::Downcast<NotOperator>(outer->expression_)) {
+      auto *operand = SplitLabelsTests(inner->expression_, storage);
+      return operand == inner->expression_ ? expression : operand;
+    }
+    return expression;
+  }
+  auto *labels_test = utils::Downcast<LabelsTest>(expression);
+  if (!labels_test) return expression;
+  Expression *joined = nullptr;
+  for (auto *piece : LabelsTest::Split(storage, *labels_test)) {
+    joined = joined ? static_cast<Expression *>(storage.Create<AndOperator>(joined, piece)) : piece;
+  }
+  return joined ? joined : expression;
 }
 
 Expression *SubstituteExpression(Expression *expression, Expression *old, Expression *in) {

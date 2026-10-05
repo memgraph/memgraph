@@ -11,12 +11,14 @@
 
 #pragma once
 
+#include <exception>
 #include <functional>
 #include <sstream>
 #include <string>
 
 #include <prometheus/registry.h>
 #include <prometheus/text_serializer.h>
+#include <spdlog/spdlog.h>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
 
@@ -37,9 +39,8 @@ class PrometheusRequestHandler final {
   template <class Body, class Allocator>
   void HandleRequest(boost::beast::http::request<Body, boost::beast::http::basic_fields<Allocator>> &&req,
                      std::function<void(boost::beast::http::response<boost::beast::http::string_body>)> &&send) {
-    auto const bad_request = [&req](std::string_view why) {
-      boost::beast::http::response<boost::beast::http::string_body> res{boost::beast::http::status::bad_request,
-                                                                        req.version()};
+    auto const text_response = [&req](boost::beast::http::status status, std::string_view why) {
+      boost::beast::http::response<boost::beast::http::string_body> res{status, req.version()};
       res.set(boost::beast::http::field::server, BOOST_BEAST_VERSION_STRING);
       res.set(boost::beast::http::field::content_type, "text/plain");
       res.keep_alive(req.keep_alive());
@@ -49,7 +50,7 @@ class PrometheusRequestHandler final {
     };
 
     if (req.method() != boost::beast::http::verb::get) {
-      return send(bad_request("Unknown HTTP-method"));
+      return send(text_response(boost::beast::http::status::bad_request, "Unknown HTTP-method"));
     }
 
     if (req.target() != "/" && req.target() != "/metrics") {
@@ -63,11 +64,15 @@ class PrometheusRequestHandler final {
       return send(std::move(res));
     }
 
-    metrics_->UpdateGauges();
-
-    prometheus::TextSerializer serializer;
     std::ostringstream oss;
-    serializer.Serialize(oss, metrics_->registry().Collect());
+    try {
+      metrics_->UpdateGauges();
+      prometheus::TextSerializer serializer;
+      serializer.Serialize(oss, metrics_->CollectForScrape());
+    } catch (std::exception const &e) {
+      spdlog::error("Failed to collect metrics for scrape: {}", e.what());
+      return send(text_response(boost::beast::http::status::internal_server_error, "Failed to collect metrics"));
+    }
 
     auto body = oss.str();
     if (body.empty() || body.back() != '\n') body.push_back('\n');

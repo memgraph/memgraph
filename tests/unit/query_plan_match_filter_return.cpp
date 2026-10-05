@@ -4022,7 +4022,7 @@ class ExistsFixture : public testing::Test {
 
       if (destination_label.has_value()) {
         auto labelIx = storage.GetLabelIx(destination_label.value());
-        destination_node->labels_.emplace_back(labelIx);
+        destination_node->label_term_ = LabelTerm{LabelTerm::Label{labelIx}};
 
         auto label_expr = static_cast<Expression *>(
             storage.Create<LabelsTest>(destination_node->identifier_, std::vector<memgraph::query::LabelIx>{labelIx}));
@@ -4238,7 +4238,8 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilter) {
 
   auto n = MakeScanAll(this->storage, this->symbol_table, "n");
   std::vector<memgraph::query::LabelIx> labels;
-  for (const auto &label : n.node_->labels_) {
+  const auto conjunction = n.node_->LabelConjunction().value();
+  for (const auto &label : conjunction) {
     labels.emplace_back(std::get<memgraph::query::LabelIx>(label));
   }
   auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),
@@ -4267,7 +4268,8 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterInsideSubquery) {
 
   auto n = MakeScanAll(this->storage, this->symbol_table, "n");
   std::vector<memgraph::query::LabelIx> labels;
-  for (const auto &label : n.node_->labels_) {
+  const auto conjunction = n.node_->LabelConjunction().value();
+  for (const auto &label : conjunction) {
     labels.emplace_back(std::get<memgraph::query::LabelIx>(label));
   }
   auto return_n =
@@ -4296,7 +4298,8 @@ TYPED_TEST(SubqueriesFeature, BasicCartesianWithFilterNoResults) {
 
   auto n = MakeScanAll(this->storage, this->symbol_table, "n");
   std::vector<memgraph::query::LabelIx> labels;
-  for (const auto &label : n.node_->labels_) {
+  const auto conjunction = n.node_->LabelConjunction().value();
+  for (const auto &label : conjunction) {
     labels.emplace_back(std::get<memgraph::query::LabelIx>(label));
   }
   auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),

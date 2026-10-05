@@ -203,9 +203,9 @@ bool HasUncommittedNonSequentialDeltas(Vertex const *vertex, uint64_t skip_trans
   return false;
 }
 
-void UnlinkAndRemoveDeltas(delta_container &deltas, BatchedList<Edge *> &current_deleted_edges,
-                           BatchedList<Gid> &current_deleted_vertices,
-                           IndexArming::TransactionScope const &arming_scope) {
+void UnlinkDeltasAndCollectDeleted(delta_container &deltas, BatchedList<Edge *> &current_deleted_edges,
+                                   BatchedList<Gid> &current_deleted_vertices,
+                                   IndexArming::TransactionScope const &arming_scope) {
   for (auto &delta : deltas) {
     DMG_ASSERT(
         [&delta]() {
@@ -1439,11 +1439,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> 
 
   // STEP 1) ensure everything in GC is gone
 
-  // 1.a) old garbage_undo_buffers are safe to remove
-  //      we are the only transaction, no one is reading those unlinked deltas
-  mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
-
-  // 1.b.0) old committed_transactions_ and waiting_gc_deltas_ need minimal unlinking + remove + clear
+  // 1.a) old committed_transactions_ and waiting_gc_deltas_ need minimal unlinking + remove + clear
   //      must be done before this transactions delta unlinking
   auto linked_undo_buffers = std::list<GCDeltas, memory::DbAwareAllocator<GCDeltas>>{};
   mem_storage->committed_transactions_.WithLock(
@@ -1451,18 +1447,20 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(BatchedList<Edge *> 
   mem_storage->waiting_gc_deltas_.WithLock(
       [&](auto &waiting_list) { linked_undo_buffers.splice(linked_undo_buffers.end(), waiting_list); });
 
-  // 1.b.1) unlink, gathering the removals. These belong to other transactions, so each is read
-  //        using its own record of what its property writes were on, not this transaction's.
+  // 1.b) unlink, gathering the removals. These belong to other transactions, so each is read
+  //      using its own record of what its property writes were on, not this transaction's.
   for (auto &gc_deltas : linked_undo_buffers) {
     auto const arming_scope = arming.for_deltas_of(gc_deltas.wrote_properties_on_);
-    UnlinkAndRemoveDeltas(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, arming_scope);
+    UnlinkDeltasAndCollectDeleted(gc_deltas.deltas_, current_deleted_edges, current_deleted_vertices, arming_scope);
   }
 
   // STEP 2) this transaction's deltas
   auto const arming_scope = arming.for_deltas_of(transaction_.wrote_properties_on);
-  UnlinkAndRemoveDeltas(transaction_.deltas, current_deleted_edges, current_deleted_vertices, arming_scope);
+  UnlinkDeltasAndCollectDeleted(transaction_.deltas, current_deleted_edges, current_deleted_vertices, arming_scope);
 
-  // STEP 3) clear all deltas after unlinking is complete
+  // STEP 3) clear all deltas after unlinking is complete. The graveyard is freed here too: an unlink walk
+  //         follows `next` into blocks an earlier abort left there, so they must outlive both walks above.
+  mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
   linked_undo_buffers.clear();
   transaction_.deltas.clear();
 }
@@ -3092,6 +3090,10 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       // contents and consumers would skip it as "not newer".
       auto *txn = unique_accessor->GetTransaction();
       txn->last_durable_ts_ = txn->start_timestamp;
+      auto [epoch_id, epoch_history] = std::invoke([this] {
+        auto const engine_guard = std::unique_lock{engine_lock_};
+        return std::pair{std::string{repl_storage_state_.epoch_.id()}, repl_storage_state_.history};
+      });
       const auto snapshot_path = durability::CreateSnapshot(this,
                                                             txn,
                                                             recovery_.snapshot_directory_,
@@ -3099,8 +3101,8 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
                                                             &vertices_,
                                                             &edges_,
                                                             uuid(),
-                                                            repl_storage_state_.epoch_.id(),
-                                                            repl_storage_state_.history,
+                                                            std::move(epoch_id),
+                                                            std::move(epoch_history),
                                                             &file_retainer_,
                                                             &abort_snapshot_,
                                                             &snapshot_progress_,
@@ -3337,27 +3339,6 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
         [&](auto &waiting_list) { waiting_list.splice(waiting_list.begin(), std::move(local_waiting)); });
   }
 
-  {
-    auto guard = std::unique_lock{engine_lock_};
-    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
-
-    // Deltas from previous GC runs or from aborts can be cleaned up here
-    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
-      guard.unlock();
-      if (main_lock_guard.is_exclusive() || mark_timestamp == oldest_active_start_timestamp) {
-        // We know no transaction is active, it is safe to simply delete all the garbage undos
-        // Nothing can be reading them
-        garbage_undo_buffers.clear();
-      } else {
-        // garbage_undo_buffers is ordered, pop until we can't
-        while (!garbage_undo_buffers.empty() &&
-               garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
-          garbage_undo_buffers.pop_front();
-        }
-      }
-    });
-  }
-
   // We don't move undo buffers of unlinked transactions to garbage_undo_buffers
   // list immediately, because we would have to repeatedly take
   // garbage_undo_buffers lock.
@@ -3552,6 +3533,27 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     // some were not able to be collected, add them back to committed_transactions_ for the next GC run
     committed_transactions_.WithLock([&linked_undo_buffers](auto &committed_transactions) {
       committed_transactions.splice(committed_transactions.begin(), std::move(linked_undo_buffers));
+    });
+  }
+
+  {
+    auto guard = std::unique_lock{engine_lock_};
+    uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
+
+    // Deltas from previous GC runs or from aborts can be cleaned up here
+    garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
+      guard.unlock();
+      if (main_lock_guard.is_exclusive() || mark_timestamp == oldest_active_start_timestamp) {
+        // We know no transaction is active, it is safe to simply delete all the garbage undos
+        // Nothing can be reading them
+        garbage_undo_buffers.clear();
+      } else {
+        // garbage_undo_buffers is ordered, pop until we can't
+        while (!garbage_undo_buffers.empty() &&
+               garbage_undo_buffers.front().mark_timestamp_ <= oldest_active_start_timestamp) {
+          garbage_undo_buffers.pop_front();
+        }
+      }
     });
   }
 
@@ -4612,27 +4614,46 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   // stuff are mutually exclusive from each other
   auto const snapshot_guard = std::unique_lock(snapshot_lock_);
 
-  auto accessor = std::invoke([&]() {
+  auto const make_accessor = [&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
       // For analytical no other write txn can be in play
       return ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION);  // Do we need snapshot isolation?
     }
     return Access(StorageAccessType::READ, IsolationLevel::SNAPSHOT_ISOLATION, std::nullopt);
-  });
+  };
+  // Read under engine_lock_: a replica switches epoch when the first commit of a new main arrives, and that
+  // can happen while the snapshot is being written.
+  auto const read_epoch_state = [this] {
+    auto const engine_guard = std::unique_lock{engine_lock_};
+    return std::pair{repl_storage_state_.epoch_, repl_storage_state_.history};
+  };
+
+  // The accessor takes its start timestamp in its own engine_lock_ hold, so an epoch switch can land between
+  // that and the read below. The snapshot would then tag data from before the switch with the epoch after
+  // it, and a main that never saw that epoch would reject the recovered replica as diverged. Reading the epoch
+  // on both sides of the accessor detects the switch; a further pass needs a further main promotion.
+  auto epoch_before = read_epoch_state().first;
+  auto accessor = make_accessor();
+  auto epoch_state = read_epoch_state();
+  while (epoch_state.first != epoch_before) {
+    epoch_before = epoch_state.first;
+    accessor.reset();
+    accessor = make_accessor();
+    epoch_state = read_epoch_state();
+  }
+  auto &[epoch, epoch_history] = epoch_state;
 
   utils::Timer timer;
   Transaction *transaction = accessor->GetTransaction();
 
   DMG_ASSERT(transaction->last_durable_ts_.has_value());
-  auto const &epoch = repl_storage_state_.epoch_;
-  auto const &epochHistory = repl_storage_state_.history;
   auto const &storage_uuid = uuid();
 
   SnapshotDigest current_digest;
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     current_digest = SnapshotDigest{.epoch_ = epoch,
-                                    .history_ = epochHistory,
+                                    .history_ = epoch_history,
                                     .storage_uuid_ = storage_uuid,
                                     .last_durable_ts_ = *transaction->last_durable_ts_};
 
@@ -4648,8 +4669,8 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &vertices_,
                                                         &edges_,
                                                         storage_uuid,
-                                                        epoch.id(),
-                                                        epochHistory,
+                                                        std::string{epoch.id()},
+                                                        std::move(epoch_history),
                                                         &file_retainer_,
                                                         &abort_snapshot_,
                                                         &snapshot_progress_,
@@ -5373,8 +5394,8 @@ void InMemoryStorage::HarvestDeltaChainOnlyLightEdges() noexcept {
   // stopped before this runs (single-threaded dtor path), so no concurrency on
   // the delta chains — atomic reads of prev/delta/deleted suffice; no edge lock
   // needed. The edge->delta()==&delta guard is the chain-head dedup used by the
-  // GC loop (storage.cpp:3135) and UnlinkAndRemoveDeltas (:303-310): it ensures
-  // each deleted light Edge* is freed EXACTLY ONCE across the whole walk.
+  // GC loop and UnlinkDeltasAndCollectDeleted: it ensures each deleted light Edge* is
+  // freed EXACTLY ONCE across the whole walk.
   auto harvest = [](auto &transactions) noexcept {
     for (auto &entry : transactions) {
       for (Delta &delta : entry.deltas_) {

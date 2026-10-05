@@ -16,11 +16,10 @@
 
 import os
 import sys
-import tempfile
 
 import interactive_mg_runner
 import pytest
-from common import connect, execute_and_fetch_all
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -29,6 +28,20 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
+FILE = "snapshot_recovery_light_edge"
+
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
 # Flags that turn on light edges. Light edges require properties-on-edges.
 LIGHT_EDGE_FLAGS = [
     "--storage-properties-on-edges=true",
@@ -36,7 +49,7 @@ LIGHT_EDGE_FLAGS = [
 ]
 
 
-def memgraph_instances(dir):
+def memgraph_instances(test_name):
     return {
         "default": {
             "args": [
@@ -48,8 +61,8 @@ def memgraph_instances(dir):
                 "--storage-snapshot-on-exit=true",
             ]
             + LIGHT_EDGE_FLAGS,
-            "log_file": "snapshot_recovery_light_edge_default.log",
-            "data_directory": dir,
+            "log_file": f"{get_logs_path(FILE, test_name)}/default.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
         "recover_on_startup": {
             "args": [
@@ -61,8 +74,8 @@ def memgraph_instances(dir):
                 "--storage-snapshot-on-exit=false",
             ]
             + LIGHT_EDGE_FLAGS,
-            "log_file": "snapshot_recovery_light_edge_recover.log",
-            "data_directory": dir,
+            "log_file": f"{get_logs_path(FILE, test_name)}/recover_on_startup.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -85,11 +98,9 @@ def topology(cursor):
     return [tuple(r) for r in vertices], [tuple(r) for r in edges]
 
 
-def test_snapshot_wal_recovery_light_edge():
-    data_directory = tempfile.TemporaryDirectory()
-
+def test_snapshot_wal_recovery_light_edge(test_name):
     # 1) Write the dataset, snapshot on exit.
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+    interactive_mg_runner.start(memgraph_instances(test_name), "default")
     connection = connect(host="localhost", port=7687)
     cursor = connection.cursor()
     create_dataset(cursor)
@@ -99,11 +110,11 @@ def test_snapshot_wal_recovery_light_edge():
     interactive_mg_runner.kill_all()
 
     # 2) Recover on startup and assert identical topology.
-    interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
+    interactive_mg_runner.start(memgraph_instances(test_name), "recover_on_startup")
     connection = connect(host="localhost", port=7687)
     cursor = connection.cursor()
     after = topology(cursor)
-    interactive_mg_runner.kill_all()
+    interactive_mg_runner.kill_all(keep_directories=False)
 
     assert after == before, f"Topology changed across recovery: before={before} after={after}"
 

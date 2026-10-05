@@ -53,6 +53,7 @@ using namespace memgraph::query::plan;
 using memgraph::query::AstStorage;
 using memgraph::query::CypherUnion;
 using memgraph::query::EdgeAtom;
+using memgraph::query::LabelsTest;
 using memgraph::query::SingleQuery;
 using memgraph::query::Symbol;
 using memgraph::query::SymbolTable;
@@ -5287,6 +5288,382 @@ TYPED_TEST(TestPlanner, LabelExpressionCombination) {
   CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilter(), ExpectProduce());
 }
 
+// A negation and a wildcard name no label to scan by, so both scan everything and filter.
+TYPED_TEST(TestPlanner, LabelNegationAndWildcardScanAll) {
+  // MATCH (n:!Label1) RETURN n  /  MATCH (n:%) RETURN n
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+
+  for (auto *term_node : {NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1"))),
+                          NODE_WITH_TERM("n", LABEL_TERM_WILDCARD()),
+                          NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_WILDCARD()))}) {
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(term_node)), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllAndNoIndex(), ExpectFilter(), ExpectProduce());
+  }
+}
+
+// An edge-type index scan implies the type, not `%`, so `r:%` keeps its filter: without the index the test
+// raises on an edge, and with it the same has to happen.
+TYPED_TEST(TestPlanner, WildcardSurvivesEdgeTypeIndexScan) {
+  // MATCH ()-[r]->() WHERE r:Type1 AND r:% RETURN r
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.EdgeType("Type1"), 1);
+
+  auto *wildcard = LabelsTest::Make(this->storage, IDENT("r"), LABEL_TERM_WILDCARD());
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r", memgraph::query::EdgeAtom::Direction::OUT), NODE("anon2"))),
+                   WHERE(AND(LABELS_TEST(IDENT("r"), std::vector{this->storage.GetLabelIx("Type1")}), wildcard)),
+                   RETURN("r")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByEdgeType(), ExpectFilter(), ExpectProduce());
+}
+
+// A label a disjunction repeats is one choice, so it earns one index scan.
+TYPED_TEST(TestPlanner, RepeatedDisjunctionLabelIsScannedOnce) {
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  auto label2_id = dba.Label("Label2");
+  dba.SetIndexCount(label1_id, 1);
+  dba.SetIndexCount(label2_id, 1);
+
+  {
+    // MATCH (n:Label1|Label1) RETURN n
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label1"}))), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label1_id), ExpectProduce());
+  }
+  {
+    // MATCH (n:Label1|Label2|Label1) RETURN n
+    auto *query =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2", "Label1"}))), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel(label1_id)};
+    std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel(label2_id)};
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectUnion(left_subquery_part, right_subquery_part),
+              ExpectDistinct(),
+              ExpectProduce());
+    DeleteListContent(&left_subquery_part);
+    DeleteListContent(&right_subquery_part);
+  }
+}
+
+// A choice that names one label demands that label outright, so it merges into the node's labels, not a group.
+TYPED_TEST(TestPlanner, OneLabelChoiceIsAPlainLabel) {
+  FakeDbAccessor dba;
+  // MATCH (n:(Label1|Label1)&Label2) RETURN n
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE_WITH_TERM("n",
+                                   LABEL_TERM_AND(LABEL_TERM_OR(LABEL_TERM_LEAF("Label1"), LABEL_TERM_LEAF("Label1")),
+                                                  LABEL_TERM_LEAF("Label2"))))),
+      RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilterLabels({"Label1", "Label2"}), ExpectProduce());
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilterOrLabels({}), ExpectProduce());
+}
+
+// A mixed term still hands index selection the disjunction it can use, and keeps the rest as a filter. The same
+// expression in pattern position and in WHERE has to reach the planner the same way.
+TYPED_TEST(TestPlanner, MixedTermExtractsTheDisjunction) {
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+  dba.SetIndexCount(dba.Label("Label2"), 1);
+
+  auto term = [&] {
+    return LABEL_TERM_AND(LABEL_TERM_OR(LABEL_TERM_LEAF("Label1"), LABEL_TERM_LEAF("Label2")),
+                          LABEL_TERM_NOT(LABEL_TERM_LEAF("Label3")));
+  };
+  std::vector<memgraph::query::CypherQuery *> cases{
+      // MATCH (n:(Label1|Label2)&!Label3) RETURN n
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_TERM("n", term()))), RETURN("n"))),
+      // MATCH (n) WHERE n:(Label1|Label2)&!Label3 RETURN n
+      QUERY(SINGLE_QUERY(
+          MATCH(PATTERN(NODE("n"))), WHERE(LabelsTest::Make(this->storage, IDENT("n"), term())), RETURN("n"))),
+  };
+  for (auto *query : cases) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+    // The index scans consume the disjunction, so the filter left above them tests only the negation.
+    std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
+    std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectUnion(left_subquery_part, right_subquery_part),
+              ExpectDistinct(),
+              ExpectFilterOrLabels({}),
+              ExpectProduce());
+
+    DeleteListContent(&left_subquery_part);
+    DeleteListContent(&right_subquery_part);
+  }
+}
+
+// A node already bound by an earlier clause is not scanned again, and a term over it still filters.
+TYPED_TEST(TestPlanner, BoundNodeWithTermOnlyGetsAFilter) {
+  // MATCH (n) WITH n MATCH (n:!Label1) RETURN n
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+
+  auto *node = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("n"), MATCH(PATTERN(node)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectProduce(), ExpectFilter(), ExpectProduce());
+}
+
+// A term demands no label outright, so no label merges into it: a scan by the label would then take the whole
+// filter, `!Label1` with it.
+TYPED_TEST(TestPlanner, TermTestIsNeverALabelFilter) {
+  // MATCH (n:!Label1) WHERE n:Label1 RETURN n
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  dba.SetIndexCount(label1_id, 1);
+
+  auto *node = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)),
+                                   WHERE(LABELS_TEST(IDENT("n"), std::vector{this->storage.GetLabelIx("Label1")})),
+                                   RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label1_id), ExpectFilter(), ExpectProduce());
+}
+
+// `!!` cancels out before the term splits, so a label under it still earns its index scan.
+TYPED_TEST(TestPlanner, DoubleNegationKeepsTheIndexScan) {
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  dba.SetIndexCount(label1_id, 1);
+  using Groups = std::vector<std::set<std::string>>;
+
+  {
+    // MATCH (n:!!Label1) RETURN n
+    auto *node = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1"))));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label1_id), ExpectProduce());
+  }
+  {
+    // MATCH (n:!!(Label1&(Label2|Label3))) RETURN n
+    auto *node = NODE_WITH_TERM(
+        "n",
+        LABEL_TERM_NOT(LABEL_TERM_NOT(LABEL_TERM_AND(
+            LABEL_TERM_LEAF("Label1"), LABEL_TERM_OR(LABEL_TERM_LEAF("Label2"), LABEL_TERM_LEAF("Label3"))))));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanAllByLabel(label1_id),
+              ExpectFilterOrLabels(Groups{{"Label2", "Label3"}}),
+              ExpectProduce());
+  }
+  {
+    // MATCH (n:!Label2&!!(Label1&!Label3)) RETURN n -- the `&` under `!!` flattens into the outer one.
+    auto *node =
+        NODE_WITH_TERM("n",
+                       LABEL_TERM_AND(LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2")),
+                                      LABEL_TERM_NOT(LABEL_TERM_NOT(LABEL_TERM_AND(
+                                          LABEL_TERM_LEAF("Label1"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label3")))))));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label1_id), ExpectFilter(), ExpectProduce());
+  }
+}
+
+// The pieces a term splits into merge with what WHERE says of the node, as separately written tests do.
+TYPED_TEST(TestPlanner, SplitTermMergesWithWhereGroup) {
+  // MATCH (n:(Label1|Label2)&!Label3) WHERE n:Label3|Label1 RETURN n
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+  dba.SetIndexCount(dba.Label("Label2"), 1);
+  dba.SetIndexCount(dba.Label("Label3"), 1);
+  using Groups = std::vector<std::set<std::string>>;
+
+  auto *node = NODE_WITH_TERM("n",
+                              LABEL_TERM_AND(LABEL_TERM_OR(LABEL_TERM_LEAF("Label1"), LABEL_TERM_LEAF("Label2")),
+                                             LABEL_TERM_NOT(LABEL_TERM_LEAF("Label3"))));
+  auto *where = LABELS_TEST(IDENT("n"),
+                            std::vector{this->storage.GetLabelIx("Label3"), this->storage.GetLabelIx("Label1")},
+                            /*or_group=*/true);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), WHERE(where), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel()};
+  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectUnion(left_subquery_part, right_subquery_part),
+            ExpectDistinct(),
+            ExpectFilterOrLabels(Groups{{"Label1", "Label2"}, {"Label3", "Label1"}}),
+            ExpectProduce());
+  DeleteListContent(&left_subquery_part);
+  DeleteListContent(&right_subquery_part);
+}
+
+/// Checks how many filters one Filter operator holds.
+class ExpectFilterCount : public OpChecker<Filter> {
+ public:
+  explicit ExpectFilterCount(size_t count) : count_(count) {}
+
+  void ExpectOp(Filter &filter, const SymbolTable &) override {
+    EXPECT_EQ(std::ranges::distance(filter.all_filters_.begin(), filter.all_filters_.end()), count_);
+  }
+
+ private:
+  size_t count_;
+};
+
+// A term with no conjunct index selection can use stays one test, so the node's labels are read once for it.
+TYPED_TEST(TestPlanner, TermWithoutIndexableConjunctIsOneFilter) {
+  // MATCH (n:!Label1&!Label2) RETURN n
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+
+  auto *node = NODE_WITH_TERM(
+      "n", LABEL_TERM_AND(LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1")), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllAndNoIndex(), ExpectFilterCount(1), ExpectProduce());
+}
+
+// The conjuncts index selection cannot use stay one test beside the label it scans by.
+TYPED_TEST(TestPlanner, TermRestBesideAnIndexedLabelIsOneFilter) {
+  // MATCH (n:Label1&!Label2&!Label3) RETURN n
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  dba.SetIndexCount(label1_id, 1);
+
+  auto *node = NODE_WITH_TERM("n",
+                              LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"),
+                                             LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2")),
+                                             LABEL_TERM_NOT(LABEL_TERM_LEAF("Label3"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label1_id), ExpectFilterCount(1), ExpectProduce());
+}
+
+// A subject that is no identifier is not split, as each piece would evaluate it again; nor can its label reach
+// an index.
+TYPED_TEST(TestPlanner, TermOverAnExpressionIsNotSplit) {
+  // MATCH (n) WHERE head([n]):Label1&!Label2 RETURN n
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+
+  auto *subject = FN("head", LIST(IDENT("n")));
+  auto *where = LabelsTest::Make(
+      this->storage, subject, LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(where), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllAndNoIndex(), ExpectFilterCount(1), ExpectProduce());
+}
+
+// WITH ... WHERE builds its Filter from the expression, so the expression is split as filter collection splits it,
+// and the index scan below takes its label out of the filter.
+TYPED_TEST(TestPlanner, WithWhereLabelExpressionUsesTheIndex) {
+  // MATCH (n) WITH * WHERE n:Label1&!Label2 RETURN n
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  dba.SetIndexCount(label1_id, 1);
+
+  auto *where = LabelsTest::Make(
+      this->storage, IDENT("n"), LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WITH("*"), WHERE(where), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAllByLabel(label1_id),
+            ExpectProduce(),
+            ExpectFilterLabels(std::set<std::string>{}),
+            ExpectProduce());
+}
+
+// A label expression in CALL ... YIELD ... WHERE splits as one in MATCH ... WHERE does, so the index scan below
+// takes its label out of the filter.
+TYPED_TEST(TestPlanner, CallYieldWhereLabelExpressionUsesTheIndex) {
+  // MATCH (n) CALL proc() YIELD field WHERE n:Label1&!Label2 RETURN n
+  FakeDbAccessor dba;
+  auto label1_id = dba.Label("Label1");
+  dba.SetIndexCount(label1_id, 1);
+
+  auto term = [&] {
+    return LabelsTest::Make(this->storage,
+                            IDENT("n"),
+                            LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label2"))));
+  };
+  auto negation = [&](memgraph::query::Expression *operand) {
+    return this->storage.template Create<memgraph::query::NotOperator>(operand);
+  };
+  auto plan_with = [&](memgraph::query::Expression *where) {
+    auto *ast_call = this->storage.template Create<memgraph::query::CallProcedure>();
+    ast_call->procedure_name_ = "proc";
+    ast_call->result_fields_ = {"field"};
+    ast_call->result_identifiers_ = {IDENT("field")};
+    ast_call->where_ = WHERE(where);
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), ast_call, RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    std::vector<Symbol> result_syms;
+    for (const auto *ident : ast_call->result_identifiers_) {
+      result_syms.push_back(symbol_table.at(*ident));
+    }
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    auto call =
+        ExpectCallProcedure(ast_call->procedure_name_, ast_call->arguments_, ast_call->result_fields_, result_syms);
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectScanAllByLabel(label1_id),
+              call,
+              ExpectFilterLabels(std::set<std::string>{}),
+              ExpectProduce());
+  };
+
+  // WHERE n:Label1&!Label2
+  plan_with(term());
+  // WHERE n:Label1&!Label2 AND field = 1
+  plan_with(AND(term(), EQ(IDENT("field"), LITERAL(1))));
+  // WHERE NOT NOT (n:Label1&!Label2)
+  plan_with(negation(negation(term())));
+}
+
+// An OR fold takes only disjuncts of plain labels. A whole term among them leaves the OR one generic filter, so
+// no index scan or union of scans stands in for it.
+TYPED_TEST(TestPlanner, TermDisjunctIsNotFoldedIntoAGroup) {
+  // MATCH (n) WHERE n:!Label1 OR n:Label2 RETURN n
+  FakeDbAccessor dba;
+  dba.SetIndexCount(dba.Label("Label1"), 1);
+  dba.SetIndexCount(dba.Label("Label2"), 1);
+
+  auto *where = OR(LabelsTest::Make(this->storage, IDENT("n"), LABEL_TERM_NOT(LABEL_TERM_LEAF("Label1"))),
+                   LABELS_TEST(IDENT("n"), std::vector{this->storage.GetLabelIx("Label2")}));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(where), RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectScanAllAndNoIndex(), ExpectFilterCount(1), ExpectProduce());
+}
+
 TYPED_TEST(TestPlanner, ORLabelExpressionUsingIndexCombination) {
   // Test MATCH (n:Label1|Label2) WHERE n.prop = 1 RETURN n
   FakeDbAccessor dba;
@@ -5469,6 +5846,13 @@ TYPED_TEST(TestPlanner, LabelDisjunctionGroupsOverOneNode) {
       // MATCH (n:Label1|Label2) MATCH (n:Label2|Label3)
       {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}), match({"Label2", "Label3"}), RETURN("n"))),
        Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
+      // MATCH (n:(Label1|Label2)&(Label2|Label3))
+      {QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_TERM(
+                              "n",
+                              LABEL_TERM_AND(LABEL_TERM_OR(LABEL_TERM_LEAF("Label1"), LABEL_TERM_LEAF("Label2")),
+                                             LABEL_TERM_OR(LABEL_TERM_LEAF("Label2"), LABEL_TERM_LEAF("Label3")))))),
+                          RETURN("n"))),
+       Groups{{"Label1", "Label2"}, {"Label2", "Label3"}}},
       // MATCH (n:Label1|Label2|Label3) MATCH (n:Label1|Label2)
       {QUERY(SINGLE_QUERY(match({"Label1", "Label2", "Label3"}), match({"Label1", "Label2"}), RETURN("n"))),
        Groups{{"Label1", "Label2"}}},
@@ -5527,6 +5911,13 @@ TYPED_TEST(TestPlanner, AndLabelRemovesTheGroupsItImplies) {
       // MATCH (n:Label1|Label2) WHERE n:Label1
       {QUERY(SINGLE_QUERY(match({"Label1", "Label2"}),
                           WHERE(LABELS_TEST(IDENT("n"), std::vector{this->storage.GetLabelIx("Label1")})),
+                          RETURN("n"))),
+       Groups{}},
+      // MATCH (n:Label1&(Label1|Label2))
+      {QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_TERM(
+                              "n",
+                              LABEL_TERM_AND(LABEL_TERM_LEAF("Label1"),
+                                             LABEL_TERM_OR(LABEL_TERM_LEAF("Label1"), LABEL_TERM_LEAF("Label2")))))),
                           RETURN("n"))),
        Groups{}},
       // MATCH (n:Label1|Label2) MATCH (n:Label3): a label the group does not name leaves it.
@@ -5786,9 +6177,9 @@ TYPED_TEST(TestPlanner, ALabelFilterAgreesWithItsTest) {
           auto *test = dynamic_cast<memgraph::query::LabelsTest *>(filter.expression);
           ASSERT_NE(test, nullptr);
           EXPECT_EQ(std::set(filter.labels.begin(), filter.labels.end()),
-                    std::set(test->labels_.begin(), test->labels_.end()))
+                    std::set(test->Cnf()->labels.begin(), test->Cnf()->labels.end()))
               << "AND labels disagree with the test";
-          EXPECT_EQ(filter.or_labels, test->or_labels_) << "OR groups disagree with the test";
+          EXPECT_EQ(filter.or_labels, test->Cnf()->or_labels) << "OR groups disagree with the test";
         }
       }
     }
@@ -5816,10 +6207,10 @@ TYPED_TEST(TestPlanner, FiltersOfTwoOperatorsAreKeptApart) {
   for (const auto &label : filters.FilteredLabels(symbol)) offered.insert(label.name);
   EXPECT_EQ(offered, (std::set<std::string>{"Label1", "Label2"}));
   // Neither test was rewritten to stand for both.
-  ASSERT_EQ(first->labels_.size(), 1U);
-  ASSERT_EQ(second->labels_.size(), 1U);
-  EXPECT_EQ(first->labels_.front().name, "Label1");
-  EXPECT_EQ(second->labels_.front().name, "Label2");
+  ASSERT_EQ(first->Cnf()->labels.size(), 1U);
+  ASSERT_EQ(second->Cnf()->labels.size(), 1U);
+  EXPECT_EQ(first->Cnf()->labels.front().name, "Label1");
+  EXPECT_EQ(second->Cnf()->labels.front().name, "Label2");
 }
 
 // One expression's label tests over one symbol apply to the same rows, so they are collected as one filter.
@@ -5911,6 +6302,47 @@ TYPED_TEST(TestPlanner, LabelInAPatternFilterStaysThere) {
               ExpectScanAll(),
               ExpectFilterLabels(std::set<std::string>{"Label1"}),
               ExpectProduce());
+  }
+}
+
+// Planning one AST twice gives the same plan for the label expression shapes too. The fold of a group with a
+// label builds a test of its own, so the query's group keeps the labels it was parsed with.
+TYPED_TEST(TestPlanner, PlanningALabelExpressionTwiceGivesTheSamePlan) {
+  FakeDbAccessor dba;
+  auto label = [&](const char *name) { return this->storage.GetLabelIx(name); };
+  using Groups = std::vector<std::set<std::string>>;
+  auto plan_twice = [&](memgraph::query::CypherQuery *query, const Groups &groups) {
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    for (int planning = 1; planning <= 2; ++planning) {
+      SCOPED_TRACE("planning number " + std::to_string(planning));
+      auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+      CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), ExpectFilterOrLabels(groups), ExpectProduce());
+    }
+  };
+  {
+    // MATCH (n) WHERE n:Label1|Label2 OR n:Label3 RETURN n
+    auto *group = LABELS_TEST(IDENT("n"), std::vector{label("Label1"), label("Label2")}, /*or_group=*/true);
+    auto *single = LABELS_TEST(IDENT("n"), std::vector{label("Label3")});
+    plan_twice(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(OR(group, single)), RETURN("n"))),
+               Groups{{"Label1", "Label2", "Label3"}});
+    EXPECT_TRUE(group->Cnf()->labels.empty());
+    EXPECT_THAT(group->Cnf()->or_labels, testing::ElementsAre(testing::ElementsAre(label("Label1"), label("Label2"))));
+    EXPECT_THAT(single->Cnf()->labels, testing::ElementsAre(label("Label3")));
+    EXPECT_TRUE(single->Cnf()->or_labels.empty());
+  }
+  {
+    // MATCH (n) WHERE n:Label1|Label2 OR n:Label2|Label3 RETURN n
+    auto *first = LABELS_TEST(IDENT("n"), std::vector{label("Label1"), label("Label2")}, /*or_group=*/true);
+    auto *second = LABELS_TEST(IDENT("n"), std::vector{label("Label2"), label("Label3")}, /*or_group=*/true);
+    plan_twice(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(OR(first, second)), RETURN("n"))),
+               Groups{{"Label1", "Label2", "Label3"}});
+  }
+  {
+    // MATCH (n:(Label1|Label2)&Label3) RETURN n
+    auto *node = NODE_WITH_TERM(
+        "n",
+        LABEL_TERM_AND(LABEL_TERM_OR(LABEL_TERM_LEAF("Label1"), LABEL_TERM_LEAF("Label2")), LABEL_TERM_LEAF("Label3")));
+    plan_twice(QUERY(SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n"))), Groups{{"Label1", "Label2"}});
   }
 }
 
@@ -6412,6 +6844,36 @@ TYPED_TEST(TestPlanner, CountSubqueryKeepsItsFoldThroughPlanVariation) {
   ASSERT_NE(deferred, nullptr);
   EXPECT_EQ(deferred->fold_, RollUpApply::Fold::kCount) << "the variable-start planner downgraded the count fold";
   EXPECT_EQ(FindOpOfType<Limit>(deferred->input_.get()), nullptr) << "a Limit would truncate the count's drain";
+}
+
+// The variable-start planner plans the same WHERE once per start node it tries. Splitting a label test builds
+// AST nodes, so a split repeated per plan grows the storage with the number of plans rather than the query.
+TYPED_TEST(TestPlanner, SplittingAWhereLabelTermCostsTheSameForEveryPlan) {
+  FakeDbAccessor dba;
+
+  // `a:A&!B` is held whole -- no CNF expresses the negation -- and splits into the label test an index scan can
+  // consume plus the remaining conjunct.
+  auto *where_test = LabelsTest::Make(
+      this->storage, IDENT("a"), LABEL_TERM_AND(LABEL_TERM_LEAF("A"), LABEL_TERM_NOT(LABEL_TERM_LEAF("B"))));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("e1"), NODE("b"), EDGE("e2"), NODE("c"))),
+                                   WITH("a"),
+                                   WHERE(where_test),
+                                   RETURN("a")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planning_context = MakePlanningContext(&this->storage, &symbol_table, query, &dba);
+  auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
+
+  const auto before = this->storage.storage_.size();
+  size_t plan_count = 0;
+  for (auto &&plan : MakeLogicalPlanForSingleQuery<VariableStartPlanner>(query_parts, &planning_context)) {
+    ASSERT_TRUE(plan);
+    ++plan_count;
+  }
+  const auto grew_by = this->storage.storage_.size() - before;
+
+  ASSERT_GT(plan_count, 1U) << "a single plan cannot show a per-plan cost";
+  // The two pieces, a cloned subject for each, and the AND joining them: built once however many plans read them.
+  EXPECT_LE(grew_by, 5U) << "planning " << plan_count << " plans added " << grew_by << " AST nodes";
 }
 
 TYPED_TEST(TestPlanner, SubqueryConjunctsKeepAuthoringOrderAmongThemselves) {

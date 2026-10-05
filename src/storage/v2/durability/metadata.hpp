@@ -61,6 +61,14 @@ struct RecoveredIndicesAndConstraints {
     std::vector<TextEdgeIndexSpec> text_edge_indices;
     std::vector<VectorIndexRecoveryInfo> vector_indices;
     std::vector<VectorEdgeIndexRecoveryInfo> vector_edge_indices;
+
+    // Vectors behind VectorIndexId tags, captured on snapshot load / WAL replay.
+    // RecoverAllVectorIndices moves them out and clears the map.
+    VectorIndexRecovery::VertexVectors vertex_vectors;
+
+    // Per-property map: PropertyId → (Gid → float vector) for vector-edge-indexed edge properties.
+    // Populated during snapshot/WAL replay; each vector is consumed (moved out) during the build, then cleared.
+    VectorEdgeIndexRecovery::EdgeVectors edge_vectors;
   } indices;
 
   struct ConstraintsMetadata {

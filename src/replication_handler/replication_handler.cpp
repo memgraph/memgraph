@@ -307,7 +307,10 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       // repl_state -> commit_mutex_ -> engine_lock_, as in PrepareForNewEpoch: a forced MAIN->MAIN promotion runs
       // alongside commits, which read epoch_ under commit_mutex_ alone when narrowing.
       auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
+      // Modifying storage->timestamp_ needs to be done under the engine lock.
       auto lock = std::lock_guard{storage->engine_lock_};
+
+      // Under the engine lock because commits and snapshot creation read the epoch under it.
       storage->repl_storage_state_.epoch_ = new_epoch;
 
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC

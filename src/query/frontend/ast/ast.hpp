@@ -11,7 +11,9 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <range/v3/view/transform.hpp>
 #include <unordered_map>
 #include <variant>
@@ -25,6 +27,7 @@
 #include "query/frontend/ast/query/expression.hpp"
 #include "query/frontend/ast/query/graph_access.hpp"
 #include "query/frontend/ast/query/identifier.hpp"
+#include "query/frontend/ast/query/label_term.hpp"
 #include "query/frontend/ast/query/named_expression.hpp"
 #include "query/frontend/ast/query/pattern.hpp"
 #include "query/frontend/ast/query/query.hpp"
@@ -1151,11 +1154,19 @@ class AllPropertiesLookup : public Expression {
   friend class AstStorage;
 };
 
-using QueryLabelType = std::variant<LabelIx, Expression *>;
-
 class LabelsTest : public Expression {
  public:
   static const utils::TypeInfo kType;
+
+  /// The test `subject:term` stands for. A conjunction of labels fills `LabelCnf::labels`, a disjunction of
+  /// labels one `LabelCnf::or_labels` group (or `labels`, when it names one label), and anything else is kept
+  /// whole as a `LabelTerm`. Which of the two a test holds is decided here and nowhere else.
+  static LabelsTest *Make(AstStorage &storage, Expression *subject, LabelTerm term);
+
+  /// The tests a whole-term test over an identifier stands for once `!!` is dropped and `&` flattened, so that
+  /// index selection sees its labels: one test per conjunct that is a label or a disjunction of labels, in the
+  /// order written, then one test with all other conjuncts. Empty when that leaves the test as it is.
+  static std::vector<LabelsTest *> Split(AstStorage &storage, const LabelsTest &test);
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
@@ -1175,50 +1186,68 @@ class LabelsTest : public Expression {
 
   /// Whether this asks only that the value is a node. Such a test yields null for a null, true for a vertex,
   /// and raises for any other type.
-  bool IsNodeTest() const { return labels_.empty() && or_labels_.empty(); }
+  bool IsNodeTest() const {
+    const auto *cnf = Cnf();
+    return cnf && cnf->labels.empty() && cnf->or_labels.empty();
+  }
+
+  /// The plain labels and label disjunctions this tests, or nullptr for a term held whole.
+  LabelCnf *Cnf() { return std::get_if<LabelCnf>(&test_); }
+
+  const LabelCnf *Cnf() const { return std::get_if<LabelCnf>(&test_); }
+
+  /// The label expression this tests whole, or nullptr for plain labels.
+  const LabelTerm *Term() const { return std::get_if<LabelTerm>(&test_); }
 
   Expression *expression_{nullptr};
-  std::vector<LabelIx> labels_;                  // TODO: Maybe we should unify this with or_labels_
-  std::vector<std::vector<LabelIx>> or_labels_;  // Because we need to support OR in labels -> node has to have at least
-                                                 // one of the labels in "inner" vector
+  /// Plain labels, which index selection reads and filter collection merges into, or a label expression they
+  /// cannot express, held whole so the subject is evaluated once. See `LabelsTest::Make`.
+  std::variant<LabelCnf, LabelTerm> test_;
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-    object->labels_.resize(labels_.size());
-    for (auto i = 0; i < object->labels_.size(); ++i) {
-      object->labels_[i] = storage->GetLabelIx(labels_[i].name);
+    if (const auto *term = Term()) {
+      object->test_ = term->Clone(storage);
+      return object;
     }
-    object->or_labels_.resize(or_labels_.size());
-    for (auto i = 0; i < object->or_labels_.size(); ++i) {
-      object->or_labels_[i].resize(or_labels_[i].size());
-      for (auto j = 0; j < object->or_labels_[i].size(); ++j) {
-        object->or_labels_[i][j] = storage->GetLabelIx(or_labels_[i][j].name);
-      }
-    }
+    auto relabel = [&](const std::vector<LabelIx> &labels) {
+      std::vector<LabelIx> relabelled;
+      relabelled.reserve(labels.size());
+      for (const auto &label : labels) relabelled.push_back(storage->GetLabelIx(label.name));
+      return relabelled;
+    };
+    auto &cnf = std::get<LabelCnf>(object->test_);
+    cnf.labels = relabel(Cnf()->labels);
+    for (const auto &group : Cnf()->or_labels) cnf.or_labels.push_back(relabel(group));
     return object;
   }
 
  protected:
-  LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool label_expression = false)
-      : expression_(expression) {
-    if (!label_expression) {
-      labels_ = std::move(labels);
+  LabelsTest(Expression *expression, std::vector<LabelIx> labels, bool or_group = false) : expression_(expression) {
+    auto &cnf = std::get<LabelCnf>(test_);
+    if (!or_group) {
+      cnf.labels = std::move(labels);
     } else {
-      or_labels_.push_back(std::move(labels));
+      cnf.or_labels.push_back(std::move(labels));
     }
   }
 
   LabelsTest(Expression *expression, const std::vector<QueryLabelType> &labels) : expression_(expression) {
-    labels_.reserve(labels.size());
+    auto &cnf = std::get<LabelCnf>(test_);
+    cnf.labels.reserve(labels.size());
     for (const auto &label : labels) {
       if (const auto *label_ix = std::get_if<LabelIx>(&label)) {
-        labels_.push_back(*label_ix);
+        cnf.labels.push_back(*label_ix);
       } else {
-        throw SemanticException("You can't use labels in filter expressions.");
+        throw SemanticException(
+            "A label named by an expression can only be written by CREATE, not matched or tested. For a "
+            "label whose name contains a dot, put the name in backticks.");
       }
     }
   }
+
+  LabelsTest(Expression *expression, LabelTerm term) : expression_(expression), test_(std::move(term)) {}
 
  private:
   friend class AstStorage;
@@ -1765,30 +1794,29 @@ class NodeAtom : public memgraph::query::PatternAtom {
 
   /// Whether this atom states anything about the node beyond naming it.
   bool HasLabelsOrProperties() const {
-    if (!labels_.empty()) return true;
+    if (label_term_) return true;
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
       return !properties->empty();
     }
     return std::get<ParameterLookup *>(properties_) != nullptr;
   }
 
-  std::vector<QueryLabelType> labels_;
+  /// The labels a plain conjunction names, none included, or nullopt when the label expression is no
+  /// conjunction. A write takes only a conjunction.
+  std::optional<std::vector<QueryLabelType>> LabelConjunction() const {
+    if (!label_term_) return std::vector<QueryLabelType>{};
+    return label_term_->Conjunction();
+  }
+
   std::variant<std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>,
                memgraph::query::ParameterLookup *>
       properties_;
-  bool label_expression_{false};
+  /// Unset when the pattern names no label; a `$param` bound to an empty list names none either.
+  std::optional<LabelTerm> label_term_;
 
   NodeAtom *Clone(AstStorage *storage) const override {
     NodeAtom *object = storage->Create<NodeAtom>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
-    object->labels_.resize(labels_.size());
-    for (auto i = 0; i < object->labels_.size(); ++i) {
-      if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
-        object->labels_[i] = storage->GetLabelIx(label->name);
-      } else {
-        object->labels_[i] = std::get<Expression *>(labels_[i])->Clone(storage);
-      }
-    }
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
       auto &new_obj_properties = std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_);
       for (const auto &[property, value_expression] : *properties) {
@@ -1798,7 +1826,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
     } else {
       object->properties_ = std::get<ParameterLookup *>(properties_)->Clone(storage);
     }
-    object->label_expression_ = label_expression_;
+    if (label_term_) object->label_term_ = label_term_->Clone(storage);
     return object;
   }
 

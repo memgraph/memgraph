@@ -12,6 +12,7 @@
 #include <sys/types.h>
 #include <algorithm>
 #include <filesystem>
+#include <optional>
 #include <string_view>
 #include <thread>
 
@@ -83,6 +84,19 @@ class VectorIndexTest : public testing::Test {
 
     EXPECT_FALSE(!unique_acc->CreateVectorIndex(spec).has_value());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Asserts test_property on `gid` is a plain empty list, not a tag; also checks the index size if given.
+  void ExpectPlainEmptyList(Gid gid, std::optional<std::size_t> expected_index_size) {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    if (expected_index_size) {
+      EXPECT_EQ(acc->ListAllVectorIndices()[0].size, *expected_index_size);
+    }
+    auto vertex = acc->FindVertex(gid, View::OLD).value();
+    const auto stored = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(stored.has_value());
+    EXPECT_TRUE(stored->IsAnyList());
+    EXPECT_EQ(stored->ListSize(), 0u);
   }
 
   VertexAccessor CreateVertex(Storage::Accessor *accessor, std::string_view property,
@@ -725,16 +739,29 @@ class VectorIndexRecoveryTest : public testing::Test {
   static VectorIndexRecoveryInfo CreateRecoveryInfo(const std::string &name = "test_index",
                                                     std::size_t capacity = kNumNodes) {
     return VectorIndexRecoveryInfo{
-        .spec = VectorIndexSpec{.index_name = name,
-                                .label_filter =
-                                    VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {LabelId::FromUint(1)}},
-                                .property = PropertyId::FromUint(1),
-                                .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-                                .dimension = kDimension,
-                                .resize_coefficient = 2,
-                                .capacity = capacity,
-                                .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
-        .index_entries = {}};
+        .spec = VectorIndexSpec{
+            .index_name = name,
+            .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {LabelId::FromUint(1)}},
+            .property = PropertyId::FromUint(1),
+            .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+            .dimension = kDimension,
+            .resize_coefficient = 2,
+            .capacity = capacity,
+            .scalar_kind = unum::usearch::scalar_kind_t::f32_k}};
+  }
+
+  // Stand-in for the map LoadPartialVertices builds from tags (snapshot loading never captures plain lists).
+  VectorIndexRecovery::VertexVectors BuildVertexVectors(PropertyId prop) {
+    VectorIndexRecovery::VertexVectors vv;
+    auto &prop_map = vv[prop];
+    auto acc = vertices_.access();
+    for (auto it = acc.begin(); it != acc.end(); ++it) {
+      auto maybe_vec = TryListToVector(it->properties.GetProperty(prop));
+      if (maybe_vec) {
+        prop_map.emplace(it->gid, std::move(*maybe_vec));
+      }
+    }
+    return vv;
   }
 
   std::unique_ptr<InMemoryStorage> storage_;
@@ -742,61 +769,44 @@ class VectorIndexRecoveryTest : public testing::Test {
   VectorIndex vector_index_;
 };
 
-TEST_F(VectorIndexRecoveryTest, RecoverIndexSingleThreadTest) {
-  FLAGS_storage_parallel_schema_recovery = false;
+struct RecoverAllParam {
+  bool parallel;
+  std::size_t capacity;
+};
 
-  auto vertices_acc = vertices_.access();
-  auto recovery_info = CreateRecoveryInfo();
+class VectorIndexRecoveryPlainListTest : public VectorIndexRecoveryTest,
+                                         public testing::WithParamInterface<RecoverAllParam> {};
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
-                                             vertices_acc,
-                                             &storage_->indices_,
-                                             storage_->name_id_mapper_.get(),
-                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
-
-  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
-  EXPECT_EQ(vector_index_info.size(), 1);
-  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
-}
-
-TEST_F(VectorIndexRecoveryTest, RecoverIndexParallelTest) {
-  FLAGS_storage_parallel_schema_recovery = true;
-  FLAGS_storage_recovery_thread_count =
-      (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 1;
-
-  auto vertices_acc = vertices_.access();
-  auto recovery_info = CreateRecoveryInfo();
-
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
-                                             vertices_acc,
-                                             &storage_->indices_,
-                                             storage_->name_id_mapper_.get(),
-                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
-
-  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
-  EXPECT_EQ(vector_index_info.size(), 1);
-  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
-}
-
-TEST_F(VectorIndexRecoveryTest, ConcurrentAddWithResizeTest) {
-  FLAGS_storage_parallel_schema_recovery = true;
+// A capacity below kNumNodes forces usearch to resize during population.
+TEST_P(VectorIndexRecoveryPlainListTest, RecoverAllVectorIndices) {
+  const auto [parallel, capacity] = GetParam();
+  FLAGS_storage_parallel_schema_recovery = parallel;
   FLAGS_storage_recovery_thread_count =
       (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
 
   auto vertices_acc = vertices_.access();
-  auto recovery_info = CreateRecoveryInfo("resize_test_index", 10);  // Small capacity to force resize
+  std::vector<VectorIndexRecoveryInfo> infos{CreateRecoveryInfo("test_index", capacity)};
+  VectorIndexRecovery::VertexVectors vv;
+  EXPECT_NO_THROW(vector_index_.RecoverAllVectorIndices(infos,
+                                                        vv,
+                                                        vertices_acc,
+                                                        storage_->name_id_mapper_.get(),
+                                                        ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
-                                             vertices_acc,
-                                             &storage_->indices_,
-                                             storage_->name_id_mapper_.get(),
-                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
-
-  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
-  EXPECT_EQ(vector_index_info.size(), 1);
-  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
-  EXPECT_GE(vector_index_info[0].capacity, kNumNodes);
+  const auto info = vector_index_.ListVectorIndicesInfo();
+  ASSERT_EQ(info.size(), 1);
+  EXPECT_EQ(info[0].size, kNumNodes);
+  EXPECT_GE(info[0].capacity, static_cast<std::size_t>(kNumNodes));
 }
+
+INSTANTIATE_TEST_SUITE_P(Modes, VectorIndexRecoveryPlainListTest,
+                         testing::Values(RecoverAllParam{.parallel = false, .capacity = 100},
+                                         RecoverAllParam{.parallel = true, .capacity = 100},
+                                         RecoverAllParam{.parallel = true, .capacity = 10}),
+                         [](const testing::TestParamInfo<RecoverAllParam> &p) {
+                           return std::string(p.param.parallel ? "Parallel" : "SingleThread") + "Capacity" +
+                                  std::to_string(p.param.capacity);
+                         });
 
 TEST_F(VectorIndexTest, DropVectorIndexAbortRestoresIndex) {
   this->CreateIndex(2, 16);
@@ -856,41 +866,268 @@ TEST_F(VectorIndexTest, CreateVectorIndexAbortLeavesNoGhostEntry) {
       this, memgraph::tests::UniqueAcc, [&](auto *acc) { return acc->CreateVectorIndex(spec); });
 }
 
-TEST_F(VectorIndexRecoveryTest, RecoverIndexWithPrecomputedEntries) {
+// Two specs on one property; the fixture vertices use PropId 1, not kProp, so only GIDs 200-203 take part.
+TEST_F(VectorIndexRecoveryTest, RecoverAllVectorIndicesResolvesEachVertexState) {
+  FLAGS_storage_parallel_schema_recovery = false;
+
+  static constexpr LabelId kLabelA = LabelId::FromUint(10);
+  static constexpr LabelId kLabelB = LabelId::FromUint(11);
+  static constexpr LabelId kLabelC = LabelId::FromUint(12);
+
+  // Names must be registered: the missing-vector error path (case d) calls IdToName(property).
+  const uint64_t idx_a_id = storage_->name_id_mapper_->NameToId("idx_a");
+  const uint64_t idx_b_id = storage_->name_id_mapper_->NameToId("idx_b");
+  const PropertyId kProp = PropertyId::FromUint(storage_->name_id_mapper_->NameToId("test_prop"));
+
+  std::vector<VectorIndexRecoveryInfo> infos{
+      VectorIndexRecoveryInfo{
+          .spec = VectorIndexSpec{.index_name = "idx_a",
+                                  .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {kLabelA}},
+                                  .property = kProp,
+                                  .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                  .dimension = kDimension,
+                                  .resize_coefficient = 2,
+                                  .capacity = 10,
+                                  .scalar_kind = unum::usearch::scalar_kind_t::f32_k}},
+      VectorIndexRecoveryInfo{
+          .spec = VectorIndexSpec{.index_name = "idx_b",
+                                  .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {kLabelB}},
+                                  .property = kProp,
+                                  .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                  .dimension = kDimension,
+                                  .resize_coefficient = 2,
+                                  .capacity = 10,
+                                  .scalar_kind = unum::usearch::scalar_kind_t::f32_k}}};
+
+  {
+    auto acc = vertices_.access();
+
+    // (a) Stored plain list [3.0, 4.0]; stale map entry {9.0, 10.0} that must NOT be used; label A.
+    auto [it_a, ok_a] = acc.insert(Vertex{Gid::FromUint(200), nullptr});
+    ASSERT_TRUE(ok_a);
+    it_a->labels.push_back(kLabelA);
+    it_a->properties.SetProperty(
+        kProp, PropertyValue(DoubleListTag{}, std::vector<PropertyValue>{PropertyValue(3.0), PropertyValue(4.0)}));
+
+    // (b) Stored tag (stale id 999, no embedded vector); map entry {5.0, 6.0}; label C — matches neither.
+    auto [it_b, ok_b] = acc.insert(Vertex{Gid::FromUint(201), nullptr});
+    ASSERT_TRUE(ok_b);
+    it_b->labels.push_back(kLabelC);
+    it_b->properties.SetProperty(kProp,
+                                 PropertyValue(PropertyValue::VectorIndexIdData{
+                                     .ids = memgraph::utils::small_vector<uint64_t>{999u}, .vector = {}}));
+
+    // (c) Stored tag (stale id 999); map entry {7.0, 8.0}; labels A+B — matches both.
+    auto [it_c, ok_c] = acc.insert(Vertex{Gid::FromUint(202), nullptr});
+    ASSERT_TRUE(ok_c);
+    it_c->labels.push_back(kLabelA);
+    it_c->labels.push_back(kLabelB);
+    it_c->properties.SetProperty(kProp,
+                                 PropertyValue(PropertyValue::VectorIndexIdData{
+                                     .ids = memgraph::utils::small_vector<uint64_t>{999u}, .vector = {}}));
+
+    // (d) Stored tag (stale id 999); NO map entry; label A — exercises the missing-vector null path.
+    auto [it_d, ok_d] = acc.insert(Vertex{Gid::FromUint(203), nullptr});
+    ASSERT_TRUE(ok_d);
+    it_d->labels.push_back(kLabelA);
+    it_d->properties.SetProperty(kProp,
+                                 PropertyValue(PropertyValue::VectorIndexIdData{
+                                     .ids = memgraph::utils::small_vector<uint64_t>{999u}, .vector = {}}));
+  }
+
+  VectorIndexRecovery::VertexVectors vv;
+  vv[kProp].emplace(Gid::FromUint(200), memgraph::utils::small_vector<float>{9.0F, 10.0F});
+  vv[kProp].emplace(Gid::FromUint(201), memgraph::utils::small_vector<float>{5.0F, 6.0F});
+  vv[kProp].emplace(Gid::FromUint(202), memgraph::utils::small_vector<float>{7.0F, 8.0F});
+
+  auto vertices_acc = vertices_.access();
+  EXPECT_NO_THROW(vector_index_.RecoverAllVectorIndices(infos,
+                                                        vv,
+                                                        vertices_acc,
+                                                        storage_->name_id_mapper_.get(),
+                                                        ActiveIndicesUpdater{storage_->indices_.active_indices_}));
+
+  const auto index_info = vector_index_.ListVectorIndicesInfo();
+  ASSERT_EQ(index_info.size(), 2u);
+  std::unordered_map<std::string, std::size_t> sizes;
+  for (const auto &info : index_info) sizes[info.index_name] = info.size;
+  EXPECT_EQ(sizes["idx_a"], 2u);
+  EXPECT_EQ(sizes["idx_b"], 1u);
+
+  {
+    auto it = vertices_acc.find(Gid::FromUint(200));
+    ASSERT_NE(it, vertices_acc.end());
+    const auto prop = it->properties.GetProperty(kProp);
+    ASSERT_TRUE(prop.IsVectorIndexId());
+    EXPECT_EQ(prop.ValueVectorIndexIds(), (memgraph::utils::small_vector<uint64_t>{idx_a_id}));
+    const auto vec_from_idx = vector_index_.GetVectorPropertyFromIndex(&*it, "idx_a", storage_->name_id_mapper_.get());
+    EXPECT_EQ(vec_from_idx, (memgraph::utils::small_vector<float>{3.0F, 4.0F}));
+  }
+
+  {
+    auto it = vertices_acc.find(Gid::FromUint(201));
+    ASSERT_NE(it, vertices_acc.end());
+    const auto prop = it->properties.GetProperty(kProp);
+    EXPECT_TRUE(prop.IsDoubleList());
+    const auto dl = prop.ValueDoubleList();
+    ASSERT_EQ(dl.size(), 2u);
+    EXPECT_DOUBLE_EQ(dl[0], 5.0);
+    EXPECT_DOUBLE_EQ(dl[1], 6.0);
+  }
+
+  {
+    auto it = vertices_acc.find(Gid::FromUint(202));
+    ASSERT_NE(it, vertices_acc.end());
+    const auto prop = it->properties.GetProperty(kProp);
+    ASSERT_TRUE(prop.IsVectorIndexId());
+    const auto &ids = prop.ValueVectorIndexIds();
+    ASSERT_EQ(ids.size(), 2u);
+    EXPECT_TRUE(std::ranges::is_permutation(ids, memgraph::utils::small_vector<uint64_t>{idx_a_id, idx_b_id}));
+    const memgraph::utils::small_vector<float> expected{7.0F, 8.0F};
+    EXPECT_EQ(vector_index_.GetVectorPropertyFromIndex(&*it, "idx_a", storage_->name_id_mapper_.get()), expected);
+    EXPECT_EQ(vector_index_.GetVectorPropertyFromIndex(&*it, "idx_b", storage_->name_id_mapper_.get()), expected);
+  }
+
+  {
+    auto it = vertices_acc.find(Gid::FromUint(203));
+    ASSERT_NE(it, vertices_acc.end());
+    const auto prop = it->properties.GetProperty(kProp);
+    EXPECT_TRUE(prop.IsNull());
+  }
+}
+
+// Tagged vertices take their vector from vertex_vectors; each tag is rewritten to the created index id.
+TEST_F(VectorIndexRecoveryTest, RecoverAllVectorIndicesFromVertexVectors) {
   FLAGS_storage_parallel_schema_recovery = true;
   FLAGS_storage_recovery_thread_count =
       (std::thread::hardware_concurrency() > 0) ? std::thread::hardware_concurrency() : 4;
 
-  auto vertices_acc = vertices_.access();
+  VectorIndexRecovery::VertexVectors vv = BuildVertexVectors(PropertyId::FromUint(1));
+  const auto expected_vec = vv[PropertyId::FromUint(1)].at(Gid::FromUint(7));
 
-  // Create recovery info with pre-computed index entries (simulating snapshot recovery)
-  absl::flat_hash_map<Gid, memgraph::utils::small_vector<float>> index_entries;
-  for (auto i = 0; i < kNumNodes; i++) {
-    index_entries.emplace(Gid::FromUint(i),
-                          memgraph::utils::small_vector<float>{static_cast<float>(i), static_cast<float>(i + 1)});
+  // Bare tags, as property_store persists them (ids only, no vector).
+  {
+    auto acc = vertices_.access();
+    for (auto it = acc.begin(); it != acc.end(); ++it) {
+      it->properties.SetProperty(PropertyId::FromUint(1),
+                                 PropertyValue(PropertyValue::VectorIndexIdData{
+                                     .ids = memgraph::utils::small_vector<uint64_t>{999}, .vector = {}}));
+    }
   }
 
-  VectorIndexRecoveryInfo recovery_info{
-      .spec = VectorIndexSpec{.index_name = "precomputed_index",
-                              .label_filter =
-                                  VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {LabelId::FromUint(1)}},
-                              .property = PropertyId::FromUint(1),
-                              .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
-                              .dimension = kDimension,
-                              .resize_coefficient = 2,
-                              .capacity = kNumNodes,
-                              .scalar_kind = unum::usearch::scalar_kind_t::f32_k},
-      .index_entries = std::move(index_entries)};
+  auto vertices_acc = vertices_.access();
+  std::vector<VectorIndexRecoveryInfo> infos{CreateRecoveryInfo("precomputed_index")};
+  EXPECT_NO_THROW(vector_index_.RecoverAllVectorIndices(infos,
+                                                        vv,
+                                                        vertices_acc,
+                                                        storage_->name_id_mapper_.get(),
+                                                        ActiveIndicesUpdater{storage_->indices_.active_indices_}));
 
-  EXPECT_NO_THROW(vector_index_.RecoverIndex(recovery_info,
-                                             vertices_acc,
-                                             &storage_->indices_,
-                                             storage_->name_id_mapper_.get(),
-                                             ActiveIndicesUpdater{storage_->indices_.active_indices_}));
+  const auto info = vector_index_.ListVectorIndicesInfo();
+  EXPECT_EQ(info.size(), 1);
+  EXPECT_EQ(info[0].size, kNumNodes);
 
-  const auto vector_index_info = vector_index_.ListVectorIndicesInfo();
-  EXPECT_EQ(vector_index_info.size(), 1);
-  EXPECT_EQ(vector_index_info[0].size, kNumNodes);
+  const uint64_t index_id = storage_->name_id_mapper_->NameToId("precomputed_index");
+  auto it = vertices_acc.find(Gid::FromUint(7));
+  ASSERT_NE(it, vertices_acc.end());
+  const auto prop = it->properties.GetProperty(PropertyId::FromUint(1));
+  ASSERT_TRUE(prop.IsVectorIndexId());
+  EXPECT_EQ(prop.ValueVectorIndexIds(), (memgraph::utils::small_vector<uint64_t>{index_id}));
+  EXPECT_EQ(vector_index_.GetVectorPropertyFromIndex(&*it, "precomputed_index", storage_->name_id_mapper_.get()),
+            expected_vec);
+}
+
+// UpdateOnSetProperty with a spec: a tag's embedded vector is captured in vertex_vectors[property][gid].
+TEST_F(VectorIndexRecoveryTest, UpdateOnSetPropertyCapturesVectorWhenSpecExists) {
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  std::vector<VectorIndexRecoveryInfo> infos{CreateRecoveryInfo()};
+  VectorIndexRecovery::VertexVectors vv;
+
+  memgraph::utils::small_vector<float> raw_vec{1.0F, 2.0F};
+  PropertyValue tag_value(
+      PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{42}, .vector = raw_vec});
+
+  Vertex vertex(Gid::FromUint(77), nullptr);
+  VectorIndexRecovery::UpdateOnSetProperty(kProp, tag_value, &vertex, infos, vv);
+
+  ASSERT_TRUE(vv.contains(kProp));
+  ASSERT_TRUE(vv[kProp].contains(vertex.gid));
+  EXPECT_EQ(vv[kProp][vertex.gid], raw_vec);
+}
+
+// UpdateOnSetProperty without a spec: a stale tag becomes a plain list in place.
+TEST_F(VectorIndexRecoveryTest, UpdateOnSetPropertyOrphanTagConvertedToList) {
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  std::vector<VectorIndexRecoveryInfo> infos;
+  VectorIndexRecovery::VertexVectors vv;
+
+  memgraph::utils::small_vector<float> raw_vec{3.0F, 4.0F};
+  PropertyValue tag_value(
+      PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{99}, .vector = raw_vec});
+
+  Vertex vertex(Gid::FromUint(5), nullptr);
+  VectorIndexRecovery::UpdateOnSetProperty(kProp, tag_value, &vertex, infos, vv);
+
+  ASSERT_TRUE(tag_value.IsDoubleList());
+  ASSERT_EQ(tag_value.ValueDoubleList().size(), 2u);
+  EXPECT_DOUBLE_EQ(tag_value.ValueDoubleList()[0], 3.0);
+  EXPECT_DOUBLE_EQ(tag_value.ValueDoubleList()[1], 4.0);
+  EXPECT_TRUE(vv.empty());
+}
+
+// UpdateOnIndexDrop of the last spec on a property: tags become plain lists (null if no vector) and the map entry goes.
+TEST_F(VectorIndexRecoveryTest, UpdateOnIndexDropRestoresTagsToPlainLists) {
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  std::vector<VectorIndexRecoveryInfo> infos{CreateRecoveryInfo()};
+
+  VectorIndexRecovery::VertexVectors vv;
+  vv[kProp].emplace(Gid::FromUint(0), memgraph::utils::small_vector<float>{7.0F, 8.0F});
+
+  // Tag without embedded vector, as persisted by property_store.
+  auto acc = vertices_.access();
+  auto v0 = acc.find(Gid::FromUint(0));
+  ASSERT_NE(v0, acc.end());
+  v0->properties.SetProperty(
+      kProp,
+      PropertyValue(PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{1}, .vector = {}}));
+
+  // Tagged but no map entry: becomes null.
+  auto v1 = acc.find(Gid::FromUint(1));
+  ASSERT_NE(v1, acc.end());
+  v1->properties.SetProperty(
+      kProp,
+      PropertyValue(PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{1}, .vector = {}}));
+
+  VectorIndexRecovery::UpdateOnIndexDrop(infos[0].spec.index_name, infos, vv, acc);
+
+  EXPECT_TRUE(infos.empty());
+  EXPECT_FALSE(vv.contains(kProp));
+  const auto restored = v0->properties.GetProperty(kProp);
+  ASSERT_TRUE(restored.IsDoubleList());
+  ASSERT_EQ(restored.ValueDoubleList().size(), 2u);
+  EXPECT_DOUBLE_EQ(restored.ValueDoubleList()[0], 7.0);
+  EXPECT_DOUBLE_EQ(restored.ValueDoubleList()[1], 8.0);
+  EXPECT_TRUE(v1->properties.GetProperty(kProp).IsNull());
+}
+
+// UpdateOnIndexDrop with a surviving spec on the property keeps vertex_vectors for the final build.
+TEST_F(VectorIndexRecoveryTest, UpdateOnIndexDropPreservesVertexVectorsForSurvivingSpec) {
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  std::vector<VectorIndexRecoveryInfo> infos{CreateRecoveryInfo("idx_a"), CreateRecoveryInfo("idx_b")};
+  VectorIndexRecovery::VertexVectors vv;
+  vv[kProp].emplace(Gid::FromUint(0), memgraph::utils::small_vector<float>{1.0F, 2.0F});
+
+  auto acc = vertices_.access();
+  VectorIndexRecovery::UpdateOnIndexDrop("idx_a", infos, vv, acc);
+
+  ASSERT_EQ(infos.size(), 1u);
+  EXPECT_EQ(infos[0].spec.index_name, "idx_b");
+  EXPECT_TRUE(vv.contains(kProp));
+  EXPECT_TRUE(vv[kProp].contains(Gid::FromUint(0)));
 }
 
 TEST_F(VectorIndexTest, OverlappingLabelIndicesBothUpdatedOnAddLabel) {
@@ -1080,4 +1317,181 @@ TEST_F(VectorIndexTest, SetPropertyToScalarRemovesIndexedVertex) {
 
   auto acc = this->storage->Access(memgraph::storage::READ);
   EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0);
+}
+
+TEST_F(VectorIndexTest, SetEmptyListKeepsPlainListAndLeavesIndex) {
+  this->CreateIndex(2, 10);
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto property_value = MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F});
+    auto vertex = this->CreateVertex(acc.get(), test_property, property_value, test_label);
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    ASSERT_NO_ERROR(
+        vertex.SetProperty(acc->NameToProperty(test_property), PropertyValue(std::vector<PropertyValue>{})));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->ExpectPlainEmptyList(vertex_gid, 0);
+}
+
+TEST_F(VectorIndexTest, CreateIndexOverExistingEmptyListLeavesEmptyList) {
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = this->CreateVertex(acc.get(), test_property, PropertyValue(std::vector<PropertyValue>{}), test_label);
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateIndex(2, 10);
+  this->ExpectPlainEmptyList(vertex_gid, 0);
+}
+
+TEST_F(VectorIndexTest, AddLabelToVertexWithEmptyListStaysPlainList) {
+  this->CreateIndex(2, 10);
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(
+        vertex.SetProperty(acc->NameToProperty(test_property), PropertyValue(std::vector<PropertyValue>{})));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel(test_label)));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->ExpectPlainEmptyList(vertex_gid, 0);
+}
+
+// Aborting a write over an indexed or empty-list vertex restores the prior value and index membership.
+TEST_F(VectorIndexTest, AbortRestoresPriorValueAndIndexMembership) {
+  struct Row {
+    bool initially_indexed;
+    PropertyValue overwrite;
+    bool overwrite_with_tag = false;
+  };
+
+  const std::vector<PropertyValue> two_doubles{PropertyValue(1.0), PropertyValue(2.0)};
+  const std::array rows{Row{true, PropertyValue(std::vector<PropertyValue>{})},
+                        Row{false, PropertyValue(two_doubles)},
+                        Row{true, PropertyValue("str")},
+                        Row{false, PropertyValue("str")},
+                        Row{false, PropertyValue(), true}};
+
+  for (const auto &row : rows) {
+    SCOPED_TRACE(testing::Message() << "initially_indexed=" << row.initially_indexed
+                                    << " overwrite_with_tag=" << row.overwrite_with_tag);
+    storage = std::make_unique<InMemoryStorage>();
+    this->CreateIndex(2, 10);
+    Gid vertex_gid;
+    {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      const auto initial = row.initially_indexed
+                               ? MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 2.0F})
+                               : PropertyValue(std::vector<PropertyValue>{});
+      vertex_gid = this->CreateVertex(acc.get(), test_property, initial, test_label).Gid();
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    }
+    const std::size_t expected_size = row.initially_indexed ? 1 : 0;
+    {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+      const auto overwrite = row.overwrite_with_tag
+                                 ? MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 1.0F})
+                                 : row.overwrite;
+      ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), overwrite));
+      acc->Abort();
+    }
+    if (row.initially_indexed) {
+      auto acc = this->storage->Access(memgraph::storage::READ);
+      EXPECT_EQ(acc->ListAllVectorIndices()[0].size, expected_size);
+      auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+      const auto stored = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD);
+      ASSERT_TRUE(stored.has_value());
+      EXPECT_TRUE(stored->IsVectorIndexId());
+      EXPECT_EQ(stored->ValueVectorIndexList(), (memgraph::utils::small_vector<float>{1.0F, 2.0F}));
+    } else {
+      this->ExpectPlainEmptyList(vertex_gid, expected_size);
+    }
+  }
+}
+
+// An older main ships [] as a tag with no vector; SetProperty must store it as a plain empty list.
+TEST_F(VectorIndexTest, SetEmptyVectorIndexTagStoresPlainEmptyList) {
+  this->CreateIndex(2, 10);
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto empty_tag = MakeEmptyVectorIndexProperty(acc.get());
+    ASSERT_TRUE(empty_tag.IsVectorIndexId());
+    vertex_gid = this->CreateVertex(acc.get(), test_property, empty_tag, test_label).Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->ExpectPlainEmptyList(vertex_gid, 0);
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->DropVectorIndex(test_index.data()).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->ExpectPlainEmptyList(vertex_gid, std::nullopt);
+}
+
+// UpdateOnSetProperty: a tag with no embedded vector is the legacy on-disk form of [] and must become a
+// plain empty list, dropping any earlier captured vector for that GID.
+TEST_F(VectorIndexRecoveryTest, UpdateOnSetPropertyEmptyTagBecomesEmptyList) {
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  std::vector<VectorIndexRecoveryInfo> infos{CreateRecoveryInfo()};
+  VectorIndexRecovery::VertexVectors vv;
+  Vertex vertex(Gid::FromUint(77), nullptr);
+  vv[kProp].emplace(vertex.gid, memgraph::utils::small_vector<float>{1.0F, 2.0F});
+
+  PropertyValue empty_tag(
+      PropertyValue::VectorIndexIdData{.ids = memgraph::utils::small_vector<uint64_t>{42}, .vector = {}});
+  VectorIndexRecovery::UpdateOnSetProperty(kProp, empty_tag, &vertex, infos, vv);
+
+  EXPECT_FALSE(empty_tag.IsVectorIndexId());
+  EXPECT_TRUE(empty_tag.IsAnyList());
+  EXPECT_EQ(empty_tag.ListSize(), 0u);
+  EXPECT_FALSE(vv[kProp].contains(vertex.gid));
+}
+
+TEST_F(VectorIndexRecoveryTest, RecoverAllVectorIndicesLeavesEmptyListUntouched) {
+  FLAGS_storage_parallel_schema_recovery = false;
+  static constexpr PropertyId kProp = PropertyId::FromUint(1);
+
+  {
+    auto acc = vertices_.access();
+    auto v0 = acc.find(Gid::FromUint(0));
+    ASSERT_NE(v0, acc.end());
+    v0->properties.SetProperty(kProp, PropertyValue(std::vector<double>{}));
+  }
+
+  std::vector<VectorIndexRecoveryInfo> infos{CreateRecoveryInfo()};
+  VectorIndexRecovery::VertexVectors vv;
+  auto vertices_acc = vertices_.access();
+  EXPECT_NO_THROW(vector_index_.RecoverAllVectorIndices(infos,
+                                                        vv,
+                                                        vertices_acc,
+                                                        storage_->name_id_mapper_.get(),
+                                                        ActiveIndicesUpdater{storage_->indices_.active_indices_}));
+
+  const auto info = vector_index_.ListVectorIndicesInfo();
+  ASSERT_EQ(info.size(), 1);
+  EXPECT_EQ(info[0].size, kNumNodes - 1);
+
+  auto v0 = vertices_acc.find(Gid::FromUint(0));
+  ASSERT_NE(v0, vertices_acc.end());
+  const auto stored = v0->properties.GetProperty(kProp);
+  EXPECT_FALSE(stored.IsVectorIndexId());
+  EXPECT_TRUE(stored.IsAnyList());
+  EXPECT_EQ(stored.ListSize(), 0u);
 }

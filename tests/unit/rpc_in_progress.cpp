@@ -13,6 +13,8 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
+#include <mutex>
 #include <thread>
 
 #include "gmock/gmock.h"
@@ -36,13 +38,23 @@ using memgraph::rpc::Server;
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
 
-constexpr int port{8185};
+namespace {
 
+// Bound to an ephemeral port so consecutive tests can't collide on a socket still in TIME_WAIT.
+Endpoint const kAnyPort{"127.0.0.1", 0};
+
+// Only stops a hang; reaching it means a step never happened, which fails the test's assertion.
+constexpr auto kStepTimeout = 30s;
+
+// A timeout no test in this file can cross: the property under test is the protocol, not the clock.
+constexpr int kGenerousTimeoutMs = 10'000;
+
+}  // namespace
+
+// A single InProgressRes followed by the final response is consumed transparently.
 TEST(RpcInProgress, SingleProgress) {
-  Endpoint const endpoint{"localhost", port};
-
   ServerContext server_context;
-  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  Server rpc_server{kAnyPort, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
@@ -52,42 +64,37 @@ TEST(RpcInProgress, SingleProgress) {
                               uint64_t const request_version,
                               auto *req_reader,
                               auto *res_builder) {
-    spdlog::trace("Started executing sum callback");
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
-
-    spdlog::trace("Loaded sum req request");
-
-    // Simulate work
-    std::this_thread::sleep_for(100ms);
     memgraph::rpc::SendInProgressMsg(res_builder);
-    spdlog::trace("Saved InProgressRes");
-
-    // Simulate done
-    std::this_thread::sleep_for(300ms);
     SumRes const res{5};
     memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-    spdlog::trace("Saved SumRes response");
   });
 
   ASSERT_TRUE(rpc_server.Start());
-  std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 2000)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kGenerousTimeoutMs)};
   ClientContext client_context;
-  Client client{endpoint, &client_context, rpc_timeouts};
+  Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
   auto reply = stream.SendAndWaitProgress();
   EXPECT_EQ(reply.sum, 5);
 }
 
-// Each batch for itself shouldn't timeout
+// The per-message timeout restarts on every InProgressRes. The handler is silent for well over the timeout in total,
+// so the call can only succeed if each heartbeat restarts the deadline. Each individual gap sits an order of magnitude
+// below the timeout, and sleep_for never returns early, so the total is a guaranteed lower bound rather than a race.
 TEST(RpcInProgress, MultipleProgresses) {
-  Endpoint endpoint{"localhost", port};
+  static constexpr auto kHeartbeatGap = 50ms;
+  static constexpr int kHeartbeats = 20;
+  static constexpr int kTimeoutMs = 500;
+  static constexpr auto kTotalServerTime = kHeartbeatGap * kHeartbeats;
+  static_assert(kTotalServerTime >= 2 * std::chrono::milliseconds{kTimeoutMs});
+  static_assert(10 * kHeartbeatGap <= std::chrono::milliseconds{kTimeoutMs});
 
   ServerContext server_context;
-  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  Server rpc_server{kAnyPort, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
@@ -97,94 +104,86 @@ TEST(RpcInProgress, MultipleProgresses) {
                               uint64_t const request_version,
                               auto *req_reader,
                               auto *res_builder) {
-    spdlog::trace("Started executing sum callback");
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
-
-    spdlog::trace("Loaded sum req request");
-
-    // Simulate work
-    std::this_thread::sleep_for(100ms);
-    memgraph::rpc::SendInProgressMsg(res_builder);
-    spdlog::trace("Saved InProgressRes");
-
-    // Simulate work
-    std::this_thread::sleep_for(200ms);
-    memgraph::rpc::SendInProgressMsg(res_builder);
-    spdlog::trace("Saved InProgressRes");
-
-    // Simulate work
-    std::this_thread::sleep_for(250ms);
-    memgraph::rpc::SendInProgressMsg(res_builder);
-    spdlog::trace("Saved InProgressRes");
-
-    // Simulate done
-    std::this_thread::sleep_for(300ms);
+    for (int i = 0; i < kHeartbeats; ++i) {
+      std::this_thread::sleep_for(kHeartbeatGap);
+      memgraph::rpc::SendInProgressMsg(res_builder);
+    }
     SumRes const res{5};
     memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-    spdlog::trace("Saved SumRes response");
   });
 
   ASSERT_TRUE(rpc_server.Start());
-  std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 500)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kTimeoutMs)};
   ClientContext client_context;
-  Client client{endpoint, &client_context, rpc_timeouts};
+  Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
+  auto const start = std::chrono::steady_clock::now();
   auto stream = client.Stream<SumV1>(2, 3);
   auto reply = stream.SendAndWaitProgress();
+  auto const elapsed = std::chrono::steady_clock::now() - start;
+
   EXPECT_EQ(reply.sum, 5);
+  // Documents that the call really outlived the timeout, which is what makes the success meaningful.
+  EXPECT_GE(elapsed, kTotalServerTime);
 }
 
+// Once the handler goes quiet after an InProgressRes, the client times out. The handler is held on a condition variable
+// the test only releases after the throw has been observed, so the client can't receive anything before the deadline
+// no matter how the threads are scheduled.
 TEST(RpcInProgress, Timeout) {
-  Endpoint endpoint{"localhost", port};
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool response_released = false;
 
   ServerContext server_context;
-  Server rpc_server{endpoint, &server_context, /* workers */ 1};
-  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
-    ASSERT_TRUE(rpc_server.Shutdown());
-    rpc_server.AwaitShutdown();
-  }};
+  Server rpc_server{kAnyPort, &server_context, /* workers */ 1};
 
-  rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                              uint64_t const request_version,
-                              auto *req_reader,
-                              auto *res_builder) {
-    spdlog::trace("Started executing sum callback");
-    SumReq req;
-    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
-
-    spdlog::trace("Loaded sum req request");
-
-    // Simulate work
-    std::this_thread::sleep_for(100ms);
-    memgraph::rpc::SendInProgressMsg(res_builder);
-    spdlog::trace("Saved InProgressRes");
-
-    // Simulate done
-    std::this_thread::sleep_for(300ms);
-    SumRes const res{5};
-    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-    spdlog::trace("Saved SumRes response");
-  });
+  rpc_server.Register<Sum>(
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        SumReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        memgraph::rpc::SendInProgressMsg(res_builder);
+        {
+          std::unique_lock lock{mutex};
+          cv.wait_for(lock, kStepTimeout, [&] { return response_released; });
+        }
+        try {
+          SumRes const res{5};
+          memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+        } catch (...) {
+          // The client has already timed out and closed the socket.
+        }
+      });
 
   ASSERT_TRUE(rpc_server.Start());
-  std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 200)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 100)};
   ClientContext client_context;
-  Client client{endpoint, &client_context, rpc_timeouts};
+  Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
   EXPECT_THROW(stream.SendAndWaitProgress(), RpcTimeoutException);
+
+  {
+    std::lock_guard const lock{mutex};
+    response_released = true;
+  }
+  cv.notify_all();
+
+  ASSERT_TRUE(rpc_server.Shutdown());
+  rpc_server.AwaitShutdown();
 }
 
+// A handler that answers immediately never trips a configured timeout.
 TEST(RpcInProgress, NoTimeout) {
-  Endpoint endpoint{"localhost", port};
-
   ServerContext server_context;
-  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  Server rpc_server{kAnyPort, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
@@ -194,22 +193,17 @@ TEST(RpcInProgress, NoTimeout) {
                               uint64_t const request_version,
                               auto *req_reader,
                               auto *res_builder) {
-    spdlog::trace("Started executing sum callback");
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
-
-    spdlog::trace("Loaded sum req request");
     SumRes const res{5};
     memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-    spdlog::trace("Saved SumRes response");
   });
 
   ASSERT_TRUE(rpc_server.Start());
-  std::this_thread::sleep_for(100ms);
 
-  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 200)};
+  auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, kGenerousTimeoutMs)};
   ClientContext client_context;
-  Client client{endpoint, &client_context, rpc_timeouts};
+  Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
   auto stream = client.Stream<SumV1>(2, 3);
   EXPECT_NO_THROW(stream.SendAndWaitProgress());
@@ -220,10 +214,16 @@ TEST(RpcInProgress, NoTimeout) {
 // the per-message timeout). Abort() must interrupt that wait promptly by shutting down the socket, regardless of the
 // long configured RPC timeout.
 TEST(RpcInProgress, AbortInterruptsInProgressWait) {
-  Endpoint const endpoint{"localhost", port};
+  // Loose enough to clear the delays a loaded runner produces by orders of magnitude, tight enough that an abort taking
+  // seconds to land still fails.
+  static constexpr auto kPromptly = 5s;
+
+  std::mutex mutex;
+  std::condition_variable cv;
+  bool heartbeat_sent = false;
 
   ServerContext server_context;
-  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  Server rpc_server{kAnyPort, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
@@ -231,29 +231,34 @@ TEST(RpcInProgress, AbortInterruptsInProgressWait) {
 
   // Handler emulates a replica stuck loading a snapshot: it never sends the final response, only InProgressRes
   // heartbeats, until the client tears the connection down (at which point the write fails and we stop).
-  rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
-                              uint64_t const request_version,
-                              auto *req_reader,
-                              auto *res_builder) {
-    SumReq req;
-    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
-    try {
-      for (int i = 0; i < 600; ++i) {  // bounded so the worker can't run forever even if the client never aborts
-        std::this_thread::sleep_for(50ms);
-        memgraph::rpc::SendInProgressMsg(res_builder);
-      }
-    } catch (...) {
-      // Client shut the socket down mid-stream; nothing left to do.
-    }
-  });
+  rpc_server.Register<Sum>(
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        SumReq req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+        try {
+          for (int i = 0; i < 600; ++i) {  // bounded so the worker can't run forever even if the client never aborts
+            memgraph::rpc::SendInProgressMsg(res_builder);
+            {
+              std::lock_guard const lock{mutex};
+              heartbeat_sent = true;
+            }
+            cv.notify_all();
+            std::this_thread::sleep_for(50ms);
+          }
+        } catch (...) {
+          // Client shut the socket down mid-stream; nothing left to do.
+        }
+      });
 
   ASSERT_TRUE(rpc_server.Start());
-  std::this_thread::sleep_for(100ms);
 
   // Generous per-message timeout: only Abort() can end the wait within the test window, not the timeout.
   auto const rpc_timeouts = std::unordered_map{std::make_pair("SumReq"sv, 60'000)};
   ClientContext client_context;
-  Client client{endpoint, &client_context, rpc_timeouts};
+  Client client{rpc_server.endpoint(), &client_context, rpc_timeouts};
 
   std::atomic<bool> threw{false};
   std::thread worker{[&] {
@@ -267,8 +272,11 @@ TEST(RpcInProgress, AbortInterruptsInProgressWait) {
     }
   }};
 
-  // Let the RPC get in-flight and receive a few InProgressRes heartbeats.
-  std::this_thread::sleep_for(300ms);
+  // The RPC is in flight and the client is inside the InProgressRes loop once the handler has sent a heartbeat.
+  {
+    std::unique_lock lock{mutex};
+    cv.wait_for(lock, kStepTimeout, [&] { return heartbeat_sent; });
+  }
 
   auto const before = std::chrono::steady_clock::now();
   client.Abort();
@@ -277,16 +285,14 @@ TEST(RpcInProgress, AbortInterruptsInProgressWait) {
 
   EXPECT_TRUE(threw.load());
   // The wait must end because of Abort, not because the 60s timeout elapsed.
-  EXPECT_LT(elapsed, 5s);
+  EXPECT_LT(elapsed, kPromptly);
 }
 
 // Regression for the reconnect race: once Abort() has torn the client down during shutdown, no later Stream() (a queued
 // recovery task, a heartbeat, or a commit) may revive the connection. The stream attempt must fail fast instead.
 TEST(RpcInProgress, AbortPreventsReconnect) {
-  Endpoint const endpoint{"localhost", port};
-
   ServerContext server_context;
-  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  Server rpc_server{kAnyPort, &server_context, /* workers */ 1};
   auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
     ASSERT_TRUE(rpc_server.Shutdown());
     rpc_server.AwaitShutdown();
@@ -303,10 +309,9 @@ TEST(RpcInProgress, AbortPreventsReconnect) {
   });
 
   ASSERT_TRUE(rpc_server.Start());
-  std::this_thread::sleep_for(100ms);
 
   ClientContext client_context;
-  Client client{endpoint, &client_context};
+  Client client{rpc_server.endpoint(), &client_context};
 
   // A healthy call works before abort.
   EXPECT_NO_THROW(client.Stream<SumV1>(2, 3).SendAndWaitProgress());

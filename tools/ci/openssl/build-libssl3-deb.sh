@@ -29,7 +29,7 @@ Architecture: $ARCH
 Maintainer: Matt James <matthew.james@memgraph.io>
 Conflicts: libssl3t64
 Replaces: libssl3t64
-Provides: libssl3
+Provides: libssl3 (= $VERSION-0ubuntu0custom1)
 Description: Custom libssl/libcrypto from OpenSSL $VERSION (Conan build)
 EOF
 

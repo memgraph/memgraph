@@ -311,8 +311,9 @@ struct CurrentDB {
   // then released by the next ResetInterpreter after the transaction ends, or by ResetDB.
   // is_marked_for_deletion() reads an atomic_bool (no GKInternals::mutex_), so it is safe to call
   // under db_acc_mutex_; the swapped-out Accessor is destructed after the lock is released.
-  void ReleaseDbIfMarked() {
-    if (db_transactional_accessor_ || execution_db_accessor_ || trigger_context_collector_) return;
+  // Returns true iff a marked-for-deletion database was released.
+  bool ReleaseDbIfMarked() {
+    if (db_transactional_accessor_ || execution_db_accessor_ || trigger_context_collector_) return false;
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
       std::lock_guard lock{db_acc_mutex_};
@@ -320,6 +321,7 @@ struct CurrentDB {
         old_db.swap(db_acc_);
       }
     }
+    return old_db.has_value();
   }
 
   // Owning-thread-only. Reads db_acc_ with no synchronization, safe only because a session's queries are
@@ -575,6 +577,13 @@ class Interpreter final {
    */
   void Abort();
 
+  /**
+   * Clear in-band Cypher session state (SET SESSION/NEXT isolation, SET SESSION TRACE/SETTING)
+   * on LOGOFF. Deliberately NOT part of Abort(): Abort() runs on RESET, ROLLBACK, auth failure,
+   * and autocommit abort, where this state must survive within the same logical session.
+   */
+  void ResetForConnectionReuse();
+
   struct TxVerifier {
     TxVerifier(TransactionStatus original_status, std::atomic<TransactionStatus> &transaction_status)
         : original_status_(original_status), transaction_status_(transaction_status) {}
@@ -675,13 +684,7 @@ class Interpreter final {
 
   memgraph::logging::SessionLogContext session_log_ctx_{};
 
-  void ResetInterpreter() {
-    query_executions_.clear();
-    system_transaction_.reset();
-    transaction_queries_->clear();
-    commit_notification_.reset();
-    current_db_.ReleaseDbIfMarked();
-  }
+  void ResetInterpreter();
 
   struct QueryExecution {
     static constexpr struct ThreadSafe {

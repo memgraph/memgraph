@@ -269,6 +269,20 @@ class Handler {
     }
   }
 
+  // Run by the defer worker once per tick while any drop is pending, before the husks' try_delete, so external
+  // pins (e.g. idle sessions still on a dropped database) can be let go. It runs outside pending_mutex_ and may
+  // block, but must not re-enter this Handler.
+  void SetDrainHook(std::function<void()> hook) {
+    auto lock = std::lock_guard{drain_hook_mutex_};
+    drain_hook_ = std::move(hook);
+  }
+
+  // Once this returns the hook is not running and never runs again, so whatever it captured may be destroyed.
+  void ClearDrainHook() {
+    auto lock = std::lock_guard{drain_hook_mutex_};
+    drain_hook_ = nullptr;
+  }
+
   std::vector<std::pair<std::string, std::string>> PendingItems() const {
     auto lock = std::unique_lock{pending_mutex_};
     std::vector<std::pair<std::string, std::string>> out;
@@ -374,6 +388,18 @@ class Handler {
     }
   }
 
+  void RunDrainHook_() {
+    // Held for the call so ClearDrainHook can wait it out.
+    auto lock = std::lock_guard{drain_hook_mutex_};
+    if (drain_hook_) {
+      try {
+        drain_hook_();
+      } catch (...) {
+        spdlog::warn("Deferred-drop drain hook failed; will retry on the next tick.");
+      }
+    }
+  }
+
   // Must be noexcept: utils::Scheduler invokes the job without catching exceptions,
   // so an uncaught exception would call std::terminate on the jthread.
   void Tick_() noexcept {
@@ -385,6 +411,8 @@ class Handler {
         auto lock = std::unique_lock{pending_mutex_};
         for (auto it = pending_.begin(); it != pending_.end(); ++it) its.push_back(it);
       }
+
+      if (!its.empty()) RunDrainHook_();
 
       for (auto it : its) {
         try {
@@ -467,6 +495,8 @@ class Handler {
   mutable std::mutex pending_mutex_;
   bool shutting_down_ = false;  //!< set by ~Handler before Stop(); guards the DeferDelete/drain race
   std::list<PendingDeletion> pending_;
+  std::mutex drain_hook_mutex_;       //!< held while the hook is set, cleared or running
+  std::function<void()> drain_hook_;  //!< guarded by drain_hook_mutex_
   utils::Scheduler defer_worker_;  //!< deferred-teardown worker; the Handler ctor calls SetInterval (default 10 s) — a
                                    //!< Scheduler has no interval until then; override the constructor argument in tests
 };

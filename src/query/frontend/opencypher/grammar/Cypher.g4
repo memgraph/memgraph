@@ -171,7 +171,7 @@ patternElement : ( nodePattern ( patternElementChain )* )
                | ( '(' patternElement ')' )
                ;
 
-nodePattern : '(' ( variable )? ( nodeLabels | labelExpression )? ( properties )? ')' ;
+nodePattern : '(' ( variable )? ( patternLabelExpression )? ( properties )? ')' ;
 
 patternElementChain : relationshipPattern nodePattern ;
 
@@ -203,7 +203,53 @@ nodeLabels : nodeLabel ( nodeLabel )* ;
 
 nodeLabel : ':' labelName ;
 
-labelExpression: ':' symbolicName ( '|' symbolicName )+ ;
+// Either one ':' term with any operators (':A&!B|C'), or the openCypher chain ':A:B:C' of
+// plain labels. The visitor rejects a mix of the two (':A|B:C').
+nodeLabelExpression : ( ':' labelSegment )+ ;
+
+// What a node pattern names. Only properties or ')' may follow it, neither of which begins with '|', so its
+// disjunction runs to the end and the loop below is greedy. `nodeLabelExpression` is the same thing in
+// expression position, where a '|' may instead begin a comprehension's projection.
+patternLabelExpression : ( ':' patternLabelSegment )+ ;
+patternLabelSegment : patternLabelTerm ;
+patternLabelTerm : patternLabelAnd ( '|' patternLabelAnd )* ;
+
+patternLabelAnd : patternLabelConjunct ( '&' patternLabelConjunct )* ;
+patternLabelConjunct : dynamicLabel | labelTermNot ;
+
+labelSegment : dynamicLabel
+             | labelTerm
+             ;
+
+// A label named by an expression. A node pattern takes one as a conjunct, so ':' and '&' join it to a
+// plain label alike, and only a conjunction may hold one. An expression takes it as a whole segment
+// only: after '|' it would compete with the projection in '[x IN xs WHERE x:A | x.v]', and that
+// ambiguity costs a full-context prediction per comprehension.
+dynamicLabel : variable ( propertyLookup )+
+             | '(' dynamicLabel ')'
+             ;
+
+// Non-greedy, so '[x IN xs WHERE x:A | x]' keeps '| x' as the projection, as before label expressions.
+labelTerm : labelTermAnd ( '|' labelTermAnd )*? ;
+
+labelTermAnd : labelTermNot ( '&' labelTermNot )* ;
+
+labelTermNot : '!' labelTermNot
+             | labelTermAtom
+             ;
+
+labelTermAtom : labelLeaf
+              | '%'
+              | '(' parenLabelTerm ')'
+              ;
+
+// A ')' closes this one, so nothing after it can claim a '|' and the loop is greedy whichever rule invoked
+// it. That keeps leaving the loop a token test rather than a prediction.
+parenLabelTerm : labelTermAnd ( '|' labelTermAnd )* ;
+
+labelLeaf : symbolicName
+          | parameter
+          ;
 
 labelName : symbolicName
           | parameter
@@ -242,7 +288,7 @@ expression3 : ( ( '+' | '-' ) )* expression2a ;
 
 stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression6) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
 
-expression2a : expression2b ( nodeLabels )? ;
+expression2a : expression2b ( nodeLabelExpression )? ;
 
 expression2b : atom ( memberAccess )* ;
 

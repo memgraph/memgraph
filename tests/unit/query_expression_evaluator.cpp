@@ -1226,6 +1226,70 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTest) {
   }
 }
 
+// `%` asks whether the node carries any label at all, and says nothing about which.
+TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWildcard) {
+  auto labelled = this->dba.InsertVertex();
+  ASSERT_TRUE(labelled.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  auto bare = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+
+  auto *identifier = this->storage.template Create<Identifier>("n");
+  auto node_symbol = this->symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+
+  auto eval_on = [&](const TypedValue &value) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, value);
+    return this->Eval(LabelsTest::Make(this->storage, identifier, LabelTerm{LabelTerm::Wildcard{}}));
+  };
+  EXPECT_TRUE(eval_on(TypedValue(labelled)).ValueBool());
+  EXPECT_FALSE(eval_on(TypedValue(bare)).ValueBool());
+
+  // A vertex of this command does not exist under the OLD view the evaluator reads, so `%` reads it under NEW.
+  auto fresh = this->dba.InsertVertex();
+  ASSERT_TRUE(fresh.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  EXPECT_TRUE(eval_on(TypedValue(fresh)).ValueBool());
+}
+
+// A term held whole is evaluated against the one vertex its subject gives.
+TYPED_TEST(ExpressionEvaluatorTest, LabelsTestWholeTerm) {
+  auto animal_ix = this->storage.GetLabelIx("ANIMAL");
+  auto plant_ix = this->storage.GetLabelIx("PLANT");
+  auto animal = this->dba.InsertVertex();
+  ASSERT_TRUE(animal.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  auto plant = this->dba.InsertVertex();
+  ASSERT_TRUE(plant.AddLabel(this->dba.NameToLabel("PLANT")).has_value());
+  auto both = this->dba.InsertVertex();
+  ASSERT_TRUE(both.AddLabel(this->dba.NameToLabel("ANIMAL")).has_value());
+  ASSERT_TRUE(both.AddLabel(this->dba.NameToLabel("PLANT")).has_value());
+  auto bare = this->dba.InsertVertex();
+  this->dba.AdvanceCommand();
+
+  auto *identifier = this->storage.template Create<Identifier>("n");
+  auto node_symbol = this->symbol_table.CreateSymbol("n", true);
+  identifier->MapTo(node_symbol);
+
+  auto leaf = [](LabelIx label) { return LabelTerm{LabelTerm::Label{label}}; };
+  auto test_of = [&](LabelTerm term) { return LabelsTest::Make(this->storage, identifier, std::move(term)); };
+  // (ANIMAL|PLANT)&!(ANIMAL&PLANT): each of `|`, `&` and `!` read as another operator changes a row below.
+  auto term = LabelTerm{
+      LabelTerm::And{{LabelTerm{LabelTerm::Or{{leaf(animal_ix), leaf(plant_ix)}}},
+                      LabelTerm{LabelTerm::Not{LabelTerm{LabelTerm::And{{leaf(animal_ix), leaf(plant_ix)}}}}}}}};
+  // An empty `$p` under an operator: an `And` of nothing.
+  auto empty_conjunction = LabelTerm{LabelTerm::And{}};
+
+  auto eval_on = [&](const TypedValue &value, LabelsTest *op) {
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, value);
+    return this->Eval(op);
+  };
+  EXPECT_TRUE(eval_on(TypedValue(animal), test_of(term)).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue(plant), test_of(term)).ValueBool());
+  EXPECT_FALSE(eval_on(TypedValue(both), test_of(term)).ValueBool());
+  EXPECT_FALSE(eval_on(TypedValue(bare), test_of(term)).ValueBool());
+  EXPECT_TRUE(eval_on(TypedValue(bare), test_of(empty_conjunction)).ValueBool());
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, EdgeTypesTest) {
   // Setup: Create edge with TYPE_A
   auto from_vertex = this->dba.InsertVertex();

@@ -11,13 +11,12 @@
 
 import os
 import sys
-import tempfile
 import time
 from typing import Any, Dict
 
 import interactive_mg_runner
 import pytest
-from common import execute_and_fetch_all
+from common import execute_and_fetch_all, get_data_path, get_logs_path
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -26,8 +25,21 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
+FILE = "durability_with_property_compression_used"
 
-def test_durability_with_compression_on(connection):
+
+@pytest.fixture(autouse=True)
+def cleanup_after_test():
+    yield
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+@pytest.fixture
+def test_name(request):
+    return request.node.name
+
+
+def test_durability_with_compression_on(connection, test_name):
     # Goal: That data is correctly restored while compression is used.
     # 0/ Setup the database
     # 1/ MAIN CREATE Vertex with compressible property
@@ -36,8 +48,6 @@ def test_durability_with_compression_on(connection):
     # 4/ Start MAIN
     # 5/ Validate property is present
 
-    data_directory = tempfile.TemporaryDirectory()
-
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
@@ -45,8 +55,8 @@ def test_durability_with_compression_on(connection):
                 "--storage-property-store-compression-enabled=true",
                 "--data-recovery-on-startup=true",
             ],
-            "log_file": "main_durability_with_compression_on.log",
-            "data_directory": data_directory.name,
+            "log_file": f"{get_logs_path(FILE, test_name)}/main.log",
+            "data_directory": get_data_path(FILE, test_name),
         },
     }
 
@@ -80,7 +90,7 @@ def test_durability_with_compression_on(connection):
     assert len(properties) == 1
     assert properties == [("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",)]
 
-    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
+    interactive_mg_runner.stop(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main", keep_directories=False)
 
 
 if __name__ == "__main__":

@@ -94,13 +94,17 @@ inline constexpr size_t kFileBufferSize = 262'144;
 /// reclaim, so keeping them does not recreate the memory pressure dropping exists to relieve.
 enum class PageCachePolicy : uint8_t { kKeep, kDrop };
 
-/// Drop `fd`'s pages from the page cache, best effort.
+/// Drop `fd`'s pages from the page cache, best effort. Returns the error number POSIX_FADV_DONTNEED
+/// answered with, zero when the advice was accepted.
 ///
 /// Only clean pages go: POSIX_FADV_DONTNEED silently skips dirty ones, so call this after a sync,
 /// and only when the file is not about to be read back. Advisory, and it reports a refusal by
-/// returning an error number rather than by setting errno; there is nothing to do about one beyond
-/// leaving the pages where they are.
-void DropCachedPages(int fd);
+/// returning an error number rather than by setting errno. A refusal leaves the pages where they
+/// are, so a caller has nothing to undo; what it loses is the memory the call was asking back.
+///
+/// Acceptance is not eviction. A filesystem that keeps the file in memory whatever it is told,
+/// tmpfs among them, answers zero and keeps every page.
+[[nodiscard]] int DropCachedPages(int fd);
 
 /// This class implements a file handler that is used to read binary files. It
 /// was developed because the C++ standard library has an awful API and makes
@@ -162,6 +166,7 @@ class InputFile {
   void Close() noexcept;
 
   /// See `utils::DropCachedPages`. Reading leaves clean pages behind, so no sync is needed first.
+  /// A refusal is logged and otherwise passes.
   void DropCachedPages() const;
 
   /// Restarts CRC accumulation from the current position.
@@ -289,8 +294,8 @@ class OutputFile {
   /// and misuse it crashes the program.
   void Sync();
 
-  /// See `utils::DropCachedPages`.
-  void DropCachedPages() const { utils::DropCachedPages(fd_); }
+  /// See `utils::DropCachedPages`. A refusal is logged and otherwise passes.
+  void DropCachedPages() const;
 
   /// Closes the currently opened file. It doesn't perform a `Sync` on the
   /// file. On failure and misuse it crashes the program.
@@ -422,6 +427,8 @@ class NonConcurrentOutputFile {
   /// On a paced file one call also collects what the windows could not: the final partial window,
   /// the window whose drop was scheduled for a boundary that never came, the windows abandoned by
   /// each seek, and the pages the writer went back to patch after their region had been dropped.
+  ///
+  /// A refusal is logged and otherwise passes.
   void DropCachedPages();
 
   /// Appends up to `size` bytes from the start of `src_fd` to this file, copying within the kernel.

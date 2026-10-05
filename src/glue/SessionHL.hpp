@@ -38,8 +38,11 @@ class RuntimeConfig {
 
   void Configure(const bolt_map_t &run_time_info, bool in_explicit_tx);
 
+  // Invalidate Configure()'s "run_time_info unchanged => skip" cache on LOGOFF so re-used
+  // connections fully re-derive user + db even when the next session's metadata matches the previous one's.
+  void ResetForConnectionReuse() { previous_run_time_info_.reset(); }
+
   bool db_explicit_ = false;
-  bool user_explicit_ = false;
 
  private:
   SessionHL *session_;

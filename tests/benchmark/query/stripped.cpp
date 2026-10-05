@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -44,6 +44,12 @@ const char *kQueries[] = {
 "MATCH (n) WITH n LIMIT toInteger(ceil(1.7)) RETURN count(*) AS count",
 "MATCH (a:A), (b:B) MERGE (a)-[r:TYPE]->(b) ON CREATE SET r.name = 'Lola' RETURN count(r)",
 "CREATE (:L1:L2:L3:L4:L5:L6:L7 {p1: true, p2: 42, p3: \"Here is some text that is not extremely short\", p4:\"Short text\", p5: 234.434, p6: 11.11, p7: false})",
+// Label operators, which the trie learned a new token for. The last one spells `!` beside `!=` so the
+// longest match is on the measured path and not only in the tests.
+"MATCH (n:A&B|C) RETURN n",
+"MATCH (n:!A&(B|C)) RETURN n",
+"MATCH (n:%) RETURN n",
+"MATCH (n:A&!B) WHERE n.id != 42 RETURN n",
 };
 // clang-format on
 

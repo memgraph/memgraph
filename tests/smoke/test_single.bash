@@ -66,7 +66,7 @@ if [[ "$MODE" != "fips" ]]; then
   test_kerberos_auth_setup
   test_kerberos_auth
 else
-  echo "SKIP FEATURE: Kerberos SSO (its auth module is Python, absent from the FIPS image)"
+  echo "SKIP FEATURE: Kerberos SSO (MG_FIPS omits kerberos.py: Ubuntu krb5 does its own crypto, not the validated OpenSSL)"
 fi
 
 # Refusing to start on a non-approved password algorithm is a startup-time

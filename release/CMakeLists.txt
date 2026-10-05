@@ -34,6 +34,15 @@ else()
     set(CPACK_MG_PYTHON_SUPPORT "OFF")
 endif()
 
+# Stops Python modules being installed automatically by pip: this is because
+# some of them are statically linked to OpenSSL - we want them to link to
+# our custom FIPS-compliant OpenSSL at runtime.
+if(MG_FIPS)
+    set(CPACK_MG_FIPS "ON")
+else()
+    set(CPACK_MG_FIPS "OFF")
+endif()
+
 # DEB specific
 # Instead of using "name <email>" format, we use "email (name)" to prevent
 # errors due to full stop, '.' at the end of "Ltd". (See: RFC 822)
@@ -82,18 +91,28 @@ endif()
 #                                (Ubuntu 20.04 LTS has libstdc++6 10).
 #   libgcc-s1                 — provides libgcc_s.so.1 (Ubuntu 20.04+).
 #   libatomic1                — NEEDED libatomic.so.1; absent on minimal images.
+#   zlib1g                    — NEEDED libz.so.1.
+#   libseccomp2               — NEEDED libseccomp.so.2, likewise shared by conan
+#                                ("libseccomp/2.6.0", options shared=True).
 #   openssl                   — CLI; pulls libssl{3,1.1} transitively, name
 #                                stable across libssl3 / libssl3t64.
 #   python3 (>= 3.5.0)        — interpreter for tooling around query modules;
 #                                does NOT pull libpython3.X on Debian/Ubuntu.
 #   python3-pip               — postinst pip-installs the query-module deps.
+#                                Omitted under MG_FIPS.
 #   ca-certificates           — TLS trust for pip (PyPI over https).
+#   libxmlsec1*-openssl       — MG_FIPS only. The FIPS xmlsec wheel is built
+#                                against the system libs so it uses the
+#                                validated OpenSSL, and so NEEDs
+#                                libxmlsec1-openssl.so.1.
 #   libxmlsec1|libxmlsec1-1   — system lib for the pip xmlsec wheel (SAML SSO);
 #                                t64 name Provides libxmlsec1 on Ubuntu 24.04,
 #                                renamed libxmlsec1-1 from Ubuntu 26.04 (xmlsec
 #                                1.3 soname bump, no Provides).
 #   libkrb5-3                 — GSSAPI runtime for the gssapi wheel (Kerberos
 #                                SSO; the wheel itself is best-effort/offline).
+#                                Omitted under MG_FIPS, which drops the Kerberos
+#                                auth module and its gssapi dependency.
 #   libpython3.10 | ... |3.14 — the binary links the unversioned abi3 SONAME
 #                                libpython3.so (needs >= 3.10); only versioned
 #                                runtime libs exist as packages, so pull one
@@ -109,10 +128,16 @@ endif()
 # Everything from python3 onwards exists for the embedded interpreter and the
 # postinst pip phase, so it is only declared when MG_PYTHON_SUPPORT=ON.
 set(CPACK_DEBIAN_PACKAGE_DEPENDS
-    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, openssl (>= 1.1.0)")
+    "libc6 (>= 2.31), libstdc++6 (>= 9), libgcc-s1, libatomic1, zlib1g, libseccomp2, openssl (>= 1.1.0)")
 if(MG_PYTHON_SUPPORT)
     string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
-        ", python3 (>= 3.5.0), python3-pip, ca-certificates, libxmlsec1 | libxmlsec1-1, libkrb5-3, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
+        ", python3 (>= 3.5.0), ca-certificates, libxmlsec1 | libxmlsec1-1, libpython3.10 | libpython3.11 | libpython3.12 | libpython3.13 | libpython3.14")
+    if(MG_FIPS)
+        string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS
+            ", libxmlsec1t64-openssl | libxmlsec1-openssl | libxmlsec1-1-openssl")
+    else()
+        string(APPEND CPACK_DEBIAN_PACKAGE_DEPENDS ", python3-pip, libkrb5-3")
+    endif()
 endif()
 
 # Setting architecture extension for rpm packages
@@ -158,13 +183,22 @@ endif()
 # python3-pip + util-linux (runuser) serve the %post pip install of the
 # query-module deps; xmlsec1/krb5-libs are the system libs behind the pip
 # xmlsec and gssapi packages (SAML / Kerberos SSO).
-set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, logrotate, libatomic")
+set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "openssl >= 1.0.0, curl >= 7.29.0, logrotate, libatomic, zlib, libseccomp")
 # The el9 python3.12 rich dependency lives in the spec template as a whole
 # line, so it can be dropped entirely for Python-less builds.
 set(CPACK_MG_RPM_PYTHON_REQUIRES "")
 if(MG_PYTHON_SUPPORT)
-    string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python3 >= 3.5.0, python3-pip, util-linux, xmlsec1, krb5-libs")
-    set(CPACK_MG_RPM_PYTHON_REQUIRES "Requires:       ((python3.12 and python3.12-pip) if system-release(releasever) = 9)")
+    string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python3 >= 3.5.0, xmlsec1")
+    if(MG_FIPS)
+        # No %post pip phase, so no pip and no runuser; krb5 goes with gssapi.
+        # xmlsec1-openssl is the backend the FIPS xmlsec wheel NEEDs; the PyPI
+        # wheel every other build installs bundles it statically instead.
+        string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", xmlsec1-openssl")
+        set(CPACK_MG_RPM_PYTHON_REQUIRES "Requires:       (python3.12 if system-release(releasever) = 9)")
+    else()
+        string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python3-pip, util-linux, krb5-libs")
+        set(CPACK_MG_RPM_PYTHON_REQUIRES "Requires:       ((python3.12 and python3.12-pip) if system-release(releasever) = 9)")
+    endif()
 endif()
 
 # When memgraph is built against an explicit Python (currently CentOS Stream 9,
@@ -175,7 +209,10 @@ endif()
 # serialized into CPackConfig.cmake and substituted into the spec template.
 set(CPACK_MG_PYTHON_VERSION "${MG_PYTHON_VERSION}")
 if(MG_PYTHON_SUPPORT AND NOT "${MG_PYTHON_VERSION}" STREQUAL "")
-    set(CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES "${CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES}, python${MG_PYTHON_VERSION}, python${MG_PYTHON_VERSION}-pip")
+    string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python${MG_PYTHON_VERSION}")
+    if(NOT MG_FIPS)
+        string(APPEND CPACK_RPM_MEMGRAPH_PACKAGE_REQUIRES ", python${MG_PYTHON_VERSION}-pip")
+    endif()
 endif()
 
 # Configure CPack to build mgconsole using the unified install script.

@@ -213,25 +213,37 @@ class DbmsHandler {
     spdlog::debug("Different UUIDs");
 
     // TODO: Fix this hack
+    // The default DB cannot be deleted and recreated (its storage directory is the root data
+    // directory), so we mutate the UUID in place. By the time this runs the instance is a replica, so
+    // no new write transactions can start, and the DBMS write lock (held by Update) serializes against
+    // other DBMS operations. A transaction prepared before the demotion can still be in flight: the
+    // check below only refuses a default DB that has already committed.
     if (*name_view == kDefaultDB) {
       const memory::DbArenaScope db_arena_scope{db.get()};
       auto *storage = db->storage();
       spdlog::debug("Last commit timestamp for DB {} is {}",
                     kDefaultDB,
                     storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
-      // This seems correct, if database made progress
       if (storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
-          storage::kTimestampInitialId) {
+          storage::kTimestampInitialId) [[unlikely]] {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
-        return std::unexpected{NewError::GENERIC};  // Update error
+        return std::unexpected{NewError::GENERIC};
       }
-      spdlog::debug("Updated default db's UUID");
-      // Default db cannot be deleted and remade, have to just update the UUID
-      auto const retired_uuid = storage->config_.salient.uuid;
+      auto const old_uuid = storage->config_.salient.uuid;
       storage->config_.salient.uuid = config.uuid;
-      metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
-      if (on_uuid_retired_) on_uuid_retired_(retired_uuid);
-      UpdateDurability(storage->config_, ".");
+      try {
+        UpdateDurability(storage->config_, ".");
+      } catch (...) {
+        storage->config_.salient.uuid = old_uuid;
+        throw;
+      }
+      if (storage->config_.register_metrics) {
+        // Only the presented uuid changes; the metric objects and every handle into them stay put.
+        metrics::Metrics().RebindDefaultDatabaseUUID(config.uuid);
+      }
+      NotifyUuidRetired_(old_uuid, kDefaultDB);
+      spdlog::debug("Updated default db's UUID");
+
       return db;
     }
 
@@ -380,6 +392,10 @@ class DbmsHandler {
    *        running/stopped state. Triggers are NOT restored here (suspend never stops them). Default empty.
    */
   void SetRestoreStreams(std::function<void(DatabaseAccess)> cb) { restore_streams_ = std::move(cb); }
+
+  void SetDrainHook(std::function<void()> hook) { db_handler_.SetDrainHook(std::move(hook)); }
+
+  void ClearDrainHook() { db_handler_.ClearDrainHook(); }
 
   /**
    * @brief Set the arm that discards a database's server-side parameters, which live in a store this
@@ -1005,8 +1021,8 @@ class DbmsHandler {
   // Caller invokes this only when GetConfig(db_name) already returned nullopt. Caller must hold lock_.
   DeleteError NotLiveDeleteError_(std::string_view db_name) const;
 
-  // Invoke on_uuid_retired_ after a committed drop; swallow and log any exception.
-  // The drop is already committed (husk draining or COLD removed) — a hook exception must NOT
+  // Invoke on_uuid_retired_ after a committed drop or rebind; swallow and log any exception.
+  // The retirement is already committed, so a hook exception must NOT
   // surface as a false failure to the caller. If the hook throws, that uuid's parameter rows
   // stay orphaned; nothing reclaims them. No-op when on_uuid_retired_ is empty.
   void NotifyUuidRetired_(utils::UUID const &uuid, std::string_view name_for_log);

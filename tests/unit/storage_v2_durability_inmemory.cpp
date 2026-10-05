@@ -3354,8 +3354,13 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       }
     }
   } else if (pid > 0) {
-    // Wait for WALs to be created.
-    std::this_thread::sleep_for(std::chrono::seconds(2));
+    // Wait for the child to open its WAL file, then let it write for a while before killing it. A fixed sleep is
+    // too short when the runner is slow.
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+    while (GetWalsList().empty() && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    std::this_thread::sleep_for(std::chrono::seconds(1));
     int status;
     EXPECT_EQ(waitpid(pid, &status, WNOHANG), 0);
     EXPECT_EQ(kill(pid, SIGKILL), 0);

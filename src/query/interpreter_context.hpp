@@ -135,6 +135,12 @@ struct InterpreterContext {
   static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
                                                            std::string_view db_name);
 
+  // Hooks into the DbmsHandler's deferred-drop worker: while a FORCE drop is draining, Bolt sessions whose current
+  // database is being dropped are closed, so the database can drain. Unregister before this context is destroyed;
+  // it returns only once the hook can no longer run.
+  void RegisterDropDrainHook();
+  void UnregisterDropDrainHook() const;
+
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, memgraph::utils::Settings *settings,
                      memgraph::parameters::Parameters *parameters, dbms::DbmsHandler *dbms_handler,
@@ -225,8 +231,12 @@ struct InterpreterContextLifetimeControl {
                                          ac,
                                          replication_handler,
                                          worker_pool);
+    InterpreterContextHolder::GetInstance().RegisterDropDrainHook();
   }
 
-  ~InterpreterContextLifetimeControl() { InterpreterContextHolder::destroy(); }
+  ~InterpreterContextLifetimeControl() {
+    InterpreterContextHolder::GetInstance().UnregisterDropDrainHook();
+    InterpreterContextHolder::destroy();
+  }
 };
 }  // namespace memgraph::query

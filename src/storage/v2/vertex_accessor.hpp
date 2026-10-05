@@ -67,6 +67,10 @@ class VertexAccessor final {
 
   Result<bool> HasLabel(LabelId label, View view) const;
 
+  /// Whether the vertex carries any label, which is all the `%` label wildcard asks. Reads the labels in
+  /// place when no delta applies, so it need not build the set to find it non-empty.
+  Result<bool> HasAnyLabel(View view) const;
+
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().

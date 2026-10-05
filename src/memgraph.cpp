@@ -1290,6 +1290,8 @@ int main(int argc, char **argv) {
 
   if (worker_pool_) worker_pool_->AwaitShutdown();
   server.AwaitShutdown();
+  // ~Server destroys the Bolt io_context; the drain hook must not be able to reach a session after that.
+  interpreter_context_.UnregisterDropDrainHook();
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE
