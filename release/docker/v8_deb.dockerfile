@@ -275,7 +275,6 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     /mirrors/pin_mirrors.sh apply; \
   fi && \
   /mirrors/retry.sh -- apt-get update && \
-  /mirrors/retry.sh -- apt-get upgrade -y && \
   /mirrors/retry.sh -- apt-get install -y \
     /openssl/openssl*.deb \
     /openssl/libssl3t64*.deb \
