@@ -4772,7 +4772,7 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
 CypherQuery *CypherMainVisitor::VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx) {
   auto *branches = storage_->Create<ConditionalBranches>();
   auto *single_query = storage_->Create<SingleQuery>();
-  auto const add_branch = [&](Expression *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
+  auto const add_branch = [&](Where *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
     auto *body = VisitConditionalBody(body_ctx);
     branches->predicates_.push_back(predicate);
     branches->bodies_.push_back(body);
@@ -4782,7 +4782,8 @@ CypherQuery *CypherMainVisitor::VisitConditionalQuery(MemgraphCypher::Conditiona
     }
   };
   for (auto *branch_ctx : ctx->conditionalBranch()) {
-    add_branch(std::any_cast<Expression *>(branch_ctx->expression()->accept(this)), branch_ctx->conditionalBody());
+    auto *predicate = std::any_cast<Expression *>(branch_ctx->expression()->accept(this));
+    add_branch(storage_->Create<Where>(predicate), branch_ctx->conditionalBody());
   }
   if (ctx->ELSE()) {
     add_branch(nullptr, ctx->conditionalBody());

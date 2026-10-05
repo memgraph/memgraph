@@ -4237,7 +4237,10 @@ class ConditionalBranches : public memgraph::query::Clause {
     return visitor.PostVisit(*this);
   }
 
-  std::vector<memgraph::query::Expression *> predicates_;
+  /// A predicate is a `Where`: WHEN and WHERE currently follow exactly the same analysis rules (subqueries, pattern
+  /// variables, aggregation), so every rule keyed to `Where` applies to both. If the two ever differ, give WHEN its own
+  /// node. A WHEN predicate only picks the branch, it drops no row, so the planner never makes it a `Filter`.
+  std::vector<memgraph::query::Where *> predicates_;
   std::vector<memgraph::query::CypherQuery *> bodies_;
   /// Set by the symbol generator: one symbol per RETURN column, empty when no branch has a RETURN.
   /// A column named after an import is the import's own symbol.

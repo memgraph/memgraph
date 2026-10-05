@@ -8625,8 +8625,8 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
     ASSERT_TRUE(branches);
     ASSERT_EQ(branches->predicates_.size(), 3U);
     ASSERT_EQ(branches->bodies_.size(), 3U);
-    EXPECT_TRUE(dynamic_cast<EqualOperator *>(branches->predicates_[0]));
-    EXPECT_TRUE(dynamic_cast<EqualOperator *>(branches->predicates_[1]));
+    EXPECT_TRUE(dynamic_cast<EqualOperator *>(branches->predicates_[0]->expression_));
+    EXPECT_TRUE(dynamic_cast<EqualOperator *>(branches->predicates_[1]->expression_));
     EXPECT_EQ(branches->predicates_[2], nullptr);
     EXPECT_TRUE(branches->bodies_[0]->cypher_unions_.empty());
     EXPECT_EQ(branches->bodies_[1]->cypher_unions_.size(), 1U);
@@ -8660,7 +8660,7 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
         "UNWIND [true] AS when CALL (when) { WHEN when THEN RETURN 1 AS then ELSE RETURN 2 AS then } "
         "RETURN then AS else");
     ASSERT_TRUE(branches);
-    EXPECT_TRUE(dynamic_cast<Identifier *>(branches->predicates_[0]));
+    EXPECT_TRUE(dynamic_cast<Identifier *>(branches->predicates_[0]->expression_));
   }
 
   TestInvalidQueryWithMessage<SyntaxException>(

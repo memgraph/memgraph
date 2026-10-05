@@ -1426,10 +1426,10 @@ QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, Singl
   auto conditional = std::make_shared<ConditionalQueryParts>();
   conditional->output_symbols = branches->output_symbols_;
   for (auto *predicate : branches->predicates_) {
-    conditional->predicates.push_back(predicate);
+    conditional->predicates.push_back(predicate ? predicate->expression_ : nullptr);
     auto &filters = conditional->predicate_filters.emplace_back();
     if (!predicate) continue;
-    filters = Filters::FromExpression(predicate, symbol_table, storage);
+    filters.CollectWhereFilter(*predicate, symbol_table, storage);
     CollectSubqueryMatchings(filters, symbol_table, storage);
   }
   for (auto *body : branches->bodies_) {

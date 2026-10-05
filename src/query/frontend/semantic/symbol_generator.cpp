@@ -386,12 +386,10 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   // A trigger that is not cacheable analyses the same AST again on every firing.
   branches.output_symbols_.clear();
   auto const base = scopes_.back();
-  // Predicates see only the imports, under WHERE rules (no aggregation, patterns bind nothing).
-  scopes_.back().in_where = true;
+  // Predicates see only the imports. Each is a `Where`, so it gets the WHERE rules.
   for (auto *predicate : branches.predicates_) {
     if (predicate) predicate->Accept(*this);
   }
-  scopes_.back().in_where = false;
 
   // Each branch starts from the imports alone, as a UNION part does.
   std::vector<BranchKind> kinds;
