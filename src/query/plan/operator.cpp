@@ -1725,7 +1725,7 @@ ScanAllByIndexDisjunction::ScanAllByIndexDisjunction(const std::shared_ptr<Logic
                                                      Symbol output_symbol, std::vector<IndexDisjunctionBranch> branches,
                                                      storage::View view)
     : ScanAll(input, std::move(output_symbol), view), branches_(std::move(branches)) {
-  DMG_ASSERT(branches_.size() > 1, "A disjunction needs at least two branches.");
+  DMG_ASSERT(!branches_.empty(), "A disjunction needs a branch.");
 }
 
 ACCEPT_WITH_INPUT(ScanAllByIndexDisjunction)
@@ -1742,7 +1742,10 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
         // a write above this scan can change labels between pulls; only the Gid set is exact there.
         dedup_by_label_(self.view_ == storage::View::OLD),
         next_branch_(self.branches_.size()),
-        seen_(mem) {}
+        seen_(mem) {
+    value_predicates_.reserve(self_.branches_.size());
+    for (auto const &branch : self_.branches_) value_predicates_.emplace_back(branch.expression_ranges.size());
+  }
 
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
@@ -1751,6 +1754,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
     while (true) {
       AbortCheck(context);
       if (!vertices_) {
+        if (NextSeek(frame, context)) continue;
         if (!StartNextBranch(frame, context)) return false;
         continue;
       }
@@ -1767,7 +1771,8 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
       }
 #endif
       if (IsDuplicate(vertex)) continue;
-      if (!dedup_by_label_) seen_.insert(vertex.Gid());
+      // A label branch under OLD is answered by the label check alone; everything else is remembered.
+      if (!dedup_by_label_ || !self_.branches_[branch_].IsLabelOnly()) seen_.insert(vertex.Gid());
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       frame_writer.Write(self_.output_symbol_, vertex);
       return true;
@@ -1779,6 +1784,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
   void Reset() override {
     input_cursor_->Reset();
     next_branch_ = self_.branches_.size();
+    tuple_pending_ = false;
     vertices_.reset();
     vertices_it_.reset();
     vertices_end_it_.reset();
@@ -1805,11 +1811,54 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
     }
     branch_ = next_branch_++;
     auto const &branch = self_.branches_[branch_];
-    DMG_ASSERT(branch.IsLabelOnly(), "Label-property branches are not supported yet.");
-    vertices_.emplace(context.db_accessor->Vertices(self_.view_, branch.label));
+    if (branch.IsLabelOnly()) {
+      SetVertices(context.db_accessor->Vertices(self_.view_, branch.label));
+      return true;
+    }
+    // Each IN list is evaluated once for this row; every tuple of their elements is one seek.
+    ExpressionEvaluator evaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
+    membership_values_.clear();
+    for (auto const &slot : branch.membership_slots) {
+      auto list = slot.list->Accept(evaluator);
+      auto &values = membership_values_.emplace_back(list.ValueList().begin(), list.ValueList().end());
+      if (values.empty()) return true;
+    }
+    tuple_.assign(branch.membership_slots.size(), 0);
+    tuple_pending_ = true;
+    return true;
+  }
+
+  // Seeks the current branch's index for its next tuple of IN elements. False when no tuple is left.
+  bool NextSeek(Frame &frame, ExecutionContext &context) {
+    auto const &branch = self_.branches_[branch_];
+    while (tuple_pending_) {
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+      for (auto const &[slot, values, position] : rv::zip(branch.membership_slots, membership_values_, tuple_)) {
+        frame_writer.Write(slot.element, values[position]);
+      }
+      tuple_pending_ = false;
+      for (auto i = tuple_.size(); i-- > 0;) {
+        if (++tuple_[i] < membership_values_[i].size()) {
+          tuple_pending_ = true;
+          break;
+        }
+        tuple_[i] = 0;
+      }
+      ExpressionEvaluator evaluator{&frame, context, self_.view_, nullptr, &context.number_of_hops};
+      // A null bound or a null, NaN or list element matches nothing: skip this tuple only.
+      auto ranges = EvaluateSeekRanges(branch.expression_ranges, evaluator, value_predicates_[branch_]);
+      if (!ranges) continue;
+      SetVertices(
+          context.db_accessor->Vertices(self_.view_, branch.label, branch.properties, *ranges, branch.index_order));
+      return true;
+    }
+    return false;
+  }
+
+  void SetVertices(VerticesIterable vertices) {
+    vertices_.emplace(std::move(vertices));
     vertices_it_.emplace(vertices_->begin());
     vertices_end_it_.emplace(vertices_->end());
-    return true;
   }
 
   const ScanAllByIndexDisjunction &self_;
@@ -1821,6 +1870,11 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
   std::optional<decltype(vertices_->begin())> vertices_it_;
   std::optional<decltype(vertices_->end())> vertices_end_it_;
   utils::pmr::unordered_set<storage::Gid> seen_;
+  std::vector<std::vector<ValuePredicateForRow>> value_predicates_;
+  // The current branch's IN elements, one list per slot, and the next tuple of positions into them.
+  std::vector<std::vector<TypedValue>> membership_values_;
+  std::vector<size_t> tuple_;
+  bool tuple_pending_{false};
 };
 
 }  // namespace

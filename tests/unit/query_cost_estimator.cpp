@@ -458,6 +458,22 @@ TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionCostsLikeTheUnionOfItsScans)
   EXPECT_FLOAT_EQ(disjunction_cost, 2 * 30 * CostParam::kScanAllByLabel);
 }
 
+// An IN branch seeks every element itself: its estimate is the whole list's, not one element's.
+TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionInBranchCountsTheWholeList) {
+  AddVertices(100, 30, 20);
+  auto *list = storage_.Create<ListLiteral>(std::vector<Expression *>{Literal(1), Literal(2), Literal(3)});
+  auto element = NextSymbol();
+  auto *element_ident = storage_.Create<Identifier>(element.name())->MapTo(element);
+  std::vector<IndexDisjunctionBranch> branches{{.label = label},
+                                               {.label = label,
+                                                .properties = {ms::PropertyPath{prop_a}},
+                                                .expression_ranges = {ExpressionRange::In(element_ident, list)},
+                                                .membership_slots = {{.list = list, .element = element}}}};
+  MakeOp<ScanAllByIndexDisjunction>(last_op_, NextSymbol(), branches);
+  // 30 labeled vertices, and one vertex for each of the three values of a.
+  EXPECT_COST((30 + 3) * CostParam::kScanAllByLabel);
+}
+
 // Helper for testing an operations cost and cardinality.
 // Only for operations that first increment cost, then modify cardinality.
 // Intentially a macro (instead of function) for better test feedback.

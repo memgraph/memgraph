@@ -11,6 +11,7 @@
 
 #include "disk_test_utils.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/plan/rewrite/general.hpp"
 #include "query_plan_common.hpp"
 
 #include <iterator>
@@ -4547,13 +4548,14 @@ TYPED_TEST(MatchReturnFixture, PropertyFGALicenseDisabledMeansNoRestriction) {
 
 #endif
 
-// ScanAllByIndexDisjunction built by hand over an in-memory storage with label indexes on :A and :B.
+// ScanAllByIndexDisjunction built by hand over an in-memory storage with indexes on :A, :B, :A(p) and :B(p).
 class IndexDisjunctionScan : public testing::Test {
  protected:
   memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
   std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage(config)};
   memgraph::storage::LabelId label_a = db->NameToLabel("A");
   memgraph::storage::LabelId label_b = db->NameToLabel("B");
+  memgraph::storage::PropertyId prop_p = db->NameToProperty("p");
   AstStorage storage;
   SymbolTable symbol_table;
   Symbol n = symbol_table.CreateSymbol("n", true);
@@ -4564,8 +4566,43 @@ class IndexDisjunctionScan : public testing::Test {
     for (auto label : {label_a, label_b}) {
       auto unique_acc = db->UniqueAccess();
       ASSERT_TRUE(unique_acc->CreateIndex(label).has_value());
+      ASSERT_TRUE(unique_acc->CreateIndex(label, {prop_p}).has_value());
       ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
     }
+  }
+
+  // Commits one vertex per entry, each with the given labels and property p.
+  void AddVerticesWithP(std::vector<std::pair<std::vector<memgraph::storage::LabelId>, int64_t>> const &vertices) {
+    auto acc = db->Access(memgraph::storage::WRITE);
+    for (auto const &[labels, p] : vertices) {
+      auto vertex = acc->CreateVertex();
+      for (auto label : labels) ASSERT_TRUE(vertex.AddLabel(label).has_value());
+      ASSERT_TRUE(vertex.SetProperty(prop_p, memgraph::storage::PropertyValue(p)).has_value());
+    }
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  IndexDisjunctionBranch PropertyBranch(memgraph::storage::LabelId label, ExpressionRange range,
+                                        memgraph::storage::IndexOrder order = memgraph::storage::IndexOrder::ASC) {
+    return {.label = label,
+            .properties = {memgraph::storage::PropertyPath{prop_p}},
+            .expression_ranges = {std::move(range)},
+            .index_order = order};
+  }
+
+  // A branch keyed by `p IN list`, with the list in the form the planner builds.
+  IndexDisjunctionBranch InBranch(memgraph::storage::LabelId label, ListLiteral *list) {
+    auto membership = MakeMembershipList(symbol_table, &storage, list);
+    auto branch = PropertyBranch(label, ExpressionRange::In(membership.element, list));
+    branch.membership_slots.push_back({.list = membership.deduped, .element = membership.symbol});
+    return branch;
+  }
+
+  int CountRows(std::shared_ptr<LogicalOperator> const &op) {
+    auto acc = db->Access(memgraph::storage::WRITE);
+    memgraph::query::DbAccessor dba(acc.get());
+    auto context = MakeContext(storage, symbol_table, &dba);
+    return PullAll(*op, &context);
   }
 
   // Commits one vertex per entry, each with the given labels.
@@ -4665,4 +4702,79 @@ TEST_F(IndexDisjunctionScan, ResetRestartsInput) {
   int rows = 0;
   while (cursor->Pull(frame, context)) ++rows;
   EXPECT_EQ(rows, 8);
+}
+
+// The bound of a property branch is the input row's value, not the first row's.
+TEST_F(IndexDisjunctionScan, PropertyBranchBoundToInputRow) {
+  AddVerticesWithP({{{label_a}, 9}, {{label_b}, 1}, {{label_b}, 2}, {{label_b}, 2}});
+  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
+      UnwindX({1, 2, 3}),
+      n,
+      std::vector<IndexDisjunctionBranch>{{.label = label_a},
+                                          PropertyBranch(label_b, ExpressionRange::Equal(IDENT("x")->MapTo(x)))});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  EXPECT_EQ(RowsPerX(scan, dba), (std::map<int64_t, int>{{1, 2}, {2, 3}, {3, 1}}));
+}
+
+// A null IN element matches nothing; the elements after it are still sought.
+TEST_F(IndexDisjunctionScan, NullElementSkipsOnlyThatTuple) {
+  // toSet keeps no order, so the null has values on both sides of it in most orders.
+  AddVerticesWithP(
+      {{{label_a}, 1}, {{label_b}, 2}, {{label_a}, 3}, {{label_a, label_b}, 4}, {{label_b}, 5}, {{label_a}, 6}});
+  auto list = [&] {
+    return LIST(LITERAL(1),
+                LITERAL(2),
+                LITERAL(memgraph::storage::ExternalPropertyValue()),
+                LITERAL(3),
+                LITERAL(4),
+                LITERAL(5));
+  };
+  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
+      std::make_shared<Once>(),
+      n,
+      std::vector<IndexDisjunctionBranch>{InBranch(label_a, list()), InBranch(label_b, list())});
+  EXPECT_EQ(CountRows(scan), 5);
+}
+
+// An IN list over an input value is evaluated for each input row.
+TEST_F(IndexDisjunctionScan, InListPerInputRow) {
+  AddVerticesWithP({{{label_a}, 1}, {{label_a}, 2}, {{label_b}, 3}, {{label_b}, 2}});
+  auto list = [&] { return LIST(IDENT("x")->MapTo(x), LITERAL(3), LITERAL(3)); };
+  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
+      UnwindX({1, 2}), n, std::vector<IndexDisjunctionBranch>{InBranch(label_a, list()), InBranch(label_b, list())});
+  auto acc = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(acc.get());
+  EXPECT_EQ(RowsPerX(scan, dba), (std::map<int64_t, int>{{1, 2}, {2, 3}}));
+}
+
+// A vertex a property branch yields is not yielded again by a later label branch.
+TEST_F(IndexDisjunctionScan, MixedBranchesDeduplicate) {
+  AddVerticesWithP({{{label_a, label_b}, 1}, {{label_b}, 1}, {{label_a}, 5}});
+  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
+      std::make_shared<Once>(),
+      n,
+      std::vector<IndexDisjunctionBranch>{PropertyBranch(label_b, ExpressionRange::Equal(LITERAL(1))),
+                                          {.label = label_a}});
+  EXPECT_EQ(CountRows(scan), 3);
+}
+
+// A branch over an index that exists only in DESC order seeks that index.
+TEST_F(IndexDisjunctionScan, DescIndexBranch) {
+  auto label_d = db->NameToLabel("D");
+  {
+    auto unique_acc = db->UniqueAccess();
+    ASSERT_TRUE(unique_acc->CreateIndex(label_d, {prop_p}, memgraph::storage::IndexOrder::DESC).has_value());
+    ASSERT_TRUE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  AddVerticesWithP({{{label_d}, 1}, {{label_d}, 2}, {{label_b}, 1}});
+  auto at_least_one = [&] {
+    return ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)), std::nullopt);
+  };
+  auto scan = std::make_shared<ScanAllByIndexDisjunction>(
+      std::make_shared<Once>(),
+      n,
+      std::vector<IndexDisjunctionBranch>{PropertyBranch(label_d, at_least_one(), memgraph::storage::IndexOrder::DESC),
+                                          PropertyBranch(label_b, at_least_one())});
+  EXPECT_EQ(CountRows(scan), 3);
 }

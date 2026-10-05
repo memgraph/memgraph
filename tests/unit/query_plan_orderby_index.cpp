@@ -99,6 +99,25 @@ TYPED_TEST(OrderByIndexTest, BasicElimination) {
   EXPECT_FALSE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "OrderBy should be eliminated";
 }
 
+// The branches of an index disjunction give no single order, so ORDER BY stays.
+TYPED_TEST(OrderByIndexTest, IndexDisjunctionKeepsOrderBy) {
+  // MATCH (n:L1|L2) WHERE n.prop > 5 RETURN n ORDER BY n.prop
+  FakeDbAccessor dba;
+  const auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(dba.Label("L1"), property.second, 1);
+  dba.SetIndexCount(dba.Label("L2"), property.second, 1);
+
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"L1", "L2"}))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property.second), LITERAL(5))),
+                                   RETURN("n", ORDER_BY(PROPERTY_LOOKUP(dba, "n", property.second)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), ScanAllByIndexDisjunction::kType));
+  EXPECT_TRUE(PlanContainsOp(planner.plan(), OrderBy::kType)) << "two seeks are not one ordered seek";
+}
+
 // Composite prefix - ORDER BY n.a with index (a, b)
 TYPED_TEST(OrderByIndexTest, CompositePrefix) {
   // MATCH (n:L) WHERE n.a > 5 ORDER BY n.a RETURN n

@@ -148,8 +148,14 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // Each input row runs every branch once: the output is the sum of the branches, the cost one scan of it.
     double branches_cardinality = 0;
     for (auto const &branch : logical_op.branches_) {
-      branches_cardinality += db_accessor_->VerticesCount(branch.label);
-      if (index_hints_.HasLabelIndex(db_accessor_, branch.label)) use_index_hints_ = true;
+      if (branch.IsLabelOnly()) {
+        branches_cardinality += db_accessor_->VerticesCount(branch.label);
+        if (index_hints_.HasLabelIndex(db_accessor_, branch.label)) use_index_hints_ = true;
+        continue;
+      }
+      branches_cardinality += EstimateLabelPropertiesCardinality(
+          branch.label, branch.properties, branch.expression_ranges, /*in_lists_unwound=*/false);
+      if (index_hints_.HasLabelPropertiesIndex(db_accessor_, branch.label, branch.properties)) use_index_hints_ = true;
     }
     cardinality_ *= branches_cardinality;
     IncrementCost(CostParam::kScanAllByLabel);
@@ -809,9 +815,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
 
   // Helper function to estimate cardinality for label properties queries.
   // Used by both single-threaded and parallel scan operators.
+  /// @param in_lists_unwound true when an Unwind above the scan feeds each IN element, false when the scan seeks
+  /// every element itself.
   double EstimateLabelPropertiesCardinality(storage::LabelId label,
                                             std::vector<storage::PropertyPath> const &properties,
-                                            std::vector<ExpressionRange> const &expression_ranges) {
+                                            std::vector<ExpressionRange> const &expression_ranges,
+                                            bool in_lists_unwound = true) {
     auto *mapper = db_accessor_->GetStorageAccessor()->GetNameIdMapper();
 
     auto maybe_ranges =
@@ -852,6 +861,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
       unwind_factor *= static_cast<double>(expression_ranges[slot].membership_list_->elements_.size());
     }
     if (unwind_factor == 0) return 0.0;
+    if (!in_lists_unwound) unwind_factor = 1.0;
 
     if (in_slots.size() == 1) {
       auto sum = EstimateInListCardinality(

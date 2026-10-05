@@ -37,7 +37,6 @@
 #include "query/plan/operator.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/read_write_type_checker.hpp"
-#include "query/plan/rewrite/balanced_union.hpp"
 #include "query/plan/used_index_checker.hpp"
 
 #include "query_common.hpp"
@@ -4982,42 +4981,6 @@ TYPED_TEST(TestPlanner, ORLabelExpressionWhereClauseMultipleLabels) {
             ExpectProduce());
 }
 
-// Collects the shape of an index-disjunction plan: how many Distinct operators
-// it contains and the maximum nesting depth of Union operators along any path.
-struct UnionPlanShape : public memgraph::query::plan::HierarchicalLogicalOperatorVisitor {
-  using HierarchicalLogicalOperatorVisitor::PostVisit;
-  using HierarchicalLogicalOperatorVisitor::PreVisit;
-  using HierarchicalLogicalOperatorVisitor::Visit;
-
-  int distinct_count = 0;
-  int union_count = 0;
-  int once_count = 0;
-  int cur_union_depth = 0;
-  int max_union_depth = 0;
-
-  bool PreVisit(memgraph::query::plan::Distinct & /*unused*/) override {
-    ++distinct_count;
-    return true;
-  }
-
-  bool PreVisit(memgraph::query::plan::Union & /*unused*/) override {
-    ++union_count;
-    ++cur_union_depth;
-    max_union_depth = std::max(max_union_depth, cur_union_depth);
-    return true;
-  }
-
-  bool PostVisit(memgraph::query::plan::Union & /*unused*/) override {
-    --cur_union_depth;
-    return true;
-  }
-
-  bool Visit(memgraph::query::plan::Once & /*unused*/) override {
-    ++once_count;
-    return true;
-  }
-};
-
 TYPED_TEST(TestPlanner, ORLabelExpressionOfManyLabelsIsOneScan) {
   // MATCH (n) WHERE n:L0 OR n:L1 OR ... OR n:L7 RETURN n, all labels indexed.
   // Every label is one branch of one scan, so the plan does not deepen with the number of labels.
@@ -5039,47 +5002,6 @@ TYPED_TEST(TestPlanner, ORLabelExpressionOfManyLabelsIsOneScan) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   CheckPlan(planner.plan(), symbol_table, ExpectScanAllByIndexDisjunction(std::move(branches)), ExpectProduce());
-}
-
-// Direct unit test of the disjunction-lowering fold, independent of the planner:
-// feed it N synthetic leaf scans and assert the shape of the tree it builds.
-TEST(BalancedDisjunctionUnion, ShapeByScanCount) {
-  using memgraph::query::plan::BalancedDisjunctionUnion;
-  using memgraph::query::plan::LogicalOperator;
-  using memgraph::query::plan::Once;
-  const memgraph::query::Symbol node_symbol{"n", 0, /*user_declared=*/false};
-
-  auto make_scans = [](int n) {
-    std::vector<std::unique_ptr<LogicalOperator>> scans;
-    scans.reserve(n);
-    for (int i = 0; i < n; ++i) scans.push_back(std::make_unique<Once>());
-    return scans;
-  };
-
-  // A single scan is returned unchanged: no Union, no Distinct.
-  {
-    auto root = BalancedDisjunctionUnion(make_scans(1), node_symbol);
-    UnionPlanShape shape;
-    root->Accept(shape);
-    EXPECT_EQ(shape.distinct_count, 0);
-    EXPECT_EQ(shape.union_count, 0);
-    EXPECT_EQ(shape.max_union_depth, 0);
-    EXPECT_EQ(shape.once_count, 1);
-  }
-
-  // For N > 1: exactly one top Distinct, N-1 Unions, N leaves preserved, and the
-  // tree is balanced so its Union-nesting depth is ceil(log2(N)) rather than the
-  // N-1 of a left-deep chain (the property that keeps the executor stack safe).
-  for (int n : {2, 3, 4, 5, 8, 13, 36}) {
-    auto root = BalancedDisjunctionUnion(make_scans(n), node_symbol);
-    UnionPlanShape shape;
-    root->Accept(shape);
-    EXPECT_EQ(shape.distinct_count, 1) << "n=" << n;
-    EXPECT_EQ(shape.union_count, n - 1) << "n=" << n;
-    EXPECT_EQ(shape.once_count, n) << "n=" << n;
-    const int expected_depth = static_cast<int>(std::ceil(std::log2(n)));
-    EXPECT_EQ(shape.max_union_depth, expected_depth) << "n=" << n;
-  }
 }
 
 // The plan-cache check reads the indexes a plan uses. A disjunction that reported fewer than all of its branches
@@ -5105,6 +5027,100 @@ TEST(UsedIndexChecker, CollectsEveryBranchOfIndexDisjunction) {
   root->Accept(checker);
 
   EXPECT_THAT(checker.required_indices_.label_, ::testing::UnorderedElementsAreArray(labels));
+}
+
+// A clone owns its range and IN list expressions: changing the original's does not reach it.
+TEST(IndexDisjunctionClone, IsDeep) {
+  using memgraph::query::plan::IndexDisjunctionBranch;
+  using memgraph::query::plan::Once;
+  using memgraph::query::plan::ScanAllByIndexDisjunction;
+  AstStorage storage;
+  FakeDbAccessor dba;
+  const memgraph::query::Symbol node_symbol{"n", 0, /*user_declared=*/false};
+  const memgraph::query::Symbol element_symbol{"e", 1, /*user_declared=*/false};
+  auto *bound = storage.Create<memgraph::query::PrimitiveLiteral>(1);
+  auto *list = storage.Create<memgraph::query::ListLiteral>(std::vector<memgraph::query::Expression *>{bound});
+  std::vector<IndexDisjunctionBranch> branches{{.label = dba.Label("A")},
+                                               {.label = dba.Label("B"),
+                                                .properties = {ms::PropertyPath{dba.Property("p")}},
+                                                .expression_ranges = {ExpressionRange::Equal(bound)},
+                                                .membership_slots = {{.list = list, .element = element_symbol}}}};
+  ScanAllByIndexDisjunction original(std::make_shared<Once>(), node_symbol, std::move(branches));
+
+  AstStorage clone_storage;
+  auto clone_op = original.Clone(&clone_storage);
+  auto &clone = dynamic_cast<ScanAllByIndexDisjunction &>(*clone_op);
+  bound->value_ = memgraph::storage::ExternalPropertyValue(2);
+
+  ASSERT_EQ(clone.branches_.size(), 2U);
+  auto const &branch = clone.branches_[1];
+  ASSERT_EQ(branch.expression_ranges.size(), 1U);
+  auto *cloned_bound = dynamic_cast<memgraph::query::PrimitiveLiteral *>(branch.expression_ranges[0].lower_->value());
+  ASSERT_NE(cloned_bound, nullptr);
+  EXPECT_EQ(cloned_bound->value_.ValueInt(), 1);
+  ASSERT_EQ(branch.membership_slots.size(), 1U);
+  EXPECT_NE(branch.membership_slots[0].list, list);
+  EXPECT_EQ(branch.membership_slots[0].element, element_symbol);
+}
+
+// An IN filter of a disjunction is evaluated inside each branch: no Unwind below the scan.
+TYPED_TEST(TestPlanner, IndexDisjunctionInListHasNoUnwind) {
+  // MATCH (n:Label1|Label2) WHERE n.prop IN [1, 2] RETURN n
+  FakeDbAccessor dba;
+  auto label1 = dba.Label("Label1");
+  auto label2 = dba.Label("Label2");
+  auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label1, property.second, 1);
+  dba.SetIndexCount(label2, property.second, 1);
+
+  auto *list = LIST(LITERAL(1), LITERAL(2));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
+                                   WHERE(IN_LIST(PROPERTY_LOOKUP(dba, "n", property), list)),
+                                   RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto in_branch = [&](memgraph::storage::LabelId label) {
+    return ExpectedDisjunctionBranch{.label = label,
+                                     .properties = {ms::PropertyPath{property.second}},
+                                     .expression_ranges = {ExpressionRange::In(IDENT("element"), list)},
+                                     .membership_slots = 1};
+  };
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAllByIndexDisjunction({in_branch(label1), in_branch(label2)}),
+            ExpectProduce());
+}
+
+// A branch over an index that exists only in DESC order keeps that order.
+TYPED_TEST(TestPlanner, IndexDisjunctionKeepsDescOrder) {
+  // MATCH (n:Label1|Label2) WHERE n.prop > 1 RETURN n, :Label1(prop) DESC only
+  FakeDbAccessor dba;
+  auto label1 = dba.Label("Label1");
+  auto label2 = dba.Label("Label2");
+  auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label1, ms::PropertyPath{property.second}, 1, ms::IndexOrder::DESC);
+  dba.SetIndexCount(label2, property.second, 1);
+
+  auto *lit_1 = LITERAL(1);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE_WITH_LABELS("n", {"Label1", "Label2"}))),
+                                   WHERE(GREATER(PROPERTY_LOOKUP(dba, "n", property), lit_1)),
+                                   RETURN("n")));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  auto greater_than_one =
+      std::vector{ExpressionRange::Range(Bound{lit_1, memgraph::utils::BoundType::EXCLUSIVE}, std::nullopt)};
+  CheckPlan(planner.plan(),
+            symbol_table,
+            ExpectScanAllByIndexDisjunction({{.label = label1,
+                                              .properties = {ms::PropertyPath{property.second}},
+                                              .expression_ranges = greater_than_one,
+                                              .index_order = ms::IndexOrder::DESC},
+                                             {.label = label2,
+                                              .properties = {ms::PropertyPath{property.second}},
+                                              .expression_ranges = greater_than_one}}),
+            ExpectProduce());
 }
 
 // The upstream of an indexed disjunction runs once: one Unwind below one scan, not one copy per label.
@@ -5648,19 +5664,14 @@ TYPED_TEST(TestPlanner, ORLabelExpressionUsingIndexCombination) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabel()};
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelProperties(
-      label1_id, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(lit_1)})};
-
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectUnion(left_subquery_part, right_subquery_part),
-            ExpectDistinct(),
+            ExpectScanAllByIndexDisjunction({{.label = label1_id,
+                                              .properties = std::vector{ms::PropertyPath{property.second}},
+                                              .expression_ranges = std::vector{ExpressionRange::Equal(lit_1)}},
+                                             {.label = label2_id}}),
             ExpectFilter(),
             ExpectProduce());
-
-  DeleteListContent(&left_subquery_part);
-  DeleteListContent(&right_subquery_part);
 }
 
 TYPED_TEST(TestPlanner, ORLabelExpressionUsingOnlyPropertyIndex) {
@@ -5681,19 +5692,15 @@ TYPED_TEST(TestPlanner, ORLabelExpressionUsingOnlyPropertyIndex) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelProperties(
-      label2_id, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(lit_1)})};
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelProperties(
-      label1_id, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(lit_1)})};
-
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectUnion(left_subquery_part, right_subquery_part),
-            ExpectDistinct(),
+            ExpectScanAllByIndexDisjunction({{.label = label1_id,
+                                              .properties = std::vector{ms::PropertyPath{property.second}},
+                                              .expression_ranges = std::vector{ExpressionRange::Equal(lit_1)}},
+                                             {.label = label2_id,
+                                              .properties = std::vector{ms::PropertyPath{property.second}},
+                                              .expression_ranges = std::vector{ExpressionRange::Equal(lit_1)}}}),
             ExpectProduce());
-
-  DeleteListContent(&left_subquery_part);
-  DeleteListContent(&right_subquery_part);
 }
 
 TYPED_TEST(TestPlanner, ORLabelExpressionUsingPropertyIndexNoLabelIndex) {
@@ -5737,20 +5744,16 @@ TYPED_TEST(TestPlanner, ORLabelExpressionMultipleMatchStatementsPropertyIndex) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabelProperties(
-      label3_id, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(lit_1)})};
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelProperties(
-      label4_id, std::vector{ms::PropertyPath{property.second}}, std::vector{ExpressionRange::Equal(lit_1)})};
-
   CheckPlan(planner.plan(),
             symbol_table,
-            ExpectUnion(left_subquery_part, right_subquery_part),
-            ExpectDistinct(),
+            ExpectScanAllByIndexDisjunction({{.label = label3_id,
+                                              .properties = std::vector{ms::PropertyPath{property.second}},
+                                              .expression_ranges = std::vector{ExpressionRange::Equal(lit_1)}},
+                                             {.label = label4_id,
+                                              .properties = std::vector{ms::PropertyPath{property.second}},
+                                              .expression_ranges = std::vector{ExpressionRange::Equal(lit_1)}}}),
             ExpectFilter(),
             ExpectProduce());
-
-  DeleteListContent(&left_subquery_part);
-  DeleteListContent(&right_subquery_part);
 }
 
 TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
@@ -5779,21 +5782,16 @@ TYPED_TEST(TestPlanner, ORLabelsExpressionIndexHints) {
   auto symbol_table = memgraph::query::MakeSymbolTable(query);
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query, {index_hint});
 
-  std::list<BaseOpChecker *> left_subquery_part{new ExpectScanAllByLabel(label1_id)};
-  std::list<BaseOpChecker *> right_subquery_part{new ExpectScanAllByLabelProperties(
-      label2_id,
-      std::vector{ms::PropertyPath{property.second}},
-      std::vector{ExpressionRange::Range(std::nullopt, Bound{lit_2, memgraph::utils::BoundType::EXCLUSIVE})})};
-
-  CheckPlan(planner.plan(),
-            symbol_table,
-            ExpectUnion(left_subquery_part, right_subquery_part),
-            ExpectDistinct(),
-            ExpectFilter(),
-            ExpectProduce());
-
-  DeleteListContent(&left_subquery_part);
-  DeleteListContent(&right_subquery_part);
+  CheckPlan(
+      planner.plan(),
+      symbol_table,
+      ExpectScanAllByIndexDisjunction({{.label = label1_id},
+                                       {.label = label2_id,
+                                        .properties = std::vector{ms::PropertyPath{property.second}},
+                                        .expression_ranges = std::vector{ExpressionRange::Range(
+                                            std::nullopt, Bound{lit_2, memgraph::utils::BoundType::EXCLUSIVE})}}}),
+      ExpectFilter(),
+      ExpectProduce());
 }
 
 // Each label disjunction over one node is a conjunct of its own, so a group is kept whole: a label two groups
