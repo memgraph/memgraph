@@ -5559,7 +5559,7 @@ TEST(IndexDisjunctionClone, IsDeep) {
                                                {.label = dba.Label("B"),
                                                 .properties = {ms::PropertyPath{dba.Property("p")}},
                                                 .expression_ranges = {ExpressionRange::Equal(bound)},
-                                                .membership_slots = {{.list = list, .element = element_symbol}}}};
+                                                .membership_slots = {{.list = list, .symbol = element_symbol}}}};
   ScanAllByIndexDisjunction original(std::make_shared<Once>(), node_symbol, std::move(branches));
 
   AstStorage clone_storage;
@@ -5575,7 +5575,7 @@ TEST(IndexDisjunctionClone, IsDeep) {
   EXPECT_EQ(cloned_bound->value_.ValueInt(), 1);
   ASSERT_EQ(branch.membership_slots.size(), 1U);
   EXPECT_NE(branch.membership_slots[0].list, list);
-  EXPECT_EQ(branch.membership_slots[0].element, element_symbol);
+  EXPECT_EQ(branch.membership_slots[0].symbol, element_symbol);
 }
 
 // An IN filter of a disjunction is evaluated inside each branch: no Unwind below the scan.
