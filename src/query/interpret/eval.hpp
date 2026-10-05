@@ -363,16 +363,27 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       case utils::TypeId::AST_AND_OPERATOR: {
         auto &op = *static_cast<AndOperator *>(expr);
-        auto const &first = EvalIntoSlot(op.expression1_);
-        if (first.IsBool() && !first.ValueBool()) {
+        // Each operand is evaluated once and then read from its slot. Asking
+        // for it a second time would re-run its whole subtree, and since an
+        // operand of a conjunction is usually another conjunction, the cost of
+        // doing that doubles with every level.
+        EvalIntoSlot(op.expression1_);
+        auto const left = op.expression1_->eval_slot_;
+        bool const short_circuits = [&] {
+          auto const &first = frame_->EvalSlot(left);
+          return first.IsBool() && !first.ValueBool();
+        }();
+        if (short_circuits) {
           auto &slot = frame_->EvalSlot(expr->eval_slot_);
-          slot = frame_->EvalSlot(op.expression1_->eval_slot_);
+          slot = frame_->EvalSlot(left);
           return slot;
         }
-        return BinaryIntoSlot(
-            expr, op.expression1_, op.expression2_, [](TypedValue &out, TypedValue const &a, TypedValue const &b) {
-              out = a && b;
-            });
+        EvalIntoSlot(op.expression2_);
+        auto &slot = frame_->EvalSlot(expr->eval_slot_);
+        auto const &a = frame_->EvalSlot(left);
+        auto const &b = frame_->EvalSlot(op.expression2_->eval_slot_);
+        slot = a && b;
+        return slot;
       }
       default: {
         // Anything not yet taught to write into a slot still answers the old
