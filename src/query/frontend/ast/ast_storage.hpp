@@ -13,8 +13,10 @@
 
 #include "utils/typeinfo.hpp"
 
+#include <cstdint>
 #include <memory>
 #include <string>
+#include <type_traits>
 #include <vector>
 
 namespace memgraph::query {
@@ -81,6 +83,8 @@ struct hash<memgraph::query::EdgeTypeIx> {
 
 namespace memgraph::query {
 class Tree;
+class Expression;
+class NamedExpression;
 
 // It would be better to call this AstTree, but we already have a class Tree,
 // which could be renamed to Node or AstTreeNode, but we also have a class
@@ -96,9 +100,19 @@ class AstStorage {
   template <typename T, typename... Args>
   T *Create(Args &&...args) {
     T *ptr = new T(std::forward<Args>(args)...);
+    // What needs a slot is whatever the expression visitor evaluates, and that
+    // set is every Expression plus NamedExpression, which yields a value
+    // without being one.
+    if constexpr (std::is_base_of_v<Expression, T> || std::is_same_v<NamedExpression, T>) {
+      ptr->eval_slot_ = next_eval_slot_++;
+    }
     Adopt(std::unique_ptr<Tree>(ptr));
     return ptr;
   }
+
+  /// How many evaluation slots the expressions here need between them. An
+  /// evaluator sizes its scratch to this and keeps it for the whole query.
+  uint32_t EvalSlotCount() const { return next_eval_slot_; }
 
   // Taking ownership through the base pointer keeps the vector's allocator
   // machinery out of Create, which is instantiated once per node type.
@@ -129,6 +143,8 @@ class AstStorage {
   // Public only for serialization access
   std::vector<std::unique_ptr<Tree>> storage_;
 
+  uint32_t next_eval_slot_{0};
+
  private:
   int64_t FindOrAddName(const std::string &name, std::vector<std::string> *names) {
     for (int64_t i = 0; i < names->size(); ++i) {
@@ -151,6 +167,13 @@ class Tree {
   virtual ~Tree() = default;
 
   virtual Tree *Clone(AstStorage *storage) const = 0;
+
+  /// Where this node's value sits while the node above it is still being worked
+  /// out. AstStorage hands a distinct one to every node the expression visitor
+  /// evaluates, so no node can overwrite a value another has yet to read. Nodes
+  /// it does not evaluate, such as clauses and patterns, keep zero and use it
+  /// for nothing.
+  uint32_t eval_slot_{0};
 
  protected:
   Tree(const Tree &) = default;
