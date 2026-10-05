@@ -474,6 +474,24 @@ TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionInBranchCountsTheWholeList) 
   EXPECT_COST((30 + 3) * CostParam::kScanAllByLabel);
 }
 
+// An expansion above the disjunction uses the branches' degree, weighted by their counts.
+TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionKeepsIndexStats) {
+  AddVertices(100, 30, 20);
+  (*storage_dba)->SetIndexStats(label, ms::LabelIndexStats{.count = 30, .avg_degree = 5});
+  auto node = NextSymbol();
+  MakeOp<ScanAllByIndexDisjunction>(
+      last_op_, node, std::vector<IndexDisjunctionBranch>{{.label = label}, {.label = label}});
+  MakeOp<Expand>(last_op_,
+                 node,
+                 NextSymbol(),
+                 NextSymbol(),
+                 EdgeAtom::Direction::IN,
+                 std::vector<ms::EdgeTypeId>{},
+                 false,
+                 ms::View::OLD);
+  EXPECT_COST(60 * CostParam::kScanAllByLabel + 60 * 5 * CostParam::kExpand);
+}
+
 // Helper for testing an operations cost and cardinality.
 // Only for operations that first increment cost, then modify cardinality.
 // Intentially a macro (instead of function) for better test feedback.
