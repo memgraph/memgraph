@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -47,6 +48,7 @@
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
 #include "communication/fmt.hpp"
+#include "communication/v2/read_arm_state.hpp"
 #include "communication/v2/session_registry.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
@@ -206,7 +208,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // Callable from any thread. post, not dispatch: the caller here is foreign to the session (an
   // admin command thread), so it must never run session code inline on its own stack.
   void RequestTermination() override {
-    terminate_requested_.store(true, std::memory_order_release);
+    read_arm_state_.RequestTermination();
     boost::asio::post(strand_, [shared_this = shared_from_this()] { shared_this->TerminateIfIdle_(); });
   }
 
@@ -256,11 +258,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     }));
     ws.binary(true);
 
-    // Accept the websocket handshake
-    read_armed_ = true;
+    // Accept the websocket handshake. It is the armed operation for this phase, so it is taken
+    // out the same way a read is, and a session terminated before it completes closes here.
+    auto ticket = read_arm_state_.TryArm();
+    if (!ticket) {
+      DoShutdown();
+      return;
+    }
     ws.async_accept(req, boost::asio::bind_executor(strand_, [self = shared_from_this()](boost::beast::error_code ec) {
-                      self->read_armed_ = false;
-                      if (self->terminate_requested_.load(std::memory_order_acquire)) {
+                      self->read_arm_state_.NoteReadFinished();
+                      if (self->read_arm_state_.TerminationRequested()) {
                         self->DoShutdown();
                         return;
                       }
@@ -281,19 +288,24 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
                     }));
   }
 
-  // Must run on strand_: the sole async_read_some site (DoRead/DoReadAsio/DoFirstRead funnel here),
-  // so honouring terminate_requested_ instead of arming the read keeps the socket single-owner.
+  // The sole async_read_some site (DoRead/DoReadAsio/DoFirstRead funnel here). Callable from a
+  // priority worker thread as well as from strand_, which is why it asks for a ticket rather than
+  // reading the state itself.
   template <typename OnReadFn>
   void ArmRead_(OnReadFn on_read) {
     if (!IsConnected()) {
       return;
     }
-    if (terminate_requested_.load(std::memory_order_acquire)) {
-      DoShutdown();
+
+    auto ticket = read_arm_state_.TryArm();
+    if (!ticket) {
+      // Tearing the socket down stays on strand_ even when a worker thread got here, which is the
+      // one place this function is not the socket's only user.
+      boost::asio::post(strand_, [self = shared_from_this()] { self->DoShutdown(); });
       return;
     }
-    read_armed_ = true;
-    ExecuteForSocket([&](auto &socket) {
+
+    ExecuteForSocket(*ticket, [&](auto &socket) {
       auto buffer = input_buffer_.write_end()->GetBuffer();
       socket.async_read_some(boost::asio::buffer(buffer.data, buffer.len),
                              boost::asio::bind_executor(strand_, std::move(on_read)));
@@ -301,16 +313,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void DoRead() {
-    // dispatch, not post: DoRead runs on a priority worker thread (after Execute()/Write()), so this
-    // moves async_read_some's arming onto the strand; the other two call sites are already on it.
-    boost::asio::dispatch(strand_,
-                          [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnRead, self)); });
+    // Arming here rather than on strand_ keeps a request from paying for an io thread to be woken,
+    // which is the whole of what this call does once Execute() and Write() are finished with.
+    ArmRead_(std::bind_front(&Session::OnRead, shared_from_this()));
   }
 
-  void DoReadAsio() {
-    boost::asio::dispatch(strand_,
-                          [self = shared_from_this()] { self->ArmRead_(std::bind_front(&Session::OnReadAsio, self)); });
-  }
+  void DoReadAsio() { ArmRead_(std::bind_front(&Session::OnReadAsio, shared_from_this())); }
 
   void DoFirstRead() {
     boost::asio::dispatch(
@@ -331,7 +339,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnFirstRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
-    read_armed_ = false;
+    read_arm_state_.NoteReadFinished();
     if (ec) {
       session_.HandleError();
       return OnError(ec);
@@ -381,7 +389,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnRead(const boost::system::error_code &ec, const size_t bytes_transferred) {
-    read_armed_ = false;
+    read_arm_state_.NoteReadFinished();
     if (ec) {
       spdlog::trace("OnRead error: {}", ec.message());
       session_.HandleError();
@@ -393,7 +401,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnReadAsio(const boost::system::error_code &ec, const size_t bytes_transferred) {
-    read_armed_ = false;
+    read_arm_state_.NoteReadFinished();
     if (ec) {
       spdlog::trace("OnRead error: {}", ec.message());
       session_.HandleError();
@@ -459,15 +467,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   // Runs on strand_.
   void TerminateIfIdle_() {
-    // Deferred: read_armed_ == false means a worker may own the socket (Execute()/Write()); leave
-    // terminate_requested_ set and let ArmRead_ close it on the next read-arm instead of racing here.
-    if (!read_armed_) {
+    if (!read_arm_state_.ClaimForTermination()) {
       return;
     }
-    read_armed_ = false;
     DoShutdown();
   }
 
+  // Runs on strand_, which is why ArmRead_ posts rather than calling it when a worker thread
+  // finds a termination outstanding.
   void DoShutdown() {
     if (!IsConnected()) {
       return;
@@ -513,14 +520,15 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return;
     }
     if (auto *socket = std::get_if<SSLSocket>(&socket_); socket) {
-      // Mirror ArmRead_: honour a terminate requested during the SSL handshake before arming. The handshake
-      // wait is otherwise unbounded (no application-level timer), so a session terminated mid-handshake would
-      // only close on the OS TCP timeout. IsConnected() above guarantees DoShutdown() acts on the SSL socket.
-      if (terminate_requested_.load(std::memory_order_acquire)) {
+      // The handshake is the armed operation for this phase, so it is taken out the same way a
+      // read is. The wait is otherwise unbounded (no application-level timer), so a session
+      // terminated mid-handshake would only close on the OS TCP timeout. IsConnected() above
+      // guarantees DoShutdown() acts on the SSL socket.
+      auto ticket = read_arm_state_.TryArm();
+      if (!ticket) {
         DoShutdown();
         return;
       }
-      read_armed_ = true;
       socket->async_handshake(
           boost::asio::ssl::stream_base::server,
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnSSLHandshake, shared_from_this())));
@@ -528,8 +536,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   void OnSSLHandshake(const boost::system::error_code &ec) {
-    read_armed_ = false;
-    if (terminate_requested_.load(std::memory_order_acquire)) {
+    read_arm_state_.NoteReadFinished();
+    if (read_arm_state_.TerminationRequested()) {
       DoShutdown();
       return;
     }
@@ -549,7 +557,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   auto GetExecutor() {
-    return std::visit(utils::Overloaded{[](auto &&socket) { return socket.get_executor(); }}, socket_);
+    return std::visit([](auto &&socket) { return socket.get_executor(); }, socket_);
   }
 
   std::optional<tcp::endpoint> GetRemoteEndpoint() const {
@@ -564,8 +572,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   }
 
   template <typename F>
-  decltype(auto) ExecuteForSocket(F &&fun) {
-    return std::visit(utils::Overloaded{std::forward<F>(fun)}, socket_);
+  // Asking for the ticket means a read cannot be armed from a worker thread without first taking
+  // ownership of the socket, which is otherwise a convention a new call site could miss.
+  decltype(auto) ExecuteForSocket(const ReadArmState::ArmTicket & /*owns the socket*/, F &&fun) {
+    return std::visit(std::forward<F>(fun), socket_);
   }
 
   std::shared_ptr<boost::asio::ssl::context> ssl_context_;  // must be destroyed after socket_
@@ -579,11 +589,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   std::optional<tcp::endpoint> remote_endpoint_;
   std::string_view service_name_;
   std::atomic_bool execution_active_{false};
-  // Set by any thread via RequestTermination; only ever set, never cleared. Checked on the strand
-  // at every read-arm (ArmRead_), so a request made while a worker owns the socket can't be lost.
-  std::atomic_bool terminate_requested_{false};
-  // STRAND-CONFINED. true: an async op (handshake/upgrade/read) is pending and the strand solely
-  // owns the socket; false: a worker may be inside Execute()/Write(), so don't touch it elsewhere.
-  bool read_armed_{false};
+  // Which thread owns socket_ at any moment, and which of them closes the session when a
+  // termination is asked for. Three parties reach socket_, and only the first goes through here:
+  //
+  //   - arming the next read (ArmRead_), from strand_ or from a priority worker thread, which is
+  //     the one handover that can race a termination and so the one that needs a ticket;
+  //   - writing a reply (Write) and tearing down after a failed write, from the worker thread
+  //     that is executing the request, which is safe because no read is armed for its duration;
+  //   - completion handlers and DoShutdown, all bound to strand_ and so serialised with each
+  //     other by asio.
+  //
+  // Anything added here that touches socket_ from a worker thread belongs in the first group.
+  ReadArmState read_arm_state_;
 };
 }  // namespace memgraph::communication::v2
