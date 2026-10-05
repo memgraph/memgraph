@@ -20,7 +20,6 @@ namespace memgraph::query {
 class NamedExpression : public memgraph::query::Tree,
                         public utils::Visitable<HierarchicalTreeVisitor>,
                         public utils::Visitable<ExpressionVisitor<TypedValue>>,
-                        public utils::Visitable<ExpressionVisitor<TypedValue *>>,
                         public utils::Visitable<ExpressionVisitor<TypedValue const *>>,
                         public utils::Visitable<ExpressionVisitor<void>> {
  public:
@@ -35,7 +34,6 @@ class NamedExpression : public memgraph::query::Tree,
   NamedExpression() = default;
 
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
-  DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue const *>);
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
