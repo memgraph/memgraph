@@ -694,3 +694,114 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, CachedCheckerRebuildsOnLicenseActivati
 }
 
 #endif
+
+TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_dropped"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+  auto *const session_long = &memgraph::query::session_long_policy;
+  auto *const up_to_date = &memgraph::query::up_to_date_policy;
+
+  // Another user keeps access control on after the drop.
+  ASSERT_TRUE(auth->AddUser("admin"));
+  auto limited = *auth->AddUser("limited");
+  limited.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(limited);
+  auto role = *auth->AddRole("reader");
+  role.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveRole(role);
+
+  auto keep = *auth->AddRole("keep");
+  keep.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveRole(keep);
+  auto lose = *auth->AddRole("lose");
+  lose.permissions().Grant(memgraph::auth::Permission::CREATE);
+  auth->SaveRole(lose);
+
+  auto user_session = auth_checker.GenQueryUser("limited", {});
+  auto role_session = auth_checker.GenQueryUser("sso_user", {"reader"});
+  auto partial_session = auth_checker.GenQueryUser("sso_partial", {"keep", "lose"});
+  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph", session_long));
+  EXPECT_TRUE(partial_session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_TRUE(user_session->IsAuthorized({MATCH}, "memgraph", session_long));
+  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_TRUE(role_session->IsAuthorized({MATCH}, "memgraph", session_long));
+  EXPECT_FALSE(role_session->IsAuthorized({CREATE}, "memgraph", session_long));
+
+  ASSERT_TRUE(auth->RemoveUser("limited"));
+  ASSERT_TRUE(auth->RemoveRole("reader"));
+  ASSERT_TRUE(auth->RemoveRole("lose"));
+
+  // Partial role loss: the surviving role's privilege stays, the dropped role's is gone.
+  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph", up_to_date));
+  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph", session_long));
+  EXPECT_FALSE(partial_session->IsAuthorized({CREATE}, "memgraph", session_long));
+
+  // Up-to-date checks see the drop and refresh the cached principal.
+  EXPECT_FALSE(user_session->IsAuthorized({TRANSACTION_MANAGEMENT}, "memgraph", up_to_date));
+  EXPECT_FALSE(role_session->IsAuthorized({TRANSACTION_MANAGEMENT}, "memgraph", up_to_date));
+
+  // Once dropped, every later check is denied.
+  for (const auto &session : {user_session, role_session}) {
+    EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", session_long));
+    EXPECT_FALSE(session->IsAuthorized({AUTH, DELETE}, std::nullopt, session_long));
+    EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph", session_long));
+    EXPECT_FALSE(session->IsAuthorized({}, "memgraph", session_long));
+    EXPECT_FALSE(session->IsAuthorized({}, std::nullopt, session_long));
+    EXPECT_FALSE(session->clone()->IsAuthorized({CREATE}, "memgraph", session_long));
+#ifdef MG_ENTERPRISE
+    EXPECT_FALSE(session->CanImpersonate("admin", session_long));
+    EXPECT_FALSE(session->CanImpersonate("admin", up_to_date));
+#endif
+  }
+
+  // Re-creating a user with the same name does not revive the dropped session.
+  auto recreated = *auth->AddUser("limited");
+  recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
+  auth->SaveUser(recreated);
+  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", session_long));
+
+  auto empty_session = auth_checker.GenEmptyUser();
+  EXPECT_TRUE(empty_session->IsAuthorized({CREATE}, "memgraph", session_long));
+}
+
+#ifdef MG_ENTERPRISE
+TEST(AuthChecker, DroppedUserStillGetsFineGrainedChecker) {
+  memgraph::license::global_license_checker.EnableTesting();
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_dropped_fga"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+
+  ASSERT_TRUE(auth->AddUser("admin"));
+  auto limited = *auth->AddUser("limited");
+  limited.fine_grained_access_handler().label_permissions().Grant({"visible"},
+                                                                  memgraph::auth::FineGrainedPermission::READ);
+  auth->SaveUser(limited);
+  auto session = auth_checker.GenQueryUser("limited", {});
+
+  memgraph::storage::Config config{};
+  std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage(config)};
+  auto storage_dba = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{storage_dba.get()};
+
+  ASSERT_TRUE(auth->RemoveUser("limited"));
+  EXPECT_FALSE(session->IsAuthorized(
+      {memgraph::query::AuthQuery::Privilege::MATCH}, "memgraph", &memgraph::query::up_to_date_policy));
+
+  auto checker = auth_checker.GetFineGrainedAuthChecker(*session, &dba);
+  ASSERT_NE(checker, nullptr);
+  EXPECT_TRUE(checker->NeedsFineGrainedAuthChecker());
+}
+#endif
