@@ -3145,6 +3145,7 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
     const Conditional &self_;
     UniqueCursorPtr input_;
     std::vector<BranchCursors> branches_;
+    /// The branch producing rows for the current input row; empty when the next `Pull` must take a new input row.
     std::optional<size_t> active_;
   };
 };
