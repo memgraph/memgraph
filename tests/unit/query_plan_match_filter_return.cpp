@@ -4594,7 +4594,7 @@ class IndexDisjunctionScan : public testing::Test {
   IndexDisjunctionBranch InBranch(memgraph::storage::LabelId label, ListLiteral *list) {
     auto membership = MakeMembershipList(symbol_table, &storage, list);
     auto branch = PropertyBranch(label, ExpressionRange::In(membership.element, list));
-    branch.membership_slots.push_back({.list = membership.deduped, .element = membership.symbol});
+    branch.membership_slots.push_back({.list = membership.deduped, .symbol = membership.symbol});
     return branch;
   }
 

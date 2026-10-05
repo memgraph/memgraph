@@ -468,7 +468,7 @@ TEST_F(QueryCostEstimator, ScanAllByIndexDisjunctionInBranchCountsTheWholeList) 
                                                {.label = label,
                                                 .properties = {ms::PropertyPath{prop_a}},
                                                 .expression_ranges = {ExpressionRange::In(element_ident, list)},
-                                                .membership_slots = {{.list = list, .element = element}}}};
+                                                .membership_slots = {{.list = list, .symbol = element}}}};
   MakeOp<ScanAllByIndexDisjunction>(last_op_, NextSymbol(), branches);
   // 30 labeled vertices, and one vertex for each of the three values of a.
   EXPECT_COST((30 + 3) * CostParam::kScanAllByLabel);

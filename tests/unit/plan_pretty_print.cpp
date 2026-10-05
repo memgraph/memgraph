@@ -157,7 +157,7 @@ TYPED_TEST(PrintToJsonTest, ScanAllByIndexDisjunctionInList) {
                                                {.label = this->dba.NameToLabel("B"),
                                                 .properties = {ms::PropertyPath{this->dba.NameToProperty("prop")}},
                                                 .expression_ranges = {ExpressionRange::In(element_ident, list)},
-                                                .membership_slots = {{.list = list, .element = element}}}};
+                                                .membership_slots = {{.list = list, .symbol = element}}}};
   auto last_op = std::make_shared<ScanAllByIndexDisjunction>(nullptr, this->GetSymbol("node"), std::move(branches));
 
   this->Check(last_op.get(), R"json(

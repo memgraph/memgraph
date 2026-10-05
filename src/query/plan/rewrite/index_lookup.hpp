@@ -2105,7 +2105,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
             element_filter.property_filter->value_ = membership.element;
             branch.expression_ranges.push_back(
                 to_expression_range(element_filter, capture_membership_list(filter_info)));
-            branch.membership_slots.push_back({.list = membership.deduped, .element = membership.symbol});
+            branch.membership_slots.push_back({.list = membership.deduped, .symbol = membership.symbol});
           }
           branches.push_back(std::move(branch));
         }
@@ -2152,9 +2152,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
   // `max_vertex_count` controls, whether no operator should be created if the
   // vertex count in the best index exceeds this number. In such a case,
   // `nullptr` is returned and `input` is not chained.
-  // In case of a "or" expression on labels the Distinct operator will be returned with the
-  // Union operator as input. Union will have as input the ScanAll operator.
-  // TODO: Add new operator instead of Distinct + Union
+  // A disjunction of indexed labels gives one ScanAllByIndexDisjunction.
   struct GenScanResult {
     std::shared_ptr<LogicalOperator> op;
     bool has_in_filter = false;

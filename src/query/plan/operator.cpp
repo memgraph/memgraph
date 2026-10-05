@@ -1736,7 +1736,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
  public:
   ScanAllByIndexDisjunctionCursor(const ScanAllByIndexDisjunction &self, UniqueCursorPtr input_cursor,
                                   utils::MemoryResource *mem)
-      : self_(self), input_cursor_(std::move(input_cursor)), next_branch_(self.branches_.size()), seen_(mem) {
+      : self_(self), input_cursor_(std::move(input_cursor)), branch_(self.branches_.size() - 1), seen_(mem) {
     value_predicates_.reserve(self_.branches_.size());
     for (auto const &branch : self_.branches_) value_predicates_.emplace_back(branch.expression_ranges.size());
   }
@@ -1777,7 +1777,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
 
   void Reset() override {
     input_cursor_->Reset();
-    next_branch_ = self_.branches_.size();
+    branch_ = self_.branches_.size() - 1;
     tuple_pending_ = false;
     vertices_.reset();
     vertices_it_.reset();
@@ -1788,12 +1788,13 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
  private:
   // Starts the next branch, after the last one on a new input row. False once the input is exhausted.
   bool StartNextBranch(Frame &frame, ExecutionContext &context) {
-    if (next_branch_ == self_.branches_.size()) {
+    if (branch_ + 1 == self_.branches_.size()) {
       if (!input_cursor_->Pull(frame, context)) return false;
       seen_.clear();
-      next_branch_ = 0;
+      branch_ = 0;
+    } else {
+      ++branch_;
     }
-    branch_ = next_branch_++;
     auto const &branch = self_.branches_[branch_];
     if (branch.IsLabelOnly()) {
       SetVertices(context.db_accessor->Vertices(self_.view_, branch.label));
@@ -1804,7 +1805,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
     membership_values_.clear();
     for (auto const &slot : branch.membership_slots) {
       auto list = slot.list->Accept(evaluator);
-      auto &values = membership_values_.emplace_back(list.ValueList().begin(), list.ValueList().end());
+      auto &values = membership_values_.emplace_back(std::move(list.ValueList()));
       if (values.empty()) return true;
     }
     tuple_.assign(branch.membership_slots.size(), 0);
@@ -1818,7 +1819,7 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
     while (tuple_pending_) {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       for (auto const &[slot, values, position] : rv::zip(branch.membership_slots, membership_values_, tuple_)) {
-        frame_writer.Write(slot.element, values[position]);
+        frame_writer.Write(slot.symbol, values[position]);
       }
       tuple_pending_ = false;
       for (auto i = tuple_.size(); i-- > 0;) {
@@ -1847,15 +1848,15 @@ class ScanAllByIndexDisjunctionCursor : public Cursor {
 
   const ScanAllByIndexDisjunction &self_;
   const UniqueCursorPtr input_cursor_;
-  size_t next_branch_;
-  size_t branch_{0};
+  // The branch being read; the last one until the first input row is pulled.
+  size_t branch_;
   std::optional<VerticesIterable> vertices_;
   std::optional<decltype(vertices_->begin())> vertices_it_;
   std::optional<decltype(vertices_->end())> vertices_end_it_;
   utils::pmr::unordered_set<storage::Gid> seen_;
   std::vector<std::vector<ValuePredicateForRow>> value_predicates_;
   // The current branch's IN elements, one list per slot, and the next tuple of positions into them.
-  std::vector<std::vector<TypedValue>> membership_values_;
+  std::vector<TypedValue::TVector> membership_values_;
   std::vector<size_t> tuple_;
   bool tuple_pending_{false};
 };

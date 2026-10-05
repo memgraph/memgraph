@@ -833,10 +833,10 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
 /// empty, a label-property index otherwise.
 struct IndexDisjunctionBranch {
   /// An `x IN list` slot: @c list is toSet(coalesce(list, [])); each of its elements is written
-  /// to @c element, which the slot's range reads.
+  /// to @c symbol, which the slot's range reads.
   struct MembershipSlot {
     Expression *list{nullptr};
-    Symbol element;
+    Symbol symbol;
   };
 
   storage::LabelId label;
