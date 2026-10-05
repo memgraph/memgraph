@@ -5123,6 +5123,43 @@ TYPED_TEST(TestPlanner, IndexDisjunctionKeepsDescOrder) {
             ExpectProduce());
 }
 
+// A disjunction that names one label is that label: it plans to the bare scan, IN list included.
+TYPED_TEST(TestPlanner, OneLabelDisjunctionIsABareScan) {
+  FakeDbAccessor dba;
+  auto label1 = dba.Label("Label1");
+  auto property = PROPERTY_PAIR(dba, "prop");
+  dba.SetIndexCount(label1, 1);
+  dba.SetIndexCount(label1, property.second, 1);
+  auto one_label_or = [&] {
+    auto *node_identifier = IDENT("n");
+    return OR(LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label1")}),
+              LABELS_TEST(node_identifier, std::vector{this->storage.GetLabelIx("Label1")}));
+  };
+  {
+    // MATCH (n) WHERE n:Label1 OR n:Label1 RETURN n
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(one_label_or()), RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(), symbol_table, ExpectScanAllByLabel(label1), ExpectProduce());
+  }
+  {
+    // MATCH (n) WHERE (n:Label1 OR n:Label1) AND n.prop IN [1, 2] RETURN n
+    auto *list = LIST(LITERAL(1), LITERAL(2));
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                                     WHERE(AND(one_label_or(), IN_LIST(PROPERTY_LOOKUP(dba, "n", property), list))),
+                                     RETURN("n")));
+    auto symbol_table = memgraph::query::MakeSymbolTable(query);
+    auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+    CheckPlan(planner.plan(),
+              symbol_table,
+              ExpectUnwind(),
+              ExpectScanAllByLabelProperties(label1,
+                                             std::vector{ms::PropertyPath{property.second}},
+                                             std::vector{ExpressionRange::In(IDENT("element"), list)}),
+              ExpectProduce());
+  }
+}
+
 // The upstream of an indexed disjunction runs once: one Unwind below one scan, not one copy per label.
 TYPED_TEST(TestPlanner, IndexDisjunctionRunsUpstreamOnce) {
   // UNWIND [1, 2] AS x MATCH (n:Label1|Label2) RETURN n
