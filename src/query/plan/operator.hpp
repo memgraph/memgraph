@@ -3095,7 +3095,8 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
   /// One `WHEN p THEN body`, or `ELSE body` with a null predicate.
   struct Branch {
     Expression *predicate{nullptr};
-    /// The predicate's subquery folds, pulled just before the predicate is evaluated.
+    /// The predicate's subquery folds, pulled just before the predicate is evaluated. The cursor, not a `Filter`,
+    /// evaluates the predicate, so its folds live here; a body's `plan` holds its own.
     std::vector<std::shared_ptr<LogicalOperator>> pattern_filters;
     std::shared_ptr<LogicalOperator> plan;
     std::vector<ColumnMapping> columns;
@@ -3135,6 +3136,7 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
+    /// The cursors of one `Branch`, made from its operators per execution.
     struct BranchCursors {
       std::vector<UniqueCursorPtr> pattern_filters;
       UniqueCursorPtr plan;
