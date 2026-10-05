@@ -98,6 +98,7 @@ RUN --mount=type=secret,id=ubuntu_sources,target=/ubuntu.sources,required=false 
     /mirrors/pin_mirrors.sh apply; \
   fi && \
   /mirrors/retry.sh -- apt-get update && \
+  apt-mark hold $(dpkg-query -W -f='${db:Status-Abbrev} ${Package}\n' 'cuda-*' 'libcu*' 'libnpp*' 'libnv*' 2>/dev/null | awk '/^ii/ {print $2}') && \
   DEBIAN_FRONTEND=noninteractive /mirrors/retry.sh -- apt-get upgrade -y && \
   if test -n "$(find /openssl -maxdepth 1 -name '*.deb' -print -quit 2>/dev/null)"; then \
     /mirrors/retry.sh -- apt-get install -y \
