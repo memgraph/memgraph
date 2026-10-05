@@ -33,6 +33,19 @@ target_link_libraries(${test_prefix}eval mg-query)
 add_benchmark(query/dispatch.cpp)
 target_link_libraries(${test_prefix}dispatch mg-query)
 
+# The JIT comparison is only built where the toolchain ships LLVM's development
+# files; it needs no memgraph library, since it works on unboxed values.
+find_package(LLVM CONFIG QUIET)
+if(LLVM_FOUND)
+  add_benchmark(query/dispatch_jit.cpp)
+  target_include_directories(${test_prefix}dispatch_jit SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS})
+  target_link_directories(${test_prefix}dispatch_jit PRIVATE ${LLVM_LIBRARY_DIRS})
+  target_link_libraries(${test_prefix}dispatch_jit LLVM)
+  target_compile_options(${test_prefix}dispatch_jit PRIVATE -fno-rtti)
+else()
+  message(STATUS "LLVM not found; skipping the expression JIT benchmark")
+endif()
+
 add_benchmark(query/label_wildcard.cpp)
 target_link_libraries(${test_prefix}label_wildcard mg-query)
 
