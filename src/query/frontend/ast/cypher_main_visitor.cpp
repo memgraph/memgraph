@@ -133,6 +133,13 @@ std::unordered_set<std::string> GetRoleDatabases(MemgraphCypher::ListOfSymbolicN
   auto db_names = std::any_cast<std::vector<std::string>>(db_ctx->accept(visitor));
   return {std::make_move_iterator(db_names.begin()), std::make_move_iterator(db_names.end())};
 }
+
+/// Whether the query or any of its UNION parts updates the graph.
+bool HasUpdate(const CypherQuery &query) {
+  auto const updates = [](const SingleQuery *single_query) { return single_query && single_query->has_update; };
+  return updates(query.single_query_) ||
+         std::ranges::any_of(query.cypher_unions_, [&](const auto *u) { return updates(u->single_query_); });
+}
 }  // namespace
 
 antlrcpp::Any CypherMainVisitor::visitExplainQuery(MemgraphCypher::ExplainQueryContext *ctx) {
@@ -2031,17 +2038,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_return) {
         throw SemanticException("CALL can't be put after RETURN clause.");
       }
-      const auto *single_query = call_subquery->cypher_query_->single_query_;
-      if (single_query) {
-        subquery_has_update |= single_query->has_update;
-        for (auto *cypher_union : call_subquery->cypher_query_->cypher_unions_) {
-          if (subquery_has_update) break;
-          const auto *single_query = cypher_union->single_query_;
-          if (single_query) {
-            subquery_has_update |= single_query->has_update;
-          }
-        }
-      }
+      subquery_has_update |= HasUpdate(*call_subquery->cypher_query_);
     } else if (utils::IsSubtype(clause_type, Unwind::kType)) {
       check_write_procedure("UNWIND");
       if (has_update || has_return) {
@@ -4783,10 +4780,7 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
     kind = body.kind;
     branches->predicates_.push_back(predicate);
     branches->bodies_.push_back(body.query);
-    single_query->has_update |= body.query->single_query_->has_update;
-    for (auto *cypher_union : body.query->cypher_unions_) {
-      single_query->has_update |= cypher_union->single_query_->has_update;
-    }
+    single_query->has_update |= HasUpdate(*body.query);
   };
   for (auto *branch_ctx : ctx->conditionalBranch()) {
     auto *predicate = std::any_cast<Expression *>(branch_ctx->expression()->accept(this));
