@@ -263,17 +263,46 @@ namespace {
 // What the compiled program said, lined up against what the evaluator says.
 // Refusing is not a disagreement: it means the guess about a type was wrong and
 // the row belongs to the ordinary evaluator.
-testing::AssertionResult CompiledAgrees(memgraph::query::TypedProgram const &program,
-                                        memgraph::query::Frame const &frame, Outcome const &boxed) {
-  using Answer = memgraph::query::TypedProgram::Answer;
-  auto const answer = program.Run(frame);
-  if (answer == Answer::Refused) return testing::AssertionSuccess();
+// Running a compiled program can throw what the evaluator throws, for a record
+// that is gone, so it is attempted the same way and the complaint compared.
+struct CompiledOutcome {
+  bool refused{false};
+  bool threw{false};
+  std::string complaint;
+  memgraph::query::TypedProgram::Answer answer{};
+};
 
-  if (boxed.threw) {
-    return testing::AssertionFailure() << "the compiled program answered where the evaluator refused: "
-                                       << boxed.complaint;
+CompiledOutcome RunCompiled(memgraph::query::TypedProgram const &program, memgraph::query::Frame const &frame,
+                            memgraph::query::PropertySource *source) {
+  using Answer = memgraph::query::TypedProgram::Answer;
+  try {
+    auto const answer = program.Run(frame, source);
+    return CompiledOutcome{.refused = answer == Answer::Refused, .answer = answer};
+  } catch (std::exception const &e) {
+    return CompiledOutcome{.threw = true, .complaint = e.what()};
+  } catch (...) {
+    return CompiledOutcome{.threw = true, .complaint = "<non-standard exception>"};
   }
-  if (answer == Answer::Null) {
+}
+
+// Refusing is not a disagreement: it means the guess about a type was wrong and
+// the row belongs to the ordinary evaluator.
+testing::AssertionResult CompiledAgrees(CompiledOutcome const &typed, Outcome const &boxed) {
+  using Answer = memgraph::query::TypedProgram::Answer;
+  if (typed.refused) return testing::AssertionSuccess();
+
+  if (typed.threw || boxed.threw) {
+    if (typed.threw && boxed.threw) {
+      return typed.complaint == boxed.complaint
+                 ? testing::AssertionSuccess()
+                 : testing::AssertionFailure() << "the two refused differently: compiled said '" << typed.complaint
+                                               << "', evaluator said '" << boxed.complaint << "'";
+    }
+    return testing::AssertionFailure() << "only one threw: compiled " << typed.threw << " (" << typed.complaint
+                                       << "), evaluator " << boxed.threw << " (" << boxed.complaint << ")";
+  }
+
+  if (typed.answer == Answer::Null) {
     return boxed.value.IsNull() ? testing::AssertionSuccess()
                                 : testing::AssertionFailure() << "compiled said null, evaluator did not";
   }
@@ -282,7 +311,7 @@ testing::AssertionResult CompiledAgrees(memgraph::query::TypedProgram const &pro
                                        << static_cast<int>(boxed.value.type());
   }
   const bool want = boxed.value.ValueBool();
-  const bool got = answer == Answer::True;
+  const bool got = typed.answer == Answer::True;
   return got == want ? testing::AssertionSuccess()
                      : testing::AssertionFailure() << "compiled said " << got << ", evaluator said " << want;
 }
@@ -305,9 +334,9 @@ TEST_F(ExpressionFuzz, TheCompiledProgramMatchesAcceptOrRefuses) {
     ++compiled;
 
     auto const boxed = Attempt([&] { return expr->Accept(evaluator); });
-    if (program->Run(frame_) != memgraph::query::TypedProgram::Answer::Refused) ++answered;
-    EXPECT_TRUE(CompiledAgrees(*program, frame_, boxed))
-        << "seed " << seed << ", expression " << i << ": " << Describe(expr);
+    auto const typed = RunCompiled(*program, frame_, &evaluator);
+    if (!typed.refused) ++answered;
+    EXPECT_TRUE(CompiledAgrees(typed, boxed)) << "seed " << seed << ", expression " << i << ": " << Describe(expr);
   }
   std::cerr << "compiled " << compiled << " of 4000, answered " << answered << "\n";
 }
@@ -337,9 +366,9 @@ TEST_F(ExpressionFuzz, TheCompiledProgramMatchesAcceptOnIntegers) {
     if (!program) continue;
 
     auto const boxed = Attempt([&] { return expr->Accept(evaluator); });
-    if (program->Run(frame_) != memgraph::query::TypedProgram::Answer::Refused) ++answered;
-    EXPECT_TRUE(CompiledAgrees(*program, frame_, boxed))
-        << "seed " << seed << ", expression " << i << ": " << Describe(expr);
+    auto const typed = RunCompiled(*program, frame_, &evaluator);
+    if (!typed.refused) ++answered;
+    EXPECT_TRUE(CompiledAgrees(typed, boxed)) << "seed " << seed << ", expression " << i << ": " << Describe(expr);
   }
   std::cerr << "answered " << answered << " of 4000 on an integer frame\n";
   EXPECT_GT(answered, 0) << "nothing ran, so nothing was really compared";
