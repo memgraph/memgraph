@@ -3166,6 +3166,9 @@ void ReferToProjectedItems(Expression *&expr, std::vector<NamedExpression *> con
     expr = storage.Create<Identifier>((*item)->name_);
     return;
   }
+  // An aggregation that repeats no projected item is rejected once the symbols are generated, so rewriting within its
+  // arguments would only detach a subtree that nothing goes on to read.
+  if (utils::IsSubtype(*expr, Aggregation::kType)) return;
   for (auto *child : MatchableChildren(expr).value_or(std::vector<Expression **>{})) {
     ReferToProjectedItems(*child, items, parameter_names, storage);
   }
