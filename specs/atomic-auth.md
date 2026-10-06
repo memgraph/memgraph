@@ -220,5 +220,7 @@ that runs it: it takes the lock, writes, replicates and releases, with no
 transaction involved. Existing scripts are unaffected.
 
 Replication is the exception. Every auth change now goes out in the batched
-format, a single statement as a batch of one, so an older replica cannot decode
-it. Upgrade replicas before the main; see section 5.
+format, so an older replica cannot decode it. Outside a transaction each record
+a statement changes still goes out as its own batch of one, as before, so a
+statement that changes several records is not applied atomically on a replica.
+Upgrade replicas before the main; see section 5.
