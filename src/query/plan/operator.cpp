@@ -10200,8 +10200,8 @@ Conditional::ConditionalCursor::ConditionalCursor(const Conditional &self, utils
 }
 
 namespace {
-/// An ELSE branch has no predicate and always holds; a null predicate value does not hold.
-bool BranchHolds(ExpressionEvaluator &evaluator, Expression *predicate) {
+/// A missing predicate (ELSE) is true; a null predicate value is not.
+bool IsPredicateTrue(ExpressionEvaluator &evaluator, Expression *predicate) {
   if (!predicate) return true;
   TypedValue const value = predicate->Accept(evaluator);
   if (value.IsBool()) return value.ValueBool();
@@ -10237,7 +10237,7 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
       for (const auto &fold : branches_[i].pattern_filters) {
         fold->Pull(frame, context);
       }
-      if (BranchHolds(evaluator, self_.branches_[i].predicate)) {
+      if (IsPredicateTrue(evaluator, self_.branches_[i].predicate)) {
         branches_[i].plan->Reset();
         active_ = i;
         break;
