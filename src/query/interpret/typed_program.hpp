@@ -58,7 +58,9 @@ class TypedProgram {
   /// Compiles the expression, or gives nothing back when it holds something
   /// this does not cover. Giving nothing back is always safe: it means the
   /// caller evaluates the expression the ordinary way.
-  static std::optional<TypedProgram> Compile(Expression *expression);
+  /// `refused_on`, when given, is left pointing at the node that was not
+  /// covered, which is what says which expression to teach it next.
+  static std::optional<TypedProgram> Compile(Expression *expression, Expression **refused_on = nullptr);
 
   /// Answers for one row, or refuses it when a value was not the type the
   /// guess settled on.

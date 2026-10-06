@@ -33,17 +33,18 @@ struct Operand {
 class TypedProgramBuilder {
  public:
   std::optional<Operand> Build(Expression *expression) {
+    auto const refuse = [&] { return Refuse(expression); };
     switch (expression->GetTypeInfo().id) {
       case utils::TypeId::AST_PRIMITIVE_LITERAL: {
         auto const &value = static_cast<PrimitiveLiteral *>(expression)->value_;
-        if (!value.IsInt()) return std::nullopt;
+        if (!value.IsInt()) return refuse();
         auto const slot = NextInt();
         Emit(TypedProgram::Op::ConstInt, slot, 0, 0, value.ValueInt());
         return Operand{.is_tri = false, .slot = slot};
       }
       case utils::TypeId::AST_IDENTIFIER: {
         auto const position = static_cast<Identifier *>(expression)->symbol_pos_;
-        if (position < 0) return std::nullopt;
+        if (position < 0) return refuse();
         auto const slot = NextInt();
         Emit(TypedProgram::Op::LoadInt, slot, position, 0, 0);
         return Operand{.is_tri = false, .slot = slot};
@@ -60,12 +61,12 @@ class TypedProgramBuilder {
         // the property itself; a longer path reaches inside a value, and a
         // lookup that takes all of them is a map. Both are left to the
         // evaluator rather than guessed at.
-        if (lookup->evaluation_mode_ != PropertyLookup::EvaluationMode::GET_OWN_PROPERTY) return std::nullopt;
-        if (lookup->property_path_.size() != 1) return std::nullopt;
-        if (lookup->expression_ == nullptr) return std::nullopt;
-        if (lookup->expression_->GetTypeInfo().id != utils::TypeId::AST_IDENTIFIER) return std::nullopt;
+        if (lookup->evaluation_mode_ != PropertyLookup::EvaluationMode::GET_OWN_PROPERTY) return refuse();
+        if (lookup->property_path_.size() != 1) return refuse();
+        if (lookup->expression_ == nullptr) return refuse();
+        if (lookup->expression_->GetTypeInfo().id != utils::TypeId::AST_IDENTIFIER) return refuse();
         auto const position = static_cast<Identifier *>(lookup->expression_)->symbol_pos_;
-        if (position < 0) return std::nullopt;
+        if (position < 0) return refuse();
         auto const slot = NextInt();
         Emit(TypedProgram::Op::LoadPropInt, slot, position, 0, 0, lookup->property_);
         return Operand{.is_tri = false, .slot = slot};
@@ -95,13 +96,13 @@ class TypedProgramBuilder {
       case utils::TypeId::AST_NOT_OPERATOR: {
         auto *op = static_cast<NotOperator *>(expression);
         auto const operand = Build(op->expression_);
-        if (!operand || !operand->is_tri) return std::nullopt;
+        if (!operand || !operand->is_tri) return refuse();
         auto const slot = NextTri();
         Emit(TypedProgram::Op::NotTri, slot, operand->slot, 0, 0);
         return Operand{.is_tri = true, .slot = slot};
       }
       default:
-        return std::nullopt;
+        return refuse();
     }
   }
 
@@ -118,9 +119,9 @@ class TypedProgramBuilder {
   std::optional<Operand> Arithmetic(Expression *expression, TypedProgram::Op op) {
     auto *binary = static_cast<BinaryOperator *>(expression);
     auto const lhs = Build(binary->expression1_);
-    if (!lhs || lhs->is_tri) return std::nullopt;
+    if (!lhs || lhs->is_tri) return Refuse(expression);
     auto const rhs = Build(binary->expression2_);
-    if (!rhs || rhs->is_tri) return std::nullopt;
+    if (!rhs || rhs->is_tri) return Refuse(expression);
     auto const slot = NextInt();
     Emit(op, slot, lhs->slot, rhs->slot, 0);
     return Operand{.is_tri = false, .slot = slot};
@@ -129,9 +130,9 @@ class TypedProgramBuilder {
   std::optional<Operand> Comparison(Expression *expression, TypedProgram::Op op) {
     auto *binary = static_cast<BinaryOperator *>(expression);
     auto const lhs = Build(binary->expression1_);
-    if (!lhs || lhs->is_tri) return std::nullopt;
+    if (!lhs || lhs->is_tri) return Refuse(expression);
     auto const rhs = Build(binary->expression2_);
-    if (!rhs || rhs->is_tri) return std::nullopt;
+    if (!rhs || rhs->is_tri) return Refuse(expression);
     auto const slot = NextTri();
     Emit(op, slot, lhs->slot, rhs->slot, 0);
     return Operand{.is_tri = true, .slot = slot};
@@ -140,12 +141,19 @@ class TypedProgramBuilder {
   std::optional<Operand> Logical(Expression *expression, TypedProgram::Op op) {
     auto *binary = static_cast<BinaryOperator *>(expression);
     auto const lhs = Build(binary->expression1_);
-    if (!lhs || !lhs->is_tri) return std::nullopt;
+    if (!lhs || !lhs->is_tri) return Refuse(expression);
     auto const rhs = Build(binary->expression2_);
-    if (!rhs || !rhs->is_tri) return std::nullopt;
+    if (!rhs || !rhs->is_tri) return Refuse(expression);
     auto const slot = NextTri();
     Emit(op, slot, lhs->slot, rhs->slot, 0);
     return Operand{.is_tri = true, .slot = slot};
+  }
+
+  /// The first node to stop the walk is the one to report: the ones above it
+  /// only refused because it did.
+  std::nullopt_t Refuse(Expression *expression) {
+    if (refused_on_ == nullptr) refused_on_ = expression;
+    return std::nullopt;
   }
 
   int32_t NextInt() { return static_cast<int32_t>(int_slots_++); }
@@ -161,15 +169,23 @@ class TypedProgramBuilder {
   std::vector<TypedProgram::Instr> code_;
   size_t int_slots_{0};
   size_t tri_slots_{0};
+
+ public:
+  Expression *refused_on_{nullptr};
 };
 
-std::optional<TypedProgram> TypedProgram::Compile(Expression *expression) {
+std::optional<TypedProgram> TypedProgram::Compile(Expression *expression, Expression **refused_on) {
   if (expression == nullptr) return std::nullopt;
   TypedProgramBuilder builder;
   auto const root = builder.Build(expression);
   // Only a predicate is worth compiling: the callers that run one per row want
   // a yes or no, and anything else would have to be boxed on the way out.
-  if (!root || !root->is_tri) return std::nullopt;
+  if (!root || !root->is_tri) {
+    if (refused_on != nullptr) {
+      *refused_on = builder.refused_on_ != nullptr ? builder.refused_on_ : expression;
+    }
+    return std::nullopt;
+  }
   return builder.Finish(*root);
 }
 
