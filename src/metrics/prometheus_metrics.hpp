@@ -274,10 +274,11 @@ class PrometheusMetrics {
     // Identifies the entry for its whole life, unlike the uuid and the name, either of which can
     // change while registrations are outstanding.
     uint64_t id;
-    // The uuid and the name are used for every lookup, and substituted into the scrape output by
-    // CollectForScrape. The default database's uuid changes when the instance joins a cluster, and a
-    // tenant's name changes on rename. The metric objects must outlive both changes, so they are
-    // presented at collection time rather than baked into the family key.
+    // Substituted into the scrape output by CollectForScrape. AddDatabase matches on both to share an
+    // entry, and UpdateGauges and GetDbMetricsInfo find the entry by uuid. The default database's uuid
+    // changes when the instance joins a cluster, and a tenant's name changes on rename. The metric
+    // objects must outlive both changes, so they are presented at collection time rather than baked
+    // into the family key.
     utils::UUID uuid;
     std::string db_name;
     DatabaseMetricHandles handles;
