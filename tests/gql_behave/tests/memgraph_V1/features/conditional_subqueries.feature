@@ -269,7 +269,7 @@ Feature: Conditional subqueries
             | 2 | 'c' |
 
     Scenario Outline: A predicate may read the graph through EXISTS, COUNT or a pattern
-        # exists() is memgraph syntax; Neo4j measured the bare pattern.
+        # exists() is memgraph syntax.
         Given an empty graph
         And having executed
             """
@@ -568,7 +568,6 @@ Feature: Conditional subqueries
             CALL (a) { WHEN a.k > 4 THEN RETURN 'big' AS x WHEN EXISTS { MATCH (a)-[:R]->(b) WHERE b.k / $z > 0 } THEN RETURN 'out' AS x }
             RETURN a.k AS k, x
             """
-        # Neo4j raises an ArithmeticError; this step cannot check the text.
         Then an error should be raised
 
     Scenario: Subquery predicates choose per row
@@ -669,7 +668,7 @@ Feature: Conditional subqueries
             | 3 | 0 |
 
     Scenario: A pattern comprehension after a true OR operand in one predicate is still evaluated
-        # Deliberate divergence from Neo4j: inside one predicate memgraph plans a pattern comprehension as an eager RollUpApply, as in WHERE on master; Neo4j evaluates it lazily. Recorded in ~/work/backlog.md.
+        # The comprehension is planned eagerly inside one predicate, as in WHERE.
         Given an empty graph
         And having executed:
             """
