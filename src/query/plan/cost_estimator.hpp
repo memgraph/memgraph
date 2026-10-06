@@ -439,6 +439,7 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     // cost, and the widest body bounds the rows.
     double predicate_cost = 0.0;
     double worst_cost = 0.0;
+    double total_cost = 0.0;
     double worst_cardinality = 0.0;
     for (auto const &branch : op.branches_) {
       if (branch.predicate) {
@@ -449,10 +450,12 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
         predicate_cost += std::max(fold_cost, CostParam::kFilter);
       }
       auto const body = EstimateCostOnBranch(&branch.plan, scopes_.back());
-      worst_cost = std::max(worst_cost, predicate_cost + body.cost);
+      auto const branch_cost = predicate_cost + body.cost;
+      worst_cost = std::max(worst_cost, branch_cost);
+      total_cost += branch_cost;
       worst_cardinality = std::max(worst_cardinality, body.cardinality);
     }
-    IncrementCost(worst_cost);
+    IncrementCost(worst_cost + CostParam::kConditionalTieBreak * total_cost);
     cardinality_ *= !utils::ApproxEqualDecimal(worst_cardinality, 0.0) ? worst_cardinality : 1;
     return false;
   }
