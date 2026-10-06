@@ -29,12 +29,8 @@ Query *ParseToAst(std::string const &query, ParsingContext context, Parameters *
 
   info = visitor.GetQueryInfo();
 
-  storage.labels_ = built.labels_;
-  storage.edge_types_ = built.edge_types_;
-  storage.properties_ = built.properties_;
-  storage.user_functions_ = built.user_functions_;
-  storage.call_procedures_ = built.call_procedures_;
-
+  // Names come across with the copy, which asks `storage` for an index per name it meets, so a
+  // storage that already holds a query keeps what its indices named.
   return storage.Copy(visitor.query());
 }
 

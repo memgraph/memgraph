@@ -1759,6 +1759,52 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternFixedRange) {
   CheckRWType(query, kRead);
 }
 
+// A node's property index names that property in the storage the node lives in. Parsing again into
+// the same storage adds to it, so what the first query's indices name has to stay where it was.
+TEST(ParsingIntoOneStorage, LeavesTheFirstQuerysNamesWhereTheyWere) {
+  AstStorage storage;
+  ParsingContext context;
+  Parameters parameters;
+  frontend::QueryInfo info;
+
+  auto *first = frontend::ParseToAst("MATCH (n) RETURN n.alpha", context, &parameters, storage, info);
+  frontend::ParseToAst("MATCH (n) RETURN n.beta", context, &parameters, storage, info);
+
+  auto *cypher = dynamic_cast<CypherQuery *>(first);
+  ASSERT_TRUE(cypher);
+  auto *ret = dynamic_cast<Return *>(cypher->single_query_->clauses_[1]);
+  ASSERT_TRUE(ret);
+  auto *lookup = dynamic_cast<PropertyLookup *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(lookup);
+  ASSERT_LT(lookup->property_.ix, static_cast<int64_t>(storage.properties_.size()));
+  EXPECT_EQ(storage.properties_[lookup->property_.ix], lookup->property_.name);
+}
+
+// A call's function id names that function in the storage the call lives in, the same way a
+// property index does, and has to survive another query being parsed into the same storage.
+TEST_P(CypherMainVisitorTest, ParsingAgainLeavesTheFirstUserFunctionWhereItWas) {
+  AddFunc(*mock_module, "one", {});
+  AddFunc(*mock_module, "two", {});
+
+  AstStorage storage;
+  ParsingContext context;
+  Parameters parameters;
+  frontend::QueryInfo info;
+
+  auto *first = frontend::ParseToAst("RETURN mock_module.one()", context, &parameters, storage, info);
+  frontend::ParseToAst("RETURN mock_module.two()", context, &parameters, storage, info);
+
+  auto *cypher = dynamic_cast<CypherQuery *>(first);
+  ASSERT_TRUE(cypher);
+  auto *ret = dynamic_cast<Return *>(cypher->single_query_->clauses_[0]);
+  ASSERT_TRUE(ret);
+  auto *call = dynamic_cast<Function *>(ret->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(call);
+  ASSERT_TRUE(call->IsUserDefined());
+  ASSERT_LT(call->user_function_id_, static_cast<int64_t>(storage.user_functions_.size()));
+  EXPECT_EQ(storage.user_functions_[call->user_function_id_], call->function_name_);
+}
+
 // A fixed range names one bound and means it twice, so both bounds are the same node. Copying
 // reaches that node by two paths and has to arrive at one node again, or the copy holds a pair
 // that can drift apart.
