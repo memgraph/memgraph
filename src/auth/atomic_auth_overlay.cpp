@@ -13,6 +13,8 @@
 
 #include <utility>
 
+#include "auth/exceptions.hpp"
+
 namespace memgraph::auth {
 
 AtomicAuthOverlay::AtomicAuthOverlay(kvstore::KVStore &base) : base_(base) {}
@@ -127,9 +129,8 @@ bool AtomicAuthOverlay::Flush() {
   }
 
   if (!puts.empty() || !deletes.empty()) {
-    if (!base_.PutAndDeleteMultiple(puts, deletes)) {
-      return false;
-    }
+    // A failed write is not a conflict: running the transaction again cannot fix the store.
+    if (!base_.PutAndDeleteMultiple(puts, deletes)) throw AuthException("Couldn't save auth data!");
   }
 
   return true;

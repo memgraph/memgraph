@@ -31,7 +31,8 @@ namespace memgraph::auth {
 ///
 /// Flush() validates the read-set against the current base state. If any
 /// read key has been modified concurrently, Flush() returns false and
-/// the base is left untouched.
+/// the base is left untouched. A write the base fails to make throws
+/// AuthException instead, since retrying cannot help.
 class AtomicAuthOverlay {
  public:
   explicit AtomicAuthOverlay(kvstore::KVStore &base);
@@ -100,7 +101,7 @@ class AtomicAuthOverlay {
   bool HasWrites() const { return !write_set_.empty(); }
 
   /// Validate read-set against base and flush write-set.
-  /// Returns true on success, false on conflict (base untouched).
+  /// Returns true on success, false on conflict (base untouched). Throws AuthException if the base write fails.
   bool Flush();
 
  private:
