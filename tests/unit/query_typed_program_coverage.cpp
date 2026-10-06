@@ -11,8 +11,10 @@
 
 // Counts how many of the filters in a body of real queries a typed program can
 // take, and names what the rest hold. The queries are stripped and parsed the
-// way a cached query is, so a literal arrives as a parameter, which is what
-// decides most of the answer.
+// way a cached query is, so a literal arrives as a parameter, and then planned,
+// because the filter an operator runs per row is not the WHERE clause that was
+// written: the planner folds the label a pattern names into it, and splits and
+// reorders the rest.
 //
 // The corpus is a file of one query per line, named by MG_QUERY_CORPUS. With
 // none given there is nothing to measure and the test says so rather than
@@ -28,12 +30,16 @@
 #include <string>
 #include <vector>
 
+#include "query_plan_checker.hpp"
+
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/interpret/typed_program.hpp"
+#include "query/plan/operator.hpp"
+#include "query/plan/planner.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace {
@@ -44,31 +50,25 @@ using memgraph::query::TypedProgram;
 
 // Collects the expressions that decide whether a row survives, which are the
 // ones that run once per row and so are the ones worth compiling.
-class FilterCollector : public memgraph::query::HierarchicalTreeVisitor {
+class FilterCollector : public memgraph::query::plan::HierarchicalLogicalOperatorVisitor {
  public:
-  using HierarchicalTreeVisitor::PostVisit;
-  using HierarchicalTreeVisitor::PreVisit;
-  using HierarchicalTreeVisitor::Visit;
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
 
-  bool PreVisit(memgraph::query::Where &where) override {
-    if (where.expression_ != nullptr) filters.push_back(where.expression_);
+  bool PreVisit(memgraph::query::plan::Filter &filter) override {
+    if (filter.expression_ != nullptr) filters.push_back(filter.expression_);
     return true;
   }
 
-  bool Visit(memgraph::query::Identifier & /*unused*/) override { return true; }
-
-  bool Visit(memgraph::query::PrimitiveLiteral & /*unused*/) override { return true; }
-
-  bool Visit(memgraph::query::ParameterLookup & /*unused*/) override { return true; }
-
-  bool Visit(memgraph::query::EnumValueAccess & /*unused*/) override { return true; }
+  bool Visit(memgraph::query::plan::Once & /*unused*/) override { return true; }
 
   std::vector<Expression *> filters;
 };
 
-// The planner turns a conjunction into one Filter per conjunct, so a filter
-// holding one expression this cannot take still leaves the others compiled.
-// Counting whole WHERE clauses would charge all of them for the worst one.
+// The planner turns a conjunction into one Filter per conjunct where it can,
+// but not always, so a filter holding one expression this cannot take would
+// otherwise charge every conjunct in it for the worst one.
 void SplitConjuncts(Expression *expression, std::vector<Expression *> &out) {
   if (expression->GetTypeInfo().id == memgraph::utils::TypeId::AST_AND_OPERATOR) {
     auto *conjunction = static_cast<memgraph::query::AndOperator *>(expression);
@@ -123,10 +123,15 @@ TEST(TypedProgramCoverage, ReportsWhatShareOfRealFiltersCompile) {
         ++other;
         continue;
       }
-      // Until symbols are assigned every identifier still reads as unbound, so
-      // a filter would be refused for a reason that never arises in a plan.
-      auto const symbols = memgraph::query::MakeSymbolTable(cypher);
-      cypher->Accept(collector);
+      auto symbols = memgraph::query::MakeSymbolTable(cypher);
+      memgraph::query::plan::FakeDbAccessor dba;
+      auto planning_context = memgraph::query::plan::MakePlanningContext(&storage, &symbols, cypher, &dba);
+      auto query_parts = memgraph::query::plan::CollectQueryParts(symbols, storage, cypher, false);
+      auto plan = memgraph::query::plan::MakeLogicalPlanForSingleQuery<memgraph::query::plan::RuleBasedPlanner>(
+          query_parts, &planning_context);
+      memgraph::query::plan::PostProcessor post_processor{parameters, {}, planning_context.db};
+      plan = post_processor.Rewrite(std::move(plan), &planning_context);
+      plan->Accept(collector);
       ++parsed;
     } catch (std::exception const &) {
       ++unparsed;
