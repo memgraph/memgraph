@@ -159,6 +159,17 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
   }
 }
 
+// Main database of the principal, or nullopt if unset or no longer accessible (connect without a db).
+std::optional<std::string> ResolveDefaultDB(memgraph::query::QueryUserOrRole const &user_or_role) {
+  try {
+    auto db_name = user_or_role.GetDefaultDB();
+    if (db_name.empty()) return std::nullopt;
+    return db_name;
+  } catch (memgraph::auth::AuthException const &) {
+    return std::nullopt;
+  }
+}
+
 std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
     const memgraph::query::QueryUserOrRole &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
   // Setup user-related resource monitoring
@@ -193,13 +204,7 @@ namespace memgraph::glue {
 #ifdef MG_ENTERPRISE
 std::optional<std::string> SessionHL::GetDefaultDB() const {
   if (interpreter_.user_or_role_) {
-    try {
-      const auto &db_name = interpreter_.user_or_role_->GetDefaultDB();
-      return db_name.empty() ? std::nullopt : std::make_optional(db_name);
-    } catch (auth::AuthException &) {
-      // Support non-db connection
-      return std::nullopt;
-    }
+    return ResolveDefaultDB(*interpreter_.user_or_role_);
   }
   return std::string{memgraph::dbms::kDefaultDB};
 }
@@ -825,9 +830,15 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // Step 3: Determine final target database
   if (!defined_db) {
     if (user) {
-      defined_db = user->GetDefaultDB();
+      defined_db = ResolveDefaultDB(*user);
+      if (!defined_db) {
+        throw memgraph::communication::bolt::ClientError(
+            "Failed to impersonate user '{}': the user has no accessible main database. Specify the database "
+            "explicitly.",
+            user->username().value_or("----"));
+      }
     } else if (session_->session_user_or_role_) {
-      defined_db = session_->session_user_or_role_->GetDefaultDB();
+      defined_db = ResolveDefaultDB(*session_->session_user_or_role_);
     } else {
       defined_db = std::string{memgraph::dbms::kDefaultDB};
     }
@@ -863,6 +874,7 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
     }
   } else {  // Non-db connection
     session_->interpreter_.ResetDB();
+    session_->interpreter_.current_db_.in_explicit_db_ = false;  // ResetDB leaves the pin; only Configure owns it
   }
 
   // Update the previous run_time_info for next comparison
