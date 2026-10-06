@@ -4215,7 +4215,7 @@ class CallSubquery : public memgraph::query::Clause {
   friend class AstStorage;
 };
 
-/// `WHEN p THEN body [WHEN ...]* [ELSE body]`; `predicates_[i]` is null for `ELSE`.
+/// `WHEN p THEN body [WHEN ...]* [ELSE body]`.
 /// Always the sole clause of its `SingleQuery`: the grammar guarantees it and `CollectQueryParts` relies on it.
 class ConditionalBranches : public memgraph::query::Clause {
  public:
@@ -4227,32 +4227,30 @@ class ConditionalBranches : public memgraph::query::Clause {
 
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      for (auto *predicate : predicates_) {
+      for (auto &[predicate, body] : branches_) {
         if (predicate) predicate->Accept(visitor);
-      }
-      for (auto *body : bodies_) {
         body->Accept(visitor);
       }
     }
     return visitor.PostVisit(*this);
   }
 
-  /// A predicate is a `Where`: WHEN and WHERE currently follow exactly the same analysis rules (subqueries, pattern
-  /// variables, aggregation), so every rule keyed to `Where` applies to both. If the two ever differ, give WHEN its own
-  /// node. Null for ELSE.
-  std::vector<memgraph::query::Where *> predicates_;
-  std::vector<memgraph::query::CypherQuery *> bodies_;
+  struct Branch {
+    /// A `Where`, so every WHERE rule applies to WHEN; give WHEN its own node if the rules ever differ. Null for ELSE.
+    memgraph::query::Where *predicate;
+    memgraph::query::CypherQuery *body;
+  };
+
+  std::vector<Branch> branches_;
   /// Set by the symbol generator: one symbol per RETURN column, empty when no branch has a RETURN.
   /// A column named after an import is the import's own symbol.
   std::vector<Symbol> output_symbols_;
 
   ConditionalBranches *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ConditionalBranches>();
-    for (auto *predicate : predicates_) {
-      object->predicates_.push_back(predicate ? predicate->Clone(storage) : nullptr);
-    }
-    for (auto *body : bodies_) {
-      object->bodies_.push_back(body->Clone(storage));
+    for (const auto &[predicate, body] : branches_) {
+      object->branches_.push_back(
+          {.predicate = predicate ? predicate->Clone(storage) : nullptr, .body = body->Clone(storage)});
     }
     object->output_symbols_ = output_symbols_;
     return object;

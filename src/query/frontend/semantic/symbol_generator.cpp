@@ -356,7 +356,7 @@ std::unordered_set<std::string> WrittenColumns(const CypherQuery &query, const s
                                                const std::map<std::string, Symbol> &imports) {
   const auto *last = query.single_query_->clauses_.back();
   if (const auto *nested = utils::Downcast<const ConditionalBranches>(last)) {
-    return WrittenColumns(*nested->bodies_[0], all, imports);
+    return WrittenColumns(*nested->branches_.front().body, all, imports);
   }
   const auto *ret = utils::Downcast<const Return>(last);
   if (!ret) return all;
@@ -388,8 +388,8 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
 
   // Each predicate is a `Where`, so it gets the WHERE rules.
   push_imports_scope();
-  for (auto *predicate : branches.predicates_) {
-    if (predicate) predicate->Accept(*this);
+  for (auto const &branch : branches.branches_) {
+    if (branch.predicate) branch.predicate->Accept(*this);
   }
   scopes_.pop_back();
 
@@ -399,21 +399,21 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   bool has_return = false;
   // Only a single branch reads its own column symbols.
   std::map<std::string, Symbol> single_branch_symbols;
-  for (auto *body : branches.bodies_) {
+  for (auto *body : branches.branches_ | std::views::transform(&ConditionalBranches::Branch::body)) {
     push_imports_scope();
     body->Accept(*this);
     auto &branch = scopes_.back();
     auto written = WrittenColumns(*body, branch.curr_return_names, scopes_[call_scope].call_subquery_imports);
-    if (body == branches.bodies_.front()) {
+    if (body == branches.branches_.front().body) {
       first_names = std::move(branch.curr_return_names);
       first_written = std::move(written);
+      has_return = branch.has_return;
     } else if (written.size() != first_written.size()) {
       throw SemanticException("All WHEN branches must return the same number of columns.");
     } else if (written != first_written) {
       throw SemanticException("All WHEN branches must have the same column names.");
     }
-    has_return = branch.has_return;
-    if (branches.bodies_.size() == 1) single_branch_symbols = std::move(branch.symbols);
+    if (branches.branches_.size() == 1) single_branch_symbols = std::move(branch.symbols);
     scopes_.pop_back();
   }
 
@@ -433,7 +433,7 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
       continue;
     }
     // One branch needs no union. Several share a user symbol per column, so a later `*` sees it.
-    auto const symbol = branches.bodies_.size() == 1 ? single_branch_symbols.at(name) : CreateSymbol(name, true);
+    auto const symbol = branches.branches_.size() == 1 ? single_branch_symbols.at(name) : CreateSymbol(name, true);
     scope.symbols[name] = symbol;
     branches.output_symbols_.push_back(symbol);
   }

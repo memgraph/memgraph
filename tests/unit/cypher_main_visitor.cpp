@@ -8625,13 +8625,12 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
         "UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN RETURN 1 AS x "
         "WHEN i = 2 THEN { RETURN 2 AS x UNION RETURN 3 AS x } ELSE RETURN 4 AS x } RETURN x");
     ASSERT_TRUE(branches);
-    ASSERT_EQ(branches->predicates_.size(), 3U);
-    ASSERT_EQ(branches->bodies_.size(), 3U);
-    EXPECT_TRUE(dynamic_cast<EqualOperator *>(branches->predicates_[0]->expression_));
-    EXPECT_TRUE(dynamic_cast<EqualOperator *>(branches->predicates_[1]->expression_));
-    EXPECT_EQ(branches->predicates_[2], nullptr);
-    EXPECT_TRUE(branches->bodies_[0]->cypher_unions_.empty());
-    EXPECT_EQ(branches->bodies_[1]->cypher_unions_.size(), 1U);
+    ASSERT_EQ(branches->branches_.size(), 3U);
+    EXPECT_TRUE(dynamic_cast<EqualOperator *>(branches->branches_[0].predicate->expression_));
+    EXPECT_TRUE(dynamic_cast<EqualOperator *>(branches->branches_[1].predicate->expression_));
+    EXPECT_EQ(branches->branches_[2].predicate, nullptr);
+    EXPECT_TRUE(branches->branches_[0].body->cypher_unions_.empty());
+    EXPECT_EQ(branches->branches_[1].body->cypher_unions_.size(), 1U);
     CheckRWType(query, kRead);
   }
 
@@ -8640,12 +8639,12 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
     auto const [query, branches] = parse_branches(
         "UNWIND [1] AS i CALL (i) { WHEN i > 0 THEN { WHEN i = 1 THEN RETURN 1 AS x ELSE RETURN 2 AS x } } RETURN x");
     ASSERT_TRUE(branches);
-    ASSERT_EQ(branches->bodies_.size(), 1U);
-    const auto &inner = branches->bodies_[0]->single_query_->clauses_;
+    ASSERT_EQ(branches->branches_.size(), 1U);
+    const auto &inner = branches->branches_[0].body->single_query_->clauses_;
     ASSERT_EQ(inner.size(), 1U);
     const auto *inner_branches = dynamic_cast<ConditionalBranches *>(inner[0]);
     ASSERT_TRUE(inner_branches);
-    EXPECT_EQ(inner_branches->bodies_.size(), 2U);
+    EXPECT_EQ(inner_branches->branches_.size(), 2U);
   }
 
   {
@@ -8653,7 +8652,7 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
     auto const [query, branches] =
         parse_branches("UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN SET i.p = 1 WHEN i = 2 THEN CREATE (:T) }");
     ASSERT_TRUE(branches);
-    EXPECT_TRUE(dynamic_cast<SetProperty *>(branches->bodies_[0]->single_query_->clauses_[0]));
+    EXPECT_TRUE(dynamic_cast<SetProperty *>(branches->branches_[0].body->single_query_->clauses_[0]));
     CheckRWType(query, kWrite);
   }
 
@@ -8662,7 +8661,7 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
         "UNWIND [true] AS when CALL (when) { WHEN when THEN RETURN 1 AS then ELSE RETURN 2 AS then } "
         "RETURN then AS else");
     ASSERT_TRUE(branches);
-    EXPECT_TRUE(dynamic_cast<Identifier *>(branches->predicates_[0]->expression_));
+    EXPECT_TRUE(dynamic_cast<Identifier *>(branches->branches_[0].predicate->expression_));
   }
 
   TestInvalidQueryWithMessage<SyntaxException>(

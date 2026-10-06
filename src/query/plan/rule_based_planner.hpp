@@ -699,7 +699,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   std::unique_ptr<LogicalOperator> PlanConditional(std::unique_ptr<LogicalOperator> input,
                                                    const ConditionalQueryParts &conditional,
                                                    std::unordered_set<Symbol> bound_symbols) {
-    SymbolTable &symbol_table = *context_->symbol_table;
+    const SymbolTable &symbol_table = *context_->symbol_table;
     AstStorage &storage = *context_->ast_storage;
     std::unordered_map<std::string, Symbol> output_by_name;
     for (const auto &sym : conditional.output_symbols) output_by_name.emplace(sym.name(), sym);
@@ -713,7 +713,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       for (const auto &branch_sym : branch.plan->OutputSymbols(symbol_table)) {
         auto it = output_by_name.find(branch_sym.name());
         if (it == output_by_name.end()) continue;
-        // A column named after an import keeps the caller's value.
+        // The symbol generator made an import-named column the import's own symbol, so the caller keeps its value;
+        // a single branch's column is the branch's own symbol.
         if (bound_symbols.contains(it->second) || it->second == branch_sym) continue;
         branch.columns.push_back({.from = branch_sym, .to = it->second});
       }

@@ -4778,8 +4778,7 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
       throw SemanticException("All WHEN branches must either return rows or update the graph.");
     }
     kind = body.kind;
-    branches->predicates_.push_back(predicate);
-    branches->bodies_.push_back(body.query);
+    branches->branches_.push_back({.predicate = predicate, .body = body.query});
     single_query->has_update |= HasUpdate(*body.query);
   };
   for (auto *branch_ctx : ctx->conditionalBranch()) {

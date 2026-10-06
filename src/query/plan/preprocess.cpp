@@ -1424,7 +1424,7 @@ QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, Singl
 
   auto conditional = std::make_shared<ConditionalQueryParts>();
   conditional->output_symbols = branches->output_symbols_;
-  for (auto [predicate, body] : std::views::zip(branches->predicates_, branches->bodies_)) {
+  for (auto [predicate, body] : branches->branches_) {
     auto &branch = conditional->branches.emplace_back();
     if (predicate) {
       branch.predicate = predicate->expression_;

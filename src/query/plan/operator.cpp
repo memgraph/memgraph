@@ -10231,6 +10231,7 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
 
     if (!input_->Pull(frame, context)) return false;
 
+    // Unlike a `Filter`, a predicate sees the writes earlier rows' branches made (View::NEW).
     ExpressionEvaluator evaluator{
         &frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops};
     for (size_t i = 0; i < self_.branches_.size(); ++i) {
@@ -10257,7 +10258,7 @@ void Conditional::ConditionalCursor::Shutdown() {
 void Conditional::ConditionalCursor::Reset() {
   active_.reset();
   input_->Reset();
-  // A body is reset when its branch is taken. A fold is reset here: one over `Once` yields once per reset.
+  // A body is reset when its branch is taken; the folds are reset with the operator, as any child is.
   for (const auto &branch : branches_) {
     for (const auto &fold : branch.pattern_filters) fold->Reset();
   }

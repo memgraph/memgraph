@@ -703,8 +703,8 @@ auto GetConditionalBranches(AstStorage &storage, const std::vector<std::pair<Exp
   for (auto [predicate, body] : branches) {
     auto *query = storage.Create<CypherQuery>();
     query->single_query_ = body;
-    conditional->predicates_.push_back(predicate ? storage.Create<memgraph::query::Where>(predicate) : nullptr);
-    conditional->bodies_.push_back(query);
+    conditional->branches_.push_back(
+        {.predicate = predicate ? storage.Create<memgraph::query::Where>(predicate) : nullptr, .body = query});
   }
   auto *single_query = storage.Create<SingleQuery>();
   single_query->clauses_.push_back(conditional);
