@@ -459,6 +459,11 @@ add_unit_test(kvstore
     LINK_TARGETS mg-kvstore mg-utils
 )
 
+add_unit_test(system_timestamp
+    SOURCES system_timestamp.cpp
+    LINK_TARGETS mg::system
+)
+
 # Test mg-parameters
 add_unit_test(parameters
     SOURCES parameters.cpp

@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <concepts>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -37,6 +39,7 @@ concept ReplicationPolicy = requires(T handler, ISystemAction const &action, Tra
 };
 
 struct System;
+struct DoLocal;
 
 struct Transaction {
   template <std::derived_from<ISystemAction> TAction, typename... Args>
@@ -51,6 +54,11 @@ struct Transaction {
       // If no actions, we do not increment the last commited ts, since there is no delta to send to the REPLICA
       Abort();
       return AllSyncReplicaStatus::AllCommitsConfirmed;  // TODO: some kind of error
+    }
+
+    // A txn minted on a replica before promotion carries a stale counter; never commit at or below the LCTS.
+    if constexpr (!std::same_as<Handler, DoLocal>) {
+      timestamp_ = std::max(timestamp_, state_->last_committed_system_timestamp_.load(std::memory_order_acquire) + 1);
     }
 
     auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
@@ -75,7 +83,9 @@ struct Transaction {
     if (action_sync_status != AllSyncReplicaStatus::AllCommitsConfirmed) {
       sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
     }
-    state_->FinalizeTransaction(timestamp_);
+    if constexpr (!std::same_as<Handler, DoLocal>) {
+      state_->FinalizeTransaction(timestamp_);
+    }
 
     lock_.unlock();
 
@@ -166,5 +176,10 @@ struct DoNothing {
 };
 
 static_assert(ReplicationPolicy<DoNothing>);
+
+// A replica's own system txn: applied locally, never advances the MAIN-owned last committed timestamp.
+struct DoLocal : DoNothing {};
+
+static_assert(ReplicationPolicy<DoLocal>);
 
 }  // namespace memgraph::system
