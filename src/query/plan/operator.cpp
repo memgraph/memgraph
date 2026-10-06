@@ -10199,6 +10199,17 @@ Conditional::ConditionalCursor::ConditionalCursor(const Conditional &self, utils
   }
 }
 
+namespace {
+/// An ELSE branch has no predicate and always holds; a null predicate value does not hold.
+bool BranchHolds(ExpressionEvaluator &evaluator, Expression *predicate) {
+  if (!predicate) return true;
+  TypedValue const value = predicate->Accept(evaluator);
+  if (value.IsBool()) return value.ValueBool();
+  if (value.IsNull()) return false;
+  throw QueryRuntimeException("WHEN expected boolean expression, got {}.", value.type());
+}
+}  // namespace
+
 bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &context) {
   const OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP_BY_REF(self_);
@@ -10225,19 +10236,7 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
       for (const auto &fold : branches_[i].pattern_filters) {
         fold->Pull(frame, context);
       }
-      auto *predicate = self_.branches_[i].predicate;
-      bool taken = true;
-      if (predicate) {
-        TypedValue const value = predicate->Accept(evaluator);
-        if (value.IsBool()) {
-          taken = value.ValueBool();
-        } else if (value.IsNull()) {
-          taken = false;
-        } else {
-          throw QueryRuntimeException("WHEN expected boolean expression, got {}.", value.type());
-        }
-      }
-      if (taken) {
+      if (BranchHolds(evaluator, self_.branches_[i].predicate)) {
         branches_[i].plan->Reset();
         active_ = i;
         break;
