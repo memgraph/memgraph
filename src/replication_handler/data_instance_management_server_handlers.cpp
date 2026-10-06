@@ -195,7 +195,10 @@ auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::Replic
     using query::RegisterReplicaError;
     switch (instance_client.error()) {
       case RegisterReplicaError::NO_ACCESS: {
-        spdlog::error("Error when registering instance {} as replica. Couldn't get unique access to ReplicationState.");
+        spdlog::error(
+            "Error when registering instance {} as replica. Couldn't get the system transaction lock or unique "
+            "access to ReplicationState.",
+            config.instance_name);
         return false;
       }
       case RegisterReplicaError::NOT_MAIN: {

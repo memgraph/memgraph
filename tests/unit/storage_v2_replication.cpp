@@ -2605,12 +2605,12 @@ TEST_F(ReplicationTest, HaRegisterReplicaDuringSystemTxCreatesOneClientPerDataba
     };
   };
 
-  // System tx with the new database inserted but not yet committed.
   auto txn = main.system_.TryCreateTransaction();
   ASSERT_TRUE(txn.has_value());
   ASSERT_TRUE(main.dbms.New("x", &*txn).has_value());
 
   std::expected<void, RegisterReplicaError> threaded_reg;
+  // Separate thread: this thread's txn holds System's non-recursive timed_mutex.
   std::thread registrar([&] { threaded_reg = main.repl_handler.RegisterReplica(make_config()); });
   registrar.join();
 
