@@ -31,6 +31,7 @@
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/interpret/typed_program.hpp"
 #include "query/relations/comparability.hpp"
 #include "query/relations/equality.hpp"
 #include "query/typed_value.hpp"
@@ -317,8 +318,16 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   DbAccessor *dba_;
 };
 
-class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
+class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public PropertySource {
  public:
+  /// Lets a compiled program read a property without repeating what reading one
+  /// involves: the view, the permission check, and a record that is gone.
+  storage::PropertyValue ReadProperty(TypedValue const &record, PropertyIx const &property) override {
+    if (record.IsVertex()) return GetProperty(record.ValueVertex(), property);
+    if (record.IsEdge()) return GetProperty(record.ValueEdge(), property);
+    return storage::PropertyValue{};
+  }
+
   ExpressionEvaluator(Frame *frame, ExecutionContext const &context, storage::View view,
                       FrameChangeCollector *frame_change_collector = nullptr, int64_t const *hops_counter = nullptr)
       : frame_(frame),

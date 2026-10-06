@@ -86,19 +86,48 @@ class ExpressionFuzz : public ::testing::Test {
 
   AstStorage storage_;
   std::vector<TypedValue> operands_ = shapes::EveryTypedValueShape(&dba_);
-  memgraph::query::Frame frame_{static_cast<int64_t>(operands_.size())};
+  memgraph::query::Frame frame_{static_cast<int64_t>(operands_.size()) + 2};
   memgraph::query::SymbolTable symbol_table_;
   memgraph::query::ExecutionContext context_;
 
   void SetUp() override {
+    auto vertex = dba_.InsertVertex();
+    auto const put = [&](char const *name, memgraph::storage::PropertyValue value) {
+      auto const id = dba_.NameToProperty(name);
+      [[maybe_unused]] auto const ok = vertex.SetProperty(id, std::move(value));
+    };
+    put("whole", memgraph::storage::PropertyValue(int64_t{7}));
+    put("fraction", memgraph::storage::PropertyValue(2.5));
+    put("word", memgraph::storage::PropertyValue(std::string{"seven"}));
+    put("truth", memgraph::storage::PropertyValue(true));
+    dba_.AdvanceCommand();
+    record_ = TypedValue(vertex);
+    property_names_ = {"whole", "fraction", "word", "truth", "absent"};
+
     auto writer = frame_.GetFrameWriter(nullptr, memgraph::utils::NewDeleteResource());
     for (size_t i = 0; i < operands_.size(); ++i) {
       memgraph::query::Symbol const symbol{"v" + std::to_string(i), static_cast<int>(i), false};
       writer.Modify(symbol, [&](TypedValue &slot) { slot = operands_[i]; });
     }
+    // The record sits one past the operands, so a lookup has somewhere to read
+    // from without displacing them.
+    record_position_ = static_cast<int>(operands_.size());
+    memgraph::query::Symbol const record_symbol{"record", record_position_, false};
+    writer.Modify(record_symbol, [&](TypedValue &slot) { slot = record_; });
+
+    // Every name a lookup might use is registered before the mapping is built,
+    // since the mapping is indexed by the order they were registered in and a
+    // name first seen while generating would sit past the end of it.
+    for (auto const &name : property_names_) storage_.GetPropertyIx(name);
+
     context_.db_accessor = &dba_;
     context_.symbol_table = symbol_table_;
+    context_.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba_);
   }
+
+  TypedValue record_;
+  int record_position_{0};
+  std::vector<std::string> property_names_;
 
   memgraph::query::ExpressionEvaluator MakeEvaluator() {
     return memgraph::query::ExpressionEvaluator{&frame_, context_, memgraph::storage::View::OLD};
@@ -107,6 +136,14 @@ class ExpressionFuzz : public ::testing::Test {
   // A leaf reads one of the operands off the frame, so every type reaches the
   // operators rather than only the ones a literal can spell.
   Expression *Leaf(std::mt19937 &rng) {
+    if (rng() % 4 == 0) {
+      // Reading a property brings in what a lookup has to get right: a value
+      // of the wrong type, and a property that is not there at all.
+      auto *record = storage_.Create<memgraph::query::Identifier>("record");
+      record->symbol_pos_ = record_position_;
+      auto const &name = property_names_[rng() % property_names_.size()];
+      return storage_.Create<memgraph::query::PropertyLookup>(record, storage_.GetPropertyIx(name));
+    }
     auto *identifier = storage_.Create<memgraph::query::Identifier>("v");
     identifier->symbol_pos_ = static_cast<int32_t>(rng() % operands_.size());
     return identifier;
