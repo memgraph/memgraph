@@ -8680,7 +8680,9 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
   for (auto const *query :
        {"UNWIND [1] AS i CALL (i) { WHEN true THEN CREATE (:T) ELSE RETURN 1 AS x } RETURN i",
         "UNWIND [1] AS i CALL (i) { WHEN true THEN CALL mock_module.proc() YIELD res ELSE CREATE (:T) } RETURN i",
-        "UNWIND [1] AS i CALL (i) { WHEN true THEN CREATE (:T) ELSE { WHEN true THEN RETURN 1 AS x } } RETURN i"}) {
+        "UNWIND [1] AS i CALL (i) { WHEN true THEN CREATE (:T) ELSE { WHEN true THEN RETURN 1 AS x } } RETURN i",
+        "UNWIND [1] AS i CALL (i) { WHEN true THEN CREATE (:T) "
+        "ELSE { WHEN true THEN CALL mock_module.proc() YIELD res } } RETURN i"}) {
     TestInvalidQueryWithMessage<SemanticException>(
         query, ast_generator, "All WHEN branches must either return rows or update the graph.");
   }

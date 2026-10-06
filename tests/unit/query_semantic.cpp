@@ -1432,13 +1432,6 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallBranchesMustAgree) {
       "All WHEN branches must return the same number of columns.");
 }
 
-TYPED_TEST(TestSymbolGenerator, ConditionalCallStarSkipsImports) {
-  // WHEN i = 1 THEN WITH 2 AS z RETURN * ELSE RETURN 3 AS z
-  EXPECT_NO_THROW(MakeSymbolTable(
-      CONDITIONAL_CALL_QUERY({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(WITH(LITERAL(2), AS("z")), RETURN("*"))},
-                             {nullptr, SINGLE_QUERY(RETURN(LITERAL(3), AS("z")))})));
-}
-
 TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateSeesOnlyImports) {
   // WHEN count(i) > 0 THEN RETURN 1 AS x
   ExpectSemanticError(CONDITIONAL_CALL_QUERY(

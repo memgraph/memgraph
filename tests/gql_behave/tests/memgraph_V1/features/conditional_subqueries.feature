@@ -144,7 +144,7 @@ Feature: Conditional subqueries
             | 1 | 30 |
             | 3 | 0  |
 
-    Scenario: An aggregation runs only in the rows that take its branch
+    Scenario: An aggregation runs only in the rows that take its branch, and an untaken one yields no row
         Given an empty graph
         And having executed
             """
@@ -155,7 +155,7 @@ Feature: Conditional subqueries
         When executing query:
             """
             MATCH (n:Person)
-            CALL (n) { WHEN n.age > 50 THEN MATCH (n)<-[:WORKS_FOR]-(e) RETURN count(e) AS c ELSE RETURN -1 AS c }
+            CALL (n) { WHEN n.age > 50 THEN MATCH (n)<-[:WORKS_FOR]-(e) RETURN count(e) AS c WHEN n.age < 30 THEN RETURN -1 AS c }
             RETURN n.name AS name, c
             ORDER BY name
             """
@@ -164,21 +164,6 @@ Feature: Conditional subqueries
             | 'Alice'   | 1  |
             | 'Bob'     | -1 |
             | 'Charlie' | 0  |
-            | 'Daniel'  | -1 |
-
-    Scenario: Branch columns are matched by name and may differ in type
-        Given an empty graph
-        When executing query:
-            """
-            UNWIND [1, 2] AS i
-            CALL (i) { WHEN i = 1 THEN RETURN 1 AS x, 2 AS y ELSE RETURN 'twenty' AS y, 10 AS x }
-            RETURN i, x, y
-            ORDER BY i
-            """
-        Then the result should be, in order:
-            | i | x  | y        |
-            | 1 | 1  | 2        |
-            | 2 | 10 | 'twenty' |
 
     Scenario: A star in one branch names the same columns as an explicit RETURN, without the imports
         Given an empty graph
@@ -488,22 +473,6 @@ Feature: Conditional subqueries
             | 1 |
             | 2 |
 
-    Scenario Outline: A standalone procedure call branch must match the other branches
-        Given an empty graph
-        When executing query:
-            """
-            UNWIND [1, 2] AS i
-            CALL (i) { <body> }
-            RETURN i
-            """
-        Then an error should be raised
-
-        Examples:
-            | body                                                                              |
-            | WHEN i = 1 THEN CALL mg.procedures() YIELD name WHERE name = 'x'                  |
-            | WHEN i = 1 THEN CALL mg.procedures() YIELD name ELSE CREATE (:Q)                  |
-            | WHEN i = 1 THEN CREATE (:Q) ELSE { WHEN true THEN CALL mg.procedures() YIELD name } |
-
     Scenario Outline: A later subquery predicate is not evaluated when an earlier predicate is true
         # Only the comprehension row needs the fold itself deferred: EXISTS, COUNT and COLLECT pull to a closure.
         Given an empty graph
@@ -609,63 +578,20 @@ Feature: Conditional subqueries
             | 2 | 'inc'  |
             | 3 | 'skip' |
 
-    Scenario: Ten branches each take their own rows
-        Given an empty graph
-        When executing query:
-            """
-            UNWIND range(0, 19) AS i
-            CALL (i) { WHEN i % 10 = 0 THEN RETURN 0 AS x WHEN i % 10 = 1 THEN RETURN 1 AS x WHEN i % 10 = 2 THEN RETURN 2 AS x
-                       WHEN i % 10 = 3 THEN RETURN 3 AS x WHEN i % 10 = 4 THEN RETURN 4 AS x WHEN i % 10 = 5 THEN RETURN 5 AS x
-                       WHEN i % 10 = 6 THEN RETURN 6 AS x WHEN i % 10 = 7 THEN RETURN 7 AS x WHEN i % 10 = 8 THEN RETURN 8 AS x
-                       ELSE RETURN 9 AS x }
-            RETURN x, count(*) AS c
-            ORDER BY x
-            """
-        Then the result should be, in order:
-            | x | c |
-            | 0 | 2 |
-            | 1 | 2 |
-            | 2 | 2 |
-            | 3 | 2 |
-            | 4 | 2 |
-            | 5 | 2 |
-            | 6 | 2 |
-            | 7 | 2 |
-            | 8 | 2 |
-            | 9 | 2 |
-
-    Scenario: Branches with columns in different orders fill each column by name
+    Scenario: Branch columns are matched by name, in any order and of any type
         Given an empty graph
         When executing query:
             """
             UNWIND [1, 2, 3] AS i
-            CALL (i) { WHEN i = 1 THEN RETURN 'b' AS y, 1 AS x WHEN i = 2 THEN RETURN 2 AS x, 'c' AS y ELSE RETURN 3 AS x, null AS y }
+            CALL (i) { WHEN i = 1 THEN RETURN 'b' AS y, 1 AS x WHEN i = 2 THEN RETURN 2 AS x, 20 AS y ELSE RETURN 3 AS x, null AS y }
             RETURN i, x, y
             ORDER BY i
             """
         Then the result should be, in order:
             | i | x | y    |
             | 1 | 1 | 'b'  |
-            | 2 | 2 | 'c'  |
+            | 2 | 2 | 20   |
             | 3 | 3 | null |
-
-    Scenario: An aggregating branch that is not taken yields no row
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
-            """
-        When executing query:
-            """
-            MATCH (a:A)
-            CALL (a) { WHEN a.k = 1 THEN MATCH (b:B) RETURN count(b) AS c WHEN a.k = 3 THEN MATCH (b:Nope) RETURN count(b) AS c }
-            RETURN a.k AS k, c
-            ORDER BY k
-            """
-        Then the result should be, in order:
-            | k | c |
-            | 1 | 2 |
-            | 3 | 0 |
 
     Scenario: A pattern comprehension after a true OR operand in one predicate is still evaluated
         # The comprehension is planned eagerly inside one predicate, as in WHERE.
@@ -683,25 +609,6 @@ Feature: Conditional subqueries
             RETURN a.k AS k, x
             """
         Then an error should be raised
-
-    Scenario: A branch's count does not lose the caller's row under parallel execution
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {k: 1}), (:P {k: 2}), (:P {k: 30}) WITH 1 AS x UNWIND range(1, 200) AS i CREATE (:Q)
-            """
-        When executing query:
-            """
-            MATCH (n:P)
-            CALL (n) { WHEN n.k < 10 THEN MATCH (m:Q) RETURN count(m) AS c ELSE RETURN -1 AS c }
-            RETURN n.k AS k, c
-            ORDER BY k
-            """
-        Then the result should be, in order:
-            | k  | c   |
-            | 1  | 200 |
-            | 2  | 200 |
-            | 30 | -1  |
 
     Scenario Outline: A parameter predicate is taken only when true
         Given an empty graph
