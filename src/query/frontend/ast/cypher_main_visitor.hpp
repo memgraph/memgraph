@@ -18,12 +18,13 @@
 #pragma pop_macro("EOF")  // bring EOF back
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/query/subquery_expression.hpp"  // BuildSubqueryFold names SubqueryExpression::Fold
+#include "query/frontend/ast/query/subquery_expression.hpp"  // SubqueryExpression::Fold
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -1565,7 +1566,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // return.
   bool in_with_ = false;
   // The fold whose brace body is being parsed, if any.
-  std::optional<SubqueryExpression::Fold> parsing_subquery_body_;
+  std::optional<SubqueryExpression::Fold> subquery_fold_;
   Parameters *parameters_;
   // Token positions of `$name` parameters, mapped to their unescaped names. Stripped literals are not in here.
   std::unordered_map<int32_t, std::string> parameter_names_;
