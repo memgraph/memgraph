@@ -10389,7 +10389,7 @@ void Interpreter::ResetInterpreter() {
 }
 
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
-  ResetInterpreter();
+  if (!in_explicit_transaction_) ResetInterpreter();
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
   prepared_query.query_handler(nullptr, {});
 }
@@ -10538,7 +10538,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   }
   if (std::holds_alternative<TransactionQuery>(parse_res)) {
     const auto tx_query_enum = std::get<TransactionQuery>(parse_res);
-    if (tx_query_enum == TransactionQuery::BEGIN) {
+    // A BEGIN inside a transaction is refused by its handler, and must leave that transaction as it was.
+    if (tx_query_enum == TransactionQuery::BEGIN && !in_explicit_transaction_) {
       ResetInterpreter();
     }
     // Transaction-control queries inherit the current DB tracker when they are
