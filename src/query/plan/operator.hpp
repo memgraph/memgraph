@@ -1245,6 +1245,9 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 
   static RowCounts GetRowCounts();
 
+  /// Adds to the counts above, for the other places a compiled predicate runs.
+  static void AddRowCounts(uint64_t compiled, uint64_t deopt);
+
   std::string ToString(const DbAccessor *dba) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -1283,6 +1286,32 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 /// every input Pull (typically a MATCH/RETURN query).
 /// When the input is not provided (typically a standalone
 /// RETURN clause) the Produce's pull succeeds exactly once.
+/// The condition a variable-length expansion puts on each edge it considers,
+/// run compiled where it can be and evaluated the ordinary way where it cannot.
+/// An expansion with no condition admits everything.
+class ExpansionCondition {
+ public:
+  ExpansionCondition() = default;
+  /// `complaint` is what a condition that answers neither true, false nor null
+  /// says. Each site keeps its own wording, which callers have come to expect.
+  ExpansionCondition(Expression *expression, char const *complaint);
+  ~ExpansionCondition();
+
+  ExpansionCondition(ExpansionCondition const &) = delete;
+  ExpansionCondition &operator=(ExpansionCondition const &) = delete;
+  ExpansionCondition(ExpansionCondition &&) = delete;
+  ExpansionCondition &operator=(ExpansionCondition &&) = delete;
+
+  bool Holds(Frame const &frame, ExecutionContext &context, ExpressionEvaluator &evaluator) const;
+
+ private:
+  Expression *expression_{nullptr};
+  char const *complaint_{nullptr};
+  std::optional<TypedProgram> program_;
+  mutable uint64_t compiled_rows_{0};
+  mutable uint64_t deopt_rows_{0};
+};
+
 class Produce : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;

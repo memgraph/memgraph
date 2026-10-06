@@ -2529,6 +2529,8 @@ class STShortestPathCursor : public query::plan::Cursor {
 
  private:
   const ExpandVariable &self_;
+  ExpansionCondition const condition_{self_.filter_lambda_.expression,
+                                      "Expansion condition must evaluate to boolean or null"};
   UniqueCursorPtr input_cursor_;
 
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
@@ -2564,11 +2566,7 @@ class STShortestPathCursor : public query::plan::Cursor {
     frame_writer.WriteAt(self_.filter_lambda_.inner_node_symbol, vertex);
     frame_writer.WriteAt(self_.filter_lambda_.inner_edge_symbol, edge);
 
-    TypedValue result = self_.filter_lambda_.expression->Accept(*evaluator);
-    if (result.IsNull()) return false;
-    if (result.IsBool()) return result.ValueBool();
-
-    throw QueryRuntimeException("Expansion condition must evaluate to boolean or null");
+    return condition_.Holds(*frame, context, *evaluator);
   }
 
   bool FindPath(const VertexAccessor &source, const VertexAccessor &sink, int64_t lower_bound, int64_t upper_bound,
@@ -2800,18 +2798,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
       }
 
-      if (self_.filter_lambda_.expression) {
-        TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
-        switch (result.type()) {
-          case TypedValue::Type::Null:
-            return true;
-          case TypedValue::Type::Bool:
-            if (!result.ValueBool()) return true;
-            break;
-          default:
-            throw QueryRuntimeException("Expansion condition must evaluate to boolean or null.");
-        }
-      }
+      if (!condition_.Holds(frame, context, evaluator)) return true;
       to_visit_next_.emplace_back(edge, vertex, std::move(curr_acc_path));
       processed_.emplace(vertex, edge);
       return true;
@@ -2947,6 +2934,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
  private:
   const ExpandVariable &self_;
+  ExpansionCondition const condition_{self_.filter_lambda_.expression,
+                                      "Expansion condition must evaluate to boolean or null."};
   const UniqueCursorPtr input_cursor_;
 
   // Depth bounds. Calculated on each pull from the input, the initial value
@@ -3050,12 +3039,12 @@ class PruningBFSCursor : public query::plan::Cursor {
           source_decided_ = true;
           frame_writer.Write(self_.common_.node_symbol, vertex);
           if (upper_bound_ > 0) {
-            expand_from_vertex(vertex, evaluator, frame_writer, context);
+            expand_from_vertex(vertex, frame, evaluator, frame_writer, context);
           }
           return true;
         }
 
-        expand_from_vertex(vertex, evaluator, frame_writer, context);
+        expand_from_vertex(vertex, frame, evaluator, frame_writer, context);
         continue;
       }
 
@@ -3064,7 +3053,7 @@ class PruningBFSCursor : public query::plan::Cursor {
 
       // expand deeper if within upper bound
       if (current_depth_ < upper_bound_ && !context.hops_limit.IsLimitReached()) {
-        expand_from_vertex(curr_vertex, evaluator, frame_writer, context);
+        expand_from_vertex(curr_vertex, frame, evaluator, frame_writer, context);
       }
 
       // only emit if within lower bound
@@ -3139,8 +3128,8 @@ class PruningBFSCursor : public query::plan::Cursor {
     return length && *length >= lower_bound_ && *length <= upper_bound_;
   }
 
-  void expand_from_vertex(VertexAccessor const &vertex, ExpressionEvaluator &evaluator, FrameWriter &frame_writer,
-                          ExecutionContext &context) {
+  void expand_from_vertex(VertexAccessor const &vertex, Frame const &frame, ExpressionEvaluator &evaluator,
+                          FrameWriter &frame_writer, ExecutionContext &context) {
     auto const from_first_edge =
         crosses_both_ways_ && current_depth_ > 0 ? branches_.at(vertex).first_edge : storage::kInvalidGid;
     auto try_visit = [&](EdgeAccessor edge, VertexAccessor next_vertex) {
@@ -3157,16 +3146,7 @@ class PruningBFSCursor : public query::plan::Cursor {
       if (self_.filter_lambda_.expression) {
         frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
         frame_writer.Write(self_.filter_lambda_.inner_node_symbol, next_vertex);
-        TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
-        switch (result.type()) {
-          case TypedValue::Type::Null:
-            return;
-          case TypedValue::Type::Bool:
-            if (!result.ValueBool()) return;
-            break;
-          default:
-            throw QueryRuntimeException("Expansion condition must evaluate to boolean or null.");
-        }
+        if (!condition_.Holds(frame, context, evaluator)) return;
       }
       if (already_seen) {
         source_decided_ = true;
@@ -3200,6 +3180,8 @@ class PruningBFSCursor : public query::plan::Cursor {
   }
 
   const ExpandVariable &self_;
+  ExpansionCondition const condition_{self_.filter_lambda_.expression,
+                                      "Expansion condition must evaluate to boolean or null."};
   const UniqueCursorPtr input_cursor_;
   std::optional<std::string> profile_name_;
 
@@ -4231,6 +4213,8 @@ class KShortestPathsCursor : public Cursor {
   };
 
   const ExpandVariable &self_;
+  ExpansionCondition const condition_{self_.filter_lambda_.expression,
+                                      "Expansion condition must evaluate to boolean or null"};
   UniqueCursorPtr input_cursor_;
   int64_t lower_bound_{1};
   int64_t upper_bound_{std::numeric_limits<int64_t>::max()};
@@ -4474,11 +4458,7 @@ class KShortestPathsCursor : public Cursor {
     frame_writer.WriteAt(self_.filter_lambda_.inner_node_symbol, vertex);
     frame_writer.WriteAt(self_.filter_lambda_.inner_edge_symbol, edge);
 
-    TypedValue result = self_.filter_lambda_.expression->Accept(evaluator);
-    if (result.IsNull()) return false;
-    if (result.IsBool()) return result.ValueBool();
-
-    throw QueryRuntimeException("Expansion condition must evaluate to boolean or null");
+    return condition_.Holds(frame, context, evaluator);
   }
 
   /// `Backward` marks the target-side pass, where the lambda binds the vertex we expand *from*, not
@@ -5197,6 +5177,42 @@ namespace {
 std::atomic<uint64_t> filter_compiled_rows{0};
 std::atomic<uint64_t> filter_deopt_rows{0};
 }  // namespace
+
+void Filter::AddRowCounts(uint64_t compiled, uint64_t deopt) {
+  if (compiled != 0) filter_compiled_rows.fetch_add(compiled, std::memory_order_relaxed);
+  if (deopt != 0) filter_deopt_rows.fetch_add(deopt, std::memory_order_relaxed);
+}
+
+ExpansionCondition::ExpansionCondition(Expression *expression, char const *complaint)
+    : expression_(expression),
+      complaint_(complaint),
+      program_(expression != nullptr && FLAGS_query_compile_filters ? TypedProgram::Compile(expression)
+                                                                    : std::nullopt) {}
+
+ExpansionCondition::~ExpansionCondition() { Filter::AddRowCounts(compiled_rows_, deopt_rows_); }
+
+bool ExpansionCondition::Holds(Frame const &frame, ExecutionContext &context, ExpressionEvaluator &evaluator) const {
+  if (expression_ == nullptr) return true;
+  if (program_) {
+    switch (program_->Run(frame, &evaluator, &context.evaluation_context.parameters)) {
+      case TypedProgram::Answer::True:
+        ++compiled_rows_;
+        return true;
+      case TypedProgram::Answer::False:
+      case TypedProgram::Answer::Null:
+        // A null condition keeps the edge out, as the evaluator does.
+        ++compiled_rows_;
+        return false;
+      case TypedProgram::Answer::Refused:
+        ++deopt_rows_;
+        break;
+    }
+  }
+  TypedValue result = expression_->Accept(evaluator);
+  if (result.IsNull()) return false;
+  if (result.IsBool()) return result.ValueBool();
+  throw QueryRuntimeException(complaint_);
+}
 
 Filter::RowCounts Filter::GetRowCounts() {
   return {.compiled = filter_compiled_rows.load(std::memory_order_relaxed),
