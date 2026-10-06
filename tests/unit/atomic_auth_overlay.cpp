@@ -376,6 +376,21 @@ TEST_F(AtomicAuthOverlayTest, FlushIgnoresChangeOutsideScannedPrefix) {
   EXPECT_EQ(store_->Get("user:alice").value(), "our_alice");
 }
 
+// A listing that missed bob, followed by a write to bob, must not commit once bob has appeared: no serial order
+// lets the listing miss a user the transaction then changed.
+TEST_F(AtomicAuthOverlayTest, WritingAKeyThatAppearedAfterAScanConflicts) {
+  AtomicAuthOverlay overlay(*store_);
+  EXPECT_EQ(CountUnder(overlay, "user:"), 0);
+
+  store_->Put("user:bob", "their_bob");
+
+  EXPECT_EQ(overlay.Get("user:bob").value(), "their_bob");
+  overlay.Put("user:bob", "our_bob");
+
+  EXPECT_FALSE(overlay.Flush());
+  EXPECT_EQ(store_->Get("user:bob").value(), "their_bob");
+}
+
 TEST_F(AtomicAuthOverlayTest, ScanDoesNotConflictWithOwnWrites) {
   store_->Put("user:alice", "alice_data");
 
