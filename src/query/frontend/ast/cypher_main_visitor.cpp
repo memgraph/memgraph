@@ -2103,7 +2103,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure && !parsing_subquery_body_) {
+  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure && !subquery_fold_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -4250,14 +4250,13 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
     subquery->content_ = cypher_query;
   } else if (ctx->cypherQuery() || ctx->conditionalQuery()) {
     // Curly-brace subquery form: { cypherQuery } or { WHEN ... THEN ... }
-    auto old_flag = parsing_subquery_body_;
+    auto const old_fold = std::exchange(subquery_fold_, fold);
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
-    auto old_in_with = std::exchange(in_with_, false);
-    parsing_subquery_body_ = fold;
+    auto const old_in_with = std::exchange(in_with_, false);
     auto *cypher_query = ctx->conditionalQuery() ? VisitConditionalQuery(ctx->conditionalQuery()).query
                                                  : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     in_with_ = old_in_with;
-    parsing_subquery_body_ = old_flag;
+    subquery_fold_ = old_fold;
     subquery->content_ = cypher_query;
 
     // Per branch, because a UNION's further branches are each their own SingleQuery and a clause forbidden in
@@ -4784,10 +4783,10 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
   std::optional<ConditionalKind> kind;
   auto const add_branch = [&](Where *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
     auto const body = VisitConditionalBody(body_ctx);
-    // A RETURN-less branch keeps its input row rather than giving rows of its own, so a fold has nothing to fold.
-    if (parsing_subquery_body_ && body.kind != ConditionalKind::kReturns) {
+    // A RETURN-less branch passes its input row through: nothing to fold. Cypher 25 has the same rule.
+    if (subquery_fold_ && body.kind != ConditionalKind::kReturns) {
       throw SyntaxException("Every WHEN branch of {} must end with RETURN.",
-                            SubqueryExpression::FoldName(*parsing_subquery_body_));
+                            SubqueryExpression::FoldName(*subquery_fold_));
     }
     if (kind && *kind != body.kind) {
       throw SemanticException(
@@ -4827,8 +4826,8 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalBody(
     query->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
     return query;
   });
-  // `visitSingleQuery` already put RETURN last, and rejected a RETURN-less body that neither updates nor is a lone
-  // call.
+  // `visitSingleQuery` already put RETURN last and, outside a fold body, rejected a RETURN-less body that neither
+  // updates nor is a lone call. In a fold body, `add_branch` rejects it.
   auto const *last = cypher_query->single_query_->clauses_.back();
   if (utils::IsSubtype(*last, Return::kType)) return {.query = cypher_query, .kind = ConditionalKind::kReturns};
   const auto *call = utils::Downcast<const CallProcedure>(last);
