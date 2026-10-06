@@ -100,6 +100,7 @@ class ExpressionFuzz : public ::testing::Test {
     put("fraction", memgraph::storage::PropertyValue(2.5));
     put("word", memgraph::storage::PropertyValue(std::string{"seven"}));
     put("truth", memgraph::storage::PropertyValue(true));
+    [[maybe_unused]] auto const labelled = vertex.AddLabel(dba_.NameToLabel("Present"));
     dba_.AdvanceCommand();
     record_ = TypedValue(vertex);
 
@@ -144,7 +145,9 @@ class ExpressionFuzz : public ::testing::Test {
 
     context_.db_accessor = &dba_;
     context_.symbol_table = symbol_table_;
+    for (auto const &name : label_names_) storage_.GetLabelIx(name);
     context_.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba_);
+    context_.evaluation_context.labels = memgraph::query::NamesToLabels(storage_.labels_, &dba_);
     context_.evaluation_context.parameters = parameters_;
   }
 
@@ -158,6 +161,7 @@ class ExpressionFuzz : public ::testing::Test {
   TypedValue gone_;
   int gone_position_{0};
   std::vector<std::string> property_names_;
+  std::vector<std::string> label_names_{"Present", "Absent"};
 
   memgraph::query::ExpressionEvaluator MakeEvaluator() {
     return memgraph::query::ExpressionEvaluator{&frame_, context_, memgraph::storage::View::OLD};
@@ -166,6 +170,15 @@ class ExpressionFuzz : public ::testing::Test {
   // A leaf reads one of the operands off the frame, so every type reaches the
   // operators rather than only the ones a literal can spell.
   Expression *Leaf(std::mt19937 &rng) {
+    if (rng() % 7 == 0) {
+      // A label test over whatever the frame holds, so the operand that is not
+      // a node comes up as often as the one that is.
+      auto *subject = storage_.Create<memgraph::query::Identifier>("v");
+      subject->symbol_pos_ = static_cast<int32_t>(rng() % (operands_.size() + 2));
+      auto const &name = label_names_[rng() % label_names_.size()];
+      return storage_.Create<memgraph::query::LabelsTest>(
+          subject, std::vector<memgraph::query::LabelIx>{storage_.GetLabelIx(name)});
+    }
     if (rng() % 5 == 0) {
       return storage_.Create<memgraph::query::ParameterLookup>(static_cast<int>(rng() % kBoundParameters));
     }
@@ -253,10 +266,10 @@ struct CompiledOutcome {
 };
 
 CompiledOutcome RunCompiled(memgraph::query::TypedProgram const &program, memgraph::query::Frame const &frame,
-                            memgraph::query::PropertySource *source, memgraph::query::Parameters const *parameters) {
+                            memgraph::query::RecordReader *reader, memgraph::query::Parameters const *parameters) {
   using Answer = memgraph::query::TypedProgram::Answer;
   try {
-    auto const answer = program.Run(frame, source, parameters);
+    auto const answer = program.Run(frame, reader, parameters);
     return CompiledOutcome{.refused = answer == Answer::Refused, .answer = answer};
   } catch (std::exception const &e) {
     return CompiledOutcome{.threw = true, .complaint = e.what()};
