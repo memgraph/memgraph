@@ -11531,6 +11531,8 @@ void Interpreter::Commit() {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
             continue;
           }
+          // A weak compare-exchange can fail spuriously, leaving `expected` at the value it hoped for.
+          if (expected == TransactionStatus::STARTED_COMMITTING) continue;
           // Never claimed: the claim below threw before it landed. Nothing to give back.
           break;
         }
