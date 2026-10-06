@@ -344,7 +344,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, Foreach) {
 }
 
 TYPED_TEST(ReadWriteTypeCheckTest, Conditional) {
-  // CALL { WHEN true THEN MATCH (n) CREATE () }: a body's input is a bare Once, whose Visit returns false.
+  // CALL () { WHEN true THEN MATCH (n) CREATE () }: a body's input is a bare Once, whose Visit returns false.
   std::shared_ptr<LogicalOperator> scan_all = std::make_shared<ScanAll>(nullptr, this->GetSymbol("n"));
   std::shared_ptr<LogicalOperator> create = std::make_shared<CreateNode>(scan_all, NodeCreationInfo());
   auto writing =
@@ -353,7 +353,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, Conditional) {
                                     std::vector<Symbol>{});
   this->CheckPlanType(writing.get(), RWType::RW);
 
-  // CALL { WHEN EXISTS { MATCH (m) } THEN RETURN 1 AS y }: only the predicate's fold reads.
+  // CALL () { WHEN EXISTS { MATCH (m) } THEN RETURN 1 AS y }: only the predicate's fold reads.
   std::shared_ptr<LogicalOperator> fold = std::make_shared<EvaluatePatternFilter>(
       std::make_shared<ScanAll>(nullptr, this->GetSymbol("m")), this->GetSymbol("exists"), Fold::kBool);
   Symbol y = this->GetSymbol("y");

@@ -441,7 +441,7 @@ TEST_F(QueryCostEstimator, Union) {
 }
 
 TEST_F(QueryCostEstimator, Conditional) {
-  // MATCH (n) CALL (n) { WHEN true THEN MATCH (a) RETURN a WHEN true THEN MATCH (b), (c) RETURN b } WHERE true:
+  // MATCH (n) CALL (n) { WHEN true THEN MATCH (a) RETURN a WHEN true THEN MATCH (b), (c) RETURN b }, then a Filter:
   // taking a branch costs the predicates up to it plus its body; the costliest case and the widest body multiply the
   // input's, as in an Apply.
   auto no_vertices = 4;

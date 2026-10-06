@@ -3008,48 +3008,13 @@ std::vector<std::string> SymbolNames(const std::vector<Symbol> &symbols) {
   std::ranges::sort(names);
   return names;
 }
-}  // namespace
-
-/// Every operator type in the plan, through every branch, fold and subquery.
-std::vector<std::string> OpNames(LogicalOperator *root) {
-  std::vector<std::string> names;
-  std::vector<LogicalOperator *> stack{root};
-  while (!stack.empty()) {
-    auto *op = stack.back();
-    stack.pop_back();
-    if (!op) continue;
-    names.emplace_back(op->GetTypeInfo().name);
-    if (auto *conditional = dynamic_cast<Conditional *>(op)) {
-      for (const auto &branch : conditional->branches_) {
-        for (const auto &fold : branch.pattern_filters) stack.push_back(fold.get());
-      }
-      for (const auto &branch : conditional->branches_) stack.push_back(branch.plan.get());
-    } else if (auto *apply = dynamic_cast<Apply *>(op)) {
-      stack.push_back(apply->subquery_.get());
-    } else if (auto *filter = dynamic_cast<Filter *>(op)) {
-      for (const auto &fold : filter->pattern_filters_) stack.push_back(fold.get());
-    } else if (auto *union_op = dynamic_cast<Union *>(op)) {
-      stack.push_back(union_op->left_op_.get());
-      stack.push_back(union_op->right_op_.get());
-    } else if (auto *rollup = dynamic_cast<RollUpApply *>(op)) {
-      stack.push_back(rollup->list_collection_branch_.get());
-    } else if (auto *join = dynamic_cast<HashJoin *>(op)) {
-      stack.push_back(join->left_op_.get());
-      stack.push_back(join->right_op_.get());
-    } else if (auto *cartesian = dynamic_cast<Cartesian *>(op)) {
-      stack.push_back(cartesian->left_op_.get());
-      stack.push_back(cartesian->right_op_.get());
-    }
-    if (op->HasSingleInput()) stack.push_back(op->input().get());
-  }
-  return names;
-}
 
 /// The conditional a `CALL (...) { WHEN ... }` plans: the subquery root of the first Apply.
 Conditional *CallConditional(LogicalOperator &plan) {
   auto *call = FindOpOfType<Apply>(&plan);
   return call ? dynamic_cast<Conditional *>(call->subquery_.get()) : nullptr;
 }
+}  // namespace
 
 // A conditional body is a Conditional with one branch per WHEN. A branch runs only on the rows that take it, so an
 // untaken aggregating branch yields no row rather than an aggregate over nothing.

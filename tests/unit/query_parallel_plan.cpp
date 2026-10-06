@@ -911,27 +911,13 @@ TYPED_TEST(TestPlanner, ConditionalBranchScanStaysSerial) {
   auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
 
   // Every operator below the CALL's Apply, through every branch.
-  std::vector<std::string> names;
-  std::vector<LogicalOperator *> stack;
-  for (auto *op = &planner.plan(); op; op = op->HasSingleInput() ? op->input().get() : nullptr) {
-    if (auto *apply = dynamic_cast<Apply *>(op)) stack.push_back(apply->subquery_.get());
+  Apply *apply = nullptr;
+  for (auto *op = &planner.plan(); op && !apply; op = op->HasSingleInput() ? op->input().get() : nullptr) {
+    apply = dynamic_cast<Apply *>(op);
   }
-  ASSERT_EQ(stack.size(), 1);
-  EXPECT_STREQ(stack[0]->GetTypeInfo().name, "Conditional");
-  while (!stack.empty()) {
-    auto *op = stack.back();
-    stack.pop_back();
-    names.emplace_back(op->GetTypeInfo().name);
-    if (auto *conditional = dynamic_cast<Conditional *>(op)) {
-      for (const auto &branch : conditional->branches_) stack.push_back(branch.plan.get());
-    } else if (auto *apply = dynamic_cast<Apply *>(op)) {
-      stack.push_back(apply->subquery_.get());
-    } else if (auto *union_op = dynamic_cast<Union *>(op)) {
-      stack.push_back(union_op->left_op_.get());
-      stack.push_back(union_op->right_op_.get());
-    }
-    if (op->HasSingleInput()) stack.push_back(op->input().get());
-  }
+  ASSERT_TRUE(apply);
+  ASSERT_TRUE(dynamic_cast<Conditional *>(apply->subquery_.get()));
+  auto const names = OpNames(apply->subquery_.get());
   EXPECT_THAT(names, testing::Contains("ScanAll"));
   for (const auto &name : names) EXPECT_FALSE(name.starts_with("ScanParallel")) << name;
 }
@@ -967,7 +953,9 @@ TYPED_TEST(TestPlanner, ConditionalBranchAggregateKeepsOuterScanSerial) {
   EXPECT_THAT(chain, testing::Not(testing::Contains("AggregateParallel")));
 }
 
-// A Conditional on the main chain itself, below an Aggregate: Produce <- Aggregate <- Conditional <- ScanAll.
+// A Conditional on the main chain itself, below an Aggregate: Produce <- Aggregate <- Conditional <- ScanAll. The
+// planner never builds this shape (a Conditional is always an Apply's subquery), but it is the only way to reach the
+// main-chain conflict walk through a branch or a fold.
 class ParallelConditionalOnMainChain : public ::testing::Test {
  protected:
   AstStorage storage;

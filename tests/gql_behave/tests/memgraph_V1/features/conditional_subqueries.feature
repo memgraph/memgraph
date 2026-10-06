@@ -414,10 +414,11 @@ Feature: Conditional subqueries
             | 2 |
 
     Scenario: A second conditional reads what the first one wrote on other rows
+        # Bob is created, and so scanned, before Alice: her group is set only when every row passed the first CALL.
         Given an empty graph
         And having executed
             """
-            CREATE (alice:Person {name: 'Alice', age: 65}), (bob:Person {name: 'Bob', age: 25}),
+            CREATE (bob:Person {name: 'Bob', age: 25}), (alice:Person {name: 'Alice', age: 65}),
                    (charlie:Person {name: 'Charlie', age: 61}), (daniel:Person {name: 'Daniel', age: 39}),
                    (eskil:Person {name: 'Eskil', age: 39}), (bob)-[:WORKS_FOR]->(alice),
                    (alice)-[:WORKS_FOR]->(daniel), (charlie)-[:WORKS_FOR]->(daniel)
@@ -612,18 +613,14 @@ Feature: Conditional subqueries
 
     Scenario Outline: A parameter predicate is taken only when true
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
-            """
         And parameters are:
             | t | true |
             | n | null |
         When executing query:
             """
-            MATCH (a:A)
-            CALL (a) { WHEN $<param> THEN RETURN 'yes' AS x ELSE RETURN 'no' AS x }
-            RETURN a.k AS k, x
+            UNWIND [1, 3, 5] AS k
+            CALL (k) { WHEN $<param> THEN RETURN 'yes' AS x ELSE RETURN 'no' AS x }
+            RETURN k, x
             ORDER BY k
             """
         Then the result should be, in order:
@@ -639,15 +636,11 @@ Feature: Conditional subqueries
 
     Scenario: A predicate that is not a boolean raises
         Given an empty graph
-        And having executed:
-            """
-            CREATE (:A {k: 1})-[:R]->(:B {k: 2}), (:A {k: 3}), (:A {k: 5})-[:R]->(:B {k: 6})
-            """
         When executing query:
             """
-            MATCH (a:A)
-            CALL (a) { WHEN a.k THEN RETURN 'yes' AS x }
-            RETURN a.k AS k, x
+            UNWIND [1, 3, 5] AS k
+            CALL (k) { WHEN k THEN RETURN 'yes' AS x }
+            RETURN k, x
             """
         Then an error should be raised
 

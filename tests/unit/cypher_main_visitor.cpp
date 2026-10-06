@@ -8609,14 +8609,15 @@ TEST_P(CypherMainVisitorTest, CallSubqueryOptional) {
 TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
   AddProc(*mock_module, "proc", {}, {"res"}, GraphAccess::Read);
   auto &ast_generator = *GetParam();
-  auto const parse_branches = [&](const std::string &query) {
+  // The query and its CALL's sole clause as a ConditionalBranches; a null `branches` when the shape differs.
+  auto const parse_branches = [&](const std::string &query) -> std::pair<const CypherQuery *, ConditionalBranches *> {
     const auto *cypher_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
-    EXPECT_TRUE(cypher_query);
+    if (!cypher_query || cypher_query->single_query_->clauses_.size() < 2) return {cypher_query, nullptr};
     const auto *call_subquery = dynamic_cast<CallSubquery *>(cypher_query->single_query_->clauses_[1]);
-    EXPECT_TRUE(call_subquery);
+    if (!call_subquery) return {cypher_query, nullptr};
     const auto &clauses = call_subquery->cypher_query_->single_query_->clauses_;
-    EXPECT_EQ(clauses.size(), 1U);
-    return std::pair{cypher_query, dynamic_cast<ConditionalBranches *>(clauses[0])};
+    if (clauses.size() != 1) return {cypher_query, nullptr};
+    return {cypher_query, dynamic_cast<ConditionalBranches *>(clauses[0])};
   };
 
   {
@@ -8680,6 +8681,7 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
   for (auto const *query :
        {"UNWIND [1] AS i CALL (i) { WHEN true THEN CREATE (:T) ELSE RETURN 1 AS x } RETURN i",
         "UNWIND [1] AS i CALL (i) { WHEN true THEN CALL mock_module.proc() YIELD res ELSE CREATE (:T) } RETURN i",
+        "UNWIND [1] AS i CALL (i) { WHEN true THEN CALL mock_module.proc() YIELD res ELSE RETURN 1 AS x } RETURN i",
         "UNWIND [1] AS i CALL (i) { WHEN true THEN CREATE (:T) ELSE { WHEN true THEN RETURN 1 AS x } } RETURN i",
         "UNWIND [1] AS i CALL (i) { WHEN true THEN CREATE (:T) "
         "ELSE { WHEN true THEN CALL mock_module.proc() YIELD res } } RETURN i"}) {
@@ -8690,6 +8692,13 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
       "UNWIND [1] AS i CALL (i) { WHEN true THEN CALL mock_module.proc() YIELD res WHERE res > 0 } RETURN i",
       ast_generator,
       "Cannot use a standalone CALL with WHERE in a WHEN branch.");
+  // ELSE needs a WHEN before it, comes once, and comes last.
+  for (auto const *query : {"UNWIND [1] AS i CALL (i) { ELSE RETURN 1 AS x } RETURN x",
+                            "UNWIND [1] AS i CALL (i) { WHEN true THEN RETURN 1 AS x ELSE RETURN 2 AS x "
+                            "ELSE RETURN 3 AS x } RETURN x",
+                            "UNWIND [1] AS i CALL (i) { ELSE RETURN 1 AS x WHEN true THEN RETURN 2 AS x } RETURN x"}) {
+    TestInvalidQuery<SyntaxException>(query, ast_generator);
+  }
   // WHEN is the whole body, and a branch with UNION needs braces.
   TestInvalidQuery<SyntaxException>("UNWIND [1] AS i CALL (i) { WITH i WHEN true THEN RETURN 1 AS x } RETURN x",
                                     ast_generator);

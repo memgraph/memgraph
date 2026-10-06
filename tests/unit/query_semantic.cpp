@@ -1432,6 +1432,19 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallBranchesMustAgree) {
       "All WHEN branches must return the same number of columns.");
 }
 
+TYPED_TEST(TestSymbolGenerator, ConditionalCallBranchSeesOnlyImports) {
+  // WHEN true THEN WITH 1 AS q RETURN q AS x ELSE RETURN q AS x
+  EXPECT_THROW(MakeSymbolTable(CONDITIONAL_CALL_QUERY(
+                   {LITERAL(true), SINGLE_QUERY(WITH(LITERAL(1), AS("q")), RETURN(IDENT("q"), AS("x")))},
+                   {nullptr, SINGLE_QUERY(RETURN(IDENT("q"), AS("x")))})),
+               UnboundVariableError);
+  // WHEN true THEN WITH 1 AS q RETURN q AS x WHEN q = 1 THEN RETURN 2 AS x
+  EXPECT_THROW(MakeSymbolTable(CONDITIONAL_CALL_QUERY(
+                   {LITERAL(true), SINGLE_QUERY(WITH(LITERAL(1), AS("q")), RETURN(IDENT("q"), AS("x")))},
+                   {EQ(IDENT("q"), LITERAL(1)), SINGLE_QUERY(RETURN(LITERAL(2), AS("x")))})),
+               UnboundVariableError);
+}
+
 TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateSeesOnlyImports) {
   // WHEN count(i) > 0 THEN RETURN 1 AS x
   ExpectSemanticError(CONDITIONAL_CALL_QUERY(
@@ -1457,6 +1470,8 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateSeesOnlyImports) {
           RETURN("x"))),
       "Unbounded variables are not allowed in EXISTS!");
 }
+
+#undef CONDITIONAL_CALL_QUERY
 
 // The columns of a conditional body: one symbol per name shared by every branch, except that a column named after
 // an import is the import itself. Were the import left out, a body returning only it would look RETURN-less, and an

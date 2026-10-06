@@ -4555,17 +4555,19 @@ TYPED_TEST(SubqueriesFeature, ConditionalResetsBranchPerRow) {
 }
 
 TYPED_TEST(SubqueriesFeature, ConditionalResetAfterAbandon) {
-  // UNWIND [1, 2] AS i CALL (i) { WHEN true THEN RETURN i AS x } RETURN i, x: two rows, Reset, then the first again.
+  // UNWIND [1, 2] AS i CALL (i) { WHEN true THEN UNWIND [i, 0] AS y RETURN y AS x } RETURN i, x: Reset in the middle
+  // of a branch's rows, then the first input row's first branch row again.
   auto i = this->symbol_table.CreateSymbol("i", true);
+  auto y = this->symbol_table.CreateSymbol("y", true);
+  auto rows = std::make_shared<plan::Unwind>(nullptr, LIST(IDENT("i")->MapTo(i), LITERAL(0)), y);
   auto conditional =
-      this->MakeConditional(i, LIST(LITERAL(1), LITERAL(2)), {this->When(LITERAL(true), IDENT("i")->MapTo(i))});
+      this->MakeConditional(i, LIST(LITERAL(1), LITERAL(2)), {this->When(LITERAL(true), IDENT("y")->MapTo(y), rows)});
   auto const &x = conditional->output_symbols_[0];
   auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
   Frame frame(context.symbol_table.max_position());
   auto cursor = conditional->MakeCursor(memgraph::utils::NewDeleteResource(), TestMetricHandles());
   ASSERT_TRUE(cursor->Pull(frame, context));
-  ASSERT_TRUE(cursor->Pull(frame, context));
-  EXPECT_EQ(frame[x].ValueInt(), 2);
+  EXPECT_EQ(frame[x].ValueInt(), 1);
   cursor->Reset();
   ASSERT_TRUE(cursor->Pull(frame, context));
   EXPECT_EQ(frame[i].ValueInt(), 1);

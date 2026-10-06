@@ -71,6 +71,23 @@ class PruningBFSRewriteTest : public ::testing::Test {
     return std::make_unique<Produce>(std::move(top), std::vector<NamedExpression *>{named});
   }
 
+  Expression *Edges() { return storage.Create<Identifier>("edges")->MapTo(edge_sym); }
+
+  /// `WHEN predicate THEN RETURN column AS x` over @p input, with @p folds as the predicate's folds.
+  std::shared_ptr<LogicalOperator> ConditionalOver(std::shared_ptr<LogicalOperator> input, Expression *predicate,
+                                                   Expression *column,
+                                                   std::vector<std::shared_ptr<LogicalOperator>> folds = {}) {
+    auto x = symbol_table.CreateSymbol("x", true);
+    auto *named = storage.Create<NamedExpression>("x", column)->MapTo(x);
+    return std::make_shared<Conditional>(
+        std::move(input),
+        std::vector<Conditional::Branch>{
+            {.predicate = predicate,
+             .pattern_filters = std::move(folds),
+             .plan = std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})}},
+        std::vector<Symbol>{x});
+  }
+
   /// A bound that only the parameters of a particular execution settle, as query
   /// stripping produces for a written-out bound. Its value is out of the plan's
   /// reach, but it reads no symbol, so the cursor can settle it.
@@ -106,68 +123,38 @@ TEST_F(PruningBFSRewriteTest, DoesNotRewriteWhenAFilterExpressionReadsTheEdges) 
 }
 
 TEST_F(PruningBFSRewriteTest, DoesNotRewriteWhenAConditionalPredicateReadsTheEdges) {
-  // CALL (edges) { WHEN edges IS NULL THEN RETURN 1 AS x }: the predicate reads the edges.
+  // CALL (edges) { WHEN edges IS NULL THEN RETURN 1 AS x }
   auto const type = RewrittenType([this](auto input) {
-    auto *reads_edges = storage.Create<IsNullOperator>(storage.Create<Identifier>("edges")->MapTo(edge_sym));
-    auto x = symbol_table.CreateSymbol("x", true);
-    auto *named = storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(1))->MapTo(x);
-    return std::static_pointer_cast<LogicalOperator>(std::make_shared<Conditional>(
-        input,
-        std::vector<Conditional::Branch>{
-            {.predicate = reads_edges,
-             .plan = std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})}},
-        std::vector<Symbol>{x}));
+    return ConditionalOver(input, storage.Create<IsNullOperator>(Edges()), storage.Create<PrimitiveLiteral>(1));
   });
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
 }
 
 TEST_F(PruningBFSRewriteTest, DoesNotRewriteWhenAConditionalBranchReadsTheEdges) {
   // CALL (edges) { WHEN true THEN RETURN edges AS x }
-  auto const type = RewrittenType([this](auto input) {
-    auto x = symbol_table.CreateSymbol("x", true);
-    auto *named = storage.Create<NamedExpression>("x", storage.Create<Identifier>("edges")->MapTo(edge_sym))->MapTo(x);
-    return std::static_pointer_cast<LogicalOperator>(std::make_shared<Conditional>(
-        input,
-        std::vector<Conditional::Branch>{
-            {.predicate = storage.Create<PrimitiveLiteral>(true),
-             .plan = std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})}},
-        std::vector<Symbol>{x}));
-  });
+  auto const type = RewrittenType(
+      [this](auto input) { return ConditionalOver(input, storage.Create<PrimitiveLiteral>(true), Edges()); });
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
 }
 
 TEST_F(PruningBFSRewriteTest, DoesNotRewriteWhenAConditionalFoldReadsTheEdges) {
   // CALL (edges) { WHEN EXISTS { WITH edges WHERE edges IS NULL } THEN RETURN 1 AS x }: only the fold reads the edges.
   auto const type = RewrittenType([this](auto input) {
-    auto *reads_edges = storage.Create<IsNullOperator>(storage.Create<Identifier>("edges")->MapTo(edge_sym));
-    auto fold_input = std::make_shared<Filter>(
-        std::make_shared<Once>(), std::vector<std::shared_ptr<LogicalOperator>>{}, reads_edges);
+    auto fold_input = std::make_shared<Filter>(std::make_shared<Once>(),
+                                               std::vector<std::shared_ptr<LogicalOperator>>{},
+                                               storage.Create<IsNullOperator>(Edges()));
     auto exists_sym = symbol_table.CreateAnonymousSymbol();
     auto fold = std::make_shared<EvaluatePatternFilter>(fold_input, exists_sym, Fold::kBool);
-    auto x = symbol_table.CreateSymbol("x", true);
-    auto *named = storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(1))->MapTo(x);
-    return std::static_pointer_cast<LogicalOperator>(std::make_shared<Conditional>(
-        input,
-        std::vector<Conditional::Branch>{
-            {.predicate = storage.Create<Identifier>("exists")->MapTo(exists_sym),
-             .pattern_filters = {fold},
-             .plan = std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})}},
-        std::vector<Symbol>{x}));
+    return ConditionalOver(
+        input, storage.Create<Identifier>("exists")->MapTo(exists_sym), storage.Create<PrimitiveLiteral>(1), {fold});
   });
   EXPECT_EQ(type, EdgeAtom::Type::DEPTH_FIRST);
 }
 
 TEST_F(PruningBFSRewriteTest, RewritesBelowAConditionalThatReadsNoEdges) {
-  // CALL { WHEN true THEN RETURN 1 AS x }
+  // CALL () { WHEN true THEN RETURN 1 AS x }
   auto const type = RewrittenType([this](auto input) {
-    auto x = symbol_table.CreateSymbol("x", true);
-    auto *named = storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(1))->MapTo(x);
-    return std::static_pointer_cast<LogicalOperator>(std::make_shared<Conditional>(
-        input,
-        std::vector<Conditional::Branch>{
-            {.predicate = storage.Create<PrimitiveLiteral>(true),
-             .plan = std::make_shared<Produce>(nullptr, std::vector<NamedExpression *>{named})}},
-        std::vector<Symbol>{x}));
+    return ConditionalOver(input, storage.Create<PrimitiveLiteral>(true), storage.Create<PrimitiveLiteral>(1));
   });
   EXPECT_EQ(type, EdgeAtom::Type::PRUNING_BFS);
 }
