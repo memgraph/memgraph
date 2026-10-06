@@ -6464,8 +6464,12 @@ TYPED_TEST(TestPlanner, ExistsSubqueryReadsListElement) {
   FakeDbAccessor dba;
   auto label = dba.Label("Q");
   auto id = PROPERTY_PAIR(dba, "id");
-  auto node_with_id = [&](const std::string &name, const std::string &value, std::optional<std::string> label_name) {
-    auto *node = NODE(name, label_name, name == "n");
+  auto node_with_id = [&](const std::string &name,
+                          const std::string &value,
+                          std::optional<std::string>
+                              label_name,
+                          bool user_declared) {
+    auto *node = NODE(name, label_name, user_declared);
     std::get<0>(node->properties_)[this->storage.GetPropertyIx(id.first)] = IDENT(value);
     return node;
   };
@@ -6496,7 +6500,7 @@ TYPED_TEST(TestPlanner, ExistsSubqueryReadsListElement) {
   {
     // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { (n {id: x})--() }) RETURN n
     // The property map reads the element, so its filter is placed in the branch.
-    auto *subquery = EXISTS(PATTERN(node_with_id("n", "x", std::nullopt),
+    auto *subquery = EXISTS(PATTERN(node_with_id("n", "x", std::nullopt, true),
                                     EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
                                     NODE("m", std::nullopt, false)));
     plan_filter_tree(ALL("x", LIST(LITERAL(1)), WHERE(subquery)),
@@ -6504,11 +6508,22 @@ TYPED_TEST(TestPlanner, ExistsSubqueryReadsListElement) {
                      true);
   }
   {
+    // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { MATCH (n {id: x})--() }) RETURN n
+    // The subquery form: its body is seeded with the element too.
+    auto *subquery = EXISTS_SUBQUERY(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(node_with_id("n", "x", std::nullopt, true),
+                                         EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                         NODE("m", std::nullopt, false))))));
+    plan_filter_tree(ALL("x", LIST(LITERAL(1)), WHERE(subquery)),
+                     {new ExpectFilter(), new ExpectExpand(), new ExpectEvaluatePatternFilter()},
+                     true);
+  }
+  {
     // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { (:Q {id: x})--() }) RETURN n
     // With :Q(id) indexed, the branch seeks on the element.
     dba.SetIndexCount(label, 1);
     dba.SetIndexCount(label, id.second, 1);
-    auto *subquery = EXISTS(PATTERN(node_with_id("m", "x", "Q"),
+    auto *subquery = EXISTS(PATTERN(node_with_id("m", "x", "Q", false),
                                     EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
                                     NODE("k", std::nullopt, false)));
     plan_filter_tree(ALL("x", LIST(LITERAL(1)), WHERE(subquery)),
