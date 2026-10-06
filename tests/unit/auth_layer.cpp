@@ -407,7 +407,7 @@ TEST_F(AuthLayerTest, AReadGuardKeepsTheOverlayInstalled) {
   EXPECT_FALSE(layer_->Lock()->HasUser("alice")) << "the write escaped the transaction";
 }
 
-TEST_F(AuthLayerTest, AListedUserSetIsNotInvalidatedByAConcurrentCreate) {
+TEST_F(AuthLayerTest, AListedUserSetIsInvalidatedByAConcurrentCreate) {
   // The end-to-end sequence, through the calls a real session makes rather than the repository directly:
   // SHOW USERS lists the users, another session creates one, then CREATE USER runs HasUsers() on the way in.
   // The transaction concluded something from the list it read, so a new user appearing under that prefix has to
