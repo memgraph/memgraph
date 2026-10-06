@@ -17,6 +17,7 @@
 #include <fmt/format.h>
 
 #include "query/db_accessor.hpp"
+#include "query/exceptions.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/operator.hpp"
 #include "utils/algorithm.hpp"
@@ -188,7 +189,7 @@ std::string_view PredicateFoldName(const LogicalOperator &fold) {
     case Fold::kList:
       return "COLLECT";
   }
-  LOG_FATAL("Unhandled EvaluatePatternFilter fold");
+  throw QueryException("EXPLAIN met a WHEN predicate fold it cannot name.");
 }
 }  // namespace
 
