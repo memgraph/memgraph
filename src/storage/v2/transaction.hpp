@@ -234,6 +234,16 @@ struct Transaction {
 
   bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && !parallel_execution_; }
 
+  // Shared by the read path and the write path, so neither can disagree with the other about what is
+  // visible. An uncommitted delta carries its writer's transaction id here rather than a commit
+  // stamp, which this reports as outside the snapshot, since ids are handed out above every
+  // timestamp.
+  [[nodiscard]] bool CommittedBeforeSnapshot(uint64_t ts) const noexcept { return ts < start_timestamp; }
+
+  // The bound the snapshot writer hands to index and constraint listings, which admit an entry whose
+  // own commit stamp is at or below it. Inclusive, where the predicate above excludes its endpoint.
+  [[nodiscard]] uint64_t SnapshotVisibilityBound() const noexcept { return start_timestamp; }
+
   uint64_t transaction_id{};
   uint64_t start_timestamp{};
   // Set at construction; never reassigned. Stable across PeriodicCommit.
