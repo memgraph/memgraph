@@ -18,6 +18,7 @@
 #include <sstream>
 #include <thread>
 
+#include "auth_query_handler_fixture.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "disk_test_utils.hpp"
@@ -157,6 +158,20 @@ TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
 // Lab's connection-check / probe queries are constant RETURNs and take the accessor-free fast
 // path; presence of "graph_free" in the summary marks that no storage transaction was opened.
 // (The query is still planned and executed like any other, so it also records "plan_execution_time".)
+// A rejected nested BEGIN must leave the open transaction as it was. An auth transaction buffers its writes in the
+// interpreter, so clearing the interpreter on the way to the rejection would lose them and let COMMIT succeed.
+TYPED_TEST(InterpreterTest, NestedBeginKeepsAnOpenAuthTransaction) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  EXPECT_THROW(this->default_interpreter.Interpret("BEGIN"), memgraph::query::ExplicitTransactionUsageException);
+  this->default_interpreter.Interpret("COMMIT");
+
+  EXPECT_TRUE(auth.auth.ReadLock()->GetUser("alice").has_value());
+}
+
 TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
   {
     auto stream = this->Interpret("RETURN 1 AS APP_INTERNAL_EXEC_VAR");
