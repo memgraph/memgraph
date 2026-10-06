@@ -201,11 +201,11 @@ class PruningBFSRewriter final : public HierarchicalLogicalOperatorVisitor {
   bool PostVisit(RollUpApply &) override { return true; }
 
   bool PreVisit(Conditional &op) override {
-    for (auto const &branch : op.branches_) CollectSymbolsFromExpression(branch.predicate);
     for (auto const &branch : op.branches_) {
+      CollectSymbolsFromExpression(branch.predicate);
       for (auto const &fold : branch.pattern_filters) VisitSubquery(*fold);
+      VisitSubquery(*branch.plan);
     }
-    for (auto const &branch : op.branches_) VisitSubquery(*branch.plan);
     op.input_->Accept(*this);
     return false;
   }
