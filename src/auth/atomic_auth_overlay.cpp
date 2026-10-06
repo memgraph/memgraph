@@ -110,8 +110,6 @@ bool AtomicAuthOverlay::Flush() {
       continue;
     }
     for (; it != e; ++it) {
-      // A key this transaction wrote after the scan is its own doing, not a concurrent change.
-      if (write_set_.contains(it->first)) continue;
       if (!dependency.seen.contains(it->first)) return false;
     }
   }
