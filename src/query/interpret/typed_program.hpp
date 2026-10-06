@@ -25,6 +25,11 @@ namespace memgraph::query {
 
 class Frame;
 
+/// Three-valued, because a null operand makes a predicate null, with a fourth
+/// state for a value that is no truth value at all. The fourth is what a caller
+/// cannot act on, so it hands the row back.
+enum class Truth : int8_t { False = 0, True = 1, Null = 2, Refused = 3 };
+
 /// One expression compiled to work on values that are not boxed. Which type
 /// each operand will hold is guessed when the program is built and checked
 /// every time it is run, so a wrong guess costs a refusal rather than a wrong
@@ -54,13 +59,18 @@ class RecordReader {
   /// Nothing when the record is null, which makes the test null. Throws what
   /// the ordinary evaluator throws when the record is not a node.
   virtual std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) = 0;
+
+  /// Evaluates an expression a program does not cover and reads it as a truth
+  /// value. Refused when it is no truth value, which the evaluator would have
+  /// complained about in words the caller still has to produce.
+  virtual Truth EvaluateTruth(Expression &expression) = 0;
 };
 
 class TypedProgram {
  public:
-  /// Three-valued, because a null operand makes a predicate null, with a
-  /// fourth state for a guess that turned out wrong.
-  enum class Answer : int8_t { False = 0, True = 1, Null = 2, Refused = 3 };
+  /// A guess that turned out wrong refuses the row, the same as a value that
+  /// is no truth value.
+  using Answer = Truth;
 
   /// Compiles the expression, or gives nothing back when it holds something
   /// this does not cover. Giving nothing back is always safe: it means the
@@ -84,6 +94,14 @@ class TypedProgram {
   /// ordinary way. A missing operand is written as null rather than refused.
   bool RunInto(Frame const &frame, TypedValue &out, RecordReader *reader = nullptr,
                Parameters const *parameters = nullptr) const;
+
+  /// How many of the instructions hand an expression back to the evaluator.
+  size_t DelegatedOps() const;
+
+  /// Whether any instruction works on a value that is not boxed. A program
+  /// whose every leaf is handed back to the evaluator saves nothing and costs
+  /// a walk over itself, so a caller is better off without it.
+  bool WorthRunning() const;
 
   /// How many integer and three-valued working slots a run needs.
   size_t IntSlots() const { return int_slots_; }
@@ -114,6 +132,9 @@ class TypedProgram {
     IsNullInt,
     IsNullTri,
     CopyTri,
+    /// An expression this does not cover, read as a truth value by the
+    /// evaluator. One conjunct it cannot take no longer refuses the rest.
+    EvalTri,
     // The right side of a conjunction is not evaluated when the left side
     // settles it, which is what keeps a reader that would throw out of reach.
     JumpIfFalseTri,
@@ -128,6 +149,7 @@ class TypedProgram {
     int64_t literal;
     PropertyIx property;
     LabelsTest *labels{nullptr};
+    Expression *delegated{nullptr};
   };
 
   /// Whether the program's result is an answer or an integer. Which one a

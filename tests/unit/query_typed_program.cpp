@@ -173,6 +173,40 @@ TEST_F(TypedProgramTest, AValueExpressionYieldsNullForAMissingOperand) {
   EXPECT_TRUE(out.IsNull());
 }
 
+// One conjunct this does not cover used to refuse the whole conjunction, which
+// in a real query mix is what most refusals were. An expression that answers
+// true, false or null is handed to the evaluator instead, and everything around
+// it still compiles.
+TEST_F(TypedProgramTest, AnUncoveredConjunctIsHandedToTheEvaluator) {
+  Set(0, TypedValue(int64_t{5}));
+  Set(1, TypedValue(int64_t{1}));
+  Set(2, TypedValue(int64_t{3}));
+
+  auto const in_list = [&](int position) {
+    std::vector<Expression *> elements;
+    for (int64_t value : {int64_t{1}, int64_t{2}, int64_t{3}}) {
+      elements.push_back(storage_.Create<memgraph::query::PrimitiveLiteral>(value));
+    }
+    return storage_.Create<memgraph::query::InListOperator>(
+        Ident(position), storage_.Create<memgraph::query::ListLiteral>(std::move(elements)));
+  };
+
+  auto *expr = storage_.Create<memgraph::query::AndOperator>(
+      storage_.Create<memgraph::query::GreaterOperator>(Ident(0), Ident(1)), in_list(2));
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value()) << "a conjunction holding an IN should still compile";
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = nullptr;
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
+
+  Set(2, TypedValue(int64_t{9}));
+  EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::False);
+}
+
 // A chained comparison is a conjunction that evaluates both sides whatever the
 // first says, which is what separates it from an AND and why it compiles to
 // one without the jump over the second.

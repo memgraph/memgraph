@@ -719,6 +719,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
     return true;
   }
 
+  Truth EvaluateTruth(Expression &expression) override {
+    auto const value = expression.Accept(*this);
+    if (value.IsNull()) return Truth::Null;
+    if (value.IsBool()) return value.ValueBool() ? Truth::True : Truth::False;
+    // The evaluator complains about this in words that depend on where it sat,
+    // so the row goes back rather than being complained about here.
+    return Truth::Refused;
+  }
+
   std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) override {
     if (record.IsNull()) return std::nullopt;
     if (record.IsVertex()) return LabelsMatch(record.ValueVertex(), test);
