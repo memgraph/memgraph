@@ -27,6 +27,7 @@
 #include "gtest/gtest.h"
 #include "interpreter_faker.hpp"
 #include "license/license.hpp"
+#include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
@@ -3186,4 +3187,33 @@ TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
   }
   EXPECT_EQ(failures.load(), 0);
   EXPECT_LE(cache.WithLock([](auto &c) { return c.size(); }), 1U);
+}
+
+// Server-side parameters are evaluated by PrimitiveLiteralExpressionEvaluator, so they exercise it directly.
+class ParameterQueryTest : public InterpreterTest<memgraph::storage::InMemoryStorage> {
+ protected:
+  ParameterQueryTest() { interpreter_context.parameters = &server_parameters; }
+
+  memgraph::parameters::Parameters server_parameters{data_directory / "parameters"};
+
+  std::optional<std::string> GetParameter(std::string_view name) const {
+    return server_parameters.GetParameter(name, memgraph::parameters::kGlobalScope);
+  }
+};
+
+TEST_F(ParameterQueryTest, SignedNumbersInMapAndListLiteralValues) {
+  Interpret("SET GLOBAL PARAMETER p = {a: -1, b: -2.5, c: +3}");
+  EXPECT_EQ(GetParameter("p"), R"({"a":-1,"b":-2.5,"c":3})");
+
+  Interpret("SET GLOBAL PARAMETER q = [(-1)]");
+  EXPECT_EQ(GetParameter("q"), "[-1]");
+}
+
+TYPED_TEST(InterpreterTest, VectorIndexConfigAcceptsSignedNumber) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Vector indices are not supported on disk storage";
+  }
+  EXPECT_NO_THROW(
+      this->Interpret("CREATE VECTOR INDEX idx ON :L(p) WITH CONFIG {dimension: 2, capacity: 10, resize_coefficient: "
+                      "-1}"));
 }
