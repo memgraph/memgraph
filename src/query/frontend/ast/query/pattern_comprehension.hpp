@@ -52,10 +52,10 @@ class PatternComprehension : public memgraph::query::Expression {
 
   PatternComprehension *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<PatternComprehension>();
-    object->variable_ = variable_ ? variable_->Clone(storage) : nullptr;
-    object->pattern_ = pattern_ ? pattern_->Clone(storage) : nullptr;
-    object->filter_ = filter_ ? filter_->Clone(storage) : nullptr;
-    object->resultExpr_ = resultExpr_ ? resultExpr_->Clone(storage) : nullptr;
+    object->variable_ = variable_ ? variable_->Copy(storage) : nullptr;
+    object->pattern_ = pattern_ ? pattern_->Copy(storage) : nullptr;
+    object->filter_ = filter_ ? filter_->Copy(storage) : nullptr;
+    object->resultExpr_ = resultExpr_ ? resultExpr_->Copy(storage) : nullptr;
 
     object->symbol_pos_ = symbol_pos_;
     return object;

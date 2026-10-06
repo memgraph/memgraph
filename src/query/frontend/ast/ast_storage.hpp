@@ -11,10 +11,14 @@
 
 #pragma once
 
+#include "utils/on_scope_exit.hpp"
 #include "utils/typeinfo.hpp"
 
+#include <concepts>
+#include <cstddef>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace memgraph::query {
@@ -104,6 +108,26 @@ class AstStorage {
   // machinery out of Create, which is instantiated once per node type.
   void Adopt(std::unique_ptr<Tree> node);
 
+  /// Copies `node` and everything it reaches into this storage. A node the source reaches by
+  /// more than one path is copied once and shared again in the copy, so a shape that names a
+  /// value once and means it twice does not come back as a pair that can drift apart.
+  ///
+  /// Use this rather than `Clone` wherever one copy walks into the next: the record of what has
+  /// already been copied lives for as long as the outermost call, and is discarded with it.
+  template <typename T>
+    requires std::derived_from<T, Tree>
+  T *Copy(T const *node) {
+    if (!node) return nullptr;
+    ++copy_depth_;
+    auto const finished = utils::OnScopeExit{[this] {
+      if (--copy_depth_ == 0) copied_.clear();
+    }};
+    if (auto const it = copied_.find(node); it != copied_.end()) return static_cast<T *>(it->second);
+    auto *copy = node->Clone(this);
+    copied_.emplace(node, copy);
+    return copy;
+  }
+
   LabelIx GetLabelIx(const std::string &name) { return LabelIx{name, FindOrAddName(name, &labels_)}; }
 
   PropertyIx GetPropertyIx(const std::string &name) { return PropertyIx{name, FindOrAddName(name, &properties_)}; }
@@ -126,10 +150,20 @@ class AstStorage {
   std::vector<std::string> user_functions_;
   std::vector<std::string> call_procedures_;
 
+  /// How many nodes this storage owns, reachable from a query or not. A storage that
+  /// received only what a query reaches holds exactly as many nodes as a copy of that
+  /// query does, because copying follows the same edges.
+  std::size_t NodeCount() const { return storage_.size(); }
+
   // Public only for serialization access
   std::vector<std::unique_ptr<Tree>> storage_;
 
  private:
+  /// What the copy in progress has already made, so a node reached again is not made twice.
+  /// Only meaningful while a copy is running, which is what `copy_depth_` tracks.
+  std::unordered_map<Tree const *, Tree *> copied_;
+  int copy_depth_{0};
+
   int64_t FindOrAddName(const std::string &name, std::vector<std::string> *names) {
     for (int64_t i = 0; i < names->size(); ++i) {
       if ((*names)[i] == name) {
@@ -151,6 +185,15 @@ class Tree {
   virtual ~Tree() = default;
 
   virtual Tree *Clone(AstStorage *storage) const = 0;
+
+  /// Copies this node and everything it reaches into `storage`. Where `Clone` follows every edge
+  /// it meets, this copies a node once however many paths reach it, so a shape that names a value
+  /// once and means it twice does not come back as a pair that can drift apart. Prefer it to
+  /// `Clone` anywhere one copy walks into the next.
+  template <typename Self>
+  Self *Copy(this Self const &self, AstStorage *storage) {
+    return storage->Copy(&self);
+  }
 
  protected:
   Tree(const Tree &) = default;

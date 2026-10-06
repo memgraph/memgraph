@@ -65,10 +65,10 @@ class Pattern : public memgraph::query::Tree, public utils::Visitable<Hierarchic
 
   Pattern *Clone(AstStorage *storage) const override {
     Pattern *object = storage->Create<Pattern>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
     object->atoms_.resize(atoms_.size());
     for (auto i3 = 0; i3 < atoms_.size(); ++i3) {
-      object->atoms_[i3] = atoms_[i3] ? atoms_[i3]->Clone(storage) : nullptr;
+      object->atoms_[i3] = atoms_[i3] ? atoms_[i3]->Copy(storage) : nullptr;
     }
     return object;
   }

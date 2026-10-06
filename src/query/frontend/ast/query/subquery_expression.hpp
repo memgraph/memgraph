@@ -70,9 +70,9 @@ class SubqueryExpression : public memgraph::query::Expression {
     SubqueryExpression *object = storage->Create<SubqueryExpression>();
     object->fold_ = fold_;
     if (std::holds_alternative<Pattern *>(content_)) {
-      object->content_ = std::get<Pattern *>(content_)->Clone(storage);
+      object->content_ = std::get<Pattern *>(content_)->Copy(storage);
     } else if (std::holds_alternative<CypherQuery *>(content_)) {
-      object->content_ = std::get<CypherQuery *>(content_)->Clone(storage);
+      object->content_ = std::get<CypherQuery *>(content_)->Copy(storage);
     } else {
       object->content_ = std::monostate{};
     }

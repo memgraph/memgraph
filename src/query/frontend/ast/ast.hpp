@@ -102,8 +102,8 @@ class OrOperator : public memgraph::query::BinaryOperator {
 
   OrOperator *Clone(AstStorage *storage) const override {
     OrOperator *object = storage->Create<OrOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -134,8 +134,8 @@ class XorOperator : public memgraph::query::BinaryOperator {
 
   XorOperator *Clone(AstStorage *storage) const override {
     XorOperator *object = storage->Create<XorOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -166,8 +166,8 @@ class AndOperator : public memgraph::query::BinaryOperator {
 
   AndOperator *Clone(AstStorage *storage) const override {
     AndOperator *object = storage->Create<AndOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -198,8 +198,8 @@ class AdditionOperator : public memgraph::query::BinaryOperator {
 
   AdditionOperator *Clone(AstStorage *storage) const override {
     AdditionOperator *object = storage->Create<AdditionOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -230,8 +230,8 @@ class SubtractionOperator : public memgraph::query::BinaryOperator {
 
   SubtractionOperator *Clone(AstStorage *storage) const override {
     SubtractionOperator *object = storage->Create<SubtractionOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -262,8 +262,8 @@ class MultiplicationOperator : public memgraph::query::BinaryOperator {
 
   MultiplicationOperator *Clone(AstStorage *storage) const override {
     MultiplicationOperator *object = storage->Create<MultiplicationOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -294,8 +294,8 @@ class DivisionOperator : public memgraph::query::BinaryOperator {
 
   DivisionOperator *Clone(AstStorage *storage) const override {
     DivisionOperator *object = storage->Create<DivisionOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -326,8 +326,8 @@ class ModOperator : public memgraph::query::BinaryOperator {
 
   ModOperator *Clone(AstStorage *storage) const override {
     ModOperator *object = storage->Create<ModOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -358,8 +358,8 @@ class ExponentiationOperator : public memgraph::query::BinaryOperator {
 
   ExponentiationOperator *Clone(AstStorage *storage) const override {
     ExponentiationOperator *object = storage->Create<ExponentiationOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -390,8 +390,8 @@ class NotEqualOperator : public memgraph::query::BinaryOperator {
 
   NotEqualOperator *Clone(AstStorage *storage) const override {
     NotEqualOperator *object = storage->Create<NotEqualOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -422,8 +422,8 @@ class EqualOperator : public memgraph::query::BinaryOperator {
 
   EqualOperator *Clone(AstStorage *storage) const override {
     EqualOperator *object = storage->Create<EqualOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -454,8 +454,8 @@ class LessOperator : public memgraph::query::BinaryOperator {
 
   LessOperator *Clone(AstStorage *storage) const override {
     LessOperator *object = storage->Create<LessOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -486,8 +486,8 @@ class GreaterOperator : public memgraph::query::BinaryOperator {
 
   GreaterOperator *Clone(AstStorage *storage) const override {
     GreaterOperator *object = storage->Create<GreaterOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -518,8 +518,8 @@ class LessEqualOperator : public memgraph::query::BinaryOperator {
 
   LessEqualOperator *Clone(AstStorage *storage) const override {
     LessEqualOperator *object = storage->Create<LessEqualOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -550,8 +550,8 @@ class GreaterEqualOperator : public memgraph::query::BinaryOperator {
 
   GreaterEqualOperator *Clone(AstStorage *storage) const override {
     GreaterEqualOperator *object = storage->Create<GreaterEqualOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -585,8 +585,8 @@ class RangeOperator : public Expression {
 
   RangeOperator *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<RangeOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -614,8 +614,8 @@ class InListOperator : public memgraph::query::BinaryOperator {
 
   InListOperator *Clone(AstStorage *storage) const override {
     InListOperator *object = storage->Create<InListOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -646,8 +646,8 @@ class SubscriptOperator : public memgraph::query::BinaryOperator {
 
   SubscriptOperator *Clone(AstStorage *storage) const override {
     SubscriptOperator *object = storage->Create<SubscriptOperator>();
-    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
-    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Copy(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -678,7 +678,7 @@ class NotOperator : public memgraph::query::UnaryOperator {
 
   NotOperator *Clone(AstStorage *storage) const override {
     NotOperator *object = storage->Create<NotOperator>();
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -709,7 +709,7 @@ class UnaryPlusOperator : public memgraph::query::UnaryOperator {
 
   UnaryPlusOperator *Clone(AstStorage *storage) const override {
     UnaryPlusOperator *object = storage->Create<UnaryPlusOperator>();
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -740,7 +740,7 @@ class UnaryMinusOperator : public memgraph::query::UnaryOperator {
 
   UnaryMinusOperator *Clone(AstStorage *storage) const override {
     UnaryMinusOperator *object = storage->Create<UnaryMinusOperator>();
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -771,7 +771,7 @@ class IsNullOperator : public memgraph::query::UnaryOperator {
 
   IsNullOperator *Clone(AstStorage *storage) const override {
     IsNullOperator *object = storage->Create<IsNullOperator>();
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -814,9 +814,9 @@ class ListSlicingOperator : public Expression {
 
   ListSlicingOperator *Clone(AstStorage *storage) const override {
     ListSlicingOperator *object = storage->Create<ListSlicingOperator>();
-    object->list_ = list_ ? list_->Clone(storage) : nullptr;
-    object->lower_bound_ = lower_bound_ ? lower_bound_->Clone(storage) : nullptr;
-    object->upper_bound_ = upper_bound_ ? upper_bound_->Clone(storage) : nullptr;
+    object->list_ = list_ ? list_->Copy(storage) : nullptr;
+    object->lower_bound_ = lower_bound_ ? lower_bound_->Copy(storage) : nullptr;
+    object->upper_bound_ = upper_bound_ ? upper_bound_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -856,9 +856,9 @@ class IfOperator : public Expression {
 
   IfOperator *Clone(AstStorage *storage) const override {
     IfOperator *object = storage->Create<IfOperator>();
-    object->condition_ = condition_ ? condition_->Clone(storage) : nullptr;
-    object->then_expression_ = then_expression_ ? then_expression_->Clone(storage) : nullptr;
-    object->else_expression_ = else_expression_ ? else_expression_->Clone(storage) : nullptr;
+    object->condition_ = condition_ ? condition_->Copy(storage) : nullptr;
+    object->then_expression_ = then_expression_ ? then_expression_->Copy(storage) : nullptr;
+    object->else_expression_ = else_expression_ ? else_expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -948,7 +948,7 @@ class ListLiteral : public memgraph::query::BaseLiteral {
     ListLiteral *object = storage->Create<ListLiteral>();
     object->elements_.resize(elements_.size());
     for (auto i0 = 0; i0 < elements_.size(); ++i0) {
-      object->elements_[i0] = elements_[i0] ? elements_[i0]->Clone(storage) : nullptr;
+      object->elements_[i0] = elements_[i0] ? elements_[i0]->Copy(storage) : nullptr;
     }
     return object;
   }
@@ -988,7 +988,7 @@ class MapLiteral : public memgraph::query::BaseLiteral {
     MapLiteral *object = storage->Create<MapLiteral>();
     for (const auto &entry : elements_) {
       PropertyIx key = storage->GetPropertyIx(entry.first.name);
-      object->elements_[key] = entry.second->Clone(storage);
+      object->elements_[key] = entry.second->Copy(storage);
     }
     return object;
   }
@@ -1036,7 +1036,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
 
   MapProjectionLiteral *Clone(AstStorage *storage) const override {
     MapProjectionLiteral *object = storage->Create<MapProjectionLiteral>();
-    object->map_variable_ = map_variable_->Clone(storage);
+    object->map_variable_ = map_variable_->Copy(storage);
 
     for (const auto &entry : elements_) {
       auto key = storage->GetPropertyIx(entry.first.name);
@@ -1046,7 +1046,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
         continue;
       }
 
-      object->elements_[key] = entry.second->Clone(storage);
+      object->elements_[key] = entry.second->Copy(storage);
     }
     return object;
   }
@@ -1100,7 +1100,7 @@ class PropertyLookup : public Expression {
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     object->property_ = storage->GetPropertyIx(property_.name);
     object->property_path_.resize(property_path_.size());
     for (size_t i = 0; i < property_path_.size(); ++i) {
@@ -1143,7 +1143,7 @@ class AllPropertiesLookup : public Expression {
 
   AllPropertiesLookup *Clone(AstStorage *storage) const override {
     AllPropertiesLookup *object = storage->Create<AllPropertiesLookup>();
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -1206,7 +1206,7 @@ class LabelsTest : public Expression {
 
   LabelsTest *Clone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     if (const auto *term = Term()) {
       object->test_ = term->Clone(storage);
       return object;
@@ -1278,7 +1278,7 @@ class EdgeTypesTest : public Expression {
 
   EdgeTypesTest *Clone(AstStorage *storage) const override {
     EdgeTypesTest *object = storage->Create<EdgeTypesTest>();
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     object->valid_edgetypes_ = valid_edgetypes_;
     return object;
   }
@@ -1323,7 +1323,7 @@ class Function : public Expression {
     Function *object = storage->Create<Function>();
     object->arguments_.resize(arguments_.size());
     for (auto i1 = 0; i1 < arguments_.size(); ++i1) {
-      object->arguments_[i1] = arguments_[i1] ? arguments_[i1]->Clone(storage) : nullptr;
+      object->arguments_[i1] = arguments_[i1] ? arguments_[i1]->Copy(storage) : nullptr;
     }
     object->function_name_ = function_name_;
     object->function_ = function_;
@@ -1386,11 +1386,11 @@ class Reduce : public Expression {
 
   Reduce *Clone(AstStorage *storage) const override {
     Reduce *object = storage->Create<Reduce>();
-    object->accumulator_ = accumulator_ ? accumulator_->Clone(storage) : nullptr;
-    object->initializer_ = initializer_ ? initializer_->Clone(storage) : nullptr;
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
-    object->list_ = list_ ? list_->Clone(storage) : nullptr;
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->accumulator_ = accumulator_ ? accumulator_->Copy(storage) : nullptr;
+    object->initializer_ = initializer_ ? initializer_->Copy(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
+    object->list_ = list_ ? list_->Copy(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -1436,7 +1436,7 @@ class Coalesce : public Expression {
     Coalesce *object = storage->Create<Coalesce>();
     object->expressions_.resize(expressions_.size());
     for (auto i2 = 0; i2 < expressions_.size(); ++i2) {
-      object->expressions_[i2] = expressions_[i2] ? expressions_[i2]->Clone(storage) : nullptr;
+      object->expressions_[i2] = expressions_[i2] ? expressions_[i2]->Copy(storage) : nullptr;
     }
     return object;
   }
@@ -1476,9 +1476,9 @@ class Extract : public Expression {
 
   Extract *Clone(AstStorage *storage) const override {
     Extract *object = storage->Create<Extract>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
-    object->list_ = list_ ? list_->Clone(storage) : nullptr;
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
+    object->list_ = list_ ? list_->Copy(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -1516,9 +1516,9 @@ class All : public Expression {
 
   All *Clone(AstStorage *storage) const override {
     All *object = storage->Create<All>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
-    object->list_expression_ = list_expression_ ? list_expression_->Clone(storage) : nullptr;
-    object->where_ = where_ ? where_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
+    object->list_expression_ = list_expression_ ? list_expression_->Copy(storage) : nullptr;
+    object->where_ = where_ ? where_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -1556,9 +1556,9 @@ class Single : public Expression {
 
   Single *Clone(AstStorage *storage) const override {
     Single *object = storage->Create<Single>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
-    object->list_expression_ = list_expression_ ? list_expression_->Clone(storage) : nullptr;
-    object->where_ = where_ ? where_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
+    object->list_expression_ = list_expression_ ? list_expression_->Copy(storage) : nullptr;
+    object->where_ = where_ ? where_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -1596,9 +1596,9 @@ class Any : public Expression {
 
   Any *Clone(AstStorage *storage) const override {
     Any *object = storage->Create<Any>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
-    object->list_expression_ = list_expression_ ? list_expression_->Clone(storage) : nullptr;
-    object->where_ = where_ ? where_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
+    object->list_expression_ = list_expression_ ? list_expression_->Copy(storage) : nullptr;
+    object->where_ = where_ ? where_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -1636,9 +1636,9 @@ class None : public Expression {
 
   None *Clone(AstStorage *storage) const override {
     None *object = storage->Create<None>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
-    object->list_expression_ = list_expression_ ? list_expression_->Clone(storage) : nullptr;
-    object->where_ = where_ ? where_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
+    object->list_expression_ = list_expression_ ? list_expression_->Copy(storage) : nullptr;
+    object->where_ = where_ ? where_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -1688,10 +1688,10 @@ class ListComprehension : public Expression {
 
   ListComprehension *Clone(AstStorage *storage) const override {
     ListComprehension *object = storage->Create<ListComprehension>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
-    object->list_ = list_ ? list_->Clone(storage) : nullptr;
-    object->where_ = where_ ? where_->Clone(storage) : nullptr;
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
+    object->list_ = list_ ? list_->Copy(storage) : nullptr;
+    object->where_ = where_ ? where_->Copy(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -1759,8 +1759,8 @@ class RegexMatch : public Expression {
 
   RegexMatch *Clone(AstStorage *storage) const override {
     RegexMatch *object = storage->Create<RegexMatch>();
-    object->string_expr_ = string_expr_ ? string_expr_->Clone(storage) : nullptr;
-    object->regex_ = regex_ ? regex_->Clone(storage) : nullptr;
+    object->string_expr_ = string_expr_ ? string_expr_->Copy(storage) : nullptr;
+    object->regex_ = regex_ ? regex_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -1816,15 +1816,15 @@ class NodeAtom : public memgraph::query::PatternAtom {
 
   NodeAtom *Clone(AstStorage *storage) const override {
     NodeAtom *object = storage->Create<NodeAtom>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
     if (const auto *properties = std::get_if<std::unordered_map<PropertyIx, Expression *>>(&properties_)) {
       auto &new_obj_properties = std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_);
       for (const auto &[property, value_expression] : *properties) {
         PropertyIx key = storage->GetPropertyIx(property.name);
-        new_obj_properties[key] = value_expression->Clone(storage);
+        new_obj_properties[key] = value_expression->Copy(storage);
       }
     } else {
-      object->properties_ = std::get<ParameterLookup *>(properties_)->Clone(storage);
+      object->properties_ = std::get<ParameterLookup *>(properties_)->Copy(storage);
     }
     if (label_term_) object->label_term_ = label_term_->Clone(storage);
     return object;
@@ -1876,11 +1876,11 @@ class EdgeAtom : public memgraph::query::PatternAtom {
 
     Lambda Clone(AstStorage *storage) const {
       Lambda object;
-      object.inner_edge = inner_edge ? inner_edge->Clone(storage) : nullptr;
-      object.inner_node = inner_node ? inner_node->Clone(storage) : nullptr;
-      object.accumulated_path = accumulated_path ? accumulated_path->Clone(storage) : nullptr;
-      object.accumulated_weight = accumulated_weight ? accumulated_weight->Clone(storage) : nullptr;
-      object.expression = expression ? expression->Clone(storage) : nullptr;
+      object.inner_edge = inner_edge ? inner_edge->Copy(storage) : nullptr;
+      object.inner_node = inner_node ? inner_node->Copy(storage) : nullptr;
+      object.accumulated_path = accumulated_path ? accumulated_path->Copy(storage) : nullptr;
+      object.accumulated_weight = accumulated_weight ? accumulated_weight->Copy(storage) : nullptr;
+      object.expression = expression ? expression->Copy(storage) : nullptr;
       return object;
     }
   };
@@ -1950,14 +1950,14 @@ class EdgeAtom : public memgraph::query::PatternAtom {
 
   EdgeAtom *Clone(AstStorage *storage) const override {
     EdgeAtom *object = storage->Create<EdgeAtom>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
     object->type_ = type_;
     object->direction_ = direction_;
     object->edge_types_.resize(edge_types_.size());
     for (auto i = 0; i < object->edge_types_.size(); ++i) {
       auto const clone_edge_type = utils::Overloaded{
           [&](EdgeTypeIx const &edge_type) { object->edge_types_[i] = storage->GetEdgeTypeIx(edge_type.name); },
-          [&](Expression const *edge_type) { object->edge_types_[i] = edge_type->Clone(storage); },
+          [&](Expression const *edge_type) { object->edge_types_[i] = edge_type->Copy(storage); },
       };
       std::visit(clone_edge_type, edge_types_[i]);
     }
@@ -1965,17 +1965,17 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       auto &new_obj_properties = std::get<std::unordered_map<PropertyIx, Expression *>>(object->properties_);
       for (const auto &[property, value_expression] : *properties) {
         PropertyIx key = storage->GetPropertyIx(property.name);
-        new_obj_properties[key] = value_expression->Clone(storage);
+        new_obj_properties[key] = value_expression->Copy(storage);
       }
     } else {
-      object->properties_ = std::get<ParameterLookup *>(properties_)->Clone(storage);
+      object->properties_ = std::get<ParameterLookup *>(properties_)->Copy(storage);
     }
-    object->lower_bound_ = lower_bound_ ? lower_bound_->Clone(storage) : nullptr;
-    object->upper_bound_ = upper_bound_ ? upper_bound_->Clone(storage) : nullptr;
+    object->lower_bound_ = lower_bound_ ? lower_bound_->Copy(storage) : nullptr;
+    object->upper_bound_ = upper_bound_ ? upper_bound_->Copy(storage) : nullptr;
     object->filter_lambda_ = filter_lambda_.Clone(storage);
     object->weight_lambda_ = weight_lambda_.Clone(storage);
-    object->total_weight_ = total_weight_ ? total_weight_->Clone(storage) : nullptr;
-    object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
+    object->total_weight_ = total_weight_ ? total_weight_->Copy(storage) : nullptr;
+    object->limit_ = limit_ ? limit_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -2035,7 +2035,7 @@ class SingleQuery : public memgraph::query::Tree, public utils::Visitable<Hierar
     SingleQuery *object = storage->Create<SingleQuery>();
     object->clauses_.resize(clauses_.size());
     for (auto i4 = 0; i4 < clauses_.size(); ++i4) {
-      object->clauses_[i4] = clauses_[i4] ? clauses_[i4]->Clone(storage) : nullptr;
+      object->clauses_[i4] = clauses_[i4] ? clauses_[i4]->Copy(storage) : nullptr;
     }
     object->has_update = has_update;
     return object;
@@ -2070,7 +2070,7 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
 
   CypherUnion *Clone(AstStorage *storage) const override {
     CypherUnion *object = storage->Create<CypherUnion>();
-    object->single_query_ = single_query_ ? single_query_->Clone(storage) : nullptr;
+    object->single_query_ = single_query_ ? single_query_->Copy(storage) : nullptr;
     object->distinct_ = distinct_;
     object->union_symbols_ = union_symbols_;
     return object;
@@ -2139,10 +2139,10 @@ struct PreQueryDirectives {
     for (auto i = 0; i < index_hints_.size(); ++i) {
       object.index_hints_[i] = index_hints_[i].Clone(storage);
     }
-    object.hops_limit_ = hops_limit_ ? hops_limit_->Clone(storage) : nullptr;
-    object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
+    object.hops_limit_ = hops_limit_ ? hops_limit_->Copy(storage) : nullptr;
+    object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Copy(storage) : nullptr;
     object.parallel_execution_ = parallel_execution_;
-    object.num_threads_ = num_threads_ ? num_threads_->Clone(storage) : nullptr;
+    object.num_threads_ = num_threads_ ? num_threads_->Copy(storage) : nullptr;
     return object;
   }
 };
@@ -2182,12 +2182,12 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
 
   CypherQuery *Clone(AstStorage *storage) const override {
     CypherQuery *object = storage->Create<CypherQuery>();
-    object->single_query_ = single_query_ ? single_query_->Clone(storage) : nullptr;
+    object->single_query_ = single_query_ ? single_query_->Copy(storage) : nullptr;
     object->cypher_unions_.resize(cypher_unions_.size());
     for (auto i5 = 0; i5 < cypher_unions_.size(); ++i5) {
-      object->cypher_unions_[i5] = cypher_unions_[i5] ? cypher_unions_[i5]->Clone(storage) : nullptr;
+      object->cypher_unions_[i5] = cypher_unions_[i5] ? cypher_unions_[i5]->Copy(storage) : nullptr;
     }
-    object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
+    object->memory_limit_ = memory_limit_ ? memory_limit_->Copy(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->pre_query_directives_ = pre_query_directives_.Clone(storage);
     return object;
@@ -2214,7 +2214,7 @@ class ExplainQuery : public memgraph::query::Query {
 
   ExplainQuery *Clone(AstStorage *storage) const override {
     ExplainQuery *object = storage->Create<ExplainQuery>();
-    object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
+    object->cypher_query_ = cypher_query_ ? cypher_query_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -2239,7 +2239,7 @@ class ProfileQuery : public memgraph::query::Query {
 
   ProfileQuery *Clone(AstStorage *storage) const override {
     ProfileQuery *object = storage->Create<ProfileQuery>();
-    object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
+    object->cypher_query_ = cypher_query_ ? cypher_query_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -2283,7 +2283,7 @@ class IndexQuery : public memgraph::query::Query {
     }
     object->name_ = name_;
     for (auto const &[key_expr, value_expr] : config_) {
-      object->config_.emplace(key_expr->Clone(storage), value_expr->Clone(storage));
+      object->config_.emplace(key_expr->Copy(storage), value_expr->Copy(storage));
     }
     object->is_global_ = is_global_;
     return object;
@@ -2476,12 +2476,12 @@ class VectorIndexQuery : public memgraph::query::Query {
         std::visit(utils::Overloaded{[storage](const ConfigMap &map) -> std::variant<ConfigMap, Expression *> {
                                        ConfigMap cloned;
                                        for (const auto &[key, value] : map) {
-                                         cloned[key->Clone(storage)] = value->Clone(storage);
+                                         cloned[key->Copy(storage)] = value->Copy(storage);
                                        }
                                        return cloned;
                                      },
                                      [storage](Expression *expr) -> std::variant<ConfigMap, Expression *> {
-                                       return expr ? expr->Clone(storage) : nullptr;
+                                       return expr ? expr->Copy(storage) : nullptr;
                                      }},
                    config_);
     return object;
@@ -2531,12 +2531,12 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
         std::visit(utils::Overloaded{[storage](const ConfigMap &map) -> std::variant<ConfigMap, Expression *> {
                                        ConfigMap cloned;
                                        for (const auto &[key, value] : map) {
-                                         cloned[key->Clone(storage)] = value->Clone(storage);
+                                         cloned[key->Copy(storage)] = value->Copy(storage);
                                        }
                                        return cloned;
                                      },
                                      [storage](Expression *expr) -> std::variant<ConfigMap, Expression *> {
-                                       return expr ? expr->Clone(storage) : nullptr;
+                                       return expr ? expr->Copy(storage) : nullptr;
                                      }},
                    config_);
     return object;
@@ -2579,7 +2579,7 @@ class Create : public memgraph::query::Clause {
     Create *object = storage->Create<Create>();
     object->patterns_.resize(patterns_.size());
     for (auto i6 = 0; i6 < patterns_.size(); ++i6) {
-      object->patterns_[i6] = patterns_[i6] ? patterns_[i6]->Clone(storage) : nullptr;
+      object->patterns_[i6] = patterns_[i6] ? patterns_[i6]->Copy(storage) : nullptr;
     }
     return object;
   }
@@ -2640,18 +2640,18 @@ class CallProcedure : public memgraph::query::Clause {
     object->procedure_name_ = procedure_name_;
     object->arguments_.resize(arguments_.size());
     for (auto i7 = 0; i7 < arguments_.size(); ++i7) {
-      object->arguments_[i7] = arguments_[i7] ? arguments_[i7]->Clone(storage) : nullptr;
+      object->arguments_[i7] = arguments_[i7] ? arguments_[i7]->Copy(storage) : nullptr;
     }
     object->result_fields_ = result_fields_;
     object->result_identifiers_.resize(result_identifiers_.size());
     for (auto i8 = 0; i8 < result_identifiers_.size(); ++i8) {
-      object->result_identifiers_[i8] = result_identifiers_[i8] ? result_identifiers_[i8]->Clone(storage) : nullptr;
+      object->result_identifiers_[i8] = result_identifiers_[i8] ? result_identifiers_[i8]->Copy(storage) : nullptr;
     }
-    object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
+    object->memory_limit_ = memory_limit_ ? memory_limit_->Copy(storage) : nullptr;
     object->memory_scale_ = memory_scale_;
     object->void_procedure_ = void_procedure_;
     object->graph_access_ = graph_access_;
-    object->where_ = where_ ? where_->Clone(storage) : nullptr;
+    object->where_ = where_ ? where_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -2691,9 +2691,9 @@ class Match : public memgraph::query::Clause {
     Match *object = storage->Create<Match>();
     object->patterns_.resize(patterns_.size());
     for (auto i9 = 0; i9 < patterns_.size(); ++i9) {
-      object->patterns_[i9] = patterns_[i9] ? patterns_[i9]->Clone(storage) : nullptr;
+      object->patterns_[i9] = patterns_[i9] ? patterns_[i9]->Copy(storage) : nullptr;
     }
-    object->where_ = where_ ? where_->Clone(storage) : nullptr;
+    object->where_ = where_ ? where_->Copy(storage) : nullptr;
     object->optional_ = optional_;
     return object;
   }
@@ -2719,7 +2719,7 @@ struct SortItem {
   SortItem Clone(AstStorage *storage) const {
     SortItem object;
     object.ordering = ordering;
-    object.expression = expression ? expression->Clone(storage) : nullptr;
+    object.expression = expression ? expression->Copy(storage) : nullptr;
     return object;
   }
 };
@@ -2749,14 +2749,14 @@ struct ReturnBody {
     object.all_identifiers = all_identifiers;
     object.named_expressions.resize(named_expressions.size());
     for (auto i10 = 0; i10 < named_expressions.size(); ++i10) {
-      object.named_expressions[i10] = named_expressions[i10] ? named_expressions[i10]->Clone(storage) : nullptr;
+      object.named_expressions[i10] = named_expressions[i10] ? named_expressions[i10]->Copy(storage) : nullptr;
     }
     object.order_by.resize(order_by.size());
     for (auto i11 = 0; i11 < order_by.size(); ++i11) {
       object.order_by[i11] = order_by[i11].Clone(storage);
     }
-    object.skip = skip ? skip->Clone(storage) : nullptr;
-    object.limit = limit ? limit->Clone(storage) : nullptr;
+    object.skip = skip ? skip->Copy(storage) : nullptr;
+    object.limit = limit ? limit->Copy(storage) : nullptr;
     return object;
   }
 };
@@ -2845,7 +2845,7 @@ class With : public memgraph::query::Clause {
   With *Clone(AstStorage *storage) const override {
     With *object = storage->Create<With>();
     object->body_ = body_.Clone(storage);
-    object->where_ = where_ ? where_->Clone(storage) : nullptr;
+    object->where_ = where_ ? where_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -2880,7 +2880,7 @@ class Delete : public memgraph::query::Clause {
     Delete *object = storage->Create<Delete>();
     object->expressions_.resize(expressions_.size());
     for (auto i12 = 0; i12 < expressions_.size(); ++i12) {
-      object->expressions_[i12] = expressions_[i12] ? expressions_[i12]->Clone(storage) : nullptr;
+      object->expressions_[i12] = expressions_[i12] ? expressions_[i12]->Copy(storage) : nullptr;
     }
     object->detach_ = detach_;
     return object;
@@ -2913,8 +2913,8 @@ class SetProperty : public memgraph::query::Clause {
 
   SetProperty *Clone(AstStorage *storage) const override {
     SetProperty *object = storage->Create<SetProperty>();
-    object->property_lookup_ = property_lookup_ ? property_lookup_->Clone(storage) : nullptr;
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->property_lookup_ = property_lookup_ ? property_lookup_->Copy(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -2947,8 +2947,8 @@ class SetProperties : public memgraph::query::Clause {
 
   SetProperties *Clone(AstStorage *storage) const override {
     SetProperties *object = storage->Create<SetProperties>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
-    object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
+    object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     object->update_ = update_;
     return object;
   }
@@ -2981,13 +2981,13 @@ class SetLabels : public memgraph::query::Clause {
 
   SetLabels *Clone(AstStorage *storage) const override {
     SetLabels *object = storage->Create<SetLabels>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {
       if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
         object->labels_[i] = storage->GetLabelIx(label->name);
       } else {
-        object->labels_[i] = std::get<Expression *>(labels_[i])->Clone(storage);
+        object->labels_[i] = std::get<Expression *>(labels_[i])->Copy(storage);
       }
     }
     return object;
@@ -3020,7 +3020,7 @@ class RemoveProperty : public memgraph::query::Clause {
 
   RemoveProperty *Clone(AstStorage *storage) const override {
     RemoveProperty *object = storage->Create<RemoveProperty>();
-    object->property_lookup_ = property_lookup_ ? property_lookup_->Clone(storage) : nullptr;
+    object->property_lookup_ = property_lookup_ ? property_lookup_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -3051,13 +3051,13 @@ class RemoveLabels : public memgraph::query::Clause {
 
   RemoveLabels *Clone(AstStorage *storage) const override {
     RemoveLabels *object = storage->Create<RemoveLabels>();
-    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
     object->labels_.resize(labels_.size());
     for (auto i = 0; i < object->labels_.size(); ++i) {
       if (const auto *label = std::get_if<LabelIx>(&labels_[i])) {
         object->labels_[i] = storage->GetLabelIx(label->name);
       } else {
-        object->labels_[i] = std::get<Expression *>(labels_[i])->Clone(storage);
+        object->labels_[i] = std::get<Expression *>(labels_[i])->Copy(storage);
       }
     }
     return object;
@@ -3108,14 +3108,14 @@ class Merge : public memgraph::query::Clause {
 
   Merge *Clone(AstStorage *storage) const override {
     Merge *object = storage->Create<Merge>();
-    object->pattern_ = pattern_ ? pattern_->Clone(storage) : nullptr;
+    object->pattern_ = pattern_ ? pattern_->Copy(storage) : nullptr;
     object->on_match_.resize(on_match_.size());
     for (auto i13 = 0; i13 < on_match_.size(); ++i13) {
-      object->on_match_[i13] = on_match_[i13] ? on_match_[i13]->Clone(storage) : nullptr;
+      object->on_match_[i13] = on_match_[i13] ? on_match_[i13]->Copy(storage) : nullptr;
     }
     object->on_create_.resize(on_create_.size());
     for (auto i14 = 0; i14 < on_create_.size(); ++i14) {
-      object->on_create_[i14] = on_create_[i14] ? on_create_[i14]->Clone(storage) : nullptr;
+      object->on_create_[i14] = on_create_[i14] ? on_create_[i14]->Copy(storage) : nullptr;
     }
     return object;
   }
@@ -3147,7 +3147,7 @@ class Unwind : public memgraph::query::Clause {
 
   Unwind *Clone(AstStorage *storage) const override {
     Unwind *object = storage->Create<Unwind>();
-    object->named_expression_ = named_expression_ ? named_expression_->Clone(storage) : nullptr;
+    object->named_expression_ = named_expression_ ? named_expression_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -3303,11 +3303,11 @@ class ReplicationQuery : public memgraph::query::Query {
     object->action_ = action_;
     object->role_ = role_;
     object->instance_name_ = instance_name_;
-    object->socket_address_ = socket_address_ ? socket_address_->Clone(storage) : nullptr;
-    object->port_ = port_ ? port_->Clone(storage) : nullptr;
+    object->socket_address_ = socket_address_ ? socket_address_->Copy(storage) : nullptr;
+    object->port_ = port_ ? port_->Copy(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
     object->coordinator_socket_address_ =
-        coordinator_socket_address_ ? coordinator_socket_address_->Clone(storage) : nullptr;
+        coordinator_socket_address_ ? coordinator_socket_address_->Copy(storage) : nullptr;
 
     return object;
   }
@@ -3387,13 +3387,13 @@ class CoordinatorQuery : public memgraph::query::Query {
 
     object->action_ = action_;
     object->instance_name_ = instance_name_;
-    object->coordinator_id_ = coordinator_id_ ? coordinator_id_->Clone(storage) : nullptr;
+    object->coordinator_id_ = coordinator_id_ ? coordinator_id_->Copy(storage) : nullptr;
     object->sync_mode_ = sync_mode_;
     for (const auto &[key, value] : configs_) {
-      object->configs_[key->Clone(storage)] = value->Clone(storage);
+      object->configs_[key->Copy(storage)] = value->Copy(storage);
     }
-    object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
-    object->setting_value_ = setting_value_ ? setting_value_->Clone(storage) : nullptr;
+    object->setting_name_ = setting_name_ ? setting_name_->Copy(storage) : nullptr;
+    object->setting_value_ = setting_value_ ? setting_value_->Copy(storage) : nullptr;
 
     return object;
   }
@@ -3543,15 +3543,15 @@ class LoadCsv : public memgraph::query::Clause {
 
   LoadCsv *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadCsv>();
-    object->file_ = file_ ? file_->Clone(storage) : nullptr;
+    object->file_ = file_ ? file_->Copy(storage) : nullptr;
     object->with_header_ = with_header_;
     object->ignore_bad_ = ignore_bad_;
-    object->delimiter_ = delimiter_ ? delimiter_->Clone(storage) : nullptr;
-    object->quote_ = quote_ ? quote_->Clone(storage) : nullptr;
+    object->delimiter_ = delimiter_ ? delimiter_->Copy(storage) : nullptr;
+    object->quote_ = quote_ ? quote_->Copy(storage) : nullptr;
     object->nullif_ = nullif_;
-    object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    object->row_var_ = row_var_ ? row_var_->Copy(storage) : nullptr;
     for (auto const &[key, value] : configs_) {
-      object->configs_[key->Clone(storage)] = value->Clone(storage);
+      object->configs_[key->Copy(storage)] = value->Copy(storage);
     }
     return object;
   }
@@ -3594,11 +3594,11 @@ class LoadParquet : public Clause {
 
   LoadParquet *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadParquet>();
-    object->file_ = file_ ? file_->Clone(storage) : nullptr;
+    object->file_ = file_ ? file_->Copy(storage) : nullptr;
     for (const auto &[key, value] : configs_) {
-      object->configs_[key->Clone(storage)] = value->Clone(storage);
+      object->configs_[key->Copy(storage)] = value->Copy(storage);
     }
-    object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    object->row_var_ = row_var_ ? row_var_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -3632,10 +3632,10 @@ class LoadJsonl : public Clause {
 
   LoadJsonl *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadJsonl>();
-    object->file_ = file_ ? file_->Clone(storage) : nullptr;
-    object->row_var_ = row_var_ ? row_var_->Clone(storage) : nullptr;
+    object->file_ = file_ ? file_->Copy(storage) : nullptr;
+    object->row_var_ = row_var_ ? row_var_->Copy(storage) : nullptr;
     for (auto const &[key, value] : configs_) {
-      object->configs_[key->Clone(storage)] = value->Clone(storage);
+      object->configs_[key->Copy(storage)] = value->Copy(storage);
     }
     return object;
   }
@@ -3806,9 +3806,9 @@ class RecoverSnapshotQuery : public memgraph::query::Query {
 
   RecoverSnapshotQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<RecoverSnapshotQuery>();
-    object->snapshot_ = snapshot_ ? snapshot_->Clone(storage) : nullptr;
+    object->snapshot_ = snapshot_ ? snapshot_->Copy(storage) : nullptr;
     for (auto const &[key, value] : configs_) {
-      object->configs_[key->Clone(storage)] = value->Clone(storage);
+      object->configs_[key->Copy(storage)] = value->Copy(storage);
     }
     object->force_ = force_;
     return object;
@@ -3896,28 +3896,28 @@ class StreamQuery : public memgraph::query::Query {
     object->action_ = action_;
     object->type_ = type_;
     object->stream_name_ = stream_name_;
-    object->batch_limit_ = batch_limit_ ? batch_limit_->Clone(storage) : nullptr;
-    object->timeout_ = timeout_ ? timeout_->Clone(storage) : nullptr;
+    object->batch_limit_ = batch_limit_ ? batch_limit_->Copy(storage) : nullptr;
+    object->timeout_ = timeout_ ? timeout_->Copy(storage) : nullptr;
     object->transform_name_ = transform_name_;
-    object->batch_interval_ = batch_interval_ ? batch_interval_->Clone(storage) : nullptr;
-    object->batch_size_ = batch_size_ ? batch_size_->Clone(storage) : nullptr;
+    object->batch_interval_ = batch_interval_ ? batch_interval_->Copy(storage) : nullptr;
+    object->batch_size_ = batch_size_ ? batch_size_->Copy(storage) : nullptr;
     if (auto *topic_expression = std::get_if<Expression *>(&topic_names_)) {
       if (*topic_expression == nullptr) {
         object->topic_names_ = nullptr;
       } else {
-        object->topic_names_ = (*topic_expression)->Clone(storage);
+        object->topic_names_ = (*topic_expression)->Copy(storage);
       }
     } else {
       object->topic_names_ = std::get<std::vector<std::string>>(topic_names_);
     }
     object->consumer_group_ = consumer_group_;
-    object->bootstrap_servers_ = bootstrap_servers_ ? bootstrap_servers_->Clone(storage) : nullptr;
-    object->service_url_ = service_url_ ? service_url_->Clone(storage) : nullptr;
+    object->bootstrap_servers_ = bootstrap_servers_ ? bootstrap_servers_->Copy(storage) : nullptr;
+    object->service_url_ = service_url_ ? service_url_->Copy(storage) : nullptr;
     for (const auto &[key, value] : configs_) {
-      object->configs_[key->Clone(storage)] = value->Clone(storage);
+      object->configs_[key->Copy(storage)] = value->Copy(storage);
     }
     for (const auto &[key, value] : credentials_) {
-      object->credentials_[key->Clone(storage)] = value->Clone(storage);
+      object->credentials_[key->Copy(storage)] = value->Copy(storage);
     }
     return object;
   }
@@ -3947,8 +3947,8 @@ class SettingQuery : public memgraph::query::Query {
   SettingQuery *Clone(AstStorage *storage) const override {
     SettingQuery *object = storage->Create<SettingQuery>();
     object->action_ = action_;
-    object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
-    object->setting_value_ = setting_value_ ? setting_value_->Clone(storage) : nullptr;
+    object->setting_name_ = setting_name_ ? setting_name_->Copy(storage) : nullptr;
+    object->setting_value_ = setting_value_ ? setting_value_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -3986,11 +3986,11 @@ class ParameterQuery : public memgraph::query::Query {
         [storage](auto &&arg) -> std::variant<Expression *, std::unordered_map<Expression *, Expression *>> {
           using T = std::decay_t<decltype(arg)>;
           if constexpr (std::is_same_v<T, Expression *>) {
-            return arg ? arg->Clone(storage) : nullptr;
+            return arg ? arg->Copy(storage) : nullptr;
           } else {
             std::unordered_map<Expression *, Expression *> cloned;
             for (const auto &[k, v] : arg) {
-              cloned[k->Clone(storage)] = v->Clone(storage);
+              cloned[k->Copy(storage)] = v->Copy(storage);
             }
             return cloned;
           }
@@ -4042,10 +4042,10 @@ class Foreach : public memgraph::query::Clause {
 
   Foreach *Clone(AstStorage *storage) const override {
     Foreach *object = storage->Create<Foreach>();
-    object->named_expression_ = named_expression_ ? named_expression_->Clone(storage) : nullptr;
+    object->named_expression_ = named_expression_ ? named_expression_->Copy(storage) : nullptr;
     object->clauses_.resize(clauses_.size());
     for (auto i15 = 0; i15 < clauses_.size(); ++i15) {
-      object->clauses_[i15] = clauses_[i15] ? clauses_[i15]->Clone(storage) : nullptr;
+      object->clauses_[i15] = clauses_[i15] ? clauses_[i15]->Copy(storage) : nullptr;
     }
     return object;
   }
@@ -4200,10 +4200,10 @@ class CallSubquery : public memgraph::query::Clause {
 
   CallSubquery *Clone(AstStorage *storage) const override {
     CallSubquery *object = storage->Create<CallSubquery>();
-    object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
+    object->cypher_query_ = cypher_query_ ? cypher_query_->Copy(storage) : nullptr;
     object->scoped_variables_.reserve(scoped_variables_.size());
     for (auto *ne : scoped_variables_) {
-      object->scoped_variables_.push_back(ne ? ne->Clone(storage) : nullptr);
+      object->scoped_variables_.push_back(ne ? ne->Copy(storage) : nullptr);
     }
     object->has_variable_scope_ = has_variable_scope_;
     object->all_variables_scoped_ = all_variables_scoped_;
@@ -4560,8 +4560,8 @@ class TtlQuery : public memgraph::query::Query {
   TtlQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<TtlQuery>();
     object->type_ = type_;
-    object->period_ = period_ ? period_->Clone(storage) : nullptr;
-    object->specific_time_ = specific_time_ ? specific_time_->Clone(storage) : nullptr;
+    object->period_ = period_ ? period_->Copy(storage) : nullptr;
+    object->specific_time_ = specific_time_ ? specific_time_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -4614,8 +4614,8 @@ class SessionSettingQuery : public memgraph::query::Query {
   SessionSettingQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<SessionSettingQuery>();
     object->action_ = action_;
-    object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
-    object->setting_value_ = setting_value_ ? setting_value_->Clone(storage) : nullptr;
+    object->setting_name_ = setting_name_ ? setting_name_->Copy(storage) : nullptr;
+    object->setting_value_ = setting_value_ ? setting_value_->Copy(storage) : nullptr;
     return object;
   }
 
@@ -4660,7 +4660,7 @@ class DescriptionQuery : public memgraph::query::Query {
     object->to_labels_ = to_labels_;
     object->database_name_ = database_name_;
     object->description_ = description_;
-    object->value_ = value_ ? value_->Clone(storage) : nullptr;
+    object->value_ = value_ ? value_->Copy(storage) : nullptr;
     return object;
   }
 

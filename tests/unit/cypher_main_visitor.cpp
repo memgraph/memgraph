@@ -133,9 +133,17 @@ class AstGenerator : public Base {
   Query *ParseQuery(const std::string &query_string) override {
     ::frontend::opencypher::Parser parser(query_string);
     Parameters parameters;
+    auto const before = ast_storage_.NodeCount();
     CypherMainVisitor visitor(context_, &ast_storage_, &parameters);
     visitor.visit(parser.tree());
-    return visitor.query();
+    auto *query = visitor.query();
+    // A copy follows the edges the query reaches, so it can hold no more than the parse
+    // created. Holding more means a node reached by several paths was copied once per path.
+    // The storage outlives one parse, so the comparison is against what this parse added.
+    AstStorage reachable;
+    query->Clone(&reachable);
+    EXPECT_LE(reachable.NodeCount(), ast_storage_.NodeCount() - before) << query_string;
+    return query;
   }
 
   PropertyIx Prop(const std::string &prop_name) override { return ast_storage_.GetPropertyIx(prop_name); }
@@ -1750,6 +1758,19 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternFixedRange) {
   ast_generator.CheckLiteral(edge->lower_bound_, 42);
   ast_generator.CheckLiteral(edge->upper_bound_, 42);
   CheckRWType(query, kRead);
+}
+
+// A fixed range names one bound and means it twice, so both bounds are the same node. Copying
+// reaches that node by two paths and has to arrive at one node again, or the copy holds a pair
+// that can drift apart.
+TEST_P(CypherMainVisitorTest, CloningKeepsAFixedRangeBoundShared) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r*42]->() RETURN r"));
+  ASSERT_TRUE(query);
+  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+  EdgeAtom *edge = nullptr;
+  AssertMatchSingleEdgeAtom(match, edge);
+  EXPECT_EQ(edge->lower_bound_, edge->upper_bound_);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternFloatingUpperBound) {
