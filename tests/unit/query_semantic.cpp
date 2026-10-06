@@ -1497,6 +1497,19 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallOutputSymbols) {
   EXPECT_EQ(conditional->output_symbols_.size(), 2U);
 }
 
+// An import is a column only when a branch returns it.
+TYPED_TEST(TestSymbolGenerator, ConditionalCallLeavesUnreturnedImportsOut) {
+  // UNWIND [1] AS i CALL (i) { WHEN true THEN RETURN 1 AS x } RETURN x
+  auto *branches = WHEN_BRANCHES({LITERAL(true), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))});
+  auto *query =
+      QUERY(SINGLE_QUERY(UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(branches, {"i"}), RETURN("x")));
+  MakeSymbolTable(query);
+  auto *conditional = dynamic_cast<ConditionalBranches *>(branches->clauses_[0]);
+  ASSERT_TRUE(conditional);
+  ASSERT_EQ(conditional->output_symbols_.size(), 1U);
+  EXPECT_EQ(conditional->output_symbols_[0].name(), "x");
+}
+
 // `external_symbols_` must be exactly what the body reads from outside. Too few places the conjunct too low; too many
 // makes it unplantable. Asserted directly, because a scenario sees only the planner symptom.
 TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {

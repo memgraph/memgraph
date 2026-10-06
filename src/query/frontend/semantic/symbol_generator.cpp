@@ -413,8 +413,10 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   auto &scope = scopes_.back();
   scope.has_return = has_return;
   if (!scope.has_return) return false;
-  // Sorted, so the columns' order does not depend on the hash set's.
-  auto columns = std::vector<std::string>(first_names.begin(), first_names.end());
+  // The columns a branch writes, not every import its RETURN puts back in scope; a `RETURN *` that sees only the
+  // imports returns them. Sorted, so the order does not depend on the hash set's.
+  auto const &written = first_written.empty() ? first_names : first_written;
+  auto columns = std::vector<std::string>(written.begin(), written.end());
   std::ranges::sort(columns);
   scope.curr_return_names = std::move(first_names);
   for (const auto &name : columns) {

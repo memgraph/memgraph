@@ -3048,8 +3048,8 @@ TYPED_TEST(TestPlanner, ConditionalSubquery) {
 
     auto *root = CallConditional(planner.plan());
     ASSERT_NE(root, nullptr);
-    // The body returns the import too, as its own symbol: nothing writes it, so the caller keeps its value.
-    EXPECT_EQ(SymbolNames(root->output_symbols_), (std::vector<std::string>{"c", "i"}));
+    // No branch returns the import, so it is no column; the caller keeps its value.
+    EXPECT_EQ(SymbolNames(root->output_symbols_), (std::vector<std::string>{"c"}));
     ASSERT_EQ(root->branches_.size(), 2);
     for (const auto &branch : root->branches_) {
       ASSERT_EQ(branch.columns.size(), 1);
