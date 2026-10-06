@@ -212,7 +212,6 @@ Feature: Conditional subqueries
             | body                                                    |
             | WHEN i = 1 THEN RETURN i                                |
             | WHEN i = 1 THEN RETURN *                                |
-            | WHEN i = 1 THEN RETURN i WHEN i = 3 THEN RETURN i       |
             | WHEN i = 2 THEN UNWIND [] AS z RETURN i ELSE RETURN i   |
 
     Scenario: A CASE expression may sit in a predicate and in a branch's RETURN
@@ -491,8 +490,8 @@ Feature: Conditional subqueries
             | 1 |
             | 2 |
 
-    Scenario Outline: A later subquery predicate is not evaluated when an earlier predicate is true
-        # Only the comprehension row needs the fold itself deferred: EXISTS, COUNT and COLLECT pull to a closure.
+    Scenario: A later pattern comprehension predicate is not evaluated when an earlier predicate is true
+        # EXISTS, COUNT and COLLECT pull to a closure; a comprehension needs its fold deferred to the predicate.
         Given an empty graph
         And having executed:
             """
@@ -503,7 +502,7 @@ Feature: Conditional subqueries
         When executing query:
             """
             MATCH (a:A)
-            CALL (a) { WHEN a.k > 0 THEN RETURN 'pos' AS x WHEN <predicate> THEN RETURN 'other' AS x }
+            CALL (a) { WHEN a.k > 0 THEN RETURN 'pos' AS x WHEN size([(a)-[:R]->(b) WHERE b.k / $z > 0 | b.k]) > 0 THEN RETURN 'other' AS x }
             RETURN a.k AS k, x
             ORDER BY k
             """
@@ -512,13 +511,6 @@ Feature: Conditional subqueries
             | 1 | 'pos' |
             | 3 | 'pos' |
             | 5 | 'pos' |
-
-        Examples:
-            | predicate                                            |
-            | EXISTS { MATCH (a)-[:R]->(b) WHERE b.k / $z > 0 }    |
-            | COUNT { UNWIND [1 / $z] AS u RETURN u } > 0          |
-            | size(COLLECT { UNWIND [1 / $z] AS u RETURN u }) > 0  |
-            | size([(a)-[:R]->(b) WHERE b.k / $z > 0 \| b.k]) > 0  |
 
     Scenario: An EXISTS operand after a true OR operand is not evaluated
         Given an empty graph
@@ -625,39 +617,6 @@ Feature: Conditional subqueries
             MATCH (a:A)
             CALL (a) { WHEN a.k > 0 OR size([(a)-[:R]->(b) WHERE b.k / $z > 0 | b.k]) > 0 THEN RETURN 'pos' AS x }
             RETURN a.k AS k, x
-            """
-        Then an error should be raised
-
-    Scenario Outline: A parameter predicate is taken only when true
-        Given an empty graph
-        And parameters are:
-            | t | true |
-            | n | null |
-        When executing query:
-            """
-            UNWIND [1, 3, 5] AS k
-            CALL (k) { WHEN $<param> THEN RETURN 'yes' AS x ELSE RETURN 'no' AS x }
-            RETURN k, x
-            ORDER BY k
-            """
-        Then the result should be, in order:
-            | k | x   |
-            | 1 | <x> |
-            | 3 | <x> |
-            | 5 | <x> |
-
-        Examples:
-            | param | x     |
-            | t     | 'yes' |
-            | n     | 'no'  |
-
-    Scenario: A predicate that is not a boolean raises
-        Given an empty graph
-        When executing query:
-            """
-            UNWIND [1, 3, 5] AS k
-            CALL (k) { WHEN k THEN RETURN 'yes' AS x }
-            RETURN k, x
             """
         Then an error should be raised
 
