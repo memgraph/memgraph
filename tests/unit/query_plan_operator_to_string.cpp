@@ -938,7 +938,7 @@ TYPED_TEST(OperatorToStringTest, ConditionalPlan) {
   PrettyPrint(this->dba, conditional.get(), &out);
   EXPECT_EQ(out.str(),
             " * Conditional {x}\n"
-            " |\\ WHEN 0 predicate EXISTS\n"
+            " |\\ WHEN 0 EXISTS\n"
             " | * EvaluatePatternFilter\n"
             " | * Once\n"
             " |\\ WHEN 0\n"
@@ -965,13 +965,13 @@ TYPED_TEST(OperatorToStringTest, ConditionalPlanNamesFolds) {
   PrettyPrint(this->dba, conditional.get(), &out);
   EXPECT_EQ(out.str(),
             " * Conditional {x}\n"
-            " |\\ WHEN 0 predicate COUNT\n"
+            " |\\ WHEN 0 COUNT\n"
             " | * EvaluatePatternFilter\n"
             " | * Once\n"
-            " |\\ WHEN 0 predicate COLLECT\n"
+            " |\\ WHEN 0 COLLECT\n"
             " | * EvaluatePatternFilter\n"
             " | * Once\n"
-            " |\\ WHEN 0 predicate pattern comprehension\n"
+            " |\\ WHEN 0 pattern comprehension\n"
             " | * RollUpApply (list)\n"
             " | |\\ \n"
             " | | * Once\n"
