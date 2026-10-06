@@ -13,6 +13,8 @@
 
 #include "query/interpret/frame.hpp"
 
+#include <algorithm>
+
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query {
@@ -124,8 +126,8 @@ class TypedProgramBuilder {
       }
       case utils::TypeId::AST_NOT_OPERATOR: {
         auto *op = static_cast<NotOperator *>(expression);
-        auto const operand = Build(op->expression_);
-        if (!operand || !operand->is_tri) return refuse();
+        auto const operand = BuildTri(op->expression_);
+        if (!operand) return refuse();
         auto const slot = NextTri();
         Emit(TypedProgram::Op::NotTri, slot, operand->slot, 0, 0);
         return Operand{.is_tri = true, .slot = slot};
@@ -170,10 +172,10 @@ class TypedProgramBuilder {
 
   /// Both sides into one answer, with nothing skipped.
   std::optional<Operand> Conjoin(Expression *expression, Expression *left, Expression *right) {
-    auto const lhs = Build(left);
-    if (!lhs || !lhs->is_tri) return Refuse(expression);
-    auto const rhs = Build(right);
-    if (!rhs || !rhs->is_tri) return Refuse(expression);
+    auto const lhs = BuildTri(left);
+    if (!lhs) return Refuse(expression);
+    auto const rhs = BuildTri(right);
+    if (!rhs) return Refuse(expression);
     auto const slot = NextTri();
     Emit(TypedProgram::Op::AndTri, slot, lhs->slot, rhs->slot, 0);
     return Operand{.is_tri = true, .slot = slot};
@@ -184,8 +186,8 @@ class TypedProgramBuilder {
   /// evaluator would reach it too.
   std::optional<Operand> Logical(Expression *expression, TypedProgram::Op op) {
     auto *binary = static_cast<BinaryOperator *>(expression);
-    auto const lhs = Build(binary->expression1_);
-    if (!lhs || !lhs->is_tri) return Refuse(expression);
+    auto const lhs = BuildTri(binary->expression1_);
+    if (!lhs) return Refuse(expression);
 
     auto const slot = NextTri();
     Emit(TypedProgram::Op::CopyTri, slot, lhs->slot, 0, 0);
@@ -196,8 +198,8 @@ class TypedProgramBuilder {
          0,
          0);
 
-    auto const rhs = Build(binary->expression2_);
-    if (!rhs || !rhs->is_tri) return Refuse(expression);
+    auto const rhs = BuildTri(binary->expression2_);
+    if (!rhs) return Refuse(expression);
     Emit(op, slot, lhs->slot, rhs->slot, 0);
     code_[jump].b = static_cast<int32_t>(code_.size());
     return Operand{.is_tri = true, .slot = slot};
@@ -210,14 +212,32 @@ class TypedProgramBuilder {
     return std::nullopt;
   }
 
+  /// Builds the operand, and where that fails takes it as a truth value the
+  /// evaluator will supply. Only sound where a truth value is what the
+  /// operator wants, which is why it is not the default everywhere.
+  std::optional<Operand> BuildTri(Expression *expression) {
+    if (auto const operand = Build(expression); operand && operand->is_tri) return operand;
+    // The walk may have recorded why it stopped; it no longer stops here.
+    refused_on_ = nullptr;
+    auto const slot = NextTri();
+    Emit(TypedProgram::Op::EvalTri, slot, 0, 0, 0, PropertyIx{}, nullptr, expression);
+    return Operand{.is_tri = true, .slot = slot};
+  }
+
   int32_t NextInt() { return static_cast<int32_t>(int_slots_++); }
 
   int32_t NextTri() { return static_cast<int32_t>(tri_slots_++); }
 
   void Emit(TypedProgram::Op op, int32_t dst, int32_t a, int32_t b, int64_t literal, PropertyIx property = PropertyIx{},
-            LabelsTest *labels = nullptr) {
-    code_.push_back(TypedProgram::Instr{
-        .op = op, .dst = dst, .a = a, .b = b, .literal = literal, .property = std::move(property), .labels = labels});
+            LabelsTest *labels = nullptr, Expression *delegated = nullptr) {
+    code_.push_back(TypedProgram::Instr{.op = op,
+                                        .dst = dst,
+                                        .a = a,
+                                        .b = b,
+                                        .literal = literal,
+                                        .property = std::move(property),
+                                        .labels = labels,
+                                        .delegated = delegated});
   }
 
   std::vector<TypedProgram::Instr> code_;
@@ -227,6 +247,29 @@ class TypedProgramBuilder {
  public:
   Expression *refused_on_{nullptr};
 };
+
+bool TypedProgram::WorthRunning() const {
+  return std::ranges::any_of(code_, [](Instr const &in) {
+    switch (in.op) {
+      // Scaffolding, and the escape back to the evaluator. On their own these
+      // only arrange answers the evaluator produced.
+      case Op::EvalTri:
+      case Op::CopyTri:
+      case Op::JumpIfFalseTri:
+      case Op::JumpIfTrueTri:
+      case Op::AndTri:
+      case Op::OrTri:
+      case Op::NotTri:
+        return false;
+      default:
+        return true;
+    }
+  });
+}
+
+size_t TypedProgram::DelegatedOps() const {
+  return static_cast<size_t>(std::ranges::count_if(code_, [](Instr const &in) { return in.op == Op::EvalTri; }));
+}
 
 std::optional<TypedProgram> TypedProgram::CompileValue(Expression *expression, Expression **refused_on) {
   if (expression == nullptr) return std::nullopt;
@@ -253,7 +296,12 @@ std::optional<TypedProgram> TypedProgram::Compile(Expression *expression, Expres
     }
     return std::nullopt;
   }
-  return builder.Finish(*root);
+  auto program = builder.Finish(*root);
+  if (!program.WorthRunning()) {
+    if (refused_on != nullptr) *refused_on = expression;
+    return std::nullopt;
+  }
+  return program;
 }
 
 bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters const *parameters, Slots &slots) const {
@@ -395,6 +443,13 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
       case Op::IsNullTri:
         tris[in.dst] = tris[in.a] == Answer::Null ? Answer::True : Answer::False;
         break;
+      case Op::EvalTri: {
+        if (reader == nullptr) return false;
+        auto const answer = reader->EvaluateTruth(*in.delegated);
+        if (answer == Answer::Refused) return false;
+        tris[in.dst] = answer;
+        break;
+      }
       case Op::CopyTri:
         tris[in.dst] = tris[in.a];
         break;
