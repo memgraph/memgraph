@@ -1490,10 +1490,15 @@ TYPED_TEST(TestSymbolGenerator, SubqueryElementSymbols) {
     EXPECT_EQ(SymbolNames(subquery->element_symbols_), Names{});
   }
   {
-    // Every list expression binds its element: single, extract and both halves of a list comprehension.
+    // Every list expression binds its element: single, none, extract and both halves of a list comprehension.
     auto *single = exists_from(this->NodeWithId("n", "x"));
     match_where(SINGLE("x", LIST(LITERAL(1)), WHERE(single)));
     EXPECT_EQ(SymbolNames(single->element_symbols_), Names{"x"});
+    // The NONE macro names `storage` unqualified, which a typed test cannot reach.
+    auto *none = exists_from(this->NodeWithId("n", "x"));
+    match_where(this->storage.template Create<None>(
+        this->storage.template Create<Identifier>("x"), LIST(LITERAL(1)), WHERE(none)));
+    EXPECT_EQ(SymbolNames(none->element_symbols_), Names{"x"});
     auto *extract = exists_from(this->NodeWithId("n", "x"));
     match_where(IN_LIST(LITERAL(true), EXTRACT("x", LIST(LITERAL(1)), extract)));
     EXPECT_EQ(SymbolNames(extract->element_symbols_), Names{"x"});
@@ -1716,6 +1721,21 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionReadsListElement) {
                                                                       WHERE(ALL("y", LIST(LITERAL(1)), WHERE(exists))),
                                                                       IDENT("z")),
                                                 AS("h"))))));
+
+  // MATCH (q) RETURN [(q)-[e]-(z) WHERE all(y IN [1] WHERE size([(q {id: y})-[e2]-(w) | w]) > 0) | z] AS h - the
+  // inner comprehension opens after `y`, though the outer one opened before it: the innermost decides.
+  auto *inner = FN(
+      "size",
+      PATTERN_COMPREHENSION(nullptr, PATTERN(this->NodeWithId("q", "y"), EDGE("e2"), NODE("w")), nullptr, IDENT("w")));
+  expect_message(QUERY(SINGLE_QUERY(
+                     MATCH(PATTERN(NODE("q"))),
+                     RETURN(PATTERN_COMPREHENSION(nullptr,
+                                                  PATTERN(NODE("q"), EDGE("e"), NODE("z")),
+                                                  WHERE(ALL("y", LIST(LITERAL(1)), WHERE(GREATER(inner, LITERAL(0))))),
+                                                  IDENT("z")),
+                            AS("h")))),
+                 "A pattern comprehension cannot yet read 'y', which an enclosing list expression binds once per "
+                 "element. Use COUNT { ... } or EXISTS { ... } instead.");
 }
 
 // The only reader of Scope::subquery_fold: drop that field and a COUNT reports itself as an EXISTS, nothing failing.
