@@ -558,6 +558,19 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByExpressionOfAggregatedItem) {
   EXPECT_EQ(count->name_, "c");
 }
 
+// An aggregation that matches no projected item is rejected once the symbols are generated, so rewriting inside its
+// argument only detaches a subtree that nothing will read.
+TEST_P(CypherMainVisitorTest, ReturnOrderByUnprojectedAggregationKeepsItsArgument) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH (n) RETURN n.value AS v, count(n.value) AS c ORDER BY sum(n.value)"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  auto *sum = dynamic_cast<Aggregation *>(return_clause->body_.order_by[0].expression);
+  ASSERT_TRUE(sum);
+  EXPECT_TRUE(dynamic_cast<PropertyLookup *>(sum->expression1_));
+}
+
 TEST_P(CypherMainVisitorTest, WithWhereAggregatedItem) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
