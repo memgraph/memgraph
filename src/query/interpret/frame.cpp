@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -21,6 +21,7 @@ auto FrameWriter::ResetCache(const Symbol &symbol) -> void {
 }
 
 auto FrameWriter::Write(const Symbol &symbol, TypedValue &&value) -> TypedValue & {
+  frame_.DebugAssertInBounds(symbol);
   auto &inserted_value = frame_.elems_[symbol.position()] = std::move(value);
   ResetCache(symbol);
   return inserted_value;
