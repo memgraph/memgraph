@@ -95,6 +95,47 @@ TEST_F(TypedProgramTest, APropertyComparisonCompilesAndAnswers) {
   EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
 }
 
+// A conjunction whose left side is false never evaluates its right side, and
+// the difference shows when the right side would throw. Reading a property off
+// a deleted record is the case that arises: the evaluator never reaches it, so
+// neither may a compiled program.
+TEST_F(TypedProgramTest, AFalseConjunctionDoesNotReachItsRightSide) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  auto vertex = dba.InsertVertex();
+  auto const age = dba.NameToProperty("age");
+  ASSERT_TRUE(vertex.SetProperty(age, memgraph::storage::PropertyValue(int64_t{30})).has_value());
+  dba.AdvanceCommand();
+  ASSERT_TRUE(dba.RemoveVertex(&vertex).has_value());
+  dba.AdvanceCommand();
+
+  Set(0, TypedValue(int64_t{1}));
+  Set(1, TypedValue(int64_t{2}));
+  Set(2, TypedValue(vertex));
+
+  auto *record = storage_.Create<memgraph::query::Identifier>("v");
+  record->symbol_pos_ = 2;
+  auto *reads_a_deleted_record = storage_.Create<memgraph::query::GreaterOperator>(
+      storage_.Create<memgraph::query::PropertyLookup>(record, storage_.GetPropertyIx("age")),
+      storage_.Create<memgraph::query::PrimitiveLiteral>(int64_t{1}));
+  // 1 > 2 is false, so the right side is never asked for.
+  auto *expr = storage_.Create<memgraph::query::AndOperator>(
+      storage_.Create<memgraph::query::GreaterOperator>(Ident(0), Ident(1)), reads_a_deleted_record);
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value());
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = &dba;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::False);
+}
+
 // A cached query has had its literals stripped into parameters, so this is the
 // shape a filter actually has by the time it runs per row. A parameter holds
 // the same value for every row, but its type is only known once the query is
