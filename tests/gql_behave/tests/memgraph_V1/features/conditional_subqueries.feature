@@ -661,3 +661,77 @@ Feature: Conditional subqueries
             | predicate                     |
             | EXISTS { MATCH (x:C) }        |
             | COUNT { MATCH (x:C) } = 1     |
+
+    Scenario: A branch seeks a label-property index on an imported value
+        Given an empty graph
+        And with new index :L(p)
+        And having executed
+            """
+            CREATE (:L {p: 1}), (:L {p: 2}), (:L {p: 2}), (:A {p: 1}), (:A {p: 2}), (:A {p: 3})
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN a.p > 1 THEN MATCH (m:L) WHERE m.p = a.p RETURN count(m) AS c ELSE RETURN -1 AS c }
+            RETURN a.p AS p, c ORDER BY p
+            """
+        Then the result should be, in order:
+            | p | c  |
+            | 1 | -1 |
+            | 2 | 2  |
+            | 3 | 0  |
+
+    Scenario: A predicate subquery seeks a label-property index on an imported value
+        Given an empty graph
+        And with new index :L(p)
+        And having executed
+            """
+            CREATE (:L {p: 1}), (:L {p: 2}), (:L {p: 2}), (:A {p: 1}), (:A {p: 2}), (:A {p: 3})
+            """
+        When executing query:
+            """
+            MATCH (a:A)
+            CALL (a) { WHEN COUNT { MATCH (m:L) WHERE m.p = a.p } > 1 THEN RETURN 'many' AS r ELSE RETURN 'few' AS r }
+            RETURN a.p AS p, r ORDER BY p
+            """
+        Then the result should be, in order:
+            | p | r      |
+            | 1 | 'few'  |
+            | 2 | 'many' |
+            | 3 | 'few'  |
+
+    Scenario: A branch seeks an edge property index on an imported value
+        Given an empty graph
+        And with new edge index :(w)
+        And having executed
+            """
+            CREATE ()-[:T {w: 1}]->(), ()-[:T {w: 2}]->(), ()-[:T {w: 2}]->()
+            """
+        When executing query:
+            """
+            UNWIND [1, 2, 3] AS i
+            CALL (i) { WHEN i < 3 THEN MATCH ()-[r]->() WHERE r.w = i RETURN count(r) AS c ELSE RETURN -1 AS c }
+            RETURN i, c ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | c  |
+            | 1 | 1  |
+            | 2 | 2  |
+            | 3 | -1 |
+
+    Scenario: A branch hash-joins two patterns
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:X {p: 1}), (:X {p: 2}), (:Z {p: 2}), (:Z {p: 2}), (:Z {p: 3})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            CALL (i) { WHEN i = 1 THEN MATCH (x:X), (z:Z) WHERE z.p = x.p RETURN count(*) AS c ELSE RETURN -1 AS c }
+            RETURN i, c ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | c  |
+            | 1 | 2  |
+            | 2 | -1 |
