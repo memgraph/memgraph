@@ -47,6 +47,7 @@
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
+#include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "license/license.hpp"
 #include "query/auth_checker.hpp"
@@ -5186,7 +5187,26 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
     : self_(self),
       input_cursor_(self_.input_->MakeCursor(mem, metric_handles)),
       pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem, metric_handles)),
-      program_(TypedProgram::Compile(self_.expression_)) {}
+      program_(FLAGS_query_compile_filters ? TypedProgram::Compile(self_.expression_) : std::nullopt) {}
+
+namespace {
+// Counted per cursor and added up here, so a row costs an increment of a plain
+// member rather than a shared one. Not the event map: registering a name there
+// writes shared state without a lock, which is tolerable where it is already
+// done once per failed query and not once per cursor.
+std::atomic<uint64_t> filter_compiled_rows{0};
+std::atomic<uint64_t> filter_deopt_rows{0};
+}  // namespace
+
+Filter::RowCounts Filter::GetRowCounts() {
+  return {.compiled = filter_compiled_rows.load(std::memory_order_relaxed),
+          .deopt = filter_deopt_rows.load(std::memory_order_relaxed)};
+}
+
+Filter::FilterCursor::~FilterCursor() {
+  if (compiled_rows_ != 0) filter_compiled_rows.fetch_add(compiled_rows_, std::memory_order_relaxed);
+  if (deopt_rows_ != 0) filter_deopt_rows.fetch_add(deopt_rows_, std::memory_order_relaxed);
+}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -5207,11 +5227,14 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
       // A null answer keeps the row out, the same as the evaluator does.
       switch (program_->Run(frame, &evaluator, &context.evaluation_context.parameters)) {
         case TypedProgram::Answer::True:
+          ++compiled_rows_;
           return true;
         case TypedProgram::Answer::False:
         case TypedProgram::Answer::Null:
+          ++compiled_rows_;
           continue;
         case TypedProgram::Answer::Refused:
+          ++deopt_rows_;
           break;
       }
     }

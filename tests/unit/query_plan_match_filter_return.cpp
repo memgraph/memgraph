@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "disk_test_utils.hpp"
+#include "flags/general.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query_plan_common.hpp"
 
@@ -350,6 +351,54 @@ TYPED_TEST(QueryPlan, StandaloneReturn) {
   EXPECT_EQ(results.size(), 1);
   EXPECT_EQ(results[0].size(), 1);
   EXPECT_EQ(results[0][0].ValueInt(), 42);
+}
+
+// A filter whose expression compiles answers from the compiled program, and
+// says how many rows it took. With the flag off it takes none, which is what
+// makes turning it off a way back to the behaviour without it.
+TYPED_TEST(QueryPlan, AFilterSaysHowManyRowsItCompiled) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+
+  memgraph::storage::LabelId const label = dba.NameToLabel("Label");
+  auto const property = PROPERTY_PAIR(dba, "Property");
+  for (int value : {42, 1, 42}) {
+    auto vertex = dba.InsertVertex();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(property.second, memgraph::storage::PropertyValue(value)).has_value());
+  }
+  dba.AdvanceCommand();
+
+  auto const run = [&](bool compile) {
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    std::vector<memgraph::query::LabelIx> labels;
+    labels.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label)));
+    auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),
+                            EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, property), LITERAL(42)));
+    auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+    auto context = MakeContext(this->storage, symbol_table, &dba);
+
+    auto const before = Filter::GetRowCounts();
+    bool const was = FLAGS_query_compile_filters;
+    FLAGS_query_compile_filters = compile;
+    auto const matched = PullAll(*filter, &context);
+    FLAGS_query_compile_filters = was;
+    // The counts are added up when the cursor goes, which PullAll has let
+    // happen by the time it returns.
+    auto const after = Filter::GetRowCounts();
+    return std::tuple{matched, after.compiled - before.compiled, after.deopt - before.deopt};
+  };
+
+  auto const [compiled_matched, compiled_rows, compiled_deopt] = run(true);
+  EXPECT_EQ(compiled_matched, 2);
+  EXPECT_EQ(compiled_rows, 3) << "every row was answered by the compiled program";
+  EXPECT_EQ(compiled_deopt, 0) << "no row held a value of another type";
+
+  auto const [boxed_matched, boxed_rows, boxed_deopt] = run(false);
+  EXPECT_EQ(boxed_matched, 2) << "the flag changes how a filter answers, not what it answers";
+  EXPECT_EQ(boxed_rows, 0);
+  EXPECT_EQ(boxed_deopt, 0);
 }
 
 TYPED_TEST(QueryPlan, NodeFilterLabelsAndProperties) {

@@ -92,6 +92,10 @@ DEFINE_uint64(memory_warning_threshold, 1024,
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(allow_load_csv, true, "Controls whether LOAD CSV clause is allowed in queries.");
 
+DEFINE_bool(query_compile_filters, true,
+            "Controls whether a filter is compiled to work on values that are not boxed. With this off a filter is "
+            "evaluated the same way every other expression is.");
+
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(fips_mode, false,

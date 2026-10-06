@@ -56,6 +56,7 @@ DECLARE_uint64(memory_warning_threshold);
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(allow_load_csv);
+DECLARE_bool(query_compile_filters);
 
 #ifdef MG_ENTERPRISE
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)

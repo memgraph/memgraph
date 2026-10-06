@@ -1235,6 +1235,17 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 
   static std::string SingleFilterName(const query::plan::FilterInfo &single_filter);
 
+  /// How many rows a compiled filter answered, and how many it handed back
+  /// because a value was not the type it was built for. A workload whose
+  /// properties vary row to row shows up as the second number rising with the
+  /// first, which is the case the guess cannot help.
+  struct RowCounts {
+    uint64_t compiled;
+    uint64_t deopt;
+  };
+
+  static RowCounts GetRowCounts();
+
   std::string ToString(const DbAccessor *dba) const override;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
@@ -1243,6 +1254,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   class FilterCursor : public Cursor {
    public:
     FilterCursor(const Filter &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
+    ~FilterCursor() override;
     bool Pull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
@@ -1256,6 +1268,10 @@ class Filter : public memgraph::query::plan::LogicalOperator {
     /// on the operator because a cursor belongs to one execution, so it is
     /// never read while another execution writes it.
     const std::optional<TypedProgram> program_;
+    /// Counted here and reported once, so that a workload the compiler cannot
+    /// take is visible without charging every row for saying so.
+    uint64_t compiled_rows_{0};
+    uint64_t deopt_rows_{0};
   };
 };
 
