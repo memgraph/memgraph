@@ -3647,5 +3647,4 @@ TEST_F(AuthQueryHandlerFixture, SafeAuthWebsocketPermissionDroppedUser) {
   ASSERT_TRUE(sa.Authenticate(user_name, "pw"));
   ASSERT_TRUE(auth.value()->RemoveUser(user_name));
   EXPECT_FALSE(sa.HasWebsocketPermission());
-  EXPECT_FALSE(sa.HasWebsocketPermission());
 }
