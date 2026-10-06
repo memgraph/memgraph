@@ -380,6 +380,7 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   auto const push_imports_scope = [&] {
     auto const &outer = scopes_[call_scope];
     scopes_.push_back(Scope{.in_subquery_body = outer.in_subquery_body,
+                            .subquery_fold = outer.subquery_fold,
                             .in_call_subquery = outer.in_call_subquery,
                             .symbols = outer.call_subquery_imports,
                             .call_subquery_imports = outer.call_subquery_imports,
