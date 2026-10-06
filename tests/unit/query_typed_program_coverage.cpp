@@ -61,9 +61,28 @@ class FilterCollector : public memgraph::query::plan::HierarchicalLogicalOperato
     return true;
   }
 
+  // A weighted expansion evaluates its weight for every edge it considers.
+  bool PreVisit(memgraph::query::plan::ExpandVariable &expand) override {
+    if (expand.weight_lambda_ && expand.weight_lambda_->expression != nullptr) {
+      weights.push_back(expand.weight_lambda_->expression);
+    }
+    return true;
+  }
+
+  // What a Produce writes is evaluated once per row too, and is a value rather
+  // than an answer, so it is counted apart from the filters.
+  bool PreVisit(memgraph::query::plan::Produce &produce) override {
+    for (auto *named : produce.named_expressions_) {
+      if (named != nullptr && named->expression_ != nullptr) produced.push_back(named->expression_);
+    }
+    return true;
+  }
+
   bool Visit(memgraph::query::plan::Once & /*unused*/) override { return true; }
 
   std::vector<Expression *> filters;
+  std::vector<Expression *> produced;
+  std::vector<Expression *> weights;
 };
 
 // The planner turns a conjunction into one Filter per conjunct where it can,
@@ -105,7 +124,14 @@ TEST(TypedProgramCoverage, ReportsWhatShareOfRealFiltersCompile) {
   size_t other = 0;
   size_t filters = 0;
   size_t compiled = 0;
+  size_t produced = 0;
+  size_t produced_compiled = 0;
+  size_t produced_compound = 0;
+  size_t weights = 0;
+  size_t weights_compiled = 0;
+  size_t weights_compound = 0;
   std::map<std::string, size_t> refused_holding;
+  std::map<std::string, size_t> produced_refused;
 
   for (auto const &query : queries) {
     AstStorage storage;
@@ -160,12 +186,51 @@ TEST(TypedProgramCoverage, ReportsWhatShareOfRealFiltersCompile) {
       }
       ++refused_holding[reason];
     }
+
+    for (auto *expression : collector.weights) {
+      ++weights;
+      if (auto const program = TypedProgram::CompileValue(expression)) {
+        ++weights_compiled;
+        if (program->IntSlots() + program->TriSlots() > 1) ++weights_compound;
+      }
+    }
+
+    for (auto *expression : collector.produced) {
+      ++produced;
+      Expression *refused_on = nullptr;
+      if (auto const program = TypedProgram::CompileValue(expression, &refused_on)) {
+        ++produced_compiled;
+        // A program that computes one value has no intermediate to save, so
+        // running it buys nothing over reading the value the ordinary way.
+        if (program->IntSlots() + program->TriSlots() > 1) ++produced_compound;
+        continue;
+      }
+      std::string reason = refused_on != nullptr ? refused_on->GetTypeInfo().name : "unknown";
+      if (refused_on != nullptr && refused_on->GetTypeInfo().id == memgraph::utils::TypeId::AST_FUNCTION) {
+        reason += " " + static_cast<memgraph::query::Function *>(refused_on)->function_name_;
+      }
+      ++produced_refused[reason];
+    }
   }
 
   std::cerr << "queries " << parsed << " parsed, " << unparsed << " rejected, " << other << " not a read\n"
             << "filters " << filters << ", compiled " << compiled << "\n";
   if (filters != 0) {
     std::cerr << "share " << (100.0 * static_cast<double>(compiled) / static_cast<double>(filters)) << "%\n";
+  }
+  std::cerr << "produced " << produced << ", compiled " << produced_compiled;
+  if (produced != 0) {
+    std::cerr << ", share " << (100.0 * static_cast<double>(produced_compiled) / static_cast<double>(produced)) << "%";
+  }
+  std::cerr << ", of which " << produced_compound << " compute more than one value\n";
+  std::cerr << "weights " << weights << ", compiled " << weights_compiled << ", of which " << weights_compound
+            << " compute more than one value\n";
+  {
+    std::vector<std::pair<size_t, std::string>> ranked;
+    for (auto const &[name, count] : produced_refused) ranked.emplace_back(count, name);
+    std::sort(ranked.rbegin(), ranked.rend());
+    std::cerr << "what stopped the produced expressions:\n";
+    for (auto const &[count, name] : ranked) std::cerr << "  " << count << "  " << name << "\n";
   }
   std::cerr << "what stopped the refused filters:\n";
   std::vector<std::pair<size_t, std::string>> ranked;

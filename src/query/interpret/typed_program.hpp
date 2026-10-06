@@ -12,6 +12,7 @@
 /// @file
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 #include <vector>
@@ -68,11 +69,21 @@ class TypedProgram {
   /// covered, which is what says which expression to teach it next.
   static std::optional<TypedProgram> Compile(Expression *expression, Expression **refused_on = nullptr);
 
+  /// Compiles an expression that leaves a value rather than an answer, which is
+  /// what the places that write a row rather than keep or drop one need.
+  static std::optional<TypedProgram> CompileValue(Expression *expression, Expression **refused_on = nullptr);
+
   /// Answers for one row, or refuses it when a value was not the type the
   /// guess settled on.
   /// `source` and `parameters` may be null when no instruction needs them; a
   /// program that reads one without it refuses the row rather than guessing.
   Answer Run(Frame const &frame, RecordReader *reader = nullptr, Parameters const *parameters = nullptr) const;
+
+  /// Writes what the program computes into `out`. False means a guard refused,
+  /// and `out` is left as it was, so the caller evaluates the expression the
+  /// ordinary way. A missing operand is written as null rather than refused.
+  bool RunInto(Frame const &frame, TypedValue &out, RecordReader *reader = nullptr,
+               Parameters const *parameters = nullptr) const;
 
   /// How many integer and three-valued working slots a run needs.
   size_t IntSlots() const { return int_slots_; }
@@ -119,7 +130,22 @@ class TypedProgram {
     LabelsTest *labels{nullptr};
   };
 
+  /// Whether the program's result is an answer or an integer. Which one a
+  /// caller wants is settled when it compiles, not when it runs.
+  enum class Shape : uint8_t { Predicate, Integer };
+
+  /// Runs the code and leaves the slots behind for whichever result is wanted.
+  /// Null when a guard refused.
+  struct Slots {
+    std::array<int64_t, 64> ints;
+    std::array<char, 64> int_known;
+    std::array<Answer, 64> tris;
+  };
+
+  bool Execute(Frame const &frame, RecordReader *reader, Parameters const *parameters, Slots &slots) const;
+
   std::vector<Instr> code_;
+  Shape shape_{Shape::Predicate};
   size_t int_slots_{0};
   size_t tri_slots_{0};
   int32_t result_{0};

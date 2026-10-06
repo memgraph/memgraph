@@ -132,6 +132,47 @@ TEST_F(TypedProgramTest, ALabelledNodeFilterCompilesAndAnswers) {
   EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
 }
 
+// What a Produce writes per row is a value rather than an answer, so a program
+// has to be able to carry one out. Only the value that leaves is boxed; the
+// arithmetic on the way to it is not.
+TEST_F(TypedProgramTest, AValueExpressionCompilesAndYieldsOne) {
+  Set(0, TypedValue(int64_t{3}));
+
+  auto *expr = storage_.Create<memgraph::query::AdditionOperator>(
+      Ident(0), storage_.Create<memgraph::query::PrimitiveLiteral>(int64_t{4}));
+
+  auto program = TypedProgram::CompileValue(expr);
+  ASSERT_TRUE(program.has_value()) << "arithmetic over integers should compile to a value";
+
+  TypedValue out;
+  ASSERT_TRUE(program->RunInto(frame_, out));
+  ASSERT_TRUE(out.IsInt());
+  EXPECT_EQ(out.ValueInt(), 7);
+
+  // A value that is not the type the program was built for refuses, and leaves
+  // the caller to evaluate the expression the ordinary way.
+  Set(0, TypedValue("three"));
+  TypedValue untouched{int64_t{99}};
+  EXPECT_FALSE(program->RunInto(frame_, untouched));
+  EXPECT_EQ(untouched.ValueInt(), 99);
+}
+
+// A missing operand makes the value null rather than refusing, since null is a
+// value a Produce can perfectly well write.
+TEST_F(TypedProgramTest, AValueExpressionYieldsNullForAMissingOperand) {
+  Set(0, TypedValue());
+
+  auto *expr = storage_.Create<memgraph::query::AdditionOperator>(
+      Ident(0), storage_.Create<memgraph::query::PrimitiveLiteral>(int64_t{4}));
+
+  auto program = TypedProgram::CompileValue(expr);
+  ASSERT_TRUE(program.has_value());
+
+  TypedValue out{int64_t{99}};
+  ASSERT_TRUE(program->RunInto(frame_, out));
+  EXPECT_TRUE(out.IsNull());
+}
+
 // A chained comparison is a conjunction that evaluates both sides whatever the
 // first says, which is what separates it from an AND and why it compiles to
 // one without the jump over the second.
