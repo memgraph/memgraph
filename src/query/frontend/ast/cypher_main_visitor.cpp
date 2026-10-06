@@ -3137,7 +3137,12 @@ bool SameOwnFields(Expression &lhs, Expression &rhs, ParameterNames const &param
     return lhs_name != parameter_names.end() && rhs_name != parameter_names.end() &&
            lhs_name->second == rhs_name->second;
   }
-  return true;
+  // What is left are the kinds whose only state is their children, which the caller has already matched by type. A
+  // kind this function never names cannot match at all, so giving a kind children without also giving it a field
+  // comparison costs a match rather than making a wrong one.
+  return utils::IsSubtype(lhs, BinaryOperator::kType) || utils::IsSubtype(lhs, UnaryOperator::kType) ||
+         utils::IsSubtype(lhs, IfOperator::kType) || utils::IsSubtype(lhs, ListSlicingOperator::kType) ||
+         utils::IsSubtype(lhs, Coalesce::kType) || utils::IsSubtype(lhs, ListLiteral::kType);
 }
 
 // An identifier named like a projected item refers to that item, not to the variable the item was computed from.
@@ -3155,7 +3160,7 @@ bool AreEquivalent(Expression *lhs, Expression *rhs, std::vector<NamedExpression
   }
   auto const lhs_children = MatchableChildren(lhs);
   auto const rhs_children = MatchableChildren(rhs);
-  return lhs_children && std::ranges::equal(*lhs_children, *rhs_children, [&](auto *l, auto *r) {
+  return lhs_children && rhs_children && std::ranges::equal(*lhs_children, *rhs_children, [&](auto *l, auto *r) {
            return AreEquivalent(*l, *r, items, parameter_names);
          });
 }

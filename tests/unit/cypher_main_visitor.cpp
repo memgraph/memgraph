@@ -639,6 +639,27 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWithParameter) {
   }
 }
 
+// A kind whose only state is its children matches whenever its children do. The matcher has to name each such kind,
+// because a kind it does not name cannot match at all.
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWhoseStateIsItsChildren) {
+  auto &ast_generator = *GetParam();
+  for (auto const *text :
+       {"MATCH (n) RETURN n.x + n.y AS v, count(*) AS c ORDER BY n.x + n.y",
+        "MATCH (n) RETURN -n.x AS v, count(*) AS c ORDER BY -n.x",
+        "MATCH (n) RETURN [n.x, n.y] AS v, count(*) AS c ORDER BY [n.x, n.y]",
+        "MATCH (n) RETURN coalesce(n.x, n.y) AS v, count(*) AS c ORDER BY coalesce(n.x, n.y)",
+        "MATCH (n) RETURN n.l[n.a..n.b] AS v, count(*) AS c ORDER BY n.l[n.a..n.b]",
+        "MATCH (n) RETURN CASE WHEN n.x THEN n.y ELSE n.z END AS v, count(*) AS c ORDER BY CASE WHEN n.x THEN n.y "
+        "ELSE n.z END"}) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    ASSERT_TRUE(query) << text;
+    auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+    auto *same = dynamic_cast<Identifier *>(return_clause->body_.order_by[0].expression);
+    ASSERT_TRUE(same) << text;
+    EXPECT_EQ(same->name_, "v") << text;
+  }
+}
+
 TEST_P(CypherMainVisitorTest, ReturnOrderByImpureAggregatedItem) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
