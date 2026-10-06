@@ -114,6 +114,10 @@ EXPECTED_JSON_METRICS = {
         "SuccessfulQuery",
         "WriteWriteConflicts",
         "TransientErrors",
+        "AbortedQueriesMemoryLimit",
+        "AbortedQueriesTimeout",
+        "AbortedQueriesTerminated",
+        "AbortedQueriesShutdown",
     },
     "QueryType": {
         "ReadQuery",
