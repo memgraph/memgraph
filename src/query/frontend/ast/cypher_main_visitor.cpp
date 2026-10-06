@@ -4248,13 +4248,14 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
     auto *cypher_query = storage_->Create<CypherQuery>();
     cypher_query->single_query_ = single_query;
     subquery->content_ = cypher_query;
-  } else if (ctx->cypherQuery()) {
-    // Curly-brace subquery form: { cypherQuery }
+  } else if (ctx->cypherQuery() || ctx->conditionalQuery()) {
+    // Curly-brace subquery form: { cypherQuery } or { WHEN ... THEN ... }
     auto old_flag = parsing_subquery_body_;
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
     auto old_in_with = std::exchange(in_with_, false);
-    parsing_subquery_body_ = true;
-    auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    parsing_subquery_body_ = fold;
+    auto *cypher_query = ctx->conditionalQuery() ? VisitConditionalQuery(ctx->conditionalQuery()).query
+                                                 : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     in_with_ = old_in_with;
     parsing_subquery_body_ = old_flag;
     subquery->content_ = cypher_query;
@@ -4284,10 +4285,19 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
         throw SyntaxException("{} subquery must end with a RETURN of exactly one column.", construct);
       }
     };
-    validate_branch(cypher_query->single_query_);
-    for (const auto *cypher_union : cypher_query->cypher_unions_) {
-      validate_branch(cypher_union->single_query_);
-    }
+    // A WHEN body is checked per branch, a nested WHEN's included.
+    auto validate_query = [&](this auto const &self, const CypherQuery *query) -> void {
+      const auto &clauses = query->single_query_->clauses_;
+      if (const auto *branches = clauses.size() == 1 ? utils::Downcast<ConditionalBranches>(clauses[0]) : nullptr) {
+        for (const auto &branch : branches->branches_) self(branch.body);
+        return;
+      }
+      validate_branch(query->single_query_);
+      for (const auto *cypher_union : query->cypher_unions_) {
+        validate_branch(cypher_union->single_query_);
+      }
+    };
+    validate_query(cypher_query);
 
     if (cypher_query->memory_limit_ != nullptr) {
       throw SyntaxException("{} subqueries cannot have a query memory limit.", construct);
@@ -4774,6 +4784,11 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
   std::optional<ConditionalKind> kind;
   auto const add_branch = [&](Where *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
     auto const body = VisitConditionalBody(body_ctx);
+    // A RETURN-less branch keeps its input row rather than giving rows of its own, so a fold has nothing to fold.
+    if (parsing_subquery_body_ && body.kind != ConditionalKind::kReturns) {
+      throw SyntaxException("Every WHEN branch of {} must end with RETURN.",
+                            SubqueryExpression::FoldName(*parsing_subquery_body_));
+    }
     if (kind && *kind != body.kind) {
       throw SemanticException(
           "All WHEN branches must return rows, update the graph, or be a standalone procedure call.");

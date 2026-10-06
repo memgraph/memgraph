@@ -8708,6 +8708,62 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
       ast_generator);
 }
 
+TEST_P(CypherMainVisitorTest, SubqueryExpressionConditional) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (n) RETURN COUNT { WHEN n.p = 1 THEN MATCH (n)-->(m) RETURN m "
+                                 "WHEN n.p = 2 THEN { WHEN true THEN RETURN 1 AS m } ELSE RETURN 2 AS m } AS c"));
+    ASSERT_TRUE(query);
+    const auto *ret = dynamic_cast<Return *>(query->single_query_->clauses_.back());
+    ASSERT_TRUE(ret);
+    const auto *subquery = dynamic_cast<SubqueryExpression *>(ret->body_.named_expressions[0]->expression_);
+    ASSERT_TRUE(subquery);
+    EXPECT_EQ(subquery->fold_, SubqueryExpression::Fold::kCount);
+    const auto *branches = dynamic_cast<ConditionalBranches *>(subquery->GetSubquery()->single_query_->clauses_[0]);
+    ASSERT_TRUE(branches);
+    EXPECT_EQ(branches->branches_.size(), 3U);
+    EXPECT_EQ(branches->branches_[2].predicate, nullptr);
+    CheckRWType(query, kRead);
+  }
+
+  // A fold needs rows from every branch, a nested WHEN's included, and is refused before the branches' kinds are
+  // compared.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { WHEN n.p > 1 THEN MATCH (n)-->() ELSE MATCH (n)<--() } RETURN n",
+      ast_generator,
+      "Every WHEN branch of EXISTS must end with RETURN.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { WHEN true THEN RETURN 1 AS x ELSE MATCH (n)-->() } AS c",
+      ast_generator,
+      "Every WHEN branch of COUNT must end with RETURN.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COLLECT { WHEN true THEN { WHEN false THEN RETURN 1 AS x ELSE MATCH (n)-->() } } AS c",
+      ast_generator,
+      "Every WHEN branch of COLLECT must end with RETURN.");
+  // Every branch, a nested one included, gets the checks a plain body gets.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { WHEN true THEN RETURN 1 AS x ELSE CREATE (m) RETURN m AS x } RETURN n",
+      ast_generator,
+      "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) RETURN COUNT { WHEN true THEN { WHEN false THEN RETURN 1 AS x ELSE SET n.p = 1 RETURN 1 AS x } } AS c",
+      ast_generator,
+      "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { WHEN true THEN RETURN 1 AS x ELSE RETURN 1 AS x, 2 AS y } AS r",
+      ast_generator,
+      "COLLECT subquery must end with a RETURN of exactly one column.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COLLECT { WHEN true THEN { RETURN 1 AS x UNION RETURN * } } AS r",
+      ast_generator,
+      "COLLECT subquery must end with a RETURN of exactly one column.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN EXISTS { WHEN true THEN { RETURN 1 AS x QUERY MEMORY UNLIMITED } } AS r",
+      ast_generator,
+      "Memory limit cannot be set on subqueries!");
+}
+
 TEST_P(CypherMainVisitorTest, CallSubquery) {
   auto &ast_generator = *GetParam();
 
@@ -10642,7 +10698,10 @@ TEST(CypherParserTest, ValidQueryNeedsNoFullContextPrediction) {
                             "UNWIND [1] AS i CALL (i) { WHEN i = 1 THEN RETURN 1 AS x WHEN i = 2 THEN { RETURN 2 AS x "
                             "UNION RETURN 3 AS x } ELSE { WHEN true THEN RETURN 4 AS x } } RETURN x",
                             "UNWIND [1] AS i CALL (i) { WHEN CASE WHEN i = 1 THEN true ELSE false END THEN RETURN CASE "
-                            "WHEN i = 1 THEN 1 ELSE 2 END AS x ELSE RETURN 3 AS x } RETURN x"}) {
+                            "WHEN i = 1 THEN 1 ELSE 2 END AS x ELSE RETURN 3 AS x } RETURN x",
+                            "MATCH (n) RETURN COUNT { WHEN n.p = 1 THEN MATCH (n)-->(m) RETURN m ELSE RETURN 1 AS m } "
+                            "AS c, EXISTS { MATCH (n) } AS e, COLLECT { WHEN true THEN { WHEN false THEN RETURN 1 AS "
+                            "x } } AS l"}) {
     ::frontend::opencypher::Parser parser(query);
     ASSERT_TRUE(parser.tree()) << query;
     EXPECT_EQ(parser.FullContextPredictions(), 0U) << query;

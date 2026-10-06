@@ -1563,8 +1563,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // We use this variable in visitReturnItem to check if we are in with or
   // return.
   bool in_with_ = false;
-  // Flag to indicate if we are parsing an EXISTS subquery
-  bool parsing_subquery_body_ = false;
+  // The fold whose brace body is being parsed, if any.
+  std::optional<SubqueryExpression::Fold> parsing_subquery_body_;
   Parameters *parameters_;
 
   QueryInfo query_info_;
