@@ -70,6 +70,14 @@ void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
   for (auto &subquery : open_subqueries_) {
     subquery.referenced.insert(symbol);
   }
+  // A comprehension runs once per row, so it would read the element of another iteration.
+  auto const opened_after = [&symbol](int32_t first_own_position) { return symbol.position() < first_own_position; };
+  if (list_element_symbols_in_scope_.contains(symbol) && std::ranges::any_of(open_comprehensions_, opened_after)) {
+    throw SemanticException(
+        "A pattern comprehension cannot yet read '{}', which an enclosing list expression binds once per element. "
+        "Use COUNT {{ ... }} or EXISTS {{ ... }} instead.",
+        symbol.name());
+  }
 }
 
 auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
@@ -1076,6 +1084,7 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   // Carry the subquery boundary in, so a pattern inside cannot reach an un-imported outer name.
   scopes_.emplace_back(
       Scope{.in_pattern_comprehension = true, .call_subquery_base = scopes_.back().call_subquery_base});
+  open_comprehensions_.push_back(symbol_table_->max_position());
 
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
@@ -1096,6 +1105,7 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
 }
 
 bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
+  open_comprehensions_.pop_back();
   scopes_.pop_back();
   return true;
 }

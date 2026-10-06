@@ -1634,6 +1634,69 @@ TYPED_TEST(TestSymbolGenerator, SubqueryBodyRefusesAShadowingPatternName) {
                                                      RETURN(EXISTS_SUBQUERY(body()), AS("h"))))));
 }
 
+// A pattern comprehension is planned once per row, not once per element, so it cannot read a list expression's
+// element. It is refused in every position, rather than answered with the element of another iteration.
+TYPED_TEST(TestSymbolGenerator, PatternComprehensionReadsListElement) {
+  auto expect_message = [](auto *query, std::string_view message) {
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()}, message);
+    }
+  };
+  auto node_with_id = [this](const std::string &name, const std::string &value) {
+    auto *node = NODE(name);
+    std::get<0>(node->properties_)[this->storage.GetPropertyIx("id")] = IDENT(value);
+    return node;
+  };
+  auto comprehension = [this](auto *pattern) {
+    return FN("size", PATTERN_COMPREHENSION(nullptr, pattern, nullptr, IDENT("z")));
+  };
+  const std::string refusal =
+      "A pattern comprehension cannot yet read 'x', which an enclosing list expression binds once per element. Use "
+      "COUNT { ... } or EXISTS { ... } instead.";
+
+  // MATCH (n) RETURN [x IN [1] | size([(n {id: x})-[e]->(z) | z])] AS h - read through a property map.
+  expect_message(QUERY(SINGLE_QUERY(
+                     MATCH(PATTERN(NODE("n"))),
+                     RETURN(LIST_COMPREHENSION(IDENT("x"),
+                                               LIST(LITERAL(1)),
+                                               nullptr,
+                                               comprehension(PATTERN(node_with_id("n", "x"), EDGE("e"), NODE("z")))),
+                            AS("h")))),
+                 refusal);
+
+  // MATCH (n) WHERE all(x IN [n] WHERE size([(x)-[e]->(z) | z]) > 0) RETURN n - the element is the anchor.
+  expect_message(QUERY(SINGLE_QUERY(
+                     MATCH(PATTERN(NODE("n"))),
+                     WHERE(ALL("x",
+                               LIST(IDENT("n")),
+                               WHERE(GREATER(comprehension(PATTERN(NODE("x"), EDGE("e"), NODE("z"))), LITERAL(0))))),
+                     RETURN("n"))),
+                 refusal);
+
+  // MATCH (n) RETURN [x IN [1] | size([(n)-[e]->(z) | z])] AS h - reads only the outer row, so it is accepted.
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(LIST_COMPREHENSION(
+                 IDENT("x"), LIST(LITERAL(1)), nullptr, comprehension(PATTERN(NODE("n"), EDGE("e"), NODE("z")))),
+             AS("h"))))));
+
+  // MATCH (q) RETURN [(q)-[e]->(z) WHERE all(y IN [1] WHERE EXISTS { (q {id: y})--() }) | z] AS h - the lambda is
+  // inside the comprehension, so the element is the comprehension's own.
+  auto *exists = EXISTS(PATTERN(node_with_id("q", "y"),
+                                EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                NODE("m", std::nullopt, false)));
+  EXPECT_NO_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("q"))),
+                                         RETURN(PATTERN_COMPREHENSION(nullptr,
+                                                                      PATTERN(NODE("q"), EDGE("e"), NODE("z")),
+                                                                      WHERE(ALL("y", LIST(LITERAL(1)), WHERE(exists))),
+                                                                      IDENT("z")),
+                                                AS("h"))))));
+}
+
 // The only reader of Scope::subquery_fold: drop that field and a COUNT reports itself as an EXISTS, nothing failing.
 TYPED_TEST(TestSymbolGenerator, SubqueryPatternRefusesAnUnboundedVariableByConstruct) {
   auto expect_message = [](auto *query, std::string_view message) {

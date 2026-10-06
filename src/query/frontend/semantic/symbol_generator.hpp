@@ -219,7 +219,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
 
-  // Record a reference in every open body, not just the innermost.
+  // Record a reference in every open body, not just the innermost. Refuses a list element read by a comprehension.
   void RecordSubqueryReference(const Symbol &symbol);
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
@@ -245,6 +245,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   std::vector<OpenSubquery> open_subqueries_;
   // Symbols a list expression binds once per element, while its body is visited.
   std::unordered_set<Symbol> list_element_symbols_in_scope_;
+  // The first symbol position of each open pattern comprehension, outermost first.
+  std::vector<int32_t> open_comprehensions_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups
