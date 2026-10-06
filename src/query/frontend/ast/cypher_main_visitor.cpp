@@ -4755,7 +4755,7 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     }
   }
 
-  // A CALL body is not a fold body, even inside one.
+  // A CALL body is not a fold body, even inside one, so it also gets the top-level "return or update" check.
   auto const old_fold = std::exchange(subquery_fold_, std::nullopt);
   call_subquery->cypher_query_ = ctx->conditionalQuery()
                                      ? VisitConditionalQuery(ctx->conditionalQuery()).query
