@@ -224,6 +224,14 @@ void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader 
   }
 }
 
+void Save(const memgraph::replication::UpdateAuthDataResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.success, builder);
+}
+
+void Load(memgraph::replication::UpdateAuthDataResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->success, reader);
+}
+
 void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
 }
@@ -292,6 +300,14 @@ void UpdateAuthDataReq::Save(const UpdateAuthDataReq &self, memgraph::slk::Build
 }
 
 void UpdateAuthDataReq::Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void UpdateAuthDataResV1::Save(const UpdateAuthDataResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void UpdateAuthDataResV1::Load(UpdateAuthDataResV1 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
