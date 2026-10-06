@@ -14,11 +14,11 @@
 #include "utils/on_scope_exit.hpp"
 #include "utils/typeinfo.hpp"
 
+#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <memory>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace memgraph::query {
@@ -122,9 +122,11 @@ class AstStorage {
     auto const finished = utils::OnScopeExit{[this] {
       if (--copy_depth_ == 0) copied_.clear();
     }};
-    if (auto const it = copied_.find(node); it != copied_.end()) return static_cast<T *>(it->second);
+    // A query is tens of nodes, so scanning what has been made costs less than hashing it would.
+    auto const made = std::ranges::find(copied_, static_cast<Tree const *>(node), &CopiedNode::source);
+    if (made != copied_.end()) return static_cast<T *>(made->copy);
     auto *copy = node->Clone(this);
-    copied_.emplace(node, copy);
+    copied_.emplace_back(node, copy);
     return copy;
   }
 
@@ -159,9 +161,14 @@ class AstStorage {
   std::vector<std::unique_ptr<Tree>> storage_;
 
  private:
+  struct CopiedNode {
+    Tree const *source;
+    Tree *copy;
+  };
+
   /// What the copy in progress has already made, so a node reached again is not made twice.
   /// Only meaningful while a copy is running, which is what `copy_depth_` tracks.
-  std::unordered_map<Tree const *, Tree *> copied_;
+  std::vector<CopiedNode> copied_;
   int copy_depth_{0};
 
   int64_t FindOrAddName(const std::string &name, std::vector<std::string> *names) {
