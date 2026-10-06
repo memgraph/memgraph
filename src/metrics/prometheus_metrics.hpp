@@ -519,6 +519,13 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Histogram> &snapshot_throughput_family_;
   prometheus::Family<prometheus::Histogram> &wal_throughput_family_;
 
+  // Global metric families — build and memory limit
+  prometheus::Family<prometheus::Gauge> &build_info_family_;
+  prometheus::Family<prometheus::Gauge> &memory_limit_family_;
+  prometheus::Family<prometheus::Gauge> &memory_tracked_family_;
+  prometheus::Gauge &memory_limit_bytes_;
+  prometheus::Gauge &memory_tracked_bytes_;
+
   DurabilityThroughput snapshot_throughput_;
   DurabilityThroughput wal_throughput_;
 
