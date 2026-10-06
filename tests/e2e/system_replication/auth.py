@@ -1057,6 +1057,85 @@ def test_auth_replication(connection, test_name):
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
+def test_rename_database_auth_replication(connection, test_name):
+    MEMGRAPH_INSTANCES_DESCRIPTION = {
+        "replica_1": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['replica_1']}", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "setup_queries": [f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};"],
+        },
+        "main": {
+            "args": ["--bolt-port", f"{BOLT_PORTS['main']}", "--log-level=TRACE"],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';"],
+        },
+    }
+
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+    cursor_main = connection(BOLT_PORTS["main"], "main").cursor()
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+
+    for query in (
+        "CREATE DATABASE db_old",
+        "CREATE USER bob",
+        "GRANT DATABASE * TO bob",
+        "DENY DATABASE db_old FROM bob",
+        "CREATE USER alice",
+        "GRANT DATABASE db_old TO alice",
+        "SET MAIN DATABASE db_old FOR alice",
+        "CREATE ROLE r1",
+        "GRANT DATABASE db_old TO r1",
+        "CREATE USER carol",
+        "SET ROLE FOR carol TO r1 ON db_old",
+    ):
+        execute_and_fetch_all(cursor_main, query)
+
+    def db_privileges(cursor, name):
+        def func():
+            rows = execute_and_fetch_all(cursor, f"SHOW DATABASE PRIVILEGES FOR {name};")
+            assert len(rows) == 1
+            grants, denies = rows[0]
+            return (grants if isinstance(grants, str) else sorted(grants), sorted(denies))
+
+        return func
+
+    def mt_roles(cursor, username, database):
+        def func():
+            rows = execute_and_fetch_all(cursor, f"SHOW ROLE FOR {username} ON DATABASE {database}")
+            return {row[0] for row in rows if row[0] != "null"}
+
+        return func
+
+    def check_both(make_func, expected):
+        mg_sleep_and_assert(expected, make_func(cursor_main))
+        mg_sleep_and_assert(expected, make_func(cursor_replica))
+
+    # Wait for the initial state to reach the replica so the rename is what changes it
+    mg_sleep_and_assert({"r1"}, mt_roles(cursor_replica, "carol", "db_old"))
+
+    execute_and_fetch_all(cursor_main, "RENAME DATABASE db_old TO db_new")
+
+    check_both(partial(db_privileges, name="bob"), ("*", ["db_new"]))
+    check_both(partial(db_privileges, name="alice"), (["db_new", "memgraph"], []))
+    check_both(partial(db_privileges, name="r1"), (["db_new", "memgraph"], []))
+    check_both(partial(mt_roles, username="carol", database="db_new"), {"r1"})
+
+    for port, role in ((BOLT_PORTS["main"], "main"), (BOLT_PORTS["replica_1"], "replica")):
+        alice_cursor = connection(port, role, "alice").cursor()
+        assert execute_and_fetch_all(alice_cursor, "SHOW DATABASE")[0][0] == "db_new"
+
+    # A new database that reuses the old name must not inherit the old name's auth data
+    execute_and_fetch_all(cursor_main, "CREATE DATABASE db_old")
+    mg_sleep_and_assert(
+        True, lambda: any(row[0] == "db_old" for row in execute_and_fetch_all(cursor_replica, "SHOW DATABASES"))
+    )
+    check_both(partial(db_privileges, name="alice"), (["db_new", "memgraph"], []))
+    check_both(partial(db_privileges, name="r1"), (["db_new", "memgraph"], []))
+    check_both(partial(mt_roles, username="carol", database="db_old"), set())
+
+
 def test_user_profile_replication(connection, test_name):
     # Goal: show that user profiles get replicated
 

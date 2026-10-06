@@ -8897,9 +8897,12 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           .header = {"STATUS"},
           .privileges = std::move(parsed_query.required_privileges),
-          .query_handler =
-              [old_name = query->db_name_, new_name = query->new_db_name_, db_handler, interpreter = &interpreter](
-                  AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          .query_handler = [old_name = query->db_name_,
+                            new_name = query->new_db_name_,
+                            db_handler,
+                            auth = interpreter_context->auth,
+                            interpreter = &interpreter](
+                               AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
               throw QueryException("Expected to be in a system transaction");
             }
@@ -8910,6 +8913,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             try {
               auto result = db_handler->Rename(old_name, *new_name, &*interpreter->system_transaction_);
               if (result) {
+                if (auth) auth->RenameDatabase(old_name, *new_name, &*interpreter->system_transaction_);
                 res = "Successfully renamed database " + old_name + " to " + *new_name;
               } else {
                 switch (result.error()) {

@@ -450,6 +450,14 @@ class Auth final {
   void DeleteDatabase(const std::string &db, system::Transaction *system_tx = nullptr);
 
   /**
+   * @brief Rename a database in all users and roles.
+   *
+   * A user or role that cannot be read or saved is logged and skipped.
+   */
+  void RenameDatabase(const std::string &old_name, const std::string &new_name,
+                      system::Transaction *system_tx = nullptr);
+
+  /**
    * @brief Set main database for an individual user.
    *
    * @param db name of the database to revoke
