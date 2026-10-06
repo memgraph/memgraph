@@ -91,6 +91,11 @@ class TypedProgram {
     AndTri,
     OrTri,
     NotTri,
+    CopyTri,
+    // The right side of a conjunction is not evaluated when the left side
+    // settles it, which is what keeps a reader that would throw out of reach.
+    JumpIfFalseTri,
+    JumpIfTrueTri,
   };
 
   struct Instr {

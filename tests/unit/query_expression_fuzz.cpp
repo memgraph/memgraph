@@ -86,7 +86,7 @@ class ExpressionFuzz : public ::testing::Test {
 
   AstStorage storage_;
   std::vector<TypedValue> operands_ = shapes::EveryTypedValueShape(&dba_);
-  memgraph::query::Frame frame_{static_cast<int64_t>(operands_.size()) + 2};
+  memgraph::query::Frame frame_{static_cast<int64_t>(operands_.size()) + 3};
   memgraph::query::SymbolTable symbol_table_;
   memgraph::query::ExecutionContext context_;
 
@@ -102,6 +102,14 @@ class ExpressionFuzz : public ::testing::Test {
     put("truth", memgraph::storage::PropertyValue(true));
     dba_.AdvanceCommand();
     record_ = TypedValue(vertex);
+
+    auto doomed = dba_.InsertVertex();
+    [[maybe_unused]] auto const set =
+        doomed.SetProperty(dba_.NameToProperty("whole"), memgraph::storage::PropertyValue(int64_t{7}));
+    dba_.AdvanceCommand();
+    [[maybe_unused]] auto const removed = dba_.RemoveVertex(&doomed);
+    dba_.AdvanceCommand();
+    gone_ = TypedValue(doomed);
     property_names_ = {"whole", "fraction", "word", "truth", "absent"};
 
     auto writer = frame_.GetFrameWriter(nullptr, memgraph::utils::NewDeleteResource());
@@ -114,6 +122,12 @@ class ExpressionFuzz : public ::testing::Test {
     record_position_ = static_cast<int>(operands_.size());
     memgraph::query::Symbol const record_symbol{"record", record_position_, false};
     writer.Modify(record_symbol, [&](TypedValue &slot) { slot = record_; });
+
+    // A record that is gone throws when read, which is how a path that
+    // evaluates something the other path skipped gives itself away.
+    gone_position_ = record_position_ + 1;
+    memgraph::query::Symbol const gone_symbol{"gone", gone_position_, false};
+    writer.Modify(gone_symbol, [&](TypedValue &slot) { slot = gone_; });
 
     // Every name a lookup might use is registered before the mapping is built,
     // since the mapping is indexed by the order they were registered in and a
@@ -141,6 +155,8 @@ class ExpressionFuzz : public ::testing::Test {
 
   TypedValue record_;
   int record_position_{0};
+  TypedValue gone_;
+  int gone_position_{0};
   std::vector<std::string> property_names_;
 
   memgraph::query::ExpressionEvaluator MakeEvaluator() {
@@ -155,9 +171,11 @@ class ExpressionFuzz : public ::testing::Test {
     }
     if (rng() % 4 == 0) {
       // Reading a property brings in what a lookup has to get right: a value
-      // of the wrong type, and a property that is not there at all.
-      auto *record = storage_.Create<memgraph::query::Identifier>("record");
-      record->symbol_pos_ = record_position_;
+      // of the wrong type, a property that is not there at all, and a record
+      // that cannot be read without throwing.
+      bool const from_a_deleted_record = rng() % 4 == 0;
+      auto *record = storage_.Create<memgraph::query::Identifier>(from_a_deleted_record ? "gone" : "record");
+      record->symbol_pos_ = from_a_deleted_record ? gone_position_ : record_position_;
       auto const &name = property_names_[rng() % property_names_.size()];
       return storage_.Create<memgraph::query::PropertyLookup>(record, storage_.GetPropertyIx(name));
     }

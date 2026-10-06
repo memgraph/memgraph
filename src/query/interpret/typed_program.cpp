@@ -138,14 +138,27 @@ class TypedProgramBuilder {
     return Operand{.is_tri = true, .slot = slot};
   }
 
+  /// Emits the left side, then a jump over the right side for the value that
+  /// settles the answer on its own, so the right side is only reached when the
+  /// evaluator would reach it too.
   std::optional<Operand> Logical(Expression *expression, TypedProgram::Op op) {
     auto *binary = static_cast<BinaryOperator *>(expression);
     auto const lhs = Build(binary->expression1_);
     if (!lhs || !lhs->is_tri) return Refuse(expression);
+
+    auto const slot = NextTri();
+    Emit(TypedProgram::Op::CopyTri, slot, lhs->slot, 0, 0);
+    auto const jump = code_.size();
+    Emit(op == TypedProgram::Op::AndTri ? TypedProgram::Op::JumpIfFalseTri : TypedProgram::Op::JumpIfTrueTri,
+         0,
+         lhs->slot,
+         0,
+         0);
+
     auto const rhs = Build(binary->expression2_);
     if (!rhs || !rhs->is_tri) return Refuse(expression);
-    auto const slot = NextTri();
     Emit(op, slot, lhs->slot, rhs->slot, 0);
+    code_[jump].b = static_cast<int32_t>(code_.size());
     return Operand{.is_tri = true, .slot = slot};
   }
 
@@ -205,7 +218,8 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, PropertySource *sourc
                                                     : (decide(ints[a], ints[b]) ? Answer::True : Answer::False);
   };
 
-  for (auto const &in : code_) {
+  for (size_t ip = 0; ip < code_.size(); ++ip) {
+    auto const &in = code_[ip];
     switch (in.op) {
       case Op::ConstInt:
         ints[in.dst] = in.literal;
@@ -315,6 +329,15 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, PropertySource *sourc
         tris[in.dst] = x == Answer::Null ? Answer::Null : (x == Answer::True ? Answer::False : Answer::True);
         break;
       }
+      case Op::CopyTri:
+        tris[in.dst] = tris[in.a];
+        break;
+      case Op::JumpIfFalseTri:
+        if (tris[in.a] == Answer::False) ip = static_cast<size_t>(in.b) - 1;
+        break;
+      case Op::JumpIfTrueTri:
+        if (tris[in.a] == Answer::True) ip = static_cast<size_t>(in.b) - 1;
+        break;
     }
   }
   return tris[result_];
