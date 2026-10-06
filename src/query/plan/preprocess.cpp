@@ -1412,8 +1412,7 @@ namespace {
 QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery,
                              Expression *commit_frequency);
 
-/// One UNION leg. A WHEN body becomes its branches, its predicates, and per predicate the filters holding its
-/// subqueries; it has no query parts of its own.
+/// One UNION leg; a WHEN body becomes its `ConditionalQueryParts`.
 QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query, Tree *combinator,
                            bool is_subquery, Expression *commit_frequency) {
   auto *branches =
@@ -1425,17 +1424,27 @@ QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, Singl
 
   auto conditional = std::make_shared<ConditionalQueryParts>();
   conditional->output_symbols = branches->output_symbols_;
-  for (auto *predicate : branches->predicates_) {
-    conditional->predicates.push_back(predicate ? predicate->expression_ : nullptr);
-    auto &filters = conditional->predicate_filters.emplace_back();
-    if (!predicate) continue;
-    filters.CollectWhereFilter(*predicate, symbol_table, storage);
-    CollectSubqueryMatchings(filters, symbol_table, storage);
-  }
-  for (auto *body : branches->bodies_) {
-    conditional->branches.push_back(CollectQueryParts(symbol_table, storage, body, is_subquery, commit_frequency));
+  for (auto [predicate, body] : std::views::zip(branches->predicates_, branches->bodies_)) {
+    auto &branch = conditional->branches.emplace_back();
+    if (predicate) {
+      branch.predicate = predicate->expression_;
+      branch.predicate_filters.CollectWhereFilter(*predicate, symbol_table, storage);
+      CollectSubqueryMatchings(branch.predicate_filters, symbol_table, storage);
+    }
+    branch.body = CollectQueryParts(symbol_table, storage, body, is_subquery, commit_frequency);
   }
   return QueryPart{.query_combinator = combinator, .conditional = std::move(conditional)};
+}
+
+/// Whether a UNION leg writes: a write clause, a writing CALL body, or a writing WHEN branch.
+bool PartWrites(const QueryPart &part) {
+  auto const single_part_writes = [](const SingleQueryPart &single_part) {
+    return std::ranges::any_of(single_part.remaining_clauses, [](const Clause *c) { return IsWritingClause(*c); }) ||
+           std::ranges::any_of(single_part.subqueries, [](const auto &subquery) { return subquery->writes; });
+  };
+  return std::ranges::any_of(part.single_query_parts, single_part_writes) ||
+         (part.conditional &&
+          std::ranges::any_of(part.conditional->branches, [](const auto &branch) { return branch.body.writes; }));
 }
 
 /// A conditional branch has no directives of its own and inherits the enclosing `IN TRANSACTIONS` frequency.
@@ -1459,17 +1468,7 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
         CollectQueryPart(symbol_table, storage, single_query, cypher_union, is_subquery, commit_frequency));
   }
 
-  bool const writes = std::ranges::any_of(query_parts, [](const QueryPart &part) {
-    return std::ranges::any_of(part.single_query_parts,
-                               [](const SingleQueryPart &single_part) {
-                                 return std::ranges::any_of(single_part.remaining_clauses,
-                                                            [](const Clause *c) { return IsWritingClause(*c); }) ||
-                                        std::ranges::any_of(single_part.subqueries,
-                                                            [](const auto &subquery) { return subquery->writes; });
-                               }) ||
-           (part.conditional &&
-            std::ranges::any_of(part.conditional->branches, [](const QueryParts &branch) { return branch.writes; }));
-  });
+  bool const writes = std::ranges::any_of(query_parts, PartWrites);
   return QueryParts{.query_parts = query_parts,
                     .distinct = distinct,
                     .commit_frequency = commit_frequency,

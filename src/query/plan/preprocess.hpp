@@ -786,12 +786,15 @@ struct QueryParts {
   bool writes = false;
 };
 
-/// A conditional leg: its branches, and per branch the predicate that selects it.
+/// A conditional leg: its branches in order, each with the predicate that selects it.
 struct ConditionalQueryParts {
-  std::vector<QueryParts> branches;
-  /// Per branch: its predicate (nullptr = ELSE) and the filters that hold the predicate's subqueries.
-  std::vector<Expression *> predicates;
-  std::vector<Filters> predicate_filters;
+  struct Branch {
+    Expression *predicate = nullptr;  ///< nullptr for ELSE
+    Filters predicate_filters;        ///< hold the predicate's subqueries
+    QueryParts body;
+  };
+
+  std::vector<Branch> branches;
   std::vector<Symbol> output_symbols;
 };
 

@@ -365,7 +365,7 @@ class VariableStartPlanner {
       }
       // A conditional leg has no single-query parts; its branches follow, in the order Reconstruct reads them.
       if (query_part.conditional) {
-        for (const auto &branch : query_part.conditional->branches) append(branch);
+        for (const auto &branch : query_part.conditional->branches) append(branch.body);
       }
     }
 
@@ -389,9 +389,14 @@ class VariableStartPlanner {
         }
       }
       if (old_query_part.conditional) {
-        auto conditional = std::make_shared<ConditionalQueryParts>(*old_query_part.conditional);
-        for (auto &branch : conditional->branches) {
-          branch = ReconstructQueryParts(branch, single_query_parts_variation, index);
+        const auto &old = *old_query_part.conditional;
+        auto conditional = std::make_shared<ConditionalQueryParts>();
+        conditional->output_symbols = old.output_symbols;
+        for (const auto &branch : old.branches) {
+          conditional->branches.push_back(
+              {.predicate = branch.predicate,
+               .predicate_filters = branch.predicate_filters,
+               .body = ReconstructQueryParts(branch.body, single_query_parts_variation, index)});
         }
         reconstructed_query_parts.query_parts[i].conditional = std::move(conditional);
       }

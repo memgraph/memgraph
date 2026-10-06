@@ -3171,7 +3171,7 @@ TYPED_TEST(TestPlanner, ConditionalUnboundPredicateThrows) {
   auto query_parts = CollectQueryParts(symbol_table, this->storage, query, false);
   auto &body = query_parts.query_parts[0].single_query_parts[0].subqueries[0]->query_parts[0];
   ASSERT_NE(body.conditional, nullptr);
-  auto &filters = body.conditional->predicate_filters[0];
+  auto &filters = body.conditional->branches[0].predicate_filters;
   ASSERT_NE(filters.begin(), filters.end());
   filters.begin()->used_symbols.insert(symbol_table.CreateSymbol("ghost", false));
   EXPECT_THROW(MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, &planning_context),

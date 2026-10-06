@@ -704,11 +704,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     std::unordered_map<std::string, Symbol> output_by_name;
     for (const auto &sym : conditional.output_symbols) output_by_name.emplace(sym.name(), sym);
 
-    std::vector<Conditional::Branch> branches(conditional.branches.size());
-    for (size_t i = 0; i < branches.size(); ++i) {
+    std::vector<Conditional::Branch> branches;
+    branches.reserve(conditional.branches.size());
+    for (const auto &parts : conditional.branches) {
+      auto &branch = branches.emplace_back();
       context_->bound_symbols = bound_symbols;
-      auto &branch = branches[i];
-      branch.plan = Plan(conditional.branches[i]);
+      branch.plan = Plan(parts.body);
       for (const auto &branch_sym : branch.plan->OutputSymbols(symbol_table)) {
         auto it = output_by_name.find(branch_sym.name());
         if (it == output_by_name.end()) continue;
@@ -716,20 +717,17 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         if (bound_symbols.contains(it->second) || it->second == branch_sym) continue;
         branch.columns.push_back({.from = branch_sym, .to = it->second});
       }
-    }
 
-    for (size_t i = 0; i < branches.size(); ++i) {
-      // A copy: ExtractPatternFilters takes a non-const reference.
-      auto filters = conditional.predicate_filters[i];
-      for (const auto &filter : filters) {
+      for (const auto &filter : parts.predicate_filters) {
         bool const has_fold = !filter.subquery_matchings.empty() || !filter.pattern_comprehension_matchings.empty();
         if (has_fold && !impl::HasBoundFilterSymbols(bound_symbols, filter)) {
           impl::ThrowPlannerBug("A WHEN predicate reads a symbol the conditional does not bind.");
         }
       }
       auto fold_bound_symbols = bound_symbols;
-      branches[i].predicate = conditional.predicates[i];
-      branches[i].pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, fold_bound_symbols);
+      branch.predicate = parts.predicate;
+      branch.pattern_filters =
+          ExtractPatternFilters(parts.predicate_filters, symbol_table, storage, fold_bound_symbols);
     }
 
     auto root = std::make_unique<Conditional>(std::move(input), std::move(branches), conditional.output_symbols);
@@ -1916,7 +1914,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return last_op;
   }
 
-  std::vector<std::shared_ptr<LogicalOperator>> ExtractPatternFilters(Filters &filters, const SymbolTable &symbol_table,
+  std::vector<std::shared_ptr<LogicalOperator>> ExtractPatternFilters(const Filters &filters,
+                                                                      const SymbolTable &symbol_table,
                                                                       AstStorage &storage,
                                                                       std::unordered_set<Symbol> &bound_symbols) {
     std::vector<std::shared_ptr<LogicalOperator>> operators;
