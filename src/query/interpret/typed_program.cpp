@@ -137,6 +137,7 @@ class TypedProgramBuilder {
 
   TypedProgram Finish(Operand root) {
     TypedProgram program;
+    program.shape_ = root.is_tri ? TypedProgram::Shape::Predicate : TypedProgram::Shape::Integer;
     program.code_ = std::move(code_);
     program.int_slots_ = int_slots_;
     program.tri_slots_ = tri_slots_;
@@ -227,6 +228,19 @@ class TypedProgramBuilder {
   Expression *refused_on_{nullptr};
 };
 
+std::optional<TypedProgram> TypedProgram::CompileValue(Expression *expression, Expression **refused_on) {
+  if (expression == nullptr) return std::nullopt;
+  TypedProgramBuilder builder;
+  auto const root = builder.Build(expression);
+  if (!root) {
+    if (refused_on != nullptr) {
+      *refused_on = builder.refused_on_ != nullptr ? builder.refused_on_ : expression;
+    }
+    return std::nullopt;
+  }
+  return builder.Finish(*root);
+}
+
 std::optional<TypedProgram> TypedProgram::Compile(Expression *expression, Expression **refused_on) {
   if (expression == nullptr) return std::nullopt;
   TypedProgramBuilder builder;
@@ -242,15 +256,15 @@ std::optional<TypedProgram> TypedProgram::Compile(Expression *expression, Expres
   return builder.Finish(*root);
 }
 
-TypedProgram::Answer TypedProgram::Run(Frame const &frame, RecordReader *reader, Parameters const *parameters) const {
+bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters const *parameters, Slots &slots) const {
   // Small enough to sit on the stack for the expressions this covers; a bigger
   // one would take these from the frame alongside the other working values.
   constexpr size_t kMaxSlots = 64;
-  if (int_slots_ > kMaxSlots || tri_slots_ > kMaxSlots) return Answer::Refused;
+  if (int_slots_ > kMaxSlots || tri_slots_ > kMaxSlots) return false;
 
-  std::array<int64_t, kMaxSlots> ints{};
-  std::array<char, kMaxSlots> int_known{};
-  std::array<Answer, kMaxSlots> tris{};
+  auto &ints = slots.ints;
+  auto &int_known = slots.int_known;
+  auto &tris = slots.tris;
 
   // A comparison of which either side is missing is null rather than false.
   auto compare = [&](int32_t a, int32_t b, auto decide) {
@@ -274,28 +288,28 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, RecordReader *reader,
           int_known[in.dst] = 0;
         } else {
           // Not what the guess settled on, so this row is not ours.
-          return Answer::Refused;
+          return false;
         }
         break;
       }
       case Op::LoadParamInt: {
-        if (parameters == nullptr) return Answer::Refused;
+        if (parameters == nullptr) return false;
         // A position with nothing bound to it belongs to the evaluator, which
         // decides what an unbound parameter means.
         auto const *value = parameters->FindAtTokenPosition(in.a);
-        if (value == nullptr) return Answer::Refused;
+        if (value == nullptr) return false;
         if (value->IsInt()) {
           ints[in.dst] = value->ValueInt();
           int_known[in.dst] = 1;
         } else if (value->IsNull()) {
           int_known[in.dst] = 0;
         } else {
-          return Answer::Refused;
+          return false;
         }
         break;
       }
       case Op::LoadPropInt: {
-        if (reader == nullptr) return Answer::Refused;
+        if (reader == nullptr) return false;
         auto const &record = frame.elems()[in.a];
         // Only a record has properties; anything else was not what the guess
         // settled on.
@@ -304,7 +318,7 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, RecordReader *reader,
             int_known[in.dst] = 0;
             break;
           }
-          return Answer::Refused;
+          return false;
         }
         auto const value = reader->ReadProperty(record, in.property);
         if (value.IsInt()) {
@@ -313,12 +327,12 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, RecordReader *reader,
         } else if (value.IsNull()) {
           int_known[in.dst] = 0;
         } else {
-          return Answer::Refused;
+          return false;
         }
         break;
       }
       case Op::TestLabels: {
-        if (reader == nullptr) return Answer::Refused;
+        if (reader == nullptr) return false;
         auto const answer = reader->TestLabels(frame.elems()[in.a], *in.labels);
         tris[in.dst] = !answer ? Answer::Null : (*answer ? Answer::True : Answer::False);
         break;
@@ -392,7 +406,41 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, RecordReader *reader,
         break;
     }
   }
-  return tris[result_];
+  return true;
+}
+
+TypedProgram::Answer TypedProgram::Run(Frame const &frame, RecordReader *reader, Parameters const *parameters) const {
+  Slots slots{};
+  if (!Execute(frame, reader, parameters, slots)) return Answer::Refused;
+  return slots.tris[result_];
+}
+
+bool TypedProgram::RunInto(Frame const &frame, TypedValue &out, RecordReader *reader,
+                           Parameters const *parameters) const {
+  Slots slots{};
+  if (!Execute(frame, reader, parameters, slots)) return false;
+  if (shape_ == Shape::Integer) {
+    // A missing operand leaves no integer, and null is a value a caller can
+    // perfectly well take.
+    if (slots.int_known[result_] == 0) {
+      out = TypedValue();
+    } else {
+      out = TypedValue(slots.ints[result_]);
+    }
+    return true;
+  }
+  switch (slots.tris[result_]) {
+    case Answer::True:
+      out = TypedValue(true);
+      break;
+    case Answer::False:
+      out = TypedValue(false);
+      break;
+    default:
+      out = TypedValue();
+      break;
+  }
+  return true;
 }
 
 }  // namespace memgraph::query
