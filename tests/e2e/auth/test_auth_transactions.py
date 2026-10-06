@@ -236,5 +236,37 @@ def test_an_auth_transaction_does_not_commit_after_demotion(cursor):
     assert "zed" not in usernames(other)
 
 
+def database_grants(cursor, user):
+    return execute(cursor, f"SHOW DATABASE PRIVILEGES FOR {user}")[0][0]
+
+
+# SET MAIN DATABASE needs access to the database first. Access through `*` leaves the user's record unchanged when
+# d1 is dropped, so only the existence check can catch it.
+@pytest.mark.parametrize(
+    "setup, statement",
+    [(None, "GRANT DATABASE d1 TO u"), ("GRANT DATABASE * TO u", "SET MAIN DATABASE d1 FOR u")],
+)
+def test_a_database_dropped_before_commit_fails_the_commit(cursor, setup, statement):
+    # The statement checks that the database exists, but the write lands at COMMIT. A database dropped in between
+    # must fail the commit, or a database later created under the same name inherits the change.
+    other = connect().cursor()
+    execute(cursor, "CREATE DATABASE d1")
+    execute(cursor, "CREATE USER u")
+    if setup:
+        execute(cursor, setup)
+
+    execute(cursor, "BEGIN")
+    execute(cursor, statement)
+    execute(other, "DROP DATABASE d1")
+    with pytest.raises(mgclient.DatabaseError, match='unknown database "d1"'):
+        execute(cursor, "COMMIT")
+
+    execute(cursor, "CREATE DATABASE d1")
+    try:
+        assert "d1" not in database_grants(cursor, "u")
+    finally:
+        execute(cursor, "DROP DATABASE d1")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

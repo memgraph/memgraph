@@ -14,6 +14,7 @@
 #include <list>
 #include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <variant>
@@ -46,6 +47,11 @@ class AuthTransaction {
 
 #ifdef MG_ENTERPRISE
   std::vector<std::string> const &dropped_users() const { return dropped_users_; }
+
+  /// Databases a statement checked exist. The write lands at COMMIT, which checks them again.
+  void NameDatabase(std::string name) { named_databases_.insert(std::move(name)); }
+
+  std::set<std::string> const &named_databases() const { return named_databases_; }
 #endif
 
  private:
@@ -57,6 +63,7 @@ class AuthTransaction {
   // Users whose live resource limits are released at COMMIT. ResourceMonitoring is process-wide and has no
   // rollback, so dropping them while the transaction is still open would outlive an abort.
   std::vector<std::string> dropped_users_;
+  std::set<std::string> named_databases_;
 #endif
 };
 

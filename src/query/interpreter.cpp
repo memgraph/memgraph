@@ -2046,6 +2046,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               std::nullopt;  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
+            if (auto *tx = interpreter->auth_transaction_ptr()) tx->NameDatabase(database);
           }
           auth->GrantDatabase(database,
                               user_or_role,
@@ -2070,6 +2071,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               std::nullopt;  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
+            if (auto *tx = interpreter->auth_transaction_ptr()) tx->NameDatabase(database);
           }
           auth->DenyDatabase(database,
                              user_or_role,
@@ -2094,6 +2096,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               std::nullopt;  // Hold pointer to database to protect it until query is done
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
+            if (auto *tx = interpreter->auth_transaction_ptr()) tx->NameDatabase(database);
           }
           auth->RevokeDatabase(database,
                                user_or_role,
@@ -2128,6 +2131,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         try {
           const auto db =
               db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
+          if (auto *tx = interpreter->auth_transaction_ptr()) tx->NameDatabase(database);
           auth->SetMainDatabase(database,
                                 user_or_role,
                                 entity_type,
@@ -11570,13 +11574,34 @@ void Interpreter::Commit() {
       // single-statement path above, and it is shorter than the lock is ever held, because the holder keeps it
       // across replication. Waiting longer would want to stay interruptible, and would want doing at both call
       // sites rather than only this one.
-      if (!system_transaction_ && !on_coordinator && !auth_transaction_->pending_actions().empty()) {
+#ifdef MG_ENTERPRISE
+      bool const names_databases = !auth_transaction_->named_databases().empty();
+#else
+      bool const names_databases = false;
+#endif
+      if (!system_transaction_ && !on_coordinator &&
+          (!auth_transaction_->pending_actions().empty() || names_databases)) {
         system_transaction_ =
             interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
         if (!system_transaction_) {
           throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
         }
       }
+      auto const abort_system_transaction = [this] {
+        if (!system_transaction_) return;
+        system_transaction_->Abort();
+        system_transaction_.reset();
+      };
+#ifdef MG_ENTERPRISE
+      // DROP DATABASE needs the system transaction held here, so a database that exists now still exists when the
+      // overlay flushes.
+      try {
+        for (auto const &db : auth_transaction_->named_databases()) interpreter_context_->dbms_handler->Get(db);
+      } catch (dbms::UnknownDatabaseException const &e) {
+        abort_system_transaction();
+        throw QueryRuntimeException(e.what());
+      }
+#endif
       // The role is checked only when a statement is prepared, and an auth transaction holds no accessor for a
       // demotion to wait on. Taken after the system transaction, in the order SET REPLICATION ROLE takes them, and
       // released before the system transaction commits, which needs the write lock.
@@ -11587,10 +11612,7 @@ void Interpreter::Commit() {
           !demoted && interpreter_context_->auth->CommitTransaction(*auth_transaction_, system_transaction_ptr());
       locked_repl_state.reset();
       if (!committed) {
-        if (system_transaction_) {
-          system_transaction_->Abort();
-          system_transaction_.reset();
-        }
+        abort_system_transaction();
         if (demoted) throw QueryException("Cannot commit because instance is not main anymore.");
         throw TransactionSerializationException();
       }
