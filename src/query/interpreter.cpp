@@ -11222,10 +11222,12 @@ void Interpreter::FinishAutocommitNothing() {
   // Every transition is a compare-exchange from an observed state, never a store: ShowTransactions takes
   // ownership by CAS-ing to VERIFYING and reads the fields cleared below while it holds it, and a store
   // would drop that ownership underneath it. TERMINATED is retried rather than waited on, the result
-  // having already been produced.
+  // having already been produced. An auth commit with nothing to replicate arrives still holding
+  // STARTED_COMMITTING, and is retired from there, as `clean_status` does.
   auto expected = TransactionStatus::ACTIVE;
   while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
-    if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE) {
+    if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::IDLE ||
+        expected == TransactionStatus::STARTED_COMMITTING) {
       // compare_exchange_weak has already loaded the observed state into `expected`; retry from it.
       continue;
     }
@@ -11505,12 +11507,11 @@ void Interpreter::Commit() {
       // never touches `system_transaction_`, which needs no help here because it holds the system mutex in a
       // member lock and so frees it whenever it is destroyed.
       //
-      // On the way out normally, the claim is given back here only when nothing is left to replicate. With a
-      // system transaction the commit is not over at this brace -- replication runs below -- and letting go here
-      // would put the status back to ACTIVE for that whole window, which is the false kill the claim exists to
-      // prevent. In that case `clean_status` releases instead, after replication. Without one,
-      // `FinishAutocommitNothing` retires the transaction immediately below and it only knows how to start from
-      // ACTIVE.
+      // On the way out normally, the claim is never given back here. Letting go would put the status back to
+      // ACTIVE before the transaction is retired, and a terminate landing in between would report a kill for a
+      // transaction that has already committed, which is the false kill the claim exists to prevent. Whatever
+      // retires the transaction below, `clean_status` or `FinishAutocommitNothing`, starts from
+      // STARTED_COMMITTING instead.
       //
       // The status half is a no-op until the claim below lands, since only STARTED_COMMITTING is ours to give
       // back.
@@ -11520,8 +11521,8 @@ void Interpreter::Commit() {
         // return, so an exception leaving this block skips it and the claim would be stranded: nothing else
         // gives it back, `TERMINATE TRANSACTIONS` cannot mark a status that is not ACTIVE, and `KillAll` leaves
         // STARTED_COMMITTING to the committing thread that has already gone. Unwinding therefore always
-        // releases here, whether or not a system transaction was taken.
-        if (system_transaction_ && std::uncaught_exceptions() == entry_exceptions) return;
+        // releases here.
+        if (std::uncaught_exceptions() == entry_exceptions) return;
         auto expected = TransactionStatus::STARTED_COMMITTING;
         while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::ACTIVE)) {
           if (expected == TransactionStatus::VERIFYING) {
