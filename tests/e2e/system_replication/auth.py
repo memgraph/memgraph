@@ -1478,12 +1478,30 @@ def test_transactional_auth_replication(connection, test_name):
         mg_sleep_and_assert(expected_data, show_users_func(cursor_replica1))
         mg_sleep_and_assert(expected_data, show_users_func(cursor_replica2))
 
-    # A committed transaction replicates every statement in it.
+    def check_matches_main(show_func):
+        expected = show_func(cursor_main)()
+        mg_sleep_and_assert(expected, show_func(cursor_replica1))
+        mg_sleep_and_assert(expected, show_func(cursor_replica2))
+
+    def commit():
+        # A SYNC replica is replicated to inside COMMIT, so it must still be ready when COMMIT returns. A replica
+        # that applied the batch but failed to answer would be marked behind and recovered by snapshot instead,
+        # which reaches the same end state and so would pass every other check here.
+        execute_and_fetch_all(cursor_main, "COMMIT")
+        statuses = {row[0]: row[3]["status"] for row in execute_and_fetch_all(cursor_main, "SHOW REPLICAS")}
+        assert statuses["replica_1"] == "ready", statuses
+
+    # A committed transaction replicates every statement in it, roles and grants included.
     execute_and_fetch_all(cursor_main, "BEGIN")
     execute_and_fetch_all(cursor_main, "CREATE USER alice")
     execute_and_fetch_all(cursor_main, "CREATE USER bob")
-    execute_and_fetch_all(cursor_main, "COMMIT")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE reader")
+    execute_and_fetch_all(cursor_main, "GRANT MATCH TO reader")
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR bob TO reader")
+    commit()
     check({("alice",), ("bob",)})
+    check_matches_main(partial(show_role_for_user_func, username="bob"))
+    check_matches_main(partial(show_privileges_func, user_or_role="reader"))
 
     # An aborted one replicates nothing, not even the statements that ran before the abort.
     execute_and_fetch_all(cursor_main, "BEGIN")
@@ -1494,7 +1512,7 @@ def test_transactional_auth_replication(connection, test_name):
     # A dropped user is a delta like any other.
     execute_and_fetch_all(cursor_main, "BEGIN")
     execute_and_fetch_all(cursor_main, "DROP USER bob")
-    execute_and_fetch_all(cursor_main, "COMMIT")
+    commit()
     check({("alice",)})
 
     # Dropping a name and recreating it in one transaction sends both operations, and a replica that applied them
@@ -1505,14 +1523,14 @@ def test_transactional_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "BEGIN")
     execute_and_fetch_all(cursor_main, "DROP USER dave")
     execute_and_fetch_all(cursor_main, "CREATE USER dave")
-    execute_and_fetch_all(cursor_main, "COMMIT")
+    commit()
     check({("alice",), ("dave",)})
 
     # And the other way round: created then dropped leaves nothing behind.
     execute_and_fetch_all(cursor_main, "BEGIN")
     execute_and_fetch_all(cursor_main, "CREATE USER erin")
     execute_and_fetch_all(cursor_main, "DROP USER erin")
-    execute_and_fetch_all(cursor_main, "COMMIT")
+    commit()
     check({("alice",), ("dave",)})
 
     execute_and_fetch_all(cursor_main, "DROP USER dave")
