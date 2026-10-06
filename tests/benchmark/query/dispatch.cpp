@@ -23,6 +23,7 @@
 
 #include <memory>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -370,6 +371,61 @@ class MiniVm {
   std::vector<TypedValue> stack_;
 };
 
+// ---------------------------------------------------------------- strategy H
+// A typed scratch. A pass over the expression has already settled that the
+// arithmetic is all integers and the comparisons all yield bools, so the
+// scratch holds int64_t and bool rather than TypedValue. Nothing is boxed in
+// the middle: a value is read out of a TypedValue once on the way in, and one
+// is built once on the way out.
+//
+// For strings the scratch holds views onto the frame's values, so an operand is
+// never copied at all.
+enum class TIns : uint8_t { LoadInt, AddInt, EqInt, LoadStr, EqStr, AndBool };
+
+struct TInstr {
+  TIns op;
+  int32_t dst;
+  int32_t a;
+  int32_t b;
+};
+
+class TypedVm {
+ public:
+  TypedVm(size_t ints, size_t strs, size_t bools) : ints_(ints), strs_(strs), bools_(bools) {}
+
+  bool Run(const std::vector<TInstr> &code, const Frame &f) {
+    for (const auto &in : code) {
+      switch (in.op) {
+        case TIns::LoadInt:
+          ints_[in.dst] = f[in.a].UnsafeValueInt();
+          break;
+        case TIns::AddInt:
+          ints_[in.dst] = ints_[in.a] + ints_[in.b];
+          break;
+        case TIns::EqInt:
+          bools_[in.dst] = ints_[in.a] == ints_[in.b];
+          break;
+        case TIns::LoadStr:
+          // A view, so the operand is not copied.
+          strs_[in.dst] = std::string_view{f[in.a].UnsafeValueString()};
+          break;
+        case TIns::EqStr:
+          bools_[in.dst] = strs_[in.a] == strs_[in.b];
+          break;
+        case TIns::AndBool:
+          bools_[in.dst] = bools_[in.a] && bools_[in.b];
+          break;
+      }
+    }
+    return bools_[0];
+  }
+
+ private:
+  std::vector<int64_t> ints_;
+  std::vector<std::string_view> strs_;
+  std::vector<char> bools_;
+};
+
 // ---------------------------------------------------------------- strategy G
 // The expression hand-written as native code against unboxed frame values: no
 // node walk, no tag test, no TypedValue except the answer. This is the ceiling
@@ -528,6 +584,28 @@ bool SameAnswers(Shape shape) {
 
     const bool g = shape == Shape::Int ? GEvalInt(frame) : GEvalStr(frame);
     if (g != want) return false;
+
+    std::vector<TInstr> tcode;
+    if (shape == Shape::Int) {
+      tcode = {{TIns::LoadInt, 0, 0, 0},
+               {TIns::LoadInt, 1, 1, 0},
+               {TIns::AddInt, 2, 0, 1},
+               {TIns::LoadInt, 3, 2, 0},
+               {TIns::EqInt, 1, 2, 3},
+               {TIns::LoadInt, 4, 3, 0},
+               {TIns::EqInt, 2, 0, 4},
+               {TIns::AndBool, 0, 1, 2}};
+    } else {
+      tcode = {{TIns::LoadStr, 0, 0, 0},
+               {TIns::LoadStr, 1, 1, 0},
+               {TIns::EqStr, 1, 0, 1},
+               {TIns::LoadStr, 2, 2, 0},
+               {TIns::LoadStr, 3, 3, 0},
+               {TIns::EqStr, 2, 2, 3},
+               {TIns::AndBool, 0, 1, 2}};
+    }
+    TypedVm tvm(8, 8, 8);
+    if (tvm.Run(tcode, frame) != want) return false;
   }
   return true;
 }
@@ -735,6 +813,47 @@ static void Dispatch_G_NativeSpecialised(benchmark::State &state) {
   state.SetItemsProcessed(state.iterations());
 }
 
+static void Dispatch_H_TypedScratch(benchmark::State &state) {
+  const auto shape = static_cast<Shape>(state.range(0));
+  QueryMemory memory;
+  g_memory = &memory;
+  g_alloc = static_cast<Alloc>(state.range(1));
+  auto frames = MakeFrames(shape);
+  size_t fi = 0;
+
+  std::vector<TInstr> code;
+  if (shape == Shape::Int) {
+    // (s0 + s1) == s2  AND  s0 == s3
+    code = {{TIns::LoadInt, 0, 0, 0},
+            {TIns::LoadInt, 1, 1, 0},
+            {TIns::AddInt, 2, 0, 1},
+            {TIns::LoadInt, 3, 2, 0},
+            {TIns::EqInt, 1, 2, 3},
+            {TIns::LoadInt, 4, 3, 0},
+            {TIns::EqInt, 2, 0, 4},
+            {TIns::AndBool, 0, 1, 2}};
+  } else {
+    // s0 == s1  AND  s2 == s3
+    code = {{TIns::LoadStr, 0, 0, 0},
+            {TIns::LoadStr, 1, 1, 0},
+            {TIns::EqStr, 1, 0, 1},
+            {TIns::LoadStr, 2, 2, 0},
+            {TIns::LoadStr, 3, 3, 0},
+            {TIns::EqStr, 2, 2, 3},
+            {TIns::AndBool, 0, 1, 2}};
+  }
+
+  TypedVm vm(8, 8, 8);
+  for (auto _ : state) {
+    const auto &frame = frames[fi];
+    if (++fi == frames.size()) fi = 0;
+    // Boxed once, on the way out, which is what a caller actually reads.
+    TypedValue r{vm.Run(code, frame), CurrentAlloc()};
+    benchmark::DoNotOptimize(r);
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
 #define SHAPES                                                                      \
   Args({static_cast<int>(Shape::Int), static_cast<int>(Alloc::NewDelete)})          \
       ->Args({static_cast<int>(Shape::Int), static_cast<int>(Alloc::Pool)})         \
@@ -763,6 +882,7 @@ BENCHMARK(Dispatch_C_SwitchByValue)->SHAPES;
 BENCHMARK(Dispatch_D_ScratchSlots)->SHAPES;
 BENCHMARK(Dispatch_F_InPlaceOps)->SHAPES;
 BENCHMARK(Dispatch_E_MiniVm)->SHAPES;
+BENCHMARK(Dispatch_H_TypedScratch)->SHAPES;
 BENCHMARK(Dispatch_G_NativeSpecialised)->SHAPES;
 
 BENCHMARK_MAIN();
