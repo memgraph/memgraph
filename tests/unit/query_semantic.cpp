@@ -1434,10 +1434,9 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallBranchesMustAgree) {
 }
 
 TYPED_TEST(TestSymbolGenerator, ConditionalCallBranchSeesOnlyImports) {
-  // WHEN true THEN WITH 1 AS q RETURN q AS x ELSE RETURN q AS x
-  EXPECT_THROW(MakeSymbolTable(CONDITIONAL_CALL_QUERY(
-                   {LITERAL(true), SINGLE_QUERY(WITH(LITERAL(1), AS("q")), RETURN(IDENT("q"), AS("x")))},
-                   {nullptr, SINGLE_QUERY(RETURN(IDENT("q"), AS("x")))})),
+  // WHEN true THEN RETURN 1 AS x ELSE RETURN x AS x - the first branch's column is not in the second's scope.
+  EXPECT_THROW(MakeSymbolTable(CONDITIONAL_CALL_QUERY({LITERAL(true), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))},
+                                                      {nullptr, SINGLE_QUERY(RETURN(IDENT("x"), AS("x")))})),
                UnboundVariableError);
   // WHEN true THEN WITH 1 AS q RETURN q AS x WHEN q = 1 THEN RETURN 2 AS x
   EXPECT_THROW(MakeSymbolTable(CONDITIONAL_CALL_QUERY(
