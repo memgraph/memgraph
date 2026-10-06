@@ -10220,8 +10220,9 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
       auto const i = *active_;
       if (branches_[i].plan->Pull(frame, context)) {
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        // `from` is the branch's own column, which its body writes again before every row, so the value moves.
         for (const auto &[from, to] : self_.branches_[i].columns) {
-          frame_writer.Write(to, frame[from]);
+          frame_writer.Write(to, std::move(frame[from]));
         }
         return true;
       }
@@ -10256,9 +10257,9 @@ void Conditional::ConditionalCursor::Shutdown() {
 void Conditional::ConditionalCursor::Reset() {
   active_.reset();
   input_->Reset();
+  // A body is reset when its branch is taken. A fold is reset here: one over `Once` yields once per reset.
   for (const auto &branch : branches_) {
     for (const auto &fold : branch.pattern_filters) fold->Reset();
-    branch.plan->Reset();
   }
 }
 
