@@ -179,6 +179,23 @@ Feature: Conditional subqueries
             | 1 | 2 |
             | 2 | 3 |
 
+    Scenario: A star column keeps its value on every row its body yields
+        Given an empty graph
+        When executing query:
+            """
+            CALL () {
+              WHEN true THEN WITH 'abc' AS s, [1, 2] AS l, {a: 1} AS m UNWIND [1, 2, 3] AS i RETURN *
+              ELSE RETURN 'z' AS s, [] AS l, {} AS m, 0 AS i
+            }
+            RETURN s, l, m, i
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | s     | l      | m      | i |
+            | 'abc' | [1, 2] | {a: 1} | 1 |
+            | 'abc' | [1, 2] | {a: 1} | 2 |
+            | 'abc' | [1, 2] | {a: 1} | 3 |
+
     Scenario Outline: A body that returns only imports still drops a row no branch yields
         Given an empty graph
         When executing query:
