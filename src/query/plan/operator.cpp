@@ -10152,8 +10152,8 @@ bool Conditional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
     input_->Accept(visitor);
     for (const auto &branch : branches_) {
       for (const auto &fold : branch.pattern_filters) fold->Accept(visitor);
+      branch.plan->Accept(visitor);
     }
-    for (const auto &branch : branches_) branch.plan->Accept(visitor);
   }
   return visitor.PostVisit(*this);
 }
@@ -10249,8 +10249,8 @@ void Conditional::ConditionalCursor::Shutdown() {
   input_->Shutdown();
   for (const auto &branch : branches_) {
     for (const auto &fold : branch.pattern_filters) fold->Shutdown();
+    branch.plan->Shutdown();
   }
-  for (const auto &branch : branches_) branch.plan->Shutdown();
 }
 
 void Conditional::ConditionalCursor::Reset() {
@@ -10258,8 +10258,8 @@ void Conditional::ConditionalCursor::Reset() {
   input_->Reset();
   for (const auto &branch : branches_) {
     for (const auto &fold : branch.pattern_filters) fold->Reset();
+    branch.plan->Reset();
   }
-  for (const auto &branch : branches_) branch.plan->Reset();
 }
 
 PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)
