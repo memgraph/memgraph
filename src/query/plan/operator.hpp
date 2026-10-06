@@ -3077,7 +3077,6 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
 };
 
 /// `WHEN p0 THEN b0 WHEN p1 THEN b1 ... ELSE bn`: per input row, runs the branch of the first true predicate.
-/// Predicate i's pattern filters are pulled only when predicate i is reached.
 class Conditional : public memgraph::query::plan::LogicalOperator {
  public:
   static const utils::TypeInfo kType;
