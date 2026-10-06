@@ -1770,15 +1770,14 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   /// The EXISTS branch, without either fold's tail. Both forms are rooted at an `Once` naming the caller's bound
-  /// symbols, so the branch correlates through the shared frame: the pattern form builds one here, and the subquery
-  /// form gets one from `Plan`, which seeds each query part of a body with it.
+  /// symbols and any list element the body reads, so the branch correlates through the shared frame: the pattern
+  /// form builds one here, and the subquery form gets one from `Plan`, which seeds each query part of a body with it.
   std::unique_ptr<LogicalOperator> MakeSubqueryBranch(const SubqueryMatching &matching, const SymbolTable &symbol_table,
                                                       AstStorage &storage,
                                                       const std::unordered_set<Symbol> &bound_symbols,
                                                       bool write_occurred) {
-    // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
-    // the branch has to correlate against. A list expression's element is bound too: the evaluator writes it before
-    // each run of the branch.
+    // A copy: bound_symbols may alias context_->bound_symbols, which the subquery form moves out below.
+    // The element is bound: the evaluator writes it before each run of the branch.
     auto branch_bound_symbols = bound_symbols;
     branch_bound_symbols.insert(matching.element_symbols.begin(), matching.element_symbols.end());
     if (matching.type == SubqueryKind::kSubquery) {

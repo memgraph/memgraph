@@ -16,7 +16,6 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 
 #include <algorithm>
-#include <iterator>
 #include <optional>
 #include <ranges>
 #include <unordered_set>
@@ -71,8 +70,8 @@ void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
     subquery.referenced.insert(symbol);
   }
   // A comprehension runs once per row, so it would read the element of another iteration.
-  auto const opened_after = [&symbol](int32_t first_own_position) { return symbol.position() < first_own_position; };
-  if (list_element_symbols_in_scope_.contains(symbol) && std::ranges::any_of(open_comprehensions_, opened_after)) {
+  if (!open_comprehensions_.empty() && symbol.position() < open_comprehensions_.back() &&
+      list_element_symbols_in_scope_.contains(symbol)) {
     throw SemanticException(
         "A pattern comprehension cannot yet read '{}', which an enclosing list expression binds once per element. "
         "Use COUNT {{ ... }} or EXISTS {{ ... }} instead.",
@@ -767,15 +766,12 @@ bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
   const auto &body = open_subqueries_.back();
   // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
   subquery.external_symbols_.clear();
-  for (const auto &symbol : body.referenced) {
-    if (symbol.position() < body.first_own_position) {
-      subquery.external_symbols_.insert(symbol);
-    }
-  }
   subquery.element_symbols_.clear();
-  std::ranges::copy_if(subquery.external_symbols_,
-                       std::inserter(subquery.element_symbols_, subquery.element_symbols_.end()),
-                       [this](const Symbol &symbol) { return list_element_symbols_in_scope_.contains(symbol); });
+  for (const auto &symbol : body.referenced) {
+    if (symbol.position() >= body.first_own_position) continue;
+    subquery.external_symbols_.insert(symbol);
+    if (list_element_symbols_in_scope_.contains(symbol)) subquery.element_symbols_.insert(symbol);
+  }
   open_subqueries_.pop_back();
   scopes_.pop_back();
   return true;
