@@ -21,6 +21,7 @@
 
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol.hpp"
+#include "query/interpret/typed_program.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
@@ -1249,6 +1250,11 @@ class Filter : public memgraph::query::plan::LogicalOperator {
     const Filter &self_;
     const UniqueCursorPtr input_cursor_;
     const std::vector<UniqueCursorPtr> pattern_filter_cursors_;
+    /// Nothing when the expression holds something the compiler does not
+    /// cover, which leaves every row to the evaluator. Built here rather than
+    /// on the operator because a cursor belongs to one execution, so it is
+    /// never read while another execution writes it.
+    const std::optional<TypedProgram> program_;
   };
 };
 

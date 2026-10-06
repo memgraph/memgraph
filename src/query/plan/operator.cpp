@@ -5185,7 +5185,8 @@ Filter::FilterCursor::FilterCursor(const Filter &self, utils::MemoryResource *me
                                    metrics::DatabaseMetricHandles &metric_handles)
     : self_(self),
       input_cursor_(self_.input_->MakeCursor(mem, metric_handles)),
-      pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem, metric_handles)) {}
+      pattern_filter_cursors_(MakeCursorVector(self_.pattern_filters_, mem, metric_handles)),
+      program_(TypedProgram::Compile(self_.expression_)) {}
 
 bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
@@ -5201,6 +5202,18 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
   while (input_cursor_->Pull(frame, context)) {
     for (const auto &pattern_filter_cursor : pattern_filter_cursors_) {
       pattern_filter_cursor->Pull(frame, context);
+    }
+    if (program_) {
+      // A null answer keeps the row out, the same as the evaluator does.
+      switch (program_->Run(frame, &evaluator, &context.evaluation_context.parameters)) {
+        case TypedProgram::Answer::True:
+          return true;
+        case TypedProgram::Answer::False:
+        case TypedProgram::Answer::Null:
+          continue;
+        case TypedProgram::Answer::Refused:
+          break;
+      }
     }
     if (EvaluateFilter(evaluator, self_.expression_)) return true;
   }
