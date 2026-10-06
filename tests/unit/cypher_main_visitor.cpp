@@ -8771,6 +8771,11 @@ TEST_P(CypherMainVisitorTest, SubqueryExpressionConditional) {
       "MATCH (n) WHERE EXISTS { CALL (n) { WHEN true THEN SET n.p = 1 } RETURN 1 AS x } RETURN n",
       ast_generator,
       "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+  // The fold comes back after a CALL body: a later RETURN-less branch still gets the fold's RETURN rule.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN EXISTS { WHEN true THEN CALL () { RETURN 1 AS y } RETURN y ELSE MATCH (m) } AS e",
+      ast_generator,
+      "Every WHEN branch of EXISTS must end with RETURN.");
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {
