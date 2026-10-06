@@ -34,6 +34,7 @@
 #include "query/frontend/ast/pretty_print.hpp"
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/interpret/typed_program.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/unit/typed_value_shapes.hpp"
 
@@ -218,4 +219,91 @@ TEST_F(ExpressionFuzz, ReportsWhatTheSlotPathCostsAgainstAccept) {
   std::cerr << "accept " << accept_seconds << "s, slot " << slot_seconds << "s, ratio "
             << (slot_seconds / accept_seconds) << "\n";
   SUCCEED();
+}
+
+namespace {
+
+// What the compiled program said, lined up against what the evaluator says.
+// Refusing is not a disagreement: it means the guess about a type was wrong and
+// the row belongs to the ordinary evaluator.
+testing::AssertionResult CompiledAgrees(memgraph::query::TypedProgram const &program,
+                                        memgraph::query::Frame const &frame, Outcome const &boxed) {
+  using Answer = memgraph::query::TypedProgram::Answer;
+  auto const answer = program.Run(frame);
+  if (answer == Answer::Refused) return testing::AssertionSuccess();
+
+  if (boxed.threw) {
+    return testing::AssertionFailure() << "the compiled program answered where the evaluator refused: "
+                                       << boxed.complaint;
+  }
+  if (answer == Answer::Null) {
+    return boxed.value.IsNull() ? testing::AssertionSuccess()
+                                : testing::AssertionFailure() << "compiled said null, evaluator did not";
+  }
+  if (!boxed.value.IsBool()) {
+    return testing::AssertionFailure() << "compiled said a bool, evaluator gave type "
+                                       << static_cast<int>(boxed.value.type());
+  }
+  const bool want = boxed.value.ValueBool();
+  const bool got = answer == Answer::True;
+  return got == want ? testing::AssertionSuccess()
+                     : testing::AssertionFailure() << "compiled said " << got << ", evaluator said " << want;
+}
+
+}  // namespace
+
+// C1 to C4 in the plan, for the compiled path. Operands of every type, so the
+// guard is exercised as hard as the arithmetic.
+TEST_F(ExpressionFuzz, TheCompiledProgramMatchesAcceptOrRefuses) {
+  auto const seed = ChosenSeed();
+  std::mt19937 rng{seed};
+  auto evaluator = MakeEvaluator();
+
+  int compiled = 0;
+  int answered = 0;
+  for (int i = 0; i < 4000; ++i) {
+    auto *expr = Build(rng, 1 + static_cast<int>(rng() % 4));
+    auto program = memgraph::query::TypedProgram::Compile(expr);
+    if (!program) continue;
+    ++compiled;
+
+    auto const boxed = Attempt([&] { return expr->Accept(evaluator); });
+    if (program->Run(frame_) != memgraph::query::TypedProgram::Answer::Refused) ++answered;
+    EXPECT_TRUE(CompiledAgrees(*program, frame_, boxed))
+        << "seed " << seed << ", expression " << i << ": " << Describe(expr);
+  }
+  std::cerr << "compiled " << compiled << " of 4000, answered " << answered << "\n";
+}
+
+// The same, over a frame of integers, so the compiled path actually runs
+// instead of refusing every row for want of an integer.
+TEST_F(ExpressionFuzz, TheCompiledProgramMatchesAcceptOnIntegers) {
+  auto const seed = ChosenSeed();
+  std::mt19937 rng{seed};
+
+  {
+    auto writer = frame_.GetFrameWriter(nullptr, memgraph::utils::NewDeleteResource());
+    for (size_t i = 0; i < operands_.size(); ++i) {
+      memgraph::query::Symbol const symbol{"v" + std::to_string(i), static_cast<int>(i), false};
+      // Every fourth one null, so the three-valued cases come up too.
+      writer.Modify(symbol, [&](TypedValue &slot) {
+        slot = (i % 4 == 3) ? TypedValue() : TypedValue(static_cast<int64_t>(i) - 4);
+      });
+    }
+  }
+  auto evaluator = MakeEvaluator();
+
+  int answered = 0;
+  for (int i = 0; i < 4000; ++i) {
+    auto *expr = Build(rng, 1 + static_cast<int>(rng() % 4));
+    auto program = memgraph::query::TypedProgram::Compile(expr);
+    if (!program) continue;
+
+    auto const boxed = Attempt([&] { return expr->Accept(evaluator); });
+    if (program->Run(frame_) != memgraph::query::TypedProgram::Answer::Refused) ++answered;
+    EXPECT_TRUE(CompiledAgrees(*program, frame_, boxed))
+        << "seed " << seed << ", expression " << i << ": " << Describe(expr);
+  }
+  std::cerr << "answered " << answered << " of 4000 on an integer frame\n";
+  EXPECT_GT(answered, 0) << "nothing ran, so nothing was really compared";
 }
