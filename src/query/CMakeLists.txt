@@ -61,6 +61,7 @@ target_sources(mg-query
     interpret/awesome_memgraph_functions.cpp
     interpret/eval.cpp
     interpret/frame.cpp
+    interpret/typed_program.cpp
     interpreter_context.cpp
     interpreter.cpp
     jsonl/reader.cpp
@@ -133,6 +134,7 @@ target_sources(mg-query
     frontend/ast/query/query.hpp
     interpret/eval.hpp
     interpret/frame.hpp
+    interpret/typed_program.hpp
     path.hpp
     plan/parallel_checker.hpp
     plan/point_distance_condition.hpp
