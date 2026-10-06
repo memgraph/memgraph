@@ -1277,6 +1277,28 @@ TEST(DBMS_Handler, DroppingHusksDisambiguatedByUuidWhenSameNameDrainsTwice) {
       << "both DROPPING husks must disappear within 30 s after releasing their pins";
 }
 
+TEST(DBMS_Handler, RenamedTenantKeepsItsDatabaseProtector) {
+  auto &dbms = *TestEnvironment::get();
+  ASSERT_TRUE(dbms.New("protector_before").has_value());
+  ASSERT_TRUE(dbms.Rename("protector_before", "protector_after").has_value());
+
+  {
+    auto db = dbms.Get("protector_after");
+    EXPECT_NE(db->storage()->make_database_protector(), nullptr);
+  }
+
+  ASSERT_TRUE(dbms.TryDelete("protector_after").has_value());
+}
+
+TEST(DBMS_Handler, DroppedTenantHasNoDatabaseProtector) {
+  auto &dbms = *TestEnvironment::get();
+  auto db = dbms.New("protector_dropped");
+  ASSERT_TRUE(db.has_value());
+
+  ASSERT_TRUE(dbms.Delete("protector_dropped", static_cast<memgraph::system::Transaction *>(nullptr)).has_value());
+  EXPECT_EQ((*db)->storage()->make_database_protector(), nullptr);
+}
+
 int main(int argc, char *argv[]) {
   ::testing::InitGoogleTest(&argc, argv);
   // gtest takes ownership of the TestEnvironment ptr - we don't delete it.

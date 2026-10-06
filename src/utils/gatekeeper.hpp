@@ -179,6 +179,20 @@ struct GKInternals {
   // ctor for a cold_shell_t arg (otherwise make_unique<T>(cold_shell) fails for managed types).
   explicit GKInternals(cold_shell_t /*tag*/) : state_{GatekeeperState::COLD} {}
 
+  // T is destroyed with mutex_ alive and released: threads that ~T joins may still call Ref::access(),
+  // which must then find value_ empty rather than lock a destroyed mutex.
+  ~GKInternals() {
+    auto dying = std::invoke([this] {
+      auto guard = std::unique_lock{mutex_};
+      return std::move(value_);
+    });
+  }
+
+  GKInternals(GKInternals const &) = delete;
+  GKInternals(GKInternals &&) = delete;
+  GKInternals &operator=(GKInternals const &) = delete;
+  GKInternals &operator=(GKInternals &&) = delete;
+
   std::unique_ptr<T> value_;
   uint64_t count_ = 0;
   std::atomic_bool is_marked_for_deletion = false;
@@ -189,12 +203,18 @@ struct GKInternals {
 
 template <typename T>
 struct Gatekeeper {
+  struct Ref;
+
   template <typename... Args>
   explicit Gatekeeper(Args &&...args) {
     // Opt-in lifetime guard around object construction.
     // Types without a nested GatekeeperGuard get a zero-size no-op.
     [[maybe_unused]] typename GatekeeperGuardFor<T>::type guard;
     pimpl_ = std::make_unique<GKInternals<T>>(std::forward<Args>(args)...);
+    // Opt-in: a value that declares BindGatekeeper(Ref) receives a handle to its own gatekeeper.
+    if constexpr (requires(T &value) { value.BindGatekeeper(Ref{}); }) {
+      if (pimpl_->value_) pimpl_->value_->BindGatekeeper(Ref{pimpl_.get()});
+    }
   }
 
   Gatekeeper(Gatekeeper const &) = delete;
@@ -210,9 +230,10 @@ struct Gatekeeper {
 
   struct Accessor {
     friend Gatekeeper;
+    friend Ref;
 
    private:
-    explicit Accessor(Gatekeeper *owner) : owner_{owner->pimpl_.get()} { ++owner_->count_; }
+    explicit Accessor(GKInternals<T> *owner) : owner_{owner} { ++owner_->count_; }
 
    public:
     // CONTRACT: copying bumps count_ but does NOT re-check state_. Copying the *sole* live accessor
@@ -393,10 +414,33 @@ struct Gatekeeper {
     // the teardown worker can still mint an Accessor to run its own stop steps on a HOT-but-sealed shell,
     // and so the accessor count drains to 0 allowing ~Gatekeeper to proceed.
     if (pimpl_->value_ && pimpl_->state_ == GatekeeperState::HOT) {
-      return Accessor{this};
+      return Accessor{pimpl_.get()};
     }
     return std::nullopt;
   }
+
+  // Non-owning handle through which a value mints accessors to itself without a lookup. Valid for the
+  // value's whole life, because GKInternals never moves. Unlike access(), it refuses a sealed value:
+  // its users are the value's own background workers, which must stop once the value is dropped.
+  struct Ref {
+    Ref() = default;
+
+    std::optional<Accessor> access() const {
+      if (!owner_) return std::nullopt;
+      auto guard = std::unique_lock{owner_->mutex_};
+      if (!owner_->value_ || owner_->state_ != GatekeeperState::HOT || owner_->is_marked_for_deletion) {
+        return std::nullopt;
+      }
+      return Accessor{owner_};
+    }
+
+   private:
+    friend Gatekeeper;
+
+    explicit Ref(GKInternals<T> *owner) : owner_{owner} {}
+
+    GKInternals<T> *owner_ = nullptr;
+  };
 
   std::optional<bool> is_marked_for_deletion() const {
     auto guard = std::unique_lock{pimpl_->mutex_};

@@ -16,6 +16,7 @@
 #include "spdlog/spdlog.h"
 
 #include "dbms/database_info.hpp"
+#include "dbms/database_protector.hpp"
 #include "dbms/inmemory/replication_handlers.hpp"
 #include "dbms/inmemory/storage_helper.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -141,7 +142,7 @@ auto RegisterMetrics(storage::Config const &config) -> metrics::PrometheusMetric
 
 }  // namespace
 
-Database::Database(storage::Config config, std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+Database::Database(storage::Config config)
     : metrics_(RegisterMetrics(config)),
       db_arena_(std::make_unique<memory::ArenaPool>(&db_memory_tracker_)),
       after_commit_trigger_pool_{1,
@@ -162,6 +163,12 @@ Database::Database(storage::Config config, std::function<storage::DatabaseProtec
   // Postpone creation after the scope has been created
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
+  auto database_protector_factory = [this]() -> storage::DatabaseProtectorPtr {
+    if (auto db_acc = gatekeeper_.load(std::memory_order_acquire).access()) {
+      return std::make_unique<DatabaseProtector>(*std::move(db_acc));
+    }
+    return nullptr;
+  };
 
   // Bound the per-DB cap by the global --memory-limit; SetHardLimit(0) falls back to it.
   if (auto global_max = utils::total_memory_tracker.MaximumHardLimit(); global_max > 0) {

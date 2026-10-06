@@ -67,10 +67,8 @@ class Database {
    * @brief Construct a new Database object
    *
    * @param config storage configuration
-   * @param database_protector_factory factory function to create database protectors for async operations
    */
-  explicit Database(storage::Config config,
-                    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
+  explicit Database(storage::Config config);
   ~Database();
 
   /**
@@ -113,6 +111,10 @@ class Database {
   // Opt-in customization point utils::GatekeeperLabelFor<Database> detects via SFINAE (see
   // gatekeeper.hpp) so ~Gatekeeper's stall warning can name the tenant — looks unused otherwise.
   std::string gatekeeper_label() const { return name(); }
+
+  // Opt-in customization point utils::Gatekeeper<Database> calls once this database is in place, so its
+  // background workers can pin it without looking it up by name.
+  void BindGatekeeper(utils::Gatekeeper<Database>::Ref ref) { gatekeeper_.store(ref, std::memory_order_release); }
 
   /**
    * @brief Unique storage identified (uuid)
@@ -263,6 +265,8 @@ class Database {
   utils::MemoryTracker db_query_memory_tracker_{&db_total_memory_tracker_};
   std::unique_ptr<memory::ArenaPool> db_arena_;  //!< Per-DB jemalloc arena pool with tracking hooks
 
+  // Declared before storage_ so it outlives the storage's TTL and async-indexer threads, which read it.
+  std::atomic<utils::Gatekeeper<Database>::Ref> gatekeeper_{};
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   // One-way latch: transitions ACTIVE → TERMINATED exactly once (during force-drop teardown) and is
