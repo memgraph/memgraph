@@ -6458,6 +6458,68 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithMatchWhereOnVertexPropety) {
   DeleteListContent(&filter_tree);
 }
 
+// A list expression's element is bound when the branch runs: the closure runs once per element, after the
+// evaluator writes it. The branch neither scans it nor drops a filter on it.
+TYPED_TEST(TestPlanner, ExistsSubqueryReadsListElement) {
+  FakeDbAccessor dba;
+  auto label = dba.Label("Q");
+  auto id = PROPERTY_PAIR(dba, "id");
+  auto node_with_id = [&](const std::string &name, const std::string &value, std::optional<std::string> label_name) {
+    auto *node = NODE(name, label_name, name == "n");
+    std::get<0>(node->properties_)[this->storage.GetPropertyIx(id.first)] = IDENT(value);
+    return node;
+  };
+  // A predicate that reads no outer symbol is filtered below the ScanAll.
+  auto plan_filter_tree =
+      [&](memgraph::query::Expression *list_predicate, std::list<BaseOpChecker *> filter_tree, bool reads_n) {
+        auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(list_predicate), RETURN("n")));
+        auto symbol_table = memgraph::query::MakeSymbolTable(query);
+        auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+        auto filter = ExpectFilter(std::vector<std::list<BaseOpChecker *>>{filter_tree});
+        if (reads_n) {
+          CheckPlan(planner.plan(), symbol_table, ExpectScanAll(), filter, ExpectProduce());
+        } else {
+          CheckPlan(planner.plan(), symbol_table, filter, ExpectScanAll(), ExpectProduce());
+        }
+        DeleteListContent(&filter_tree);
+      };
+
+  {
+    // MATCH (n) WHERE all(x IN n.ns WHERE EXISTS { (x)--() }) RETURN n
+    // The element is the anchor: expanded from, not scanned.
+    auto *subquery = EXISTS(PATTERN(
+        NODE("x"), EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false), NODE("m", std::nullopt, false)));
+    plan_filter_tree(ALL("x", PROPERTY_LOOKUP(dba, "n", dba.Property("ns")), WHERE(subquery)),
+                     {new ExpectExpand(), new ExpectEvaluatePatternFilter()},
+                     true);
+  }
+  {
+    // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { (n {id: x})--() }) RETURN n
+    // The property map reads the element, so its filter is placed in the branch.
+    auto *subquery = EXISTS(PATTERN(node_with_id("n", "x", std::nullopt),
+                                    EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                    NODE("m", std::nullopt, false)));
+    plan_filter_tree(ALL("x", LIST(LITERAL(1)), WHERE(subquery)),
+                     {new ExpectExpand(), new ExpectFilter(), new ExpectEvaluatePatternFilter()},
+                     true);
+  }
+  {
+    // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { (:Q {id: x})--() }) RETURN n
+    // With :Q(id) indexed, the branch seeks on the element.
+    dba.SetIndexCount(label, 1);
+    dba.SetIndexCount(label, id.second, 1);
+    auto *subquery = EXISTS(PATTERN(node_with_id("m", "x", "Q"),
+                                    EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                    NODE("k", std::nullopt, false)));
+    plan_filter_tree(ALL("x", LIST(LITERAL(1)), WHERE(subquery)),
+                     {new ExpectScanAllByLabelProperties(
+                          label, std::vector{ms::PropertyPath{id.second}}, {ExpressionRange::Equal(IDENT("x"))}),
+                      new ExpectExpand(),
+                      new ExpectEvaluatePatternFilter()},
+                     false);
+  }
+}
+
 TYPED_TEST(TestPlanner, ExistsSubqueryNested) {
   FakeDbAccessor dba;
 

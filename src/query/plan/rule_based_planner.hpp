@@ -1776,10 +1776,12 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                                                       AstStorage &storage,
                                                       const std::unordered_set<Symbol> &bound_symbols,
                                                       bool write_occurred) {
+    // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
+    // the branch has to correlate against. A list expression's element is bound too: the evaluator writes it before
+    // each run of the branch.
+    auto branch_bound_symbols = bound_symbols;
+    branch_bound_symbols.insert(matching.element_symbols.begin(), matching.element_symbols.end());
     if (matching.type == SubqueryKind::kSubquery) {
-      // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
-      // the branch has to correlate against.
-      auto branch_bound_symbols = bound_symbols;
       // in_subquery_body selects the rules a body plans under: it is seeded with these symbols, it keeps
       // emitting rows for the fold to read, it carries outer-scope symbols across a WITH, and it may not write.
       auto const restore = utils::OnScopeExit{[this,
@@ -1798,11 +1800,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       return Plan(*matching.subquery);
     }
 
-    std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
+    std::vector<Symbol> once_symbols(branch_bound_symbols.begin(), branch_bound_symbols.end());
     std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
 
     std::vector<Symbol> new_symbols;
-    std::unordered_set<Symbol> expand_symbols(bound_symbols.begin(), bound_symbols.end());
+    auto expand_symbols = std::move(branch_bound_symbols);
 
     auto filters = matching.filters;
 

@@ -1452,6 +1452,68 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
   check_shapes([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });
 }
 
+// `element_symbols_` is the part of `external_symbols_` a list expression binds once per element. The planner takes
+// exactly these as bound in the branch, so an extra symbol hides an unbound read and a missing one scans the element.
+TYPED_TEST(TestSymbolGenerator, SubqueryElementSymbols) {
+  auto names = [](const std::unordered_set<Symbol> &symbols) {
+    std::vector<std::string> out;
+    out.reserve(symbols.size());
+    std::ranges::transform(symbols, std::back_inserter(out), [](const auto &symbol) { return symbol.name(); });
+    std::ranges::sort(out);
+    return out;
+  };
+  using Names = std::vector<std::string>;
+  auto node_with_id = [this](const std::string &name, const std::string &value) {
+    auto *node = NODE(name);
+    std::get<0>(node->properties_)[this->storage.GetPropertyIx("id")] = IDENT(value);
+    return node;
+  };
+
+  {
+    // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { (n {id: x})--() }) RETURN n
+    auto *subquery = EXISTS(PATTERN(node_with_id("n", "x"),
+                                    EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                    NODE("m", std::nullopt, false)));
+    MakeSymbolTable(QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(ALL("x", LIST(LITERAL(1)), WHERE(subquery))), RETURN("n"))));
+    EXPECT_EQ(names(subquery->external_symbols_), (Names{"n", "x"}));
+    EXPECT_EQ(names(subquery->element_symbols_), Names{"x"});
+  }
+  {
+    // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { (n)--() }) RETURN n
+    // The body reads only the outer row.
+    auto *subquery = EXISTS(PATTERN(
+        NODE("n"), EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false), NODE("m", std::nullopt, false)));
+    MakeSymbolTable(QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(ALL("x", LIST(LITERAL(1)), WHERE(subquery))), RETURN("n"))));
+    EXPECT_EQ(names(subquery->element_symbols_), Names{});
+  }
+  {
+    // MATCH (n) WHERE all(x IN [1] WHERE EXISTS { MATCH (q) WHERE EXISTS { (q {id: x})--() } }) RETURN n
+    // The inner body reads `x`, so the outer body reads it too.
+    auto *inner = EXISTS(PATTERN(node_with_id("q", "x"),
+                                 EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                 NODE("m", std::nullopt, false)));
+    auto *outer = EXISTS_SUBQUERY(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("q"))), WHERE(inner))));
+    MakeSymbolTable(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(ALL("x", LIST(LITERAL(1)), WHERE(outer))), RETURN("n"))));
+    EXPECT_EQ(names(inner->element_symbols_), Names{"x"});
+    EXPECT_EQ(names(outer->element_symbols_), Names{"x"});
+  }
+  {
+    // MATCH (n) WHERE EXISTS { MATCH (q) WHERE all(y IN [1] WHERE EXISTS { (q {id: y})--() }) } RETURN n
+    // The lambda is inside the outer body, so `y` is the outer body's own.
+    auto *inner = EXISTS(PATTERN(node_with_id("q", "y"),
+                                 EDGE("r", memgraph::query::EdgeAtom::Direction::BOTH, {}, false),
+                                 NODE("m", std::nullopt, false)));
+    auto *outer = EXISTS_SUBQUERY(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("q"))), WHERE(ALL("y", LIST(LITERAL(1)), WHERE(inner))))));
+    MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), WHERE(outer), RETURN("n"))));
+    EXPECT_EQ(names(inner->element_symbols_), Names{"y"});
+    EXPECT_EQ(names(outer->element_symbols_), Names{});
+  }
+}
+
 // The collector takes a subquery's `external_symbols_`, including for a subquery in a comprehension's filter.
 TYPED_TEST(TestSymbolGenerator, UsedSymbolsCollectorTakesSubqueryExternals) {
   using Names = std::vector<std::string>;

@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <optional>
 #include <unordered_set>
 #include <vector>
@@ -223,7 +224,11 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
 
   void VisitReturnBody(ReturnBody &body, Where *where = nullptr);
 
-  void VisitWithIdentifiers(std::vector<Expression *>, const std::vector<Identifier *> &);
+  /// What binds the identifiers @c VisitWithIdentifiers visits a body with. Only a list expression's element can be
+  /// read by a subquery body, so an edge lambda's symbols stay out of @c list_element_symbols_in_scope_.
+  enum class Binder : uint8_t { kListExpression, kEdgeLambda };
+
+  void VisitWithIdentifiers(std::vector<Expression *>, const std::vector<Identifier *> &, Binder binder);
 
   SymbolTable *symbol_table_;
 
@@ -238,6 +243,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Open subquery bodies, outermost first. External means created before the body, not visible outside it:
   // `CALL (v) {}` imports `v` without creating a symbol, so `v` keeps its outer position.
   std::vector<OpenSubquery> open_subqueries_;
+  // Symbols a list expression binds once per element, while its body is visited.
+  std::unordered_set<Symbol> list_element_symbols_in_scope_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups
