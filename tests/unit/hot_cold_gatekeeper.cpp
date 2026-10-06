@@ -391,3 +391,54 @@ TEST(HotColdGatekeeper, SealIsAdvisory) {
   ASSERT_TRUE(b.has_value());
   EXPECT_FALSE(bool(*b));
 }
+
+struct SelfAware {
+  Gatekeeper<SelfAware>::Ref ref;
+  bool *dtor_saw_nullopt = nullptr;
+
+  void BindGatekeeper(Gatekeeper<SelfAware>::Ref bound) { ref = bound; }
+
+  ~SelfAware() {
+    if (dtor_saw_nullopt != nullptr) *dtor_saw_nullopt = !ref.access().has_value();
+  }
+};
+
+TEST(HotColdGatekeeper, RefMintsAccessorsAndSurvivesGatekeeperMove) {
+  Gatekeeper<SelfAware> gk{};
+  auto const ref = (*gk.access())->ref;
+  EXPECT_TRUE(ref.access().has_value());
+
+  auto moved = std::move(gk);
+  EXPECT_TRUE(ref.access().has_value());
+  EXPECT_TRUE((*moved.access())->ref.access().has_value());
+}
+
+TEST(HotColdGatekeeper, RefRefusesSealedValue) {
+  Gatekeeper<SelfAware> gk{};
+  auto const ref = (*gk.access())->ref;
+  gk.seal();
+  EXPECT_FALSE(ref.access().has_value());
+}
+
+TEST(HotColdGatekeeper, RefRefusesSuspendedAndColdValue) {
+  Gatekeeper<SelfAware> gk{};
+  auto const ref = (*gk.access())->ref;
+  {
+    auto acc = gk.access();
+    ASSERT_TRUE(gk.try_begin_suspend(std::chrono::milliseconds(200)));
+    EXPECT_FALSE(ref.access().has_value());
+  }
+  gk.finish_suspend();
+  EXPECT_FALSE(ref.access().has_value());
+}
+
+// Move-assign destroys the old value without sealing it, so only the value's own teardown state
+// stops a Ref from minting an accessor to it.
+TEST(HotColdGatekeeper, RefSeesNoValueWhileValueIsDestroyed) {
+  bool dtor_saw_nullopt = false;
+  Gatekeeper<SelfAware> gk{};
+  (*gk.access())->dtor_saw_nullopt = &dtor_saw_nullopt;
+
+  gk = Gatekeeper<SelfAware>{};
+  EXPECT_TRUE(dtor_saw_nullopt);
+}
