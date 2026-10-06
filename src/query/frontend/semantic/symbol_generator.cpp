@@ -373,27 +373,34 @@ std::unordered_set<std::string> WrittenColumns(const CypherQuery &query, const s
 bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   // A trigger that is not cacheable analyses the same AST again on every firing.
   branches.output_symbols_.clear();
-  // Predicates see only the imports. Each is a `Where`, so it gets the WHERE rules.
-  for (auto *predicate : branches.predicates_) {
-    if (predicate) predicate->Accept(*this);
-  }
-
-  // Each branch gets a scope of its own above the CALL body's, which holds the imports, so no branch sees another's
-  // variables, as no UNION part does. The parser checked that all branches agree on whether they return rows.
+  // The predicates, and each branch, get a scope of their own above the CALL body's, which holds the imports, so
+  // nothing they bind reaches the CALL body, and no branch sees another's variables, as no UNION part does.
   // Scopes are re-read by index: a body can push scopes and reallocate the stack.
   auto const call_scope = scopes_.size() - 1;
-  std::unordered_set<std::string> first_names;
-  std::unordered_set<std::string> first_written;
-  bool has_return = false;
-  // Only a single branch reads its own column symbols.
-  std::map<std::string, Symbol> single_branch_symbols;
-  for (auto *body : branches.bodies_) {
+  auto const push_imports_scope = [&] {
     auto const &outer = scopes_[call_scope];
     scopes_.push_back(Scope{.in_subquery_body = outer.in_subquery_body,
                             .in_call_subquery = outer.in_call_subquery,
                             .symbols = outer.call_subquery_imports,
                             .call_subquery_imports = outer.call_subquery_imports,
                             .call_subquery_base = outer.call_subquery_base});
+  };
+
+  // Each predicate is a `Where`, so it gets the WHERE rules.
+  push_imports_scope();
+  for (auto *predicate : branches.predicates_) {
+    if (predicate) predicate->Accept(*this);
+  }
+  scopes_.pop_back();
+
+  // The parser checked that all branches agree on whether they return rows.
+  std::unordered_set<std::string> first_names;
+  std::unordered_set<std::string> first_written;
+  bool has_return = false;
+  // Only a single branch reads its own column symbols.
+  std::map<std::string, Symbol> single_branch_symbols;
+  for (auto *body : branches.bodies_) {
+    push_imports_scope();
     body->Accept(*this);
     auto &branch = scopes_.back();
     auto written = WrittenColumns(*body, branch.curr_return_names, scopes_[call_scope].call_subquery_imports);

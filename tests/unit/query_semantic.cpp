@@ -1471,6 +1471,20 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateSeesOnlyImports) {
       "Unbounded variables are not allowed in EXISTS!");
 }
 
+TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateKeepsPredefinedIdentifierInside) {
+  auto const query = [&](bool read_after) {
+    // CALL () { WHEN first_op = 1 THEN RETURN 1 AS r ELSE RETURN 2 AS r } RETURN r[, first_op AS f]
+    auto *call = CALL_SUBQUERY_SCOPED(
+        WHEN_BRANCHES({EQ(IDENT("first_op", false), LITERAL(1)), SINGLE_QUERY(RETURN(LITERAL(1), AS("r")))},
+                      {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("r")))}),
+        std::vector<std::string>{});
+    return QUERY(SINGLE_QUERY(call, read_after ? RETURN("r", IDENT("first_op", false), AS("f")) : RETURN("r")));
+  };
+  EXPECT_NO_THROW(memgraph::query::MakeSymbolTable(query(false), {IDENT("first_op", false)}));
+  // As after a plain CALL body that reads it, the caller cannot read it again.
+  EXPECT_THROW(memgraph::query::MakeSymbolTable(query(true), {IDENT("first_op", false)}), SemanticException);
+}
+
 #undef CONDITIONAL_CALL_QUERY
 
 // The columns of a conditional body: one symbol per name shared by every branch, except that a column named after
