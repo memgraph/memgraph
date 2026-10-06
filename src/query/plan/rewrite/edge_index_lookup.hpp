@@ -654,8 +654,8 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto const inherited = InheritedFor(op);
     for (auto &branch : op.branches_) {
       for (auto &fold : branch.pattern_filters) RewriteBranch(&fold, inherited);
+      RewriteBranch(&branch.plan, inherited);
     }
-    for (auto &branch : op.branches_) RewriteBranch(&branch.plan, inherited);
     return false;
   }
 

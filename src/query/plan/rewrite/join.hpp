@@ -574,8 +574,8 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     op.input()->Accept(*this);
     for (auto &branch : op.branches_) {
       for (auto &fold : branch.pattern_filters) RewriteBranch(&fold);
+      RewriteBranch(&branch.plan);
     }
-    for (auto &branch : op.branches_) RewriteBranch(&branch.plan);
     return false;
   }
 

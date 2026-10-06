@@ -664,16 +664,12 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   static constexpr auto conflicting_types =
       std::array{Aggregate::kType, AggregateParallel::kType, OrderBy::kType, OrderByParallel::kType};
 
-  bool ConditionalConflicts(Conditional &op) {
-    for (const auto &branch : op.branches_) {
-      for (const auto &fold : branch.pattern_filters) {
-        if (ConflictingOperators(fold.get())) return true;
-      }
-    }
-    for (const auto &branch : op.branches_) {
-      if (ConflictingOperators(branch.plan.get())) return true;
-    }
-    return false;
+  bool ConditionalConflicts(const Conditional &op) {
+    return std::ranges::any_of(op.branches_, [this](const auto &branch) {
+      return ConflictingOperators(branch.plan.get()) ||
+             std::ranges::any_of(branch.pattern_filters,
+                                 [this](const auto &fold) { return ConflictingOperators(fold.get()); });
+    });
   }
 
   bool ConflictingOperators(LogicalOperator *start) {
