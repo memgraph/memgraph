@@ -347,6 +347,10 @@ auto ReplicationHandler::TryRegisterReplica(const ReplicationClientConfig &confi
 
 auto ReplicationHandler::RegisterReplica(const ReplicationClientConfig &config)
     -> std::expected<void, query::RegisterReplicaError> {
+  // Hold the system lock like a REGISTER REPLICA query so no system tx sits between its change and its commit
+  // while registering; same order as the Interpreter commit (system, then repl state).
+  auto system_txn = system_.TryCreateTransaction();
+  if (!system_txn) return std::unexpected(query::RegisterReplicaError::NO_ACCESS);
   try {
     auto locked_repl_state = repl_state_.TryLock();
     return RegisterReplica_<false>(locked_repl_state, config);

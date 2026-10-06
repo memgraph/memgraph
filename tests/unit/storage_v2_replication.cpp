@@ -12,8 +12,10 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <expected>
 #include <memory>
 #include <optional>
+#include <ranges>
 #include <thread>
 #include <vector>
 
@@ -29,6 +31,7 @@
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "license/license.hpp"
 #include "memory/db_arena.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter_context.hpp"
@@ -43,9 +46,11 @@
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
+#include "system/transaction.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/storage_test_utils.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/on_scope_exit.hpp"
 
 using testing::IsEmpty;
 using testing::UnorderedElementsAre;
@@ -2579,3 +2584,57 @@ TEST_F(ReplicationTestLightEdge, RecoveryProcess) {
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
 }
+
+#ifdef MG_ENTERPRISE
+TEST_F(ReplicationTest, HaRegisterReplicaDuringSystemTxCreatesOneClientPerDatabase) {
+  memgraph::license::global_license_checker.EnableTesting();
+  memgraph::utils::OnScopeExit const disable_license{
+      [] { memgraph::license::global_license_checker.DisableTesting(); }};
+
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  replica.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  auto const make_config = [&] {
+    return ReplicationClientConfig{
+        .name = "REPLICA",
+        .mode = ReplicationMode::ASYNC,
+        .repl_server_endpoint = Endpoint(local_host, ports[0]),
+    };
+  };
+
+  // System tx with the new database inserted but not yet committed.
+  auto txn = main.system_.TryCreateTransaction();
+  ASSERT_TRUE(txn.has_value());
+  ASSERT_TRUE(main.dbms.New("x", &*txn).has_value());
+
+  std::expected<void, RegisterReplicaError> threaded_reg;
+  std::thread registrar([&] { threaded_reg = main.repl_handler.RegisterReplica(make_config()); });
+  registrar.join();
+
+  {
+    auto locked = main.repl_state.Lock();
+    auto &main_data = std::get<memgraph::replication::RoleMainData>(locked->ReplicationData());
+    txn->Commit(memgraph::system::DoReplication{main_data});
+  }
+
+  if (!threaded_reg.has_value()) {
+    auto const reg = main.repl_handler.RegisterReplica(make_config());
+    ASSERT_TRUE(reg.has_value()) << static_cast<int>(reg.error());
+  }
+
+  auto const count_clients = [](memgraph::dbms::DatabaseAccess const &db_acc) {
+    return db_acc->storage()->repl_storage_state_.replication_storage_clients_.WithReadLock([](auto const &clients) {
+      return std::ranges::count_if(clients, [](auto const &client) { return client->Name() == "REPLICA"; });
+    });
+  };
+
+  {
+    auto const x_acc = main.dbms.Get("x");
+    EXPECT_EQ(count_clients(x_acc), 1);
+  }
+  EXPECT_EQ(count_clients(main.db_acc), 1);
+}
+#endif
