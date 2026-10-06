@@ -11577,11 +11577,21 @@ void Interpreter::Commit() {
           throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
         }
       }
-      if (!interpreter_context_->auth->CommitTransaction(*auth_transaction_, system_transaction_ptr())) {
+      // The role is checked only when a statement is prepared, and an auth transaction holds no accessor for a
+      // demotion to wait on. Taken after the system transaction, in the order SET REPLICATION ROLE takes them, and
+      // released before the system transaction commits, which needs the write lock.
+      std::optional<decltype(interpreter_context_->repl_state->ReadLock())> locked_repl_state;
+      if (!on_coordinator) locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
+      bool const demoted = locked_repl_state && !(*locked_repl_state)->IsMain() && auth_transaction_->HasWrites();
+      bool const committed =
+          !demoted && interpreter_context_->auth->CommitTransaction(*auth_transaction_, system_transaction_ptr());
+      locked_repl_state.reset();
+      if (!committed) {
         if (system_transaction_) {
           system_transaction_->Abort();
           system_transaction_.reset();
         }
+        if (demoted) throw QueryException("Cannot commit because instance is not main anymore.");
         throw TransactionSerializationException();
       }
     }

@@ -219,5 +219,22 @@ def test_a_terminated_auth_transaction_cannot_commit(cursor):
     assert "doomed" not in usernames(other), "a terminated transaction committed anyway"
 
 
+def test_an_auth_transaction_does_not_commit_after_demotion(cursor):
+    # The role is checked when a statement is prepared, so COMMIT has to check it again: a transaction opened on
+    # MAIN would otherwise write into a replica's auth store, which the instance that stays MAIN never sees.
+    other = connect().cursor()
+    execute(cursor, "BEGIN")
+    execute(cursor, "CREATE USER zed")
+
+    execute(other, "SET REPLICATION ROLE TO REPLICA WITH PORT 10000")
+    try:
+        with pytest.raises(mgclient.DatabaseError, match="not main anymore"):
+            execute(cursor, "COMMIT")
+    finally:
+        execute(other, "SET REPLICATION ROLE TO MAIN")
+
+    assert "zed" not in usernames(other)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

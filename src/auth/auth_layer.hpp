@@ -42,6 +42,8 @@ class AuthTransaction {
 
   PendingActions &pending_actions() { return pending_actions_; }
 
+  bool HasWrites() const { return overlay_ && overlay_->HasWrites(); }
+
 #ifdef MG_ENTERPRISE
   std::vector<std::string> const &dropped_users() const { return dropped_users_; }
 #endif
@@ -259,7 +261,7 @@ class AuthLayer {
     // A read-only transaction is still validated above, because what it read can still have been invalidated. It
     // has nothing to publish though, so it must not spend the epoch: bumping it invalidates every session's
     // cached permissions, and nothing changed for them to re-read.
-    auto const has_writes = tx.overlay_ && tx.overlay_->HasWrites();
+    auto const has_writes = tx.HasWrites();
     auto nothing_to_publish = tx.pending_actions_.empty();
 #ifdef MG_ENTERPRISE
     nothing_to_publish = nothing_to_publish && tx.dropped_users_.empty();
