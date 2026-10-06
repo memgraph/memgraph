@@ -678,7 +678,7 @@ def test_durability_vector_edge_index_membership_after_replay(
 
 @pytest.mark.parametrize(
     "write",
-    ["SET r = {emb: [7.0, 7.0]}", "SET r = {}", "SET r += {emb: [9.0, 9.0]}"],
+    ["SET r = {emb: [7.0, 7.0, 7.0]}", "SET r = {}", "SET r += {emb: [9.0, 9.0, 9.0]}"],
     ids=["replace", "clear", "update"],
 )
 def test_durability_with_vector_edge_index_rolled_back_map_write(connection, test_name, write):
@@ -701,22 +701,22 @@ def test_durability_with_vector_edge_index_rolled_back_map_write(connection, tes
 
     execute_and_fetch_all(
         cursor,
-        'CREATE VECTOR EDGE INDEX test_edge_index ON :REL(emb) WITH CONFIG {"dimension": 2, "capacity": 10};',
+        'CREATE VECTOR EDGE INDEX test_edge_index ON :REL(emb) WITH CONFIG {"dimension": 3, "capacity": 10};',
     )
-    execute_and_fetch_all(cursor, "CREATE (:A)-[:REL {emb: [1.0, 2.0]}]->(:B);")
+    execute_and_fetch_all(cursor, "CREATE (:A)-[:REL {emb: [1.0, 2.0, 3.0]}]->(:B);")
 
     def assert_embedding_intact():
-        assert execute_and_fetch_all(cursor, "MATCH ()-[r:REL]->() RETURN r.emb;") == [([1.0, 2.0],)]
+        assert execute_and_fetch_all(cursor, "MATCH ()-[r:REL]->() RETURN r.emb;") == [([1.0, 2.0, 3.0],)]
         assert execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO;")[0][6] == 1
         search = execute_and_fetch_all(
-            cursor, "CALL vector_search.search_edges('test_edge_index', 1, [1.0, 2.0]) YIELD * RETURN *;"
+            cursor, "CALL vector_search.search_edges('test_edge_index', 1, [1.0, 2.0, 3.0]) YIELD * RETURN *;"
         )
         assert len(search) == 1
 
     writer = connect(host="localhost", port=7687)
     writer.autocommit = False
     writer.cursor().execute(f"MATCH ()-[r:REL]->() {write};")
-    assert execute_and_fetch_all(cursor, "MATCH ()-[r:REL]->() RETURN r.emb;") == [([1.0, 2.0],)]
+    assert execute_and_fetch_all(cursor, "MATCH ()-[r:REL]->() RETURN r.emb;") == [([1.0, 2.0, 3.0],)]
     execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
     writer.rollback()
     writer.close()
