@@ -1365,7 +1365,7 @@ auth::Permission RequiredCoordinatorPermission(Query *query) {
 #endif
 
 #ifdef MG_ENTERPRISE
-// Holds every database alive for the duration of the callback; throws if one does not exist.
+// Caller must keep the result alive to pin the databases; throws QueryRuntimeException if one does not exist.
 std::vector<dbms::DatabaseAccess> AcquireRoleDatabases(dbms::DbmsHandler *db_handler,
                                                        const std::unordered_set<std::string> &role_databases) {
   std::vector<dbms::DatabaseAccess> held;
