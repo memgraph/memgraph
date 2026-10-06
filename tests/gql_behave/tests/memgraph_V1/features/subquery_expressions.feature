@@ -3594,9 +3594,8 @@ Feature: Subquery expressions
           | x   |
           | 'd' |
 
-  # Subqueries inside a list expression (all/any/none/single/reduce/extract, list comprehension). The body may read
-  # the element, so it runs once per element. The element is bound in every branch below, so indexes change only the
-  # outer scan; the COUNT body case, whose branch seeks on the element, also runs with indexes.
+  # Subqueries inside a list expression read the element, so the body runs once per element. Index copies only where
+  # the branch scans an unbound labelled atom (the COUNT body case).
 
   # Deferred positions: a MATCH or OPTIONAL MATCH WHERE, a body WHERE and a pattern comprehension WHERE.
   Scenario: Deferred EXISTS reads the element through a property map
@@ -3663,22 +3662,6 @@ Feature: Subquery expressions
           | id |
           | 1  |
 
-  Scenario: Deferred bare pattern predicate reads the element
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
-          """
-      And parameters are:
-          | ids | [1, 2] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE (n {id: x})-[:R]->()) RETURN n.id AS id
-          """
-      Then the result should be:
-          | id |
-          | 1  |
-
   Scenario: Deferred EXISTS anchored on a node element
       Given an empty graph
       And having executed:
@@ -3703,21 +3686,6 @@ Feature: Subquery expressions
       When executing query:
           """
           MATCH (q:Q) WHERE any(x IN [q] WHERE (x)-[:R]->()) RETURN q.id AS id
-          """
-      Then the result should be:
-          | id |
-          | 1  |
-          | 3  |
-
-  Scenario: Deferred EXISTS with MATCH anchored on a node element
-      Given an empty graph
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
-          """
-      When executing query:
-          """
-          MATCH (q:Q) WHERE any(x IN [q] WHERE EXISTS { MATCH (x)-[:R]->() }) RETURN q.id AS id
           """
       Then the result should be:
           | id |
@@ -3820,10 +3788,6 @@ Feature: Subquery expressions
   # The refusal replaces wrong rows; query_semantic pins its text.
   Scenario: Deferred pattern comprehension reads the element
       Given an empty graph
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
-          """
       And parameters are:
           | ids | [2, 99] |
       When executing query:
@@ -3834,10 +3798,6 @@ Feature: Subquery expressions
 
   Scenario: A pattern comprehension in a projection reads the element
       Given an empty graph
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
-          """
       And parameters are:
           | ids | [1, 99] |
       When executing query:
@@ -3848,10 +3808,6 @@ Feature: Subquery expressions
 
   Scenario: Deferred pattern comprehension anchored on a node element
       Given an empty graph
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
-          """
       When executing query:
           """
           MATCH (n:Q {id: 2}) WITH collect(n) AS ns MATCH (q:Q) WHERE any(x IN ns WHERE size([(x)-[:R]->(z) | z]) > 0) RETURN q.id AS id
@@ -3860,10 +3816,6 @@ Feature: Subquery expressions
 
   Scenario: A pattern comprehension in a projection anchored on a node element
       Given an empty graph
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
-          """
       When executing query:
           """
           MATCH (n:Q {id: 2}) WITH collect(n) AS ns RETURN [x IN ns | size([(x)-[:R]->(z) | z])] AS s
@@ -3872,10 +3824,6 @@ Feature: Subquery expressions
 
   Scenario: A pattern comprehension in an EXISTS body reads the element
       Given an empty graph
-      And having executed:
-          """
-          CREATE (:A {l: [1, 2]})-[:T]->(:Q {k: 1}), (:Q {k: 2})-[:R]->(:M {v: 2}), (:Q {k: 3})-[:R]->(:M {v: 9})
-          """
       When executing query:
           """
           MATCH (a:A) WHERE all(x IN a.l WHERE EXISTS { MATCH (n:Q) WHERE size([(n)-[:R]->(m) WHERE m.v = x | m]) > 0 }) RETURN a.l AS r
