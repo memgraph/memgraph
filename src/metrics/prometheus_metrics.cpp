@@ -81,6 +81,16 @@ prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
 
 inline prometheus::Histogram::BucketBoundaries const kThroughputBuckets{1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9};
 
+auto AddAbortedQueryCounters(prometheus::Family<prometheus::Counter> &family, prometheus::Labels labels)
+    -> std::array<CounterHandle, kAbortedQueryReasons.size()> {
+  std::array<CounterHandle, kAbortedQueryReasons.size()> counters;
+  for (auto const &[counter, reason] : rv::zip(counters, kAbortedQueryReasons)) {
+    labels.insert_or_assign("reason", std::string{reason.label});
+    counter.counter = &family.Add(labels);
+  }
+  return counters;
+}
+
 void RemoveDurabilityThroughput(std::string_view instance_name,
                                 prometheus::Family<prometheus::Histogram> &throughput_family,
                                 DurabilityThroughput &throughput) {
@@ -493,6 +503,10 @@ PrometheusMetrics::PrometheusMetrics()
                                    .Name("memgraph_transient_errors_total")
                                    .Help("Total number of transient errors")
                                    .Register(registry_)},
+      aborted_queries_family_{prometheus::BuildCounter()
+                                  .Name("memgraph_aborted_queries_total")
+                                  .Help("Number of queries aborted, by reason")
+                                  .Register(registry_)},
       unreleased_delta_objects_family_{prometheus::BuildGauge()
                                            .Name("memgraph_unreleased_delta_objects")
                                            .Help("Total number of unreleased delta objects in memory")
@@ -830,6 +844,7 @@ PrometheusMetrics::PrometheusMetrics()
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
+  global.aborted_queries = AddAbortedQueryCounters(aborted_queries_family_, no_labels);
   global.failed_query = &failed_query_family_.Add(no_labels);
   global.failed_prepare = &failed_prepare_family_.Add(no_labels);
   global.failed_pull = &failed_pull_family_.Add(no_labels);
@@ -1027,6 +1042,7 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, ui
       .successful_query = {&successful_query_family_.Add(labels)},
       .write_write_conflicts = {&write_write_conflicts_family_.Add(labels)},
       .transient_errors = {&transient_errors_family_.Add(labels)},
+      .aborted_queries = AddAbortedQueryCounters(aborted_queries_family_, labels),
       .unreleased_delta_objects = {&unreleased_delta_objects_family_.Add(labels)},
       .read_query = {&read_query_family_.Add(labels)},
       .write_query = {&write_query_family_.Add(labels)},
@@ -1190,6 +1206,7 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   successful_query_family_.Remove(h.successful_query.get());
   write_write_conflicts_family_.Remove(h.write_write_conflicts.get());
   transient_errors_family_.Remove(h.transient_errors.get());
+  for (auto const &counter : h.aborted_queries) aborted_queries_family_.Remove(counter.get());
   unreleased_delta_objects_family_.Remove(h.unreleased_delta_objects.get());
   read_query_family_.Remove(h.read_query.get());
   write_query_family_.Remove(h.write_query.get());
@@ -1654,6 +1671,9 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back(
       {"WriteWriteConflicts", "Transaction", "Counter", static_cast<int64_t>(h.write_write_conflicts.Value())});
   out.push_back({"TransientErrors", "Transaction", "Counter", static_cast<int64_t>(h.transient_errors.Value())});
+  for (auto const &[counter, reason] : rv::zip(h.aborted_queries, kAbortedQueryReasons)) {
+    out.push_back({std::string{reason.info_name}, "Transaction", "Counter", static_cast<int64_t>(counter.Value())});
+  }
 
   // QueryType
   out.push_back({"ReadQuery", "QueryType", "Counter", static_cast<int64_t>(h.read_query.Value())});
@@ -1776,6 +1796,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_successful_query = 0;
   int64_t total_write_write_conflicts = 0;
   int64_t total_transient_errors = 0;
+  std::array<int64_t, kAbortedQueryReasons.size()> total_aborted_queries{};
   int64_t total_read_query = 0;
   int64_t total_write_query = 0;
   int64_t total_read_write_query = 0;
@@ -1872,6 +1893,9 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_successful_query += static_cast<int64_t>(h.successful_query.Value());
       total_write_write_conflicts += static_cast<int64_t>(h.write_write_conflicts.Value());
       total_transient_errors += static_cast<int64_t>(h.transient_errors.Value());
+      for (auto const &[total, counter] : rv::zip(total_aborted_queries, h.aborted_queries)) {
+        total += static_cast<int64_t>(counter.Value());
+      }
       total_read_query += static_cast<int64_t>(h.read_query.Value());
       total_write_query += static_cast<int64_t>(h.write_query.Value());
       total_read_write_query += static_cast<int64_t>(h.read_write_query.Value());
@@ -1983,6 +2007,11 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
                  "Transaction",
                  "Counter",
                  total_transient_errors + static_cast<int64_t>(global.transient_errors->Value())});
+  for (auto const &[total, counter, reason] :
+       rv::zip(total_aborted_queries, global.aborted_queries, kAbortedQueryReasons)) {
+    out.push_back(
+        {std::string{reason.info_name}, "Transaction", "Counter", total + static_cast<int64_t>(counter.Value())});
+  }
   out.push_back({"FailedQuery",
                  "Transaction",
                  "Counter",

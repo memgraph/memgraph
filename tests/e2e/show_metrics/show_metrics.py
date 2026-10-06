@@ -248,6 +248,10 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "DeletedEdges", "type": "TTL", "metric type": "Counter"},
         {"name": "DeletedNodes", "type": "TTL", "metric type": "Counter"},
         # Transaction (counters alphabetical, then Gauge)
+        {"name": "AbortedQueriesMemoryLimit", "type": "Transaction", "metric type": "Counter"},
+        {"name": "AbortedQueriesShutdown", "type": "Transaction", "metric type": "Counter"},
+        {"name": "AbortedQueriesTerminated", "type": "Transaction", "metric type": "Counter"},
+        {"name": "AbortedQueriesTimeout", "type": "Transaction", "metric type": "Counter"},
         {"name": "CommitedTransactions", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedPrepare", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedPull", "type": "Transaction", "metric type": "Counter"},

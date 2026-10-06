@@ -30,6 +30,13 @@ show_metrics_openmetrics_cluster: &show_metrics_openmetrics_cluster
       setup_queries: []
       validation_queries: []
 
+show_metrics_aborted_queries_cluster: &show_metrics_aborted_queries_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--metrics-port=9091", "--query-execution-timeout-sec=1"]
+      log_file: "show_metrics_aborted_queries.log"
+      setup_queries: []
+      validation_queries: []
 
 workloads:
   - name: "Show metrics info"
@@ -55,3 +62,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["show_metrics/show_metrics_openmetrics_values.py"]
     <<: *show_metrics_openmetrics_cluster
+
+  - name: "Show metrics aborted queries"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_metrics/show_metrics_aborted_queries.py"]
+    <<: *show_metrics_aborted_queries_cluster
