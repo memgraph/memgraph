@@ -113,8 +113,10 @@ An explicit transaction cannot mix auth queries with data queries. Run them in
 separate transactions.
 ```
 
-The mixed statement ends the transaction. Nothing in it is applied, and a
-later `COMMIT` reports that there is no transaction to commit.
+The mixed statement fails. The server does not end the transaction itself: a
+Bolt client resets the session after a failure, which ends the transaction and
+discards everything in it, so a later `COMMIT` reports that there is no
+transaction to commit.
 
 ### 3.2 What runs inside an auth transaction
 
