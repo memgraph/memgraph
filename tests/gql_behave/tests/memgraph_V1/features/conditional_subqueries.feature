@@ -741,7 +741,7 @@ Feature: Conditional subqueries
             | 'Bob'     |
             | 'Charlie' |
 
-    Scenario: COUNT counts the rows of the taken branch
+    Scenario: COUNT and COLLECT fold the rows of the taken branch, which may hold a nested WHEN or a UNION
         Given an empty graph
         And having executed
             """
@@ -755,41 +755,42 @@ Feature: Conditional subqueries
             """
             MATCH (n:Person)
             RETURN n.name AS name,
-                   COUNT { WHEN n.age > 40 THEN MATCH (n)-[:WORKS_FOR]-(m) RETURN m ELSE RETURN 1 AS m } AS c
-            ORDER BY name
-            """
-        Then the result should be, in order:
-            | name      | c |
-            | 'Alice'   | 2 |
-            | 'Bob'     | 1 |
-            | 'Charlie' | 1 |
-            | 'Daniel'  | 1 |
-            | 'Eskil'   | 1 |
-
-    Scenario: COLLECT collects the column of the taken branch
-        Given an empty graph
-        And having executed
-            """
-            CREATE (alice:Person {name: 'Alice', age: 65}), (bob:Person {name: 'Bob', age: 25}),
-                   (charlie:Person {name: 'Charlie', age: 61}), (daniel:Person {name: 'Daniel', age: 39}),
-                   (eskil:Person {name: 'Eskil', age: 39}),
-                   (bob)-[:WORKS_FOR]->(alice), (alice)-[:WORKS_FOR]->(daniel), (charlie)-[:WORKS_FOR]->(daniel),
-                   (bob)-[:LOVES]->(eskil), (charlie)-[:LOVES]->(alice)
-            """
-        When executing query:
-            """
-            MATCH (n:Person)
-            RETURN n.name AS name,
-                   COLLECT { WHEN n.age > 40 THEN MATCH (n)-[:WORKS_FOR]-(m) RETURN m.name AS m ELSE RETURN 'young' AS m } AS c
+                   COUNT { WHEN n.age > 40 THEN MATCH (n)-[:WORKS_FOR]-(m) RETURN m ELSE RETURN 1 AS m } AS c,
+                   COLLECT { WHEN n.age > 40 THEN MATCH (n)-[:WORKS_FOR]-(m) RETURN m.name AS m ELSE RETURN 'young' AS m } AS l,
+                   COLLECT {
+                     WHEN n.age > 40 THEN {
+                       WHEN n.age > 62 THEN MATCH (n)-[:WORKS_FOR]-(m) RETURN m.name AS m
+                       ELSE RETURN 'sixties' AS m
+                     }
+                     ELSE RETURN 'young' AS m
+                   } AS nested,
+                   COUNT {
+                     WHEN n.age < 40 THEN { MATCH (n)-[:LOVES]->(m) RETURN m UNION MATCH (n)-[:WORKS_FOR]->(m) RETURN m }
+                   } AS k
             ORDER BY name
             """
         Then the result should be (ignoring element order for lists):
-            | name      | c                 |
-            | 'Alice'   | ['Bob', 'Daniel'] |
-            | 'Bob'     | ['young']         |
-            | 'Charlie' | ['Daniel']        |
-            | 'Daniel'  | ['young']         |
-            | 'Eskil'   | ['young']         |
+            | name      | c | l                 | nested            | k |
+            | 'Alice'   | 2 | ['Bob', 'Daniel'] | ['Bob', 'Daniel'] | 0 |
+            | 'Bob'     | 1 | ['young']         | ['young']         | 2 |
+            | 'Charlie' | 1 | ['Daniel']        | ['sixties']       | 0 |
+            | 'Daniel'  | 1 | ['young']         | ['young']         | 0 |
+            | 'Eskil'   | 1 | ['young']         | ['young']         | 0 |
+
+    Scenario: A bare EXISTS or COUNT body may name its path when
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A)-[:R]->(:B)
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN labels(n)[0] AS l, EXISTS { when = (n)-->() } AS e, COUNT { when = (n)-->() } AS c ORDER BY l
+            """
+        Then the result should be, in order:
+            | l   | e     | c |
+            | 'A' | true  | 1 |
+            | 'B' | false | 0 |
 
     Scenario: With no matching branch and no ELSE, the folds give false, 0 and an empty list
         Given an empty graph
@@ -825,40 +826,6 @@ Feature: Conditional subqueries
             | k | c |
             | 1 | 1 |
             | 3 | 1 |
-
-    Scenario: A branch of an expression body may hold a nested WHEN or a UNION
-        Given an empty graph
-        And having executed
-            """
-            CREATE (alice:Person {name: 'Alice', age: 65}), (bob:Person {name: 'Bob', age: 25}),
-                   (charlie:Person {name: 'Charlie', age: 61}), (daniel:Person {name: 'Daniel', age: 39}),
-                   (eskil:Person {name: 'Eskil', age: 39}),
-                   (bob)-[:WORKS_FOR]->(alice), (alice)-[:WORKS_FOR]->(daniel), (charlie)-[:WORKS_FOR]->(daniel),
-                   (bob)-[:LOVES]->(eskil), (charlie)-[:LOVES]->(alice)
-            """
-        When executing query:
-            """
-            MATCH (n:Person)
-            RETURN n.name AS name,
-                   COLLECT {
-                     WHEN n.age > 40 THEN {
-                       WHEN n.age > 62 THEN MATCH (n)-[:WORKS_FOR]-(m) RETURN m.name AS m
-                       ELSE RETURN 'sixties' AS m
-                     }
-                     ELSE RETURN 'young' AS m
-                   } AS c,
-                   COUNT {
-                     WHEN n.age < 40 THEN { MATCH (n)-[:LOVES]->(m) RETURN m UNION MATCH (n)-[:WORKS_FOR]->(m) RETURN m }
-                   } AS k
-            ORDER BY name
-            """
-        Then the result should be (ignoring element order for lists):
-            | name      | c                 | k |
-            | 'Alice'   | ['Bob', 'Daniel'] | 0 |
-            | 'Bob'     | ['young']         | 2 |
-            | 'Charlie' | ['sixties']       | 0 |
-            | 'Daniel'  | ['young']         | 0 |
-            | 'Eskil'   | ['young']         | 0 |
 
     Scenario: A branch of an expression body seeks a label-property index by an outer value
         Given an empty graph
