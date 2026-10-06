@@ -199,7 +199,15 @@ class ExpressionFuzz : public ::testing::Test {
 
   Expression *Build(std::mt19937 &rng, int depth) {
     if (depth <= 0) return Leaf(rng);
-    switch (rng() % 14) {
+    switch (rng() % 16) {
+      case 15:
+        return storage_.Create<memgraph::query::IsNullOperator>(Build(rng, depth - 1));
+      case 14: {
+        auto *range = storage_.Create<memgraph::query::RangeOperator>();
+        range->expression1_ = Build(rng, depth - 1);
+        range->expression2_ = Build(rng, depth - 1);
+        return range;
+      }
       case 0:
         return storage_.Create<memgraph::query::AndOperator>(Build(rng, depth - 1), Build(rng, depth - 1));
       case 1:

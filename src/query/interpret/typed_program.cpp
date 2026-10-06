@@ -106,8 +106,22 @@ class TypedProgramBuilder {
         return Comparison(expression, TypedProgram::Op::GeInt);
       case utils::TypeId::AST_AND_OPERATOR:
         return Logical(expression, TypedProgram::Op::AndTri);
+      case utils::TypeId::AST_RANGE_OPERATOR:
+        // A chained comparison evaluates both sides whatever the first says,
+        // so it takes no jump over the second.
+        return Conjoin(expression,
+                       static_cast<RangeOperator *>(expression)->expression1_,
+                       static_cast<RangeOperator *>(expression)->expression2_);
       case utils::TypeId::AST_OR_OPERATOR:
         return Logical(expression, TypedProgram::Op::OrTri);
+      case utils::TypeId::AST_IS_NULL_OPERATOR: {
+        auto *op = static_cast<IsNullOperator *>(expression);
+        auto const operand = Build(op->expression_);
+        if (!operand) return Refuse(expression);
+        auto const slot = NextTri();
+        Emit(operand->is_tri ? TypedProgram::Op::IsNullTri : TypedProgram::Op::IsNullInt, slot, operand->slot, 0, 0);
+        return Operand{.is_tri = true, .slot = slot};
+      }
       case utils::TypeId::AST_NOT_OPERATOR: {
         auto *op = static_cast<NotOperator *>(expression);
         auto const operand = Build(op->expression_);
@@ -150,6 +164,17 @@ class TypedProgramBuilder {
     if (!rhs || rhs->is_tri) return Refuse(expression);
     auto const slot = NextTri();
     Emit(op, slot, lhs->slot, rhs->slot, 0);
+    return Operand{.is_tri = true, .slot = slot};
+  }
+
+  /// Both sides into one answer, with nothing skipped.
+  std::optional<Operand> Conjoin(Expression *expression, Expression *left, Expression *right) {
+    auto const lhs = Build(left);
+    if (!lhs || !lhs->is_tri) return Refuse(expression);
+    auto const rhs = Build(right);
+    if (!rhs || !rhs->is_tri) return Refuse(expression);
+    auto const slot = NextTri();
+    Emit(TypedProgram::Op::AndTri, slot, lhs->slot, rhs->slot, 0);
     return Operand{.is_tri = true, .slot = slot};
   }
 
@@ -350,6 +375,12 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, RecordReader *reader,
         tris[in.dst] = x == Answer::Null ? Answer::Null : (x == Answer::True ? Answer::False : Answer::True);
         break;
       }
+      case Op::IsNullInt:
+        tris[in.dst] = int_known[in.a] == 0 ? Answer::True : Answer::False;
+        break;
+      case Op::IsNullTri:
+        tris[in.dst] = tris[in.a] == Answer::Null ? Answer::True : Answer::False;
+        break;
       case Op::CopyTri:
         tris[in.dst] = tris[in.a];
         break;
