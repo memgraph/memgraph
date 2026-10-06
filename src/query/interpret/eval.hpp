@@ -270,10 +270,10 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
     return res;
   }
 
-#define INVALID_VISIT(expr_name)                                                             \
-  TypedValue Visit(expr_name & /*expr*/) override {                                          \
-    DLOG_FATAL("Invalid expression type visited with PrimitiveLiteralExpressionEvaluator."); \
-    return {};                                                                               \
+#define INVALID_VISIT(expr_name)                                                                              \
+  TypedValue Visit(expr_name & /*expr*/) override {                                                           \
+    throw QueryRuntimeException("Expression of type {} is not supported here; use a literal or a parameter.", \
+                                #expr_name);                                                                  \
   }
 
   INVALID_VISIT(NamedExpression)

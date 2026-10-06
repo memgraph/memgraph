@@ -3209,6 +3209,11 @@ TEST_F(ParameterQueryTest, SignedNumbersInMapAndListLiteralValues) {
   EXPECT_EQ(GetParameter("q"), "[-1]");
 }
 
+TEST_F(ParameterQueryTest, UnsupportedExpressionInLiteralValueIsRejected) {
+  EXPECT_THROW(Interpret("SET GLOBAL PARAMETER p = {a: 1+1}"), memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(GetParameter("p"), std::nullopt);
+}
+
 TYPED_TEST(InterpreterTest, VectorIndexConfigAcceptsSignedNumber) {
   if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
     GTEST_SKIP() << "Vector indices are not supported on disk storage";
