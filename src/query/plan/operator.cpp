@@ -10228,13 +10228,13 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
       auto *predicate = self_.branches_[i].predicate;
       bool taken = true;
       if (predicate) {
-        TypedValue value = predicate->Accept(evaluator);
-        if (value.IsNull()) {
-          taken = false;
-        } else if (value.type() != TypedValue::Type::Bool) {
-          throw QueryRuntimeException("WHEN expected boolean expression, got {}.", value.type());
-        } else {
+        TypedValue const value = predicate->Accept(evaluator);
+        if (value.IsBool()) {
           taken = value.ValueBool();
+        } else if (value.IsNull()) {
+          taken = false;
+        } else {
+          throw QueryRuntimeException("WHEN expected boolean expression, got {}.", value.type());
         }
       }
       if (taken) {
