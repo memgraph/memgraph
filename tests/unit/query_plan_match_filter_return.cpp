@@ -401,6 +401,44 @@ TYPED_TEST(QueryPlan, AFilterSaysHowManyRowsItCompiled) {
   EXPECT_EQ(boxed_deopt, 0);
 }
 
+// A property whose type varies row to row is the case the guess cannot help.
+// The rows it cannot take go to the evaluator, so the answer is the one the
+// evaluator would have given and the count says how often that happened.
+TYPED_TEST(QueryPlan, AFilterHandsBackTheRowsItCannotTake) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+
+  memgraph::storage::LabelId const label = dba.NameToLabel("Label");
+  auto const property = PROPERTY_PAIR(dba, "Property");
+  auto const put = [&](memgraph::storage::PropertyValue value) {
+    auto vertex = dba.InsertVertex();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(property.second, std::move(value)).has_value());
+  };
+  put(memgraph::storage::PropertyValue(42));
+  put(memgraph::storage::PropertyValue("42"));
+  put(memgraph::storage::PropertyValue(7));
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  std::vector<memgraph::query::LabelIx> labels;
+  labels.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label)));
+  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),
+                          EQ(PROPERTY_LOOKUP(dba, n.node_->identifier_, property), LITERAL(42)));
+  auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+
+  auto const before = Filter::GetRowCounts();
+  auto const matched = PullAll(*filter, &context);
+  auto const after = Filter::GetRowCounts();
+
+  // The string is not 42 and comparing it with one is false, not an error.
+  EXPECT_EQ(matched, 1);
+  EXPECT_EQ(after.deopt - before.deopt, 1) << "the row holding a string was handed back";
+  EXPECT_EQ(after.compiled - before.compiled, 2);
+}
+
 TYPED_TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
