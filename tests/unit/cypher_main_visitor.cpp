@@ -8685,7 +8685,9 @@ TEST_P(CypherMainVisitorTest, CallSubqueryConditional) {
         "UNWIND [1] AS i CALL (i) { WHEN true THEN CREATE (:T) "
         "ELSE { WHEN true THEN CALL mock_module.proc() YIELD res } } RETURN i"}) {
     TestInvalidQueryWithMessage<SemanticException>(
-        query, ast_generator, "All WHEN branches must either return rows or update the graph.");
+        query,
+        ast_generator,
+        "All WHEN branches must return rows, update the graph, or be a standalone procedure call.");
   }
   TestInvalidQueryWithMessage<SemanticException>(
       "UNWIND [1] AS i CALL (i) { WHEN true THEN CALL mock_module.proc() YIELD res WHERE res > 0 } RETURN i",

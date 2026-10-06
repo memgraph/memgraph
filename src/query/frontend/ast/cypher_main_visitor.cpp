@@ -4775,7 +4775,8 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
   auto const add_branch = [&](Where *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
     auto const body = VisitConditionalBody(body_ctx);
     if (kind && *kind != body.kind) {
-      throw SemanticException("All WHEN branches must either return rows or update the graph.");
+      throw SemanticException(
+          "All WHEN branches must return rows, update the graph, or be a standalone procedure call.");
     }
     kind = body.kind;
     branches->branches_.push_back({.predicate = predicate, .body = body.query});
