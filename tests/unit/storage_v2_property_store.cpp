@@ -22,6 +22,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
+#include "tests/unit/value_shapes.hpp"
 
 using testing::IsNull;
 using testing::NotNull;
@@ -77,49 +78,16 @@ ZonedTemporalData GetSampleZonedTemporal() {
   return ZonedTemporalData{ZonedTemporalType::ZonedDateTime, common_duration, named_timezone};
 }
 
-const PropertyValue kSampleValues[] = {
-    PropertyValue(),
-    PropertyValue(false),
-    PropertyValue(true),
-    PropertyValue(0),
-    PropertyValue(33),
-    PropertyValue(-33),
-    PropertyValue(-3137),
-    PropertyValue(3137),
-    PropertyValue(310'000'007),
-    PropertyValue(-310'000'007),
-    PropertyValue(3'100'000'000'007L),
-    PropertyValue(-3'100'000'000'007L),
-    PropertyValue(0.0),
-    PropertyValue(33.33),
-    PropertyValue(-33.33),
-    PropertyValue(3137.3137),
-    PropertyValue(-3137.3137),
-    PropertyValue("sample"),
-    PropertyValue(std::string(404, 'n')),
-    PropertyValue(
-        std::vector<PropertyValue>{PropertyValue(33), PropertyValue(std::string("sample")), PropertyValue(-33.33)}),
-    PropertyValue(std::vector<PropertyValue>{PropertyValue(), PropertyValue(false)}),
-    PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(1), PropertyValue()},
-                                       {PropertyId::FromUint(2), PropertyValue(false)}}),
-    PropertyValue(PropertyValue::map_t{{PropertyId::FromUint(3), PropertyValue(33)},
-                                       {PropertyId::FromUint(4), PropertyValue(std::string("sample"))},
-                                       {PropertyId::FromUint(5), PropertyValue(-33.33)}}),
-    PropertyValue(TemporalData(TemporalType::Date, 23)),
-    PropertyValue(GetSampleZonedTemporal()),
-    PropertyValue{Enum{EnumTypeId{2}, EnumValueId{10'000}}},
-    PropertyValue{Point2d{Cartesian_2d, 1.0, 2.0}},
-    PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
-    PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
-    PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
-    PropertyValue(std::vector<int>{33, 0, -33}),
-    PropertyValue(std::vector<double>{33.0, 0.0, -33.33}),
-    PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.33}),
-};
+/// Every value a probe can be made of, so that a store asked whether it holds
+/// one answers no for each value but the one it holds.
+auto const &ProbeShapes() {
+  static auto const shapes = memgraph::test::shapes::EveryShape();
+  return shapes;
+}
 
 void TestIsPropertyEqual(const PropertyStore &store, PropertyId property, const PropertyValue &value) {
   ASSERT_TRUE(store.IsPropertyEqual(property, value));
-  for (const auto &sample : kSampleValues) {
+  for (const auto &sample : ProbeShapes()) {
     if (sample == value) {
       ASSERT_TRUE(store.IsPropertyEqual(property, sample));
     } else {
@@ -509,6 +477,91 @@ TEST(PropertyStore, IntEncoding) {
     ASSERT_FALSE(props.HasProperty(item.first));
     TestIsPropertyEqual(props, item.first, PropertyValue());
   }
+}
+
+TEST(PropertyStore, TheEncodedComparisonAnswersAsTheDecodedOneDoes) {
+  // A stored value is compared without decoding it, by a function with a case
+  // per type of its own. A change made to one reading and not the other is
+  // silent until a lookup answers wrongly, so the two are asked the same
+  // question over every pair of shapes rather than being held together by a
+  // note asking the next author to keep them alike.
+  auto const prop = PropertyId::FromInt(42);
+  // A Null is left out because storing one removes the property, so there is no
+  // stored value to compare against. A vector index id is left out because only
+  // its ids are written, so the two comparisons are not asked the same question:
+  // the encoded one cannot see the coordinates the decoded one compares.
+  auto const shapes =
+      memgraph::test::shapes::EveryShapeExcept({PropertyValueType::Null, PropertyValueType::VectorIndexId});
+
+  for (auto const &stored : shapes) {
+    PropertyStore store;
+    ASSERT_TRUE(store.SetProperty(prop, stored));
+    for (auto const &probe : shapes) {
+      EXPECT_EQ(store.IsPropertyEqual(prop, probe), stored == probe)
+          << "stored " << stored << " (type " << static_cast<unsigned>(stored.type()) << "), probed with " << probe
+          << " (type " << static_cast<unsigned>(probe.type()) << ")";
+    }
+  }
+}
+
+TEST(PropertyStore, AVectorIndexIdKeepsItsIdsAndNotItsCoordinates) {
+  // Only the ids are written, so a read gives back no coordinates and the
+  // comparison against a stored value answers on the ids alone. A caller
+  // holding coordinates is told its value is the stored one.
+  using Data = PropertyValue::VectorIndexIdData;
+  auto const prop = PropertyId::FromInt(42);
+  auto const ids = memgraph::utils::small_vector<uint64_t>{7, 9};
+
+  PropertyStore store;
+  ASSERT_TRUE(store.SetProperty(
+      prop, PropertyValue(Data{.ids = ids, .vector = memgraph::utils::small_vector<float>{1.0F, 2.0F}})));
+
+  auto const read = store.GetProperty(prop);
+  ASSERT_TRUE(read.IsVectorIndexId());
+  EXPECT_EQ(read.ValueVectorIndexIds(), ids);
+  EXPECT_TRUE(read.ValueVectorIndexList().empty());
+
+  auto const other_coordinates =
+      PropertyValue(Data{.ids = ids, .vector = memgraph::utils::small_vector<float>{3.0F, 4.0F}});
+  EXPECT_TRUE(store.IsPropertyEqual(prop, other_coordinates));
+  EXPECT_NE(read, other_coordinates);
+}
+
+TEST(PropertyStore, IsPropertyEqualReadsANaNAsTheDecodedComparisonDoes) {
+  // A stored value is compared without decoding it, and an index confirms the
+  // entry it lands on that way. Answering a NaN differently from the decoded
+  // comparison leaves an entry the index can reach but not confirm.
+  auto const nan = std::numeric_limits<double>::quiet_NaN();
+  auto const prop = PropertyId::FromInt(42);
+
+  auto const holds = [&](PropertyValue const &stored, PropertyValue const &probe) {
+    PropertyStore props;
+    props.SetProperty(prop, stored);
+    return props.IsPropertyEqual(prop, probe);
+  };
+
+  auto const scalar_nan = PropertyValue(nan);
+  EXPECT_EQ(holds(scalar_nan, scalar_nan), scalar_nan == scalar_nan);
+  EXPECT_TRUE(holds(scalar_nan, scalar_nan));
+  EXPECT_FALSE(holds(scalar_nan, PropertyValue(1.0)));
+  EXPECT_FALSE(holds(PropertyValue(1.0), scalar_nan));
+
+  // The same over the representations a list of numbers is kept in, since each
+  // reads its elements by a route of its own.
+  auto const boxed = PropertyValue{std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(nan)}};
+  auto const packed =
+      PropertyValue{DoubleListTag{}, std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(nan)}};
+  EXPECT_EQ(holds(boxed, boxed), boxed == boxed);
+  EXPECT_TRUE(holds(boxed, boxed));
+  EXPECT_TRUE(holds(packed, packed));
+  EXPECT_TRUE(holds(boxed, packed));
+  EXPECT_TRUE(holds(packed, boxed));
+
+  // And over a point, whose coordinates are read as doubles of their own.
+  auto const point = PropertyValue(Point2d{WGS84_2d, 1.0, nan});
+  EXPECT_EQ(holds(point, point), point == point);
+  EXPECT_TRUE(holds(point, point));
+  EXPECT_FALSE(holds(point, PropertyValue(Point2d{WGS84_2d, 1.0, 2.0})));
 }
 
 TEST(PropertyStore, IsPropertyEqualIntAndDouble) {

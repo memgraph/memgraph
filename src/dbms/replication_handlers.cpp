@@ -82,6 +82,18 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
     return;
   }
 
+  // Update() drops+recreates the tenant when the name exists under a DIFFERENT uuid. That drop's free is
+  // deferred, not synchronous: Update() keeps its own accessor alive across Delete_(), so DeferDelete's
+  // try_delete() sees count_ > 1 and hands the Gatekeeper to defer_pool_, which frees it on a background
+  // thread with no ordering against this RPC thread -- the actual reason to abort here, up front. The
+  // cached 2PC commit accessor is storage-level, not gatekeeper-counted, so nothing drains it before that
+  // free. Same-uuid Update is a no-op salient refresh, so *local != req.config.uuid avoids aborting an
+  // in-flight 2PC for the very tenant being created/updated. Defence-in-depth: reachability here is
+  // unproven.
+  if (const auto local = dbms_handler.GetHotUuid(*req.config.name.str_view()); local && *local != req.config.uuid) {
+    InMemoryReplicationHandlers::AbortTwoPCForTenant(*local);
+  }
+
   try {
     // Create new
     if (auto const new_db = dbms_handler.Update(req.config); new_db.has_value()) {
@@ -388,8 +400,10 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
   auto hot_cold = dbms_handler.AllWithHotColdStatus();
   std::vector<std::string> old;
   old.reserve(hot_cold.size());
-  std::ranges::transform(
-      hot_cold | std::views::keys, std::back_inserter(old), [](auto &name) { return std::move(name); });
+  for (auto &[name, state] : hot_cold) {
+    // Husks are already being torn down; exclude them so they are not treated as leftover tenants to drop.
+    if (state != "DROPPING") old.push_back(std::move(name));
+  }
 
   // Check/create the incoming HOT dbs.
   for (const auto &config : database_configs) {

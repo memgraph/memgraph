@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 #include "gmock/gmock.h"
 
+#include "dbms/constants.hpp"
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "query/context.hpp"
@@ -581,4 +582,530 @@ TYPED_TEST(TransactionQueueSimpleTest, CurrentDBChurnVsForeignDbViewNoTornReads)
   EXPECT_EQ(churn_count.load(), kIters);
   EXPECT_GT(read_count.load(), 0);
   current_db.ResetDB();
+}
+
+// TERMINATE SESSIONS authorization.
+//
+// The privilege checker is injected instead of driven through a real auth backend on purpose. In production it is a
+// one-line forward to QueryUserOrRole::IsAuthorized(TRANSACTION_MANAGEMENT, db_name) (see HandleTransactionQueueQuery
+// in src/query/interpreter.cpp), and what these tests pin is not what that backend decides -- it is *which database
+// name reaches it*. Calling the checker directly makes that argument observable and keeps the tests independent of
+// auth's own logic, which has its own coverage.
+
+TYPED_TEST(TransactionQueueSimpleTest, PassesTheTargetSessionsDatabaseToThePrivilegeChecker) {
+  // The fixture's Config leaves salient.name empty, which a real tenant never is; without a name the target would
+  // short-circuit into the "holds no database" refusal and never reach the checker. Named the way
+  // DbmsHandler::Rename does it.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+
+  std::vector<std::string> checked_db_names;
+  auto checker = [&checked_db_names](memgraph::query::QueryUserOrRole *, std::string const &db_name) {
+    checked_db_names.push_back(db_name);
+    return true;
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
+  // The whole point of the fix: authorization is scoped to the target's tenant, and to nothing else. Asserted
+  // against the literal rather than this->db->name(), which would only re-read the name written above and so would
+  // still hold if the callee echoed back whatever name it was handed.
+  ASSERT_EQ(checked_db_names.size(), 1U);
+  EXPECT_EQ(checked_db_names[0], "tenant_a");
+  // The outcome too: a checker that grants must actually kill, or "right name, refused anyway" would pass here.
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
+  EXPECT_TRUE(result.rows[0][1].ValueBool());
+  EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, RefusesWhenTheCheckerDeniesTheTargetsDatabase) {
+  this->db->storage()->config_.salient.name = "tenant_a";  // see PassesTheTargetSessionsDatabaseToThePrivilegeChecker
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+
+  // Authorized on some other tenant only -- i.e. exactly the admin that used to get through.
+  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &db_name) {
+    return db_name == "some_other_tenant";
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
+  EXPECT_FALSE(result.rows[0][1].ValueBool());
+  EXPECT_TRUE(result.to_close.empty());
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, FallsBackToTheDefaultDbForATargetHoldingNoDatabase) {
+  // Named first, so the fallback below can only come from the ResetDB and not from a fixture that never had a name.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  target.current_db_.ResetDB();
+
+  std::vector<std::string> checked_db_names;
+  auto checker = [&checked_db_names](memgraph::query::QueryUserOrRole *, std::string const &db_name) {
+    checked_db_names.push_back(db_name);
+    return true;
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
+  // No tenant means no database-scoped privilege could be evaluated against the target's own database, so the
+  // check falls back to dbms::kDefaultDB rather than skipping the checker outright.
+  ASSERT_EQ(checked_db_names.size(), 1U);
+  EXPECT_EQ(checked_db_names[0], memgraph::dbms::kDefaultDB);
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_TRUE(result.rows[0][1].ValueBool());
+  EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, RefusesATargetHoldingNoDatabaseWhenTheCheckerDeniesTheDefaultDb) {
+  // Negative control for FallsBackToTheDefaultDbForATargetHoldingNoDatabase: the fallback must still be a real
+  // privilege check, not an unconditional grant, so a checker that denies dbms::kDefaultDB must refuse.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  target.current_db_.ResetDB();
+
+  // Authorized on some other tenant only -- the fallback target (dbms::kDefaultDB) is not among them.
+  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &db_name) {
+    return db_name == "some_other_tenant";
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_FALSE(result.rows[0][1].ValueBool());
+  EXPECT_TRUE(result.to_close.empty());
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, SameUserIsStillAllowedWithoutAnyPrivilege) {
+  // Named, so the target does hold a tenant and the deny below is a real deny -- the kill must succeed anyway.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("admin", {}));
+  target.SetSessionInfo("target-session-uuid", "admin", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+
+  bool checker_called = false;
+  auto checker = [&checker_called](memgraph::query::QueryUserOrRole *, std::string const &) {
+    checker_called = true;
+    return false;
+  };
+
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(
+        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+  });
+
+  // A user may always terminate their own other connections; the privilege check is never reached.
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_TRUE(result.rows[0][1].ValueBool());
+  EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
+  EXPECT_FALSE(checker_called);
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsReportsDuplicateIdAsNotKilled) {
+  // NB6 regression: supplying the same session UUID twice in one TERMINATE SESSIONS call must produce
+  // exactly one result row per input id (the 1:1 contract), report the first occurrence as killed=true
+  // and the second as killed=false, and must push the UUID into to_close only once (no double-close).
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+
+  // Permissive checker: admin is authorized on every tenant.
+  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &) { return true; };
+
+  // The same UUID appears twice in the session_ids list -- the scenario under test.
+  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+    return this->interpreter_context.TerminateSessions(interpreters,
+                                                       {"target-session-uuid", "target-session-uuid"},
+                                                       caller.user_or_role_.get(),
+                                                       checker,
+                                                       "caller-session-uuid");
+  });
+
+  // One row per input id: two inputs must produce two rows.
+  ASSERT_EQ(result.rows.size(), 2U);
+  // First occurrence: target found, authorization passes, session marked for termination.
+  EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
+  EXPECT_TRUE(result.rows[0][1].ValueBool());
+  // Second occurrence: same UUID already accepted for kill in this call → reported not-killed.
+  EXPECT_EQ(result.rows[1][0].ValueString(), "target-session-uuid");
+  EXPECT_FALSE(result.rows[1][1].ValueBool());
+  // The UUID must appear in to_close exactly once; a duplicate entry would double-close the connection.
+  ASSERT_EQ(result.to_close.size(), 1U);
+  EXPECT_THAT(result.to_close, ::testing::ElementsAre("target-session-uuid"));
+}
+
+// This is the authorization half of the use-after-free fix: a foreign reader that observes a torn
+// `user_or_role_` can conclude "same user" and skip both the empty-database refusal and the privilege
+// checker entirely -- an authorization bypass, not merely a memory-safety bug. The published snapshot
+// (foreign_user_view_/foreign_session_view_, see their declaration in interpreter.hpp) is what makes the
+// identity TerminateSessions compares stable against that torn read.
+//
+// Honesty note: on an unfixed tree the failure this test looks for is probabilistic -- a torn read has to
+// land during the narrow window between the writer thread's SetSessionInfo/SetUser calls, so this
+// test can pass by luck even without the fix. TSan against TerminateSessionsRacingIdentityChurnIsDataRaceFree
+// below is the deterministic instrument for the same race.
+TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsCannotBeTrickedIntoSkippingThePrivilegeCheck) {
+  this->db->storage()->config_.salient.name = "tenant_a";  // see PassesTheTargetSessionsDatabaseToThePrivilegeChecker
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  // "admin" is a username the writer thread below never sets on the target (always "bob"),
+  // so SameUser must be false on every single iteration -- there is no legitimate path to a kill here.
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  // Publish the target's session identity once, from this thread, before the writer starts. Without this,
+  // foreign_session_view_ is still null for however many reader iterations run before the writer's own first
+  // SetSessionInfo call lands; TerminateSessions then takes the not-found branch and never reaches the
+  // checker, so checker_call_count below would measure that startup gap instead of the invariant. The
+  // writer's own repeated SetSessionInfo/SetUser calls republish the same uuid and churn user_or_role_
+  // -- that is the torn-read race under test, and the session stays visible the entire time (no ResetUser).
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+
+  int checker_call_count = 0;
+  auto checker = [&checker_call_count](memgraph::query::QueryUserOrRole *, std::string const &) {
+    ++checker_call_count;
+    return false;  // always refuse; a kill can only happen here by skipping this call entirely
+  };
+
+  constexpr int kIterations = 2000;
+  std::atomic<int> writer_iterations{0};
+  bool saw_unauthorized_kill = false;
+  bool saw_nonempty_to_close = false;
+
+  {
+    // jthread: joins unconditionally on scope exit -- including through a failed EXPECT below -- so a bad
+    // run can never leave a detached thread still churning the target's identity.
+    std::jthread writer([this, &target, &writer_iterations] {
+      for (int i = 0; i < kIterations; ++i) {
+        target.SetSessionInfo("target-session-uuid", "bob", "ts");
+        target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+        // No ResetUser here: ResetUser clears foreign_session_view_ (LOGOFF semantic, tested by
+        // ShowSessionsOmitsLoggedOffSession). Keeping the session visible ensures checker_call_count==kIterations.
+        writer_iterations.fetch_add(1, std::memory_order_relaxed);
+      }
+    });
+
+    for (int i = 0; i < kIterations; ++i) {
+      // Not EXPECT/ASSERT here on purpose -- this runs 2000 times per test. Accumulate into plain flags and
+      // assert once after the loop.
+      auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+        return this->interpreter_context.TerminateSessions(
+            interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+      });
+      if (!result.rows.empty() && result.rows[0][1].ValueBool()) saw_unauthorized_kill = true;
+      if (!result.to_close.empty()) saw_nonempty_to_close = true;
+    }
+  }
+
+  // The loop actually ran the full count, so the assertions below cannot be passing vacuously.
+  EXPECT_EQ(writer_iterations.load(std::memory_order_relaxed), kIterations);
+  // The checker was consulted on every single iteration: no branch (including the empty-database refusal --
+  // the target here always holds "tenant_a") returned a decision that bypassed it.
+  EXPECT_EQ(checker_call_count, kIterations);
+  // The invariant this test exists to pin: caller != target on every iteration and the checker always
+  // refuses, so nothing may ever be killed and nothing may ever be handed back for the caller to close. A
+  // single killed==true or non-empty to_close means a torn read of the target's identity was mistaken for
+  // "same user" and both the privilege check and the empty-database refusal were skipped -- the bypass.
+  EXPECT_FALSE(saw_unauthorized_kill);
+  EXPECT_FALSE(saw_nonempty_to_close);
+}
+
+// Under a normal (non-TSan) build this test asserts almost nothing about outcomes -- its value is that it is
+// the workload TSan is run against. It exercises TerminateSessions concurrently with a writer thread churning
+// the target's identity (SetSessionInfo/SetUser/ResetUser) the same way
+// TerminateSessionsCannotBeTrickedIntoSkippingThePrivilegeCheck above does. Without the published-snapshot
+// fix, TSan reports a data race on Interpreter::user_or_role_ / Interpreter::session_info_ here.
+//
+// InterpreterContext::ShowTransactionsUsingDBName was considered for this test as a second foreign-read path,
+// but its implementation (src/query/interpreter_context.cpp) only reads current_db_ and
+// transaction_status_/GetTransactionId, guarded by TryAcquireForVerification's CAS -- it never touches
+// user_or_role_ or session_info_ at all, so it would not exercise the race this test is for. Dropped rather
+// than wired in for its own sake; TerminateSessions alone already reads both racy fields.
+TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsRacingIdentityChurnIsDataRaceFree) {
+  this->db->storage()->config_.salient.name = "tenant_a";  // see PassesTheTargetSessionsDatabaseToThePrivilegeChecker
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  // Publish once before the writer starts, same reasoning as the test above: otherwise the target is
+  // unfindable until the writer's first SetSessionInfo call, and TerminateSessions exercises far less of
+  // itself (the not-found early-exit) instead of the racy identity-comparison path this test is for.
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+
+  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &) { return false; };
+
+  constexpr int kIterations = 2000;
+  std::atomic<int> writer_iterations{0};
+  int reader_iterations = 0;
+  bool saw_unauthorized_kill = false;
+  bool saw_nonempty_to_close = false;
+
+  {
+    // jthread: joins unconditionally on scope exit, same reasoning as the test above.
+    std::jthread writer([this, &target, &writer_iterations] {
+      for (int i = 0; i < kIterations; ++i) {
+        target.SetSessionInfo("target-session-uuid", "bob", "ts");
+        target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+        target.ResetUser();
+        writer_iterations.fetch_add(1, std::memory_order_relaxed);
+      }
+    });
+
+    for (int i = 0; i < kIterations; ++i) {
+      // Not EXPECT/ASSERT here on purpose -- this runs 2000 times per test. Accumulate into plain flags and
+      // assert once after the loop.
+      auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
+        return this->interpreter_context.TerminateSessions(
+            interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
+      });
+      if (!result.rows.empty() && result.rows[0][1].ValueBool()) saw_unauthorized_kill = true;
+      if (!result.to_close.empty()) saw_nonempty_to_close = true;
+      ++reader_iterations;
+    }
+  }
+
+  // Both loops ran to completion and the process is still standing -- reaching this line without TSan
+  // aborting the binary is the primary assertion for this test.
+  EXPECT_EQ(writer_iterations.load(std::memory_order_relaxed), kIterations);
+  EXPECT_EQ(reader_iterations, kIterations);
+  // Functional gate (mirrors TerminateSessionsCannotBeTrickedIntoSkippingThePrivilegeCheck): caller != target
+  // on every iteration and the checker always refuses, so nothing may ever be killed and nothing may ever be
+  // handed back for the caller to close.
+  EXPECT_FALSE(saw_unauthorized_kill);
+  EXPECT_FALSE(saw_nonempty_to_close);
+}
+
+// SHOW SESSIONS tests
+//
+// Visibility rule (ShowSessions in interpreter.cpp):
+//   A session row is emitted if and only if foreign_session_view_ is non-null AND
+//   (same_user(target_user, caller_user) || privilege_checker(caller_user, db)).
+// With AllowEverythingAuthChecker the privilege_checker always grants, so any session that
+// has called SetSessionInfo is visible. A session that never called SetSessionInfo is
+// unconditionally skipped before either check runs.
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsListsLoggedInSessions) {
+  // Both sessions publish their identity via SetUser + SetSessionInfo.  The caller uses
+  // AllowEverythingAuthChecker, so the privilege_checker grants both rows regardless of
+  // same_user.  Iteration over the internal unordered_set is order-unspecified, so the
+  // assertions scan by session_id rather than by position.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &running = this->running_interpreter.interpreter;
+  auto &main = this->main_interpreter.interpreter;
+  running.SetUser(this->running_interpreter.auth_checker.GenQueryUser("alice", {}));
+  running.SetSessionInfo("session-alice", "alice", "2026-01-01T00:00:00");
+  main.SetUser(this->main_interpreter.auth_checker.GenQueryUser("bob", {}));
+  main.SetSessionInfo("session-bob", "bob", "2026-01-01T00:00:00");
+
+  auto stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+  auto const &rows = stream.GetResults();
+  ASSERT_EQ(rows.size(), 2U);
+
+  for (auto const &row : rows) {
+    auto const id = row[0].ValueString();
+    if (id == "session-alice") {
+      EXPECT_EQ(row[1].ValueString(), "alice");
+      EXPECT_EQ(row[2].ValueString(), "tenant_a");
+      EXPECT_TRUE(row[3].IsString());
+    } else if (id == "session-bob") {
+      EXPECT_EQ(row[1].ValueString(), "bob");
+      EXPECT_EQ(row[2].ValueString(), "tenant_a");
+      EXPECT_TRUE(row[3].IsString());
+    } else {
+      FAIL() << "Unexpected session_id in SHOW SESSIONS result: " << id;
+    }
+  }
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsSelfOnlyForUnprivilegedCaller) {
+  // Both interpreters are fully logged in (SetUser + SetSessionInfo, same named db). The
+  // caller is given a QueryUserOrRole whose IsAuthorized always returns false, modelling a
+  // user without TRANSACTION_MANAGEMENT on any database. The per-row privilege_checker
+  // therefore denies alice's session. The caller's own session (bob) still appears via the
+  // same_user pointer check: foreign_user_view_.store(user_or_role_) publishes the same
+  // shared_ptr object that user_or_role_ holds, so lv.get() == rv is true for bob's own row,
+  // which short-circuits before the privilege_checker is consulted.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  // Models a logged-in user who lacks TRANSACTION_MANAGEMENT. IsAuthorized always returns
+  // false, so the privilege_checker denies every row whose owner is a different user.
+  struct DenyAllUser : memgraph::query::QueryUserOrRole {
+    explicit DenyAllUser(std::string name) : memgraph::query::QueryUserOrRole{std::move(name), {}} {}
+
+    bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &, std::optional<std::string_view>,
+                      memgraph::query::UserPolicy *) const override {
+      return false;
+    }
+
+    std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override {
+      return std::make_shared<DenyAllUser>(*this);
+    }
+
+    std::vector<std::string> GetRolenames(std::optional<std::string>) const override { return {}; }
+#ifdef MG_ENTERPRISE
+    bool CanImpersonate(const std::string &, memgraph::query::UserPolicy *,
+                        std::optional<std::string_view>) const override {
+      return false;
+    }
+
+    std::string GetDefaultDB() const override { return std::string{memgraph::dbms::kDefaultDB}; }
+#endif
+  };
+
+  auto &running = this->running_interpreter.interpreter;
+  auto &main = this->main_interpreter.interpreter;
+
+  // Other session: alice, fully logged in on tenant_a.
+  running.SetUser(this->running_interpreter.auth_checker.GenQueryUser("alice", {}));
+  running.SetSessionInfo("session-alice", "alice", "2026-01-01T00:00:00");
+
+  // Caller: bob with DenyAllUser. SetUser publishes to foreign_user_view_, so same_user
+  // fires (pointer equality) for bob's own row and bypasses the privilege_checker entirely.
+  main.SetUser(std::make_shared<DenyAllUser>("bob"));
+  main.SetSessionInfo("session-bob", "bob", "2026-01-01T00:00:00");
+
+  auto stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+  auto const &rows = stream.GetResults();
+  // Only bob's own session appears: alice is hidden because same_user is false (different
+  // username) and the privilege_checker returns false (DenyAllUser::IsAuthorized).
+  ASSERT_EQ(rows.size(), 1U);
+  EXPECT_EQ(rows[0][0].ValueString(), "session-bob");
+  EXPECT_EQ(rows[0][1].ValueString(), "bob");
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsSkipsSessionWithoutSessionInfo) {
+  // running_interpreter has session info; main_interpreter (the caller) does not.
+  // AllowEverythingAuthChecker makes the privilege_checker grant running_interpreter's row,
+  // so the result has exactly one entry.  The absence of a second row proves that a session
+  // which never called SetSessionInfo (null foreign_session_view_) is skipped even when the
+  // caller holds sufficient privilege to see it.
+  auto &running = this->running_interpreter.interpreter;
+  running.SetUser(this->running_interpreter.auth_checker.GenQueryUser("alice", {}));
+  running.SetSessionInfo("session-running", "alice", "2026-01-01T00:00:00");
+  // main_interpreter: SetSessionInfo never called — foreign_session_view_ is null.
+
+  auto stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+  auto const &rows = stream.GetResults();
+  ASSERT_EQ(rows.size(), 1U);
+  EXPECT_EQ(rows[0][0].ValueString(), "session-running");
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsListsDbLessSessionViaDefaultDbFallback) {
+  // A session that holds no database (current_db_.ResetDB()) is still visible to a caller
+  // granted TRANSACTION_MANAGEMENT on kDefaultDB. ShowSessions computes
+  //   db_for_check = db.empty() ? kDefaultDB : db
+  // before calling the privilege_checker, so a db-less session is reachable via the fallback
+  // rather than being silently dropped. The emitted row carries an empty string for the
+  // database column, distinguishing "no database" from any named tenant.
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &running = this->running_interpreter.interpreter;
+  running.SetUser(this->running_interpreter.auth_checker.GenQueryUser("alice", {}));
+  running.SetSessionInfo("session-alice", "alice", "2026-01-01T00:00:00");
+  // Drop the db-accessor after publishing the session identity: from this point
+  // foreign_db_view().name == "" and the privilege check uses kDefaultDB as the fallback.
+  running.current_db_.ResetDB();
+
+  // The caller uses AllowEverythingAuthChecker (via Interpret), so TRANSACTION_MANAGEMENT
+  // on kDefaultDB is granted and the db-less session becomes visible.
+  auto stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+  auto const &rows = stream.GetResults();
+
+  bool found_alice = false;
+  for (auto const &row : rows) {
+    if (row[0].ValueString() == "session-alice") {
+      found_alice = true;
+      EXPECT_EQ(row[1].ValueString(), "alice");
+      // Empty string: the session holds no database. A named tenant would appear here instead.
+      EXPECT_EQ(row[2].ValueString(), "");
+    }
+  }
+  EXPECT_TRUE(found_alice) << "db-less session must be visible via kDefaultDB privilege fallback";
+}
+
+// NB2 regression: ResetUser() must store nullptr into foreign_session_view_ in addition to
+// foreign_user_view_, so a session that has logged off disappears from SHOW SESSIONS
+// immediately — even to an admin holding full TRANSACTION_MANAGEMENT.  Before the fix,
+// ResetUser() only cleared foreign_user_view_; foreign_session_view_ kept its stale pointer
+// and the session continued to appear in SHOW SESSIONS until the connection was dropped.
+TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsOmitsLoggedOffSession) {
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &running = this->running_interpreter.interpreter;
+
+  // Step 1: fully log the session in — publish both user identity and session metadata.
+  running.SetUser(this->running_interpreter.auth_checker.GenQueryUser("carol", {}));
+  running.SetSessionInfo("session-x", "carol", "2026-01-01T00:00:00");
+
+  // Confirm the session is visible before LOGOFF so the post-LOGOFF absence is not vacuous.
+  {
+    auto pre_stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+    bool found_pre = false;
+    for (auto const &row : pre_stream.GetResults()) {
+      if (row[0].ValueString() == "session-x") {
+        found_pre = true;
+        break;
+      }
+    }
+    EXPECT_TRUE(found_pre) << "session-x must be visible after SetUser + SetSessionInfo";
+  }
+
+  // Step 2: simulate LOGOFF — ResetUser() clears both foreign_user_view_ and
+  // foreign_session_view_, so ShowSessions will skip this interpreter entirely.
+  running.ResetUser();
+
+  // Step 3: re-run SHOW SESSIONS from a caller with AllowEverythingAuthChecker (the default
+  // injected by InterpreterFaker::Interpret), which grants every privilege check.  Even with
+  // maximum privilege, a session whose foreign_session_view_ is null must be invisible.
+  auto post_stream = this->main_interpreter.Interpret("SHOW SESSIONS");
+  auto const &rows = post_stream.GetResults();
+
+  // Step 4: assert the logged-off session is absent from every returned row.
+  for (auto const &row : rows) {
+    EXPECT_NE(row[0].ValueString(), "session-x")
+        << "logged-off session must not appear in SHOW SESSIONS (session_id column) after ResetUser";
+    EXPECT_NE(row[1].ValueString(), "carol")
+        << "logged-off session must not appear in SHOW SESSIONS (username column) after ResetUser";
+  }
 }

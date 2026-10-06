@@ -1,0 +1,22 @@
+args: &args
+  - "--bolt-port"
+  - "7687"
+  - "--log-level=TRACE"
+
+test_session_termination_cluster: &test_session_termination_cluster
+  cluster:
+    main:
+      args: *args
+      log_file: "session_termination.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "test-session-termination"
+    binary: "tests/e2e/pytest_runner.sh"
+    # Reuses transaction_queue's infinite_query.long_query() read proc for the busy-session test
+    # instead of duplicating it; that suite's CMakeLists already builds it into this same relative
+    # build-dir path (tests/e2e/runner.py resolves `proc` relative to BUILD_DIR).
+    proc: "tests/e2e/transaction_queue/procedures/"
+    args: ["session_termination/test_terminate_sessions.py"]
+    <<: *test_session_termination_cluster

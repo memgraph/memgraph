@@ -9,6 +9,7 @@ file(COPY "${SRC}/" DESTINATION "${DST}"
      PATTERN "htmlcov"           EXCLUDE
      PATTERN "pytest.ini"        EXCLUDE
      PATTERN "requirements.txt"  EXCLUDE
+     PATTERN "requirements*.lock" EXCLUDE
      PATTERN "CMakeLists.txt"    EXCLUDE
      PATTERN "copy_python_modules.cmake" EXCLUDE
      REGEX "/\\.[^/]*$"          EXCLUDE)

@@ -45,6 +45,10 @@ struct UUID {
 
   UUID() { uuid_generate(uuid.data()); }
 
+  // Returns the nil UUID without consulting the system random-number generator. This is useful for values that are
+  // about to be populated by deserialization.
+  static UUID Nil() { return UUID{arr_t{}}; }
+
   explicit operator std::string() const {
     // Note not using UUID_STR_LEN so we can build with older libuuid
     auto decoded = std::array<char, 37 /*UUID_STR_LEN*/>{};

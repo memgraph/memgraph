@@ -181,4 +181,16 @@ inline std::optional<int64_t> GetVmMaxMapCount() {
   return std::stoi(parts[0]);
 }
 
+/// Returns the number of bytes available on the filesystem holding `path`,
+/// or nullopt if the filesystem cannot be queried.
+inline std::optional<uint64_t> GetDiskAvailable(const std::filesystem::path &path) {
+  std::error_code ec;
+  const auto info = std::filesystem::space(path, ec);
+  if (ec) {
+    spdlog::trace("Cannot query available disk space for '{}': {}", path, ec.message());
+    return std::nullopt;
+  }
+  return static_cast<uint64_t>(info.available);
+}
+
 }  // namespace memgraph::utils

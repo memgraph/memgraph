@@ -27,6 +27,7 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/query/label_term.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpret/frame.hpp"
@@ -42,6 +43,44 @@
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::query {
+
+/// Test a label term against one already-fetched vertex. `has_label` answers for a single label and
+/// `has_any_label` for the `%` wildcard; both read the vertex the caller evaluated once.
+/// An `And` with no operands comes from a `$param` bound to an empty list and holds.
+template <typename HasLabel, typename HasAnyLabel>
+bool EvalLabelTerm(const LabelTerm &term, const HasLabel &has_label, const HasAnyLabel &has_any_label) {
+  auto holds = [&](const LabelTerm &operand) { return EvalLabelTerm(operand, has_label, has_any_label); };
+  return std::visit(
+      utils::Overloaded{
+          [&](const LabelTerm::Label &leaf) -> bool { return has_label(leaf.label); },
+          [](const LabelTerm::Dynamic &) -> bool {
+            throw QueryRuntimeException(
+                "A label named by an expression can only be written by CREATE, not matched or tested. For a "
+                "label whose name contains a dot, put the name in backticks.");
+          },
+          [&](const LabelTerm::Wildcard &) -> bool { return has_any_label(); },
+          [&](const LabelTerm::Not &negation) -> bool { return !holds(*negation.operand); },
+          [&](const LabelTerm::And &conjunction) -> bool { return std::ranges::all_of(conjunction.operands, holds); },
+          [&](const LabelTerm::Or &disjunction) -> bool { return std::ranges::any_of(disjunction.operands, holds); },
+      },
+      term.node);
+}
+
+/// Throws the query error for a vertex whose labels could not be read. Kept out of line: the per-row label
+/// test only calls it on failure.
+[[noreturn, gnu::cold, gnu::noinline]] inline void ThrowLabelReadError(storage::Error error) {
+  switch (error) {
+    case storage::Error::DELETED_OBJECT:
+      throw QueryRuntimeException("Trying to access labels on a deleted node.");
+    case storage::Error::NONEXISTENT_OBJECT:
+      throw QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
+    case storage::Error::SERIALIZATION_ERROR:
+    case storage::Error::VERTEX_HAS_EDGES:
+    case storage::Error::PROPERTIES_DISABLED:
+      throw QueryRuntimeException("Unexpected error when accessing labels.");
+  }
+  LOG_FATAL("Unexpected storage::Error");
+}
 
 class VirtualNode;
 class VirtualEdge;
@@ -480,11 +519,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         const auto &cached_value = cached_value_ref->get();
 
-        // A lookup in the set answers by equivalence, which holds a Null equivalent to a Null.
-        // Equality answers Null against anything holding one, so the set stands in for the loop
-        // below only while neither the list's elements nor the sought value hold a Null below
-        // their top level. A top-level Null does not spoil it, because the explicit lookup for
-        // one answers exactly that case.
+        // A lookup in the set answers by equivalence, so it stands in for the loop below only
+        // where the set says equivalence and equality agree over its elements. The sought value
+        // is the caller's half of that: equality answers Null against anything holding one, and
+        // a miss here could only report false. A NaN needs no such check, because equality
+        // answers a pair holding one false, which is what a miss reports.
         if (cached_value.AnswersEquality() && !relations::equality::HoldsANull(literal)) {
           if (cached_value.Contains(literal)) {
             return TypedValue(true, ctx_->memory);
@@ -634,66 +673,23 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         return TypedValue(ctx_->memory);
       case TypedValue::Type::Vertex: {
         const auto &vertex = expression_result.ValueVertex();
-        for (const auto &label : labels_test.labels_) {
-          auto has_label = vertex.HasLabel(view_, GetLabel(label));
-          if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-            // This is a very nasty and temporary hack in order to make MERGE
-            // work. The old storage had the following logic when returning an
-            // `OLD` view: `return old ? old : new`. That means that if the
-            // `OLD` view didn't exist, it returned the NEW view. With this hack
-            // we simulate that behavior.
-            // TODO: Remove once MERGE is
-            // reimplemented.
-            has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
-          }
-          if (!has_label) {
-            switch (has_label.error()) {
-              case storage::Error::DELETED_OBJECT:
-                throw QueryRuntimeException("Trying to access labels on a deleted node.");
-              case storage::Error::NONEXISTENT_OBJECT:
-                throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
-              case storage::Error::SERIALIZATION_ERROR:
-              case storage::Error::VERTEX_HAS_EDGES:
-              case storage::Error::PROPERTIES_DISABLED:
-                throw QueryRuntimeException("Unexpected error when accessing labels.");
-            }
-          }
-          if (!*has_label) {
+        if (const auto *term = labels_test.Term()) {
+          // The closures are built here only: the plain labels below call the helpers directly, so their rows
+          // do not store captures to the stack for EvalLabelTerm to read.
+          return TypedValue(EvalLabelTerm(
+                                *term,
+                                [&](const LabelIx &label) { return HasLabel(vertex, label); },
+                                [&] { return HasAnyLabel(vertex); }),
+                            ctx_->memory);
+        }
+        const auto &cnf = *labels_test.Cnf();
+        for (const auto &label : cnf.labels) {
+          if (!HasLabel(vertex, label)) {
             return TypedValue(false, ctx_->memory);
           }
         }
-        for (const auto &or_labels_pattern : labels_test.or_labels_) {
-          bool has_at_least_one_label = false;
-          for (const auto &label : or_labels_pattern) {
-            auto has_label = vertex.HasLabel(view_, GetLabel(label));
-            if (has_label == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
-              // This is a very nasty and temporary hack in order to make MERGE
-              // work. The old storage had the following logic when returning an
-              // `OLD` view: `return old ? old : new`. That means that if the
-              // `OLD` view didn't exist, it returned the NEW view. With this hack
-              // we simulate that behavior.
-              // TODO: Remove once MERGE is
-              // reimplemented.
-              has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
-            }
-            if (!has_label) {
-              switch (has_label.error()) {
-                case storage::Error::DELETED_OBJECT:
-                  throw QueryRuntimeException("Trying to access labels on a deleted node.");
-                case storage::Error::NONEXISTENT_OBJECT:
-                  throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
-                case storage::Error::SERIALIZATION_ERROR:
-                case storage::Error::VERTEX_HAS_EDGES:
-                case storage::Error::PROPERTIES_DISABLED:
-                  throw QueryRuntimeException("Unexpected error when accessing labels.");
-              }
-            }
-            if (*has_label) {
-              has_at_least_one_label = true;
-              break;
-            }
-          }
-          if (!has_at_least_one_label) {
+        for (const auto &or_labels_pattern : cnf.or_labels) {
+          if (!std::ranges::any_of(or_labels_pattern, [&](const LabelIx &label) { return HasLabel(vertex, label); })) {
             return TypedValue(false, ctx_->memory);
           }
         }
@@ -1279,6 +1275,27 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   storage::LabelId GetLabel(const LabelIx &label) const { return ctx_->labels[label.ix]; }
+
+  // This is a very nasty and temporary hack in order to make MERGE work. The old storage had the following logic
+  // when returning an `OLD` view: `return old ? old : new`. That means that if the `OLD` view didn't exist, it
+  // returned the NEW view. With this hack we simulate that behavior.
+  // TODO: Remove once MERGE is reimplemented.
+  bool HasLabel(const VertexAccessor &vertex, const LabelIx &label) const {
+    auto result = vertex.HasLabel(view_, GetLabel(label));
+    if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
+      result = vertex.HasLabel(storage::View::NEW, GetLabel(label));
+    }
+    if (!result) ThrowLabelReadError(result.error());
+    return *result;
+  }
+
+  /// Whether the vertex carries any label, which is what `%` asks. The same MERGE hack applies.
+  bool HasAnyLabel(const VertexAccessor &vertex) const {
+    auto result = vertex.HasAnyLabel(view_);
+    if (result == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) result = vertex.HasAnyLabel(storage::View::NEW);
+    if (!result) ThrowLabelReadError(result.error());
+    return *result;
+  }
 
   storage::EdgeTypeId GetEdgeType(const EdgeTypeIx &edgetype) const { return ctx_->edgetypes[edgetype.ix]; }
 

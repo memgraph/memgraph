@@ -34,8 +34,8 @@ struct CachedSet {
 
   /// Whether a lookup here answers the equality question `IN` asks.
   ///
-  /// The set is keyed by equivalence, which reports a pair equal that equality leaves undecided.
-  /// The two are indistinguishable only when an element holds a Null below its top level.
+  /// The set is keyed by equivalence, which holds a pair alike that equality leaves undecided or
+  /// answers false. The two part company over an element holding a Null or a NaN.
   bool answers_equality_{true};
 
   explicit CachedSet(allocator_type alloc) : cache_{alloc} {}
@@ -69,10 +69,12 @@ struct CachedSet {
     }
     const auto &list = maybe_list.ValueList();
     for (const auto &element : list) {
-      // A Null element is answered by the explicit lookup for one, so it does not cost the set its
-      // exactness. A Null held inside an element does: no lookup can tell that element apart from
-      // one the sought value is decidedly equal to.
-      if (!element.IsNull() && relations::equality::HoldsANull(element)) answers_equality_ = false;
+      // An element that equality does not hold equal to itself costs the set its exactness: a
+      // lookup reports it present where equality would answer Null, for an element holding a
+      // Null, or false, for one holding a NaN.
+      //
+      // A top-level Null is the exception, answered by the explicit lookup for one.
+      if (!element.IsNull() && !relations::equality::EqualsItself(element)) answers_equality_ = false;
       cache_.insert(element);
     }
     return true;

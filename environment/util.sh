@@ -1,5 +1,15 @@
 #!/usr/bin/env bash
 
+# Single source of truth for the toolchain versions install_custom_packages
+# provisions. Everything else derives from these: release/package/mgbuild.sh
+# sources this file for its DEFAULT_RUST_VERSION / DEFAULT_NODE_VERSION (which
+# feed the Dockerfile build args and the post-install version checks), and
+# tests/util.sh reads MG_NODE_VERSION for the node it installs on demand. Both
+# stay overridable from the environment so mgbuild.sh can pin a container to the
+# host's values even when the container holds an older checkout.
+MG_RUST_VERSION="${MG_RUST_VERSION:-1.98.1}"
+MG_NODE_VERSION="${MG_NODE_VERSION:-26.9.0}"
+
 function operating_system() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         local detected_os=$(grep -E '^(VERSION_)?ID=' /etc/os-release | \
@@ -190,10 +200,10 @@ function install_custom_packages() {
                 retry_install install_custom_golang "1.18.9"
                 ;;
             custom-rust)
-                retry_install install_rust "1.97.1"
+                retry_install install_rust "$MG_RUST_VERSION"
                 ;;
             custom-node)
-                retry_install install_node "24.19.0"
+                retry_install install_node "$MG_NODE_VERSION"
                 ;;
         esac
     done

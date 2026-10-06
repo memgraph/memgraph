@@ -2117,20 +2117,23 @@ inline bool MapsEqual(mgp_map *map1, mgp_map *map2) {
   if (map1 == map2) {
     return true;
   }
-  if (mgp::map_size(map1) != mgp::map_size(map2)) {
+  const size_t size = mgp::map_size(map1);
+  if (size != mgp::map_size(map2)) {
     return false;
   }
+  if (size == 0) {
+    return true;
+  }
+  // The sizes agree, so every key of map1 resolving in map2 means the key sets are the same.
   auto *items_it = mgp::MemHandlerCallback(map_iter_items, map1);
-  for (auto *item = mgp::map_items_iterator_get(items_it); item; item = mgp::map_items_iterator_next(items_it)) {
-    if (mgp::map_item_key(item) == mgp::map_item_key(item)) {
-      return false;
-    }
-    if (!util::ValuesEqual(mgp::map_item_value(item), mgp::map_item_value(item))) {
-      return false;
-    }
+  bool equal = true;
+  for (auto *item = mgp::map_items_iterator_get(items_it); item != nullptr && equal;
+       item = mgp::map_items_iterator_next(items_it)) {
+    auto *other_value = mgp::map_at(map2, mgp::map_item_key(item));
+    equal = other_value != nullptr && util::ValuesEqual(mgp::map_item_value(item), other_value);
   }
   mgp::map_items_iterator_destroy(items_it);
-  return true;
+  return equal;
 }
 
 /// @brief Returns whether two MGP API nodes are equal.
@@ -5741,13 +5744,22 @@ struct hash<mgp::ZonedDateTime> {
 
 template <>
 struct hash<mgp::MapItem> {
-  size_t operator()(const mgp::MapItem &x) const { return hash<std::string_view>()(x.key); };
+  // Defined below, once hash<mgp::Value> is complete.
+  size_t operator()(const mgp::MapItem &x) const;
 };
 
 template <>
 struct hash<mgp::Map> {
   size_t operator()(const mgp::Map &x) const {
-    return mgp::util::FnvCollection<mgp::Map, mgp::MapItem, std::hash<mgp::MapItem>>{}(x);
+    if (x.Size() == 0) {
+      return 0;
+    }
+    // Combined commutatively: equal maps must hash alike whatever order their storage iterates in.
+    size_t result = 0;
+    for (const auto &item : x) {
+      result ^= hash<mgp::MapItem>{}(item);
+    }
+    return result;
   }
 };
 
@@ -5839,4 +5851,11 @@ struct hash<mgp::List> {
     return mgp::util::FnvCollection<mgp::List, mgp::Value, std::hash<mgp::Value>>{}(x);
   }
 };
+
+inline size_t hash<mgp::MapItem>::operator()(const mgp::MapItem &x) const {
+  // The value is hashed too, or same-shaped maps all land in one bucket and dedupe goes quadratic.
+  size_t seed = hash<std::string_view>{}(x.key);
+  seed ^= hash<mgp::Value>{}(x.value) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+  return seed;
+}
 }  // namespace std

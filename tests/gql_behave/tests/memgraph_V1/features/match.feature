@@ -1018,3 +1018,825 @@ Feature: Match
             | n.name |
             | 'A1'   |
             | 'B1'   |
+
+    Scenario: Two label disjunctions over indexed labels are both tested
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And with new index :C
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) MATCH (n:B|C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction subsumed by an earlier one still holds
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B|C) MATCH (n:A|B) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction that subsumes an earlier one does not widen it
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) MATCH (n:A|B|C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction in WHERE is tested beside the one in the pattern
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) WHERE n:B OR n:C RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: Two label disjunctions in WHERE are both tested
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE (n:A OR n:B) AND (n:B OR n:C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction in WHERE equal to the pattern's
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n:B|A) WHERE n:A OR n:B RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label disjunction over two variables tests either
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n), (m) WHERE n:A OR m:B RETURN count(*) AS c;
+            """
+        Then the result should be:
+            | c  |
+            | 24 |
+
+    Scenario: A label disjunction over two variables after WITH * tests either
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n), (m) WITH * WHERE n:A OR m:B RETURN count(*) AS c;
+            """
+        Then the result should be:
+            | c  |
+            | 24 |
+
+    Scenario: A label disjunction over an expression that is not a variable
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE head([n]):A OR head([n]):B RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+
+    Scenario: A label a negated pattern filter states is not demanded of the row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:E]->(), (:A:B {n: 'ab'})-[:E]->(), (:A {n: 'lonely'})
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE NOT exists((n:B)-[]-()) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v        |
+            | 'a'      |
+            | 'lonely' |
+
+    Scenario: A label disjunction a pattern filter states is tested whole
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:E]->(), (:B {n: 'b'})-[:E]->(), (:A:B {n: 'ab'})-[:E]->()
+            """
+        When executing query:
+            """
+            MATCH (n:A|B) WHERE exists((n:B|C)-[]-()) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'b'  |
+
+    Scenario: A label expression a negated pattern filter states is not demanded of the row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:E]->(), (:A:B {n: 'ab'})-[:E]->(), (:A:B:D {n: 'abd'})-[:E]->(), (:A:C {n: 'ac_lonely'})
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE NOT exists((n:(B|C)&!D)-[]-()) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v           |
+            | 'a'         |
+            | 'abd'       |
+            | 'ac_lonely' |
+
+    Scenario: A negated label a negated pattern filter states is not demanded of the row
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:E]->(), (:A:B {n: 'ab'})-[:E]->(), (:A {n: 'lonely'}), (:A:B {n: 'ab_lonely'})
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE NOT exists((n:!B)-[]-()) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v           |
+            | 'ab'        |
+            | 'ab_lonely' |
+            | 'lonely'    |
+
+    Scenario: A label expression disjunction or-ed with a label over indexed labels
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And with new index :C
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:A:C {n: 'ac'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n:A|B OR n:C RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'ac' |
+            | 'b'  |
+            | 'c'  |
+
+    Scenario: Label expression NOT
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n:!A) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v      |
+            | 'b'    |
+            | 'c'    |
+            | 'none' |
+
+    Scenario: Label expression wildcard
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n:%) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v     |
+            | 'a'   |
+            | 'ab'  |
+            | 'abc' |
+            | 'b'   |
+            | 'c'   |
+
+    Scenario: A label expression in a pattern keeps the pattern's properties
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B {n: 'ab'}) RETURN n.n AS v UNION ALL MATCH (n:!A {n: 'b'}) RETURN n.n AS v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'b'  |
+
+    Scenario: An OR of a label expression and a label in WHERE
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n:!A OR n:B RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v      |
+            | 'ab'   |
+            | 'abc'  |
+            | 'b'    |
+            | 'c'    |
+            | 'none' |
+
+    Scenario: Label expression negated wildcard matches only a node without labels
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n:!%) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v      |
+            | 'none' |
+
+    Scenario: Label expression parentheses bind tighter than AND
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n:(A|B)&!C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+            | 'b'  |
+
+    Scenario: Label expression AND binds tighter than OR
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n:A|B&C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v     |
+            | 'a'   |
+            | 'ab'  |
+            | 'abc' |
+
+    Scenario: Label expression NOT binds tighter than AND
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n:!A&B) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v   |
+            | 'b' |
+
+    Scenario: Label expression that no node can satisfy
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n:A&!A) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be empty
+
+    Scenario: Label expression binds tighter than OR in WHERE
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n:A|B OR n.n = 'c' RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v     |
+            | 'a'   |
+            | 'ab'  |
+            | 'abc' |
+            | 'b'   |
+            | 'c'   |
+
+    Scenario: Label expression in RETURN
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A:B {n: 'ab'})
+            """
+        When executing query:
+            """
+            MATCH (n {n: 'ab'}) RETURN n:A&B AS v1, n:!A AS v2, n:% AS v3;
+            """
+        Then the result should be:
+            | v1   | v2    | v3   |
+            | true | false | true |
+
+    Scenario: Label expression in a list comprehension filter
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:C {n: 'c'})
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n ORDER BY n.n WITH collect(n) AS ns RETURN [x IN ns WHERE x:A|B | x.n] AS v;
+            """
+        Then the result should be:
+            | v          |
+            | ['a', 'b'] |
+
+    Scenario: Label expression with an index over the disjunction
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n:(A|B)&!C) WHERE n.n STARTS WITH 'a' RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'a'  |
+            | 'ab' |
+
+    Scenario: Creating with a label conjunction
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:X&Y) RETURN labels(n) AS v;
+            """
+        Then the result should be:
+            | v          |
+            | ['X', 'Y'] |
+
+    Scenario: Merging with a label conjunction
+        Given an empty graph
+        When executing query:
+            """
+            MERGE (n:X&Y {n: 'new'}) RETURN labels(n) AS v;
+            """
+        Then the result should be:
+            | v          |
+            | ['X', 'Y'] |
+
+    Scenario: A label expression over a pattern expression
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})-[:R]->(:B {n: 'b'})
+            """
+        When executing query:
+            """
+            MATCH (n:A) RETURN [(n)-->(m) | m][0]:!A AS v1, [(n)-->(m) | m][0]:B|C AS v2;
+            """
+        Then the result should be:
+            | v1   | v2   |
+            | true | true |
+
+    Scenario: An empty label parameter under an operator only asks for a node
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), ({n: 'none'})
+            """
+        And parameters are:
+            | p | [] |
+        When executing query:
+            """
+            MATCH (n:($p)) RETURN n.n AS v, n:$p|B AS either, n:!$p AS neither, null:($p) AS unknown ORDER BY v;
+            """
+        Then the result should be:
+            | v      | either | neither | unknown |
+            | 'a'    | true   | false   | null    |
+            | 'none' | true   | false   | null    |
+
+    Scenario: An empty label parameter under an operator does not match a null
+        Given an empty graph
+        And parameters are:
+            | p | [] |
+        When executing query:
+            """
+            OPTIONAL MATCH (n:Missing) WITH n MATCH (n:!!$p) RETURN n;
+            """
+        Then the result should be empty
+
+    Scenario: A label parameter bound to a list is a conjunction under an operator
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'})
+            """
+        And parameters are:
+            | p | ['A', 'B'] |
+        When executing query:
+            """
+            MATCH (n:$p|C) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v    |
+            | 'ab' |
+            | 'c'  |
+
+    Scenario: Creating with an empty label parameter under an operator
+        Given an empty graph
+        And parameters are:
+            | p | [] |
+        When executing query:
+            """
+            CREATE (n:$p&$p) RETURN labels(n) AS l;
+            """
+        Then the result should be:
+            | l  |
+            | [] |
+
+    Scenario: Label expressions that nest negation, wildcard and grouping
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN [x IN collect(n) WHERE x:!(A|B) | x.v] AS none_of, [x IN collect(n) WHERE x:%&!A | x.v] AS labelled_not_a, [x IN collect(n) WHERE x:(A|B)&!(A&B) | x.v] AS exactly_one;
+            """
+        Then the result should be:
+            | none_of | labelled_not_a | exactly_one |
+            | [0, 4]  | [2, 4]         | [1, 2, 5]   |
+
+    Scenario: Matching (n:!(A|B)) in a pattern
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH (n:!(A|B)) WITH n.v AS v ORDER BY v RETURN collect(v) AS vs;
+            """
+        Then the result should be:
+            | vs |
+            | [0, 4] |
+
+    Scenario: Matching (n:%&!A) in a pattern
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH (n:%&!A) WITH n.v AS v ORDER BY v RETURN collect(v) AS vs;
+            """
+        Then the result should be:
+            | vs |
+            | [2, 4] |
+
+    Scenario: A label expression on an expand target
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH (a:A)-->(m:!C) RETURN a.v AS a, m.v AS m ORDER BY a, m;
+            """
+        Then the result should be:
+            | a | m |
+            | 1 | 2 |
+            | 1 | 3 |
+            | 5 | 2 |
+
+    Scenario: A label expression on a node bound by an earlier clause
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH (n) WITH n MATCH (n:A&!B) WITH n.v AS v ORDER BY v RETURN collect(v) AS vs;
+            """
+        Then the result should be:
+            | vs |
+            | [1, 5] |
+
+    Scenario: A label expression on an expand target bound by an earlier clause
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH (a {v: 1}), (m) WITH a, m MATCH (a)-->(m:(A|B)&!(A&B)) RETURN m.v AS m;
+            """
+        Then the result should be:
+            | m |
+            | 2 |
+
+    Scenario: A label expression in OPTIONAL MATCH
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n.v IN [1, 4] OPTIONAL MATCH (n)-->(m:!C) RETURN n.v AS n, m.v AS m ORDER BY n, m;
+            """
+        Then the result should be:
+            | n | m    |
+            | 1 | 2    |
+            | 1 | 3    |
+            | 4 | null |
+
+    Scenario: A label expression in an EXISTS subquery
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2),
+                   (x2)-[:R]->(x0)
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE EXISTS { MATCH (n)-->(:%&!A) } WITH n.v AS v ORDER BY v RETURN collect(v) AS vs;
+            """
+        Then the result should be:
+            | vs |
+            | [1, 3, 5] |
+
+    Scenario: A label expression in a COUNT subquery
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n.v AS n, COUNT { (n)-->(:A|B) } AS c ORDER BY n;
+            """
+        Then the result should be:
+            | n | c |
+            | 0 | 1 |
+            | 1 | 2 |
+            | 2 | 0 |
+            | 3 | 0 |
+            | 4 | 0 |
+            | 5 | 1 |
+
+    Scenario: A label expression in a pattern predicate
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE (n)-->(:!A) WITH n.v AS v ORDER BY v RETURN collect(v) AS vs;
+            """
+        Then the result should be:
+            | vs |
+            | [1, 3, 5] |
+
+    Scenario: A label expression in a pattern comprehension
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH (n {v: 1}) UNWIND [(n)-->(m:A|!B) | m.v] AS v WITH v ORDER BY v RETURN collect(v) AS vs;
+            """
+        Then the result should be:
+            | vs |
+            | [3, 4] |
+
+    Scenario: A label expression on a variable-length endpoint
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH ({v: 0})-[*1..3]->(b:!A) WITH DISTINCT b.v AS v ORDER BY v RETURN collect(v) AS vs;
+            """
+        Then the result should be:
+            | vs |
+            | [2, 4] |
+
+    Scenario: A label expression on a BFS endpoint
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        When executing query:
+            """
+            MATCH ({v: 0})-[*BFS]->(b:!A) WITH b.v AS v ORDER BY v RETURN collect(v) AS vs;
+            """
+        Then the result should be:
+            | vs |
+            | [2, 4] |
+
+    Scenario: A negated label keeps its rows under a label index
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        And having executed:
+            """
+            CREATE INDEX ON :A;
+            """
+        And having executed:
+            """
+            CREATE INDEX ON :B;
+            """
+        When executing query:
+            """
+            MATCH (n:!A) WITH n.v AS v ORDER BY v RETURN collect(v) AS vs;
+            """
+        Then the result should be:
+            | vs |
+            | [0, 2, 4] |
+
+    Scenario: A label conjunction with a negation keeps its rows under label indexes
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (x0 {v: 0}), (x1:A {v: 1}), (x2:B {v: 2}), (x3:A:B {v: 3}), (x4:C {v: 4}), (x5:A:C {v: 5}),
+                   (x0)-[:R]->(x1), (x1)-[:R]->(x2), (x1)-[:R]->(x3), (x1)-[:R]->(x4), (x3)-[:R]->(x4), (x5)-[:R]->(x2)
+            """
+        And having executed:
+            """
+            CREATE INDEX ON :A;
+            """
+        And having executed:
+            """
+            CREATE INDEX ON :B;
+            """
+        When executing query:
+            """
+            MATCH (n:A&!B) WITH n.v AS v ORDER BY v RETURN collect(v) AS vs;
+            """
+        Then the result should be:
+            | vs |
+            | [1, 5] |
+
+    Scenario: A label expression on null is null
+        Given an empty graph
+        When executing query:
+            """
+            WITH null AS x RETURN x:A|B AS a, x:!% AS b, x:% AS c, head([x]):!A AS d;
+            """
+        Then the result should be:
+            | a    | b    | c    | d    |
+            | null | null | null | null |
+
+    Scenario: A label expression on a value that is not a node is an error
+        Given an empty graph
+        When executing query:
+            """
+            WITH 1 AS x RETURN x:!A AS v;
+            """
+        Then an error should be raised
+
+    Scenario: NOT over a negated label expression tests the expression itself
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'}), (:B {n: 'b'}), (:A:B {n: 'ab'}), (:C {n: 'c'}), ({n: 'none'}), (:A:B:C {n: 'abc'})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE NOT n:!(A|B) RETURN n.n AS v ORDER BY v;
+            """
+        Then the result should be:
+            | v     |
+            | 'a'   |
+            | 'ab'  |
+            | 'abc' |
+            | 'b'   |
+
+    Scenario: A label wildcard on a deleted node is an error
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {n: 'a'})
+            """
+        When executing query:
+            """
+            MATCH (n) DETACH DELETE n RETURN n:% AS v;
+            """
+        Then an error should be raised

@@ -46,7 +46,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(Filter &op) override {
     prev_ops_.push_back(&op);
-    filters_.CollectFilterExpression(op.expression_, *symbol_table_);
+    filters_.AddOperatorFilters(op.expression_, *symbol_table_, *ast_storage_);
     return true;
   }
 
@@ -59,9 +59,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     ExpressionRemovalResult removal = RemoveExpressions(op.expression_, filter_exprs_for_removal_, ast_storage_);
     op.expression_ = removal.trimmed_expression;
     if (op.expression_) {
-      Filters leftover_filters;
-      leftover_filters.CollectFilterExpression(op.expression_, *symbol_table_);
-      op.all_filters_ = std::move(leftover_filters);
+      op.all_filters_ = Filters::FromExpression(op.expression_, *symbol_table_, *ast_storage_);
     }
 
     if (!op.expression_ || filter_exprs_for_removal_.contains(op.expression_)) {
@@ -121,52 +119,12 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-
-  bool PostVisit(ScanAllByEdgeTypePropertyValue &op) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-
-  bool PostVisit(ScanAllByEdgeTypePropertyRange &op) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
   bool PreVisit(ScanAllByEdgeProperty &op) override {
     prev_ops_.push_back(&op);
     return true;
   }
 
   bool PostVisit(ScanAllByEdgeProperty &op) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ScanAllByEdgePropertyValue &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-
-  bool PostVisit(ScanAllByEdgePropertyValue &op) override {
-    prev_ops_.pop_back();
-    return true;
-  }
-
-  bool PreVisit(ScanAllByEdgePropertyRange &op) override {
-    prev_ops_.push_back(&op);
-    return true;
-  }
-
-  bool PostVisit(ScanAllByEdgePropertyRange &op) override {
     prev_ops_.pop_back();
     return true;
   }

@@ -1154,14 +1154,18 @@ def test_automatic_databases_drop_multitenancy_replication(connection, test_name
     execute_and_fetch_all(main_cursor, "DROP DATABASE A FORCE;")
     drop_database_with_retry(main_cursor, "B")
 
-    # 5/
-    databases_on_main = show_databases_func(main_cursor)()
+    # 5/ A was force-dropped (async) and B dropped. Wait for main AND both replicas to converge
+    # to the stable post-drop state; capturing main's SHOW DATABASES directly would freeze a
+    # transient ("A", "DROPPING", "draining") row that never matches the replicas once A finishes
+    # draining.
+    expected_databases = [("memgraph", "HOT", "ready")]
+    mg_sleep_and_assert(expected_databases, show_databases_func(main_cursor))
 
     replica_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
-    mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    mg_sleep_and_assert(expected_databases, show_databases_func(replica_cursor))
 
     replica_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
-    mg_sleep_and_assert(databases_on_main, show_databases_func(replica_cursor))
+    mg_sleep_and_assert(expected_databases, show_databases_func(replica_cursor))
 
 
 @pytest.mark.parametrize("replica_name", [("replica_1"), ("replica_2")])
@@ -1308,8 +1312,8 @@ def test_multitenancy_force_drop_while_replica_using(connection, test_name):
     # 3/ Validate replication of changes to A have arrived at REPLICA
     # 4/ Start A transaction on replica 1, Use A on replica2
     # 5/ Force drop database A on main while replica is using it
-    # 6/ Check that the force drop replicated and terminated transactions
-    # 7/ Validate that the replica can no longer access the database
+    # 6/ Replica_1 txn runs to completion and its session stays usable; idle replica_2 session is closed
+    # 7/ Validate that the dropped database can no longer be used on either replica
 
     # 0/
     MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
@@ -1363,7 +1367,7 @@ def test_multitenancy_force_drop_while_replica_using(connection, test_name):
     execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
     execute_and_fetch_all(main_cursor, "DROP DATABASE A FORCE;")
 
-    # 6/ Check that the force drop replicated and terminated transactions
+    # 6/ Check that the force drop replicated; replica_1 txn runs to completion, idle replica_2 session is closed
     # Wait for replication to complete
     expected_data = [
         (
@@ -1383,25 +1387,29 @@ def test_multitenancy_force_drop_while_replica_using(connection, test_name):
     ]
     mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
 
+    # Longer than one drain tick (10 s): idle replica_2 session is closed, replica_1's open txn protected it.
+    time.sleep(15)
+
+    # replica_1: open transaction runs to completion, then the session is released but stays usable
     assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
     execute_and_fetch_all(replica1_cursor, "COMMIT")
     try:
-        assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+        execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")
         assert False, "Replica1 should not be able to access dropped database"
     except mgclient.DatabaseError:
         pass
-    try:
-        assert execute_and_fetch_all(replica2_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
-        assert False, "Replica2 should not be able to access dropped database"
-    except mgclient.DatabaseError:
-        pass
-
-    # Verify replicas can still work with default database
     execute_and_fetch_all(replica1_cursor, "USE DATABASE memgraph;")
+
+    # replica_2: idle session was closed by the server (a live one would switch databases fine)
+    try:
+        execute_and_fetch_all(replica2_cursor, "USE DATABASE memgraph;")
+        assert False, "Replica2 session should have been closed"
+    except mgclient.Error:
+        pass
+    replica2_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
     execute_and_fetch_all(replica2_cursor, "USE DATABASE memgraph;")
 
-    # 7/ Validate that the replica can no longer access the database
-    # Try to use the dropped database
+    # 7/ Validate that the replicas can no longer use the dropped database
     try:
         execute_and_fetch_all(replica1_cursor, "USE DATABASE A;")
         assert False, "Replica1 should not be able to use dropped database"

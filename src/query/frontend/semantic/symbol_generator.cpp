@@ -65,6 +65,12 @@ auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, 
   return symbol;
 }
 
+void SymbolGenerator::RecordSubqueryReference(const Symbol &symbol) {
+  for (auto &subquery : open_subqueries_) {
+    subquery.referenced.insert(symbol);
+  }
+}
+
 auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) { return symbol_table_->CreateAnonymousSymbol(); }
 
 // TODO: When is fetching from previous scopes ok?
@@ -229,9 +235,10 @@ bool SymbolGenerator::PostVisit(CypherUnion &cypher_union) {
     throw SemanticException("All subqueries in an UNION must have the same column names.");
   }
 
-  // create new symbols for the result of the union
+  // The union's columns are the user's RETURN names, so a later `*` sees them. A column named like a scoped CALL
+  // import stays a column, so a distinct UNION keys on it, but is hidden: after the CALL that name is the import.
   for (const auto &name : scope.curr_return_names) {
-    auto symbol = CreateSymbol(name, false);
+    auto symbol = CreateSymbol(name, !scope.call_subquery_imports.contains(name));
     cypher_union.union_symbols_.push_back(symbol);
   }
 
@@ -440,10 +447,13 @@ bool SymbolGenerator::PostVisit(Match &) {
   scope.in_match = false;
   // Check variables in property maps after visiting Match, so that they can
   // reference symbols out of bind order.
+  // Same boundary as `Visit(Identifier &)`: inside `CALL {}` an un-imported outer name is not visible.
+  auto const from = scope.call_subquery_base.value_or(0);
   for (auto &ident : scope.identifiers_in_match) {
-    if (!HasSymbol(ident->name_) && !ConsumePredefinedIdentifier(ident->name_))
+    if (!HasSymbol(ident->name_, from) && !ConsumePredefinedIdentifier(ident->name_))
       throw UnboundVariableError(ident->name_);
-    ident->MapTo(scope.symbols[ident->name_]);
+    auto const &symbol = GetOrCreateSymbol(ident->name_, ident->user_declared_, Symbol::Type::ANY);
+    ident->MapTo(symbol);
   }
   scope.identifiers_in_match.clear();
   return true;
@@ -554,6 +564,8 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     // can reference symbols bound later in the same MATCH. We collect them
     // here, so that they can be checked after visiting Match.
     scope.identifiers_in_match.emplace_back(&ident);
+    // Resolved in `PostVisit(Match &)`. `symbol` is unset, so skip the shared tail.
+    return true;
   } else if (scope.in_call_subquery && !scope.in_with) {
     // Currently only CALL uses WITH to import symbols from outer scope
     // EXISTS implicitly imports outer scope symbols
@@ -577,6 +589,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
         "Entity '{}' cannot be created and referenced by a pattern comprehension in the same clause.", ident.name_);
   }
 
+  RecordSubqueryReference(symbol);
   ident.MapTo(symbol);
   return true;
 }
@@ -599,15 +612,10 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
         "Using aggregation functions inside aggregation functions is not "
         "allowed.");
   }
-  if (scope.num_if_operators) {
-    // Neo allows aggregations here and produces very interesting behaviors.
-    // To simplify implementation at this moment we decided to completely
-    // disallow aggregations inside of the CASE.
-    // However, in some cases aggregation makes perfect sense, for example:
-    //    CASE count(n) WHEN 10 THEN "YES" ELSE "NO" END.
-    // TODO: Rethink of allowing aggregations in some parts of the CASE
-    // construct.
-    throw SemanticException("Using aggregation functions inside of CASE is not allowed.");
+  if (scope.element_lambda_depth > 0) {
+    // The body runs once per element of a list, and an aggregation answers for a whole group of rows. The identifier
+    // the lambda binds is not on the frame the Aggregate writes, so nothing here can carry an element to it.
+    throw SemanticException("Using aggregation functions inside an expression over a list is not allowed.");
   }
   // Create a virtual symbol for aggregation result.
   // Currently, we only have aggregation operators which return numbers.
@@ -620,16 +628,6 @@ bool SymbolGenerator::PreVisit(Aggregation &aggr) {
 
 bool SymbolGenerator::PostVisit(Aggregation &) {
   scopes_.back().in_aggregation = false;
-  return true;
-}
-
-bool SymbolGenerator::PreVisit(IfOperator &) {
-  ++scopes_.back().num_if_operators;
-  return true;
-}
-
-bool SymbolGenerator::PostVisit(IfOperator &) {
-  --scopes_.back().num_if_operators;
   return true;
 }
 
@@ -733,7 +731,7 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
     throw utils::NotYetImplemented("{} cannot be used within REDUCE!", subquery.FoldName());
   }
 
-  // A CASE holds no position of its own, so it is not consulted here. num_if_operators still gates aggregations.
+  // A CASE holds no position of its own, so it is not consulted here.
   // The fold does not change which positions work; only what is written into the frame slot differs.
   if (!IsSupportedSubqueryPosition(scope)) {
     throw utils::NotYetImplemented("{} is not supported in this position yet!", subquery.FoldName());
@@ -751,11 +749,21 @@ bool SymbolGenerator::PreVisit(SubqueryExpression &subquery) {
                              .in_subquery_body = subquery.HasSubquery(),
                              .subquery_fold = subquery.fold_,
                              .call_subquery_base = scope.call_subquery_base});
+  open_subqueries_.emplace_back(OpenSubquery{.first_own_position = symbol_table_->max_position()});
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(SubqueryExpression & /*subquery*/) {
+bool SymbolGenerator::PostVisit(SubqueryExpression &subquery) {
+  const auto &body = open_subqueries_.back();
+  // A simple `CASE` visits its test once per WHEN arm. Keep the last visit's set: its symbols are the ones in the AST.
+  subquery.external_symbols_.clear();
+  for (const auto &symbol : body.referenced) {
+    if (symbol.position() < body.first_own_position) {
+      subquery.external_symbols_.insert(symbol);
+    }
+  }
+  open_subqueries_.pop_back();
   scopes_.pop_back();
   return true;
 }
@@ -893,6 +901,12 @@ bool SymbolGenerator::PostVisit(Pattern &) {
 
 bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   auto &scope = scopes_.back();
+  const auto labels = node_atom.LabelConjunction();
+  if ((scope.in_create || scope.in_merge) && !labels) {
+    throw SemanticException(
+        "Only label conjunctions are allowed when creating or merging a node; '|', '!' and '%' are for MATCH and "
+        "expressions.");
+  }
   auto check_node_semantic = [&node_atom, &scope, this]() {
     const auto &node_name = node_atom.identifier_->name_;
     if ((scope.in_create || scope.in_merge) && node_atom.HasLabelsOrProperties() && HasSymbol(node_name)) {
@@ -907,14 +921,16 @@ bool SymbolGenerator::PreVisit(NodeAtom &node_atom) {
   scope.in_node_atom = true;
 
   bool has_expressions = false;
-  for (auto &label : node_atom.labels_) {
-    if (auto *expression = std::get_if<Expression *>(&label)) {
+  for (const auto &label : labels.value_or(std::vector<QueryLabelType>{})) {
+    if (auto *const *expression = std::get_if<Expression *>(&label)) {
       (*expression)->Accept(*this);
       has_expressions = true;
     }
   }
   if (!scope.in_create && has_expressions) {
-    throw SemanticException("You can use expressions with labels only with CREATE!");
+    throw SemanticException(
+        "A label named by an expression can only be written by CREATE, not matched or tested. For a label "
+        "whose name contains a dot, put the name in backticks.");
   }
 
   check_node_semantic();

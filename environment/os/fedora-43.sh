@@ -64,6 +64,7 @@ MEMGRAPH_TEST_DEPS=(
     java-25-openjdk java-25-openjdk-devel # for driver tests and neo4j (macro benchmarks)
     nmap-ncat lsof # for qa, macro_benchmark and stress tests
     nodejs golang custom-golang # for driver tests
+    libatomic # node >= 26 links against libatomic.so.1, not pulled in by these base images
     zip unzip custom-maven # for driver tests
     xmlsec1-devel xmlsec1-openssl-devel # pip xmlsec (SAML SSO) builds from source; no wheels since 1.3.15
     sudo # stress tests set up passwordless sudo for mg (iptables)

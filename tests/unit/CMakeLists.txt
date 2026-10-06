@@ -28,6 +28,15 @@ target_link_libraries(storage_test_utils mg::storage)
 add_library(disk_test_utils disk_test_utils.cpp)
 target_link_libraries(disk_test_utils mg::storage)
 
+# A value of every type, for the suites that need to walk the whole value space
+add_library(value_shapes value_shapes.cpp)
+target_link_libraries(value_shapes mg::storage)
+target_include_directories(value_shapes PUBLIC ${CMAKE_SOURCE_DIR})
+
+add_library(typed_value_shapes typed_value_shapes.cpp)
+target_link_libraries(typed_value_shapes mg-query value_shapes)
+target_include_directories(typed_value_shapes PUBLIC ${CMAKE_SOURCE_DIR})
+
 # Header-only helpers shared across storage test files
 # (parameterized DDL abort/ghost/restore tests).
 add_library(ddl_abort_helpers INTERFACE)
@@ -86,6 +95,11 @@ add_unit_test(kshortest_general
 
 add_unit_test(cypher_main_visitor
     SOURCES cypher_main_visitor.cpp
+    LINK_TARGETS mg-query
+)
+
+add_unit_test(query_storage_access
+    SOURCES query_storage_access.cpp
     LINK_TARGETS mg-query
 )
 
@@ -292,6 +306,11 @@ add_unit_test(query_plan_printer_race
     LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
 )
 
+add_unit_test(query_index_differential
+    SOURCES query_index_differential.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue disk_test_utils
+)
+
 
 # Test query functions
 add_unit_test(query_function_mgp_module
@@ -378,7 +397,19 @@ add_unit_test(stripped
 
 add_unit_test(typed_value
     SOURCES typed_value.cpp
-    LINK_TARGETS mg-query disk_test_utils
+    LINK_TARGETS mg-query disk_test_utils typed_value_shapes
+)
+
+# Test mg-value-order.
+#
+# Takes its own main rather than the shared one, which links the memory and
+# utility libraries: this binary is meant to link the library under test and
+# nothing else of ours, so that the library keeping no dependencies of its own
+# is something the linker checks rather than something a comment claims.
+add_unit_test(value_order_numbers
+    CUSTOM_MAIN
+    SOURCES value_order_numbers.cpp
+    LINK_TARGETS mg-value-order GTest::gtest_main
 )
 
 add_unit_test(query_relations
@@ -422,10 +453,21 @@ add_unit_test(network_timeouts
     LINK_TARGETS mg-communication
 )
 
+add_unit_test(session_registry
+    SOURCES session_registry.cpp
+    LINK_TARGETS mg-communication
+)
+
 # Test mg-kvstore
 add_unit_test(kvstore
     SOURCES kvstore.cpp
     LINK_TARGETS mg-kvstore mg-utils
+)
+
+# Test mg-parameters
+add_unit_test(parameters
+    SOURCES parameters.cpp
+    LINK_TARGETS mg-parameters
 )
 
 if (MG_ENTERPRISE)
@@ -558,6 +600,11 @@ add_unit_test(utils_query_memory_tracker
 add_unit_test(jemalloc_hook_stress_test
     SOURCES jemalloc_hook_stress_test.cpp
     LINK_TARGETS mg-memory mg-utils
+)
+
+add_unit_test(memory_purge_unused_memory
+    SOURCES memory_purge_unused_memory.cpp
+    LINK_TARGETS mg-memory-utils mg-utils
 )
 
 add_unit_test(tls_destructor_registration
@@ -841,6 +888,11 @@ add_unit_test(storage_v2_recover_snapshot
     LINK_TARGETS mg::storage mg-dbms
 )
 
+add_unit_test(two_pc_commit_cache
+    SOURCES two_pc_commit_cache.cpp
+    LINK_TARGETS mg::storage mg-dbms
+)
+
 add_unit_test(storage_v2_retention.
         SOURCES storage_v2_retention.cpp
         LINK_TARGETS mg::storage
@@ -934,9 +986,19 @@ add_unit_test(storage_v2_name_id_mapper
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(value_shapes_coverage
+    SOURCES value_shapes_coverage.cpp
+    LINK_TARGETS mg::storage value_shapes
+)
+
+add_unit_test(typed_value_shapes_coverage
+    SOURCES typed_value_shapes_coverage.cpp
+    LINK_TARGETS mg-query mg-glue typed_value_shapes
+)
+
 add_unit_test(storage_v2_property_store
     SOURCES storage_v2_property_store.cpp
-    LINK_TARGETS mg::storage
+    LINK_TARGETS mg::storage value_shapes
     CUSTOM_MAIN
 )
 
@@ -1146,9 +1208,13 @@ add_unit_test(rpc_in_progress
 )
 
 # Test rpc progress heartbeat (sends only on recorded progress)
+# The peer-gone test waits for the heartbeat to notice the client leave, with nothing bounding
+# that wait, so a heartbeat that never notices wedges rather than fails. TIMEOUT stops that from
+# running to the job's own cancellation with nothing naming this test.
 add_unit_test(rpc_progress_heartbeat
     SOURCES rpc_progress_heartbeat.cpp
     LINK_TARGETS mg-rpc rpc_messages mg-storage-v2
+    TEST_PROPERTIES TIMEOUT 120
 )
 
 # Test rpc file framing (receive-buffer duplicate-file bug)
@@ -1442,3 +1508,15 @@ add_unit_test(utils_queued_byte_source
     SOURCES utils_queued_byte_source.cpp
     LINK_TARGETS mg-utils
 )
+
+# Per-test PROCESSORS, TIMEOUT and RESOURCE_GROUPS, measured rather than guessed.
+# Included last so that every test it names already exists. A property set by
+# hand above wins: test_properties.cmake does not name those tests.
+include(${CMAKE_CURRENT_SOURCE_DIR}/test_properties.cmake)
+
+# The disk claims above do nothing unless ctest is given this specification, and
+# a RESOURCE_GROUPS property with no specification is ignored silently rather
+# than reported. Setting it here writes it into the generated CTestTestfile, so
+# it applies to a plain ctest run from anywhere in the build tree and no caller
+# has to remember a command-line flag.
+set(CTEST_RESOURCE_SPEC_FILE ${CMAKE_CURRENT_SOURCE_DIR}/ctest_resources.json)

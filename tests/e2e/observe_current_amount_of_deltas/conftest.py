@@ -19,3 +19,5 @@ def connection():
     yield connection
     cursor = connection.cursor()
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    # Left open, the cleanup tx keeps its delta until the server aborts it on disconnect, racing the next FREE MEMORY.
+    connection.commit()

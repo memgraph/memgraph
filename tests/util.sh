@@ -1,10 +1,14 @@
 #!/bin/bash
 
 DISABLE_NODE=${DISABLE_NODE:-false}
+_TESTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_REPO_ROOT="$(dirname "$_TESTS_DIR")"
+source "$_REPO_ROOT/environment/util.sh"
+unset _TESTS_DIR _REPO_ROOT
 
-# TODO(matt): rebuild mgbuild images with node 24 installed in mg user's directory
 NODE_MIN_VERSION="${NODE_MIN_VERSION:-20}"
-NODE_INSTALL_VERSION="${NODE_INSTALL_VERSION:-24.19.0}"
+NODE_INSTALL_VERSION="${NODE_INSTALL_VERSION:-$MG_NODE_VERSION}"
+PNPM_VERSION="${PNPM_VERSION:-10.33.4}"
 
 # True when a node on PATH is at least $1 major.
 node_major_at_least() {
@@ -40,16 +44,25 @@ setup_node() {
     exit 1
   fi
 
-  echo "Activating pinned pnpm via corepack."
-  corepack enable pnpm 2>/dev/null || corepack enable 2>/dev/null || true
-  corepack prepare pnpm@10.33.4 --activate 2>/dev/null || true
+  local npm_out
+  if [ "$(pnpm --version 2>/dev/null)" != "$PNPM_VERSION" ]; then
+    echo "Installing pnpm@$PNPM_VERSION."
+    if ! npm_out="$(npm install -g "pnpm@$PNPM_VERSION" 2>&1)"; then
+      echo "ERROR: failed to install pnpm@$PNPM_VERSION:"
+      echo "$npm_out"
+      exit 1
+    fi
+    hash -r 2>/dev/null || true
+  fi
 
-  if ! command -v pnpm >/dev/null; then
-    echo "Could NOT find pnpm. Make sure pnpm is installed."
+  local pnpm_version
+  pnpm_version="$(pnpm --version 2>/dev/null || true)"
+  if [ "$pnpm_version" != "$PNPM_VERSION" ]; then
+    echo "ERROR: expected pnpm $PNPM_VERSION, found ${pnpm_version:-none}."
     exit 1
   fi
   echo "NODE VERSION: $(node --version)"
-  echo "PNPM VERSION: $(pnpm --version)"
+  echo "PNPM VERSION: $pnpm_version"
   if ! node_major_at_least "$NODE_MIN_VERSION"; then
     echo "ERROR: It's required to have node >= $NODE_MIN_VERSION, found $(node --version)."
     exit 1

@@ -365,25 +365,19 @@ inline bool CanSeeEntityWithTimestamp(uint64_t insertion_timestamp, Transaction 
   return insertion_timestamp <= original_start_timestamp;
 }
 
-// A range covering a whole stretch of the order is expressed as that stretch's own lower bound
-// together with an exclusive upper bound of the *following* stretch (see
-// LowerBoundComparableWith/UpperBoundComparableWith), so that one shape legitimately has bounds of
-// differing types. Both ends must match for it to be that marker rather than a user-written range
-// that merely reaches the same boundary value; every other type mismatch describes an empty range.
+// Two bounds a range may be read from: either the value types can be compared, or the pair is the
+// marker for one whole stretch of the order, whose ends are of two types on purpose. Every other
+// pair of two types describes an empty range.
 inline bool AreComparableBounds(utils::Bound<PropertyValue> const &lower_bound,
                                 utils::Bound<PropertyValue> const &upper_bound) {
-  if (AreComparable(lower_bound.value(), upper_bound.value())) return true;
-  if (upper_bound.IsInclusive() || !lower_bound.IsInclusive()) return false;
-  auto const stretch_lower = LowerBoundComparableWith(lower_bound.value());
-  auto const stretch_upper = UpperBoundComparableWith(lower_bound.value());
-  return stretch_lower && stretch_upper && lower_bound.value() == stretch_lower->value() &&
-         upper_bound.value() == stretch_upper->value();
+  return AreComparable(lower_bound.value(), upper_bound.value()) ||
+         BoundsRunToTheEndOfAStretch(lower_bound, upper_bound);
 }
 
 // `allow_whole_type_span` admits the bound pair that marks an entire type (see AreComparableBounds).
 // Only pass it where the query layer has already discarded a user range whose bounds cannot be
-// compared -- a scan driven by an ExpressionRange, which is marked INVALID in that case. Scans that
-// carry raw bounds, i.e. every edge scan, have no such marking and must stay strict, or a range like
+// compared -- a scan driven by an ExpressionRange, which is marked INVALID in that case. A scan
+// carrying raw bounds has no such marking and must stay strict, or a range like
 // `e.p >= -inf AND e.p < ''` is mistaken for the marker and returns every number.
 inline bool ValidateBounds(std::optional<utils::Bound<PropertyValue>> &lower_bound,
                            std::optional<utils::Bound<PropertyValue>> &upper_bound,
@@ -429,7 +423,7 @@ inline auto MakeBoundsFromRange(PropertyValueRange const &range) -> LowerAndUppe
   if (range.type_ == PropertyRangeType::INVALID) {
     return {std::nullopt, std::nullopt, false};
   } else if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    lower_bound = LowerBoundForType(PropertyValueType::Bool);
+    upper_bound = UpperBoundForNonNulls();
   } else if (range.type_ == PropertyRangeType::BOUNDED) {
     // We have to fix the bounds that the user provided to us. If the user
     // provided only one bound we should make sure that only values of that type

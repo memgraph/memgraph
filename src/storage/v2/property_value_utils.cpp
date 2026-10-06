@@ -11,80 +11,71 @@
 
 #include "property_value_utils.hpp"
 
+#include <algorithm>
+#include <array>
+#include <cmath>
 #include <limits>
+#include <variant>
 
 namespace memgraph::storage {
 
-auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>> {
-  switch (type) {
-    case PropertyValue::Type::Null:
-      return utils::MakeBoundExclusive(kSmallestBool);
-    case PropertyValue::Type::Bool:
-      return utils::MakeBoundExclusive(kSmallestNumber);
-    case PropertyValue::Type::Int:
-    case PropertyValue::Type::Double:
-      // Both integers and doubles are treated as the same type in
-      // `PropertyValue` and they are interleaved when sorted.
-      return utils::MakeBoundExclusive(kSmallestString);
-    case PropertyValue::Type::String:
-      return utils::MakeBoundExclusive(kSmallestList);
-    case PropertyValue::Type::List:
-    case PropertyValue::Type::NumericList:
-    case PropertyValue::Type::IntList:
-    case PropertyValue::Type::DoubleList:
-      return utils::MakeBoundExclusive(kSmallestMap);
-    case PropertyValue::Type::Map:
-      return utils::MakeBoundExclusive(kSmallestTemporalData);
-    case PropertyValue::Type::TemporalData:
-      return utils::MakeBoundExclusive(kSmallestZonedTemporalData);
-    case PropertyValue::Type::ZonedTemporalData:
-      return utils::MakeBoundExclusive(kSmallestEnum);
-    case PropertyValue::Type::Enum:
-      return utils::MakeBoundExclusive(kSmallestPoint2d);
-    case PropertyValue::Type::Point2d:
-      return utils::MakeBoundExclusive(kSmallestPoint3d);
-    case PropertyValue::Type::Point3d:
-      return utils::MakeBoundExclusive(kSmallestVectorIndexId);
-    case PropertyValue::Type::VectorIndexId:
-      // This is the last type in the order so we leave the upper bound empty.
-      return std::nullopt;
+namespace {
+
+/// The value a stretch begins at.
+///
+/// A switch rather than a table read by position, so that a stretch added to
+/// the sequence has to be given its first value before this compiles. A table
+/// would take the new one as a gap and hand back nothing to start it.
+///
+/// `Count` names the end of the sequence rather than a stretch, so it has no
+/// value to begin at and the caller asking what comes next answers for it.
+auto StretchStart(Stretch stretch) -> PropertyValue const & {
+  switch (stretch) {
+    case Stretch::Map:
+      return kSmallestMap;
+    case Stretch::List:
+      return kSmallestList;
+    case Stretch::Temporal:
+      return kSmallestTemporalData;
+    case Stretch::ZonedTemporal:
+      return kSmallestZonedTemporalData;
+    case Stretch::Enum:
+      return kSmallestEnum;
+    case Stretch::Point2d:
+      return kSmallestPoint2d;
+    case Stretch::Point3d:
+      return kSmallestPoint3d;
+    case Stretch::String:
+      return kSmallestString;
+    case Stretch::Bool:
+      return kSmallestBool;
+    case Stretch::Number:
+      return kSmallestNumber;
+    case Stretch::AboveEveryNumber:
+      return kSmallestNaN;
+    case Stretch::VectorIndexId:
+      return kSmallestVectorIndexId;
+    case Stretch::Null:
+      return kSmallestNull;
+    case Stretch::Count:
+      break;
   }
+  LOG_FATAL("Asked where the sequence of stretches begins past its end");
+}
+
+}  // namespace
+
+auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>> {
+  auto const next = static_cast<std::size_t>(StretchOf(type)) + 1;
+  if (next == static_cast<std::size_t>(Stretch::Count)) return std::nullopt;
+  return utils::MakeBoundExclusive(StretchStart(static_cast<Stretch>(next)));
 }
 
 auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<PropertyValue>> {
-  switch (type) {
-    case PropertyValue::Type::Null:
-      return std::nullopt;
-    case PropertyValue::Type::Bool:
-      return utils::MakeBoundInclusive(kSmallestBool);
-    case PropertyValue::Type::Int:
-    case PropertyValue::Type::Double:
-      // Both integers and doubles are treated as the same type in
-      // `PropertyValue` and they are interleaved when sorted.
-      return utils::MakeBoundInclusive(kSmallestNumber);
-    case PropertyValue::Type::String:
-      return utils::MakeBoundInclusive(kSmallestString);
-    case PropertyValue::Type::List:
-    case PropertyValue::Type::NumericList:
-    case PropertyValue::Type::IntList:
-    case PropertyValue::Type::DoubleList:
-      return utils::MakeBoundInclusive(kSmallestList);
-    case PropertyValue::Type::Map:
-      return utils::MakeBoundInclusive(kSmallestMap);
-    case PropertyValue::Type::TemporalData:
-      return utils::MakeBoundInclusive(kSmallestTemporalData);
-    case PropertyValue::Type::ZonedTemporalData:
-      return utils::MakeBoundInclusive(kSmallestZonedTemporalData);
-    case PropertyValue::Type::Enum:
-      return utils::MakeBoundInclusive(kSmallestEnum);
-    case PropertyValue::Type::Point2d:
-      return utils::MakeBoundExclusive(kSmallestPoint2d);
-    case PropertyValue::Type::Point3d:
-      return utils::MakeBoundExclusive(kSmallestPoint3d);
-    case PropertyValue::Type::VectorIndexId:
-      return utils::MakeBoundInclusive(kSmallestVectorIndexId);
-  }
+  return utils::MakeBoundInclusive(StretchStart(StretchOf(type)));
 }
+
+auto UpperBoundForNonNulls() -> utils::Bound<PropertyValue> { return utils::MakeBoundExclusive(kSmallestNull); }
 
 namespace {
 
@@ -112,6 +103,75 @@ auto UpperBoundComparableWith(PropertyValue const &value) -> std::optional<utils
       // The last of the four, so the stretch ends where the stored type does.
       return UpperBoundForType(PropertyValueType::TemporalData);
   }
+}
+
+bool HoldsANaN(PropertyValue const &value) {
+  switch (value.type()) {
+    using enum PropertyValueType;
+    case Double:
+      return std::isnan(value.ValueDouble());
+    case DoubleList:
+      return std::ranges::any_of(value.ValueDoubleList(), [](double d) { return std::isnan(d); });
+    case NumericList:
+      return std::ranges::any_of(value.ValueNumericList(), [](auto const &held) {
+        return std::holds_alternative<double>(held) && std::isnan(std::get<double>(held));
+      });
+    case List:
+      return std::ranges::any_of(value.ValueList(), [](auto const &element) { return HoldsANaN(element); });
+    case Map:
+      return std::ranges::any_of(value.ValueMap(), [](auto const &entry) { return HoldsANaN(entry.second); });
+    case Point2d: {
+      auto const &point = value.ValuePoint2d();
+      return std::isnan(point.x()) || std::isnan(point.y());
+    }
+    case Point3d: {
+      auto const &point = value.ValuePoint3d();
+      return std::isnan(point.x()) || std::isnan(point.y()) || std::isnan(point.z());
+    }
+    // A vector holds its coordinates as floats, which carry a NaN of their own.
+    case VectorIndexId:
+      return std::ranges::any_of(value.ValueVectorIndexList(), [](float f) { return std::isnan(f); });
+    // No other type has a number in it to be one.
+    case Null:
+    case Bool:
+    case Int:
+    case IntList:
+    case String:
+    case TemporalData:
+    case ZonedTemporalData:
+    case Enum:
+      return false;
+  }
+  return false;
+}
+
+bool HoldsANull(PropertyValue const &value) {
+  switch (value.type()) {
+    using enum PropertyValueType;
+    case Null:
+      return true;
+    case List:
+      return std::ranges::any_of(value.ValueList(), [](auto const &element) { return HoldsANull(element); });
+    case Map:
+      return std::ranges::any_of(value.ValueMap(), [](auto const &entry) { return HoldsANull(entry.second); });
+    // Every remaining type is a value of its own, and the packed lists hold
+    // numbers by construction.
+    case Bool:
+    case Int:
+    case Double:
+    case IntList:
+    case DoubleList:
+    case NumericList:
+    case String:
+    case TemporalData:
+    case ZonedTemporalData:
+    case Enum:
+    case Point2d:
+    case Point3d:
+    case VectorIndexId:
+      return false;
+  }
+  return false;
 }
 
 auto PrefixSuccessor(std::string_view prefix) -> std::optional<std::string> {

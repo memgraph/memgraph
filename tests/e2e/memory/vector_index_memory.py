@@ -31,20 +31,28 @@ INDEX_VECTOR_COUNT = 1000
 INDEX_CAPACITY = 50_000
 PAYLOAD_BYTES = 4096
 
-INSTANCE_200MB = {
-    "vector_index_test": {
-        "args": [
-            "--bolt-port",
-            str(BOLT_PORT),
-            "--memory-limit=50",
-            "--storage-gc-cycle-sec=180",
-            "--log-level=WARNING",
-        ],
-        "log_file": "vector-index-memory-e2e.log",
-        "setup_queries": [],
-        "validation_queries": [],
+
+def instance_with_memory_limit(mib):
+    return {
+        "vector_index_test": {
+            "args": [
+                "--bolt-port",
+                str(BOLT_PORT),
+                f"--memory-limit={mib}",
+                "--storage-gc-cycle-sec=180",
+                "--log-level=WARNING",
+            ],
+            "log_file": "vector-index-memory-e2e.log",
+            "setup_queries": [],
+            "validation_queries": [],
+        }
     }
-}
+
+
+INSTANCE_50MB = instance_with_memory_limit(50)
+# The limit counts the allocator's committed pages across every per-CPU arena, which grows with how
+# widely the server's threads are spread over CPUs, not only with the data held.
+INSTANCE_200MB = instance_with_memory_limit(200)
 
 
 @pytest.fixture(autouse=True)
@@ -108,7 +116,7 @@ def test_db_storage_and_embedding_sum_to_db_total():
     significantly after inserting vectors, meaning the tracker stays honest
     relative to actual OS memory usage.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE_50MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
 
     global_info = get_global_storage_info(cursor)
@@ -150,7 +158,7 @@ def test_vector_insert_oom_throws_exception():
     When the global memory limit is exceeded during vector insertion, Memgraph
     must raise an OutOfMemoryException to the client.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE_50MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
 
     execute_and_fetch_all(
@@ -174,7 +182,7 @@ def test_remove_vector_property_vector_index_unchanged():
     Removing the vector property from vertices does not free vector index memory
     because usearch's bump-pointer allocator cannot free individual entries.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE_50MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
 
@@ -237,7 +245,7 @@ def test_drop_index_vector_index_zero():
     TrackedVectorAllocator::deallocate() → reset() → db_embedding_memory_tracker_.Free().
     Vector index memory should go to 0.
     """
-    interactive_mg_runner.start_all(INSTANCE_200MB)
+    interactive_mg_runner.start_all(INSTANCE_50MB)
     cursor = connect(host="localhost", port=BOLT_PORT).cursor()
     setup_index_and_data(cursor)
 

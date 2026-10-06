@@ -18,6 +18,9 @@
 
 #include "query/interpreter_context.hpp"
 
+#include "communication/v2/session_registry.hpp"
+#include "dbms/constants.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "parameters/parameters.hpp"
 #include "query/interpreter.hpp"
 #include "query/query_user.hpp"
@@ -26,6 +29,12 @@
 #include "utils/resource_monitoring.hpp"
 
 namespace memgraph::query {
+
+bool SameUser(const std::shared_ptr<QueryUserOrRole> &lv, QueryUserOrRole *rv) {
+  if (lv.get() == rv) return true;
+  if (lv && rv) return *lv == *rv;
+  return false;
+}
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 std::optional<InterpreterContext> InterpreterContextHolder::instance{};
@@ -62,6 +71,31 @@ InterpreterContext::InterpreterContext(InterpreterConfig interpreter_config, mem
 
 namespace {
 
+#ifdef MG_ENTERPRISE
+// A FORCE-dropped database keeps draining while any session still has it as its current database, and an idle
+// pooled connection may never send the query that would release it, so such sessions are closed. A session with a
+// live transaction is left alone so the transaction runs to completion (a replica never aborts it); it releases the
+// database with its first query after the transaction ends, or is closed on a later tick once idle. A transaction
+// MAIN's FORCE drop already terminated does not protect its session.
+void CloseSessionsOnDroppingDatabases(
+    utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> &interpreters) {
+  std::vector<std::string> to_close;
+  interpreters.WithLock([&to_close](auto const &all) {
+    for (auto *interpreter : all) {
+      auto const status = interpreter->transaction_status_.load(std::memory_order_acquire);
+      if (status != TransactionStatus::IDLE && status != TransactionStatus::TERMINATED) continue;
+      if (!interpreter->current_db_.foreign_db_view().marked_for_deletion) continue;
+      auto const session = interpreter->foreign_session_view_.load(std::memory_order_acquire);
+      if (session && !session->uuid.empty()) to_close.push_back(session->uuid);
+    }
+  });
+  // Closing re-enters interpreters from the session's teardown, so it happens only after the lock is released.
+  for (auto const &uuid : to_close) {
+    if (auto session = communication::v2::SessionRegistry::Instance().Find(uuid)) session->RequestTermination();
+  }
+}
+#endif
+
 /// Pins `interpreter`'s transaction so it can neither commit nor abort, hands its id to
 /// `should_kill`, and marks it TERMINATED if the predicate accepts. Only an ACTIVE
 /// transaction can be pinned, so one already committing, aborting or terminated is left
@@ -94,12 +128,9 @@ bool TryTerminateInterpreter(Interpreter *interpreter, ShouldKill &&should_kill)
 /// TRANSACTION_MANAGEMENT for.
 bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *user_or_role,
                   std::function<bool(QueryUserOrRole *, std::string const &)> const &privilege_checker) {
-  auto same_user = [](const auto &lv, const auto &rv) {
-    if (lv.get() == rv) return true;
-    if (lv && rv) return *lv == *rv;
-    return false;
-  };
-  if (same_user(interpreter->user_or_role_, user_or_role)) return true;
+  // user_or_role_ is owning-thread state; foreign_user_view_.load() snapshots it safely for cross-thread reads.
+  auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
+  if (SameUser(user_snapshot, user_or_role)) return true;
 
   // Foreign thread: route through foreign_db_view() (takes db_acc_mutex_). The VERIFYING CAS in
   // TryTerminateInterpreter does NOT order against SetCurrentDB, so an unlocked name() could tear
@@ -181,6 +212,95 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateAllTransaction
   return results;
 }
 
+TerminateSessionsResult InterpreterContext::TerminateSessions(
+    const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
+    QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
+    std::string_view caller_session_uuid) {
+  TerminateSessionsResult result;
+  result.rows.reserve(session_ids.size());
+
+  // Tracks uuids accepted for termination in this call. A duplicate occurrence of an already-accepted
+  // id is reported killed=false (mirrors the TERMINATE TRANSACTIONS convention), without re-authorizing
+  // or re-adding to to_close.
+  std::unordered_set<std::string> accepted_for_kill;
+
+  for (const auto &id : session_ids) {
+    // A connection is registered into `interpreters` before authentication completes, so a mid-handshake
+    // session carries an empty uuid; without this guard an empty id would match every such session at once.
+    if (id.empty()) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      continue;
+    }
+
+    // Refuse to sever the caller's own control channel mid-statement -- the response couldn't be delivered
+    // afterwards anyway. Reported as a row (not silently dropped) so the refusal is visible.
+    if (id == caller_session_uuid) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      spdlog::warn("Cannot terminate the session that issued the command");
+      continue;
+    }
+
+    // Duplicate: uuid was already accepted for kill earlier in this same statement. Keep one row per
+    // input id (1:1 contract), but the repeat occurrence reports killed=false.
+    if (accepted_for_kill.contains(id)) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      continue;
+    }
+
+    Interpreter *target = nullptr;
+    for (Interpreter *interpreter : interpreters) {
+      // A null snapshot means SetSessionInfo has not run yet (unauthenticated), so it cannot carry a non-empty uuid.
+      auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
+      if (session_snapshot && !session_snapshot->uuid.empty() && session_snapshot->uuid == id) {
+        target = interpreter;
+        break;
+      }
+    }
+
+    if (!target) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      spdlog::warn("Session {} not found", id);
+      continue;
+    }
+
+    // foreign_db_view(), not name(): IDLE sessions can't be pinned by the ACTIVE→VERIFYING CAS, so a raw name()
+    // read would tear against a concurrent USE DATABASE — foreign_db_view() closes that memory-safety hole.
+    // Authorization is check-time-only: a target that runs USE DATABASE after this check is still terminated
+    // (termination is by session uuid, not by database), so at worst a session is closed against a database the
+    // caller no longer holds privilege on — an availability effect, not a data-access escalation. This is the
+    // same check-time property as the pre-existing TERMINATE TRANSACTIONS path.
+    auto const target_user_snapshot = target->foreign_user_view_.load(std::memory_order_acquire);
+    if (!SameUser(target_user_snapshot, user_or_role)) {
+      // A dbless session has no tenant; kDefaultDB lets a default-db admin still terminate it.
+      auto target_db = target->current_db_.foreign_db_view().name;
+      if (target_db.empty()) {
+        target_db = std::string{dbms::kDefaultDB};
+      }
+      if (!privilege_checker(user_or_role, target_db)) {
+        result.rows.push_back({TypedValue(id), TypedValue(false)});
+        spdlog::warn("Not enough rights to kill the session");
+        continue;
+      }
+    }
+
+    TransactionStatus alive_status = TransactionStatus::ACTIVE;
+    if (target->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+      target->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
+    }
+    // Unlike TerminateTransactions, a failed CAS here must NOT skip termination -- the primary target of this
+    // feature is an IDLE session, for which the CAS above is expected to fail.
+    // Mid-commit case: CAS fails because status is STARTED_COMMITTING (not ACTIVE) -- intentionally left to
+    // complete on the owning thread; we terminate the session, not the in-flight commit.
+
+    accepted_for_kill.insert(id);
+    result.to_close.push_back(id);
+    result.rows.push_back({TypedValue(id), TypedValue(true)});
+    spdlog::warn("Session {} successfully killed", id);
+  }
+
+  return result;
+}
+
 std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
     const std::unordered_set<Interpreter *> &interpreters, std::string_view db_name) {
   std::vector<uint64_t> results;
@@ -206,4 +326,17 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
   }
   return results;
 }
+
+void InterpreterContext::RegisterDropDrainHook() {
+#ifdef MG_ENTERPRISE
+  if (dbms_handler) dbms_handler->SetDrainHook([this] { CloseSessionsOnDroppingDatabases(interpreters); });
+#endif
+}
+
+void InterpreterContext::UnregisterDropDrainHook() const {
+#ifdef MG_ENTERPRISE
+  if (dbms_handler) dbms_handler->ClearDrainHook();
+#endif
+}
+
 }  // namespace memgraph::query

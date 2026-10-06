@@ -276,6 +276,7 @@ auto LowerUnwind(query::Unwind &unwind, eclass pipe, LoweringCtx &ctx) -> eclass
 
 auto LowerCallSubquery(query::CallSubquery &cs, eclass pipe, LoweringCtx &ctx) -> eclass {
   // Minimum scope: non-importing CALL { ... } RETURN ...
+  if (cs.optional_) ThrowNotImplementedYet("OPTIONAL CALL subquery");
   if (cs.has_variable_scope_) ThrowNotImplementedYet("importing CALL with explicit scope clause");
   if (cs.all_variables_scoped_) ThrowNotImplementedYet("CALL with implicit star scope clause");
   DMG_ASSERT(cs.cypher_query_ != nullptr && cs.cypher_query_->single_query_ != nullptr,

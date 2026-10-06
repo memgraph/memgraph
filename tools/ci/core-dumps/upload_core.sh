@@ -5,7 +5,9 @@
 # The destination prefix is handed in by collect.sh, so the core, the build
 # artifacts and the stack traces for one crash all share a folder:
 #   s3://<bucket>/<s3-prefix>/
-#     binaries.tar.gz   - memgraph + *.debug + *.so, retaining build/ structure
+#     binaries.tar.gz   - memgraph + *.debug + *.so, plus any other executable
+#                         the cores map (e.g. a crashed test binary, listed via
+#                         --extra-files), retaining build/ structure
 #     <core>.gz         - the gzip-compressed core dump(s)
 #
 # Whether the core uploads depends on --mode and its size:
@@ -36,6 +38,7 @@ CORE_SIZE_LIMIT="2"   # GiB
 URL_OUT=""
 EXEC_USER="mg"
 CORE_GLOB="core.*"
+EXTRA_FILES=""
 
 # Sizes are expressed in GiB. Hard safety ceiling for --mode true so a runaway /
 # corrupt core can't trigger an absurd upload.
@@ -57,6 +60,10 @@ Options:
   --core-size-limit N   auto threshold in GiB (default: $CORE_SIZE_LIMIT)
   --exec-user USER      Container user to run stat/gzip/tar as (default: $EXEC_USER)
   --core-glob PAT       Glob (relative to --cores-dir) matching cores (default: $CORE_GLOB)
+  --extra-files FILE    File inside the container listing extra paths (one per
+                        line) to add to binaries.tar.gz, e.g. the executables the
+                        cores map as written by analyze_core_dumps.sh; a .debug
+                        sidecar next to each is added too. Missing entries are skipped.
   --url-out FILE        Write 'binaries_url=' / 'core_url=' lines for the caller
   -h, --help            Show this help
 EOF
@@ -74,6 +81,7 @@ while [[ $# -gt 0 ]]; do
     --core-size-limit) CORE_SIZE_LIMIT="$2"; shift 2 ;;
     --exec-user)       EXEC_USER="$2"; shift 2 ;;
     --core-glob)       CORE_GLOB="$2"; shift 2 ;;
+    --extra-files)     EXTRA_FILES="$2"; shift 2 ;;
     --url-out)         URL_OUT="$2"; shift 2 ;;
     -h|--help)         print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
@@ -100,6 +108,10 @@ if [[ ! "$CORES_DIR" =~ $dir_re ]]; then
 fi
 if [[ ! "$CORE_GLOB" =~ $glob_re ]]; then
   echo "Error: --core-glob contains unsafe characters (got '$CORE_GLOB')" >&2
+  exit 1
+fi
+if [[ -n "$EXTRA_FILES" && ! "$EXTRA_FILES" =~ $dir_re ]]; then
+  echo "Error: --extra-files contains unsafe characters (got '$EXTRA_FILES')" >&2
   exit 1
 fi
 
@@ -153,24 +165,37 @@ if [[ ${#eligible[@]} -eq 0 ]]; then
   exit 0
 fi
 
-# 1) The ELF set (binary + .debug sidecars + .so), tarred inside the container
-#    with build/-relative paths and streamed to S3 as one object. Only now that
-#    at least one core qualifies.
+# 1) The ELF set (binary + .debug sidecars + .so, plus the executables the cores
+#    map from --extra-files), tarred inside the container with build/-relative
+#    paths and streamed to S3 as one object. Only now that at least one core
+#    qualifies.
 build_parent="$(dirname "$BUILD_DIR")"
 build_base="$(basename "$BUILD_DIR")"
 binaries_url=""
-# Count matching ELF files first: with no matches, GNU tar still emits a valid
+# Container-side pipeline printing the NUL-separated, de-duplicated file list.
+# Extra entries are absolute paths; those under the build parent are made
+# relative so they land in the tarball next to the rest.
+list_cmd="cd '$build_parent' && {
+  find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) -print0
+  if [ -n '$EXTRA_FILES' ] && [ -f '$EXTRA_FILES' ]; then
+    while IFS= read -r f; do
+      [ -f \"\$f\" ] && printf '%s\\0' \"\$f\"
+      [ -f \"\$f.debug\" ] && printf '%s\\0' \"\$f.debug\"
+    done < '$EXTRA_FILES'
+  fi
+} | sed -z 's#^$build_parent/##' | sort -zu"
+# Count matching files first: with no matches, GNU tar still emits a valid
 # (empty) archive, which we'd otherwise advertise as a real download. Skip the
 # upload and leave binaries_url empty in that case.
 elf_count="$(docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
-  "cd '$build_parent' && find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) | wc -l" 2>/dev/null || echo 0)"
+  "$list_cmd | tr -cd '\\0' | wc -c" 2>/dev/null || echo 0)"
 [[ "$elf_count" =~ ^[0-9]+$ ]] || elf_count=0
 if [[ "$elf_count" -eq 0 ]]; then
   echo "No build artifacts (memgraph/*.debug/*.so) found under ${BUILD_DIR} — skipping binaries upload."
 else
-  echo "Uploading ${elf_count} build artifact(s) (memgraph + *.debug + *.so) -> ${base_uri}/binaries.tar.gz"
+  echo "Uploading ${elf_count} build artifact(s) (memgraph + *.debug + *.so + mapped executables) -> ${base_uri}/binaries.tar.gz"
   if docker exec -u "$EXEC_USER" "$BUILD_CONTAINER" bash -c \
-       "cd '$build_parent' && find '$build_base' -type f \\( -name memgraph -o -name '*.debug' -o -name '*.so' \\) -print0 | tar --null -czf - -T -" \
+       "$list_cmd | tar --null -czf - -T -" \
        | aws s3 cp "${s3_put_args[@]}" - "${base_uri}/binaries.tar.gz"; then
     binaries_url="${base_uri}/binaries.tar.gz"
     echo "  build artifacts uploaded: ${binaries_url}"

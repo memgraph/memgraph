@@ -12,35 +12,63 @@
 #include "query/relations/equality.hpp"
 
 #include <algorithm>
+#include <cmath>
 
 namespace memgraph::query::relations::equality {
 
-bool HoldsANull(const TypedValue &value) {
+namespace {
+
+/// Whether any value held within this one, however deeply nested, answers the
+/// predicate. A container is walked; anything else is asked directly.
+///
+/// The walk is written once because the questions asked of it differ only in
+/// the leaf: a caller wanting two of them answered would otherwise walk the
+/// same value twice.
+bool AnyValueWithin(const TypedValue &value, auto const &holds) {
   switch (value.type()) {
-    case TypedValue::Type::Null:
-      return true;
     case TypedValue::Type::List:
-      return std::ranges::any_of(value.UnsafeValueList(), [](auto const &element) { return HoldsANull(element); });
+      return std::ranges::any_of(value.UnsafeValueList(),
+                                 [&](auto const &element) { return AnyValueWithin(element, holds); });
     case TypedValue::Type::Map:
-      return std::ranges::any_of(value.UnsafeValueMap(), [](auto const &entry) { return HoldsANull(entry.second); });
+      return std::ranges::any_of(value.UnsafeValueMap(),
+                                 [&](auto const &entry) { return AnyValueWithin(entry.second, holds); });
     default:
-      return false;
+      return holds(value);
   }
 }
 
-bool HoldsANull(const storage::PropertyValue &value) {
+constexpr auto kIsNull = [](const TypedValue &value) { return value.IsNull(); };
+
+/// The two values equality does not hold equal to themselves, for its two
+/// reasons: a Null leaves the pair undecided, a NaN answers false.
+///
+/// A point carries its coordinates as doubles and compares them together, so
+/// one holding a NaN is no more equal to itself than the NaN is. Storage spells
+/// this question separately, and answers a point the same way.
+constexpr auto kIsUndecidable = [](const TypedValue &value) {
   switch (value.type()) {
-    case storage::PropertyValueType::Null:
+    case TypedValue::Type::Null:
       return true;
-    case storage::PropertyValueType::List:
-      return std::ranges::any_of(value.ValueList(), [](auto const &element) { return HoldsANull(element); });
-    case storage::PropertyValueType::Map:
-      return std::ranges::any_of(value.ValueMap(), [](auto const &entry) { return HoldsANull(entry.second); });
+    case TypedValue::Type::Double:
+      return std::isnan(value.UnsafeValueDouble());
+    case TypedValue::Type::Point2d: {
+      auto const &point = value.UnsafeValuePoint2d();
+      return std::isnan(point.x()) || std::isnan(point.y());
+    }
+    case TypedValue::Type::Point3d: {
+      auto const &point = value.UnsafeValuePoint3d();
+      return std::isnan(point.x()) || std::isnan(point.y()) || std::isnan(point.z());
+    }
     default:
-      // The packed numeric representations of a list have no way to hold a Null.
       return false;
   }
-}
+};
+
+}  // namespace
+
+bool HoldsANull(const TypedValue &value) { return AnyValueWithin(value, kIsNull); }
+
+bool EqualsItself(const TypedValue &value) { return !AnyValueWithin(value, kIsUndecidable); }
 
 TypedValue EqualOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b, TypedValue::allocator_type alloc) {
   // A list is equal only to a list of the same length holding equal elements,

@@ -234,7 +234,8 @@ class ReplicationStorageClient {
    * @param main_storage pointer to the storage associated with the client
    * @param reset_needed If true, replica needs to reset its storage when the 1st recovery step is sent.
    */
-  void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, bool reset_needed = false) const;
+  void RecoverReplica(uint64_t replica_last_commit_ts, Storage *main_storage, DatabaseProtector const &protector,
+                      bool reset_needed = false) const;
 
   /**
    * @brief Check replica state
@@ -249,6 +250,11 @@ class ReplicationStorageClient {
    *
    */
   void LogRpcFailure() const;
+
+  // Retires the RPC connection for a tenant that is being dropped: resets the stream so ~StreamHandler
+  // does not leave the socket mid-read, aborts the RPC client to close the socket (framing correctness),
+  // and marks the replica MAYBE_BEHIND. Each call site still returns its own std::unexpected.
+  void RetireForSealedTenant(std::optional<ReplicaStream> &stream) const;
 
   /**
    * @brief Synchronously try to check the replica state and start a recovery thread if necessary

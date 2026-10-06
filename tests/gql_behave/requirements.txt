@@ -1,5 +1,5 @@
 behave==1.2.6
-neo4j-driver==4.1.1
+neo4j==5.14.1
 parse==1.18.0
 parse-type==0.5.2
 PyYAML==6.0.1

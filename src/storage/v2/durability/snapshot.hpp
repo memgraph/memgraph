@@ -105,9 +105,8 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
 std::optional<std::filesystem::path> CreateSnapshot(
     Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
-    utils::UUID const &uuid, std::string_view epoch_id,
-    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
-    std::atomic_bool *abort_snapshot = nullptr, SnapshotProgress *progress = nullptr,
-    std::string_view trigger = "periodic");
+    utils::UUID const &uuid, std::string epoch_id, std::deque<std::pair<std::string, uint64_t>> epoch_history,
+    utils::FileRetainer *file_retainer, std::atomic_bool *abort_snapshot = nullptr,
+    SnapshotProgress *progress = nullptr, std::string_view trigger = "periodic");
 
 }  // namespace memgraph::storage::durability

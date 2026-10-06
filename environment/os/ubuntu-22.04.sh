@@ -60,6 +60,7 @@ MEMGRAPH_TEST_DEPS=(
     iptables # for stress tests that simulate network failures
     zip unzip openjdk-25-jre-headless openjdk-25-jdk-headless custom-maven # for driver tests (JDK 17 required)
     dotnet-sdk-10.0 golang custom-golang custom-node # for driver tests
+    libatomic1 # node >= 26 links against libatomic.so.1, not pulled in by these base images
     libxmlsec1-dev xmlsec1 # pip xmlsec (SAML SSO) builds from source; no wheels since 1.3.15
     sudo adduser # stress tests set up passwordless sudo for mg (iptables)
 )

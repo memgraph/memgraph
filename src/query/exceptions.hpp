@@ -567,6 +567,12 @@ class TransactionQueueInMulticommandTxException : public MulticommandTxException
   SPECIALIZE_GET_EXCEPTION_NAME(TransactionQueueInMulticommandTxException)
 };
 
+class SessionQueryInMulticommandTxException : public MulticommandTxException {
+ public:
+  SessionQueryInMulticommandTxException() : MulticommandTxException("Session management") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(SessionQueryInMulticommandTxException)
+};
+
 class MultiDatabaseQueryInMulticommandTxException : public MulticommandTxException {
  public:
   MultiDatabaseQueryInMulticommandTxException() : MulticommandTxException("Creating/dropping databases") {}

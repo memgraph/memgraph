@@ -481,26 +481,33 @@ auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> Remov
   }
 
   spdlog::info("Request for removing coordinator {} from the cluster accepted", coordinator_id);
-  // Waiting for server to join
-  constexpr int max_tries{10};
-  auto maybe_stop = utils::ResettableCounter(max_tries);
-  std::chrono::milliseconds const waiting_period{200};
-  bool removed{false};
-  while (!maybe_stop()) {
-    std::this_thread::sleep_for(waiting_period);
-    if (const auto server_config = raft_server_->get_srv_config(coordinator_id); !server_config) {
-      spdlog::info("Coordinator with id {} removed from the cluster", coordinator_id);
-      removed = true;
-      break;
-    }
-  }
-
-  if (!removed) {
-    spdlog::error(
-        "Failed to remove coordinator {} from the cluster in {}ms", coordinator_id, max_tries * waiting_period);
+  if (!WaitForServerConfig(coordinator_id, false)) {
     return RemoveCoordinatorInstanceStatus::LOCAL_TIMEOUT;
   }
+  spdlog::info("Coordinator with id {} removed from the cluster", coordinator_id);
   return RemoveCoordinatorInstanceStatus::SUCCESS;
+}
+
+auto RaftState::WaitForServerConfig(int32_t coordinator_id, bool present) const -> bool {
+  auto const params = raft_server_->get_current_params();
+  // A membership message parked behind a busy peer goes out on the next heartbeat, then needs a round trip and a
+  // config commit. Three heartbeats plus the client timeout leave room for that without racing the heartbeat.
+  auto const max_wait = std::chrono::milliseconds{(3 * params.heart_beat_interval_) + params.client_req_timeout_};
+  constexpr std::chrono::milliseconds waiting_period{200};
+
+  auto const deadline = std::chrono::steady_clock::now() + max_wait;
+  while (std::chrono::steady_clock::now() < deadline) {
+    std::this_thread::sleep_for(waiting_period);
+    bool const is_present = raft_server_->get_srv_config(coordinator_id) != nullptr;
+    if (is_present == present) {
+      return true;
+    }
+  }
+  spdlog::error("Server with id {} still {} the Raft configuration after {}ms",
+                coordinator_id,
+                present ? "missing from" : "present in",
+                max_wait.count());
+  return false;
 }
 
 auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) const -> AddCoordinatorInstanceStatus {
@@ -523,20 +530,11 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
   }
 
   spdlog::info("Request to add server {} to the cluster accepted", coordinator_server);
-
-  // Waiting for server to join
-  constexpr int max_tries{10};
-  auto maybe_stop = utils::ResettableCounter(max_tries);
-  std::chrono::milliseconds const waiting_period{200};
-  while (!maybe_stop()) {
-    std::this_thread::sleep_for(waiting_period);
-    if (const auto server_config = raft_server_->get_srv_config(config.coordinator_id)) {
-      spdlog::info("Server with id {} added to cluster", config.coordinator_id);
-      return AddCoordinatorInstanceStatus::SUCCESS;
-    }
+  if (!WaitForServerConfig(config.coordinator_id, true)) {
+    return AddCoordinatorInstanceStatus::LOCAL_TIMEOUT;
   }
-  spdlog::error("Failed to add server {} to the cluster in {}ms", coordinator_server, max_tries * waiting_period);
-  return AddCoordinatorInstanceStatus::LOCAL_TIMEOUT;
+  spdlog::info("Server with id {} added to cluster", config.coordinator_id);
+  return AddCoordinatorInstanceStatus::SUCCESS;
 }
 
 auto RaftState::CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds {
@@ -611,14 +609,7 @@ auto RaftState::GetCoordinatorInstancesAux() const -> std::vector<CoordinatorIns
 }
 
 auto RaftState::GetMyCoordinatorInstanceAux() const -> CoordinatorInstanceAux {
-  auto const coord_instances_aux = GetCoordinatorInstancesAux();
-  auto const self_aux = std::ranges::find_if(
-      coord_instances_aux,
-      [coordinator_id = this->coordinator_id_](auto const &coordinator) { return coordinator_id == coordinator.id; });
-  MG_ASSERT(self_aux != coord_instances_aux.end(),
-            "Cannot find raft_server::aux for coordinator with id {}.",
-            coordinator_id_);
-  return *self_aux;
+  return state_manager_->GetMyCoordinatorInstanceAux();
 }
 
 auto RaftState::GetCurrentMainUUID() const -> utils::UUID { return state_machine_->GetCurrentMainUUID(); }

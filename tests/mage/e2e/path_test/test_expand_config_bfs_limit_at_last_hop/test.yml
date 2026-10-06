@@ -1,0 +1,10 @@
+# The paths at the hop bound are emitted straight from A's neighbours, so the limit must stop that
+# loop partway: A has four neighbours at the last hop and the limit is three.
+query: >
+  MATCH (s:Node {name: "S"})
+  CALL path.expand_config(s, {bfs: true, relationshipFilter: "R>", limit: 3, minHops: 2, maxHops: 2})
+  YIELD result
+  RETURN count(result) AS paths;
+
+output:
+  - paths: 3

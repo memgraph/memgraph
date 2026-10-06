@@ -17,6 +17,7 @@ BINARY="/home/mg/memgraph/build/memgraph"
 OUT_DIR="/tmp/mg-cores/stacktraces"
 TOOLCHAIN=""
 CORE_GLOB="core.*"
+EXECUTABLES_OUT=""
 
 print_usage() {
   cat <<EOF
@@ -28,6 +29,9 @@ Options:
   --out-dir DIR     Directory to write stack traces to (default: $OUT_DIR)
   --toolchain VER   Toolchain version used to locate gdb (e.g. v7)
   --core-glob PAT   Glob (relative to --cores-dir) matching cores (default: $CORE_GLOB)
+  --executables-out FILE
+                    Also write the path of every executable a core maps (one per
+                    line) to FILE, so the upload can include test binaries
   -h, --help        Show this help
 EOF
 }
@@ -39,6 +43,7 @@ while [[ $# -gt 0 ]]; do
     --out-dir)   OUT_DIR="$2"; shift 2 ;;
     --toolchain) TOOLCHAIN="$2"; shift 2 ;;
     --core-glob) CORE_GLOB="$2"; shift 2 ;;
+    --executables-out) EXECUTABLES_OUT="$2"; shift 2 ;;
     -h|--help)   print_usage; exit 0 ;;
     *) echo "Error: unknown option '$1'" >&2; print_usage >&2; exit 1 ;;
   esac
@@ -57,6 +62,24 @@ fi
 if ! command -v gdb >/dev/null 2>&1; then
   echo "Error: gdb not found (looked on PATH and in /opt/toolchain-${TOOLCHAIN:-<unset>})." >&2
   exit 1
+fi
+
+# The toolchain's gdb is linked against its sysroot glibc but carries the
+# host's ld.so, so it dies at startup on any host whose glibc differs
+# ("Inconsistency detected by ld.so ... _dl_call_libc_early_init"). Running it
+# through the sysroot's own loader gives it a matching ld.so + libc.
+GDB=(gdb)
+if ! gdb --version >/dev/null 2>&1; then
+  tc_root="/opt/toolchain-${TOOLCHAIN:-}"
+  tc_loader="$(ls "$tc_root"/sysroot/lib64/ld-linux-*.so.* 2>/dev/null | head -n1)"
+  if [[ -n "$tc_loader" && -x "$tc_root/bin/gdb" ]]; then
+    GDB=("$tc_loader" --library-path "$tc_root/lib64:$tc_root/lib:$tc_root/sysroot/usr/lib" "$tc_root/bin/gdb")
+  fi
+  if ! "${GDB[@]}" --version >/dev/null 2>&1; then
+    echo "Error: gdb cannot start:" >&2
+    "${GDB[@]}" --version >&2 || true
+    exit 1
+  fi
 fi
 
 shopt -s nullglob
@@ -94,8 +117,9 @@ resolve_binary_for_core() {
   # gdb exits non-zero on a core it cannot read, which would otherwise take the
   # whole run down and lose the cores not yet analysed. Its output is kept so
   # that a core it refused says why.
-  gdb -batch -nx -ex "info proc mappings" --core="$core" >"$log" 2>&1 || true
-  exe="$(awk '$1 ~ /^0x/ { i = index($0, " /"); if (i > 0) { print substr($0, i + 1); exit } }' "$log")"
+  "${GDB[@]}" -batch -nx -ex "info proc mappings" --core="$core" >"$log" 2>&1 || true
+  # gdb 17 pads the path column, so strip trailing whitespace from it.
+  exe="$(awk '$1 ~ /^0x/ { i = index($0, " /"); if (i > 0) { p = substr($0, i + 1); sub(/[[:space:]]+$/, "", p); print p; exit } }' "$log")"
 
   if [[ -z "$exe" ]]; then
     core_binary_fallback_reason="core maps no executable ($(grep -iEm1 'error|warning|not a core|no such' "$log" || echo 'no detail from gdb'))"
@@ -114,6 +138,8 @@ resolve_binary_for_core() {
 }
 
 mkdir -p "$OUT_DIR"
+# Start the list empty so a previous run's entries are never re-uploaded.
+[[ -n "$EXECUTABLES_OUT" ]] && : > "$EXECUTABLES_OUT"
 
 count=0
 for core in "${cores[@]}"; do
@@ -146,6 +172,7 @@ for core in "${cores[@]}"; do
     echo "Analyzing $core ($(basename "$core_binary"), fallback) -> $out"
   else
     echo "Analyzing $core ($(basename "$core_binary")) -> $out"
+    [[ -n "$EXECUTABLES_OUT" ]] && printf '%s\n' "$core_binary" >> "$EXECUTABLES_OUT"
   fi
   {
     echo "=== Memgraph CI core dump stack trace ==="
@@ -161,13 +188,13 @@ for core in "${cores[@]}"; do
     fi
     [[ -f "$core_binary" ]] || echo "symbols:   MISSING — binary not found; backtrace shows addresses only, treat as unreliable"
     echo "generated: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-    echo "gdb:       $(gdb --version | head -n1)"
+    echo "gdb:       $("${GDB[@]}" --version | head -n1)"
     echo "=========================================="
     echo
     # frame-arguments=none keeps the backtrace to functions + source locations
     # with no argument values, and plain `bt` (not `bt full`) omits locals — so
     # no crash-time memory is written into the uploaded trace.
-    gdb -batch -nx \
+    "${GDB[@]}" -batch -nx \
       -ex "set pagination off" \
       -ex "set print frame-arguments none" \
       -ex "thread apply all bt" \

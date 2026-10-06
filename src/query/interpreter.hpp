@@ -12,8 +12,10 @@
 #pragma once
 
 #include <gflags/gflags.h>
+#include <atomic>
 #include <chrono>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <utility>
@@ -283,25 +285,35 @@ struct CurrentDB {
   }
 
   void ResetDB() {
-    // Narrowed to db_acc_ only: db_transactional_accessor_'s dtor can abort a txn and take storage locks,
-    // which would stall a concurrent foreign_db_view() if held under the same lock. old_db is swapped out
-    // under the lock and destructed below, outside it (see db_acc_mutex_).
+    // Swap db_acc_ out under the lock so a concurrent foreign_db_view() immediately sees "no database";
+    // old_db is destructed below, OUTSIDE the lock, because the storage-accessor dtors take storage locks
+    // and must not run under db_acc_mutex_ (its leaf-lock property).
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
       std::lock_guard lock{db_acc_mutex_};
       old_db.swap(db_acc_);
     }
-    old_db.reset();  // release db access before the accessors below, as before
+    // Release the storage-side accessors FIRST, while old_db still pins the Database/Storage alive.
+    // ~InMemoryAccessor runs Abort()/FinalizeTransaction() which dereference the Storage, and the gatekeeper
+    // never destroys the Storage while an Accessor is live (finish_suspend asserts count_==0). Releasing the
+    // DatabaseAccess (old_db) LAST therefore keeps a concurrent deferred/FORCE teardown from freeing the
+    // Storage out from under those dtors -- the UAF the previous db_acc_-first order left open.
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
+    old_db.reset();  // db access released last; still outside db_acc_mutex_
   }
 
-  // Releases db_acc_ only if held and marked for deletion; db_transactional_accessor_/execution_db_accessor_/
-  // trigger_context_collector_ are untouched -- that's ResetDB()'s job. is_marked_for_deletion() only reads
-  // an atomic_bool (no GKInternals::mutex_), so it's safe to call under db_acc_mutex_; the swapped-out
-  // Accessor itself is destructed after the lock is released (see db_acc_mutex_).
-  void ReleaseDbIfMarked() {
+  // Releases db_acc_ only if held, marked for deletion, and no storage-side accessor is live.
+  // Those accessors hold raw Storage references without a pin of their own, so dropping the last
+  // gatekeeper pin under them would let a deferred teardown free the Storage (same ordering as ResetDB).
+  // E.g. a nested BEGIN inside an open explicit transaction reaches here before it throws; the pin is
+  // then released by the next ResetInterpreter after the transaction ends, or by ResetDB.
+  // is_marked_for_deletion() reads an atomic_bool (no GKInternals::mutex_), so it is safe to call
+  // under db_acc_mutex_; the swapped-out Accessor is destructed after the lock is released.
+  // Returns true iff a marked-for-deletion database was released.
+  bool ReleaseDbIfMarked() {
+    if (db_transactional_accessor_ || execution_db_accessor_ || trigger_context_collector_) return false;
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
       std::lock_guard lock{db_acc_mutex_};
@@ -309,6 +321,7 @@ struct CurrentDB {
         old_db.swap(db_acc_);
       }
     }
+    return old_db.has_value();
   }
 
   // Owning-thread-only. Reads db_acc_ with no synchronization, safe only because a session's queries are
@@ -400,8 +413,10 @@ class Interpreter final {
     std::string login_timestamp;
   };
 
-  std::shared_ptr<QueryUserOrRole>
-      user_or_role_{};  // Deep copy is not needed here, since it is only used in the current thread
+  // Owning-thread only: written/read by SetUser/ResetUser/SetSessionInfo on the same thread.
+  // Foreign threads must use the snapshots below — a cross-thread read races a non-atomic shared_ptr (UAF if ResetUser
+  // runs concurrently).
+  std::shared_ptr<QueryUserOrRole> user_or_role_{};
 #ifdef MG_ENTERPRISE
   // Coordinator privilege mask captured at login (auth::Permission bits). Consulted directly only for role-less
   // (basic-auth passthrough) sessions, which carry full WRITE; sessions with coordinator roles recompute their mask
@@ -419,6 +434,11 @@ class Interpreter final {
   SessionInfo session_info_;
   // Leaf lock for session_info_; only the foreign GetActiveUsersInfo reader locks (owning-thread reads serialized).
   mutable std::mutex session_info_mutex_;
+  // Published snapshots of user_or_role_ and session_info_ for foreign readers; atomic<shared_ptr> makes
+  // load() refcount-safe (raw ptr/relaxed atomic reintroduces UAF). Keep WHOLE: operator== checks username+rolenames
+  // jointly.
+  std::atomic<std::shared_ptr<QueryUserOrRole>> foreign_user_view_{};
+  std::atomic<std::shared_ptr<const SessionInfo>> foreign_session_view_{};
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 
@@ -557,6 +577,13 @@ class Interpreter final {
    */
   void Abort();
 
+  /**
+   * Clear in-band Cypher session state (SET SESSION/NEXT isolation, SET SESSION TRACE/SETTING)
+   * on LOGOFF. Deliberately NOT part of Abort(): Abort() runs on RESET, ROLLBACK, auth failure,
+   * and autocommit abort, where this state must survive within the same logical session.
+   */
+  void ResetForConnectionReuse();
+
   struct TxVerifier {
     TxVerifier(TransactionStatus original_status, std::atomic<TransactionStatus> &transaction_status)
         : original_status_(original_status), transaction_status_(transaction_status) {}
@@ -657,13 +684,7 @@ class Interpreter final {
 
   memgraph::logging::SessionLogContext session_log_ctx_{};
 
-  void ResetInterpreter() {
-    query_executions_.clear();
-    system_transaction_.reset();
-    transaction_queries_->clear();
-    commit_notification_.reset();
-    current_db_.ReleaseDbIfMarked();
-  }
+  void ResetInterpreter();
 
   struct QueryExecution {
     static constexpr struct ThreadSafe {

@@ -147,6 +147,10 @@ std::optional<State> CoordinatorSSOAuthentication(TSession &session, memgraph::c
 
 template <typename TSession>
 std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
+  // Stamp the real authentication time; covers HELLO (Bolt <5.1) and LOGON (5.1+),
+  // including re-auth after LOGOFF, so SHOW SESSIONS reports the correct login time.
+  session.RefreshLoginTimestamp();
+
   // Get authentication data.
   // From neo4j driver v4.4, fields that have a default value are not sent.
   // In order to have back-compatibility, the missing fields will be added.
@@ -158,7 +162,9 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   }
 
   auto scheme_in_module_mappings = [](std::string_view auth_scheme) {
-    if (auth_scheme == "basic") {  // "Basic" refers to username + password auth, as opposed to SSO
+    // "basic" (username + password) and "none" (no credentials) are built-in schemes, never SSO, even if an entry in
+    // the mappings flag happens to use one of those names.
+    if (auth_scheme == "basic" || auth_scheme == "none") {
       return false;
     }
     for (const auto &mapping : utils::Split(FLAGS_auth_module_mappings, ";")) {
@@ -178,29 +184,34 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
 
 #ifdef MG_ENTERPRISE
   if (auto const &coordination_setup = flags::CoordinationSetupInstance(); coordination_setup.IsCoordinator()) {
-    // Coordinator auth: when no SSO module is configured, basic/none is a passthrough (credentials ignored, session
-    // keeps full COORDINATOR_WRITE, no license required). Once SSO is configured (--auth-module-mappings non-empty),
-    // basic/none is denied so the credential-less passthrough can't bypass the SSO privilege model -- but only while
-    // SSO can actually grant a privileged session. It can't when the enterprise license is invalid (SSO then rejects
-    // every login) or when the committed role set has no COORDINATOR_WRITE role (SSO validates the module's roles
-    // against that set, and only a WRITE role can create the first administrator). In either case basic stays open as
-    // the break-glass path so an admin is never permanently locked out -- covering a fresh boot with mappings and no
-    // roles, and dropping the last writable role on a live cluster. A transient leader outage leaves the role set
-    // unknown; that case is fail-closed (basic denied), matching the SSO path, since it is temporary and SSO is
-    // unavailable then too. An SSO scheme present in --auth-module-mappings runs the coordinator SSO path
-    // (enterprise-gated); any other/unknown scheme is rejected.
+    // Coordinator auth. A scheme listed in --auth-module-mappings runs the coordinator SSO path (enterprise-gated).
+    // Every other scheme -- basic, none, or one the mappings don't list -- takes the passthrough path: when no SSO
+    // module is configured it is accepted with credentials ignored and the session keeps full COORDINATOR_WRITE (no
+    // license required), so a coordinator without SSO admits any client the way it always has. Once SSO is configured
+    // (--auth-module-mappings non-empty), passthrough is denied so the credential-less path can't bypass the SSO
+    // privilege model -- but only while SSO can actually grant a privileged session. It can't when the enterprise
+    // license is invalid (SSO then rejects every login) or when the committed role set has no COORDINATOR_WRITE role
+    // (SSO validates the module's roles against that set, and only a WRITE role can create the first administrator).
+    // In either case passthrough stays open as the break-glass path so an admin is never permanently locked out --
+    // covering a fresh boot with mappings and no roles, and dropping the last writable role on a live cluster. A
+    // transient leader outage leaves the role set unknown; that case is fail-closed (passthrough denied), matching the
+    // SSO path, since it is temporary and SSO is unavailable then too.
+    if (scheme_in_module_mappings(schema)) {
+      return CoordinatorSSOAuthentication(session, data);
+    }
     const bool sso_configured = !FLAGS_auth_module_mappings.empty();
-    if (schema == "basic" || schema == "none") {
-      if (sso_configured) {
-        // The full (non-cached) check, matching the gate the SSO path uses: the cached flag is only refreshed every
-        // few minutes, so a license that expired by date would keep basic denied while SSO already rejects every
-        // login, locking every Bolt scheme out of the coordinator until the next refresh.
-        bool deny_basic = license::global_license_checker.IsEnterpriseValid().has_value();
-        if (deny_basic) {
-          // nullopt (leader unreachable / no coordinator state) => keep basic denied (fail-closed).
-          deny_basic = session.CoordinatorHasWritableRole().value_or(true);
-        }
-        if (deny_basic) {
+    if (sso_configured) {
+      // The full (non-cached) check, matching the gate the SSO path uses: the cached flag is only refreshed every
+      // few minutes, so a license that expired by date would keep passthrough denied while SSO already rejects every
+      // login, locking every Bolt scheme out of the coordinator until the next refresh.
+      // The role lookup is a leader read, so it runs only when the license check already denies; nullopt (leader
+      // unreachable / no coordinator state) keeps passthrough denied (fail-closed).
+      const bool deny_passthrough = license::global_license_checker.IsEnterpriseValid().has_value() &&
+                                    session.CoordinatorHasWritableRole().value_or(true);
+      if (deny_passthrough) {
+        // The message tells basic/none apart from a scheme the mappings don't list, since the remedy differs: the
+        // former needs an SSO login, the latter is usually a misspelled or unconfigured scheme.
+        if (schema == "basic" || schema == "none") {
           spdlog::warn(
               "Basic/none authentication is disabled on this coordinator because SSO is configured with a valid "
               "license and a COORDINATOR_WRITE role exists; connect with an SSO scheme listed in the "
@@ -208,29 +219,29 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
           HandleAuthFailure(session,
                             "Basic authentication is disabled on this coordinator because SSO is configured; connect "
                             "with an SSO scheme listed in the auth-module-mappings flag.");
-          return State::Close;
+        } else {
+          auto const message = fmt::format(
+              "The \"{}\" authentication scheme isn't supported on this coordinator; connect with an SSO "
+              "scheme listed in the auth-module-mappings flag.",
+              schema);
+          spdlog::warn(message);
+          HandleAuthFailure(session, message);
         }
-        spdlog::warn(
-            "Allowing basic-auth passthrough on this coordinator as a break-glass path: SSO can't currently grant a "
-            "privileged session (invalid enterprise license, or no COORDINATOR_WRITE role in the committed role "
-            "set).");
+        return State::Close;
       }
-      session.CoordinatorPassthroughAuthenticate();
-      return std::nullopt;
+      spdlog::warn(
+          "Allowing auth passthrough on this coordinator as a break-glass path: SSO can't currently grant a "
+          "privileged session (invalid enterprise license, or no COORDINATOR_WRITE role in the committed role "
+          "set).");
+    } else if (schema != "basic" && schema != "none") {
+      spdlog::warn(
+          "Client connected to this coordinator with the \"{}\" authentication scheme, but no SSO module is configured "
+          "(the auth-module-mappings flag is empty): the credentials were ignored and the session was admitted as a "
+          "passthrough.",
+          schema);
     }
-    if (scheme_in_module_mappings(schema)) {
-      return CoordinatorSSOAuthentication(session, data);
-    }
-    spdlog::warn(
-        "The \"{}\" authentication scheme isn't supported on coordinators: connect with basic auth or an SSO scheme "
-        "listed in the auth-module-mappings flag.",
-        schema);
-    HandleAuthFailure(
-        session,
-        fmt::format("The \"{}\" authentication scheme isn't supported on this coordinator; connect with basic auth or "
-                    "an SSO scheme listed in the auth-module-mappings flag.",
-                    schema));
-    return State::Close;
+    session.CoordinatorPassthroughAuthenticate();
+    return std::nullopt;
   }
 #endif
 

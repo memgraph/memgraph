@@ -93,6 +93,8 @@ class Memgraph(ConanFile):
         # pulling liburing into the static link; flip to True (pulls
         # liburing via Conan) to opt back in.
         "rocksdb/*:with_liburing": False,
+        "openssl/*:shared": True,
+        "zlib/*:shared": True,
     }
 
     def requirements(self):
@@ -131,13 +133,9 @@ class Memgraph(ConanFile):
             self.requires("libseccomp/2.6.0", options={"shared": True})
         self.requires("mgclient/1.8.0")
         self.requires("nuraft/2.1.0-memgraph")
-        has_sanitizers = any(self.settings.get_safe(f"compiler.{s}") for s in ("asan", "ubsan", "tsan"))
-        openssl_shared = not has_sanitizers
-        # Production builds dynamically link OpenSSL so the binary can use any system-provided
-        # OpenSSL >=3 and <4. Sanitizer builds use static OpenSSL to avoid ASAN-instrumented
-        # libcrypto.so leaking into LD_LIBRARY_PATH and breaking autotools configure scripts
-        # of other dependencies during the Conan build.
-        self.requires("openssl/3.0.18", options={"shared": openssl_shared})
+        # Whether this is shared is set by "openssl/*:shared" in default_options, not here.
+        # Do not remove `override=True`: it pins one OpenSSL version across the graph.
+        self.requires("openssl/3.0.18", override=True)
         self.requires("protobuf/3.21.12")
         self.requires("pulsar-client-cpp/4.0.0-memgraph")
         self.requires("range-v3/0.12.0")
@@ -146,7 +144,7 @@ class Memgraph(ConanFile):
         self.requires("spdlog/1.17.0")
         self.requires("strong_type/v15")
         self.requires("usearch/2.21.4")
-        self.requires("zlib/1.3.1")
+        self.requires("zlib/1.3.1", override=True)
         self.requires("prometheus-cpp/1.3.0")
 
         # Version overrides — pin transitive dependency versions

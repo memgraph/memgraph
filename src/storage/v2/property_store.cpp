@@ -1125,7 +1125,16 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
     if (!reader_val || !value_val) {
       return false;
     }
-    if (CompareNumericValues(*reader_val, *value_val) != std::partial_ordering::equivalent) return false;
+    // A NaN element is held alike by the decoded comparison, so reading it as
+    // IEEE equality here would refuse a list this store does hold.
+    auto const order = CompareNumericValues(*reader_val, *value_val);
+    if (order == std::partial_ordering::unordered) {
+      if (CompareDoublesNaNLast(AsDouble(*reader_val), AsDouble(*value_val)) != std::weak_ordering::equivalent) {
+        return false;
+      }
+      continue;
+    }
+    if (order != std::partial_ordering::equivalent) return false;
   }
   return true;
 }
@@ -1567,9 +1576,9 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
 // Function used to compare a PropertyValue to the one stored in the byte
 // stream.
 //
-// NOTE: The logic in this function *MUST* be equal to the logic in
-// `PropertyValue::operator==`. If you change this function make sure to change
-// the operator so that they have identical functionality.
+// It answers equivalence, as reading the decoded values does. This has a case
+// per type of its own, so the two are asked the same question over every pair
+// of shapes by a test rather than kept alike by hand.
 //
 // @sa DecodePropertyValue
 [[nodiscard]] bool ComparePropertyValue(Reader *reader, Type type, Size payload_size, const PropertyValue &value) {
@@ -1586,30 +1595,30 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return value.ValueBool() == bool_v;
     }
     case Type::INT: {
-      // Integer and double values are treated as the same in
-      // `PropertyValue::operator==`. That is why we accept both integer and
-      // double values here and use the `operator==` between them to verify that
-      // they are the same.
+      // A number of either numeric type can equal a stored integer, so both are
+      // accepted and the pair is answered the way the decoded values answer it.
       if (!value.IsInt() && !value.IsDouble()) return false;
       auto int_v = reader->ReadInt(payload_size);
       if (!int_v) return false;
       if (value.IsInt()) {
-        return value.ValueInt() == int_v;
+        return value.ValueInt() == *int_v;
       }
-      return value.ValueDouble() == int_v;
+      // The stored integer is read at its full width rather than as a double,
+      // which is what stops two integers answering true against one double.
+      return std::is_eq(PlaceIntegerAgainstDouble(*int_v, value.ValueDouble()));
     }
     case Type::DOUBLE: {
-      // Integer and double values are treated as the same in
-      // `PropertyValue::operator==`. That is why we accept both integer and
-      // double values here and use the `operator==` between them to verify that
-      // they are the same.
+      // As above, a number of either numeric type can equal a stored double.
       if (!value.IsInt() && !value.IsDouble()) return false;
       auto double_v = ReadDoubleAs(reader, payload_size);
       if (!double_v) return false;
-      if (value.IsDouble()) {
-        return value.ValueDouble() == double_v;
+      if (value.IsInt()) {
+        return std::is_eq(PlaceIntegerAgainstDouble(value.ValueInt(), *double_v));
       }
-      return value.ValueInt() == double_v;
+      // Read through the one comparison the decoded values use, so this answers
+      // as `operator==` does. IEEE equality would part from it over a NaN, which
+      // it holds equal to nothing and an index holds alike.
+      return CompareDoublesNaNLast(value.ValueDouble(), *double_v) == std::weak_ordering::equivalent;
     }
     case Type::STRING: {
       if (!value.IsString()) return false;
@@ -1679,13 +1688,20 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       if (!x_opt) return false;
       auto y_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
       if (!y_opt) return false;
+      // A coordinate is a double, so it is read through the comparison a double
+      // beside a point is read through, which answers for a NaN.
+      auto const alike = [](double lhs, double rhs) {
+        return CompareDoublesNaNLast(lhs, rhs) == std::weak_ordering::equivalent;
+      };
       if (valid2d(crs) && value.IsPoint2d()) {
-        return value.ValuePoint2d() == Point2d{crs, *x_opt, *y_opt};
+        auto const &point = value.ValuePoint2d();
+        return point.crs() == crs && alike(point.x(), *x_opt) && alike(point.y(), *y_opt);
       }
       if (valid3d(crs) && value.IsPoint3d()) {
         auto z_opt = reader->ReadDouble(Size::INT64);  // because we forced it as int64 on write
         if (!z_opt) return false;
-        return value.ValuePoint3d() == Point3d{crs, *x_opt, *y_opt, *z_opt};
+        auto const &point = value.ValuePoint3d();
+        return point.crs() == crs && alike(point.x(), *x_opt) && alike(point.y(), *y_opt) && alike(point.z(), *z_opt);
       }
       return false;
     }

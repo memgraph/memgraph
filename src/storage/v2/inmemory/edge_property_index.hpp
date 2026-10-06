@@ -26,6 +26,7 @@
 #include "storage/v2/index_arming.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/errors.hpp"
+#include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/inmemory/light_edge_guard.hpp"
 #include "storage/v2/property_value.hpp"
@@ -97,6 +98,10 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
              const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
              Transaction *transaction, Gid max_gid);
 
+    Iterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+             utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, PropertyId property,
+             PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction, Gid max_gid);
+
     class Iterator {
      public:
       Iterator(Iterable *self, utils::SkipListDb<Entry>::Iterator index_iterator);
@@ -132,10 +137,10 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     EdgePin pin_accessor_edge_;
     utils::SkipListDb<Vertex>::ConstAccessor pin_accessor_vertex_;
     utils::SkipListDb<Entry>::Accessor index_accessor_;
-    [[maybe_unused]] EdgeTypeId edge_type_;
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    PropertyValueRange::ValuePredicate value_predicate_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -150,6 +155,11 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
                     const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                     Transaction *transaction, size_t num_chunks, Gid max_gid);
+
+    ChunkedIterable(utils::SkipListDb<Entry>::Accessor index_accessor,
+                    utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor, EdgePin edge_pin, PropertyId property,
+                    PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction,
+                    size_t num_chunks, Gid max_gid);
 
     class Iterator {
      public:
@@ -207,6 +217,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     [[maybe_unused]] PropertyId property_;
     std::optional<utils::Bound<PropertyValue>> lower_bound_;
     std::optional<utils::Bound<PropertyValue>> upper_bound_;
+    PropertyValueRange::ValuePredicate value_predicate_;
     [[maybe_unused]] bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -240,10 +251,17 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
                    const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
                    Transaction *transaction);
 
+    Iterable Edges(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                   PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction);
+
     ChunkedIterable ChunkedEdges(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
                                  const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                  const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view,
                                  Storage *storage, Transaction *transaction, size_t num_chunks);
+
+    ChunkedIterable ChunkedEdges(PropertyId property, utils::SkipListDb<Vertex>::ConstAccessor vertex_accessor,
+                                 PropertyValueRange const &range, View view, Storage *storage, Transaction *transaction,
+                                 size_t num_chunks);
 
     auto GetAbortProcessor() const -> AbortProcessor override;
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;

@@ -164,6 +164,7 @@ find_package(range-v3 REQUIRED)
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-storage-v2
     PUBLIC
+    mg::value-order
     mg::replication
     mg::kvstore
     Threads::Threads

@@ -329,9 +329,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
-    /// Only the leading property's predicate is held: it is the one a group of equal values can be
-    /// skipped by, because the index orders on it first. The rest are answered by the post-filter.
-    PropertyValueRange::ValuePredicate leading_predicate_;
+    /// One per indexed property, in index order; null where the range bounds suffice. Set for
+    /// a search term (CONTAINS, ENDS WITH, regex) or a list bound, and checked on every entry.
+    std::vector<PropertyValueRange::ValuePredicate> predicates_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;
@@ -403,10 +403,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
     PropertiesPermutationHelper const *permutation_helper_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
     std::vector<std::optional<utils::Bound<PropertyValue>>> upper_bound_;
-    /// Read for the same reason the serial iterable reads it, and it has to be read here too: a
-    /// scan that answers a string predicate hands every value in the band to the filter otherwise,
-    /// and the plans that ask for chunks are the ones with the most to hand over.
-    PropertyValueRange::ValuePredicate leading_predicate_;
+    /// As in Iterable. A rejected entry is stepped over, never seeked past: a seek ignores the
+    /// chunk end and can land in another thread's chunk.
+    std::vector<PropertyValueRange::ValuePredicate> predicates_;
     bool bounds_valid_{true};
     View view_;
     Storage *storage_;

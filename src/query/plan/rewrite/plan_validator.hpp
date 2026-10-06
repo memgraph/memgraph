@@ -39,10 +39,6 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
 
   bool PreVisit(ScanAllByEdgeTypeProperty &op) override { return ShouldForbidScanAllByEdge(); }
 
-  bool PreVisit(ScanAllByEdgeTypePropertyValue &op) override { return ShouldForbidScanAllByEdge(); }
-
-  bool PreVisit(ScanAllByEdgeTypePropertyRange &op) override { return ShouldForbidScanAllByEdge(); }
-
   bool PreVisit(ScanParallelByEdge &op) override {
     is_valid_plan_ = false;
     return false;
@@ -51,10 +47,6 @@ class PlanValidator final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(ScanParallelByEdgeType &op) override { return ShouldForbidScanAllByEdge(); }
 
   bool PreVisit(ScanParallelByEdgeTypeProperty &op) override { return ShouldForbidScanAllByEdge(); }
-
-  bool PreVisit(ScanParallelByEdgeTypePropertyValue &op) override { return ShouldForbidScanAllByEdge(); }
-
-  bool PreVisit(ScanParallelByEdgeTypePropertyRange &op) override { return ShouldForbidScanAllByEdge(); }
 
   bool PreVisit(Optional &op) override {
     // create new plan validator that will go into the input branch so we don't recurse

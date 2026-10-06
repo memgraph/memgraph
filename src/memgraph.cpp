@@ -32,6 +32,7 @@
 #include "coordination/coordinator_state.hpp"
 #include "dbms/constants.hpp"
 #include "dbms/dbms_handler.hpp"
+#include "dbms/inmemory/two_pc_commit_cache.hpp"
 #include "flags/all.hpp"
 #include "flags/bolt.hpp"
 #include "flags/coord_flag_env_handler.hpp"
@@ -859,10 +860,26 @@ int main(int argc, char **argv) {
 
 #endif
 
+  // Owns the process-wide 2PC commit-accessor slot. Declared BEFORE dbms_handler so it is destroyed
+  // AFTER it: ~DbmsHandler runs every ~Database, each draining its own tenant's cached 2PC while its
+  // storage is still alive, leaving an empty slot for this Owner to free. Unconditional: harmless on
+  // a coordinator, which never populates the replica-only slot.
+  const memgraph::dbms::TwoPCCommitCache::Owner two_pc_cache_owner;
+
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler;
   if (!is_coordinator_instance) {
     dbms_handler.emplace(db_config);
   }
+
+#ifdef MG_ENTERPRISE
+  // Wired before the replication RPC server and the init file, either of which can drop a database:
+  // an unwired arm is an empty std::function, so the drop leaves the parameters behind for good.
+  if (dbms_handler.has_value()) {
+    dbms_handler->SetOnUuidRetired([parameters](memgraph::utils::UUID const &uuid) {
+      [[maybe_unused]] auto purged = parameters->DeleteScope(uuid);
+    });
+  }
+#endif
 
   memgraph::metrics::Metrics().SetStorageSnapshotResolver(
       [&dbms_handler](memgraph::utils::UUID const &uuid) -> std::optional<memgraph::metrics::StorageSnapshot> {
@@ -1269,6 +1286,8 @@ int main(int argc, char **argv) {
 
   if (worker_pool_) worker_pool_->AwaitShutdown();
   server.AwaitShutdown();
+  // ~Server destroys the Bolt io_context; the drain hook must not be able to reach a session after that.
+  interpreter_context_.UnregisterDropDrainHook();
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();
 #ifdef MG_ENTERPRISE

@@ -79,6 +79,10 @@ on:
         type: boolean
         description: "mgbench-ha-2-async"
         default: true
+      mgbench_ha_2rep_rust:
+        type: boolean
+        description: "mgbench-ha-2rep-rust (native Rust routing load-gen)"
+        default: true
   schedule:
     - cron: "0 0 * * *"
 
@@ -103,6 +107,7 @@ jobs:
       DEFAULT_MGBENCH_HA_2_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2_async.json'
       DEFAULT_MGBENCH_HA_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_sync_async.json'
       DEFAULT_MGBENCH_HA_STRICT_SYNC_ASYNC_EXPORT_RESULTS_FILE: 'benchmark_result_ha_strict_sync_async.json'
+      DEFAULT_MGBENCH_HA_2REP_RUST_EXPORT_RESULTS_FILE: 'benchmark_result_ha_2rep_rust.json'
       LOOP_COUNT: ${{ inputs.loop_count || 10 }}
       CONAN_REMOTE: ${{ secrets.CONAN_REMOTE }}
       CONAN_USERNAME: ${{ secrets.CONAN_USERNAME }}
@@ -192,6 +197,46 @@ jobs:
             ${{ github.run_number }} \
             $BRANCH_NAME \
             mgbench
+
+      # CPU-pinned 2-replica cluster (reads-on-main ON): 3 arms (point / heavy / splitslowmix) × 2 targets (direct / routing); Rust auto-commit execute_query only.
+      - name: Widen container across all NUMA nodes (HA-2rep)
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2rep_rust }}
+        run: |
+          allcpus="$(cat /sys/devices/system/node/node[0-9]*/cpulist | paste -sd, -)"
+          allmems="$(ls -d /sys/devices/system/node/node[0-9]* | sed 's#.*/node##' | paste -sd, -)"
+          echo "Widening container to cpus=$allcpus mems=$allmems"
+          docker update \
+          --cpuset-cpus="$allcpus" \
+          --cpuset-mems="$allmems" \
+          "mgbuild_${TOOLCHAIN}_${OS}"
+
+      # Native Rust routing client (point/heavy reads + split read/write) on the pinned 2-replica cluster — the only client
+      # fast enough to saturate the replicas and show read fan-out that the python client cannot.
+      - name: Run and upload mgbench-ha-2rep-rust
+        id: mgbench-ha-2rep-rust
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2rep_rust }}
+        continue-on-error: true
+        env:
+          LOOP_COUNT: ${{ inputs.loop_count || 3 }}
+        run: |
+          ./tools/ci/loop-benchmark.sh \
+            "mgbench-ha-rust" \
+            mgbench-ha-2rep-rust \
+            ${{ env.DEFAULT_MGBENCH_HA_2REP_RUST_EXPORT_RESULTS_FILE }} \
+            ${{ github.run_id }} \
+            ${{ github.run_number }} \
+            $BRANCH_NAME \
+            mgbench
+
+      - name: Restore container to first NUMA node
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.mgbench_ha_2rep_rust }}
+        run: |
+          numagroup="$(./tools/ci/numa-0-cores.sh)"
+          echo "Restoring container to numa group: $numagroup"
+          docker update \
+          --cpuset-cpus="$numagroup" \
+          --cpuset-mems="0" \
+          "mgbuild_${TOOLCHAIN}_${OS}"
 
       - name: Run and upload mgbench-ha-2-replicas
         id: mgbench-ha-2-replicas

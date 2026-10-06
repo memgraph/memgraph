@@ -12,6 +12,7 @@
 #pragma once
 
 #include "replication/config.hpp"
+#include "rpc/progress_heartbeat.hpp"
 #include "rpc/server.hpp"
 
 namespace memgraph::replication {
@@ -38,6 +39,10 @@ class ReplicationServer {
   // mutable because at the shutdown time (main thread) we need to take ReadLock() on repl state which requires
   // constness of functions being invoked
   mutable rpc::Server rpc_server_;  // TODO: Interface or something
+  // The server runs a single RPC worker, so its data/recovery handlers never overlap and can share one persistent
+  // heartbeat worker instead of creating and joining a thread per request. The destructor drains rpc_server_ before
+  // any member is destroyed, so no handler can still hold a reference here.
+  rpc::ProgressHeartbeat progress_heartbeat_;
 };
 
 }  // namespace memgraph::replication

@@ -9,9 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+#include <functional>
+#include <iterator>
 #include <memory>
 #include <sstream>
+#include <string>
+#include <unordered_set>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include "disk_test_utils.hpp"
 #include "gtest/gtest.h"
@@ -1352,6 +1359,131 @@ TYPED_TEST(TestSymbolGenerator, SubqueryExpression) {
   }
 }
 
+// A MATCH resolves identifiers in its property maps and variable-length bounds after the whole clause. Inside an
+// un-imported `CALL {}` that must reject an outer name; the scoped and `CALL (*)` imports still resolve it.
+TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoundary) {
+  auto body_reading_m = [this] {
+    auto *node = NODE("n");
+    std::get<0>(node->properties_)[this->storage.GetPropertyIx("prop")] = IDENT("m");
+    return SINGLE_QUERY(MATCH(PATTERN(node)), RETURN("n"));
+  };
+
+  // MATCH (m) CALL { MATCH (n {prop: m}) RETURN n } RETURN n - `m` is never imported.
+  EXPECT_THROW(
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY(body_reading_m()), RETURN("n")))),
+      UnboundVariableError);
+
+  // MATCH (m) CALL (m) { ... } RETURN n - imported by name.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED(body_reading_m(), {"m"}), RETURN("n")))));
+
+  // MATCH (m) CALL (*) { ... } RETURN n - imported wholesale.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))), CALL_SUBQUERY_SCOPED_ALL(body_reading_m()), RETURN("n")))));
+
+  // MATCH (m) MATCH (n {prop: m}) RETURN n - no subquery boundary at all, still resolves.
+  EXPECT_NO_THROW(MakeSymbolTable(
+      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m"))),
+                         MATCH(PATTERN([this] {
+                           auto *node = NODE("n");
+                           std::get<0>(node->properties_)[this->storage.GetPropertyIx("prop")] = IDENT("m");
+                           return node;
+                         }())),
+                         RETURN("n")))));
+}
+
+// `external_symbols_` must be exactly what the body reads from outside. Too few places the conjunct too low; too many
+// makes it unplantable. Asserted directly, because a scenario sees only the planner symptom.
+TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
+  auto names = [](const std::unordered_set<Symbol> &symbols) {
+    std::vector<std::string> out;
+    out.reserve(symbols.size());
+    std::ranges::transform(symbols, std::back_inserter(out), [](const auto &symbol) { return symbol.name(); });
+    std::ranges::sort(out);
+    return out;
+  };
+  using Names = std::vector<std::string>;
+
+  auto check_shapes = [&](auto make_subquery) {
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (x) WHERE x = a } RETURN a
+      // Correlated only through the body's WHERE.
+      auto *subquery = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), WHERE(EQ(IDENT("x"), IDENT("a"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { WITH a AS q MATCH (q)-[r]->(m) RETURN m } RETURN a
+      // Renamed by a WITH before any pattern uses it. `q` is the body's own.
+      auto *subquery = make_subquery(QUERY(
+          SINGLE_QUERY(WITH(NEXPR("q", IDENT("a"))), MATCH(PATTERN(NODE("q"), EDGE("r"), NODE("m"))), RETURN("m"))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (p)-[r]->(f) MATCH (f)-[r2]->(g) } RETURN a
+      // `f` is declared by the first MATCH and reused by the second, so it is the body's own.
+      auto *subquery = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("p"), EDGE("r"), NODE("f"))),
+                                                        MATCH(PATTERN(NODE("f"), EDGE("r2"), NODE("g"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (b) WHERE EXISTS { MATCH (c) WHERE c = b } } RETURN a
+      // `b` is external to the inner body and internal to the outer one. Nothing reaches the caller.
+      auto *inner = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("c"))), WHERE(EQ(IDENT("c"), IDENT("b"))))));
+      auto *outer = make_subquery(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("b"))), WHERE(inner))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(outer), RETURN("a"))));
+      EXPECT_EQ(names(inner->external_symbols_), Names{"b"});
+      EXPECT_EQ(names(outer->external_symbols_), Names{});
+    }
+    {
+      // MATCH (a) WHERE EXISTS { MATCH (x) RETURN x UNION MATCH (y) WHERE y = a RETURN y } RETURN a
+      // Correlated only in the second UNION branch.
+      auto *subquery = make_subquery(
+          QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), RETURN(IDENT("x"), AS("r"))),
+                UNION(SINGLE_QUERY(
+                    MATCH(PATTERN(NODE("y"))), WHERE(EQ(IDENT("y"), IDENT("a"))), RETURN(IDENT("y"), AS("r"))))));
+      MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+      EXPECT_EQ(names(subquery->external_symbols_), Names{"a"});
+    }
+  };
+
+  check_shapes([this](auto *subquery) { return EXISTS_SUBQUERY(subquery); });
+}
+
+// The collector takes a subquery's `external_symbols_`, including for a subquery in a comprehension's filter.
+TYPED_TEST(TestSymbolGenerator, UsedSymbolsCollectorTakesSubqueryExternals) {
+  using Names = std::vector<std::string>;
+  auto collect = [](const SymbolTable &symbol_table, Expression *expression) {
+    memgraph::query::plan::UsedSymbolsCollector collector(symbol_table);
+    expression->Accept(collector);
+    Names out;
+    std::ranges::transform(
+        collector.symbols_, std::back_inserter(out), [](const auto &symbol) { return symbol.name(); });
+    std::ranges::sort(out);
+    return out;
+  };
+
+  {
+    // MATCH (a) WHERE EXISTS { MATCH (x)-[r]->(y) WHERE x = a } RETURN a
+    auto *subquery = EXISTS_SUBQUERY(
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"), EDGE("r"), NODE("y"))), WHERE(EQ(IDENT("x"), IDENT("a"))))));
+    auto symbol_table = MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a"))), WHERE(subquery), RETURN("a"))));
+    EXPECT_EQ(collect(symbol_table, subquery), Names{"a"});
+  }
+  {
+    // MATCH (a), (b) WHERE [(a)-[e]->(m) WHERE EXISTS { MATCH (x) WHERE x = m AND x = b } | m] RETURN a
+    // `b` is read only inside the filter's subquery. `m` is outside the body but bound by the comprehension.
+    auto *subquery = EXISTS_SUBQUERY(QUERY(
+        SINGLE_QUERY(MATCH(PATTERN(NODE("x"))), WHERE(AND(EQ(IDENT("x"), IDENT("m")), EQ(IDENT("x"), IDENT("b")))))));
+    auto *pc = PATTERN_COMPREHENSION(nullptr, PATTERN(NODE("a"), EDGE("e"), NODE("m")), WHERE(subquery), IDENT("m"));
+    auto symbol_table =
+        MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("a")), PATTERN(NODE("b"))), WHERE(pc), RETURN("a"))));
+    EXPECT_EQ(collect(symbol_table, pc), (Names{"a", "b"}));
+  }
+}
+
 // The gate ladder: EXISTS is allowed only in the positions the planner has a splice point for, and the checks run in a
 // fixed order - so a refusal can change identity when an earlier rung moves. Every position gets a case, allowed or
 // refused, and the refused ones assert the message.
@@ -1633,15 +1765,6 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
       EXPECT_EQ(std::string_view{e.what()}, message);
     }
   };
-  auto expect_semantic_message = [](auto *query, std::string_view message) {
-    try {
-      MakeSymbolTable(query);
-      FAIL() << "expected the query to be refused";
-    } catch (const SemanticException &e) {
-      EXPECT_EQ(std::string_view{e.what()}, message);
-    }
-  };
-
   // MATCH (n) WHERE CASE WHEN true THEN EXISTS { ... } ELSE false END RETURN n
   MakeSymbolTable(QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))), WHERE(case_expr(LITERAL(true), exists_subquery(), LITERAL(false))), RETURN("n"))));
@@ -1663,14 +1786,13 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
   MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                                      RETURN(case_expr(LITERAL(true), exists_subquery(), exists_subquery()), AS("h")))));
 
-  // Nested CASE, so num_if_operators reaches two.
+  // Nested CASE.
   MakeSymbolTable(QUERY(SINGLE_QUERY(
       MATCH(PATTERN(NODE("n"))),
       RETURN(case_expr(LITERAL(true), case_expr(exists_subquery(), LITERAL(true), LITERAL(false)), LITERAL(false)),
              AS("h")))));
 
-  // Inside an aggregate's argument. The other consumer of num_if_operators stays: it refuses an aggregation inside a
-  // CASE, not a CASE inside an aggregation.
+  // Inside an aggregate's argument.
   MakeSymbolTable(
       QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                          RETURN(COLLECT_LIST(case_expr(exists_subquery(), LITERAL(1), LITERAL(0)), false), AS("c")))));
@@ -1706,12 +1828,40 @@ TYPED_TEST(TestSymbolGenerator, ExistsInsideCase) {
           RETURN(ALL("x", LIST(LITERAL(1)), WHERE(case_expr(exists_subquery(), LITERAL(true), LITERAL(false)))),
                  AS("h")))),
       "Not yet implemented: EXISTS is not supported in this position yet!");
+}
 
-  // An aggregation inside a CASE is still refused; that gate is untouched.
-  expect_semantic_message(
-      QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
-                         RETURN(case_expr(LITERAL(true), COUNT(IDENT("n"), false), exists_subquery()), AS("h")))),
-      "Using aggregation functions inside of CASE is not allowed.");
+// An aggregation reads every row of a group at once, so no expression evaluated once per element of a list can
+// hold one. The list's own elements are not rows, and the identifier the lambda binds is not on the frame the
+// Aggregate writes.
+TYPED_TEST(TestSymbolGenerator, AggregationInsideExpressionOverList) {
+  // Pinned by message, not by type: the position gate a line above throws SemanticException too, and it is what
+  // answers for these same constructs outside a RETURN. A type-only assertion would pass with this gate removed.
+  auto refused = [this](std::string_view query_text, Expression *expression) {
+    SCOPED_TRACE(query_text);
+    auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(expression, AS("r"))));
+    try {
+      MakeSymbolTable(query);
+      FAIL() << "expected the query to be refused";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string_view{e.what()},
+                "Using aggregation functions inside an expression over a list is not allowed.");
+    }
+  };
+  refused("MATCH (n) RETURN [x IN [1] | count(n)] AS r",
+          LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), nullptr, COUNT(IDENT("n"), false)));
+  refused(
+      "MATCH (n) RETURN [x IN [1] WHERE count(n) > 0] AS r",
+      LIST_COMPREHENSION(IDENT("x"), LIST(LITERAL(1)), WHERE(GREATER(COUNT(IDENT("n"), false), LITERAL(0))), nullptr));
+  refused("MATCH (n) RETURN all(x IN [1] WHERE count(n) > 0) AS r",
+          ALL("x", LIST(LITERAL(1)), WHERE(GREATER(COUNT(IDENT("n"), false), LITERAL(0)))));
+  refused("MATCH (n) RETURN reduce(s = 0, x IN [1] | s + count(n)) AS r",
+          REDUCE("s", LITERAL(0), "x", LIST(LITERAL(1)), ADD(IDENT("s"), COUNT(IDENT("n"), false))));
+  refused("MATCH (n) RETURN extract(x IN [1] | count(n)) AS r",
+          EXTRACT("x", LIST(LITERAL(1)), COUNT(IDENT("n"), false)));
+  // An aggregation over the list itself is not inside the lambda, so it stays allowed.
+  auto *over_the_list = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))), RETURN(ALL("x", COLLECT_LIST(IDENT("n"), false), WHERE(LITERAL(true))), AS("r"))));
+  MakeSymbolTable(over_the_list);
 }
 
 // A simple CASE compares one test expression against every alternative, so the generator reaches it once per arm.
@@ -1754,6 +1904,14 @@ TYPED_TEST(TestSymbolGenerator, ExistsAsSimpleCaseTest) {
   // Two side by side, each reached twice: the first's variables must be gone before the second declares its own.
   MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
                                      RETURN(AND(simple_case(pattern_form()), simple_case(pattern_form())), AS("h")))));
+}
+
+// An aggregation may sit inside a CASE, like any other expression holding one.
+TYPED_TEST(TestSymbolGenerator, AggregationInsideCase) {
+  // MATCH (n) RETURN CASE WHEN true THEN count(n) ELSE 0 END AS h
+  auto *case_expr =
+      this->storage.template Create<memgraph::query::IfOperator>(LITERAL(true), COUNT(IDENT("n"), false), LITERAL(0));
+  MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), RETURN(case_expr, AS("h")))));
 }
 
 TYPED_TEST(TestSymbolGenerator, Subqueries) {
@@ -2424,6 +2582,68 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionOverItsOwnNodesInsideCreateI
   auto *query = QUERY(SINGLE_QUERY(CREATE(PATTERN(created))));
 
   EXPECT_NO_THROW(MakeSymbolTable(query));
+}
+
+// CREATE and MERGE build a node, so they take a conjunction of labels and nothing else: there is no
+// node to build from '|', '!' or '%'.
+TYPED_TEST(TestSymbolGenerator, CreateOrMergeWithLabelTermIsRejected) {
+  // The check is on the term being there, not on its operator, so one CREATE and one MERGE suffice.
+  // CREATE (n:%)
+  auto *wildcard = NODE_WITH_TERM("n", LABEL_TERM_WILDCARD());
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(CREATE(PATTERN(wildcard))))), SemanticException);
+
+  // MERGE (n:!A)
+  auto *merged = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("A")));
+  EXPECT_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MERGE(PATTERN(merged))))), SemanticException);
+
+  // CREATE (n:A:B) -- a conjunction is what a write takes, and it still does.
+  auto *conjunction = NODE_WITH_LABELS("n", std::vector<std::string>{"A", "B"}, false);
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(CREATE(PATTERN(conjunction))))));
+
+  // MATCH (n:!A) -- reading with one is fine.
+  auto *matched = NODE_WITH_TERM("n", LABEL_TERM_NOT(LABEL_TERM_LEAF("A")));
+  EXPECT_NO_THROW(MakeSymbolTable(QUERY(SINGLE_QUERY(MATCH(PATTERN(matched)), RETURN("n")))));
+}
+
+// The rejection reaches the far end of a written edge too. Each case also runs with a plain node, which must
+// pass, so the throw is the label term's.
+TYPED_TEST(TestSymbolGenerator, NestedCreateOrMergeWithLabelTermIsRejected) {
+  auto term = [&] { return NODE_WITH_TERM("n", LABEL_TERM_OR(LABEL_TERM_LEAF("A"), LABEL_TERM_LEAF("B"))); };
+  auto plain = [&] { return NODE("n"); };
+  using MakeNode = std::function<NodeAtom *()>;
+  const std::vector<std::pair<std::string, std::function<CypherQuery *(const MakeNode &)>>> cases{
+      // CREATE (m)-[:R]->(n:A|B)
+      {"edge endpoint",
+       [&](const MakeNode &node) {
+         return QUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {"R"}), node()))));
+       }},
+      // MERGE (m)-[:R]->(n:A|B)
+      {"merged edge endpoint",
+       [&](const MakeNode &node) {
+         return QUERY(SINGLE_QUERY(MERGE(PATTERN(NODE("m"), EDGE("r", EdgeAtom::Direction::OUT, {"R"}), node()))));
+       }},
+  };
+  for (const auto &[name, make_query] : cases) {
+    SCOPED_TRACE(name);
+    EXPECT_THROW(MakeSymbolTable(make_query(term)), SemanticException);
+    EXPECT_NO_THROW(MakeSymbolTable(make_query(plain)));
+  }
+}
+
+// Only CREATE writes a label named by an expression, and the refusal says so wherever it is raised. It
+// also says how to name a label that contains a dot, which is what a query reaching this usually meant.
+TYPED_TEST(TestSymbolGenerator, MatchingALabelNamedByAnExpressionNamesTheRule) {
+  // MATCH (x), (n:x.y) RETURN n
+  auto *dynamic = NODE_WITH_TERM("n", LABEL_TERM_DYNAMIC(PROPERTY_LOOKUP(this->dba, IDENT("x"), "y")));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x")), PATTERN(dynamic)), RETURN("n")));
+  try {
+    MakeSymbolTable(query);
+    ADD_FAILURE() << "expected a semantic error";
+  } catch (const SemanticException &e) {
+    const std::string message{e.what()};
+    EXPECT_NE(message.find("can only be written by CREATE"), std::string::npos) << message;
+    EXPECT_NE(message.find("backticks"), std::string::npos) << message;
+  }
 }
 
 #undef COMPREHENSION_OVER

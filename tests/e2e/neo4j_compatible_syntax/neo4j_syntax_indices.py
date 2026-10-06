@@ -72,7 +72,7 @@ def test_neo4j_syntax_create_and_drop_indices(cursor):
     assert any("ScanAllByLabelProperties (n :Person {first, last})" in line for line in composite_plan), composite_plan
 
     edge_plan = _explain(cursor, "MATCH (a)-[r:KNOWS]->(b) WHERE r.since = 2020 RETURN r")
-    assert any("ScanAllByEdgeTypePropertyValue (a)-[r:KNOWS {since}]->(b)" in line for line in edge_plan), edge_plan
+    assert any("ScanAllByEdgeTypeProperty (a)-[r:KNOWS {since}]->(b)" in line for line in edge_plan), edge_plan
 
     # Execute the queries and check that filtering returns exactly the matching rows.
     name_results = execute_and_fetch_all(cursor, "MATCH (n:Person) WHERE n.name = 'Alice' RETURN n.name AS name")

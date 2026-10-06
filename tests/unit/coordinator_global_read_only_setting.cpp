@@ -71,7 +71,7 @@ class CoordinatorGlobalReadOnlySettingTest : public ::testing::Test {
 
   int32_t const coordinator_id = 1;
   uint16_t const bolt_port = 6690;
-  uint16_t const coordinator_port = 40'115;
+  uint16_t const coordinator_port = 22'348;
   uint16_t const management_port = 21'348;
 };
 

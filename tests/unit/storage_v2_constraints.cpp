@@ -544,6 +544,166 @@ TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation1) {
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(ConstraintsTest, UniqueConstraintsHoldTwoNaNsApart) {
+  // A unique constraint is a test of equality, and a NaN is equal to nothing,
+  // itself included. Two of them are no more a duplicate than two missing
+  // properties are, which the constraint already lets past.
+  auto const nan = PropertyValue(std::numeric_limits<double>::quiet_NaN());
+
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex1 = acc->CreateVertex();
+    auto vertex2 = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, nan));
+    ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(this->prop1, nan));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // A NaN reached through a container is the same value to the constraint.
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex3 = acc->CreateVertex();
+    auto vertex4 = acc->CreateVertex();
+    auto const holding_nan = PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), nan});
+    ASSERT_NO_ERROR(vertex3.AddLabel(this->label2));
+    ASSERT_NO_ERROR(vertex3.SetProperty(this->prop2, holding_nan));
+    ASSERT_NO_ERROR(vertex4.AddLabel(this->label2));
+    ASSERT_NO_ERROR(vertex4.SetProperty(this->prop2, holding_nan));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // A real duplicate is still refused, so the exemption is not a hole.
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex5 = acc->CreateVertex();
+    auto vertex6 = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex5.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex5.SetProperty(this->prop1, PropertyValue(7.0)));
+    ASSERT_NO_ERROR(vertex6.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex6.SetProperty(this->prop1, PropertyValue(7.0)));
+    auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+    ASSERT_FALSE(res.has_value());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateOverTwoNaNsSucceeds) {
+  // The same rule read the other way round: a column already holding two NaNs
+  // does not stop the constraint being created over it. Recovery rebuilds a
+  // constraint by this path, so refusing here refuses to start.
+  auto const nan = PropertyValue(std::numeric_limits<double>::quiet_NaN());
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex1 = acc->CreateVertex();
+    auto vertex2 = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, nan));
+    ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(this->prop1, nan));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(ConstraintsTest, UniqueConstraintsHoldTwoNullHoldingValuesApart) {
+  // Equality answers Null for a value holding one, so two such values are not
+  // known to be a duplicate and the constraint has nothing to refuse. A
+  // property set to a null is erased, and the constraint already passes over a
+  // vertex missing one; a null reached through a container is the same
+  // undecided answer, so it is passed over on the same grounds.
+  auto const holding_null = PropertyValue(std::vector<PropertyValue>{PropertyValue(1), PropertyValue()});
+
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    ASSERT_TRUE(res.has_value());
+    ASSERT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex1 = acc->CreateVertex();
+    auto vertex2 = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, holding_null));
+    ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(this->prop1, holding_null));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // A null under a map key is reached the same way.
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex3 = acc->CreateVertex();
+    auto vertex4 = acc->CreateVertex();
+    auto const mapped_null = PropertyValue(PropertyValue::map_t{{this->prop1, PropertyValue()}});
+    ASSERT_NO_ERROR(vertex3.AddLabel(this->label2));
+    ASSERT_NO_ERROR(vertex3.SetProperty(this->prop2, mapped_null));
+    ASSERT_NO_ERROR(vertex4.AddLabel(this->label2));
+    ASSERT_NO_ERROR(vertex4.SetProperty(this->prop2, mapped_null));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // A container of the same shape holding no null is decided, so it is refused.
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex5 = acc->CreateVertex();
+    auto vertex6 = acc->CreateVertex();
+    auto const decided = PropertyValue(std::vector<PropertyValue>{PropertyValue(1), PropertyValue(2)});
+    ASSERT_NO_ERROR(vertex5.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex5.SetProperty(this->prop1, decided));
+    ASSERT_NO_ERROR(vertex6.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex6.SetProperty(this->prop1, decided));
+    auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+    ASSERT_FALSE(res.has_value());
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TYPED_TEST(ConstraintsTest, UniqueConstraintsCreateOverTwoNullHoldingValuesSucceeds) {
+  // The same rule read the other way round, and the reason it matters: recovery
+  // rebuilds a constraint by this path, so refusing here refuses to start.
+  auto const holding_null = PropertyValue(std::vector<PropertyValue>{PropertyValue(1), PropertyValue()});
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex1 = acc->CreateVertex();
+    auto vertex2 = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex1.SetProperty(this->prop1, holding_null));
+    ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex2.SetProperty(this->prop1, holding_null));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto constraint_acc = this->CreateConstraintAccessor();
+    auto res = constraint_acc->CreateUniqueConstraint(this->label1, {this->prop1});
+    ASSERT_TRUE(res.has_value());
+    EXPECT_EQ(res.value(), UniqueConstraints::CreationStatus::SUCCESS);
+    ASSERT_NO_ERROR(constraint_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+}
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(ConstraintsTest, UniqueConstraintsNoViolation2) {
   {
     auto constraint_acc = this->CreateConstraintAccessor();

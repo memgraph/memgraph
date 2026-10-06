@@ -22,7 +22,9 @@ def admin_cursor():
     yield cursor
     execute_and_fetch_all(cursor, "USE DATABASE memgraph")
     for row in execute_and_fetch_all(cursor, "SHOW DATABASES"):
-        if row[0].startswith("tenant_"):
+        # A tenant already in DROPPING state was force-dropped and is draining asynchronously; re-dropping
+        # it races the defer worker and errors NON_EXISTENT. Only clean up live (HOT/COLD) tenants here.
+        if row[0].startswith("tenant_") and row[1] != "DROPPING":
             execute_and_fetch_all(cursor, f"DROP DATABASE {row[0]} FORCE")
 
 

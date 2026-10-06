@@ -279,3 +279,91 @@ Feature: Indices
             | m.b |
             | 'c' |
             | 'm' |
+
+    Scenario: A correlated pattern comprehension returns the unindexed result
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:L {id: 1}), (b:L {id: 2}), (c:L {id: 1})
+            CREATE (a)-[:E]->(b), (a)-[:E]->(c), (b)-[:E]->(c);
+            """
+        And with new index :L(id)
+        When executing query:
+            """
+            MATCH (m:L) RETURN m.id AS id, size([ (n:L {id: m.id})-[]-(q) | q ]) AS c ORDER BY id, c;
+            """
+        Then the result should be:
+            | id | c |
+            | 1  | 4 |
+            | 1  | 4 |
+            | 2  | 2 |
+
+    Scenario: A correlated pattern comprehension over an edge property returns the unindexed result
+        Given an empty graph
+        And having executed:
+            """
+            CREATE EDGE INDEX ON :E(w);
+            """
+        And having executed:
+            """
+            CREATE (a:L {w: 1}), (b:L {w: 2})
+            CREATE (a)-[:E {w: 1}]->(b), (a)-[:E {w: 2}]->(b);
+            """
+        When executing query:
+            """
+            MATCH (m:L) RETURN m.w AS w, size([ ()-[r:E {w: m.w}]->() | r ]) AS c ORDER BY w;
+            """
+        Then the result should be:
+            | w | c |
+            | 1 | 1 |
+            | 2 | 1 |
+
+    # The body reads the scanned variable only through its WHERE, so the index cannot be sought by the COUNT.
+    Scenario: A subquery that reads the scanned variable returns the unindexed result
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:N {v: 1, id: 1}), (:N {v: 2, id: 2}), (:N {v: 1, id: 3})
+            CREATE (:X {id: 1}), (:X {id: 2}), (:X {id: 2});
+            """
+        And with new index :N(v)
+        When executing query:
+            """
+            MATCH (n:N) WHERE n.v = COUNT { MATCH (x:X) WHERE x.id = n.id } RETURN n.id AS id ORDER BY id;
+            """
+        Then the result should be, in order:
+            | id |
+            | 1  |
+            | 2  |
+
+    # ORDER BY lets the parallel pass plan the parallel index scans.
+    Scenario Outline: A list bound keeps the same rows with and without an index
+        Given an empty graph
+        And having executed:
+            """
+            UNWIND [[1], [1, 2], [1, 3], [1, null], [null, 1], [2], 5, 'a'] AS v
+            CREATE (:L {p: v, q: 1})-[:R {p: v}]->(:M)
+            """
+        And having executed:
+            """
+            <index>
+            """
+        When executing query:
+            """
+            <match> WITH <var>.p AS p ORDER BY p RETURN collect(p) AS ps
+            """
+        Then the result should be:
+            | ps     |
+            | <rows> |
+
+        Examples:
+            | index                            | match                                                | var | rows                  |
+            | RETURN 1                         | MATCH (n:L) WHERE n.q = 1 AND n.p > [1, 2]           | n   | [[1, 3], [2]]         |
+            | CREATE INDEX ON :L(p)            | MATCH (n:L) WHERE n.q = 1 AND n.p > [1, 2]           | n   | [[1, 3], [2]]         |
+            | CREATE INDEX ON :L(q, p)         | MATCH (n:L) WHERE n.q = 1 AND n.p > [1, 2]           | n   | [[1, 3], [2]]         |
+            | CREATE GLOBAL INDEX ON :(p)      | MATCH (n:L) WHERE n.q = 1 AND n.p > [1, 2]           | n   | [[1, 3], [2]]         |
+            | RETURN 1                         | MATCH (n) WHERE n.p <= [1, 3]                        | n   | [[1], [1, 2], [1, 3]] |
+            | CREATE GLOBAL INDEX ON :(p)      | MATCH (n) WHERE n.p <= [1, 3]                        | n   | [[1], [1, 2], [1, 3]] |
+            | RETURN 1                         | MATCH ()-[r:R]->() WHERE r.p > [1, 2]                | r   | [[1, 3], [2]]         |
+            | CREATE EDGE INDEX ON :R(p)       | MATCH ()-[r:R]->() WHERE r.p > [1, 2]                | r   | [[1, 3], [2]]         |
+            | CREATE GLOBAL EDGE INDEX ON :(p) | MATCH ()-[r:R]->() WHERE r.p > [1, 2]                | r   | [[1, 3], [2]]         |

@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <chrono>
 #include <cstdlib>
 #include <filesystem>
 #include <thread>
@@ -91,6 +92,18 @@ void RenameDatabase(auto &interpreter, const std::string &old_name, const std::s
                     std::optional<std::string_view> res = std::nullopt) {
   RunMtQuery(interpreter, "RENAME DATABASE " + old_name + " TO " + new_name, res);
 }
+
+template <typename Pred>
+bool PollUntil(Pred &&pred, std::chrono::steady_clock::duration timeout) {
+  using clk = std::chrono::steady_clock;
+  auto const deadline = clk::now() + timeout;
+  while (!std::forward<Pred>(pred)()) {
+    if (clk::now() >= deadline) return false;
+    std::this_thread::sleep_for(std::chrono::milliseconds{10});
+  }
+  return true;
+}
+
 }  // namespace
 
 class MultiTenantTest : public ::testing::Test {
@@ -156,6 +169,14 @@ class MultiTenantTest : public ::testing::Test {
   auto NewInterpreter() { return min_mg->NewInterpreter(); }
 
   auto &DBMS() { return min_mg->dbms; }
+
+  auto &Parameters() { return min_mg->parameters; }
+
+  // main() wires this arm; a test that exercises a uuid-retiring path has to wire it itself.
+  void WireParameterPurge() {
+    min_mg->dbms.SetOnUuidRetired(
+        [this](memgraph::utils::UUID const &uuid) { [[maybe_unused]] auto purged = Parameters().DeleteScope(uuid); });
+  }
 
   // Helper function to clean up databases before tests
   void CleanupDatabases() {
@@ -272,7 +293,6 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   // 3) Try to update databases
 
   auto &dbms = DBMS();
-  auto interpreter1 = this->NewInterpreter();
 
   // Update clean default db
   auto default_db = dbms.Get();
@@ -285,6 +305,7 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   ASSERT_EQ(default_db->storage(), new_default.value()->storage());
 
   // Add node to default
+  auto interpreter1 = this->NewInterpreter();
   RunQuery(interpreter1, "CREATE (:Node)");
 
   // Fail to update dirty default db
@@ -330,6 +351,95 @@ TEST_F(MultiTenantTest, DbmsUpdate) {
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
 }
 
+// Rebinding the default database's uuid retires the old one. Rows left under it are unreachable, and
+// the next recovery snapshot re-exports them to every replica.
+TEST_F(MultiTenantTest, UpdateDiscardsRetiredUuidsParameters) {
+  auto &dbms = DBMS();
+  WireParameterPurge();
+
+  auto default_db = dbms.Get();
+  auto const old_uuid = std::string{default_db->config().salient.uuid};
+  ASSERT_EQ(Parameters().SetParameter("on_default", R"("v")", old_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("global", R"("g")", memgraph::parameters::kGlobalScope),
+            memgraph::parameters::SetParameterResult::Success);
+
+  memgraph::storage::SalientConfig const config{.name = "memgraph", .uuid = memgraph::utils::UUID{}};
+  ASSERT_TRUE(dbms.Update(config).has_value());
+  ASSERT_NE(std::string{config.uuid}, old_uuid);
+
+  EXPECT_FALSE(Parameters().GetParameter("on_default", old_uuid).has_value());
+  EXPECT_EQ(Parameters().GetParameter("global", memgraph::parameters::kGlobalScope), R"("g")");
+}
+
+// A rebind that fails must not take the parameters with it: the database keeps its uuid, so its
+// parameters are still reachable and still correct.
+TEST_F(MultiTenantTest, FailedUpdateKeepsParameters) {
+  auto &dbms = DBMS();
+  WireParameterPurge();
+  auto interpreter = this->NewInterpreter();
+
+  auto const uuid = std::string{dbms.Get()->config().salient.uuid};
+  ASSERT_EQ(Parameters().SetParameter("on_default", R"("v")", uuid), memgraph::parameters::SetParameterResult::Success);
+
+  // Dirty the default db so the in-place rebind refuses.
+  RunQuery(interpreter, "CREATE (:Node)");
+  memgraph::storage::SalientConfig const config{.name = "memgraph", .uuid = memgraph::utils::UUID{}};
+  ASSERT_FALSE(dbms.Update(config).has_value());
+
+  EXPECT_EQ(Parameters().GetParameter("on_default", uuid), R"("v")");
+}
+
+// A forced drop retires the uuid, so its parameters go too. Every other scope stays.
+TEST_F(MultiTenantTest, ForcedDeleteDiscardsDroppedDatabasesParameters) {
+  auto &dbms = DBMS();
+  WireParameterPurge();
+
+  auto db = dbms.New("params_db");
+  ASSERT_TRUE(db.has_value());
+  auto const db_uuid = std::string{db.value()->config().salient.uuid};
+  auto const default_uuid = std::string{dbms.Get()->config().salient.uuid};
+  db.value().reset();
+
+  ASSERT_EQ(Parameters().SetParameter("on_dropped", R"("gone")", db_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("on_default", R"("stays")", default_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("global", R"("g")", memgraph::parameters::kGlobalScope),
+            memgraph::parameters::SetParameterResult::Success);
+
+  ASSERT_TRUE(dbms.Delete("params_db").has_value());
+
+  EXPECT_FALSE(Parameters().GetParameter("on_dropped", db_uuid).has_value());
+  EXPECT_EQ(Parameters().GetParameter("on_default", default_uuid), R"("stays")");
+  EXPECT_EQ(Parameters().GetParameter("global", memgraph::parameters::kGlobalScope), R"("g")");
+}
+
+// DROP DATABASE without FORCE takes TryDelete, a different path from the forced Delete above.
+TEST_F(MultiTenantTest, TryDeleteDiscardsDroppedDatabasesParameters) {
+  auto &dbms = DBMS();
+  WireParameterPurge();
+
+  auto db = dbms.New("try_params_db");
+  ASSERT_TRUE(db.has_value());
+  auto const db_uuid = std::string{db.value()->config().salient.uuid};
+  auto const default_uuid = std::string{dbms.Get()->config().salient.uuid};
+  db.value().reset();
+
+  ASSERT_EQ(Parameters().SetParameter("on_dropped", R"("gone")", db_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("on_default", R"("stays")", default_uuid),
+            memgraph::parameters::SetParameterResult::Success);
+  ASSERT_EQ(Parameters().SetParameter("global", R"("g")", memgraph::parameters::kGlobalScope),
+            memgraph::parameters::SetParameterResult::Success);
+
+  ASSERT_TRUE(dbms.TryDelete("try_params_db").has_value());
+
+  EXPECT_FALSE(Parameters().GetParameter("on_dropped", db_uuid).has_value());
+  EXPECT_EQ(Parameters().GetParameter("on_default", default_uuid), R"("stays")");
+  EXPECT_EQ(Parameters().GetParameter("global", memgraph::parameters::kGlobalScope), R"("g")");
+}
+
 TEST_F(MultiTenantTest, DbmsNewDelete) {
   // 1) Create multiple interpreters with the default db
   // 2) Create multiple databases using dbms
@@ -366,21 +476,22 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
-  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3);  // All used databases remain on disk, but unusable
+  // Reclamation is asynchronous: the background worker removes the unused databases' dirs shortly
+  // after Delete() returns, while the in-use databases (db2, db4) remain on disk (held), but unusable.
+  ASSERT_TRUE(PollUntil([&] { return GetDirs(data_directory / "databases").size() == 3; }, std::chrono::seconds{30}))
+      << "Timed out after 30 s: expected 3 DB dirs (default + db2 + db4) to remain, got "
+      << GetDirs(data_directory / "databases").size();
+  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3)
+      << "Expected unused DB dirs reclaimed and in-use ones (db2, db4) plus default to remain";
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(:Node{on:db4}) RETURN count(*)"),
                memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(:Node{on:db2}) RETURN count(*)"),
                memgraph::query::DatabaseContextRequiredException);
 
   // 5
-  int tries = 0;
-  constexpr int max_tries = 50;
-  for (; tries < max_tries; tries++) {
-    if (GetDirs(data_directory / "databases").size() == 1) break;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Wait for the filesystem to be updated
-  }
-  ASSERT_LT(tries, max_tries) << "Failed to delete databases. Remaining databases "
-                              << GetDirs(data_directory / "databases").size();
+  ASSERT_TRUE(PollUntil([&] { return GetDirs(data_directory / "databases").size() == 1; }, std::chrono::seconds{30}))
+      << "Timed out after 30 s: expected only default DB dir to remain, got "
+      << GetDirs(data_directory / "databases").size() << " dir(s)";
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
 }
@@ -425,7 +536,14 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
 
   // 4
   ASSERT_EQ(dbms.All().size(), 1);
-  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3);  // All used databases remain on disk, and usable
+  // Reclamation is asynchronous: the background worker removes the unused databases' dirs shortly
+  // after Delete() returns, while the in-use databases (db2, db4) remain on disk (held) and usable
+  // (open transactions keep them alive until commit/rollback).
+  ASSERT_TRUE(PollUntil([&] { return GetDirs(data_directory / "databases").size() == 3; }, std::chrono::seconds{30}))
+      << "Timed out after 30 s: expected 3 DB dirs (default + db2 + db4) to remain, got "
+      << GetDirs(data_directory / "databases").size();
+  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 3)
+      << "Expected unused DB dirs reclaimed and in-use ones (db2, db4) plus default to remain";
   ASSERT_EQ(RunQuery(interpreter1, "MATCH(:Node{on:\"db4\"}) RETURN count(*)")[0][0].ValueInt(), 4);
   ASSERT_EQ(RunQuery(interpreter2, "MATCH(:Node{on:\"db2\"}) RETURN count(*)")[0][0].ValueInt(), 2);
   RunQuery(interpreter1, "MATCH(n:Node{on:\"db4\"}) DELETE n");
@@ -436,15 +554,10 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
   RunQuery(interpreter2, "COMMIT");
 
   // 5
-  int tries = 0;
-  constexpr int max_tries = 50;
-  for (; tries < max_tries; tries++) {
-    if (GetDirs(data_directory / "databases").size() == 1) break;
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Wait for the filesystem to be updated
-  }
-  ASSERT_LT(tries, max_tries) << "Failed to delete databases. Remaining databases "
-                              << GetDirs(data_directory / "databases").size();
-  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 1);  // Only the active databases remain
+  ASSERT_TRUE(PollUntil([&] { return GetDirs(data_directory / "databases").size() == 1; }, std::chrono::seconds{30}))
+      << "Timed out after 30 s: expected only default DB dir to remain, got "
+      << GetDirs(data_directory / "databases").size() << " dir(s)";
+  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 1);  // Only the default database dir remains
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
 

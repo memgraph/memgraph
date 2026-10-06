@@ -65,7 +65,7 @@ on:
         default: false
       fips:
         type: boolean
-        description: "Build the FIPS 140-3 variant: a Python-less Memgraph package plus, when build_docker_image is 'prod', the prod-fips image (validated OpenSSL FIPS provider in approved mode). Not compatible with build_docker_image 'debug' or 'both'."
+        description: "Build the FIPS 140-3 variant: a Memgraph package built with -DMG_FIPS=ON (which omits components whose crypto cannot come from the validated OpenSSL) plus, when build_docker_image is 'prod', the prod-fips image (validated OpenSSL FIPS provider in approved mode). Not compatible with build_docker_image 'debug' or 'both'."
         default: false
     outputs:
       package_s3_url:
@@ -148,9 +148,9 @@ jobs:
           fi
 
           if [[ "$FIPS" == "true" ]]; then
-            pkg_artifact_name="${pkg_artifact_name}-no-python"
-            pkg_artifact_name_deb="${pkg_artifact_name_deb}-no-python"
-            pkg_artifact_name_rpm="${pkg_artifact_name_rpm}-no-python"
+            pkg_artifact_name="${pkg_artifact_name}-fips"
+            pkg_artifact_name_deb="${pkg_artifact_name_deb}-fips"
+            pkg_artifact_name_rpm="${pkg_artifact_name_rpm}-fips"
           fi
 
           echo "PKG_ARTIFACT_NAME=$pkg_artifact_name" >> $GITHUB_ENV
@@ -207,7 +207,7 @@ jobs:
             args="$ADDITIONAL_BUILD_ARGS --disable-testing"
           fi
           if [[ "$FIPS" == "true" ]]; then
-            args="$args --no-python"
+            args="$args --fips"
           fi
           echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
           echo "Final build args: $args"
@@ -384,6 +384,22 @@ jobs:
             --version "3.5.4" \
             $FIPS_ARG \
             --dest-dir build
+
+      - name: "Ensure FIPS Python wheels"
+        if: ${{ inputs.fips && env.BUILD_DOCKER_IMAGE != 'none' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: ${{ env.S3_REGION }}
+        run: |
+          CONTAINER_OS="$OS"
+          if [[ "$ARCH" == "arm" && "$CONTAINER_OS" != *-arm ]]; then
+            CONTAINER_OS="${CONTAINER_OS}-arm"
+          fi
+          ./tools/ci/fips/ensure-wheels.sh \
+            --dest-dir release/docker/fips-wheels \
+            --container "mgbuild_${TOOLCHAIN}_${CONTAINER_OS}" \
+            --distro "${OS%-arm}"
 
       - name: "Generate Memgraph build SBOM"
         # Stage 1 of the SBOM: fetch the conan + MGCXX component SBOMs from the

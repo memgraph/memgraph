@@ -1,9 +1,22 @@
-version: "3"
-
+# On CI the mgbuild container and this stack share the `package_default` network (created when
+# release/package/mgbuild.sh brings the build container up), so the broker advertises itself as `pulsar`.
+# For clients on the host use `PULSAR_ADVERTISED_ADDRESS=localhost docker compose up -d --wait`
+# (`docker network create package_default` once if missing).
 services:
   pulsar:
     image: 'apachepulsar/pulsar:2.8.1'
     ports:
       - '6652:8080'
       - '6650:6650'
-    entrypoint: [ 'bin/pulsar', 'standalone' ]
+    entrypoint: [ 'bin/pulsar', 'standalone', '--advertised-address', '${PULSAR_ADVERTISED_ADDRESS:-pulsar}' ]
+    # `docker compose up --wait` blocks until this passes; standalone takes ~20s to accept requests
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8080/admin/v2/brokers/health"]
+      interval: 5s
+      timeout: 10s
+      retries: 24
+
+networks:
+  default:
+    name: package_default
+    external: true

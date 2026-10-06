@@ -194,7 +194,7 @@ bool ArgIsType(const TypedValue &arg) {
   } else if constexpr (std::is_same_v<ArgType, ZonedDateTime>) {
     return arg.IsZonedDateTime();
   } else if constexpr (std::is_same_v<ArgType, Graph>) {
-    return arg.IsGraph();
+    return arg.IsGraph() || arg.IsVirtualGraph();
   } else if constexpr (std::is_same_v<ArgType, Enum>) {
     return arg.IsEnum();
   } else if constexpr (std::is_same_v<ArgType, Point2d>) {

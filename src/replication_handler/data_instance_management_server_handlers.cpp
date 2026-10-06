@@ -128,9 +128,10 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
   std::optional<replication::ReplicationHandler::ReplicasResT> replicas_num_txns;
 
   if (!is_replica) {
-    auto [main_res, replicas_res] = replication_handler.GetNumCommittedTxns();
-    main_num_txns.emplace(std::move(main_res));
-    replicas_num_txns.emplace(std::move(replicas_res));
+    if (auto num_txns = replication_handler.GetNumCommittedTxns()) {
+      main_num_txns.emplace(std::move(num_txns->first));
+      replicas_num_txns.emplace(std::move(num_txns->second));
+    }
   }
 
   coordination::InstanceStateV2 prev_state{.is_replica = is_replica,

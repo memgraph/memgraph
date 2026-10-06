@@ -195,7 +195,10 @@ Feature: Aggregations
             """
             MATCH (a) RETURN MIN(a.x) AS n
             """
-        Then an error should be raised
+        Then the result should be:
+            | n   |
+            | 'x' |
+        And no side effects
 
     Scenario: Min test 02:
         Given an empty graph
@@ -300,7 +303,10 @@ Feature: Aggregations
             UNWIND [duration("PT2M2.33S"), duration("PT2M2.33S")] AS i
             RETURN min(i)
             """
-        Then an error should be raised
+        Then the result should be:
+            | min(i)        |
+            | PT2M2.33S     |
+        And no side effects
 
     Scenario: Max test 01:
         Given an empty graph
@@ -312,7 +318,10 @@ Feature: Aggregations
             """
             MATCH (a) RETURN MAX(a.x) AS n
             """
-        Then an error should be raised
+        Then the result should be:
+            | n |
+            | 7 |
+        And no side effects
 
     Scenario: Max test 02:
         Given an empty graph
@@ -417,7 +426,10 @@ Feature: Aggregations
             UNWIND [duration("PT2M2.33S"), duration("PT2M2.33S")] AS i
             RETURN max(i)
             """
-        Then an error should be raised
+        Then the result should be:
+            | max(i)        |
+            | PT2M2.33S     |
+        And no side effects
 
     Scenario: Collect test 01:
         Given an empty graph

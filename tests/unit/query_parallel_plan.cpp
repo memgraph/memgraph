@@ -53,7 +53,7 @@ using memgraph::query::Symbol;
 using memgraph::query::SymbolTable;
 using Type = memgraph::query::EdgeAtom::Type;
 using Direction = memgraph::query::EdgeAtom::Direction;
-using Bound = ScanAllByEdgeTypePropertyRange::Bound;
+using Bound = memgraph::utils::Bound<memgraph::query::Expression *>;
 namespace ms = memgraph::storage;
 
 namespace {
@@ -558,7 +558,7 @@ TYPED_TEST(TestPlanner, ParallelExecutionEdgeIndexScan) {
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
     CheckPlan(planner.plan(),
               symbol_table,
-              ExpectScanParallelByEdgeTypePropertyValue(),
+              ExpectScanParallelByEdgeTypeProperty(),
               ExpectParallelMerge(),
               ExpectScanChunkByEdge(),
               ExpectAggregate({count_agg}, {}),

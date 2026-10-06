@@ -6,6 +6,9 @@
 
 set -uo pipefail
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" >/dev/null 2>&1 && pwd -P)"
+MONITORING_DIR="$SCRIPT_DIR/monitoring"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -66,12 +69,35 @@ show_docker_usage() {
     echo
 }
 
+# Function to list the images used by the CI monitoring stack. They are read
+# straight from the compose files so this stays in sync with whatever
+# tools/ci/monitoring/up.sh actually starts.
+monitoring_images() {
+    local compose_file
+    for compose_file in "$MONITORING_DIR/docker-compose.yml" "$MONITORING_DIR/docker-compose.host-network.yml"; do
+        if [ -f "$compose_file" ]; then
+            awk '$1 == "image:" { gsub(/["'"'"']/, "", $2); print $2 }' "$compose_file"
+        else
+            print_warning "Monitoring compose file not found: $compose_file" >&2
+        fi
+    done | sort -u
+}
+
 # Function to remove all images except the ones we want to preserve
 remove_unwanted_images() {
     local preserved_images=(
         "memgraph/mgbuild:v8_ubuntu-24.04"
         "memgraph/mgbuild:v8_ubuntu-24.04-arm"
     )
+
+    # The monitoring stack is torn down with its containers on every job, but the
+    # images themselves are worth keeping so each job doesn't re-pull them.
+    local monitoring_image
+    while IFS= read -r monitoring_image; do
+        if [ -n "$monitoring_image" ]; then
+            preserved_images+=("$monitoring_image")
+        fi
+    done < <(monitoring_images)
 
     print_status "Removing unwanted images (preserving specific ones)..."
 

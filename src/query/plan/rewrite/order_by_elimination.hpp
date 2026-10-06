@@ -53,9 +53,8 @@ class OrderByEliminator {
     [[nodiscard]] bool may_overlap(storage::PropertyId prop) const { return !has_path() || resolved[0] == prop; }
   };
 
-  using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypePropertyRange *,
-                                    const ScanAllByEdgePropertyRange *, const ScanAllByEdgeTypePropertyValue *,
-                                    const ScanAllByEdgePropertyValue *, const ScanAllByVertexProperty *>;
+  using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypeProperty *,
+                                    const ScanAllByEdgeProperty *, const ScanAllByVertexProperty *>;
 
   struct OrderByInfo {
     OrderBy *op{nullptr};
@@ -192,9 +191,7 @@ class OrderByEliminator {
            type_info == ScanAllByLabelProperties::kType || type_info == ScanAllById::kType ||
            type_info == ScanAllByPointDistance::kType || type_info == ScanAllByPointWithinbbox::kType ||
            type_info == ScanAllByEdge::kType || type_info == ScanAllByEdgeType::kType ||
-           type_info == ScanAllByEdgeTypeProperty::kType || type_info == ScanAllByEdgeTypePropertyValue::kType ||
-           type_info == ScanAllByEdgeTypePropertyRange::kType || type_info == ScanAllByEdgeProperty::kType ||
-           type_info == ScanAllByEdgePropertyValue::kType || type_info == ScanAllByEdgePropertyRange::kType ||
+           type_info == ScanAllByEdgeTypeProperty::kType || type_info == ScanAllByEdgeProperty::kType ||
            type_info == ScanAllByEdgeId::kType || type_info == ScanAllByVertexProperty::kType;
   }
 

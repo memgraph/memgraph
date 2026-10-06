@@ -52,24 +52,8 @@ constexpr utils::TypeInfo query::plan::ScanAllByEdgeType::kType{.id = utils::Typ
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypeProperty::kType{
     utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY, "ScanAllByEdgeTypeProperty", &query::plan::ScanAllByEdge::kType};
 
-constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypePropertyValue::kType{
-    utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY_VALUE,
-    "ScanAllByEdgeTypePropertyValue",
-    &query::plan::ScanAllByEdge::kType};
-
-constexpr utils::TypeInfo query::plan::ScanAllByEdgeTypePropertyRange::kType{
-    utils::TypeId::SCAN_ALL_BY_EDGE_TYPE_PROPERTY_RANGE,
-    "ScanAllByEdgeTypePropertyRange",
-    &query::plan::ScanAllByEdge::kType};
-
 constexpr utils::TypeInfo query::plan::ScanAllByEdgeProperty::kType{
     utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY, "ScanAllByEdgeProperty", &query::plan::ScanAllByEdge::kType};
-
-constexpr utils::TypeInfo query::plan::ScanAllByEdgePropertyValue::kType{
-    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY_VALUE, "ScanAllByEdgePropertyValue", &query::plan::ScanAllByEdge::kType};
-
-constexpr utils::TypeInfo query::plan::ScanAllByEdgePropertyRange::kType{
-    utils::TypeId::SCAN_ALL_BY_EDGE_PROPERTY_RANGE, "ScanAllByEdgePropertyRange", &query::plan::ScanAllByEdge::kType};
 
 constexpr utils::TypeInfo query::plan::ScanAllByVertexProperty::kType{.id = utils::TypeId::SCAN_ALL_BY_VERTEX_PROPERTY,
                                                                       .name = "ScanAllByVertexProperty",
@@ -235,29 +219,9 @@ constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypeProperty::kType{
     .name = "ScanParallelByEdgeTypeProperty",
     .superclass = &query::plan::ScanParallel::kType};
 
-constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypePropertyValue::kType{
-    .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY_VALUE,
-    .name = "ScanParallelByEdgeTypePropertyValue",
-    .superclass = &query::plan::ScanParallel::kType};
-
-constexpr utils::TypeInfo query::plan::ScanParallelByEdgeTypePropertyRange::kType{
-    .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_TYPE_PROPERTY_RANGE,
-    .name = "ScanParallelByEdgeTypePropertyRange",
-    .superclass = &query::plan::ScanParallel::kType};
-
 constexpr utils::TypeInfo query::plan::ScanParallelByEdgeProperty::kType{
     .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY,
     .name = "ScanParallelByEdgeProperty",
-    .superclass = &query::plan::ScanParallel::kType};
-
-constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyValue::kType{
-    .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_VALUE,
-    .name = "ScanParallelByEdgePropertyValue",
-    .superclass = &query::plan::ScanParallel::kType};
-
-constexpr utils::TypeInfo query::plan::ScanParallelByEdgePropertyRange::kType{
-    .id = utils::TypeId::SCAN_PARALLEL_BY_EDGE_PROPERTY_RANGE,
-    .name = "ScanParallelByEdgePropertyRange",
     .superclass = &query::plan::ScanParallel::kType};
 
 constexpr utils::TypeInfo query::plan::ScanParallelByVertexProperty::kType{

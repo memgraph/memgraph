@@ -12,19 +12,30 @@
 /// @file
 /// The order a type's own values carry, for the types that carry one.
 ///
-/// This is not one of the relations. It is the fact two of them share: how two
+/// This is not one of the relations. It is the fact they share: how two
 /// dates sit relative to each other is one answer, and comparability reading it
 /// one way while orderability reads it another would sort a column differently
 /// from how a filter selects it. The relations differ in which types they
 /// place and in what they answer for a pair they cannot, and each states that
 /// for itself.
+///
+/// One number against another of the other numeric type is here for the same
+/// reason, and equality reads it too, since a pair it holds equal has to be a
+/// pair the other two put in one place.
 #pragma once
 
 #include <compare>
+#include <cstdint>
 
 #include "query/typed_value.hpp"
+#include "value_order/numbers.hpp"
 
 namespace memgraph::query::relations {
+
+// The arithmetic these read is stated over the numbers alone, so that the store
+// and a query place a pair the same way without either carrying a copy of it.
+using value_order::PlaceIntegerAgainstDouble;
+using value_order::ReversedOrder;
 
 template <TypedValue::Type>
 inline constexpr bool kNoPayloadOrder = false;
@@ -88,8 +99,9 @@ template <TypedValue::Type T>
  * @pre One of the two is an Int and the other a Double.
  */
 inline std::partial_ordering ComparePayloadOfMixedNumbers(const TypedValue &a, const TypedValue &b) {
-  return a.type() == TypedValue::Type::Int ? a.UnsafeValueInt() <=> b.UnsafeValueDouble()
-                                           : a.UnsafeValueDouble() <=> b.UnsafeValueInt();
+  return a.type() == TypedValue::Type::Int
+             ? PlaceIntegerAgainstDouble(a.UnsafeValueInt(), b.UnsafeValueDouble())
+             : ReversedOrder(PlaceIntegerAgainstDouble(b.UnsafeValueInt(), a.UnsafeValueDouble()));
 }
 
 /// Whether the two are one Int and one Double, which is the only unlike pair of

@@ -27,6 +27,23 @@ struct Widget {
 using GK = Gatekeeper<Widget>;
 using State = GatekeeperState;
 
+// Regression type for the try_delete() destroy-outside-the-lock invariant:
+// its destructor re-enters the owning gatekeeper via access(), mirroring
+// ~Database -> StopAllBackgroundTasks -> ... -> Gatekeeper::access().
+struct Reentrant {
+  Gatekeeper<Reentrant> *gk = nullptr;
+  bool *dtor_saw_nullopt = nullptr;
+
+  ~Reentrant() {
+    if (gk == nullptr) return;
+    // If ~Reentrant ran while try_delete() still held mutex_, this access()
+    // would self-deadlock on the non-recursive mutex. On the fixed code the
+    // lock is released, so access() returns nullopt (value_ already moved out).
+    auto acc = gk->access();
+    if (dtor_saw_nullopt != nullptr) *dtor_saw_nullopt = !acc.has_value();
+  }
+};
+
 // Helper: construct a HOT gatekeeper holding Widget{42}.
 static GK make_hot() { return GK{42}; }
 
@@ -328,4 +345,49 @@ TEST(HotColdGatekeeper, TryExclusivelyNonBlockingFailsFast) {
   auto result = primary->try_exclusively([](Widget &w) { return w.v; });
   EXPECT_TRUE(static_cast<bool>(result));
   EXPECT_EQ(result.value(), 42);
+}
+
+// ---------------------------------------------------------------------------
+// TryDeleteDestroysValueWithMutexReleased
+// ---------------------------------------------------------------------------
+// try_delete() must destroy ~T with mutex_ released; a ~T that re-enters via
+// access() proves it (self-deadlocks under the old destroy-under-lock code).
+TEST(HotColdGatekeeper, TryDeleteDestroysValueWithMutexReleased) {
+  bool dtor_saw_nullopt = false;
+  Gatekeeper<Reentrant> gk{};
+  {
+    auto acc = gk.access();
+    ASSERT_TRUE(acc.has_value());
+    (*acc)->gk = &gk;
+    (*acc)->dtor_saw_nullopt = &dtor_saw_nullopt;
+  }
+  auto acc = gk.access();
+  ASSERT_TRUE(acc.has_value());
+  EXPECT_TRUE(acc->try_delete());         // completes (no deadlock) on fixed code
+  EXPECT_TRUE(dtor_saw_nullopt);          // access() during ~Reentrant saw value_ gone
+  EXPECT_FALSE(gk.access().has_value());  // value destroyed
+}
+
+// prepare_for_deletion() sets the advisory seal; access() still mints in HOT
+// regardless of the seal (advisory, not a hard gate).
+TEST(HotColdGatekeeper, SealIsAdvisory) {
+  auto gk = make_hot();
+
+  EXPECT_EQ(gk.is_marked_for_deletion(), std::optional<bool>{false});
+
+  auto a = gk.access();
+  ASSERT_TRUE(a.has_value());
+  EXPECT_TRUE(bool(*a));
+  EXPECT_FALSE(a->is_marked_for_deletion());
+
+  a->prepare_for_deletion();
+
+  EXPECT_EQ(gk.is_marked_for_deletion(), std::optional<bool>{true});
+  EXPECT_TRUE(a->is_marked_for_deletion());
+  EXPECT_FALSE(bool(*a));
+
+  // advisory: access() still mints on a sealed-but-HOT gatekeeper.
+  auto b = gk.access();
+  ASSERT_TRUE(b.has_value());
+  EXPECT_FALSE(bool(*b));
 }

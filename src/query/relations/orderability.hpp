@@ -18,7 +18,10 @@
 /// type are placed rather than reported as unknown.
 #pragma once
 
+#include <array>
+#include <cmath>
 #include <compare>
+#include <optional>
 
 #include "query/exceptions.hpp"
 #include "query/fmt.hpp"
@@ -26,6 +29,39 @@
 #include "query/typed_value.hpp"
 
 namespace memgraph::query::relations::orderability {
+
+/// Places two doubles, giving a NaN the position IEEE gives it nowhere: after
+/// every number, and alongside another NaN.
+///
+/// Comparability reads the same pair and answers that it has no order for it,
+/// which is why the payload order the two relations share leaves a NaN
+/// unplaced and this relation places it here instead. A sort handed a pair with
+/// no position treats the two as interchangeable, which would make a NaN
+/// interchangeable with every number while no two numbers are with each other.
+///
+/// Read as a partial order although it places every pair, so that a caller
+/// switching on a type reaches one category whichever arm it lands in.
+inline std::partial_ordering PlaceDoubles(double a, double b) { return value_order::CompareDoublesNaNLast(a, b); }
+
+/// Places two points, coordinate by coordinate, in the order the point's own
+/// comparison reads them.
+///
+/// A point carries its coordinates as doubles, so one holding a NaN has no
+/// position for the reason a NaN has none, and it is given one here for the same
+/// reason: two values are equivalent exactly where they share a position under
+/// this relation, and equivalence holds two such points alike.
+template <typename Point>
+std::partial_ordering PlacePoints(Point const &a, Point const &b) {
+  if (auto const system = a.crs() <=> b.crs(); system != 0) return system;
+  if (auto const x = PlaceDoubles(a.x(), b.x()); !std::is_eq(x)) return x;
+  if (auto const y = PlaceDoubles(a.y(), b.y()); !std::is_eq(y)) return y;
+
+  if constexpr (requires { a.z(); }) {
+    return PlaceDoubles(a.z(), b.z());
+  } else {
+    return std::partial_ordering::equivalent;
+  }
+}
 
 /// Orders two lists element by element, the shorter one first where they agree.
 ///
@@ -35,6 +71,167 @@ namespace memgraph::query::relations::orderability {
 /// Takes what it walks rather than the values holding it, so that it cannot be
 /// handed a pair of unlike things.
 std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
+
+namespace detail {
+
+/// Where each type sits in the order a sort reads, lowest first, as a table.
+///
+/// A table rather than a call, so that placing a pair of unlike types costs two
+/// loads rather than a switch a sort walks on every comparison it makes.
+///
+/// The specification fixes the run a user sees: a map, a node, a relationship, a
+/// list, a path, a string, a boolean, a number, and a null last. The types it
+/// does not name are placed around that run rather than inside it, which leaves
+/// every pair it does name where it asks for.
+///
+/// It also says where they may not go: a type it does not name must not sit
+/// above a NaN. A NaN is the largest number, so that rules out the whole gap
+/// between the numbers and the null, and every unnamed type is seated below the
+/// strings instead. A date read against a string, a number and a NaN comes back
+/// first, which is the order the reference implementation gives.
+///
+/// The two numeric types share a position, and that is load-bearing rather than
+/// a convenience: an integer and a double holding the same number are equal, so
+/// seating them apart would put them on either side of every string.
+///
+/// The types a value can be stored as sit here in the order a stored one is
+/// kept in, so that a scan walking a column of them can stand in for a sort over
+/// it. That order is what puts a zoned date and time after a duration rather
+/// than beside the other three date and time types, and no specification asks
+/// for either placement.
+///
+/// Named one type at a time rather than read off the enumerator, so that the
+/// order a user sees and the number an enumerator happens to carry stay free of
+/// each other. The switch has no default, so a type added to the value has to be
+/// placed here before this compiles.
+inline constexpr auto kPositions = [] {
+  constexpr auto position_of = [](TypedValue::Type type) -> unsigned {
+    using enum TypedValue::Type;
+    switch (type) {
+      case Map:
+        return 0;
+      case Vertex:
+        return 1;
+      case VirtualNode:
+        return 2;
+      case Edge:
+        return 3;
+      case VirtualEdge:
+        return 4;
+      case List:
+        return 5;
+      case Path:
+        return 6;
+      case Graph:
+        return 7;
+      case VirtualGraph:
+        return 8;
+      case Function:
+        return 9;
+      case Date:
+        return 10;
+      case LocalTime:
+        return 11;
+      case LocalDateTime:
+        return 12;
+      case Duration:
+        return 13;
+      case ZonedDateTime:
+        return 14;
+      case Enum:
+        return 15;
+      case Point2d:
+        return 16;
+      case Point3d:
+        return 17;
+      case String:
+        return 18;
+      case Bool:
+        return 19;
+      case Int:
+      case Double:
+        return 20;
+      case Null:
+        return 21;
+    }
+  };
+
+  std::array<unsigned, TypedValue::kTypeCount> positions{};
+  for (auto type = 0U; type != TypedValue::kTypeCount; ++type) {
+    positions[type] = position_of(static_cast<TypedValue::Type>(type));
+  }
+  return positions;
+}();
+
+}  // namespace detail
+
+/// Whether a sort has an order among the values of this type.
+///
+/// Not which values a sort will take: a pair of unlike types is placed by where
+/// the two types sit, whatever those types are. `Compare` refuses a pair
+/// exactly where both sides are a type this denies, and the two are separate
+/// switches that a test holds together.
+constexpr bool ValidFor(TypedValue::Type type) {
+  switch (type) {
+    using enum TypedValue::Type;
+    case Map:
+    case Vertex:
+    case Edge:
+    case VirtualEdge:
+    case VirtualNode:
+    case Path:
+    case Graph:
+    case VirtualGraph:
+    case Function:
+      return false;
+    case Null:
+    case Bool:
+    case Int:
+    case Double:
+    case String:
+    case List:
+    case Date:
+    case LocalTime:
+    case LocalDateTime:
+    case ZonedDateTime:
+    case Duration:
+    case Enum:
+    case Point2d:
+    case Point3d:
+      return true;
+  }
+  return false;
+}
+
+/// The type within @p value that a sort has no order for, if it holds one.
+///
+/// A list is ordered by what it holds, so it is read through. That declines a
+/// column a sort could place, since a pair of lists parting at an earlier
+/// element never reaches the one carrying no order, but whether it parts there
+/// is a fact about the pair rather than about the column.
+inline std::optional<TypedValue::Type> UnorderedTypeWithin(TypedValue const &value) {
+  if (!ValidFor(value.type())) return value.type();
+  if (!value.IsList()) return std::nullopt;
+
+  for (auto const &element : value.ValueList()) {
+    if (auto const unordered = UnorderedTypeWithin(element)) return unordered;
+  }
+  return std::nullopt;
+}
+
+/// Whether a sort has an order for two columns holding this value.
+///
+/// Reading the whole value up front is what keeps the answer from depending on
+/// how many rows arrived: a refusal reached only once a second row turns up
+/// would answer a one-row column and decline a longer one holding the same
+/// value.
+inline bool ValidFor(TypedValue const &value) { return !UnorderedTypeWithin(value); }
+
+/// The same question where the type is already known at compile time.
+template <TypedValue::Type T>
+constexpr bool ValidFor() {
+  return ValidFor(T);
+}
 
 /// Where `a` falls relative to `b`.
 ///
@@ -49,7 +246,7 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case Int:
         return ComparePayloadOf<Int>(a, b);
       case Double:
-        return ComparePayloadOf<Double>(a, b);
+        return PlaceDoubles(a.UnsafeValueDouble(), b.UnsafeValueDouble());
       case String:
         return ComparePayloadOf<String>(a, b);
       case Date:
@@ -65,9 +262,9 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case Enum:
         return ComparePayloadOf<Enum>(a, b);
       case Point2d:
-        return ComparePayloadOf<Point2d>(a, b);
+        return PlacePoints(a.UnsafeValuePoint2d(), b.UnsafeValuePoint2d());
       case Point3d:
-        return ComparePayloadOf<Point3d>(a, b);
+        return PlacePoints(a.UnsafeValuePoint3d(), b.UnsafeValuePoint3d());
 
       // The two this relation places that carry no order of their own: a null
       // is the same position as any other null, and a list is ordered by what
@@ -77,6 +274,9 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case List:
         return CompareOfLists(a.UnsafeValueList(), b.UnsafeValueList());
 
+      // The types `ValidFor` denies. Named so that a type added to the value has
+      // to be placed, and broken out of rather than throwing here, so the
+      // refusal is written once below.
       case Map:
       case Vertex:
       case Edge:
@@ -86,18 +286,25 @@ inline std::partial_ordering Compare(TypedValue const &a, TypedValue const &b) {
       case Graph:
       case VirtualGraph:
       case Function:
-        throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
+        break;
     }
+    throw QueryRuntimeException("Comparison is not defined for values of type {}.", a.type());
   } else {
-    // A null sorts after everything, and two nulls are the same position, which
-    // the same-type branch above has already answered.
-    if (a.IsNull()) return std::partial_ordering::greater;
-    if (b.IsNull()) return std::partial_ordering::less;
+    // One Int against one Double is the only unlike pair with a payload to read.
+    // The two share a position, so where each type sits cannot tell them apart.
+    if (AreMixedNumbers(a.type(), b.type())) {
+      auto const order = ComparePayloadOfMixedNumbers(a, b);
+      if (order != std::partial_ordering::unordered) [[likely]]
+        return order;
 
-    // One Int against one Double is the only unlike pair left that is ordered.
-    if (!AreMixedNumbers(a.type(), b.type())) [[unlikely]]
-      throw QueryRuntimeException("Can't compare value of type {} to value of type {}.", a.type(), b.type());
-    return ComparePayloadOfMixedNumbers(a, b);
+      // An integer is never a NaN, so the pair is unplaced only where the double
+      // is one, and a NaN goes after every number.
+      return a.type() == TypedValue::Type::Double ? std::partial_ordering::greater : std::partial_ordering::less;
+    }
+
+    // Every other unlike pair is placed by where its two types sit. A null is
+    // last of them, so it sorts after everything without being asked about here.
+    return detail::kPositions[static_cast<unsigned>(a.type())] <=> detail::kPositions[static_cast<unsigned>(b.type())];
   }
 }
 
