@@ -442,7 +442,8 @@ TEST_F(QueryCostEstimator, Union) {
 
 TEST_F(QueryCostEstimator, Conditional) {
   // MATCH (n) CALL (n) { WHEN true THEN MATCH (a) RETURN a WHEN true THEN MATCH (b), (c) RETURN b } WHERE true:
-  // only one body runs per row, so the costliest and widest body multiply the input's, as in an Apply.
+  // taking a branch costs the predicates up to it plus its body; the costliest case and the widest body multiply the
+  // input's, as in an Apply.
   auto no_vertices = 4;
   AddVertices(no_vertices, 0, 0);
   std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
@@ -455,11 +456,30 @@ TEST_F(QueryCostEstimator, Conditional) {
                                                                      {.predicate = Literal(true), .plan = right}},
                                     std::vector<Symbol>{NextSymbol()});
   MakeOp<Filter>(conditional, std::vector<std::shared_ptr<LogicalOperator>>{}, Literal(true));
-  // The right body: its first scan costs 4 rows, its second 4 * 4 rows.
-  auto const branch_cost = (no_vertices + no_vertices * no_vertices) * CostParam::kScanAll;
+  // Taking the right branch evaluates both predicates; its body's first scan costs 4 rows, its second 4 * 4 rows.
+  auto const branch_cost = 2 * CostParam::kFilter + (no_vertices + no_vertices * no_vertices) * CostParam::kScanAll;
   auto const branch_cardinality = no_vertices * no_vertices;
-  EXPECT_COST(no_vertices * CostParam::kScanAll + no_vertices * CostParam::kFilter + no_vertices * branch_cost +
+  EXPECT_COST(no_vertices * CostParam::kScanAll + no_vertices * branch_cost +
               no_vertices * branch_cardinality * CostParam::kFilter);
+}
+
+TEST_F(QueryCostEstimator, ConditionalLateBranchPaysForEarlierPredicates) {
+  // MATCH (n) CALL (n) { WHEN true THEN MATCH (a) RETURN a WHEN EXISTS { MATCH (b), (c) } THEN RETURN 1 AS a }:
+  // the first branch has the costlier body, the second the costlier predicate, so neither summing every predicate and
+  // body nor leaving out the predicates before a branch gives the costliest case.
+  auto no_vertices = 4;
+  AddVertices(no_vertices, 0, 0);
+  std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  std::shared_ptr<LogicalOperator> scan_body = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  std::shared_ptr<LogicalOperator> fold =
+      std::make_shared<ScanAll>(std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol()), NextSymbol());
+  MakeOp<Conditional>(input,
+                      std::vector<Conditional::Branch>{
+                          {.predicate = Literal(true), .plan = scan_body},
+                          {.predicate = Literal(true), .pattern_filters = {fold}, .plan = std::make_shared<Once>()}},
+                      std::vector<Symbol>{NextSymbol()});
+  auto const fold_cost = (no_vertices + no_vertices * no_vertices) * CostParam::kScanAll;
+  EXPECT_COST(no_vertices * CostParam::kScanAll + no_vertices * (CostParam::kFilter + fold_cost));
 }
 
 // Helper for testing an operations cost and cardinality.
