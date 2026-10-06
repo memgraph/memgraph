@@ -4755,9 +4755,12 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     }
   }
 
+  // A CALL body is not a fold body, even inside one.
+  auto const old_fold = std::exchange(subquery_fold_, std::nullopt);
   call_subquery->cypher_query_ = ctx->conditionalQuery()
                                      ? VisitConditionalQuery(ctx->conditionalQuery()).query
                                      : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+  subquery_fold_ = old_fold;
 
   PreQueryDirectives pre_query_directives;
   if (auto const *periodic_commit = ctx->periodicSubquery()) {

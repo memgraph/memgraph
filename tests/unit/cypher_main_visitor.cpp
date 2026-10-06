@@ -8762,6 +8762,11 @@ TEST_P(CypherMainVisitorTest, SubqueryExpressionConditional) {
       "RETURN EXISTS { WHEN true THEN { RETURN 1 AS x QUERY MEMORY UNLIMITED } } AS r",
       ast_generator,
       "Memory limit cannot be set on subqueries!");
+  // A CALL body inside a fold is not a fold body: its own WHEN may be RETURN-less.
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "MATCH (n) WHERE EXISTS { CALL (n) { WHEN true THEN SET n.p = 1 } RETURN 1 AS x } RETURN n",
+      ast_generator,
+      "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {
