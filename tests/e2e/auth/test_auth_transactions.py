@@ -96,10 +96,11 @@ def test_mixing_auth_and_data_queries_is_rejected(cursor):
 
 def test_profile_queries_are_rejected_in_an_auth_transaction(cursor):
     # User profiles are out of scope: UserProfiles reads an in-memory cache rather than the store, so the overlay
-    # cannot isolate or roll them back.
+    # cannot isolate or roll them back. After an auth statement a profile query is not an auth query, so the mixing
+    # guard is what refuses it; the profile guard itself is covered by the test below.
     execute(cursor, "BEGIN")
     execute(cursor, "CREATE USER grace")
-    with pytest.raises(mgclient.DatabaseError):
+    with pytest.raises(mgclient.DatabaseError, match="cannot mix auth queries with data queries"):
         execute(cursor, "CREATE PROFILE limited")
 
 
@@ -107,7 +108,7 @@ def test_a_profile_query_is_rejected_as_the_first_statement(cursor):
     # The other ordering. Arriving before any auth statement, a profile query would otherwise be let through and
     # write durably at once, outliving the ROLLBACK.
     execute(cursor, "BEGIN")
-    with pytest.raises(mgclient.DatabaseError):
+    with pytest.raises(mgclient.DatabaseError, match="Managing users is not allowed in multicommand transactions"):
         execute(cursor, "CREATE PROFILE early")
 
 
