@@ -10573,7 +10573,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       throw MixedAuthAndDataTxException();
     }
 
-    transaction_queries_->push_back(parsed_query.query_string);
+    transaction_queries_->push_back(
+        logging::MaskSensitiveInformation(parsed_query.query_string).value_or(parsed_query.query_string));
     AdvanceCommand();
   } else {
     // Abort any leftover storage transaction BEFORE ResetInterpreter so that db_acc_ still pins
@@ -10586,7 +10587,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       AbortCommand(nullptr);
     }
     ResetInterpreter();
-    transaction_queries_->push_back(parsed_query.query_string);
+    transaction_queries_->push_back(
+        logging::MaskSensitiveInformation(parsed_query.query_string).value_or(parsed_query.query_string));
 
     SetupInterpreterTransaction(extras);
     memgraph::logging::EmitSessionTraceEvent(
