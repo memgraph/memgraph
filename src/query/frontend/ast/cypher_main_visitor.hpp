@@ -1506,6 +1506,9 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
     bool has_load_parquet{false};
     bool has_load_jsonl{false};
     bool has_schema_assert{false};
+    // Whether an ORDER BY or WHERE subtree was replaced with a reference to a projected item, leaving the subtree in
+    // the storage but out of the tree. Anything that reads the storage rather than walking the tree sees it there.
+    bool has_detached_nodes{false};
   };
 
   const auto &GetQueryInfo() const { return query_info_; }
