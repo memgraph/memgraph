@@ -245,8 +245,8 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   std::vector<OpenSubquery> open_subqueries_;
   // Symbols a list expression binds once per element, while its body is visited.
   std::unordered_set<Symbol> list_element_symbols_in_scope_;
-  // The first symbol position of each open pattern comprehension; nondecreasing, so back() is the innermost.
-  std::vector<int32_t> open_comprehensions_;
+  // Nondecreasing, so back() is the innermost open pattern comprehension.
+  std::vector<int32_t> open_comprehension_first_positions_;
 };
 
 /// Visits the AST and assigns the evaluation mode for all the property lookups

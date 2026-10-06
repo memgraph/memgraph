@@ -607,7 +607,7 @@ struct SubqueryMatching : Matching {
   std::optional<Symbol> symbol;
   /// For @c SubqueryKind::kSubquery, the body's own query parts.
   std::shared_ptr<QueryParts> subquery;
-  /// The body's reads of a list expression's element, which the branch takes as bound.
+  /// Copied from @c SubqueryExpression::element_symbols_.
   std::unordered_set<Symbol> element_symbols;
 };
 

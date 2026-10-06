@@ -1803,7 +1803,6 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
 
     std::vector<Symbol> new_symbols;
-    auto expand_symbols = std::move(branch_bound_symbols);
 
     auto filters = matching.filters;
 
@@ -1813,7 +1812,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                             matching,
                             symbol_table,
                             storage,
-                            expand_symbols,
+                            branch_bound_symbols,
                             new_symbols,
                             named_paths,
                             filters,
