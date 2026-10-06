@@ -4316,7 +4316,7 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
 
 antlrcpp::Any CypherMainVisitor::visitParameter(MemgraphCypher::ParameterContext *ctx) {
   auto const token_position = static_cast<int32_t>(ctx->getStart()->getTokenIndex());
-  parameter_names_.emplace(token_position, ctx->getText());
+  parameter_names_.emplace(token_position, frontend::ParseParameter(ctx->getText()));
   return storage_->Create<ParameterLookup>(token_position);
 }
 
