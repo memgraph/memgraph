@@ -81,7 +81,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 
   auto guard = std::optional<system::TransactionGuard>{};
   if constexpr (REQUIRE_LOCK) {
-    // A system query holding the lock may be joining this checker thread (DROP REPLICA, demote), so never block on it
+    // DROP REPLICA and SET REPLICATION ROLE TO REPLICA join this thread while holding the lock, so never block on it
     guard = system.TryGenTransactionGuard();
     if (!guard) {
       spdlog::debug("System lock busy, retrying system recovery of replica {} on the next check", client.name_);

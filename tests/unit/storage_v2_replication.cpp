@@ -2276,17 +2276,20 @@ TEST_F(ReplicationTest, UnregisterReplicaDoesNotDeadlockWithBehindReplicaChecker
     clients.front().state_.WithLock([](auto &state) { state = State::BEHIND; });
   };
 
-  // What the DROP REPLICA query holds from prepare until commit.
   auto system_txn = main.system_.TryCreateTransaction();
   ASSERT_TRUE(system_txn.has_value());
 
   // The checker flips BEHIND -> RECOVERY right before it takes the system lock we hold.
   set_behind();
-  auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
-  while (client_state() != State::RECOVERY && std::chrono::steady_clock::now() < deadline) {
-    std::this_thread::sleep_for(std::chrono::milliseconds{1});
-  }
-  ASSERT_EQ(client_state(), State::RECOVERY);
+  auto const seen_recovery = [&] {
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (client_state() == State::RECOVERY) return true;
+      std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+    return false;
+  }();
+  ASSERT_TRUE(seen_recovery);
 
   auto unregister = std::async(std::launch::async, [&] { return main.repl_handler.UnregisterReplica(replicas[0]); });
   auto const status = unregister.wait_for(std::chrono::seconds{10});
