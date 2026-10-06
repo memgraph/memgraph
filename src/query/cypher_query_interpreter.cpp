@@ -21,6 +21,7 @@
 #include "plan/read_write_type_checker.hpp"
 #include "plan_v2/frontend/egraph_converter.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/ast/parse.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/rewrite/pruning_bfs.hpp"
@@ -128,7 +129,6 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
       lru.invalidate(cache_key);
     }
   });
-  std::unique_ptr<frontend::opencypher::Parser> parser;
 
   // Return a copy of both the AST storage and the query.
   CachedQuery result;
@@ -141,52 +141,49 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
     result.ast_storage.user_functions_ = cached_query.ast_storage.user_functions_;
     result.ast_storage.call_procedures_ = cached_query.ast_storage.call_procedures_;
 
-    result.query = cached_query.query->Clone(&result.ast_storage);
+    result.query = result.ast_storage.Copy(cached_query.query);
     result.required_privileges = cached_query.required_privileges;
     result.is_cypher_read = cached_query.is_cypher_read;
     result.using_schema_assert = cached_query.using_schema_assert;
   };
 
   if (!cached) {
+    AstStorage ast_storage;
+    frontend::ParsingContext context{.is_query_cached = true};
+    frontend::QueryInfo query_info;
+    Query *parsed = nullptr;
     try {
-      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.stripped_query().str());
+      parsed = frontend::ParseToAst(
+          stripped_query.stripped_query().str(), context, &query_parameters, ast_storage, query_info);
     } catch (const SyntaxException &e) {
       // There is a syntax exception in the stripped query. Re-run the parser
       // on the original query to get an appropriate error messsage.
-      parser = std::make_unique<frontend::opencypher::Parser>(query_string);
+      frontend::opencypher::Parser original{query_string};
 
       // If an exception was not thrown here, the stripper messed something
       // up.
       LOG_FATAL("The stripped query can't be parsed, but the original can.");
     }
 
-    // Convert the ANTLR4 parse tree into an AST.
-    AstStorage ast_storage;
-    frontend::ParsingContext context{.is_query_cached = true};
-    frontend::CypherMainVisitor visitor(context, &ast_storage, &query_parameters);
-
-    visitor.visit(parser->tree());
-
-    if (visitor.GetQueryInfo().has_load_csv && !query_config.allow_load_csv) {
+    if (query_info.has_load_csv && !query_config.allow_load_csv) {
       throw utils::BasicException("Load CSV not allowed on this instance because it was disabled by a config.");
     }
 
     auto read_check = [&] {
       query::RWChecker rw_checker;
-      if (auto *cypher_query = utils::Downcast<CypherQuery>(visitor.query())) cypher_query->Accept(rw_checker);
-      if (auto *profile_query = utils::Downcast<ProfileQuery>(visitor.query()))
-        profile_query->cypher_query_->Accept(rw_checker);
+      if (auto *cypher_query = utils::Downcast<CypherQuery>(parsed)) cypher_query->Accept(rw_checker);
+      if (auto *profile_query = utils::Downcast<ProfileQuery>(parsed)) profile_query->cypher_query_->Accept(rw_checker);
       return !rw_checker.IsWrite();
     };
 
-    if (visitor.GetQueryInfo().is_cacheable) {
-      std::shared_ptr<const CachedQuery> cached_query = std::make_shared<CachedQuery>(
-          CachedQuery{.ast_storage = std::move(ast_storage),
-                      .query = visitor.query(),
-                      .required_privileges = query::GetRequiredPrivileges(visitor.query()),
-                      .is_cypher_read = read_check(),
-                      .using_schema_assert = visitor.GetQueryInfo().has_schema_assert,
-                      .module_generation = module_generation});
+    if (query_info.is_cacheable) {
+      std::shared_ptr<const CachedQuery> cached_query =
+          std::make_shared<CachedQuery>(CachedQuery{.ast_storage = std::move(ast_storage),
+                                                    .query = parsed,
+                                                    .required_privileges = query::GetRequiredPrivileges(parsed),
+                                                    .is_cypher_read = read_check(),
+                                                    .using_schema_assert = query_info.has_schema_assert,
+                                                    .module_generation = module_generation});
       cache->WithLock([&](auto &lru) {
         auto winner = lru.get(cache_key);
         if (winner && IsFresh((*winner)->ast_storage, (*winner)->module_generation, module_generation)) {
@@ -201,12 +198,12 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
       get_information_from_cache(*cached_query);
     } else {
       // Carefully use the query we just built, preserving the ast_storage we used to build it
-      result.required_privileges = query::GetRequiredPrivileges(visitor.query());
-      result.query = visitor.query();
+      result.required_privileges = query::GetRequiredPrivileges(parsed);
+      result.query = parsed;
       result.ast_storage = std::move(ast_storage);
 
       result.is_cypher_read = read_check();
-      result.using_schema_assert = visitor.GetQueryInfo().has_schema_assert;
+      result.using_schema_assert = query_info.has_schema_assert;
       is_cacheable = false;
     }
   } else {

@@ -36,6 +36,7 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/ast/parse.hpp"
 #include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/rw_checker.hpp"
@@ -131,18 +132,16 @@ class Base {
 class AstGenerator : public Base {
  public:
   Query *ParseQuery(const std::string &query_string) override {
-    ::frontend::opencypher::Parser parser(query_string);
     Parameters parameters;
     auto const before = ast_storage_.NodeCount();
-    CypherMainVisitor visitor(context_, &ast_storage_, &parameters);
-    visitor.visit(parser.tree());
-    auto *query = visitor.query();
-    // A copy follows the edges the query reaches, so it can hold no more than the parse
-    // created. Holding more means a node reached by several paths was copied once per path.
-    // The storage outlives one parse, so the comparison is against what this parse added.
+    frontend::QueryInfo info;
+    auto *query = frontend::ParseToAst(query_string, context_, &parameters, ast_storage_, info);
+    // Parsing puts the nodes the query reaches in the storage and no others, so a copy of the
+    // result holds exactly what this parse added: no fewer, or a node reached by several paths
+    // was copied once per path; no more, or the storage is holding one nothing will read.
     AstStorage reachable;
-    query->Clone(&reachable);
-    EXPECT_LE(reachable.NodeCount(), ast_storage_.NodeCount() - before) << query_string;
+    reachable.Copy(query);
+    EXPECT_EQ(reachable.NodeCount(), ast_storage_.NodeCount() - before) << query_string;
     return query;
   }
 

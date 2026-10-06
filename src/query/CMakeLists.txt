@@ -48,6 +48,7 @@ target_sources(mg-query
     frontend/ast/ast.cpp
     frontend/ast/label_term.cpp
     frontend/ast/cypher_main_visitor.cpp
+    frontend/ast/parse.cpp
     frontend/ast/pretty_print.cpp
     frontend/parsing.cpp
     frontend/semantic/graph_free.cpp
@@ -120,6 +121,7 @@ target_sources(mg-query
     plan_v2/rewrite/fold.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
+    frontend/ast/parse.hpp
     frontend/ast/query/aggregation.hpp
     frontend/ast/query/auth_query.hpp
     frontend/ast/query/binary_operator.hpp
