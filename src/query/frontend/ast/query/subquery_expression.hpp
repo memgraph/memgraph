@@ -66,7 +66,7 @@ class SubqueryExpression : public memgraph::query::Expression {
 
   constexpr std::string_view FoldName() const { return FoldName(fold_); }
 
-  SubqueryExpression *Clone(AstStorage *storage) const override {
+  SubqueryExpression *CloneImpl(AstStorage *storage) const override {
     SubqueryExpression *object = storage->Create<SubqueryExpression>();
     object->fold_ = fold_;
     if (std::holds_alternative<Pattern *>(content_)) {

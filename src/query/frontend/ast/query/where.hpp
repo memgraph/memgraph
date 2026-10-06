@@ -35,7 +35,7 @@ class Where : public memgraph::query::Tree, public utils::Visitable<Hierarchical
 
   memgraph::query::Expression *expression_{nullptr};
 
-  Where *Clone(AstStorage *storage) const override {
+  Where *CloneImpl(AstStorage *storage) const override {
     Where *object = storage->Create<Where>();
     object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
     return object;

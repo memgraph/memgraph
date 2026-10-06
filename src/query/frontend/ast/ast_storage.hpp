@@ -112,8 +112,9 @@ class AstStorage {
   /// more than one path is copied once and shared again in the copy, so a shape that names a
   /// value once and means it twice does not come back as a pair that can drift apart.
   ///
-  /// Use this rather than `Clone` wherever one copy walks into the next: the record of what has
-  /// already been copied lives for as long as the outermost call, and is discarded with it.
+  /// This is the only way to copy an AST node. The record of what has already been copied lives
+  /// for as long as the outermost call and is discarded with it, so reaching a node for a second
+  /// time finds the copy only while that first call is still running.
   template <typename T>
     requires std::derived_from<T, Tree>
   T *Copy(T const *node) {
@@ -125,9 +126,19 @@ class AstStorage {
     // A query is tens of nodes, so scanning what has been made costs less than hashing it would.
     auto const made = std::ranges::find(copied_, static_cast<Tree const *>(node), &CopiedNode::source);
     if (made != copied_.end()) return static_cast<T *>(made->copy);
-    auto *copy = node->Clone(this);
+    auto *copy = node->CloneImpl(this);
     copied_.emplace_back(node, copy);
     return copy;
+  }
+
+  /// Makes the copies taken while the returned object lives one copy, so a node reached from two
+  /// of them is copied once. Copying a plan needs this: an operator holds expressions, and two
+  /// operators can hold the same one, so the copies have to agree with each other.
+  [[nodiscard]] auto CopyScope() {
+    ++copy_depth_;
+    return utils::OnScopeExit{[this] {
+      if (--copy_depth_ == 0) copied_.clear();
+    }};
   }
 
   LabelIx GetLabelIx(const std::string &name) { return LabelIx{name, FindOrAddName(name, &labels_)}; }
@@ -191,16 +202,18 @@ class Tree {
   Tree() = default;
   virtual ~Tree() = default;
 
-  virtual Tree *Clone(AstStorage *storage) const = 0;
-
-  /// Copies this node and everything it reaches into `storage`. Where `Clone` follows every edge
-  /// it meets, this copies a node once however many paths reach it, so a shape that names a value
-  /// once and means it twice does not come back as a pair that can drift apart. Prefer it to
-  /// `Clone` anywhere one copy walks into the next.
+  /// Copies this node and everything it reaches into `storage`, copying a node once however many
+  /// paths reach it, so a shape that names a value once and means it twice does not come back as a
+  /// pair that can drift apart.
   template <typename Self>
   Self *Copy(this Self const &self, AstStorage *storage) {
     return storage->Copy(&self);
   }
+
+  /// Makes this one node in `storage` and asks for copies of what it holds. Only `AstStorage::Copy`
+  /// may call it: it keeps the record that makes a node reached twice one node again, and a caller
+  /// starting here would be outside that record and get one copy per path.
+  virtual Tree *CloneImpl(AstStorage *storage) const = 0;
 
  protected:
   Tree(const Tree &) = default;

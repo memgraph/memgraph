@@ -8512,4 +8512,24 @@ TYPED_TEST(TestPlanner, PreferCompositeIndexOverSinglePropertyIndex) {
             ExpectProduce());
 }
 
+// A rewrite can leave one expression evaluated in two places. Copying the plan has to arrive at one
+// expression again, or the copy evaluates twice what the original evaluated once, and the two can be
+// changed apart.
+TEST(PlanCopying, KeepsASharedExpressionShared) {
+  memgraph::query::AstStorage storage;
+  auto *shared = storage.Create<memgraph::query::PrimitiveLiteral>(int64_t{42});
+  auto *first = storage.Create<memgraph::query::NamedExpression>("a", shared);
+  auto *second = storage.Create<memgraph::query::NamedExpression>("b", shared);
+
+  auto produce = std::make_shared<memgraph::query::plan::Produce>(
+      std::make_shared<memgraph::query::plan::Once>(), std::vector<memgraph::query::NamedExpression *>{first, second});
+
+  memgraph::query::AstStorage copy;
+  auto copied = produce->Clone(&copy);
+
+  auto *copied_produce = memgraph::utils::Downcast<memgraph::query::plan::Produce>(copied.get());
+  ASSERT_TRUE(copied_produce);
+  EXPECT_EQ(copied_produce->named_expressions_[0]->expression_, copied_produce->named_expressions_[1]->expression_);
+}
+
 }  // namespace

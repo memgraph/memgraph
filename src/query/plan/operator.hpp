@@ -352,7 +352,17 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  virtual std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const = 0;
+  /// Copies this operator and the branch below it into `storage`. One expression held by two
+  /// operators is copied once, so the copy evaluates what the original evaluated.
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const {
+    auto const one_copy = storage->CopyScope();
+    return CloneImpl(storage);
+  }
+
+  /// Makes this one operator and asks for copies of what it holds. `Clone` is what callers want:
+  /// it spans the whole branch, and a node reached from two operators is copied once only within
+  /// such a span.
+  virtual std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const = 0;
 
  protected:
   LogicalOperator() = default;
@@ -383,7 +393,7 @@ class Once : public memgraph::query::plan::LogicalOperator {
 
   std::vector<Symbol> symbols_;  // here as semantic propergation (eg. merge match/create branches)
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class OnceCursor : public Cursor {
@@ -462,7 +472,7 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   memgraph::query::plan::NodeCreationInfo node_info_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class CreateNodeCursor : public Cursor {
@@ -557,7 +567,7 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class CreateExpandCursor : public Cursor {
@@ -621,7 +631,7 @@ class ScanAll : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// Behaves like @c ScanAll, but this operator produces only vertices with
@@ -645,7 +655,7 @@ class ScanAllByLabel : public memgraph::query::plan::ScanAll {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 struct ScanByEdgeCommon {
@@ -686,7 +696,7 @@ class ScanAllByEdge : public memgraph::query::plan::ScanAll {
 
   memgraph::query::plan::ScanByEdgeCommon common_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 class ScanAllByEdgeType : public memgraph::query::plan::ScanAllByEdge {
@@ -710,7 +720,7 @@ class ScanAllByEdgeType : public memgraph::query::plan::ScanAllByEdge {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
@@ -738,7 +748,7 @@ class ScanAllByEdgeTypeProperty : public memgraph::query::plan::ScanAllByEdge {
   storage::PropertyId property_;
   ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 class ScanAllByEdgeProperty : public memgraph::query::plan::ScanAllByEdge {
@@ -765,7 +775,7 @@ class ScanAllByEdgeProperty : public memgraph::query::plan::ScanAllByEdge {
   storage::PropertyId property_;
   ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 class ScanAllByVertexProperty : public memgraph::query::plan::ScanAll {
@@ -786,7 +796,7 @@ class ScanAllByVertexProperty : public memgraph::query::plan::ScanAll {
   storage::PropertyId property_;
   ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// Behaves like @c ScanAll, but produces only vertices with matching label and
@@ -825,7 +835,7 @@ class ScanAllByLabelProperties : public memgraph::query::plan::ScanAll {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// ScanAll producing a single node with ID equal to evaluated expression
@@ -848,7 +858,7 @@ class ScanAllById : public memgraph::query::plan::ScanAll {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 class ScanAllByEdgeId : public memgraph::query::plan::ScanAllByEdge {
@@ -876,7 +886,7 @@ class ScanAllByEdgeId : public memgraph::query::plan::ScanAllByEdge {
   /// True if the id value is a string (elementId) rather than a number (id).
   bool expects_string_id_{false};
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 class ScanAllByPointDistance : public memgraph::query::plan::ScanAll {
@@ -900,7 +910,7 @@ class ScanAllByPointDistance : public memgraph::query::plan::ScanAll {
   Expression *boundary_value_ = nullptr;
   PointDistanceCondition boundary_condition_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 class ScanAllByPointWithinbbox : public memgraph::query::plan::ScanAll {
@@ -924,7 +934,7 @@ class ScanAllByPointWithinbbox : public memgraph::query::plan::ScanAll {
   Expression *top_right_ = nullptr;
   Expression *boundary_value_ = nullptr;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 struct ExpandCommon {
@@ -1040,7 +1050,7 @@ class Expand : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 struct ExpansionLambda {
@@ -1157,7 +1167,7 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   std::string ToStringNamed(const DbAccessor *dba, std::string_view operator_name) const;
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   // the Cursors are not declared in the header because
@@ -1195,7 +1205,7 @@ class ConstructNamedPath : public memgraph::query::plan::LogicalOperator {
   Symbol path_symbol_;
   std::vector<Symbol> path_elements_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// Filter whose Pull returns true only when the given expression
@@ -1235,7 +1245,7 @@ class Filter : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class FilterCursor : public Cursor {
@@ -1286,7 +1296,7 @@ class Produce : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class ProduceCursor : public Cursor {
@@ -1337,7 +1347,7 @@ class Delete : public memgraph::query::plan::LogicalOperator {
   // when buffer size is reached, delete will be triggered
   Expression *buffer_size_{nullptr};
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class DeleteCursor : public Cursor {
@@ -1388,7 +1398,7 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class SetPropertyCursor : public Cursor {
@@ -1430,7 +1440,7 @@ class SetNestedProperty : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class SetNestedPropertyCursor : public Cursor {
@@ -1484,7 +1494,7 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
   Expression *rhs_;
   memgraph::query::plan::SetProperties::Op op_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class SetPropertiesCursor : public Cursor {
@@ -1527,7 +1537,7 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
   Symbol input_symbol_;
   std::vector<StorageLabelType> labels_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class SetLabelsCursor : public Cursor {
@@ -1568,7 +1578,7 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class RemovePropertyCursor : public Cursor {
@@ -1610,7 +1620,7 @@ class RemoveNestedProperty : public memgraph::query::plan::LogicalOperator {
 
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class RemoveNestedPropertyCursor : public Cursor {
@@ -1653,7 +1663,7 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
   Symbol input_symbol_;
   std::vector<StorageLabelType> labels_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class RemoveLabelsCursor : public Cursor {
@@ -1708,7 +1718,7 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
   Symbol expand_symbol_;
   std::vector<Symbol> previous_symbols_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class EdgeUniquenessFilterCursor : public Cursor {
@@ -1755,7 +1765,7 @@ class EmptyResult : public memgraph::query::plan::LogicalOperator {
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// Pulls everything from the input before passing it through.
@@ -1808,7 +1818,7 @@ class Accumulate : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> symbols_;
   bool advance_command_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// Performs an arbitrary number of aggregations of data
@@ -1868,7 +1878,7 @@ class Aggregate : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 class ParallelMerge : public memgraph::query::plan::LogicalOperator {
@@ -1892,7 +1902,7 @@ class ParallelMerge : public memgraph::query::plan::LogicalOperator {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMetricHandles &metric_handles) const override;
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   std::shared_ptr<LogicalOperator> input_;
 };
@@ -1924,7 +1934,7 @@ class AggregateParallel : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor * /*dba*/) const override { return "AggregateParallel"; }
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override {
     auto object = std::make_unique<AggregateParallel>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->num_threads_ = num_threads_;
@@ -1961,7 +1971,7 @@ class OrderByParallel : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor * /*dba*/) const override { return "OrderByParallel"; }
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override {
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override {
     auto object = std::make_unique<OrderByParallel>();
     object->input_ = input_ ? input_->Clone(storage) : nullptr;
     object->num_threads_ = num_threads_;
@@ -1996,7 +2006,7 @@ class ScanParallel : public memgraph::query::plan::LogicalOperator {
   }
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   std::shared_ptr<LogicalOperator> input_;
   storage::View view_;
@@ -2018,7 +2028,7 @@ class ScanParallelByLabel : public memgraph::query::plan::ScanParallel {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   storage::LabelId label_;
 };
@@ -2037,7 +2047,7 @@ class ScanParallelByEdgeType : public memgraph::query::plan::ScanParallel {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   storage::EdgeTypeId edge_type_;
 };
@@ -2059,7 +2069,7 @@ class ScanParallelByLabelProperties : public memgraph::query::plan::ScanParallel
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   storage::LabelId label_;
   std::vector<storage::PropertyPath> properties_;
@@ -2082,7 +2092,7 @@ class ScanParallelByEdgeTypeProperty : public memgraph::query::plan::ScanParalle
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   storage::EdgeTypeId edge_type_;
   storage::PropertyId property_;
@@ -2103,7 +2113,7 @@ class ScanParallelByEdgeProperty : public memgraph::query::plan::ScanParallel {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   storage::PropertyId property_;
   ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
@@ -2123,7 +2133,7 @@ class ScanParallelByVertexProperty : public memgraph::query::plan::ScanParallel 
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   storage::PropertyId property_;
   ExpressionRange expression_range_{ExpressionRange::IsNotNull()};
@@ -2144,7 +2154,7 @@ class ScanParallelByEdge : public memgraph::query::plan::ScanParallel {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   Symbol edge_symbol_;
   Symbol node1_symbol_;
@@ -2165,7 +2175,7 @@ class ScanChunk : public memgraph::query::plan::ScanAll {
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   Symbol state_symbol_;
@@ -2192,7 +2202,7 @@ class ScanChunkByEdge : public memgraph::query::plan::ScanAllByEdge {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   Symbol state_symbol_;
@@ -2233,7 +2243,7 @@ class Skip : public memgraph::query::plan::LogicalOperator {
   Expression *expression_;
   std::optional<size_t> parallel_execution_{std::nullopt};
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class SkipCursor : public Cursor {
@@ -2281,7 +2291,7 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
   Fold fold_{Fold::kBool};
   Symbol list_collection_symbol_{};
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class EvaluatePatternFilterCursor : public Cursor {
@@ -2336,7 +2346,7 @@ class Limit : public memgraph::query::plan::LogicalOperator {
   Expression *expression_;
   std::optional<size_t> parallel_execution_{std::nullopt};
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class LimitCursor : public Cursor {
@@ -2397,7 +2407,7 @@ class OrderBy : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// Merge operator. For every sucessful Pull from the
@@ -2438,7 +2448,7 @@ class Merge : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> merge_match_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> merge_create_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class MergeCursor : public Cursor {
@@ -2492,7 +2502,7 @@ class Optional : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> optional_;
   std::vector<Symbol> optional_symbols_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class OptionalCursor : public Cursor {
@@ -2542,7 +2552,7 @@ class Unwind : public memgraph::query::plan::LogicalOperator {
   Expression *input_expression_;
   Symbol output_symbol_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// Ensures that only distinct rows are yielded.
@@ -2575,7 +2585,7 @@ class Distinct : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> value_symbols_;
   std::optional<size_t> parallel_execution_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// A logical operator that applies UNION operator on inputs and places the
@@ -2611,7 +2621,7 @@ class Union : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class UnionCursor : public Cursor {
@@ -2655,7 +2665,7 @@ class Cartesian : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> right_op_;
   std::vector<Symbol> right_symbols_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// An operator that outputs a table, producing a single row on each pull
@@ -2687,7 +2697,7 @@ class OutputTable : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> output_symbols_;
   std::function<std::vector<std::vector<TypedValue>>(Frame *, ExecutionContext *)> callback_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// An operator that outputs a table, producing a single row on each pull.
@@ -2720,7 +2730,7 @@ class OutputTableStream : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> output_symbols_;
   std::function<std::optional<std::vector<TypedValue>>(Frame *, ExecutionContext *)> callback_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 class CallProcedure : public memgraph::query::plan::LogicalOperator {
@@ -2762,7 +2772,7 @@ class CallProcedure : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   inline static utils::Synchronized<std::unordered_map<std::string, int64_t>, utils::SpinLock> procedure_counters_;
@@ -2801,7 +2811,7 @@ class LoadCsv : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 class LoadParquet : public memgraph::query::plan::LogicalOperator {
@@ -2825,7 +2835,7 @@ class LoadParquet : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *file_;
@@ -2854,7 +2864,7 @@ class LoadJsonl : public memgraph::query::plan::LogicalOperator {
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
 
   std::string ToString(const DbAccessor *dba) const override;
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *file_;
@@ -2890,7 +2900,7 @@ class Foreach : public memgraph::query::plan::LogicalOperator {
   Expression *expression_;
   Symbol loop_variable_symbol_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// What an input row becomes when its subquery branch yields no rows.
@@ -2935,7 +2945,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   OnEmptyBranch on_empty_branch_{OnEmptyBranch::kDropRow};
   std::vector<Symbol> null_symbols_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class ApplyCursor : public Cursor {
@@ -2977,7 +2987,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> main_branch_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> sub_branch_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
  private:
   class IndexedJoinCursor : public Cursor {
@@ -3030,7 +3040,7 @@ class HashJoin : public memgraph::query::plan::LogicalOperator {
 
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 /// RollUpApply is the forced half of the apply family: for each input row it runs a correlated branch and folds the
@@ -3064,7 +3074,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
   std::string ToString(const DbAccessor *dba) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::shared_ptr<memgraph::query::plan::LogicalOperator> list_collection_branch_;
@@ -3095,7 +3105,7 @@ class PeriodicCommit : public memgraph::query::plan::LogicalOperator {
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
   std::vector<Symbol> OutputSymbols(const SymbolTable &) const override;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   Expression *commit_frequency_;
@@ -3132,7 +3142,7 @@ class PeriodicSubquery : public memgraph::query::plan::LogicalOperator {
   OnEmptyBranch on_empty_branch_{OnEmptyBranch::kDropRow};
   std::vector<Symbol> null_symbols_;
 
-  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+  std::unique_ptr<LogicalOperator> CloneImpl(AstStorage *storage) const override;
 };
 
 }  // namespace plan

@@ -134,12 +134,12 @@ using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 ExpressionRange::ExpressionRange(ExpressionRange const &other, AstStorage &storage)
     : type_{other.type_},
       lower_{other.lower_
-                 ? std::make_optional(utils::Bound(other.lower_->value()->Clone(&storage), other.lower_->type()))
+                 ? std::make_optional(utils::Bound(other.lower_->value()->Copy(&storage), other.lower_->type()))
                  : std::nullopt},
       upper_{other.upper_
-                 ? std::make_optional(utils::Bound(other.upper_->value()->Clone(&storage), other.upper_->type()))
+                 ? std::make_optional(utils::Bound(other.upper_->value()->Copy(&storage), other.upper_->type()))
                  : std::nullopt},
-      membership_list_{other.membership_list_ ? other.membership_list_->Clone(&storage) : nullptr} {}
+      membership_list_{other.membership_list_ ? other.membership_list_->Copy(&storage) : nullptr} {}
 
 namespace {
 
@@ -786,7 +786,7 @@ UniqueCursorPtr Once::MakeCursor(utils::MemoryResource *mem, metrics::DatabaseMe
 
 WITHOUT_SINGLE_INPUT(Once);
 
-std::unique_ptr<LogicalOperator> Once::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Once::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Once>();
   object->symbols_ = symbols_;
   return object;
@@ -880,7 +880,7 @@ std::vector<Symbol> CreateNode::ModifiedSymbols(const SymbolTable &table) const 
   return symbols;
 }
 
-std::unique_ptr<LogicalOperator> CreateNode::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> CreateNode::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<CreateNode>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->node_info_ = node_info_.Clone(storage);
@@ -962,7 +962,7 @@ std::string CreateExpand::ToString(const DbAccessor *dba) const {
                      node_info_.symbol.name());
 }
 
-std::unique_ptr<LogicalOperator> CreateExpand::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> CreateExpand::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<CreateExpand>();
   object->node_info_ = node_info_.Clone(storage);
   object->edge_info_ = edge_info_.Clone(storage);
@@ -1320,7 +1320,7 @@ std::string ScanAll::ToString(const DbAccessor * /*dba*/) const {
   return fmt::format("ScanAll ({})", output_symbol_.name());
 }
 
-std::unique_ptr<LogicalOperator> ScanAll::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAll::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAll>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
@@ -1355,7 +1355,7 @@ std::string ScanAllByLabel::ToString(const DbAccessor *dba) const {
   return fmt::format("ScanAllByLabel ({} :{})", output_symbol_.name(), dba->LabelToName(label_));
 }
 
-std::unique_ptr<LogicalOperator> ScanAllByLabel::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllByLabel::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllByLabel>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
@@ -1395,7 +1395,7 @@ std::string ScanAllByEdge::ToString(const DbAccessor *dba) const {
       common_.node2_symbol.name());
 }
 
-std::unique_ptr<LogicalOperator> ScanAllByEdge::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllByEdge::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllByEdge>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->common_ = common_;
@@ -1435,7 +1435,7 @@ std::string ScanAllByEdgeType::ToString(const DbAccessor *dba) const {
       common_.node2_symbol.name());
 }
 
-std::unique_ptr<LogicalOperator> ScanAllByEdgeType::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllByEdgeType::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllByEdgeType>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->common_ = common_;
@@ -1492,7 +1492,7 @@ std::string ScanAllByEdgeTypeProperty::ToString(const DbAccessor *dba) const {
       common_.node2_symbol.name());
 }
 
-std::unique_ptr<LogicalOperator> ScanAllByEdgeTypeProperty::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllByEdgeTypeProperty::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllByEdgeTypeProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->common_ = common_;
@@ -1571,7 +1571,7 @@ std::string ScanAllByEdgeProperty::ToString(const DbAccessor *dba) const {
                      common_.node2_symbol.name());
 }
 
-std::unique_ptr<LogicalOperator> ScanAllByEdgeProperty::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllByEdgeProperty::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllByEdgeProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->common_ = common_;
@@ -1630,7 +1630,7 @@ std::string ScanAllByVertexProperty::ToString(const DbAccessor *dba) const {
   return fmt::format("ScanAllByVertexProperty ({} {{{}}})", output_symbol_.name(), dba->PropertyToName(property_));
 }
 
-std::unique_ptr<LogicalOperator> ScanAllByVertexProperty::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllByVertexProperty::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllByVertexProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
@@ -1703,7 +1703,7 @@ std::string ScanAllByLabelProperties::ToString(const DbAccessor *dba) const {
                      suffix);
 }
 
-std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllByLabelProperties::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllByLabelProperties>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
@@ -1773,12 +1773,12 @@ std::string ScanAllById::ToString(const DbAccessor * /*dba*/) const {
   return fmt::format("ScanAllById ({})", output_symbol_.name());
 }
 
-std::unique_ptr<LogicalOperator> ScanAllById::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllById::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllById>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
   object->view_ = view_;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
   object->expects_string_id_ = expects_string_id_;
   return object;
 }
@@ -1817,12 +1817,12 @@ std::string ScanAllByEdgeId::ToString(const DbAccessor * /*dba*/) const {
   return fmt::format("ScanAllByEdgeId ({})", common_.edge_symbol.name());
 }
 
-std::unique_ptr<LogicalOperator> ScanAllByEdgeId::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllByEdgeId::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllByEdgeId>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->common_ = common_;
   object->view_ = view_;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
   object->expects_string_id_ = expects_string_id_;
   return object;
 }
@@ -1893,7 +1893,7 @@ std::string Expand::ToString(const DbAccessor *dba) const {
       common_.node_symbol.name());
 }
 
-std::unique_ptr<LogicalOperator> Expand::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Expand::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Expand>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->input_symbol_ = input_symbol_;
@@ -4782,15 +4782,15 @@ std::string ExpandVariable::ToStringNamed(const DbAccessor *dba, std::string_vie
       common_.node_symbol.name());
 }
 
-std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ExpandVariable::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ExpandVariable>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->input_symbol_ = input_symbol_;
   object->common_ = common_;
   object->type_ = type_;
   object->is_reverse_ = is_reverse_;
-  object->lower_bound_ = lower_bound_ ? lower_bound_->Clone(storage) : nullptr;
-  object->upper_bound_ = upper_bound_ ? upper_bound_->Clone(storage) : nullptr;
+  object->lower_bound_ = lower_bound_ ? lower_bound_->Copy(storage) : nullptr;
+  object->upper_bound_ = upper_bound_ ? upper_bound_->Copy(storage) : nullptr;
   object->filter_lambda_ = filter_lambda_.Clone(storage);
   if (weight_lambda_) {
     memgraph::query::plan::ExpansionLambda value0;
@@ -4800,7 +4800,7 @@ std::unique_ptr<LogicalOperator> ExpandVariable::Clone(AstStorage *storage) cons
     object->weight_lambda_ = std::nullopt;
   }
   object->total_weight_ = total_weight_;
-  object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
+  object->limit_ = limit_ ? limit_->Copy(storage) : nullptr;
   return object;
 }
 
@@ -4936,7 +4936,7 @@ std::vector<Symbol> ConstructNamedPath::ModifiedSymbols(const SymbolTable &table
   return symbols;
 }
 
-std::unique_ptr<LogicalOperator> ConstructNamedPath::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ConstructNamedPath::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ConstructNamedPath>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->path_symbol_ = path_symbol_;
@@ -4974,14 +4974,14 @@ UniqueCursorPtr Filter::MakeCursor(utils::MemoryResource *mem, metrics::Database
 
 std::vector<Symbol> Filter::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
-std::unique_ptr<LogicalOperator> Filter::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Filter::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Filter>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->pattern_filters_.resize(pattern_filters_.size());
   for (auto i1 = 0; i1 < pattern_filters_.size(); ++i1) {
     object->pattern_filters_[i1] = pattern_filters_[i1] ? pattern_filters_[i1]->Clone(storage) : nullptr;
   }
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
   return object;
 }
 
@@ -5241,7 +5241,7 @@ std::vector<Symbol> EvaluatePatternFilter::ModifiedSymbols(const SymbolTable &ta
   return input_->ModifiedSymbols(table);
 }
 
-std::unique_ptr<LogicalOperator> EvaluatePatternFilter::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> EvaluatePatternFilter::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<EvaluatePatternFilter>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
@@ -5320,12 +5320,12 @@ std::vector<Symbol> Produce::OutputSymbols(const SymbolTable &symbol_table) cons
 
 std::vector<Symbol> Produce::ModifiedSymbols(const SymbolTable &table) const { return OutputSymbols(table); }
 
-std::unique_ptr<LogicalOperator> Produce::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Produce::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Produce>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->named_expressions_.resize(named_expressions_.size());
   for (auto i2 = 0; i2 < named_expressions_.size(); ++i2) {
-    object->named_expressions_[i2] = named_expressions_[i2] ? named_expressions_[i2]->Clone(storage) : nullptr;
+    object->named_expressions_[i2] = named_expressions_[i2] ? named_expressions_[i2]->Copy(storage) : nullptr;
   }
   return object;
 }
@@ -5375,15 +5375,15 @@ UniqueCursorPtr Delete::MakeCursor(utils::MemoryResource *mem, metrics::Database
 
 std::vector<Symbol> Delete::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
-std::unique_ptr<LogicalOperator> Delete::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Delete::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Delete>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->expressions_.resize(expressions_.size());
   for (auto i3 = 0; i3 < expressions_.size(); ++i3) {
-    object->expressions_[i3] = expressions_[i3] ? expressions_[i3]->Clone(storage) : nullptr;
+    object->expressions_[i3] = expressions_[i3] ? expressions_[i3]->Copy(storage) : nullptr;
   }
   object->detach_ = detach_;
-  object->buffer_size_ = buffer_size_ ? buffer_size_->Clone(storage) : nullptr;
+  object->buffer_size_ = buffer_size_ ? buffer_size_->Copy(storage) : nullptr;
 
   return object;
 }
@@ -5565,12 +5565,12 @@ std::vector<Symbol> SetProperty::ModifiedSymbols(const SymbolTable &table) const
   return input_->ModifiedSymbols(table);
 }
 
-std::unique_ptr<LogicalOperator> SetProperty::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> SetProperty::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<SetProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->property_ = property_;
-  object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
-  object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
+  object->lhs_ = lhs_ ? lhs_->Copy(storage) : nullptr;
+  object->rhs_ = rhs_ ? rhs_->Copy(storage) : nullptr;
   return object;
 }
 
@@ -5712,12 +5712,12 @@ std::vector<Symbol> SetNestedProperty::ModifiedSymbols(const SymbolTable &table)
   return input_->ModifiedSymbols(table);
 }
 
-std::unique_ptr<LogicalOperator> SetNestedProperty::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> SetNestedProperty::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<SetNestedProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->property_path_ = property_path_;
-  object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
-  object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
+  object->lhs_ = lhs_ ? lhs_->Copy(storage) : nullptr;
+  object->rhs_ = rhs_ ? rhs_->Copy(storage) : nullptr;
   return object;
 }
 
@@ -5897,11 +5897,11 @@ std::vector<Symbol> SetProperties::ModifiedSymbols(const SymbolTable &table) con
   return input_->ModifiedSymbols(table);
 }
 
-std::unique_ptr<LogicalOperator> SetProperties::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> SetProperties::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<SetProperties>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->input_symbol_ = input_symbol_;
-  object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
+  object->rhs_ = rhs_ ? rhs_->Copy(storage) : nullptr;
   object->op_ = op_;
   return object;
 }
@@ -6241,7 +6241,7 @@ std::vector<Symbol> SetLabels::ModifiedSymbols(const SymbolTable &table) const {
   return input_->ModifiedSymbols(table);
 }
 
-std::unique_ptr<LogicalOperator> SetLabels::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> SetLabels::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<SetLabels>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->input_symbol_ = input_symbol_;
@@ -6336,11 +6336,11 @@ std::vector<Symbol> RemoveProperty::ModifiedSymbols(const SymbolTable &table) co
   return input_->ModifiedSymbols(table);
 }
 
-std::unique_ptr<LogicalOperator> RemoveProperty::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> RemoveProperty::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<RemoveProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->property_ = property_;
-  object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
+  object->lhs_ = lhs_ ? lhs_->Copy(storage) : nullptr;
   return object;
 }
 
@@ -6455,11 +6455,11 @@ std::vector<Symbol> RemoveNestedProperty::ModifiedSymbols(const SymbolTable &tab
   return input_->ModifiedSymbols(table);
 }
 
-std::unique_ptr<LogicalOperator> RemoveNestedProperty::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> RemoveNestedProperty::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<RemoveNestedProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->property_path_ = property_path_;
-  object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
+  object->lhs_ = lhs_ ? lhs_->Copy(storage) : nullptr;
   return object;
 }
 
@@ -6600,7 +6600,7 @@ std::vector<Symbol> RemoveLabels::ModifiedSymbols(const SymbolTable &table) cons
   return input_->ModifiedSymbols(table);
 }
 
-std::unique_ptr<LogicalOperator> RemoveLabels::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> RemoveLabels::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<RemoveLabels>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->input_symbol_ = input_symbol_;
@@ -6699,7 +6699,7 @@ std::vector<Symbol> EdgeUniquenessFilter::ModifiedSymbols(const SymbolTable &tab
   return input_->ModifiedSymbols(table);
 }
 
-std::unique_ptr<LogicalOperator> EdgeUniquenessFilter::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> EdgeUniquenessFilter::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<EdgeUniquenessFilter>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->expand_symbol_ = expand_symbol_;
@@ -6813,7 +6813,7 @@ UniqueCursorPtr EmptyResult::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<EmptyResultCursor>(mem, *this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> EmptyResult::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> EmptyResult::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<EmptyResult>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   return object;
@@ -6885,7 +6885,7 @@ UniqueCursorPtr Accumulate::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<AccumulateCursor>(mem, *this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> Accumulate::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Accumulate::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Accumulate>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->symbols_ = symbols_;
@@ -7693,7 +7693,7 @@ UniqueCursorPtr Aggregate::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<AggregateCursor>(mem, *this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> Aggregate::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Aggregate::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Aggregate>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->aggregations_.resize(aggregations_.size());
@@ -7702,7 +7702,7 @@ std::unique_ptr<LogicalOperator> Aggregate::Clone(AstStorage *storage) const {
   }
   object->group_by_.resize(group_by_.size());
   for (auto i5 = 0; i5 < group_by_.size(); ++i5) {
-    object->group_by_[i5] = group_by_[i5] ? group_by_[i5]->Clone(storage) : nullptr;
+    object->group_by_[i5] = group_by_[i5] ? group_by_[i5]->Copy(storage) : nullptr;
   }
   object->remember_ = remember_;
   return object;
@@ -7858,13 +7858,13 @@ UniqueCursorPtr OrderBy::MakeCursor(utils::MemoryResource *mem, metrics::Databas
   return MakeUniqueCursorPtr<OrderByCursor>(mem, *this, mem, metric_handles, parallel_execution_);
 }
 
-std::unique_ptr<LogicalOperator> OrderBy::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> OrderBy::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<OrderBy>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->compare_ = compare_;
   object->order_by_.resize(order_by_.size());
   for (auto i6 = 0; i6 < order_by_.size(); ++i6) {
-    object->order_by_[i6] = order_by_[i6] ? order_by_[i6]->Clone(storage) : nullptr;
+    object->order_by_[i6] = order_by_[i6] ? order_by_[i6]->Copy(storage) : nullptr;
   }
   object->output_symbols_ = output_symbols_;
   object->parallel_execution_ = parallel_execution_;
@@ -7902,7 +7902,7 @@ std::vector<Symbol> Merge::ModifiedSymbols(const SymbolTable &table) const {
   return symbols;
 }
 
-std::unique_ptr<LogicalOperator> Merge::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Merge::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Merge>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->merge_match_ = merge_match_ ? merge_match_->Clone(storage) : nullptr;
@@ -7995,7 +7995,7 @@ std::vector<Symbol> Optional::ModifiedSymbols(const SymbolTable &table) const {
   return symbols;
 }
 
-std::unique_ptr<LogicalOperator> Optional::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Optional::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Optional>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->optional_ = optional_ ? optional_->Clone(storage) : nullptr;
@@ -8137,10 +8137,10 @@ UniqueCursorPtr Unwind::MakeCursor(utils::MemoryResource *mem, metrics::Database
   return MakeUniqueCursorPtr<UnwindCursor>(mem, *this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> Unwind::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Unwind::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Unwind>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->input_expression_ = input_expression_ ? input_expression_->Clone(storage) : nullptr;
+  object->input_expression_ = input_expression_ ? input_expression_->Copy(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
   return object;
 }
@@ -8366,7 +8366,7 @@ std::vector<Symbol> Distinct::OutputSymbols(const SymbolTable &symbol_table) con
 
 std::vector<Symbol> Distinct::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
-std::unique_ptr<LogicalOperator> Distinct::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Distinct::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Distinct>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->value_symbols_ = value_symbols_;
@@ -8404,7 +8404,7 @@ std::vector<Symbol> Union::ModifiedSymbols(const SymbolTable &) const { return u
 
 WITHOUT_SINGLE_INPUT(Union);
 
-std::unique_ptr<LogicalOperator> Union::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Union::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Union>();
   object->left_op_ = left_op_ ? left_op_->Clone(storage) : nullptr;
   object->right_op_ = right_op_ ? right_op_->Clone(storage) : nullptr;
@@ -8575,7 +8575,7 @@ UniqueCursorPtr Cartesian::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<CartesianCursor>(mem, *this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> Cartesian::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Cartesian::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Cartesian>();
   object->left_op_ = left_op_ ? left_op_->Clone(storage) : nullptr;
   object->left_symbols_ = left_symbols_;
@@ -8642,7 +8642,7 @@ UniqueCursorPtr OutputTable::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<OutputTableCursor>(mem, *this);
 }
 
-std::unique_ptr<LogicalOperator> OutputTable::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> OutputTable::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<OutputTable>();
   object->output_symbols_ = output_symbols_;
   object->callback_ = callback_;
@@ -8694,7 +8694,7 @@ UniqueCursorPtr OutputTableStream::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<OutputTableStreamCursor>(mem, this);
 }
 
-std::unique_ptr<LogicalOperator> OutputTableStream::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> OutputTableStream::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<OutputTableStream>();
   object->output_symbols_ = output_symbols_;
   object->callback_ = callback_;
@@ -9087,17 +9087,17 @@ UniqueCursorPtr CallProcedure::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<CallProcedureCursor>(mem, this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> CallProcedure::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> CallProcedure::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<CallProcedure>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->procedure_name_ = procedure_name_;
   object->arguments_.resize(arguments_.size());
   for (auto i7 = 0; i7 < arguments_.size(); ++i7) {
-    object->arguments_[i7] = arguments_[i7] ? arguments_[i7]->Clone(storage) : nullptr;
+    object->arguments_[i7] = arguments_[i7] ? arguments_[i7]->Copy(storage) : nullptr;
   }
   object->result_fields_ = result_fields_;
   object->result_symbols_ = result_symbols_;
-  object->memory_limit_ = memory_limit_ ? memory_limit_->Clone(storage) : nullptr;
+  object->memory_limit_ = memory_limit_ ? memory_limit_->Copy(storage) : nullptr;
   object->memory_scale_ = memory_scale_;
   object->graph_access_ = graph_access_;
   object->procedure_id_ = procedure_id_;
@@ -9297,14 +9297,14 @@ UniqueCursorPtr LoadCsv::MakeCursor(utils::MemoryResource *mem, metrics::Databas
   return MakeUniqueCursorPtr<LoadCsvCursor>(mem, this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> LoadCsv::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> LoadCsv::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<LoadCsv>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->file_ = file_ ? file_->Clone(storage) : nullptr;
+  object->file_ = file_ ? file_->Copy(storage) : nullptr;
   object->with_header_ = with_header_;
   object->ignore_bad_ = ignore_bad_;
-  object->delimiter_ = delimiter_ ? delimiter_->Clone(storage) : nullptr;
-  object->quote_ = quote_ ? quote_->Clone(storage) : nullptr;
+  object->delimiter_ = delimiter_ ? delimiter_->Copy(storage) : nullptr;
+  object->quote_ = quote_ ? quote_->Copy(storage) : nullptr;
   object->nullif_ = nullif_;
   object->row_var_ = row_var_;
   return object;
@@ -9417,13 +9417,13 @@ UniqueCursorPtr LoadParquet::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<LoadParquetCursor>(mem, this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> LoadParquet::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> LoadParquet::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<LoadParquet>();
   for (const auto &[key, value] : config_map_) {
-    object->config_map_[key->Clone(storage)] = value->Clone(storage);
+    object->config_map_[key->Copy(storage)] = value->Copy(storage);
   }
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->file_ = file_ ? file_->Clone(storage) : nullptr;
+  object->file_ = file_ ? file_->Copy(storage) : nullptr;
   object->row_var_ = row_var_;
   return object;
 }
@@ -9531,10 +9531,10 @@ UniqueCursorPtr LoadJsonl::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<LoadJsonlCursor>(mem, this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> LoadJsonl::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> LoadJsonl::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<LoadJsonl>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->file_ = file_ ? file_->Clone(storage) : nullptr;
+  object->file_ = file_ ? file_->Copy(storage) : nullptr;
   object->row_var_ = row_var_;
   return object;
 }
@@ -9629,11 +9629,11 @@ bool Foreach::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
   return visitor.PostVisit(*this);
 }
 
-std::unique_ptr<LogicalOperator> Foreach::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Foreach::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Foreach>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->update_clauses_ = update_clauses_ ? update_clauses_->Clone(storage) : nullptr;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
   object->loop_variable_symbol_ = loop_variable_symbol_;
   return object;
 }
@@ -9698,7 +9698,7 @@ std::vector<Symbol> Apply::ModifiedSymbols(const SymbolTable &table) const {
   return symbols;
 }
 
-std::unique_ptr<LogicalOperator> Apply::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Apply::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Apply>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
@@ -9791,7 +9791,7 @@ std::vector<Symbol> IndexedJoin::ModifiedSymbols(const SymbolTable &table) const
   return symbols;
 }
 
-std::unique_ptr<LogicalOperator> IndexedJoin::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> IndexedJoin::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<IndexedJoin>();
   object->main_branch_ = main_branch_ ? main_branch_->Clone(storage) : nullptr;
   object->sub_branch_ = sub_branch_ ? sub_branch_->Clone(storage) : nullptr;
@@ -9976,13 +9976,13 @@ UniqueCursorPtr HashJoin::MakeCursor(utils::MemoryResource *mem, metrics::Databa
   return MakeUniqueCursorPtr<HashJoinCursor>(mem, *this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> HashJoin::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> HashJoin::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<HashJoin>();
   object->left_op_ = left_op_ ? left_op_->Clone(storage) : nullptr;
   object->left_symbols_ = left_symbols_;
   object->right_op_ = right_op_ ? right_op_->Clone(storage) : nullptr;
   object->right_symbols_ = right_symbols_;
-  object->hash_join_condition_ = hash_join_condition_ ? hash_join_condition_->Clone(storage) : nullptr;
+  object->hash_join_condition_ = hash_join_condition_ ? hash_join_condition_->Copy(storage) : nullptr;
   return object;
 }
 
@@ -10113,7 +10113,7 @@ UniqueCursorPtr RollUpApply::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<RollUpApplyCursor>(mem, *this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> RollUpApply::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> RollUpApply::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<RollUpApply>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->list_collection_branch_ = list_collection_branch_ ? list_collection_branch_->Clone(storage) : nullptr;
@@ -10219,7 +10219,7 @@ UniqueCursorPtr PeriodicCommit::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<PeriodicCommitCursor>(mem, *this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> PeriodicCommit::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> PeriodicCommit::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<PeriodicCommit>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->commit_frequency_ = commit_frequency_;
@@ -10366,7 +10366,7 @@ UniqueCursorPtr PeriodicSubquery::MakeCursor(utils::MemoryResource *mem,
   return MakeUniqueCursorPtr<PeriodicSubqueryCursor>(mem, *this, mem, metric_handles);
 }
 
-std::unique_ptr<LogicalOperator> PeriodicSubquery::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> PeriodicSubquery::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<PeriodicSubquery>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->subquery_ = subquery_ ? subquery_->Clone(storage) : nullptr;
@@ -10421,15 +10421,15 @@ std::string ScanAllByPointDistance::ToString(const DbAccessor *dba) const {
   return fmt::format("ScanAllByPointDistance ({0} :{1} {{{2}}})", name, label, property);
 }
 
-std::unique_ptr<LogicalOperator> ScanAllByPointDistance::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllByPointDistance::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllByPointDistance>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
   object->view_ = view_;
   object->label_ = label_;
   object->property_ = property_;
-  object->cmp_value_ = cmp_value_ ? cmp_value_->Clone(storage) : nullptr;
-  object->boundary_value_ = boundary_value_ ? boundary_value_->Clone(storage) : nullptr;
+  object->cmp_value_ = cmp_value_ ? cmp_value_->Copy(storage) : nullptr;
+  object->boundary_value_ = boundary_value_ ? boundary_value_->Copy(storage) : nullptr;
   object->boundary_condition_ = boundary_condition_;
 
   return object;
@@ -10488,16 +10488,16 @@ std::string ScanAllByPointWithinbbox::ToString(const DbAccessor *dba) const {
   return fmt::format("ScanAllByPointWithinbbox ({0} :{1} {{{2}}})", name, label, property);
 }
 
-std::unique_ptr<LogicalOperator> ScanAllByPointWithinbbox::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanAllByPointWithinbbox::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanAllByPointWithinbbox>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
   object->view_ = view_;
   object->label_ = label_;
   object->property_ = property_;
-  object->bottom_left_ = bottom_left_ ? bottom_left_->Clone(storage) : nullptr;
-  object->top_right_ = top_right_ ? top_right_->Clone(storage) : nullptr;
-  object->boundary_value_ = boundary_value_ ? boundary_value_->Clone(storage) : nullptr;
+  object->bottom_left_ = bottom_left_ ? bottom_left_->Copy(storage) : nullptr;
+  object->top_right_ = top_right_ ? top_right_->Copy(storage) : nullptr;
+  object->boundary_value_ = boundary_value_ ? boundary_value_->Copy(storage) : nullptr;
   return object;
 }
 
@@ -10512,12 +10512,12 @@ query::plan::NodeCreationInfo query::plan::NodeCreationInfo::Clone(query::AstSto
       {
         storage::PropertyId first1 = (*props)[i0].first;
         Expression *second2;
-        second2 = (*props)[i0].second ? (*props)[i0].second->Clone(storage) : nullptr;
+        second2 = (*props)[i0].second ? (*props)[i0].second->Copy(storage) : nullptr;
         destination_props[i0] = std::make_pair(std::move(first1), std::move(second2));
       }
     }
   } else {
-    object.properties = std::get<ParameterLookup *>(properties)->Clone(storage);
+    object.properties = std::get<ParameterLookup *>(properties)->Copy(storage);
   }
   return object;
 }
@@ -10534,12 +10534,12 @@ query::plan::EdgeCreationInfo query::plan::EdgeCreationInfo::Clone(query::AstSto
       {
         storage::PropertyId first1 = (*props)[i0].first;
         Expression *second2;
-        second2 = (*props)[i0].second ? (*props)[i0].second->Clone(storage) : nullptr;
+        second2 = (*props)[i0].second ? (*props)[i0].second->Copy(storage) : nullptr;
         destination_props[i0] = std::make_pair(std::move(first1), std::move(second2));
       }
     }
   } else {
-    object.properties = std::get<ParameterLookup *>(properties)->Clone(storage);
+    object.properties = std::get<ParameterLookup *>(properties)->Copy(storage);
   }
   object.edge_type = edge_type;
   object.direction = direction;
@@ -10550,7 +10550,7 @@ query::plan::ExpansionLambda query::plan::ExpansionLambda::Clone(query::AstStora
   ExpansionLambda object;
   object.inner_edge_symbol = inner_edge_symbol;
   object.inner_node_symbol = inner_node_symbol;
-  object.expression = expression ? expression->Clone(storage) : nullptr;
+  object.expression = expression ? expression->Copy(storage) : nullptr;
   object.accumulated_path_symbol = accumulated_path_symbol;
   object.accumulated_weight_symbol = accumulated_weight_symbol;
   return object;
@@ -10558,8 +10558,8 @@ query::plan::ExpansionLambda query::plan::ExpansionLambda::Clone(query::AstStora
 
 query::plan::Aggregate::Element query::plan::Aggregate::Element::Clone(query::AstStorage *storage) const {
   Element object;
-  object.arg1 = arg1 ? arg1->Clone(storage) : nullptr;
-  object.arg2 = arg2 ? arg2->Clone(storage) : nullptr;
+  object.arg1 = arg1 ? arg1->Copy(storage) : nullptr;
+  object.arg2 = arg2 ? arg2->Copy(storage) : nullptr;
   object.op = op;
   object.output_sym = output_sym;
   object.distinct = distinct;
@@ -10592,7 +10592,7 @@ std::string ScanChunk::ToString(const DbAccessor * /*dba*/) const {
   return fmt::format("ScanChunk ({})", output_symbol_.name());
 }
 
-std::unique_ptr<LogicalOperator> ScanChunk::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanChunk::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanChunk>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->output_symbol_ = output_symbol_;
@@ -10645,7 +10645,7 @@ std::string ScanChunkByEdge::ToString(const DbAccessor *dba) const {
       common_.node2_symbol.name());
 }
 
-std::unique_ptr<LogicalOperator> ScanChunkByEdge::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanChunkByEdge::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanChunkByEdge>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->common_ = common_;
@@ -10760,7 +10760,7 @@ std::string ScanParallel::ToString(const DbAccessor * /*dba*/) const {
   return fmt::format("ScanParallel (threads: {})", num_threads_);
 }
 
-std::unique_ptr<LogicalOperator> ScanParallel::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanParallel::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallel>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->view_ = view_;
@@ -10795,7 +10795,7 @@ std::string ScanParallelByLabel::ToString(const DbAccessor *dba) const {
   return fmt::format("ScanParallelByLabel (threads: {}, :{})", num_threads_, dba->LabelToName(label_));
 }
 
-std::unique_ptr<LogicalOperator> ScanParallelByLabel::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanParallelByLabel::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallelByLabel>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->view_ = view_;
@@ -10831,7 +10831,7 @@ std::string ScanParallelByEdgeType::ToString(const DbAccessor *dba) const {
   return fmt::format("ScanParallelByEdgeType (threads: {}, -[:{}]-)", num_threads_, dba->EdgeTypeToName(edge_type_));
 }
 
-std::unique_ptr<LogicalOperator> ScanParallelByEdgeType::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeType::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallelByEdgeType>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->view_ = view_;
@@ -10903,7 +10903,7 @@ std::string ScanParallelByLabelProperties::ToString(const DbAccessor *dba) const
                      suffix);
 }
 
-std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanParallelByLabelProperties::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallelByLabelProperties>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->view_ = view_;
@@ -10970,7 +10970,7 @@ std::string ScanParallelByEdgeTypeProperty::ToString(const DbAccessor *dba) cons
                      dba->PropertyToName(property_));
 }
 
-std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeTypeProperty::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallelByEdgeTypeProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->view_ = view_;
@@ -11027,7 +11027,7 @@ std::string ScanParallelByEdgeProperty::ToString(const DbAccessor *dba) const {
       "ScanParallelByEdgeProperty (threads: {}, -[]- {{{}}})", num_threads_, dba->PropertyToName(property_));
 }
 
-std::unique_ptr<LogicalOperator> ScanParallelByEdgeProperty::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanParallelByEdgeProperty::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallelByEdgeProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->view_ = view_;
@@ -11087,7 +11087,7 @@ std::string ScanParallelByVertexProperty::ToString(const DbAccessor *dba) const 
       "ScanParallelByVertexProperty (threads: {}, {{{}}})", num_threads_, dba->PropertyToName(property_));
 }
 
-std::unique_ptr<LogicalOperator> ScanParallelByVertexProperty::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanParallelByVertexProperty::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallelByVertexProperty>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->view_ = view_;
@@ -11128,7 +11128,7 @@ std::string ScanParallelByEdge::ToString(const DbAccessor * /*dba*/) const {
                      node2_symbol_.name());
 }
 
-std::unique_ptr<LogicalOperator> ScanParallelByEdge::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ScanParallelByEdge::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ScanParallelByEdge>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   object->view_ = view_;
@@ -11151,7 +11151,7 @@ ACCEPT_WITH_INPUT(ParallelMerge)
 
 std::string ParallelMerge::ToString(const DbAccessor * /*dba*/) const { return "ParallelMerge"; }
 
-std::unique_ptr<LogicalOperator> ParallelMerge::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> ParallelMerge::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<ParallelMerge>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
   return object;
@@ -12114,10 +12114,10 @@ std::vector<Symbol> Skip::OutputSymbols(const SymbolTable &symbol_table) const {
 
 std::vector<Symbol> Skip::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
-std::unique_ptr<LogicalOperator> Skip::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Skip::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Skip>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
   object->parallel_execution_ = parallel_execution_;
   return object;
 }
@@ -12198,10 +12198,10 @@ std::vector<Symbol> Limit::OutputSymbols(const SymbolTable &symbol_table) const 
 
 std::vector<Symbol> Limit::ModifiedSymbols(const SymbolTable &table) const { return input_->ModifiedSymbols(table); }
 
-std::unique_ptr<LogicalOperator> Limit::Clone(AstStorage *storage) const {
+std::unique_ptr<LogicalOperator> Limit::CloneImpl(AstStorage *storage) const {
   auto object = std::make_unique<Limit>();
   object->input_ = input_ ? input_->Clone(storage) : nullptr;
-  object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+  object->expression_ = expression_ ? expression_->Copy(storage) : nullptr;
   object->parallel_execution_ = parallel_execution_;
   return object;
 }

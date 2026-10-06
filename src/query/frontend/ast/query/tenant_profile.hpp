@@ -50,7 +50,7 @@ class TenantProfileQuery : public memgraph::query::Query {
   using limits_t = std::vector<limit_t>;
   limits_t limits_;
 
-  TenantProfileQuery *Clone(AstStorage *storage) const override {
+  TenantProfileQuery *CloneImpl(AstStorage *storage) const override {
     auto *object = storage->Create<TenantProfileQuery>();
     object->action_ = action_;
     object->profile_name_ = profile_name_;

@@ -709,7 +709,7 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       if (std::ranges::contains(right_symbols, lhs_symbol) && std::ranges::contains(left_symbols, rhs_symbol)) {
         // We need to duplicate this because expressions are shared between plans
-        join_condition = join_condition->Clone(ast_storage_);
+        join_condition = join_condition->Copy(ast_storage_);
         std::swap(join_condition->expression1_, join_condition->expression2_);
       }
 

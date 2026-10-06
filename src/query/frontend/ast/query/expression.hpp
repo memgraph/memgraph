@@ -36,7 +36,7 @@ class Expression : public memgraph::query::Tree,
 
   Expression() = default;
 
-  Expression *Clone(AstStorage *storage) const override = 0;
+  Expression *CloneImpl(AstStorage *storage) const override = 0;
 
  private:
   friend class AstStorage;

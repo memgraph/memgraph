@@ -50,7 +50,7 @@ class PatternComprehension : public memgraph::query::Expression {
   /// Symbol table position of the symbol this Aggregation is mapped to.
   int32_t symbol_pos_{-1};
 
-  PatternComprehension *Clone(AstStorage *storage) const override {
+  PatternComprehension *CloneImpl(AstStorage *storage) const override {
     auto *object = storage->Create<PatternComprehension>();
     object->variable_ = variable_ ? variable_->Copy(storage) : nullptr;
     object->pattern_ = pattern_ ? pattern_->Copy(storage) : nullptr;

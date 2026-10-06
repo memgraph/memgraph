@@ -120,7 +120,7 @@ void CopyAst(benchmark::State &state, std::string query, bool names_a_parameter)
   auto *parsed = visitor.query();
   for (auto _ : state) {
     memgraph::query::AstStorage copy;
-    benchmark::DoNotOptimize(parsed->Clone(&copy));
+    benchmark::DoNotOptimize(copy.Copy(parsed));
   }
   state.SetItemsProcessed(state.iterations());
 }

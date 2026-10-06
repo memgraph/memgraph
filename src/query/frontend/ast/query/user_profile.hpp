@@ -92,7 +92,7 @@ class UserProfileQuery : public memgraph::query::Query {
   std::optional<std::string> user_or_role_;
   std::optional<bool> show_user_;
 
-  UserProfileQuery *Clone(AstStorage *storage) const override {
+  UserProfileQuery *CloneImpl(AstStorage *storage) const override {
     auto *object = storage->Create<UserProfileQuery>();
     object->action_ = action_;
     object->profile_name_ = profile_name_;
