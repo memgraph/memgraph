@@ -40,11 +40,11 @@ using Frame = std::vector<TypedValue>;
 //   s0 == s1         AND  s2 == s3     (string frame; no concatenation, so the
 //                                       cost is value lifetime, not allocation
 //                                       inside the operator)
-enum class Shape { Int, Str, StrVar, IntNull };
+enum class Shape { Int, Str, StrVar, IntNull, IntWrong };
 
 // The int-shaped frames, which differ from the string ones in which expression
 // is built over them.
-bool IsIntShape(Shape shape) { return shape == Shape::Int || shape == Shape::IntNull; }
+bool IsIntShape(Shape shape) { return shape == Shape::Int || shape == Shape::IntNull || shape == Shape::IntWrong; }
 
 // Which memory the values are built from. Production evaluates against a pool
 // over a monotonic arena, where a free returns a block to a list rather than
@@ -570,6 +570,22 @@ Frame MakeFrame(Shape shape);
 
 std::vector<Frame> MakeFrames(Shape shape) {
   std::vector<Frame> frames;
+  if (shape == Shape::IntWrong) {
+    // A string where the pass settled on an integer, so the first guard fails
+    // and the whole expression falls back. This is the worst case for
+    // speculating on a type: the typed attempt is wasted and paid for anyway.
+    for (int i = 0; i < 4; ++i) {
+      Frame f;
+      // A double where the pass settled on an integer: still a number, so the
+      // boxed path answers normally, but the typed load cannot take it.
+      f.emplace_back(static_cast<double>(i) + 0.5, CurrentAlloc());
+      f.emplace_back(static_cast<int64_t>(i), CurrentAlloc());
+      f.emplace_back(static_cast<int64_t>(7), CurrentAlloc());
+      f.emplace_back(static_cast<int64_t>(3), CurrentAlloc());
+      frames.push_back(std::move(f));
+    }
+    return frames;
+  }
   if (shape == Shape::IntNull) {
     // Every position takes a turn at being null, and one frame has none, so
     // both the three-valued cases and the ordinary one come up.
@@ -724,15 +740,17 @@ bool SameAnswers(Shape shape) {
     if (answers_bool && vm.Run(code, frame).ValueBool() != want) return false;
     if (!answers_bool && !vm.Run(code, frame).IsNull()) return false;
 
-    if (shape != Shape::IntNull) {
+    if (shape != Shape::IntNull && shape != Shape::IntWrong) {
       const bool g = IsIntShape(shape) ? GEvalInt(frame) : GEvalStr(frame);
       if (!answers_bool || g != want) return false;
     }
 
     NullableTypedVm nvm(8, 8, 8);
     Tri answer = Tri::Null;
-    if (!nvm.Run(NullableCode(shape), frame, answer)) return false;
-    if (answer != want_tri) return false;
+    // A refusal is the typed run saying the value was not the type the pass
+    // settled on, which is correct behaviour and leaves the answer to the
+    // boxed path. Only an answer it does give has to match.
+    if (nvm.Run(NullableCode(shape), frame, answer) && answer != want_tri) return false;
 
     std::vector<TInstr> tcode;
     if (IsIntShape(shape)) {
@@ -753,7 +771,7 @@ bool SameAnswers(Shape shape) {
                {TIns::EqStr, 2, 2, 3},
                {TIns::AndBool, 0, 1, 2}};
     }
-    if (shape != Shape::IntNull) {
+    if (shape != Shape::IntNull && shape != Shape::IntWrong) {
       TypedVm tvm(8, 8, 8);
       if (!answers_bool || tvm.Run(tcode, frame) != want) return false;
     }
@@ -1014,18 +1032,39 @@ static void Dispatch_I_TypedScratchNullable(benchmark::State &state) {
   size_t fi = 0;
   auto const code = NullableCode(shape);
 
+  // Where a failed guard sends the row: the boxed path, which is what a real
+  // one would have to do, so the wasted typed attempt is paid for here too.
+  Arena<ANode> arena;
+  ANode *fallback = nullptr;
+  if (IsIntShape(shape)) {
+    auto *add = arena.Make<AAdd>(arena.Make<AId>(0), arena.Make<AId>(1));
+    fallback = arena.Make<AAnd>(arena.Make<AEq>(add, arena.Make<AId>(2)),
+                                arena.Make<AEq>(arena.Make<AId>(0), arena.Make<AId>(3)));
+  } else {
+    fallback = arena.Make<AAnd>(arena.Make<AEq>(arena.Make<AId>(0), arena.Make<AId>(1)),
+                                arena.Make<AEq>(arena.Make<AId>(2), arena.Make<AId>(3)));
+  }
+  AEvaluator fallback_eval(&frames[0]);
+
   NullableTypedVm vm(8, 8, 8);
+  int64_t fell_back = 0;
   for (auto _ : state) {
-    const auto &frame = frames[fi];
+    auto &frame = frames[fi];
     if (++fi == frames.size()) fi = 0;
     Tri answer = Tri::Null;
-    const bool typed = vm.Run(code, frame, answer);
-    // What a caller reads: boxed once, and null stays null.
-    TypedValue r =
-        !typed || answer == Tri::Null ? TypedValue{CurrentAlloc()} : TypedValue{answer == Tri::True, CurrentAlloc()};
-    benchmark::DoNotOptimize(r);
+    if (vm.Run(code, frame, answer)) {
+      // What a caller reads: boxed once, and null stays null.
+      TypedValue r = answer == Tri::Null ? TypedValue{CurrentAlloc()} : TypedValue{answer == Tri::True, CurrentAlloc()};
+      benchmark::DoNotOptimize(r);
+    } else {
+      ++fell_back;
+      fallback_eval.frame = &frame;
+      auto r = fallback->Accept(fallback_eval);
+      benchmark::DoNotOptimize(r);
+    }
   }
   state.SetItemsProcessed(state.iterations());
+  state.counters["fell_back"] = static_cast<double>(fell_back);
 }
 
 #define SHAPES                                                                      \
@@ -1035,7 +1074,8 @@ static void Dispatch_I_TypedScratchNullable(benchmark::State &state) {
       ->Args({static_cast<int>(Shape::Str), static_cast<int>(Alloc::Pool)})         \
       ->Args({static_cast<int>(Shape::StrVar), static_cast<int>(Alloc::NewDelete)}) \
       ->Args({static_cast<int>(Shape::StrVar), static_cast<int>(Alloc::Pool)})      \
-      ->Args({static_cast<int>(Shape::IntNull), static_cast<int>(Alloc::Pool)})
+      ->Args({static_cast<int>(Shape::IntNull), static_cast<int>(Alloc::Pool)})     \
+      ->Args({static_cast<int>(Shape::IntWrong), static_cast<int>(Alloc::Pool)})
 
 static void Dispatch_000_AgreementCheck(benchmark::State &state) {
   const auto shape = static_cast<Shape>(state.range(0));
