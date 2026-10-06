@@ -9,10 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// Builds random expressions and checks that evaluating one into its slot
-// leaves what evaluating it the old way returns. The operands are drawn from
-// every TypedValue type, so the pairs an operator refuses come up as often as
-// the ones it accepts, and refusing is part of what has to match.
+// Builds random expressions and checks that a compiled program answers what
+// the evaluator answers, or refuses. The operands are drawn from every
+// TypedValue type, so the pairs an operator refuses come up as often as the
+// ones it accepts, and refusing is part of what has to match.
 //
 // A failure prints the seed. Re-running with MG_FUZZ_SEED set to it rebuilds
 // the same expressions.
@@ -219,61 +219,6 @@ uint32_t ChosenSeed() {
 }
 
 }  // namespace
-
-TEST_F(ExpressionFuzz, TheSlotPathMatchesAcceptOnRandomExpressions) {
-  auto const seed = ChosenSeed();
-  std::mt19937 rng{seed};
-  auto evaluator = MakeEvaluator();
-
-  constexpr int kExpressions = 4000;
-  for (int i = 0; i < kExpressions; ++i) {
-    auto *expr = Build(rng, 1 + static_cast<int>(rng() % 4));
-
-    auto const by_accept = Attempt([&] { return expr->Accept(evaluator); });
-    auto const by_slot = Attempt([&] { return TypedValue{evaluator.EvalIntoSlot(expr)}; });
-
-    ASSERT_EQ(by_accept.threw, by_slot.threw)
-        << "one path refused and the other did not, seed " << seed << ", expression " << i << ": " << Describe(expr)
-        << "\n  accept: " << by_accept.complaint << "\n  slot:   " << by_slot.complaint;
-    if (by_accept.threw) {
-      ASSERT_EQ(by_accept.complaint, by_slot.complaint)
-          << "the two refused differently, seed " << seed << ", expression " << i << ": " << Describe(expr);
-      continue;
-    }
-    ASSERT_TRUE(SameValue(by_accept.value, by_slot.value))
-        << "the two gave different values, seed " << seed << ", expression " << i << ": " << Describe(expr);
-  }
-}
-
-// The other half of standing in for the old path: it must not be slower. This
-// reports rather than asserts, because a threshold on wall time in a unit test
-// fails on a loaded machine for reasons that have nothing to do with the code.
-// The number to act on is the end-to-end one; this says where it comes from.
-TEST_F(ExpressionFuzz, ReportsWhatTheSlotPathCostsAgainstAccept) {
-  std::mt19937 rng{ChosenSeed()};
-  auto evaluator = MakeEvaluator();
-
-  std::vector<Expression *> corpus;
-  corpus.reserve(2000);
-  for (int i = 0; i < 2000; ++i) corpus.push_back(Build(rng, 1 + static_cast<int>(rng() % 4)));
-
-  auto time_it = [&](auto evaluate) {
-    // One pass first, so neither is charged for warming the caches.
-    for (auto *expr : corpus) Attempt([&] { return evaluate(expr); });
-    auto const start = std::chrono::steady_clock::now();
-    for (int pass = 0; pass < 20; ++pass) {
-      for (auto *expr : corpus) Attempt([&] { return evaluate(expr); });
-    }
-    return std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
-  };
-
-  auto const accept_seconds = time_it([&](Expression *expr) { return expr->Accept(evaluator); });
-  auto const slot_seconds = time_it([&](Expression *expr) { return TypedValue{evaluator.EvalIntoSlot(expr)}; });
-
-  std::cerr << "accept " << accept_seconds << "s, slot " << slot_seconds << "s, ratio "
-            << (slot_seconds / accept_seconds) << "\n";
-  SUCCEED();
-}
 
 namespace {
 

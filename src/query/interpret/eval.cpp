@@ -82,66 +82,6 @@ std::optional<size_t> EvaluateMemoryLimit(ExpressionVisitor<TypedValue> &eval, E
   return limit * memory_scale;
 }
 
-TypedValue &ExpressionEvaluator::EvalIntoSlot(Expression *expr) {
-  switch (expr->GetTypeInfo().id) {
-    case utils::TypeId::AST_IDENTIFIER: {
-      auto const position = static_cast<Identifier *>(expr)->symbol_pos_;
-      auto &slot = frame_->EvalSlot(expr->eval_slot_);
-      // Assigning rather than building a value means the slot keeps whatever
-      // storage it already had, which is the whole saving on a frame holding
-      // strings or lists.
-      slot = frame_->elems()[position];
-      return slot;
-    }
-    case utils::TypeId::AST_EQUAL_OPERATOR: {
-      auto &op = *static_cast<EqualOperator *>(expr);
-      return BinaryIntoSlot(
-          expr, op.expression1_, op.expression2_, [](TypedValue &out, TypedValue const &a, TypedValue const &b) {
-            EqualInto(out, a, b);
-          });
-    }
-    case utils::TypeId::AST_AND_OPERATOR: {
-      auto &op = *static_cast<AndOperator *>(expr);
-      // Each operand is evaluated once and then read from its slot. Asking
-      // for it a second time would re-run its whole subtree, and since an
-      // operand of a conjunction is usually another conjunction, the cost of
-      // doing that doubles with every level.
-      EvalIntoSlot(op.expression1_);
-      auto const left = op.expression1_->eval_slot_;
-      bool const short_circuits = [&] {
-        auto const &first = frame_->EvalSlot(left);
-        return first.IsBool() && !first.ValueBool();
-      }();
-      if (short_circuits) {
-        auto &slot = frame_->EvalSlot(expr->eval_slot_);
-        slot = frame_->EvalSlot(left);
-        return slot;
-      }
-      EvalIntoSlot(op.expression2_);
-      auto &slot = frame_->EvalSlot(expr->eval_slot_);
-      auto const &a = frame_->EvalSlot(left);
-      auto const &b = frame_->EvalSlot(op.expression2_->eval_slot_);
-      // The operator complains in its own words; a query has always been
-      // told the clause's. Translating here keeps the two paths saying the
-      // same thing for the same operands.
-      try {
-        slot = a && b;
-      } catch (TypedValueException const &) {
-        throw QueryRuntimeException("Invalid types: {} and {} for AND.", a.type(), b.type());
-      }
-      return slot;
-    }
-    default: {
-      // Anything not yet taught to write into a slot still answers the old
-      // way, so an unconverted expression costs speed and never correctness.
-      auto value = expr->Accept(*this);
-      auto &slot = frame_->EvalSlot(expr->eval_slot_);
-      slot = std::move(value);
-      return slot;
-    }
-  }
-}
-
 TypedValue ExpressionEvaluator::Visit(RegexMatch &regex_match) {
   auto target_string_value = regex_match.string_expr_->Accept(*this);
   if (target_string_value.IsNull()) {
