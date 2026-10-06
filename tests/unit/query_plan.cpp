@@ -3156,6 +3156,7 @@ TYPED_TEST(TestPlanner, ConditionalRewritersReachBranchesAndFolds) {
   dba.SetIndexCount(label, 1);
   dba.SetIndexCount(label, p, 1);
   dba.SetIndexCount(edge_type, 1);
+  dba.SetIndexCount(edge_type, p, 1);
   auto names_of = [&](memgraph::query::CypherQuery *query) {
     auto symbol_table = memgraph::query::MakeSymbolTable(query);
     auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
@@ -3217,6 +3218,37 @@ TYPED_TEST(TestPlanner, ConditionalRewritersReachBranchesAndFolds) {
                       RETURN("x"))});
     auto *query = QUERY(SINGLE_QUERY(
         UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}), RETURN("x")));
+    EXPECT_THAT(names_of(query), Contains("HashJoin"));
+  }
+  // UNWIND [1] AS i CALL (i) { WHEN EXISTS { MATCH ()-[r:T]->() } THEN RETURN 1 AS x } RETURN x
+  {
+    auto *exists_body =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r", Direction::OUT, {"T"}), NODE("anon2")))));
+    auto *branches = WHEN_BRANCHES({EXISTS_SUBQUERY(exists_body), SINGLE_QUERY(RETURN(LITERAL(1), AS("x")))});
+    auto *query = QUERY(SINGLE_QUERY(
+        UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}), RETURN("x")));
+    EXPECT_THAT(names_of(query), Contains("ScanAllByEdgeType"));
+  }
+  // MATCH (a) CALL (a) { WHEN true THEN MATCH ()-[r:T]->() WHERE r.p = a.p RETURN r } RETURN r
+  {
+    auto *branches =
+        WHEN_BRANCHES({LITERAL(true),
+                       SINGLE_QUERY(MATCH(PATTERN(NODE("anon1"), EDGE("r", Direction::OUT, {"T"}), NODE("anon2"))),
+                                    WHERE(EQ(PROPERTY_LOOKUP(dba, "r", p), PROPERTY_LOOKUP(dba, "a", p))),
+                                    RETURN("r"))});
+    auto *query = QUERY(SINGLE_QUERY(
+        MATCH(PATTERN(NODE("a"))), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"a"}), RETURN("r")));
+    EXPECT_THAT(names_of(query), Contains("ScanAllByEdgeTypeProperty"));
+  }
+  // UNWIND [1] AS i CALL (i) { WHEN EXISTS { MATCH (x)-[r1]->(y), (z)-[r2]->(w) WHERE z.p = x.p } THEN RETURN 1 AS o }
+  // RETURN o
+  {
+    auto *exists_body =
+        QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("x"), EDGE("r1"), NODE("y")), PATTERN(NODE("z"), EDGE("r2"), NODE("w"))),
+                           WHERE(EQ(PROPERTY_LOOKUP(dba, "z", p), PROPERTY_LOOKUP(dba, "x", p)))));
+    auto *branches = WHEN_BRANCHES({EXISTS_SUBQUERY(exists_body), SINGLE_QUERY(RETURN(LITERAL(1), AS("o")))});
+    auto *query = QUERY(SINGLE_QUERY(
+        UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(branches, std::vector<std::string>{"i"}), RETURN("o")));
     EXPECT_THAT(names_of(query), Contains("HashJoin"));
   }
 }

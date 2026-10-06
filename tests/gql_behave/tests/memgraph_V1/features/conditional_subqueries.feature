@@ -298,6 +298,7 @@ Feature: Conditional subqueries
             | (n)-[:LOVES]->()                    | 'lover' |
             | exists((n)-[:LOVES]->())            | 'lover' |
             | COUNT { (n)-[:LOVES]->() } >= 2     | 'no'    |
+            | size([(n)-[:LOVES]->(m) \| m]) > 0  | 'lover' |
 
     Scenario: A RETURN-less body runs IN TRANSACTIONS
         Given an empty graph
