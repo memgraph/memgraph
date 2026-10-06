@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 #include "gmock/gmock.h"
 
+#include "auth_query_handler_fixture.hpp"
 #include "dbms/constants.hpp"
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
@@ -209,6 +210,24 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateRefusesACommittingTransaction) {
 
   this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
                                                                   std::memory_order_release);
+}
+
+// The committer's half of the same rule, for an auth transaction: it claims the status before flushing, so a
+// terminate that landed first stops the flush, and nothing the transaction buffered reaches the store.
+TYPED_TEST(TransactionQueueSimpleTest, ATerminatedAuthTransactionDoesNotCommit) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->running_interpreter.Interpret("BEGIN");
+  this->running_interpreter.Interpret("CREATE USER alice");
+  std::string const tx_id = std::to_string(this->running_interpreter.interpreter.GetTransactionId().value());
+
+  auto stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS \"" + tx_id + "\"");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_TRUE(stream.GetResults()[0][1].ValueBool());
+
+  EXPECT_THROW(this->running_interpreter.Interpret("COMMIT"), memgraph::utils::BasicException);
+  EXPECT_FALSE(auth.auth.ReadLock()->GetUser("alice").has_value());
 }
 
 TYPED_TEST(TransactionQueueSimpleTest, ShowTransactionStatusAborting) {
