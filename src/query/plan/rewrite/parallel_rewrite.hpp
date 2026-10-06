@@ -140,7 +140,7 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
-  // Opaque like RollUpApply: branches and pattern filters are reset per row and share the frame.
+  // Opaque like RollUpApply: a parallel scan in a correlated branch reads the imports as Null.
   bool PreVisit(Conditional &op) override {
     prev_ops_.push_back(&op);
     op.input()->Accept(*this);
