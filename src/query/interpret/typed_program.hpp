@@ -17,11 +17,12 @@
 #include <vector>
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/interpret/frame.hpp"
 #include "query/parameters.hpp"
 #include "storage/v2/property_value.hpp"
 
 namespace memgraph::query {
+
+class Frame;
 
 /// One expression compiled to work on values that are not boxed. Which type
 /// each operand will hold is guessed when the program is built and checked
@@ -31,22 +32,27 @@ namespace memgraph::query {
 /// A program is built once for a plan and read by every execution of it, so it
 /// holds nothing that changes while it runs. The working values live on the
 /// frame, which belongs to one execution.
-/// What a typed program needs beyond the frame: the value of a property on a
-/// vertex or an edge. Reading one involves a view, a permission check, and the
-/// handling of a record that has been deleted, all of which already exist on
-/// the evaluator, so a program asks rather than repeats it.
-class PropertySource {
+/// What a typed program needs beyond the frame: what a vertex or an edge says.
+/// Answering involves a view, a permission check, and the handling of a record
+/// that has been deleted, all of which already exist on the evaluator, so a
+/// program asks rather than repeats it. What the program saves is the value
+/// built around the answer, not the work of finding it.
+class RecordReader {
  public:
-  PropertySource() = default;
-  PropertySource(PropertySource const &) = default;
-  PropertySource(PropertySource &&) = default;
-  PropertySource &operator=(PropertySource const &) = default;
-  PropertySource &operator=(PropertySource &&) = default;
-  virtual ~PropertySource() = default;
+  RecordReader() = default;
+  RecordReader(RecordReader const &) = default;
+  RecordReader(RecordReader &&) = default;
+  RecordReader &operator=(RecordReader const &) = default;
+  RecordReader &operator=(RecordReader &&) = default;
+  virtual ~RecordReader() = default;
 
   /// Null when the record has no such property, or when it may not be read.
   /// Throws what the ordinary evaluator throws for a record that is gone.
   virtual storage::PropertyValue ReadProperty(TypedValue const &record, PropertyIx const &property) = 0;
+
+  /// Nothing when the record is null, which makes the test null. Throws what
+  /// the ordinary evaluator throws when the record is not a node.
+  virtual std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) = 0;
 };
 
 class TypedProgram {
@@ -66,7 +72,7 @@ class TypedProgram {
   /// guess settled on.
   /// `source` and `parameters` may be null when no instruction needs them; a
   /// program that reads one without it refuses the row rather than guessing.
-  Answer Run(Frame const &frame, PropertySource *source = nullptr, Parameters const *parameters = nullptr) const;
+  Answer Run(Frame const &frame, RecordReader *reader = nullptr, Parameters const *parameters = nullptr) const;
 
   /// How many integer and three-valued working slots a run needs.
   size_t IntSlots() const { return int_slots_; }
@@ -75,6 +81,7 @@ class TypedProgram {
 
  private:
   enum class Op : uint8_t {
+    TestLabels,    // on a record from the frame, answered by the reader
     LoadInt,       // from the frame, checking it really is one
     LoadPropInt,   // from a record on the frame, checking the same
     LoadParamInt,  // from the query's parameters, bound once per execution
@@ -105,6 +112,7 @@ class TypedProgram {
     int32_t b;
     int64_t literal;
     PropertyIx property;
+    LabelsTest *labels{nullptr};
   };
 
   std::vector<Instr> code_;

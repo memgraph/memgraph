@@ -11,6 +11,8 @@
 
 #include "query/interpret/typed_program.hpp"
 
+#include "query/interpret/frame.hpp"
+
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::query {
@@ -54,6 +56,19 @@ class TypedProgramBuilder {
         auto const slot = NextInt();
         Emit(TypedProgram::Op::LoadParamInt, slot, position, 0, 0);
         return Operand{.is_tri = false, .slot = slot};
+      }
+      case utils::TypeId::AST_LABELS_TEST: {
+        auto *test = static_cast<LabelsTest *>(expression);
+        // Only a test on a record read straight off the frame. Anything else
+        // would have to evaluate its subject first, which is the work this
+        // avoids.
+        if (test->expression_ == nullptr) return refuse();
+        if (test->expression_->GetTypeInfo().id != utils::TypeId::AST_IDENTIFIER) return refuse();
+        auto const position = static_cast<Identifier *>(test->expression_)->symbol_pos_;
+        if (position < 0) return refuse();
+        auto const slot = NextTri();
+        Emit(TypedProgram::Op::TestLabels, slot, position, 0, 0, PropertyIx{}, test);
+        return Operand{.is_tri = true, .slot = slot};
       }
       case utils::TypeId::AST_PROPERTY_LOOKUP: {
         auto *lookup = static_cast<PropertyLookup *>(expression);
@@ -173,10 +188,10 @@ class TypedProgramBuilder {
 
   int32_t NextTri() { return static_cast<int32_t>(tri_slots_++); }
 
-  void Emit(TypedProgram::Op op, int32_t dst, int32_t a, int32_t b, int64_t literal,
-            PropertyIx property = PropertyIx{}) {
-    code_.push_back(
-        TypedProgram::Instr{.op = op, .dst = dst, .a = a, .b = b, .literal = literal, .property = std::move(property)});
+  void Emit(TypedProgram::Op op, int32_t dst, int32_t a, int32_t b, int64_t literal, PropertyIx property = PropertyIx{},
+            LabelsTest *labels = nullptr) {
+    code_.push_back(TypedProgram::Instr{
+        .op = op, .dst = dst, .a = a, .b = b, .literal = literal, .property = std::move(property), .labels = labels});
   }
 
   std::vector<TypedProgram::Instr> code_;
@@ -202,7 +217,7 @@ std::optional<TypedProgram> TypedProgram::Compile(Expression *expression, Expres
   return builder.Finish(*root);
 }
 
-TypedProgram::Answer TypedProgram::Run(Frame const &frame, PropertySource *source, Parameters const *parameters) const {
+TypedProgram::Answer TypedProgram::Run(Frame const &frame, RecordReader *reader, Parameters const *parameters) const {
   // Small enough to sit on the stack for the expressions this covers; a bigger
   // one would take these from the frame alongside the other working values.
   constexpr size_t kMaxSlots = 64;
@@ -255,7 +270,7 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, PropertySource *sourc
         break;
       }
       case Op::LoadPropInt: {
-        if (source == nullptr) return Answer::Refused;
+        if (reader == nullptr) return Answer::Refused;
         auto const &record = frame.elems()[in.a];
         // Only a record has properties; anything else was not what the guess
         // settled on.
@@ -266,7 +281,7 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, PropertySource *sourc
           }
           return Answer::Refused;
         }
-        auto const value = source->ReadProperty(record, in.property);
+        auto const value = reader->ReadProperty(record, in.property);
         if (value.IsInt()) {
           ints[in.dst] = value.ValueInt();
           int_known[in.dst] = 1;
@@ -275,6 +290,12 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, PropertySource *sourc
         } else {
           return Answer::Refused;
         }
+        break;
+      }
+      case Op::TestLabels: {
+        if (reader == nullptr) return Answer::Refused;
+        auto const answer = reader->TestLabels(frame.elems()[in.a], *in.labels);
+        tris[in.dst] = !answer ? Answer::Null : (*answer ? Answer::True : Answer::False);
         break;
       }
       case Op::AddInt:

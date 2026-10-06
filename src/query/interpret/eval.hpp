@@ -318,7 +318,7 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   DbAccessor *dba_;
 };
 
-class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public PropertySource {
+class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordReader {
  public:
   /// Lets a compiled program read a property without repeating what reading one
   /// involves: the view, the permission check, and a record that is gone.
@@ -680,41 +680,49 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public Propert
     switch (expression_result.type()) {
       case TypedValue::Type::Null:
         return TypedValue(ctx_->memory);
-      case TypedValue::Type::Vertex: {
-        const auto &vertex = expression_result.ValueVertex();
-        if (const auto *term = labels_test.Term()) {
-          // The closures are built here only: the plain labels below call the helpers directly, so their rows
-          // do not store captures to the stack for EvalLabelTerm to read.
-          return TypedValue(EvalLabelTerm(
-                                *term,
-                                [&](const LabelIx &label) { return HasLabel(vertex, label); },
-                                [&] { return HasAnyLabel(vertex); }),
-                            ctx_->memory);
-        }
-        const auto &cnf = *labels_test.Cnf();
-        for (const auto &label : cnf.labels) {
-          if (!HasLabel(vertex, label)) {
-            return TypedValue(false, ctx_->memory);
-          }
-        }
-        for (const auto &or_labels_pattern : cnf.or_labels) {
-          if (!std::ranges::any_of(or_labels_pattern, [&](const LabelIx &label) { return HasLabel(vertex, label); })) {
-            return TypedValue(false, ctx_->memory);
-          }
-        }
-        return TypedValue(true, ctx_->memory);
-      }
+      case TypedValue::Type::Vertex:
+        return TypedValue(LabelsMatch(expression_result.ValueVertex(), labels_test), ctx_->memory);
       default:
-        // Labels are not what the reader got wrong when the test names none.
-        if (labels_test.IsNodeTest()) {
-          if (const auto *identifier = utils::Downcast<Identifier>(labels_test.expression_)) {
-            throw QueryRuntimeException(
-                "Expected a node for '{}', but got {}.", identifier->name_, expression_result.type());
-          }
-          throw QueryRuntimeException("Expected a node, but got {}.", expression_result.type());
-        }
-        throw QueryRuntimeException("Only nodes have labels.");
+        ThrowNotANode(labels_test, expression_result.type());
     }
+  }
+
+  /// Labels are not what the reader got wrong when the test names none.
+  [[noreturn]] static void ThrowNotANode(LabelsTest const &labels_test, TypedValue::Type got) {
+    if (labels_test.IsNodeTest()) {
+      if (const auto *identifier = utils::Downcast<Identifier>(labels_test.expression_)) {
+        throw QueryRuntimeException("Expected a node for '{}', but got {}.", identifier->name_, got);
+      }
+      throw QueryRuntimeException("Expected a node, but got {}.", got);
+    }
+    throw QueryRuntimeException("Only nodes have labels.");
+  }
+
+  /// Whether the vertex answers the test. The subject is already in hand, so
+  /// a caller that has one spends nothing building a value around it.
+  bool LabelsMatch(const VertexAccessor &vertex, LabelsTest &labels_test) const {
+    if (const auto *term = labels_test.Term()) {
+      // The closures are built here only: the plain labels below call the helpers directly, so their rows
+      // do not store captures to the stack for EvalLabelTerm to read.
+      return EvalLabelTerm(
+          *term, [&](const LabelIx &label) { return HasLabel(vertex, label); }, [&] { return HasAnyLabel(vertex); });
+    }
+    const auto &cnf = *labels_test.Cnf();
+    for (const auto &label : cnf.labels) {
+      if (!HasLabel(vertex, label)) return false;
+    }
+    for (const auto &or_labels_pattern : cnf.or_labels) {
+      if (!std::ranges::any_of(or_labels_pattern, [&](const LabelIx &label) { return HasLabel(vertex, label); })) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) override {
+    if (record.IsNull()) return std::nullopt;
+    if (record.IsVertex()) return LabelsMatch(record.ValueVertex(), test);
+    ThrowNotANode(test, record.type());
   }
 
   TypedValue Visit(EdgeTypesTest &edgetype_test) override {

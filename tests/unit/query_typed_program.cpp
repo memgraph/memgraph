@@ -95,6 +95,43 @@ TEST_F(TypedProgramTest, APropertyComparisonCompilesAndAnswers) {
   EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
 }
 
+// The planner folds the label a pattern names into the filter expression, so a
+// filter over a labelled node is a conjunction with a label test in it. Without
+// this the label test refuses the whole conjunction, which is almost every
+// filter that runs per row.
+TEST_F(TypedProgramTest, ALabelledNodeFilterCompilesAndAnswers) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  auto vertex = dba.InsertVertex();
+  ASSERT_TRUE(vertex.AddLabel(dba.NameToLabel("L1")).has_value());
+  auto const age = dba.NameToProperty("age");
+  ASSERT_TRUE(vertex.SetProperty(age, memgraph::storage::PropertyValue(int64_t{30})).has_value());
+  dba.AdvanceCommand();
+  Set(0, TypedValue(vertex));
+
+  auto *labelled = storage_.Create<memgraph::query::LabelsTest>(
+      Ident(0), std::vector<memgraph::query::LabelIx>{storage_.GetLabelIx("L1")});
+  auto *expr = storage_.Create<memgraph::query::AndOperator>(
+      labelled,
+      storage_.Create<memgraph::query::GreaterOperator>(
+          storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("age")),
+          storage_.Create<memgraph::query::PrimitiveLiteral>(int64_t{20})));
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value()) << "a label test and a property comparison should compile";
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = &dba;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba);
+  context.evaluation_context.labels = memgraph::query::NamesToLabels(storage_.labels_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
+}
+
 // A conjunction whose left side is false never evaluates its right side, and
 // the difference shows when the right side would throw. Reading a property off
 // a deleted record is the case that arises: the evaluator never reaches it, so
