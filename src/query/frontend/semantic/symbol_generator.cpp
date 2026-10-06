@@ -373,25 +373,34 @@ std::unordered_set<std::string> WrittenColumns(const CypherQuery &query, const s
 bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   // A trigger that is not cacheable analyses the same AST again on every firing.
   branches.output_symbols_.clear();
-  auto const base = scopes_.back();
   // Predicates see only the imports. Each is a `Where`, so it gets the WHERE rules.
   for (auto *predicate : branches.predicates_) {
     if (predicate) predicate->Accept(*this);
   }
 
-  // Each branch starts from the imports alone, as a UNION part does. The parser checked that all branches agree on
-  // whether they return rows.
+  // Each branch gets a scope of its own above the CALL body's, which holds the imports, so no branch sees another's
+  // variables, as no UNION part does. The parser checked that all branches agree on whether they return rows.
+  // Scopes are re-read by index: a body can push scopes and reallocate the stack.
+  auto const call_scope = scopes_.size() - 1;
   std::vector<std::unordered_set<std::string>> names;
   std::vector<std::unordered_set<std::string>> written;
+  bool has_return = false;
+  // Only a single branch reads its own column symbols.
+  std::map<std::string, Symbol> single_branch_symbols;
   for (auto *body : branches.bodies_) {
-    scopes_.back() = Scope{.in_subquery_body = base.in_subquery_body,
-                           .in_call_subquery = base.in_call_subquery,
-                           .symbols = base.call_subquery_imports,
-                           .call_subquery_imports = base.call_subquery_imports,
-                           .call_subquery_base = base.call_subquery_base};
+    auto const &outer = scopes_[call_scope];
+    scopes_.push_back(Scope{.in_subquery_body = outer.in_subquery_body,
+                            .in_call_subquery = outer.in_call_subquery,
+                            .symbols = outer.call_subquery_imports,
+                            .call_subquery_imports = outer.call_subquery_imports,
+                            .call_subquery_base = outer.call_subquery_base});
     body->Accept(*this);
-    names.push_back(scopes_.back().curr_return_names);
-    written.push_back(WrittenColumns(*body, names.back(), base.call_subquery_imports));
+    auto &branch = scopes_.back();
+    names.push_back(std::move(branch.curr_return_names));
+    written.push_back(WrittenColumns(*body, names.back(), scopes_[call_scope].call_subquery_imports));
+    has_return = branch.has_return;
+    if (branches.bodies_.size() == 1) single_branch_symbols = std::move(branch.symbols);
+    scopes_.pop_back();
   }
   for (size_t i = 1; i < written.size(); ++i) {
     if (written[i].size() != written[0].size()) {
@@ -402,23 +411,19 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
     }
   }
 
-  // Only a single branch reads its own column symbols, so take the last branch's before restoring the scope.
-  auto const has_return = scopes_.back().has_return;
-  auto const last_branch_symbols = std::move(scopes_.back().symbols);
-  scopes_.back() = base;
   auto &scope = scopes_.back();
   scope.has_return = has_return;
   if (!scope.has_return) return false;
   scope.curr_return_names = names[0];
   for (const auto &name : names[0]) {
     // A column named after an import is the import: the caller keeps its own value, as after a plain `CALL`.
-    if (auto const import = base.call_subquery_imports.find(name); import != base.call_subquery_imports.end()) {
+    if (auto const import = scope.call_subquery_imports.find(name); import != scope.call_subquery_imports.end()) {
       branches.output_symbols_.push_back(import->second);
       continue;
     }
     // One branch needs no union. Several share a user symbol per column, so a later `*` sees it.
-    auto const symbol = branches.bodies_.size() == 1 ? last_branch_symbols.at(name) : CreateSymbol(name, true);
-    scopes_.back().symbols[name] = symbol;
+    auto const symbol = branches.bodies_.size() == 1 ? single_branch_symbols.at(name) : CreateSymbol(name, true);
+    scope.symbols[name] = symbol;
     branches.output_symbols_.push_back(symbol);
   }
   return false;
