@@ -382,8 +382,8 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   // variables, as no UNION part does. The parser checked that all branches agree on whether they return rows.
   // Scopes are re-read by index: a body can push scopes and reallocate the stack.
   auto const call_scope = scopes_.size() - 1;
-  std::vector<std::unordered_set<std::string>> names;
-  std::vector<std::unordered_set<std::string>> written;
+  std::unordered_set<std::string> first_names;
+  std::unordered_set<std::string> first_written;
   bool has_return = false;
   // Only a single branch reads its own column symbols.
   std::map<std::string, Symbol> single_branch_symbols;
@@ -396,26 +396,25 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
                             .call_subquery_base = outer.call_subquery_base});
     body->Accept(*this);
     auto &branch = scopes_.back();
-    names.push_back(std::move(branch.curr_return_names));
-    written.push_back(WrittenColumns(*body, names.back(), scopes_[call_scope].call_subquery_imports));
+    auto written = WrittenColumns(*body, branch.curr_return_names, scopes_[call_scope].call_subquery_imports);
+    if (body == branches.bodies_.front()) {
+      first_names = std::move(branch.curr_return_names);
+      first_written = std::move(written);
+    } else if (written.size() != first_written.size()) {
+      throw SemanticException("All WHEN branches must return the same number of columns.");
+    } else if (written != first_written) {
+      throw SemanticException("All WHEN branches must have the same column names.");
+    }
     has_return = branch.has_return;
     if (branches.bodies_.size() == 1) single_branch_symbols = std::move(branch.symbols);
     scopes_.pop_back();
-  }
-  for (size_t i = 1; i < written.size(); ++i) {
-    if (written[i].size() != written[0].size()) {
-      throw SemanticException("All WHEN branches must return the same number of columns.");
-    }
-    if (written[i] != written[0]) {
-      throw SemanticException("All WHEN branches must have the same column names.");
-    }
   }
 
   auto &scope = scopes_.back();
   scope.has_return = has_return;
   if (!scope.has_return) return false;
-  scope.curr_return_names = names[0];
-  for (const auto &name : names[0]) {
+  scope.curr_return_names = first_names;
+  for (const auto &name : first_names) {
     // A column named after an import is the import: the caller keeps its own value, as after a plain `CALL`.
     if (auto const import = scope.call_subquery_imports.find(name); import != scope.call_subquery_imports.end()) {
       branches.output_symbols_.push_back(import->second);
