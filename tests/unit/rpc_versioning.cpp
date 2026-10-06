@@ -11,6 +11,8 @@
 
 #include "gtest/gtest.h"
 
+#include <filesystem>
+
 #include <nlohmann/json.hpp>
 
 #include "coordination/coordinator_rpc.hpp"
@@ -19,13 +21,16 @@
 
 #include "rpc_messages.hpp"
 
+#include "auth/auth.hpp"
 #include "auth/rpc.hpp"
+#include "replication_handler/auth_replication_handlers.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/client.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "slk/streams.hpp"
+#include "system/state.hpp"
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
@@ -687,6 +692,54 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V1Request_UpgradesToASingleItemBatch) {
   EXPECT_EQ(seen_ops, 1U) << "a V1 request's single item must upgrade into a one-element batch";
   EXPECT_EQ(seen_username, "alice") << "the upgraded batch must carry the user the V1 request held";
 }
+
+#ifdef MG_ENTERPRISE
+// A V2 request is answered at V2, so the response must exist at V2 as well. A replica that cannot encode its reply
+// drops the connection after applying the batch, and the main then snapshots it even though nothing was lost.
+TEST(RpcVersioning, UpdateAuthDataRpc_V2RequestGetsAV2Response) {
+  Endpoint const endpoint{"localhost", port};
+  auto const auth_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_rpc_versioning_auth";
+  std::filesystem::remove_all(auth_dir);
+  auto const cleanup = memgraph::utils::OnScopeExit{[&] { std::filesystem::remove_all(auth_dir); }};
+
+  memgraph::auth::SynchedAuth auth{auth_dir, memgraph::auth::Auth::Config{}};
+  memgraph::system::State system_state{std::nullopt, false};
+  memgraph::system::ReplicaHandlerAccessToState system_state_access{system_state};
+  memgraph::utils::UUID const main_uuid;
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  rpc_server.Register<memgraph::replication::UpdateAuthDataRpc>(
+      [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version,
+          auto *req_reader,
+          auto *res_builder) {
+        memgraph::auth::UpdateAuthDataHandler(
+            system_state_access, main_uuid, auth, request_version, req_reader, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+
+  auto stream = client.Stream<memgraph::replication::UpdateAuthDataRpc>(
+      main_uuid,
+      0,
+      1,
+      std::vector<memgraph::replication::AuthOp>{memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}}});
+  auto const reply = stream.SendAndWait();
+
+  EXPECT_TRUE(reply.success);
+  EXPECT_TRUE(auth.Lock()->HasUser("alice"));
+}
+#endif
 
 // The batch is an ordered sequence, not per-kind lists: DROP USER alice then CREATE USER alice must survive the
 // round trip in that order, because applying them the other way round loses the user.

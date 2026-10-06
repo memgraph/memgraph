@@ -89,9 +89,23 @@ struct UpdateAuthDataReq {
   std::vector<AuthOp> ops;
 };
 
-struct UpdateAuthDataRes {
+struct UpdateAuthDataResV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_RES, .name = "UpdateAuthDataRes"};
   static constexpr uint64_t kVersion{1};
+
+  static void Load(UpdateAuthDataResV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const UpdateAuthDataResV1 &self, memgraph::slk::Builder *builder);
+  UpdateAuthDataResV1() = default;
+
+  explicit UpdateAuthDataResV1(bool success) : success{success} {}
+
+  bool success{};
+};
+
+/// Same content as V1. The server answers at the request's version, so the response moves with the request.
+struct UpdateAuthDataRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_RES, .name = "UpdateAuthDataRes"};
+  static constexpr uint64_t kVersion{2};
 
   static void Load(UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
@@ -99,11 +113,13 @@ struct UpdateAuthDataRes {
 
   explicit UpdateAuthDataRes(bool success) : success{success} {}
 
+  UpdateAuthDataResV1 Downgrade() const { return UpdateAuthDataResV1{success}; }
+
   bool success{};
 };
 
 using UpdateAuthDataRpc = rpc::RequestResponse<UpdateAuthDataReq, UpdateAuthDataRes>;
-using UpdateAuthDataRpcV1 = rpc::RequestResponse<UpdateAuthDataReqV1, UpdateAuthDataRes>;
+using UpdateAuthDataRpcV1 = rpc::RequestResponse<UpdateAuthDataReqV1, UpdateAuthDataResV1>;
 
 struct DropAuthDataReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_DROP_AUTH_DATA_REQ, .name = "DropAuthDataReq"};
@@ -192,6 +208,8 @@ void Save(const memgraph::replication::UpdateAuthDataReqV1 &self, memgraph::slk:
 void Load(memgraph::replication::UpdateAuthDataReqV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::replication::UpdateAuthDataResV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::replication::UpdateAuthDataResV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::replication::UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::replication::DropAuthDataRes &self, memgraph::slk::Builder *builder);
