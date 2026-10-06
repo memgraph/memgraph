@@ -379,6 +379,11 @@ add_unit_test(query_typed_value_in_place
     LINK_TARGETS mg-query typed_value_shapes
 )
 
+add_unit_test(query_typed_program_coverage
+    SOURCES query_typed_program_coverage.cpp
+    LINK_TARGETS mg-query disk_test_utils
+)
+
 add_unit_test(query_typed_program
     SOURCES query_typed_program.cpp
     LINK_TARGETS mg-query disk_test_utils
