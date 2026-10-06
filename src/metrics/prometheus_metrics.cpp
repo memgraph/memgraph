@@ -1249,7 +1249,7 @@ std::vector<prometheus::MetricFamily> PrometheusMetrics::CollectForScrape() {
   {
     std::shared_lock const lock{databases_.mutex};
     for (auto const &entry : databases_.entries) {
-      by_entry.emplace(std::to_string(entry.id), Presented{entry.db_name, std::string(entry.uuid)});
+      by_entry.emplace(std::to_string(entry.id), Presented{.name = entry.db_name, .uuid = std::string(entry.uuid)});
     }
   }
   auto families = registry_.Collect();
