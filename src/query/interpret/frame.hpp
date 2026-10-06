@@ -64,7 +64,10 @@ class Frame {
 
   Frame(int64_t size, allocator_type alloc) : elems_(size, alloc) { MG_ASSERT(size >= 0); }
 
-  const TypedValue &operator[](const Symbol &symbol) const { return elems_[symbol.position()]; }
+  const TypedValue &operator[](const Symbol &symbol) const {
+    DebugAssertInBounds(symbol);
+    return elems_[symbol.position()];
+  }
 
   const TypedValue &at(const Symbol &symbol) const { return elems_.at(symbol.position()); }
 
@@ -78,11 +81,23 @@ class Frame {
 
  private:
   friend struct FrameWriter;
+
+  // Unchecked access is the hot path, so only debug builds pay for this. A position outside the frame is a bug in
+  // whatever built the plan, e.g. a default Symbol, whose position is -1.
+  void DebugAssertInBounds([[maybe_unused]] const Symbol &symbol) const {
+    DMG_ASSERT(symbol.position() >= 0 && static_cast<size_t>(symbol.position()) < elems_.size(),
+               "Symbol '{}' has frame position {} outside a frame of size {}",
+               symbol.name(),
+               symbol.position(),
+               elems_.size());
+  }
+
   utils::pmr::vector<TypedValue> elems_;
 };
 
 template <typename Func>
 auto FrameWriter::Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &> {
+  frame_.DebugAssertInBounds(symbol);
   auto &value = frame_.elems_[symbol.position()];
   ResetCache(symbol);
   return f(value);
