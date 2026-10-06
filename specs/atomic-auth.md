@@ -181,11 +181,12 @@ replication, not for the life of the transaction, and only when the transaction
 has changes to replicate. An open auth transaction does not block other
 sessions' system queries.
 
-A replica that misses the commit, or runs an older version that cannot decode
-the batch, is marked behind and recovers by full snapshot. The main sends only
-the batched format, but an upgraded replica still accepts the earlier
-per-record format from an older main. Upgrade replicas before the main, as
-section 7 says, and a version mismatch never forces a snapshot.
+A replica that misses the commit is marked behind and recovers by full
+snapshot. The main sends only the batched format, which a replica running an
+older version cannot decode, so such a replica is snapshotted on every auth
+commit until it is upgraded. An upgraded replica still accepts the earlier
+per-record format from an older main, so upgrading replicas before the main,
+as section 7 says, avoids that.
 
 ---
 
