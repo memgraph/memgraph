@@ -3595,55 +3595,15 @@ Feature: Subquery expressions
           | 'd' |
 
   # Subqueries inside a list expression (all/any/none/single/reduce/extract, list comprehension). The body may read
-  # the element, so it runs once per element. Expected rows are measured on Neo4j; each case runs without indexes,
-  # with label-property indexes and with label indexes.
+  # the element, so it runs once per element. The element is bound in every branch below, so indexes change only the
+  # outer scan; the COUNT body case, whose branch seeks on the element, also runs with indexes.
 
   # Deferred positions: a MATCH or OPTIONAL MATCH WHERE, a body WHERE and a pattern comprehension WHERE.
   Scenario: Deferred EXISTS reads the element through a property map
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE EXISTS { (n {id: x})-[:R]->() }) RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred EXISTS reads the element through a property map (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE EXISTS { (n {id: x})-[:R]->() }) RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred EXISTS reads the element through a property map (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       And parameters are:
           | ids | [2, 99] |
@@ -3657,47 +3617,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE COUNT { (n {id: x})-[:R]->() } > 0) RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred COUNT reads the element through a property map (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE COUNT { (n {id: x})-[:R]->() } > 0) RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred COUNT reads the element through a property map (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       And parameters are:
           | ids | [2, 99] |
@@ -3711,47 +3631,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE EXISTS { MATCH (n)-[:R]->() WHERE n.id = x }) RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred EXISTS reads the element in a body WHERE (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE EXISTS { MATCH (n)-[:R]->() WHERE n.id = x }) RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred EXISTS reads the element in a body WHERE (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       And parameters are:
           | ids | [2, 99] |
@@ -3765,47 +3645,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE exists((n {id: x})-[:R]->())) RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred exists() pattern function reads the element (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE exists((n {id: x})-[:R]->())) RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred exists() pattern function reads the element (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       And parameters are:
           | ids | [2, 99] |
@@ -3819,47 +3659,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE (n {id: x})-[:R]->()) RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred bare pattern predicate reads the element (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE (n {id: x})-[:R]->()) RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred bare pattern predicate reads the element (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       And parameters are:
           | ids | [2, 99] |
@@ -3873,43 +3673,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns MATCH (q:Q) WHERE any(x IN ns WHERE EXISTS { (x)-[:R]->() }) RETURN q.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred EXISTS anchored on a node element (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns MATCH (q:Q) WHERE any(x IN ns WHERE EXISTS { (x)-[:R]->() }) RETURN q.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred EXISTS anchored on a node element (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       When executing query:
           """
@@ -3921,43 +3685,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns MATCH (q:Q) WHERE any(x IN ns WHERE (x)-[:R]->()) RETURN q.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred bare pattern predicate anchored on a node element (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns MATCH (q:Q) WHERE any(x IN ns WHERE (x)-[:R]->()) RETURN q.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred bare pattern predicate anchored on a node element (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       When executing query:
           """
@@ -3969,43 +3697,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns MATCH (q:Q) WHERE any(x IN ns WHERE EXISTS { MATCH (x)-[:R]->() }) RETURN q.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred EXISTS with MATCH anchored on a node element (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns MATCH (q:Q) WHERE any(x IN ns WHERE EXISTS { MATCH (x)-[:R]->() }) RETURN q.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: Deferred EXISTS with MATCH anchored on a node element (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       When executing query:
           """
@@ -4017,51 +3709,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          RETURN [(q:Q)-[:R]->(z) WHERE any(y IN $ids WHERE (q {id: y})-[:R]->()) | z.id] AS r
-          """
-      Then the result should be:
-          | r  |
-          | [] |
-
-  Scenario: A lambda in a pattern comprehension filter reads its element in a pattern predicate (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          RETURN [(q:Q)-[:R]->(z) WHERE any(y IN $ids WHERE (q {id: y})-[:R]->()) | z.id] AS r
-          """
-      Then the result should be:
-          | r  |
-          | [] |
-
-  Scenario: A lambda in a pattern comprehension filter reads its element in a pattern predicate (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       And parameters are:
           | ids | [2, 99] |
@@ -4077,47 +3725,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE EXISTS { MATCH (n)-[:R]->(z) WHERE any(y IN $ids WHERE (n {id: y})-[:R]->()) } RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: A lambda in a body WHERE reads its element in a pattern predicate (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE EXISTS { MATCH (n)-[:R]->(z) WHERE any(y IN $ids WHERE (n {id: y})-[:R]->()) } RETURN n.id AS id
-          """
-      Then the result should be empty
-
-  Scenario: A lambda in a body WHERE reads its element in a pattern predicate (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       And parameters are:
           | ids | [2, 99] |
@@ -4131,9 +3739,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       When executing query:
           """
@@ -4143,16 +3749,12 @@ Feature: Subquery expressions
           | c |
           | 1 |
 
-  Scenario: A lambda in a COUNT body WHERE reads its element in an EXISTS (indexes :Q(id), :Mv(id), :L(p))
+  Scenario: A lambda in a COUNT body WHERE reads its element in an EXISTS (index :Q(id))
       Given an empty graph
       And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       When executing query:
           """
@@ -4162,16 +3764,12 @@ Feature: Subquery expressions
           | c |
           | 1 |
 
-  Scenario: A lambda in a COUNT body WHERE reads its element in an EXISTS (indexes :Q, :Mv, :L)
+  Scenario: A lambda in a COUNT body WHERE reads its element in an EXISTS (index :Q)
       Given an empty graph
       And with new index :Q
-      And with new index :Mv
-      And with new index :L
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       When executing query:
           """
@@ -4185,47 +3783,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns OPTIONAL MATCH (q:Q) WHERE any(x IN ns WHERE EXISTS { (x)-[:R]->() }) RETURN q.id AS id
-          """
-      Then the result should be:
-          | id   |
-          | null |
-
-  Scenario: OPTIONAL MATCH WHERE with an EXISTS anchored on a node element (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns OPTIONAL MATCH (q:Q) WHERE any(x IN ns WHERE EXISTS { (x)-[:R]->() }) RETURN q.id AS id
-          """
-      Then the result should be:
-          | id   |
-          | null |
-
-  Scenario: OPTIONAL MATCH WHERE with an EXISTS anchored on a node element (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       When executing query:
           """
@@ -4236,52 +3794,12 @@ Feature: Subquery expressions
           | null |
 
   # A pattern comprehension that reads a list expression's element is refused until it can run once per element.
-  # Neo4j answers these; the refusal replaces wrong rows.
+  # The refusal replaces wrong rows; query_semantic pins its text.
   Scenario: Deferred pattern comprehension reads the element
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE size([(n {id: x})-[:R]->(z) | z]) > 0) RETURN n.id AS id
-          """
-      Then an error should be raised
-
-  Scenario: Deferred pattern comprehension reads the element (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [2, 99] |
-      When executing query:
-          """
-          MATCH (n:Q) WHERE any(x IN $ids WHERE size([(n {id: x})-[:R]->(z) | z]) > 0) RETURN n.id AS id
-          """
-      Then an error should be raised
-
-  Scenario: Deferred pattern comprehension reads the element (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       And parameters are:
           | ids | [2, 99] |
@@ -4295,47 +3813,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [1, 99] |
-      When executing query:
-          """
-          MATCH (n:Q {id: 1}) RETURN [x IN $ids | size([(m {id: x})-[:R]->(z) | z])] AS s
-          """
-      Then an error should be raised
-
-  Scenario: A pattern comprehension in a projection reads the element (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      And parameters are:
-          | ids | [1, 99] |
-      When executing query:
-          """
-          MATCH (n:Q {id: 1}) RETURN [x IN $ids | size([(m {id: x})-[:R]->(z) | z])] AS s
-          """
-      Then an error should be raised
-
-  Scenario: A pattern comprehension in a projection reads the element (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       And parameters are:
           | ids | [1, 99] |
@@ -4349,43 +3827,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns MATCH (q:Q) WHERE any(x IN ns WHERE size([(x)-[:R]->(z) | z]) > 0) RETURN q.id AS id
-          """
-      Then an error should be raised
-
-  Scenario: Deferred pattern comprehension anchored on a node element (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns MATCH (q:Q) WHERE any(x IN ns WHERE size([(x)-[:R]->(z) | z]) > 0) RETURN q.id AS id
-          """
-      Then an error should be raised
-
-  Scenario: Deferred pattern comprehension anchored on a node element (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       When executing query:
           """
@@ -4397,43 +3839,7 @@ Feature: Subquery expressions
       Given an empty graph
       And having executed:
           """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns RETURN [x IN ns | size([(x)-[:R]->(z) | z])] AS s
-          """
-      Then an error should be raised
-
-  Scenario: A pattern comprehension in a projection anchored on a node element (indexes :Q(id), :Mv(id), :L(p))
-      Given an empty graph
-      And with new index :Q(id)
-      And with new index :Mv(id)
-      And with new index :L(p)
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
-          """
-      When executing query:
-          """
-          MATCH (n:Q {id: 2}) WITH collect(n) AS ns RETURN [x IN ns | size([(x)-[:R]->(z) | z])] AS s
-          """
-      Then an error should be raised
-
-  Scenario: A pattern comprehension in a projection anchored on a node element (indexes :Q, :Mv, :L)
-      Given an empty graph
-      And with new index :Q
-      And with new index :Mv
-      And with new index :L
-      And having executed:
-          """
-          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}),
-                 (:Mv {id: '1'})-[:R]->(:X)-[:R]->(:Mv {id: '2'}), (:Mv {id: '5'}),
-                 (:L:M {p: 7}), (:L {p: 8})
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2})
           """
       When executing query:
           """
