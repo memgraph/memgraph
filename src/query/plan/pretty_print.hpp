@@ -14,8 +14,6 @@
 
 #include <iosfwd>
 
-#include <nlohmann/json_fwd.hpp>
-
 #include "query/plan/operator.hpp"
 
 namespace memgraph::query {
@@ -37,10 +35,6 @@ void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::o
 // Pointer overload tolerating a null accessor, for a plan that runs without one.
 void PrettyPrint(const DbAccessor *dba, const LogicalOperator *plan_root, std::ostream *out,
                  Parameters const *parameters = nullptr);
-
-/// Convert a `LogicalOperator` plan to a JSON representation.
-/// DbAccessor is needed for resolving label and property names.
-nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root);
 
 struct PlanPrinter final : virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PostVisit;
