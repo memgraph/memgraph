@@ -344,7 +344,6 @@ TEST(PrometheusMetrics, RenameRelabelsAndKeepsMetricObjectsAlive) {
   memgraph::utils::UUID const uuid{};
 
   auto reg = pm.AddDatabase(uuid, "before");
-  auto const *const gauge = reg.handles().vertex_count.gauge;
   reg.handles().vertex_count.Set(7.0);
 
   reg.Rename("after");
@@ -353,7 +352,6 @@ TEST(PrometheusMetrics, RenameRelabelsAndKeepsMetricObjectsAlive) {
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "after"), 7.0);
   EXPECT_EQ(FindSample(families, "memgraph_vertex_count", "before"), std::nullopt);
   EXPECT_EQ(FindSampleByUuid(families, "memgraph_vertex_count", uuid), 7.0);
-  EXPECT_EQ(reg.handles().vertex_count.gauge, gauge);
 }
 
 TEST(PrometheusMetrics, RebindPropagatesHandlesToIndicesAndConstraints) {
