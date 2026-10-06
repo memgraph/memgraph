@@ -62,9 +62,11 @@ Wrapping them in a transaction makes the whole sequence one change.
 > applied whole, or not at all, on every replica.
 
 Nothing it writes is visible to another session, or to a replica, until
-`COMMIT`. `ROLLBACK` discards it. A concurrent change by another transaction to
-anything the transaction read or wrote fails the commit rather than overwriting
-it.
+`COMMIT`. `ROLLBACK` discards it. Its reads are not isolated in the same way:
+a read sees what other sessions commit while the transaction is open. A
+concurrent change by another transaction to anything the transaction read or
+wrote fails the commit rather than overwriting it, and that check at `COMMIT`
+is what makes the outcome serializable.
 
 ---
 
