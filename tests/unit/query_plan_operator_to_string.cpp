@@ -25,11 +25,6 @@ using namespace memgraph::query;
 using namespace memgraph::query::plan;
 namespace ms = memgraph::storage;
 
-// The JSON formatted plan is consumed (or will be) by Memgraph Lab, and
-// therefore should not be changed before synchronizing with whoever is
-// maintaining Memgraph Lab. Hopefully, one day integration tests will exist and
-// there will be no need to be super careful.
-
 template <typename StorageType>
 class OperatorToStringTest : public ::testing::Test {
  protected:
