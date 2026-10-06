@@ -18,6 +18,7 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
+#include "metrics/replication_health.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "parameters/parameters.hpp"
 #include "replication/include/replication/state.hpp"
@@ -196,6 +197,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   bool IsReplica() const override;
 
   auto ShowReplicas() const -> std::expected<query::ReplicasInfos, query::ShowReplicaError> override;
+
+  // Empty when the replication state or the dbms handler is locked by a writer.
+  auto GetReplicationHealth() const -> std::optional<metrics::ReplicationHealth>;
 
   auto GetReplState() const { return repl_state_.ReadLock(); }
 

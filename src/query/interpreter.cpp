@@ -119,6 +119,7 @@
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/replication/enums.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_error.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -2462,20 +2463,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
             };
 
             auto const replica_state_to_tv = [](memgraph::storage::replication::ReplicaState state) {
-              using namespace std::string_view_literals;
-              switch (state) {
-                using enum memgraph::storage::replication::ReplicaState;
-                case READY:
-                  return TypedValue{"ready"sv};
-                case REPLICATING:
-                  return TypedValue{"replicating"sv};
-                case RECOVERY:
-                  return TypedValue{"recovery"sv};
-                case MAYBE_BEHIND:
-                  return TypedValue{"invalid"sv};
-                case DIVERGED_FROM_MAIN:
-                  return TypedValue{"diverged"sv};
-              }
+              return TypedValue{memgraph::storage::replication::ReplicaStatusName(state)};
             };
 
             auto const info_to_tv = [&](ReplicaInfoState orig) {

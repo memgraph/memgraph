@@ -15,6 +15,7 @@
 #include <expected>
 #include <functional>
 #include <list>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <shared_mutex>
@@ -31,6 +32,7 @@
 #include <nlohmann/json_fwd.hpp>
 
 #include "metrics/metric_handles.hpp"
+#include "metrics/replication_health.hpp"
 #include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE
@@ -77,6 +79,10 @@ struct DurabilityThroughput {
 /// Retrieves `StorageSnapshot` for the given database UUID, or `std::nullopt`
 /// if there is no such database.
 using StorageSnapshotResolver = std::function<std::optional<StorageSnapshot>(utils::UUID const &uuid)>;
+
+/// Retrieves this instance's `ReplicationHealth`, or `std::nullopt` if it
+/// cannot be read without blocking.
+using ReplicationHealthResolver = std::function<std::optional<ReplicationHealth>()>;
 
 #ifdef MG_ENTERPRISE
 using InstanceStatusResolver = std::function<std::vector<coordination::InstanceStatus>()>;
@@ -240,6 +246,7 @@ class PrometheusMetrics {
   void RemoveReplicationThroughput(std::string_view instance_name);
 
   void SetStorageSnapshotResolver(StorageSnapshotResolver resolver);
+  void SetReplicationHealthResolver(ReplicationHealthResolver resolver);
 #ifdef MG_ENTERPRISE
   void SetInstanceStatusResolver(InstanceStatusResolver resolver);
 #endif
@@ -295,6 +302,7 @@ class PrometheusMetrics {
   DatabaseMetricHandles AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name);
 
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
+  void UpdateReplicationGauges(ReplicationHealth const &health);
 
   prometheus::Registry registry_;
 
@@ -306,6 +314,7 @@ class PrometheusMetrics {
 
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
   StorageSnapshotResolver storage_snapshot_resolver_;
+  ReplicationHealthResolver replication_health_resolver_;
   std::optional<utils::UUID> default_db_uuid_;
 #ifdef MG_ENTERPRISE
   InstanceStatusResolver instance_status_resolver_;
@@ -518,6 +527,29 @@ class PrometheusMetrics {
   // Global metric family — per-instance snapshot throughput (bytes/s)
   prometheus::Family<prometheus::Histogram> &snapshot_throughput_family_;
   prometheus::Family<prometheus::Histogram> &wal_throughput_family_;
+
+  // Global metric families — replication health, refreshed from ReplicationHealthResolver
+  prometheus::Family<prometheus::Gauge> &replication_role_family_;
+  prometheus::Family<prometheus::Gauge> &main_writeable_family_;
+  prometheus::Family<prometheus::Gauge> &registered_replicas_family_;
+  prometheus::Family<prometheus::Gauge> &replica_state_family_;
+  prometheus::Family<prometheus::Gauge> &replica_txns_behind_family_;
+  prometheus::Gauge &main_role_;
+  prometheus::Gauge &replica_role_;
+  prometheus::Gauge &main_writeable_;
+  prometheus::Gauge &registered_replicas_;
+
+  struct ReplicaGauges {
+    // Parallel to ReplicaHealth::states.
+    std::vector<prometheus::Gauge *> states;
+    prometheus::Gauge *txns_behind;
+  };
+
+  struct {
+    std::mutex mutex;
+    // Keyed by (replica, database).
+    std::map<std::pair<std::string, std::string>, ReplicaGauges> entries;
+  } replica_gauges_;
 
   DurabilityThroughput snapshot_throughput_;
   DurabilityThroughput wal_throughput_;
