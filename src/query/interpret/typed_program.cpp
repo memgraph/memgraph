@@ -48,6 +48,22 @@ class TypedProgramBuilder {
         Emit(TypedProgram::Op::LoadInt, slot, position, 0, 0);
         return Operand{.is_tri = false, .slot = slot};
       }
+      case utils::TypeId::AST_PROPERTY_LOOKUP: {
+        auto *lookup = static_cast<PropertyLookup *>(expression);
+        // Only the plain case. A plain lookup carries a path of one, which is
+        // the property itself; a longer path reaches inside a value, and a
+        // lookup that takes all of them is a map. Both are left to the
+        // evaluator rather than guessed at.
+        if (lookup->evaluation_mode_ != PropertyLookup::EvaluationMode::GET_OWN_PROPERTY) return std::nullopt;
+        if (lookup->property_path_.size() != 1) return std::nullopt;
+        if (lookup->expression_ == nullptr) return std::nullopt;
+        if (lookup->expression_->GetTypeInfo().id != utils::TypeId::AST_IDENTIFIER) return std::nullopt;
+        auto const position = static_cast<Identifier *>(lookup->expression_)->symbol_pos_;
+        if (position < 0) return std::nullopt;
+        auto const slot = NextInt();
+        Emit(TypedProgram::Op::LoadPropInt, slot, position, 0, 0, lookup->property_);
+        return Operand{.is_tri = false, .slot = slot};
+      }
       case utils::TypeId::AST_ADDITION_OPERATOR:
         return Arithmetic(expression, TypedProgram::Op::AddInt);
       case utils::TypeId::AST_SUBTRACTION_OPERATOR:
@@ -130,8 +146,10 @@ class TypedProgramBuilder {
 
   int32_t NextTri() { return static_cast<int32_t>(tri_slots_++); }
 
-  void Emit(TypedProgram::Op op, int32_t dst, int32_t a, int32_t b, int64_t literal) {
-    code_.push_back(TypedProgram::Instr{.op = op, .dst = dst, .a = a, .b = b, .literal = literal});
+  void Emit(TypedProgram::Op op, int32_t dst, int32_t a, int32_t b, int64_t literal,
+            PropertyIx property = PropertyIx{}) {
+    code_.push_back(
+        TypedProgram::Instr{.op = op, .dst = dst, .a = a, .b = b, .literal = literal, .property = std::move(property)});
   }
 
   std::vector<TypedProgram::Instr> code_;
@@ -149,7 +167,7 @@ std::optional<TypedProgram> TypedProgram::Compile(Expression *expression) {
   return builder.Finish(*root);
 }
 
-TypedProgram::Answer TypedProgram::Run(Frame const &frame) const {
+TypedProgram::Answer TypedProgram::Run(Frame const &frame, PropertySource *source) const {
   // Small enough to sit on the stack for the expressions this covers; a bigger
   // one would take these from the frame alongside the other working values.
   constexpr size_t kMaxSlots = 64;
@@ -180,6 +198,29 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame) const {
           int_known[in.dst] = 0;
         } else {
           // Not what the guess settled on, so this row is not ours.
+          return Answer::Refused;
+        }
+        break;
+      }
+      case Op::LoadPropInt: {
+        if (source == nullptr) return Answer::Refused;
+        auto const &record = frame.elems()[in.a];
+        // Only a record has properties; anything else was not what the guess
+        // settled on.
+        if (!record.IsVertex() && !record.IsEdge()) {
+          if (record.IsNull()) {
+            int_known[in.dst] = 0;
+            break;
+          }
+          return Answer::Refused;
+        }
+        auto const value = source->ReadProperty(record, in.property);
+        if (value.IsInt()) {
+          ints[in.dst] = value.ValueInt();
+          int_known[in.dst] = 1;
+        } else if (value.IsNull()) {
+          int_known[in.dst] = 0;
+        } else {
           return Answer::Refused;
         }
         break;

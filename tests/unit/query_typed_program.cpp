@@ -13,9 +13,13 @@
 
 #include <string>
 
+#include "query/context.hpp"
+#include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
+#include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/interpret/typed_program.hpp"
+#include "storage/v2/inmemory/storage.hpp"
 
 using memgraph::query::AstStorage;
 using memgraph::query::Expression;
@@ -57,4 +61,35 @@ TEST_F(TypedProgramTest, AnIntegerComparisonCompilesAndAnswers) {
 
   Set(1, TypedValue(int64_t{4}));
   EXPECT_EQ(program->Run(frame_), TypedProgram::Answer::False);
+}
+
+// A filter over a property is the shape that actually runs per row, so the
+// program has to take it. Reading the property is left to the evaluator, which
+// already knows about views, permissions and deleted objects; what is new here
+// is that the answer never becomes a TypedValue.
+TEST_F(TypedProgramTest, APropertyComparisonCompilesAndAnswers) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  auto vertex = dba.InsertVertex();
+  auto const age = dba.NameToProperty("age");
+  ASSERT_TRUE(vertex.SetProperty(age, memgraph::storage::PropertyValue(int64_t{30})).has_value());
+  dba.AdvanceCommand();
+  Set(0, TypedValue(vertex));
+
+  auto *lookup = storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("age"));
+  auto *expr = storage_.Create<memgraph::query::GreaterOperator>(
+      lookup, storage_.Create<memgraph::query::PrimitiveLiteral>(int64_t{20}));
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value()) << "a property compared with a literal should compile";
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = &dba;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
 }

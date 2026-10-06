@@ -18,6 +18,7 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
+#include "storage/v2/property_value.hpp"
 
 namespace memgraph::query {
 
@@ -29,6 +30,24 @@ namespace memgraph::query {
 /// A program is built once for a plan and read by every execution of it, so it
 /// holds nothing that changes while it runs. The working values live on the
 /// frame, which belongs to one execution.
+/// What a typed program needs beyond the frame: the value of a property on a
+/// vertex or an edge. Reading one involves a view, a permission check, and the
+/// handling of a record that has been deleted, all of which already exist on
+/// the evaluator, so a program asks rather than repeats it.
+class PropertySource {
+ public:
+  PropertySource() = default;
+  PropertySource(PropertySource const &) = default;
+  PropertySource(PropertySource &&) = default;
+  PropertySource &operator=(PropertySource const &) = default;
+  PropertySource &operator=(PropertySource &&) = default;
+  virtual ~PropertySource() = default;
+
+  /// Null when the record has no such property, or when it may not be read.
+  /// Throws what the ordinary evaluator throws for a record that is gone.
+  virtual storage::PropertyValue ReadProperty(TypedValue const &record, PropertyIx const &property) = 0;
+};
+
 class TypedProgram {
  public:
   /// Three-valued, because a null operand makes a predicate null, with a
@@ -42,7 +61,9 @@ class TypedProgram {
 
   /// Answers for one row, or refuses it when a value was not the type the
   /// guess settled on.
-  Answer Run(Frame const &frame) const;
+  /// `source` may be null when no instruction needs one; a program that reads
+  /// a property without one refuses the row rather than guessing.
+  Answer Run(Frame const &frame, PropertySource *source = nullptr) const;
 
   /// How many integer and three-valued working slots a run needs.
   size_t IntSlots() const { return int_slots_; }
@@ -51,8 +72,9 @@ class TypedProgram {
 
  private:
   enum class Op : uint8_t {
-    LoadInt,   // from the frame, checking it really is one
-    ConstInt,  // from the expression itself, so never in doubt
+    LoadInt,      // from the frame, checking it really is one
+    LoadPropInt,  // from a record on the frame, checking the same
+    ConstInt,     // from the expression itself, so never in doubt
     AddInt,
     SubInt,
     MulInt,
@@ -73,6 +95,7 @@ class TypedProgram {
     int32_t a;
     int32_t b;
     int64_t literal;
+    PropertyIx property;
   };
 
   std::vector<Instr> code_;
