@@ -695,7 +695,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
  private:
-  /// Plans each branch from @p bound_symbols alone, then each predicate's folds, and binds the output symbols.
+  /// Plans each branch's body and predicate folds from @p bound_symbols alone, and binds the output symbols.
   std::unique_ptr<LogicalOperator> PlanConditional(std::unique_ptr<LogicalOperator> input,
                                                    const ConditionalQueryParts &conditional,
                                                    std::unordered_set<Symbol> bound_symbols) {
