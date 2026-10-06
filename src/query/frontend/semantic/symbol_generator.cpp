@@ -413,8 +413,11 @@ bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
   auto &scope = scopes_.back();
   scope.has_return = has_return;
   if (!scope.has_return) return false;
-  scope.curr_return_names = first_names;
-  for (const auto &name : first_names) {
+  // Sorted, so the columns' order does not depend on the hash set's.
+  auto columns = std::vector<std::string>(first_names.begin(), first_names.end());
+  std::ranges::sort(columns);
+  scope.curr_return_names = std::move(first_names);
+  for (const auto &name : columns) {
     // A column named after an import is the import: the caller keeps its own value, as after a plain `CALL`.
     if (auto const import = scope.call_subquery_imports.find(name); import != scope.call_subquery_imports.end()) {
       branches.output_symbols_.push_back(import->second);

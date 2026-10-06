@@ -1477,10 +1477,10 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallOutputSymbols) {
   auto *conditional = dynamic_cast<ConditionalBranches *>(branches->clauses_[0]);
   ASSERT_TRUE(conditional);
   auto const &import = symbol_table.at(*unwind->named_expression_);
+  // The columns come in name order, whatever order the branches return them in.
   ASSERT_EQ(conditional->output_symbols_.size(), 2U);
-  auto const import_column = std::ranges::find(conditional->output_symbols_, import);
-  ASSERT_NE(import_column, conditional->output_symbols_.end());
-  auto const &x = conditional->output_symbols_[import_column == conditional->output_symbols_.begin() ? 1 : 0];
+  EXPECT_EQ(conditional->output_symbols_[0], import);
+  auto const &x = conditional->output_symbols_[1];
   EXPECT_EQ(x.name(), "x");
   EXPECT_TRUE(x.user_declared()) << "a later RETURN * must see the column";
 
