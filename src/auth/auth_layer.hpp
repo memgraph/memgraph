@@ -95,13 +95,12 @@ class AuthLayer {
 #endif
     }
 
-    ~ScopedOverlay() {
-      if (!previous_) return;
-      locked_->storage() = *previous_;
-      locked_->sink() = nullptr;
-#ifdef MG_ENTERPRISE
-      locked_->dropped_users() = nullptr;
-#endif
+    ~ScopedOverlay() { Restore(); }
+
+    /// Restores the durable storage and hands the lock back, so the caller can go on without letting go of it.
+    LockedAuth Release() && {
+      Restore();
+      return std::move(locked_);
     }
 
     ScopedOverlay(ScopedOverlay const &) = delete;
@@ -120,6 +119,15 @@ class AuthLayer {
     Auth &operator*() const { return *locked_; }
 
    private:
+    void Restore() {
+      if (!previous_) return;
+      locked_->storage() = *std::exchange(previous_, std::nullopt);
+      locked_->sink() = nullptr;
+#ifdef MG_ENTERPRISE
+      locked_->dropped_users() = nullptr;
+#endif
+    }
+
     // Mutable because Synchronized::LockedPtr's own accessors are non-const. Const here means the guard is not
     // being modified, not that the Auth behind it is read-only.
     mutable LockedAuth locked_;
@@ -207,9 +215,8 @@ class AuthLayer {
       }
 
       AuthTransaction tx;
+      auto locked = Lock(&tx);
       {
-        // The guard holds the write lock, so it has to be gone before Commit takes its own.
-        auto locked = Lock(&tx);
         for (auto const &op : ops) {
           std::visit(utils::Overloaded{[&](replication::AuthUpdateOp const &update) {
                                          // The main never builds an update that names nothing, so one arriving
@@ -239,8 +246,15 @@ class AuthLayer {
         }
       }
 
-      // The rest buffered cleanly; one flush puts the whole of it in the store.
-      return Commit(tx, nullptr);
+      // The rest buffered cleanly; one flush puts the whole of it in the store. It runs under the lock the batch
+      // was applied with, so no local write, such as a login upgrading a password hash, can land in between and
+      // make the flush conflict.
+      auto held = std::move(locked).Release();
+      if (!Commit(held, tx, nullptr)) {
+        spdlog::warn("Applying an auth batch of {} operation(s) conflicted with a local write", ops.size());
+        return false;
+      }
+      return true;
     } catch (AuthException const &e) {
       spdlog::warn("Applying an auth batch of {} operation(s) failed: {}", ops.size(), e.what());
       return false;
@@ -264,6 +278,11 @@ class AuthLayer {
   /// no business knowing.
   [[nodiscard]] bool Commit(AuthTransaction &tx, system::Transaction *system_tx) {
     auto locked = auth_->Lock();
+    return Commit(locked, tx, system_tx);
+  }
+
+ private:
+  [[nodiscard]] bool Commit(LockedAuth &locked, AuthTransaction &tx, system::Transaction *system_tx) {
     if (tx.overlay_ && !tx.overlay_->Flush()) return false;
     // A read-only transaction is still validated above, because what it read can still have been invalidated. It
     // has nothing to publish though, so it must not spend the epoch: bumping it invalidates every session's
@@ -309,7 +328,6 @@ class AuthLayer {
     return true;
   }
 
- private:
   SynchedAuth *auth_;
 };
 
