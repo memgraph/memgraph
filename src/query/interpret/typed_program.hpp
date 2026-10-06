@@ -18,6 +18,7 @@
 
 #include "query/frontend/ast/ast.hpp"
 #include "query/interpret/frame.hpp"
+#include "query/parameters.hpp"
 #include "storage/v2/property_value.hpp"
 
 namespace memgraph::query {
@@ -61,9 +62,9 @@ class TypedProgram {
 
   /// Answers for one row, or refuses it when a value was not the type the
   /// guess settled on.
-  /// `source` may be null when no instruction needs one; a program that reads
-  /// a property without one refuses the row rather than guessing.
-  Answer Run(Frame const &frame, PropertySource *source = nullptr) const;
+  /// `source` and `parameters` may be null when no instruction needs them; a
+  /// program that reads one without it refuses the row rather than guessing.
+  Answer Run(Frame const &frame, PropertySource *source = nullptr, Parameters const *parameters = nullptr) const;
 
   /// How many integer and three-valued working slots a run needs.
   size_t IntSlots() const { return int_slots_; }
@@ -72,9 +73,10 @@ class TypedProgram {
 
  private:
   enum class Op : uint8_t {
-    LoadInt,      // from the frame, checking it really is one
-    LoadPropInt,  // from a record on the frame, checking the same
-    ConstInt,     // from the expression itself, so never in doubt
+    LoadInt,       // from the frame, checking it really is one
+    LoadPropInt,   // from a record on the frame, checking the same
+    LoadParamInt,  // from the query's parameters, bound once per execution
+    ConstInt,      // from the expression itself, so never in doubt
     AddInt,
     SubInt,
     MulInt,

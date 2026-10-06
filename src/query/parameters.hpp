@@ -44,6 +44,13 @@ struct Parameters {
     return found->second;
   }
 
+  /// Null when nothing was bound at that position, for a caller that would
+  /// rather decline than require one.
+  const storage::ExternalPropertyValue *FindAtTokenPosition(int position) const {
+    const auto found = storage_.find(position);
+    return found == storage_.end() ? nullptr : &found->second;
+  }
+
   auto size() const { return storage_.size(); }
 
   auto begin() const { return storage_.begin(); }

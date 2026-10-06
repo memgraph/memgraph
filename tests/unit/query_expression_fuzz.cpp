@@ -120,10 +120,24 @@ class ExpressionFuzz : public ::testing::Test {
     // name first seen while generating would sit past the end of it.
     for (auto const &name : property_names_) storage_.GetPropertyIx(name);
 
+    // A stripped query reaches the evaluator with its literals bound here, so
+    // a parameter of every type a literal can spell is bound, null included.
+    parameters_.Add(0, memgraph::storage::ExternalPropertyValue(int64_t{7}));
+    parameters_.Add(1, memgraph::storage::ExternalPropertyValue(2.5));
+    parameters_.Add(2, memgraph::storage::ExternalPropertyValue(std::string{"seven"}));
+    parameters_.Add(3, memgraph::storage::ExternalPropertyValue(true));
+    parameters_.Add(4, memgraph::storage::ExternalPropertyValue());
+
     context_.db_accessor = &dba_;
     context_.symbol_table = symbol_table_;
     context_.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba_);
+    context_.evaluation_context.parameters = parameters_;
   }
+
+  memgraph::query::Parameters parameters_;
+  // Only a bound position may be generated: reading an unbound one aborts the
+  // evaluator rather than throwing, so there would be nothing to compare.
+  static constexpr int kBoundParameters = 5;
 
   TypedValue record_;
   int record_position_{0};
@@ -136,6 +150,9 @@ class ExpressionFuzz : public ::testing::Test {
   // A leaf reads one of the operands off the frame, so every type reaches the
   // operators rather than only the ones a literal can spell.
   Expression *Leaf(std::mt19937 &rng) {
+    if (rng() % 5 == 0) {
+      return storage_.Create<memgraph::query::ParameterLookup>(static_cast<int>(rng() % kBoundParameters));
+    }
     if (rng() % 4 == 0) {
       // Reading a property brings in what a lookup has to get right: a value
       // of the wrong type, and a property that is not there at all.
@@ -273,10 +290,10 @@ struct CompiledOutcome {
 };
 
 CompiledOutcome RunCompiled(memgraph::query::TypedProgram const &program, memgraph::query::Frame const &frame,
-                            memgraph::query::PropertySource *source) {
+                            memgraph::query::PropertySource *source, memgraph::query::Parameters const *parameters) {
   using Answer = memgraph::query::TypedProgram::Answer;
   try {
-    auto const answer = program.Run(frame, source);
+    auto const answer = program.Run(frame, source, parameters);
     return CompiledOutcome{.refused = answer == Answer::Refused, .answer = answer};
   } catch (std::exception const &e) {
     return CompiledOutcome{.threw = true, .complaint = e.what()};
@@ -334,7 +351,7 @@ TEST_F(ExpressionFuzz, TheCompiledProgramMatchesAcceptOrRefuses) {
     ++compiled;
 
     auto const boxed = Attempt([&] { return expr->Accept(evaluator); });
-    auto const typed = RunCompiled(*program, frame_, &evaluator);
+    auto const typed = RunCompiled(*program, frame_, &evaluator, &parameters_);
     if (!typed.refused) ++answered;
     EXPECT_TRUE(CompiledAgrees(typed, boxed)) << "seed " << seed << ", expression " << i << ": " << Describe(expr);
   }
@@ -366,7 +383,7 @@ TEST_F(ExpressionFuzz, TheCompiledProgramMatchesAcceptOnIntegers) {
     if (!program) continue;
 
     auto const boxed = Attempt([&] { return expr->Accept(evaluator); });
-    auto const typed = RunCompiled(*program, frame_, &evaluator);
+    auto const typed = RunCompiled(*program, frame_, &evaluator, &parameters_);
     if (!typed.refused) ++answered;
     EXPECT_TRUE(CompiledAgrees(typed, boxed)) << "seed " << seed << ", expression " << i << ": " << Describe(expr);
   }

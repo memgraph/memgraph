@@ -19,6 +19,7 @@
 #include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/interpret/typed_program.hpp"
+#include "query/parameters.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 using memgraph::query::AstStorage;
@@ -92,4 +93,43 @@ TEST_F(TypedProgramTest, APropertyComparisonCompilesAndAnswers) {
   memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
 
   EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
+}
+
+// A cached query has had its literals stripped into parameters, so this is the
+// shape a filter actually has by the time it runs per row. A parameter holds
+// the same value for every row, but its type is only known once the query is
+// run, so it is guessed and checked like anything read from the frame.
+TEST_F(TypedProgramTest, AParameterComparisonCompilesAndAnswers) {
+  Set(0, TypedValue(int64_t{30}));
+
+  auto *expr =
+      storage_.Create<memgraph::query::GreaterOperator>(Ident(0), storage_.Create<memgraph::query::ParameterLookup>(7));
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value()) << "a value compared with a parameter should compile";
+
+  memgraph::query::Parameters parameters;
+  parameters.Add(7, memgraph::storage::ExternalPropertyValue(int64_t{20}));
+  EXPECT_EQ(program->Run(frame_, nullptr, &parameters), TypedProgram::Answer::True);
+
+  memgraph::query::Parameters bigger;
+  bigger.Add(7, memgraph::storage::ExternalPropertyValue(int64_t{40}));
+  EXPECT_EQ(program->Run(frame_, nullptr, &bigger), TypedProgram::Answer::False);
+}
+
+// The same program, run with a parameter the guess did not expect, has to
+// refuse rather than answer. A parameter is bound per execution, so this is
+// the one guard that fires for a whole run rather than a row.
+TEST_F(TypedProgramTest, AParameterOfAnotherTypeIsRefused) {
+  Set(0, TypedValue(int64_t{30}));
+
+  auto *expr =
+      storage_.Create<memgraph::query::GreaterOperator>(Ident(0), storage_.Create<memgraph::query::ParameterLookup>(7));
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value());
+
+  memgraph::query::Parameters parameters;
+  parameters.Add(7, memgraph::storage::ExternalPropertyValue("twenty"));
+  EXPECT_EQ(program->Run(frame_, nullptr, &parameters), TypedProgram::Answer::Refused);
 }

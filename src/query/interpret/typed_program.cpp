@@ -48,6 +48,12 @@ class TypedProgramBuilder {
         Emit(TypedProgram::Op::LoadInt, slot, position, 0, 0);
         return Operand{.is_tri = false, .slot = slot};
       }
+      case utils::TypeId::AST_PARAMETER_LOOKUP: {
+        auto const position = static_cast<ParameterLookup *>(expression)->token_position_;
+        auto const slot = NextInt();
+        Emit(TypedProgram::Op::LoadParamInt, slot, position, 0, 0);
+        return Operand{.is_tri = false, .slot = slot};
+      }
       case utils::TypeId::AST_PROPERTY_LOOKUP: {
         auto *lookup = static_cast<PropertyLookup *>(expression);
         // Only the plain case. A plain lookup carries a path of one, which is
@@ -167,7 +173,7 @@ std::optional<TypedProgram> TypedProgram::Compile(Expression *expression) {
   return builder.Finish(*root);
 }
 
-TypedProgram::Answer TypedProgram::Run(Frame const &frame, PropertySource *source) const {
+TypedProgram::Answer TypedProgram::Run(Frame const &frame, PropertySource *source, Parameters const *parameters) const {
   // Small enough to sit on the stack for the expressions this covers; a bigger
   // one would take these from the frame alongside the other working values.
   constexpr size_t kMaxSlots = 64;
@@ -198,6 +204,22 @@ TypedProgram::Answer TypedProgram::Run(Frame const &frame, PropertySource *sourc
           int_known[in.dst] = 0;
         } else {
           // Not what the guess settled on, so this row is not ours.
+          return Answer::Refused;
+        }
+        break;
+      }
+      case Op::LoadParamInt: {
+        if (parameters == nullptr) return Answer::Refused;
+        // A position with nothing bound to it belongs to the evaluator, which
+        // decides what an unbound parameter means.
+        auto const *value = parameters->FindAtTokenPosition(in.a);
+        if (value == nullptr) return Answer::Refused;
+        if (value->IsInt()) {
+          ints[in.dst] = value->ValueInt();
+          int_known[in.dst] = 1;
+        } else if (value->IsNull()) {
+          int_known[in.dst] = 0;
+        } else {
           return Answer::Refused;
         }
         break;
