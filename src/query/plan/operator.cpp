@@ -10222,7 +10222,7 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
         auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
         // `from` is the branch's own column, which its body writes again before every row, so the value moves.
         for (const auto &[from, to] : self_.branches_[i].columns) {
-          frame_writer.Write(to, std::move(frame[from]));
+          frame_writer.Write(to, frame_writer.Modify(from, [](TypedValue &value) { return std::move(value); }));
         }
         return true;
       }
