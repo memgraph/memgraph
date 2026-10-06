@@ -268,5 +268,21 @@ def test_a_database_dropped_before_commit_fails_the_commit(cursor, setup, statem
         execute(cursor, "DROP DATABASE d1")
 
 
+def test_show_transactions_masks_a_password_in_an_open_auth_transaction(cursor):
+    # A transaction stays open for as long as its client likes, so the statement text SHOW TRANSACTIONS returns
+    # must not carry the password to a user who may manage transactions but not auth.
+    execute(cursor, "CREATE USER watcher IDENTIFIED BY 'watcherpw'")
+    execute(cursor, "GRANT TRANSACTION_MANAGEMENT TO watcher")
+    watcher = mgclient.connect(host="localhost", port=7687, username="watcher", password="watcherpw")
+    watcher.autocommit = True
+
+    execute(cursor, "BEGIN")
+    execute(cursor, "CREATE USER x IDENTIFIED BY 'hunter2'")
+    shown = str(execute(watcher.cursor(), "SHOW TRANSACTIONS"))
+
+    assert "CREATE USER x" in shown
+    assert "hunter2" not in shown
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
