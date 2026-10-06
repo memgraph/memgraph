@@ -11517,11 +11517,11 @@ void Interpreter::Commit() {
       // back.
       utils::OnScopeExit const clear_auth_tx([this, entry_exceptions = std::uncaught_exceptions()]() {
         auth_transaction_.reset();
-        // Deferring to `clean_status` is only safe when the commit reaches it. It is installed below an early
-        // return, so an exception leaving this block skips it and the claim would be stranded: nothing else
-        // gives it back, `TERMINATE TRANSACTIONS` cannot mark a status that is not ACTIVE, and `KillAll` leaves
-        // STARTED_COMMITTING to the committing thread that has already gone. Unwinding therefore always
-        // releases here.
+        // Deferring to whatever retires the transaction is only safe when the commit reaches it. An exception
+        // leaving this block skips both, and the claim would be stranded: nothing else gives it back,
+        // `TERMINATE TRANSACTIONS` cannot mark a status that is not ACTIVE, and `TERMINATE SESSIONS`
+        // (`InterpreterContext::TerminateSessions`) leaves STARTED_COMMITTING to the committing thread that has
+        // already gone. Unwinding therefore always releases here.
         if (std::uncaught_exceptions() == entry_exceptions) return;
         auto expected = TransactionStatus::STARTED_COMMITTING;
         while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::ACTIVE)) {
