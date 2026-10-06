@@ -138,9 +138,10 @@ transaction could neither isolate them nor roll them back.
 
 Two auth transactions that touch unrelated records both commit. One that reads
 or writes a record another transaction changed underneath it fails at `COMMIT`
-with a serialization error, the same one the data path raises. Nothing is
-applied, and the error is transient, so a driver with retry logic replays the
-transaction without the application having to handle it.
+with a serialization error. Nothing is applied, and the error is transient, so
+a driver with retry logic replays the transaction without the application
+having to handle it. That differs from the data path, whose commit-time
+serialization error is not marked transient.
 
 Conflicts are detected per record read, not per subsystem. Two sessions each
 creating a different user both succeed; two sessions changing the same user do
