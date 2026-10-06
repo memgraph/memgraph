@@ -1398,9 +1398,10 @@ TYPED_TEST(TestSymbolGenerator, CallSubqueryDeferredIdentifierRespectsImportBoun
       UNWIND(LIST(LITERAL(1)), AS("i")), CALL_SUBQUERY_SCOPED(WHEN_BRANCHES(__VA_ARGS__), {"i"}), RETURN("i")))
 
 namespace {
-void ExpectSemanticError(CypherQuery *query, std::string_view message) {
+void ExpectSemanticError(CypherQuery *query, std::string_view message,
+                         const std::vector<Identifier *> &predefined_identifiers = {}) {
   try {
-    MakeSymbolTable(query);
+    MakeSymbolTable(query, predefined_identifiers);
     FAIL() << "expected: " << message;
   } catch (const SemanticException &e) {
     EXPECT_EQ(std::string_view{e.what()}, message);
@@ -1482,7 +1483,7 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateKeepsPredefinedIdentifie
   };
   EXPECT_NO_THROW(memgraph::query::MakeSymbolTable(query(false), {IDENT("first_op", false)}));
   // As after a plain CALL body that reads it, the caller cannot read it again.
-  EXPECT_THROW(memgraph::query::MakeSymbolTable(query(true), {IDENT("first_op", false)}), SemanticException);
+  ExpectSemanticError(query(true), "Unbound variable: first_op.", {IDENT("first_op", false)});
 }
 
 #undef CONDITIONAL_CALL_QUERY
@@ -1491,8 +1492,8 @@ TYPED_TEST(TestSymbolGenerator, ConditionalCallPredicateKeepsPredefinedIdentifie
 // an import is the import itself. Were the import left out, a body returning only it would look RETURN-less, and an
 // outer row no branch matches would be kept.
 TYPED_TEST(TestSymbolGenerator, ConditionalCallOutputSymbols) {
-  auto *branches = WHEN_BRANCHES({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(RETURN("i", LITERAL(1), AS("x")))},
-                                 {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("x"), "i"))});
+  auto *branches = WHEN_BRANCHES({EQ(IDENT("i"), LITERAL(1)), SINGLE_QUERY(RETURN(LITERAL(1), AS("x"), "i"))},
+                                 {nullptr, SINGLE_QUERY(RETURN("i", LITERAL(2), AS("x")))});
   auto *unwind = UNWIND(LIST(LITERAL(1)), AS("i"));
   auto *query = QUERY(SINGLE_QUERY(unwind, CALL_SUBQUERY_SCOPED(branches, {"i"}), RETURN("i", "x")));
   auto symbol_table = MakeSymbolTable(query);

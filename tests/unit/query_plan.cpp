@@ -3139,8 +3139,12 @@ TYPED_TEST(TestPlanner, ConditionalUnboundPredicateThrows) {
   auto &filters = body.conditional->branches[0].predicate_filters;
   ASSERT_NE(filters.begin(), filters.end());
   filters.begin()->used_symbols.insert(symbol_table.CreateSymbol("ghost", false));
-  EXPECT_THROW(MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, &planning_context),
-               memgraph::query::QueryException);
+  try {
+    MakeLogicalPlanForSingleQuery<RuleBasedPlanner>(query_parts, &planning_context);
+    FAIL() << "expected a planner bug";
+  } catch (const memgraph::query::QueryException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("A WHEN predicate reads a symbol the conditional does not bind."));
+  }
 }
 
 // Each rewriter reaches a conditional's branches and its predicates' folds, with the imports bound.

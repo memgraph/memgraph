@@ -4632,6 +4632,7 @@ TYPED_TEST(SubqueriesFeature, ConditionalClone) {
   auto clone = conditional->Clone(&clone_storage);
   auto *cloned = dynamic_cast<Conditional *>(clone.get());
   ASSERT_NE(cloned, nullptr);
+  EXPECT_NE(cloned->input(), conditional->input());
   ASSERT_EQ(cloned->branches_.size(), 2);
   ASSERT_NE(cloned->branches_[0].predicate, nullptr);
   EXPECT_NE(cloned->branches_[0].predicate, conditional->branches_[0].predicate);

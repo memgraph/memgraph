@@ -441,28 +441,28 @@ TEST_F(QueryCostEstimator, Union) {
 }
 
 TEST_F(QueryCostEstimator, Conditional) {
-  // MATCH (n) CALL (n) { WHEN true THEN MATCH (a) RETURN a WHEN true THEN MATCH (b), (c) RETURN b }, then a Filter:
+  // MATCH (n) CALL (n) { WHEN true THEN MATCH (b), (c) RETURN b WHEN true THEN MATCH (a) RETURN a }, then a Filter:
   // taking a branch costs the predicates up to it plus its body; the costliest case and the widest body multiply the
-  // input's, as in an Apply.
+  // input's, as in an Apply. The widest body comes first, so neither the last body nor a sum stands in for it.
   auto no_vertices = 4;
   AddVertices(no_vertices, 0, 0);
   std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
-  std::shared_ptr<LogicalOperator> left = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
-  std::shared_ptr<LogicalOperator> right =
+  std::shared_ptr<LogicalOperator> wide =
       std::make_shared<ScanAll>(std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol()), NextSymbol());
+  std::shared_ptr<LogicalOperator> narrow = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
   auto conditional =
       std::make_shared<Conditional>(input,
-                                    std::vector<Conditional::Branch>{{.predicate = Literal(true), .plan = left},
-                                                                     {.predicate = Literal(true), .plan = right}},
+                                    std::vector<Conditional::Branch>{{.predicate = Literal(true), .plan = wide},
+                                                                     {.predicate = Literal(true), .plan = narrow}},
                                     std::vector<Symbol>{NextSymbol()});
   MakeOp<Filter>(conditional, std::vector<std::shared_ptr<LogicalOperator>>{}, Literal(true));
-  // Taking the right branch evaluates both predicates; its body's first scan costs 4 rows, its second 4 * 4 rows.
-  auto const branch_cost = 2 * CostParam::kFilter + (no_vertices + no_vertices * no_vertices) * CostParam::kScanAll;
-  auto const left_cost = CostParam::kFilter + no_vertices * CostParam::kScanAll;
-  auto const branch_cardinality = no_vertices * no_vertices;
+  // The wide body's first scan costs 4 rows, its second 4 * 4; the narrow branch also pays the first predicate.
+  auto const wide_cost = CostParam::kFilter + (no_vertices + no_vertices * no_vertices) * CostParam::kScanAll;
+  auto const narrow_cost = 2 * CostParam::kFilter + no_vertices * CostParam::kScanAll;
+  auto const wide_cardinality = no_vertices * no_vertices;
   EXPECT_COST(no_vertices * CostParam::kScanAll +
-              no_vertices * (branch_cost + CostParam::kConditionalTieBreak * (left_cost + branch_cost)) +
-              no_vertices * branch_cardinality * CostParam::kFilter);
+              no_vertices * (wide_cost + CostParam::kConditionalTieBreak * (wide_cost + narrow_cost)) +
+              no_vertices * wide_cardinality * CostParam::kFilter);
 }
 
 TEST_F(QueryCostEstimator, ConditionalLateBranchPaysForEarlierPredicates) {

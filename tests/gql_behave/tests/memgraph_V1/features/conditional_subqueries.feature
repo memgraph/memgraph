@@ -534,6 +534,7 @@ Feature: Conditional subqueries
             | 5 | 'pos' |
 
     Scenario: A reached subquery predicate still raises its error
+        # Control for the lazy-predicate scenarios above: the same predicate, reached.
         Given an empty graph
         And having executed:
             """
@@ -604,7 +605,7 @@ Feature: Conditional subqueries
             | 3 | 3 | null |
 
     Scenario: A pattern comprehension after a true OR operand in one predicate is still evaluated
-        # The comprehension is planned eagerly inside one predicate, as in WHERE.
+        # Control for the EXISTS operand scenario: a comprehension is planned eagerly inside one predicate, as in WHERE.
         Given an empty graph
         And having executed:
             """
