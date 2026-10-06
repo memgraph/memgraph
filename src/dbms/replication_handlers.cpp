@@ -198,14 +198,12 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     if (!rename_result) {
       if (rename_result.error() == RenameError::NON_EXISTENT) {
         // Nothing to rename
-        system_state_access.SetLastCommitedTS(req.new_group_timestamp);
         res = RenameDatabaseRes(RenameDatabaseRes::Result::NO_NEED);
       }
     } else {
       // Successfully renamed db
-      system_state_access.SetLastCommitedTS(req.new_group_timestamp);
       res = RenameDatabaseRes(RenameDatabaseRes::Result::SUCCESS);
-      spdlog::debug("RenameDatabaseHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+      spdlog::debug("RenameDatabaseHandler: SUCCESS");
     }
   } catch (...) {
     // Failure
