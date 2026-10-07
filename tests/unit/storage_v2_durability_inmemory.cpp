@@ -3325,8 +3325,8 @@ TEST_P(DurabilityTest, WalDeathResilience) {
   // Writer runs in a re-exec'd child: fork()ing this multi-threaded binary can inherit a RocksDB pool mutex held
   // by a parent-only thread and hang in Database -> KVStore.
   auto const writer = [&] {
-    // Started before Database so the deadline also bounds a hang in its constructor. Waits for the WAL file, then
-    // lets commits continue so the kill lands mid-commit; a missing WAL fails the parent's assertions.
+    // Started before Database so the deadline also bounds a ctor hang; the 1s after the WAL appears lets the kill
+    // land mid-commit.
     std::thread killer([this] {
       auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
       while (GetWalsList().empty() && std::chrono::steady_clock::now() < deadline) {
