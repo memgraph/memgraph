@@ -560,11 +560,14 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
     // principal recorded at login; without it every control-plane query would be audited with an empty username.
     const auto username =
         user_or_role && user_or_role->username() ? *user_or_role->username() : interpreter_.session_info_.username;
+    // Compare by pointer, not name: impersonating oneself (admin as admin) still creates a distinct object.
+    const bool impersonating = interpreter_.user_or_role_.get() != session_user_or_role_.get();
     audit_log_->Record(fmt::format("{}:{}", endpoint_.address().to_string(), std::to_string(endpoint_.port())),
                        username,
                        query,
                        params,
-                       db ? db->get()->name() : "");
+                       db ? db->get()->name() : "",
+                       impersonating ? std::optional<std::string>{interpreter_.session_info_.username} : std::nullopt);
   }
 #endif
 
