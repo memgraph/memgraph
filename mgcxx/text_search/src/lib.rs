@@ -484,6 +484,72 @@ mod tests {
 
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    extern "C" {
+        fn geteuid() -> u32;
+    }
+
+    fn fault_test_index(tag: &str) -> (std::path::PathBuf, ffi::Context) {
+        let dir = std::env::temp_dir().join(format!("mgcxx_{tag}_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mappings = r#"{"properties":{
+            "data":{"type":"json","fast":true,"stored":true,"text":true},
+            "all":{"type":"text","fast":true,"stored":true,"text":true},
+            "gid":{"type":"u64","fast":true,"stored":true,"indexed":true}}}"#
+            .to_string();
+        let ctx = create_index(&dir.to_str().unwrap().to_string(), &ffi::IndexConfig { mappings }).unwrap();
+        (dir, ctx)
+    }
+
+    fn add_gid(ctx: &mut ffi::Context, gid: u64, skip_commit: bool) -> Result<(), std::io::Error> {
+        let data = format!(r#"{{"data":{{"name":"n{gid}"}},"all":"n{gid}","gid":{gid}}}"#);
+        add_document(ctx, &ffi::DocumentInput { data }, skip_commit)
+    }
+
+    #[test]
+    fn writer_recovers_after_failed_commit() {
+        // Root bypasses directory permissions, so the failure cannot be injected this way.
+        if unsafe { geteuid() } == 0 {
+            return;
+        }
+        use std::os::unix::fs::PermissionsExt;
+        let (dir, mut ctx) = fault_test_index("writer_recovers");
+        add_gid(&mut ctx, 1, false).unwrap();
+        assert_eq!(get_num_docs(&ctx).unwrap(), 1);
+
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o555)).unwrap();
+        add_gid(&mut ctx, 2, true).unwrap();
+        let err = commit(&mut ctx).unwrap_err().to_string();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(err.contains("Unable to commit"), "{err}");
+        assert!(!ctx.tantivyContext.broken);
+
+        // Before the fix the writer stayed alive with dead workers and silently dropped this document.
+        add_gid(&mut ctx, 3, false).unwrap();
+        assert_eq!(get_num_docs(&ctx).unwrap(), 2);
+
+        drop_index(ctx).unwrap();
+    }
+
+    #[test]
+    fn unrecoverable_writer_fails_fast_without_aborting() {
+        let (dir, mut ctx) = fault_test_index("writer_broken");
+        add_gid(&mut ctx, 1, false).unwrap();
+
+        std::fs::remove_dir_all(&dir).unwrap();
+        add_gid(&mut ctx, 2, true).unwrap();
+        assert!(commit(&mut ctx).is_err());
+
+        // A second rollback() on a writer whose rollback failed would panic; none of these may.
+        let _ = rollback(&mut ctx);
+        let _ = commit(&mut ctx);
+        if ctx.tantivyContext.broken {
+            assert!(add_gid(&mut ctx, 3, true).is_err());
+            assert!(commit(&mut ctx).is_err());
+            assert!(rollback(&mut ctx).is_err());
+        }
+        let _ = drop_index(ctx);
+    }
 }
 
 // Field order is load-bearing: Rust drops fields in declaration order;
@@ -492,15 +558,60 @@ pub struct TantivyContext {
     pub index_path: std::path::PathBuf,
     pub schema: Schema,
     pub index_writer: Option<IndexWriter>,
+    // Set when a failed writer could be neither rolled back nor replaced; every write then fails fast.
+    pub broken: bool,
     pub index_reader: IndexReader,
     pub index: Index,
     // compiled-regex automaton cache, keyed by pattern string; see compiled_regex()
     pub regex_cache: Mutex<lru::LruCache<String, Arc<Regex>>>,
 }
 
+const WRITER_MEMORY_BUDGET: usize = 50_000_000;
+
 impl TantivyContext {
     fn writer_mut(&mut self) -> &mut IndexWriter {
         self.index_writer.as_mut().expect("BUG: index_writer consumed before Drop")
+    }
+
+    fn ensure_writable(&self) -> Result<(), Error> {
+        if self.broken {
+            return Err(Error::new(
+                ErrorKind::Other,
+                format!(
+                    "Text search index writer at {:?} is unusable after an earlier failure; DROP and re-CREATE the index.",
+                    self.index_path
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    // A failed prepare_commit leaves tantivy's workers dead while the writer still accepts documents, which it then
+    // silently drops. Restore the writer to the last committed state, discarding the uncommitted batch.
+    fn repair_writer(&mut self) -> &'static str {
+        match self.writer_mut().rollback() {
+            Ok(_) => "writer rolled back, uncommitted batch discarded",
+            Err(e) => {
+                log::warn!("Rollback of text search index writer at {:?} failed: {}", self.index_path, e);
+                self.replace_writer()
+            }
+        }
+    }
+
+    // A failed rollback() has already consumed the writer's directory lock; calling it again panics, so build a new
+    // writer instead.
+    fn replace_writer(&mut self) -> &'static str {
+        match self.index.writer(WRITER_MEMORY_BUDGET) {
+            Ok(writer) => {
+                self.index_writer = Some(writer);
+                "writer replaced, uncommitted batch discarded"
+            }
+            Err(e) => {
+                log::error!("Unable to replace text search index writer at {:?}: {}", self.index_path, e);
+                self.broken = true;
+                "writer unusable, DROP and re-CREATE the index"
+            }
+        }
     }
 }
 
@@ -739,7 +850,7 @@ fn create_index(path: &String, config: &ffi::IndexConfig) -> Result<ffi::Context
     };
     let schema = create_index_schema(&mappings)?;
     let (index, path) = create_index_dir_structure(path, &schema)?;
-    let index_writer: IndexWriter = match index.writer(50_000_000) {
+    let index_writer: IndexWriter = match index.writer(WRITER_MEMORY_BUDGET) {
         Ok(writer) => writer,
         Err(e) => {
             return Err(Error::new(ErrorKind::Other, format!("Unable to initialize {:?} text search index writer -> {} This happened during the index creation. Make sure underlying machine is properly configured and try to execute create index again.", path, e)));
@@ -766,6 +877,7 @@ fn create_index(path: &String, config: &ffi::IndexConfig) -> Result<ffi::Context
             index_path: path,
             schema,
             index_writer: Some(index_writer),
+            broken: false,
             index_reader,
             index,
             regex_cache: Mutex::new(lru::LruCache::new(
@@ -794,6 +906,7 @@ fn add_document(
             ));
         }
     };
+    context.tantivyContext.ensure_writable()?;
     match context.tantivyContext.writer_mut().add_document(document) {
         Ok(_) => {
             if skip_commit {
@@ -803,9 +916,10 @@ fn add_document(
             }
         }
         Err(e) => {
+            let repair = context.tantivyContext.repair_writer();
             return Err(Error::new(
                 ErrorKind::Other,
-                format!("Unable to add document -> {}", e),
+                format!("Unable to add document -> {} ({})", e, repair),
             ));
         }
     }
@@ -816,6 +930,7 @@ fn delete_document(
     input: &ffi::SearchInput,
     skip_commit: bool,
 ) -> Result<(), std::io::Error> {
+    context.tantivyContext.ensure_writable()?;
     let query = {
         let index_path = &context.tantivyContext.index_path;
         let index = &context.tantivyContext.index;
@@ -844,12 +959,13 @@ fn delete_document(
             }
         }
         Err(e) => {
+            let repair = context.tantivyContext.repair_writer();
             let index_path = &context.tantivyContext.index_path;
             return Err(Error::new(
                 ErrorKind::Other,
                 format!(
-                    "Unable to delete document from text search index at {:?} -> {}",
-                    index_path, e
+                    "Unable to delete document from text search index at {:?} -> {} ({})",
+                    index_path, e, repair
                 ),
             ));
         }
@@ -857,6 +973,7 @@ fn delete_document(
 }
 
 fn commit(context: &mut ffi::Context) -> Result<(), std::io::Error> {
+    context.tantivyContext.ensure_writable()?;
     match context.tantivyContext.writer_mut().commit() {
         Ok(_) => {
             // Explicitly reload the index reader to see the new changes
@@ -873,12 +990,13 @@ fn commit(context: &mut ffi::Context) -> Result<(), std::io::Error> {
             return Ok(());
         }
         Err(e) => {
+            let repair = context.tantivyContext.repair_writer();
             let index_path = &context.tantivyContext.index_path;
             return Err(Error::new(
                 ErrorKind::Other,
                 format!(
-                    "Unable to commit text search index at {:?} -> {}",
-                    index_path, e
+                    "Unable to commit text search index at {:?} -> {} ({})",
+                    index_path, e, repair
                 ),
             ));
         }
@@ -886,17 +1004,19 @@ fn commit(context: &mut ffi::Context) -> Result<(), std::io::Error> {
 }
 
 fn rollback(context: &mut ffi::Context) -> Result<(), std::io::Error> {
+    context.tantivyContext.ensure_writable()?;
     match context.tantivyContext.writer_mut().rollback() {
         Ok(_) => {
             return Ok(());
         }
         Err(e) => {
+            let repair = context.tantivyContext.replace_writer();
             let index_path = &context.tantivyContext.index_path;
             return Err(Error::new(
                 ErrorKind::Other,
                 format!(
-                    "Unable to rollback text search index at {:?} -> {}",
-                    index_path, e
+                    "Unable to rollback text search index at {:?} -> {} ({})",
+                    index_path, e, repair
                 ),
             ));
         }

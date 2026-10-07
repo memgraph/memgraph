@@ -10,13 +10,20 @@
 // licenses/APL.txt.
 
 #include <gtest/gtest.h>
+#include <spdlog/sinks/base_sink.h>
 #include <spdlog/spdlog.h>
+#include <sys/resource.h>
 #include <sys/types.h>
+#include <csignal>
+#include <filesystem>
+#include <functional>
+#include <mutex>
 #include <string_view>
 #include <thread>
 
 #include "flags/experimental.hpp"
 #include "query/exceptions.hpp"
+#include "storage/v2/config.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -399,4 +406,216 @@ TEST_F(TextIndexTest, FuzzyDistanceAboveTwoThrows) {
                      test_index.data(), "data.title:memgraph", text_search_mode::SPECIFIED_PROPERTIES, bad_config),
                  memgraph::storage::TextSearchException);
   }
+}
+
+namespace {
+
+// Makes every file write in the process fail with EFBIG, which (unlike chmod) also applies to root.
+class WriteFault {
+ public:
+  WriteFault() {
+    old_handler_ = std::signal(SIGXFSZ, SIG_IGN);
+    getrlimit(RLIMIT_FSIZE, &old_limit_);
+    const rlimit zero{.rlim_cur = 0, .rlim_max = old_limit_.rlim_max};
+    setrlimit(RLIMIT_FSIZE, &zero);
+    active_ = true;
+  }
+
+  void Lift() {
+    if (!active_) return;
+    setrlimit(RLIMIT_FSIZE, &old_limit_);
+    std::signal(SIGXFSZ, old_handler_);
+    active_ = false;
+  }
+
+  ~WriteFault() { Lift(); }
+
+  WriteFault(const WriteFault &) = delete;
+  WriteFault &operator=(const WriteFault &) = delete;
+
+ private:
+  rlimit old_limit_{};
+  void (*old_handler_)(int){SIG_DFL};
+  bool active_{false};
+};
+
+// Invokes the callback when ApplyTrackedChanges logs that it is retrying a failed update.
+class OnRetrySink final : public spdlog::sinks::base_sink<std::mutex> {
+ public:
+  explicit OnRetrySink(std::function<void()> on_retry) : on_retry_(std::move(on_retry)) {}
+
+ protected:
+  void sink_it_(const spdlog::details::log_msg &msg) override {
+    if (std::string_view(msg.payload.data(), msg.payload.size()).contains("retrying once")) on_retry_();
+  }
+
+  void flush_() override {}
+
+ private:
+  std::function<void()> on_retry_;
+};
+
+class ScopedRetryHook {
+ public:
+  explicit ScopedRetryHook(std::function<void()> on_retry) : sink_(std::make_shared<OnRetrySink>(std::move(on_retry))) {
+    spdlog::default_logger()->sinks().push_back(sink_);
+  }
+
+  ~ScopedRetryHook() {
+    auto &sinks = spdlog::default_logger()->sinks();
+    std::erase(sinks, sink_);
+  }
+
+  ScopedRetryHook(const ScopedRetryHook &) = delete;
+  ScopedRetryHook &operator=(const ScopedRetryHook &) = delete;
+
+ private:
+  std::shared_ptr<OnRetrySink> sink_;
+};
+
+constexpr std::string_view second_index = "test_index_2";
+constexpr std::string_view edge_index = "test_edge_index";
+
+}  // namespace
+
+class TextIndexFaultTest : public TextIndexTest {
+ public:
+  void CommitVertex(std::string_view title) const {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    CreateVertex(acc.get(), title, "content");
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  size_t CountVertices(std::string_view index = test_index) const {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    return acc->TextIndexSearch(std::string{index}, "*", text_search_mode::ALL_PROPERTIES, default_config).size();
+  }
+
+  void CommitEdge(std::string_view title) const {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("TEST_EDGE"));
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(edge->SetProperty(acc->NameToProperty("text_prop"), PropertyValue(title)).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  size_t CountEdges() const {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    return acc->SearchEdgeTextIndex(std::string{edge_index}, "*", text_search_mode::ALL_PROPERTIES, default_config)
+        .size();
+  }
+
+  void CreateSecondIndex() const {
+    auto acc = this->storage->UniqueAccess();
+    const auto label = acc->NameToLabel(test_label.data());
+    ASSERT_TRUE(acc->CreateTextIndex(TextIndexSpec{second_index.data(), label, {}}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  void DropIndexByName(std::string_view name) const {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->DropTextIndex(std::string{name}).has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  void RunOneIndexFails(std::string_view broken, std::string_view healthy) const {
+    this->CreateIndex();
+    this->CreateSecondIndex();
+    this->CommitVertex("before");
+
+    std::filesystem::remove_all(std::filesystem::path{Config{}.durability.storage_directory} / kTextIndicesDirectory /
+                                broken);
+    // A failing index must neither throw out of the commit nor stop the other index from being updated.
+    this->CommitVertex("after");
+
+    EXPECT_EQ(this->CountVertices(healthy), 2);
+    EXPECT_THROW(this->CountVertices(broken), memgraph::storage::TextSearchException);
+    this->DropIndexByName(second_index);
+  }
+};
+
+TEST_F(TextIndexFaultTest, FailedCommitIsRetriedAndIndexRecovers) {
+  this->CreateIndex();
+  this->CommitVertex("before");
+
+  {
+    WriteFault fault;
+    bool retried = false;
+    const ScopedRetryHook hook([&] {
+      retried = true;
+      fault.Lift();
+    });
+    this->CommitVertex("during");
+    EXPECT_TRUE(retried);
+  }
+
+  EXPECT_EQ(this->CountVertices(), 2);
+  this->CommitVertex("after");
+  EXPECT_EQ(this->CountVertices(), 3);
+}
+
+TEST_F(TextIndexFaultTest, PersistentFailureMarksIndexOutOfSyncUntilRecreated) {
+  this->CreateIndex();
+  this->CommitVertex("before");
+
+  {
+    const WriteFault fault;
+    this->CommitVertex("during");
+  }
+
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_THROW(acc->TextIndexSearch(test_index.data(), "*", text_search_mode::ALL_PROPERTIES, default_config),
+                 memgraph::storage::TextSearchException);
+    EXPECT_THROW(acc->TextIndexAggregate(test_index.data(), "*", "{}"), memgraph::storage::TextSearchException);
+    EXPECT_TRUE(acc->ApproximateVerticesTextCount(test_index).has_value());
+  }
+  this->CommitVertex("after");  // a dirty index is skipped, not retried
+
+  this->DropIndexByName(test_index);
+  this->CreateIndex();
+  EXPECT_EQ(this->CountVertices(), 3);
+}
+
+TEST_F(TextIndexFaultTest, FailingIndexDoesNotSkipTheNext) { this->RunOneIndexFails(test_index, second_index); }
+
+TEST_F(TextIndexFaultTest, FailingSecondIndexDoesNotSkipTheFirst) { this->RunOneIndexFails(second_index, test_index); }
+
+TEST_F(TextIndexFaultTest, TextEdgeIndexRetriesThenGoesOutOfSync) {
+  this->CreateIndex();
+  {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreateTextEdgeIndex(TextEdgeIndexSpec{edge_index.data(),
+                                                           acc->NameToEdgeType("TEST_EDGE"),
+                                                           std::vector{acc->NameToProperty("text_prop")}})
+                    .has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CommitEdge("before");
+
+  {
+    WriteFault fault;
+    bool retried = false;
+    const ScopedRetryHook hook([&] {
+      retried = true;
+      fault.Lift();
+    });
+    this->CommitEdge("during");
+    EXPECT_TRUE(retried);
+  }
+  EXPECT_EQ(this->CountEdges(), 2);
+
+  {
+    const WriteFault fault;
+    this->CommitEdge("lost");
+  }
+  EXPECT_THROW(this->CountEdges(), memgraph::storage::TextSearchException);
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_TRUE(acc->ApproximateEdgesTextCount(edge_index).has_value());
+  }
+
+  this->DropIndexByName(edge_index);
 }
