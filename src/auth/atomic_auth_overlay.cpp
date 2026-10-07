@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "auth/exceptions.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::auth {
 
@@ -110,6 +111,7 @@ bool AtomicAuthOverlay::Flush() {
     // scan that stopped early concluded nothing more.
     if ((it == e) != dependency.was_empty) return false;
     if (dependency.kind == ScanDependency::Kind::kEmptiness) continue;
+    DMG_ASSERT(dependency.exhausted, "A scan of '{}' stopped early without narrowing its dependency", prefix);
     for (; it != e; ++it) {
       if (!dependency.seen.contains(it->first)) return false;
     }

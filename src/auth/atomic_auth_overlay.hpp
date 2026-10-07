@@ -93,7 +93,8 @@ class AtomicAuthOverlay {
 
   /// Narrow a just-completed scan to depending only on whether the prefix was inhabited. The caller says so after
   /// the fact, because only it knows it stopped early; a scan is recorded as depending on the whole key set until
-  /// told otherwise.
+  /// told otherwise. Only a caller whose answer depends on nothing but that may narrow: no key or value it read is
+  /// checked for conflicts afterwards.
   void ScanDependsOnEmptinessOnly(std::string const &prefix) const;
 
   /// Whether this transaction wrote anything. A read-only transaction still validates what it read, but has
