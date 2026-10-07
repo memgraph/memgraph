@@ -5989,7 +5989,6 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
                        .query_handler = [handler = std::move(callback.fn),
                                          runtime_notifications = std::move(callback.notifications_ptr),
                                          notifications,
-                                         interpreter = &interpreter,
                                          pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](  // NOLINT
                                             AnyStream *stream,
                                             std::optional<int>
@@ -8842,9 +8841,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               }
               if (success) {
                 // Remove from auth
-                if (auth)
-                  auth->DeleteDatabase(
-                      db_name, interpreter->auth_transaction_ptr(), interpreter->system_transaction_ptr());
+                if (auth) auth->DeleteDatabase(db_name, nullptr, interpreter->system_transaction_ptr());
               } else {
                 switch (success.error()) {
                   case dbms::DeleteError::DEFAULT_DB:
@@ -10158,11 +10155,8 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
                      profile_name = std::move(query->profile_name_),
                      limits = std::move(query->limits_),
                      interpreter]() {
-        auth->CreateProfile(profile_name,
-                            limits,
-                            {/* no linked users */},
-                            interpreter->auth_transaction_ptr(),
-                            interpreter->system_transaction_ptr());
+        auth->CreateProfile(
+            profile_name, limits, {/* no linked users */}, nullptr, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -10174,8 +10168,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
                      profile_name = std::move(query->profile_name_),
                      limits = std::move(query->limits_),
                      interpreter]() {
-        auth->UpdateProfile(
-            profile_name, limits, interpreter->auth_transaction_ptr(), interpreter->system_transaction_ptr());
+        auth->UpdateProfile(profile_name, limits, nullptr, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -10187,7 +10180,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
                      profile_name = std::move(query->profile_name_),
                      limits = std::move(query->limits_),
                      interpreter]() {
-        auth->DropProfile(profile_name, interpreter->auth_transaction_ptr(), interpreter->system_transaction_ptr());
+        auth->DropProfile(profile_name, nullptr, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -10202,8 +10195,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
-        auth->SetProfile(
-            profile_name, *user_or_role, interpreter->auth_transaction_ptr(), interpreter->system_transaction_ptr());
+        auth->SetProfile(profile_name, *user_or_role, nullptr, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -10215,7 +10207,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
-        auth->RevokeProfile(*user_or_role, interpreter->auth_transaction_ptr(), interpreter->system_transaction_ptr());
+        auth->RevokeProfile(*user_or_role, nullptr, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -11565,8 +11557,8 @@ void Interpreter::Commit() {
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
       }
       // A coordinator commits role changes through Raft and has no replication state for a system transaction to
-      // reach into, so it must not take one. Mirrors the suppression in Prepare. Unreachable today, because BEGIN
-      // needs a database and a coordinator has none; the test asserts that precondition.
+      // reach into, so it must not take one. Mirrors the suppression in Prepare. A coordinator has no database, so
+      // it cannot BEGIN and reach here; this guards against that changing.
       bool const on_coordinator =
 #ifdef MG_ENTERPRISE
           interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator();
@@ -11584,10 +11576,9 @@ void Interpreter::Commit() {
       // AbortCommand, which sets `expect_rollback_`, and the buffered work goes with it. That is the same
       // bargain a serialization error strikes on the data path (`Unable to commit due to serialization error.
       // Try retrying this transaction...`), where retrying also means running the statements again, so auth is
-      // not the odd one out. Worth knowing before changing it: `kSystemTxTryMS` is a fixed 100ms shared with the
-      // single-statement path above, and it is shorter than the lock is ever held, because the holder keeps it
-      // across replication. Waiting longer would want to stay interruptible, and would want doing at both call
-      // sites rather than only this one.
+      // not the odd one out. `kSystemTxTryMS` is a fixed 100ms shared with the single-statement path above, and it
+      // is shorter than the lock is ever held, because the holder keeps it across replication. A longer wait would
+      // need to stay interruptible, and to apply at both call sites.
 #ifdef MG_ENTERPRISE
       bool const names_databases = !auth_transaction_->named_databases().empty();
 #else
@@ -11655,7 +11646,7 @@ void Interpreter::Commit() {
       // ShowTransactions may also CAS us to VERIFYING - the CAS loop naturally spin-waits on that.
       //
       // An auth commit arrives still holding STARTED_COMMITTING: it keeps the claim across the replication
-      // above, so a terminate arriving during it reports that it killed nothing rather than reporting a kill
+      // below, so a terminate arriving during it reports that it killed nothing rather than reporting a kill
       // for a transaction that goes on to finish. The data path arrives at ACTIVE. Retire either.
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {

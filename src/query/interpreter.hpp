@@ -308,8 +308,6 @@ struct CurrentDB {
   // Releases db_acc_ only if held, marked for deletion, and no storage-side accessor is live.
   // Those accessors hold raw Storage references without a pin of their own, so dropping the last
   // gatekeeper pin under them would let a deferred teardown free the Storage (same ordering as ResetDB).
-  // E.g. a nested BEGIN inside an open explicit transaction reaches here before it throws; the pin is
-  // then released by the next ResetInterpreter after the transaction ends, or by ResetDB.
   // is_marked_for_deletion() reads an atomic_bool (no GKInternals::mutex_), so it is safe to call
   // under db_acc_mutex_; the swapped-out Accessor is destructed after the lock is released.
   // Returns true iff a marked-for-deletion database was released.

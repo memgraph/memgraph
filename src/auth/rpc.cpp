@@ -9,9 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <variant>
-
 #include "auth/rpc.hpp"
+
+#include <variant>
 
 #include <nlohmann/json.hpp>
 #include "auth/auth.hpp"

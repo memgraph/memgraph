@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <list>
 #include <memory>
 #include <optional>
 #include <set>
@@ -27,6 +26,7 @@
 #include "auth/rpc.hpp"
 #include "system/transaction.hpp"
 #include "utils/logging.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::auth {
 
@@ -272,8 +272,8 @@ class AuthLayer {
 #endif
 
   /// Flush the transaction under the write lock. Returns false on conflict, leaving durable storage untouched and
-  /// `system_tx` empty for the caller to abort. On success the epoch moves once, invalidating every session's
-  /// cached permissions, and the collected replication actions move into `system_tx`.
+  /// `system_tx` empty for the caller to abort. On success with writes the epoch moves once, invalidating every
+  /// session's cached permissions, and the collected replication actions move into `system_tx`.
   ///
   /// The caller owns `system_tx`: creating it here would mean holding the system mutex for the transaction's whole
   /// life, which is what the overlay exists to avoid, and committing it needs a replication handler this layer has

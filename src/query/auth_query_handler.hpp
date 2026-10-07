@@ -94,20 +94,19 @@ class AuthQueryHandler {
   /// Returns database access rights for the user or role.
   /// @throw QueryRuntimeException if an error ocurred.
   virtual DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles,
-                                                   auth::UserOrRoleType type,
-                                                   memgraph::auth::AuthTransaction *auth_tx) = 0;
+                                                   auth::UserOrRoleType type, auth::AuthTransaction *auth_tx) = 0;
 
   DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles,
-                                           memgraph::auth::AuthTransaction *auth_tx) {
+                                           auth::AuthTransaction *auth_tx) {
     return GetDatabasePrivileges(user, roles, auth::UserOrRoleType::UNSPECIFIED, auth_tx);
   }
 
-  DatabasePrivileges GetDatabasePrivileges(const std::string &user_or_role, memgraph::auth::AuthTransaction *auth_tx) {
+  DatabasePrivileges GetDatabasePrivileges(const std::string &user_or_role, auth::AuthTransaction *auth_tx) {
     return GetDatabasePrivileges(user_or_role, {user_or_role}, auth::UserOrRoleType::UNSPECIFIED, auth_tx);
   }
 
   DatabasePrivileges GetDatabasePrivileges(const std::string &user_or_role, auth::UserOrRoleType type,
-                                           memgraph::auth::AuthTransaction *auth_tx) {
+                                           auth::AuthTransaction *auth_tx) {
     return GetDatabasePrivileges(user_or_role, {user_or_role}, type, auth_tx);
   }
 
@@ -124,10 +123,9 @@ class AuthQueryHandler {
   /// @return Optional database access if user/role exists and has a main database set
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::optional<std::string> GetMainDatabase(const std::string &user_or_role, auth::UserOrRoleType type,
-                                                     memgraph::auth::AuthTransaction *auth_tx) = 0;
+                                                     auth::AuthTransaction *auth_tx) = 0;
 
-  std::optional<std::string> GetMainDatabase(const std::string &user_or_role,
-                                             memgraph::auth::AuthTransaction *auth_tx) {
+  std::optional<std::string> GetMainDatabase(const std::string &user_or_role, auth::AuthTransaction *auth_tx) {
     return GetMainDatabase(user_or_role, auth::UserOrRoleType::UNSPECIFIED, auth_tx);
   }
 #endif
@@ -144,22 +142,22 @@ class AuthQueryHandler {
 
   /// Return true if the role exists.
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual bool HasRole(const std::string &rolename, memgraph::auth::AuthTransaction *auth_tx) = 0;
+  virtual bool HasRole(const std::string &rolename, auth::AuthTransaction *auth_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<memgraph::query::TypedValue> GetUsernames(memgraph::auth::AuthTransaction *auth_tx) = 0;
+  virtual std::vector<memgraph::query::TypedValue> GetUsernames(auth::AuthTransaction *auth_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<RolenameResult> GetRolenames(memgraph::auth::AuthTransaction *auth_tx) = 0;
+  virtual std::vector<RolenameResult> GetRolenames(auth::AuthTransaction *auth_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<RolenameResult> GetRolenamesForUser(const std::string &username,
                                                           std::optional<std::string> db_name,
-                                                          memgraph::auth::AuthTransaction *auth_tx) = 0;
+                                                          auth::AuthTransaction *auth_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename,
-                                                                       memgraph::auth::AuthTransaction *auth_tx) = 0;
+                                                                       auth::AuthTransaction *auth_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void SetRoles(const std::string &username, const std::vector<std::string> &roles,
@@ -184,13 +182,14 @@ class AuthQueryHandler {
                            const std::unordered_set<std::string> &role_databases, auth::AuthTransaction *auth_tx,
                            system::Transaction *system_tx) = 0;
 
-  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(
-      const std::string &user_or_role, std::optional<std::string> db, auth::UserOrRoleType type,
-      memgraph::auth::AuthTransaction *auth_tx) = 0;
+  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
+                                                                              std::optional<std::string> db,
+                                                                              auth::UserOrRoleType type,
+                                                                              auth::AuthTransaction *auth_tx) = 0;
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
                                                                       std::optional<std::string> db,
-                                                                      memgraph::auth::AuthTransaction *auth_tx) {
+                                                                      auth::AuthTransaction *auth_tx) {
     return GetPrivileges(user_or_role, db, auth::UserOrRoleType::UNSPECIFIED, auth_tx);
   }
 
@@ -272,13 +271,13 @@ class AuthQueryHandler {
                            system::Transaction *system_tx) = 0;
   virtual UserProfileQuery::limits_t GetProfile(std::string_view name, auth::AuthTransaction *auth_tx) = 0;
   virtual std::vector<std::pair<std::string, UserProfileQuery::limits_t>> AllProfiles(
-      memgraph::auth::AuthTransaction *auth_tx) = 0;
+      auth::AuthTransaction *auth_tx) = 0;
   virtual void SetProfile(const std::string &profile_name, const std::string &user_or_role,
                           auth::AuthTransaction *auth_tx, system::Transaction *system_tx) = 0;
   virtual void RevokeProfile(const std::string &user_or_role, auth::AuthTransaction *auth_tx,
                              system::Transaction *system_tx) = 0;
   virtual std::optional<std::string> GetProfileForUser(const std::string &user_or_role,
-                                                       memgraph::auth::AuthTransaction *auth_tx) = 0;
+                                                       auth::AuthTransaction *auth_tx) = 0;
   virtual std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name,
                                                           auth::AuthTransaction *auth_tx) = 0;
   // Role-based profile management is no longer supported

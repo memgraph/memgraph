@@ -59,9 +59,7 @@ struct UpdateAuthDataReqV1 {
   std::optional<auth::UserProfiles::Profile> profile{};
 };
 
-/// An auth transaction's operations as one request, so a replica applies all of them or none. V1 carried at most
-/// one record, which meant a transaction of several statements arrived as several requests and could be applied
-/// in part.
+/// An auth transaction's operations as one request, so a replica applies all of them or none.
 struct UpdateAuthDataReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_REQ, .name = "UpdateAuthDataReq"};
   static constexpr uint64_t kVersion{2};

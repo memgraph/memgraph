@@ -10,6 +10,7 @@
 
 #include <string>
 #include <unordered_set>
+#include <utility>
 
 #include <spdlog/spdlog.h>
 #include <nlohmann/json.hpp>
@@ -165,7 +166,7 @@ std::vector<std::string> AllUsernames(Repository const &repo) {
     if (username != utils::ToLowerCase(username)) return;
     try {
       User::Deserialize(ParseAndMigrateJson(value));
-      ret.emplace_back(username);
+      ret.emplace_back(std::move(username));
     } catch (AuthException &e) {
       // One unreadable record must not fail the whole listing.
       spdlog::warn("Skipping user '{}': {}", username, e.what());
@@ -196,7 +197,7 @@ std::vector<std::string> AllRolenames(Repository const &repo) {
     if (rolename != utils::ToLowerCase(rolename)) return;
     try {
       Role::Deserialize(ParseAndMigrateJson(value));
-      ret.emplace_back(rolename);
+      ret.emplace_back(std::move(rolename));
     } catch (AuthException &e) {
       // One unreadable record must not fail the whole listing.
       spdlog::warn("Skipping role '{}': {}", rolename, e.what());

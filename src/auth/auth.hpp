@@ -8,8 +8,6 @@
 
 #pragma once
 
-#include <list>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <regex>
@@ -32,7 +30,6 @@
 
 namespace memgraph::system {
 struct Transaction;
-struct ISystemAction;
 }  // namespace memgraph::system
 
 namespace memgraph::auth {
@@ -493,8 +490,8 @@ class Auth final {
 // These write through to the in-memory profile cache at once, while the durable write buffers in a
 // transaction's overlay. Nothing here rolls that back, so none of them may run inside an explicit
 // transaction. They do not check: the refusal lives at PrepareUserProfileQuery, which rejects every
-// profile write while `in_explicit_transaction_` holds. Every multicommand-transaction refusal lives there;
-// no auth, dbms or storage method re-checks. Move that guard and these become unsafe.
+// profile write while `in_explicit_transaction_` holds, and no auth, dbms or storage method re-checks. Move
+// that guard and these become unsafe.
 #ifdef MG_ENTERPRISE
   bool CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
                      const std::unordered_set<std::string> &usernames = {}, system::Transaction *system_tx = nullptr);
@@ -544,8 +541,9 @@ class Auth final {
 
   // Inside an auth transaction the action is held until COMMIT drains it, so the system mutex is taken for the
   // flush rather than the transaction's whole life. Outside one it goes straight to the statement's system
-  // transaction. With neither, the action is dropped: that is how a replica applying a delta, and a password hash
-  // upgrade during login, write without replicating.
+  // transaction. With neither, the action is dropped: that is how a password hash upgrade during login writes
+  // without replicating. A replica applying a batch collects its actions in a transaction, then commits with no
+  // system transaction, which drops them the same way.
   //
   // `make` runs only when there is somewhere to put the result, so no caller pays to build one that would be
   // dropped.
@@ -586,8 +584,6 @@ class Auth final {
 
   // Storage access. `storage_` routes to the durable KVStore or to a transaction's overlay; Auth cannot tell which.
   std::optional<std::string> StorageGet(std::string_view key) const { return storage_.Get(key); }
-
-  bool StoragePut(std::string_view key, std::string_view value) { return storage_.Put(key, value); }
 
   bool StoragePutMultiple(std::map<std::string, std::string> const &items) { return storage_.PutMultiple(items); }
 
