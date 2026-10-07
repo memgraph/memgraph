@@ -10557,6 +10557,13 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   auto &parse_info = std::get<ParseInfo>(parse_res);
   auto &parsed_query = parse_info.parsed_query;
 
+  // SHOW TRANSACTIONS lists this text. Auth statements carry passwords, so theirs is masked; any other statement is
+  // shown as written, since the masker can misread ordinary text as a credential.
+  auto shown_query =
+      utils::Downcast<AuthQuery>(parsed_query.query)
+          ? logging::MaskSensitiveInformation(parsed_query.query_string).value_or(parsed_query.query_string)
+          : parsed_query.query_string;
+
   // All queries other than transaction control queries advance the command in
   // an explicit transaction block.
   if (in_explicit_transaction_) {
@@ -10564,8 +10571,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       throw SchemaAssertInMulticommandTxException();
     }
 
-    transaction_queries_->push_back(
-        logging::MaskSensitiveInformation(parsed_query.query_string).value_or(parsed_query.query_string));
+    transaction_queries_->push_back(std::move(shown_query));
     AdvanceCommand();
   } else {
     // Abort any leftover storage transaction BEFORE ResetInterpreter so that db_acc_ still pins
@@ -10578,8 +10584,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       AbortCommand(nullptr);
     }
     ResetInterpreter();
-    transaction_queries_->push_back(
-        logging::MaskSensitiveInformation(parsed_query.query_string).value_or(parsed_query.query_string));
+    transaction_queries_->push_back(std::move(shown_query));
 
     SetupInterpreterTransaction(extras);
     memgraph::logging::EmitSessionTraceEvent(

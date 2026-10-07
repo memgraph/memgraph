@@ -269,20 +269,36 @@ def test_a_database_dropped_before_commit_fails_the_commit(cursor, setup, statem
         execute(cursor, "DROP DATABASE d1")
 
 
-def test_show_transactions_masks_a_password_in_an_open_auth_transaction(cursor):
-    # A transaction stays open for as long as its client likes, so the statement text SHOW TRANSACTIONS returns
-    # must not carry the password to a user who may manage transactions but not auth.
+def transaction_watcher(cursor):
     execute(cursor, "CREATE USER watcher IDENTIFIED BY 'watcherpw'")
     execute(cursor, "GRANT TRANSACTION_MANAGEMENT TO watcher")
     watcher = mgclient.connect(host="localhost", port=7687, username="watcher", password="watcherpw")
     watcher.autocommit = True
+    return watcher.cursor()
+
+
+def test_show_transactions_masks_a_password_in_an_open_auth_transaction(cursor):
+    # A transaction stays open for as long as its client likes, so the statement text SHOW TRANSACTIONS returns
+    # must not carry the password to a user who may manage transactions but not auth.
+    watcher = transaction_watcher(cursor)
 
     execute(cursor, "BEGIN")
     execute(cursor, "CREATE USER x IDENTIFIED BY 'hunter2'")
-    shown = str(execute(watcher.cursor(), "SHOW TRANSACTIONS"))
+    shown = str(execute(watcher, "SHOW TRANSACTIONS"))
 
     assert "CREATE USER x" in shown
     assert "hunter2" not in shown
+
+
+def test_show_transactions_shows_a_data_statement_as_written(cursor):
+    # The masker reads "rpa'" in 'Sherpa' as the start of a credential; only auth statements are masked.
+    watcher = transaction_watcher(cursor)
+
+    execute(cursor, "BEGIN")
+    execute(cursor, "MATCH (n {name: 'Sherpa'}) RETURN n")
+    shown = str(execute(watcher, "SHOW TRANSACTIONS"))
+
+    assert "MATCH (n {name: 'Sherpa'}) RETURN n" in shown
 
 
 if __name__ == "__main__":
