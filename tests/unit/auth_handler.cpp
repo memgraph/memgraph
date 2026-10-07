@@ -3754,8 +3754,6 @@ TEST_F(AuthQueryHandlerFixture, ReadPathsDoNotTakeExclusiveAuthLock) {
     alice->UpdatePassword("secret");  // bcrypt by default: IsSalted() == true -> no upgrade path
     locked->SaveUser(*alice);
   }
-  ASSERT_TRUE(auth_handler.CreateUser("existing", std::nullopt, nullptr).created);
-
   auto stored = auth->ReadLock()->GetUser("match_user");
   ASSERT_TRUE(stored.has_value());
   memgraph::glue::QueryUserOrRole subject{&*auth, memgraph::auth::UserOrRole{std::move(*stored)}};
@@ -3787,25 +3785,50 @@ TEST_F(AuthQueryHandlerFixture, ReadPathsDoNotTakeExclusiveAuthLock) {
   });
   auto ok_fut = std::async(std::launch::async, [&] { return memgraph::auth::Authenticate(*auth, "alice", "secret"); });
   auto bad_fut = std::async(std::launch::async, [&] { return memgraph::auth::Authenticate(*auth, "alice", "wrong"); });
-  auto create_fut =
-      std::async(std::launch::async, [&] { return auth_handler.CreateUser("existing", "password1", nullptr); });
 #ifdef MG_ENTERPRISE
   auto impersonate_fut = std::async(std::launch::async, [&] {
     return impersonator_subject.CanImpersonate("target", &memgraph::query::up_to_date_policy);
   });
-  ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut, create_fut, impersonate_fut))
+  ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut, impersonate_fut))
       << "a read path blocked under the shared auth lock";
   EXPECT_TRUE(impersonate_fut.get());
 #else
-  ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut, create_fut))
+  ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut))
       << "a read path blocked under the shared auth lock";
 #endif
   EXPECT_TRUE(authorized_fut.get());
   EXPECT_TRUE(ok_fut.get().has_value());
   EXPECT_FALSE(bad_fut.get().has_value());
-  auto const create_result = create_fut.get();
-  EXPECT_FALSE(create_result.created);
-  EXPECT_FALSE(create_result.first_user);
+}
+
+// Bcrypt runs with no auth lock, so CreateUser and SetPassword blocked behind an exclusive holder have already
+// hashed by the time it releases and finish in far less than one hash.
+TEST_F(AuthQueryHandlerFixture, PasswordHashingOverlapsExclusiveLockHold) {
+  using Clock = std::chrono::steady_clock;
+  ASSERT_TRUE(auth_handler.CreateUser("target", "password1", nullptr).created);
+
+  auto const hash_start = Clock::now();
+  auth_handler.SetPassword("target", "password2", nullptr);
+  auto const hash_time = Clock::now() - hash_start;
+
+  auto const hold = std::chrono::milliseconds(1000);
+  ASSERT_LT(hash_time, hold / 2) << "a single hash is too slow for this test to be meaningful";
+
+  LockHolder holder{*auth, LockMode::kExclusive};
+  auto create_fut =
+      std::async(std::launch::async, [&] { return auth_handler.CreateUser("fresh", "password1", nullptr); });
+  auto set_fut = std::async(std::launch::async, [&] { auth_handler.SetPassword("target", "password3", nullptr); });
+  std::this_thread::sleep_for(hold);
+
+  auto const release_time = Clock::now();
+  holder.Release();
+  ASSERT_EQ(create_fut.wait_for(kBound), std::future_status::ready);
+  ASSERT_EQ(set_fut.wait_for(kBound), std::future_status::ready);
+  auto const after_release = Clock::now() - release_time;
+
+  EXPECT_LT(after_release, hash_time / 2) << "hashing was not overlapped with the exclusive hold";
+  EXPECT_TRUE(create_fut.get().created);
+  set_fut.get();
 }
 
 // session_long_policy reads only the cached principal, so it completes under an exclusive write lock, including for
