@@ -1227,13 +1227,14 @@ TEST_F(ReplicationTest, DuplicateStateChecksCoalesce) {
   // READY is set only after the registration-time check has sent its heartbeat, so the count below is settled.
   ASSERT_TRUE(WaitUntil([&] { return main.db.storage()->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
 
-  auto const heartbeats = [] {
-    return memgraph::metrics::Metrics().global.heartbeat_rpc_seconds->Collect().histogram.sample_count;
+  auto *client = FindReplicationClient(main, replicas[0]);
+  ASSERT_NE(client, nullptr);
+
+  auto const heartbeats = [client] {
+    return client->metrics_.handles().heartbeat_rpc_seconds.Collect().histogram.sample_count;
   };
   auto const before = heartbeats();
 
-  auto *client = FindReplicationClient(main, replicas[0]);
-  ASSERT_NE(client, nullptr);
   MaintenancePoolHold hold{*client};
 
   auto const protector = memgraph::dbms::DatabaseProtector{main.db_acc};
