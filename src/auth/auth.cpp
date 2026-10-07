@@ -489,10 +489,10 @@ std::optional<auth::SSOIdentity> ExtractSSOIdentity(const std::string &scheme, c
   // The principal is recorded, not validated: a module that omits it still logs in (the coordinator authorizes by
   // role), but its queries can't be attributed to anybody, so say so once at login instead of silently.
   auto username = std::invoke([&ret]() -> std::string {
-    if (!ret.contains("username") || !ret.at("username").is_string()) {
-      return {};
+    if (const auto it = ret.find("username"); it != ret.end() && it->is_string()) {
+      return it->get<std::string>();
     }
-    return ret.at("username").get<std::string>();
+    return {};
   });
   if (username.empty()) {
     spdlog::warn(utils::MessageWithLink(
