@@ -146,7 +146,7 @@ def test_down_replica_falls_behind(test_name):
     cursor = connect(host="localhost", port=BOLT_PORTS["main"]).cursor()
     mg_sleep_and_assert(expected_replica("ready", 0), lambda: replica_view("replica_2"))
 
-    interactive_mg_runner.kill(instances, "replica_2")
+    interactive_mg_runner.kill(instances, "replica_2", keep_directories=False)
     for _ in range(3):
         execute_and_fetch_all(cursor, "CREATE ();")
 
