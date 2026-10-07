@@ -1540,6 +1540,23 @@ TYPED_TEST(TestSymbolGenerator, ConditionalSubqueryExpressionNamesItsFold) {
   }
 }
 
+// So does one raised in a later UNION leg of an expression body.
+TYPED_TEST(TestSymbolGenerator, SubqueryExpressionUnionLegNamesItsFold) {
+  // MATCH (n) RETURN COUNT { RETURN 1 AS x UNION MATCH n = (m) RETURN 1 AS x } AS c
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      RETURN(
+          COUNT_SUBQUERY(QUERY(SINGLE_QUERY(RETURN(LITERAL(1), AS("x"))),
+                               UNION(SINGLE_QUERY(MATCH(NAMED_PATTERN("n", NODE("m"))), RETURN(LITERAL(1), AS("x")))))),
+          AS("c"))));
+  try {
+    MakeSymbolTable(query);
+    FAIL() << "expected a SemanticException";
+  } catch (const SemanticException &e) {
+    EXPECT_STREQ(e.what(), "Cannot name a pattern 'n' in COUNT, because that variable is already declared outside it.");
+  }
+}
+
 // `external_symbols_` must be exactly what the body reads from outside. Too few places the conjunct too low; too many
 // makes it unplantable. Asserted directly, because a scenario sees only the planner symptom.
 TYPED_TEST(TestSymbolGenerator, SubqueryExternalSymbols) {
