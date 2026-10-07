@@ -520,6 +520,15 @@ class TextIndexFaultTest : public TextIndexTest {
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
+  void CreateEdgeIndex() const {
+    auto acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreateTextEdgeIndex(TextEdgeIndexSpec{edge_index.data(),
+                                                           acc->NameToEdgeType("TEST_EDGE"),
+                                                           std::vector{acc->NameToProperty("text_prop")}})
+                    .has_value());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
   void RunOneIndexFails(std::string_view broken, std::string_view healthy) const {
     this->CreateIndex();
     this->CreateSecondIndex();
@@ -584,15 +593,7 @@ TEST_F(TextIndexFaultTest, FailingIndexDoesNotSkipTheNext) { this->RunOneIndexFa
 TEST_F(TextIndexFaultTest, FailingSecondIndexDoesNotSkipTheFirst) { this->RunOneIndexFails(second_index, test_index); }
 
 TEST_F(TextIndexFaultTest, TextEdgeIndexRetriesThenGoesOutOfSync) {
-  this->CreateIndex();
-  {
-    auto acc = this->storage->UniqueAccess();
-    ASSERT_TRUE(acc->CreateTextEdgeIndex(TextEdgeIndexSpec{edge_index.data(),
-                                                           acc->NameToEdgeType("TEST_EDGE"),
-                                                           std::vector{acc->NameToProperty("text_prop")}})
-                    .has_value());
-    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-  }
+  this->CreateEdgeIndex();
   this->CommitEdge("before");
 
   {
@@ -614,8 +615,32 @@ TEST_F(TextIndexFaultTest, TextEdgeIndexRetriesThenGoesOutOfSync) {
   EXPECT_THROW(this->CountEdges(), memgraph::storage::TextSearchException);
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
+    EXPECT_THROW(acc->TextEdgeIndexAggregate(std::string{edge_index}, "*", "{}"),
+                 memgraph::storage::TextSearchException);
     EXPECT_TRUE(acc->ApproximateEdgesTextCount(edge_index).has_value());
   }
+
+  this->DropIndexByName(edge_index);
+}
+
+TEST_F(TextIndexFaultTest, FailedEdgeCommitIsRetriedAndIndexRecovers) {
+  this->CreateEdgeIndex();
+  this->CommitEdge("before");
+
+  {
+    WriteFault fault;
+    bool retried = false;
+    const ScopedRetryHook hook([&] {
+      retried = true;
+      fault.Lift();
+    });
+    this->CommitEdge("during");
+    EXPECT_TRUE(retried);
+  }
+
+  EXPECT_EQ(this->CountEdges(), 2);
+  this->CommitEdge("after");  // index is not dirty: later commits are still applied
+  EXPECT_EQ(this->CountEdges(), 3);
 
   this->DropIndexByName(edge_index);
 }
