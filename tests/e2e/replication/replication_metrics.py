@@ -104,7 +104,7 @@ def instance_view(instance):
 
 def replica_view(replica):
     samples = scrape("main")
-    labels = {"replica": replica, "database": "memgraph"}
+    labels = {"mg_instance": replica, "database": "memgraph"}
     return {
         "state": {state: sample(samples, "memgraph_replica_state", state=state, **labels) for state in STATES},
         "txns_behind": sample(samples, "memgraph_replica_txns_behind", **labels),
@@ -113,7 +113,7 @@ def replica_view(replica):
 
 def replica_series(instance):
     return sorted(
-        {dict(labels).get("replica") for (name, labels) in scrape(instance) if name.startswith("memgraph_replica_")}
+        {dict(labels).get("mg_instance") for (name, labels) in scrape(instance) if name.startswith("memgraph_replica_")}
         - {None}
     )
 
