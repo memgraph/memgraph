@@ -4253,7 +4253,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
     auto const old_fold = std::exchange(subquery_fold_, fold);
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
     auto const old_in_with = std::exchange(in_with_, false);
-    auto *cypher_query = ctx->conditionalQuery() ? VisitConditionalQuery(ctx->conditionalQuery()).query
+    auto *cypher_query = ctx->conditionalQuery() ? BuildConditionalQuery(ctx->conditionalQuery()).query
                                                  : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     in_with_ = old_in_with;
     subquery_fold_ = old_fold;
@@ -4758,7 +4758,7 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   // A CALL body is not a fold body, even inside one, so it also gets the top-level "return or update" check.
   auto const old_fold = std::exchange(subquery_fold_, std::nullopt);
   call_subquery->cypher_query_ = ctx->conditionalQuery()
-                                     ? VisitConditionalQuery(ctx->conditionalQuery()).query
+                                     ? BuildConditionalQuery(ctx->conditionalQuery()).query
                                      : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
   subquery_fold_ = old_fold;
 
@@ -4779,13 +4779,13 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   return call_subquery;
 }
 
-CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
+CypherMainVisitor::ConditionalQuery CypherMainVisitor::BuildConditionalQuery(
     MemgraphCypher::ConditionalQueryContext *ctx) {
   auto *branches = storage_->Create<ConditionalBranches>();
   auto *single_query = storage_->Create<SingleQuery>();
   std::optional<ConditionalKind> kind;
   auto const add_branch = [&](Where *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
-    auto const body = VisitConditionalBody(body_ctx);
+    auto const body = BuildConditionalBody(body_ctx);
     // A RETURN-less branch passes its input row through: nothing to fold. Cypher 25 has the same rule.
     if (subquery_fold_ && body.kind != ConditionalKind::kReturns) {
       throw SyntaxException("Every WHEN branch of {} must end with RETURN.",
@@ -4812,9 +4812,9 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
   return {.query = cypher_query, .kind = *kind};
 }
 
-CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalBody(
+CypherMainVisitor::ConditionalQuery CypherMainVisitor::BuildConditionalBody(
     MemgraphCypher::ConditionalBodyContext *ctx) {
-  if (ctx->conditionalQuery()) return VisitConditionalQuery(ctx->conditionalQuery());
+  if (ctx->conditionalQuery()) return BuildConditionalQuery(ctx->conditionalQuery());
   auto *cypher_query = std::invoke([&] {
     if (ctx->cypherQuery()) {
       if (ctx->cypherQuery()->queryMemoryLimit()) {

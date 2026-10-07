@@ -1336,8 +1336,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   };
 
   /// `WHEN ... THEN ... ELSE ...` as a query holding one ConditionalBranches clause.
-  ConditionalQuery VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx);
-  ConditionalQuery VisitConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx);
+  ConditionalQuery BuildConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx);
+  ConditionalQuery BuildConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx);
 
   /**
    * @return MultiDatabaseQuery*
