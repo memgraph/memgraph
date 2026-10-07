@@ -133,6 +133,23 @@ struct PointIndexStorage {
   }
 
   // Commit
+  /// Result of BuildNewPointIndex; opaque to callers. Empty when the txn needs no new index.
+  struct PreparedPointIndex {
+    std::shared_ptr<index_container_t> indexes_;
+
+    explicit operator bool() const { return indexes_ != nullptr; }
+  };
+
+  /// May throw. Touches only the txn-local collector/context, never the live `indexes_`.
+  /// Precondition: caller holds engine_lock_ (so `indexes_` is stable) and does not call it again for the same txn
+  /// after success. Retry after a throw is safe.
+  [[nodiscard]] PreparedPointIndex BuildNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context);
+
+  /// Installs and publishes a prepared index. Same locking precondition as the build, with no
+  /// other commit between build and swap. The pointer swap cannot throw; publishing allocates and may throw bad_alloc.
+  void SwapInPointIndex(PreparedPointIndex &&prepared, ActiveIndicesUpdater const &updater);
+
+  /// BuildNewPointIndex followed by SwapInPointIndex.
   void InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context,
                             ActiveIndicesUpdater const &updater);
 
