@@ -146,6 +146,9 @@ AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const &overlay, std::str
   if (!at_end_) {
     // Emptiness is read from base before any Advance, since Advance consumes the first entry. A scan is assumed to
     // depend on the whole key set; a caller that stopped early narrows it afterwards.
+    //
+    // Reading base alone is conservative: a scan that stops on this transaction's own write over an empty base still
+    // depends on base staying empty, so a concurrent first key there fails the commit, which is safe to retry.
     auto [entry, inserted] = overlay_->scanned_prefixes_.try_emplace(
         prefix_, ScanDependency{.kind = ScanDependency::Kind::kKeySet, .was_empty = base_it_ == base_end_});
     // A fresh scan starts out depending on the key set, whatever an earlier short-circuiting one settled for. Only
@@ -174,8 +177,8 @@ void AtomicAuthOverlay::iterator::Advance() {
       // short-circuiting scan of the same prefix walks past whatever has appeared since, and must not be able to
       // pass those off as keys this scan covered.
       if (auto d = overlay_->scanned_prefixes_.find(prefix_); d != overlay_->scanned_prefixes_.end()) {
-        // The first exhaustive scan fixes the key set the transaction is held to; a later one only ever sees a
-        // superset, since anything that appeared since is a concurrent change this is meant to catch.
+        // The first exhaustive scan fixes the key set the transaction is held to. A key a later scan finds beyond
+        // it is a concurrent change this is meant to catch, and a key it no longer finds is caught by the read set.
         if (!d->second.exhausted) d->second.seen = std::exchange(seen_, {});
         d->second.exhausted = true;
         d->second.kind = ScanDependency::Kind::kKeySet;
