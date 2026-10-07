@@ -7737,7 +7737,7 @@ Callback HandleSessionQuery(SessionQuery *session_query, std::shared_ptr<QueryUs
         auto result = InterpreterContext::TerminateSessions(
             interpreter_context->interpreters, session_ids, user_or_role.get(), privilege_checker, caller_session_uuid);
         // Closing a connection runs that session's destructor chain, which re-enters
-        // InterpreterContext::interpreters -- so it must happen only after the lock above is released.
+        // InterpreterContext::interpreters, so it must run with that lock not held.
         for (auto const &uuid : result.to_close) {
           if (auto session = communication::v2::SessionRegistry::Instance().Find(uuid)) {
             session->RequestTermination();

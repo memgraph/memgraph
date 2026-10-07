@@ -82,7 +82,7 @@ class PrivilegeByDb {
 
  private:
   QueryUserOrRole *user_or_role_;
-  PrivilegeChecker checker_;
+  PrivilegeChecker const &checker_;
   std::unordered_map<std::string, bool> cache_;
 };
 

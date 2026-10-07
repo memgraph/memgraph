@@ -100,6 +100,8 @@ void CloseSessionsOnDroppingDatabases(InterpreterSet &interpreters) {
 }
 #endif
 
+/// Foreign VERIFYING pins are only taken under `interpreters`, so concurrent SHOW/TERMINATE statements never
+/// observe each other's pins.
 /// Pins `interpreter`'s transaction so it can neither commit nor abort, hands its id to
 /// `should_kill`, and marks it TERMINATED if the predicate accepts. Only an ACTIVE
 /// transaction can be pinned, so one already committing, aborting or terminated is left
@@ -153,7 +155,7 @@ bool Authorized(TargetOwner const &owner, PrivilegeByDb &privilege_by_db) {
   return owner.same_user || privilege_by_db(owner.db_name);
 }
 
-/// Phase 1: ACTIVE transactions (all, or only `wanted`) with their owner, read under the VERIFYING pin.
+/// Phase 1: ACTIVE transactions (all, or only `wanted`) with their owner, read under the ACTIVE->VERIFYING pin.
 std::unordered_map<uint64_t, TargetOwner> SnapshotTransactions(InterpreterSet &interpreters, Interpreter const *self,
                                                                std::unordered_set<uint64_t> const *wanted,
                                                                QueryUserOrRole *user_or_role) {
@@ -161,11 +163,10 @@ std::unordered_map<uint64_t, TargetOwner> SnapshotTransactions(InterpreterSet &i
   interpreters.WithLock([&](auto const &all) {
     for (Interpreter *interpreter : all) {
       if (interpreter == self) continue;
-      auto const verifier = interpreter->TryAcquireForVerification();
-      if (!verifier || verifier->status() != TransactionStatus::ACTIVE) continue;
-      auto const id = interpreter->GetTransactionId();
-      if (!id || (wanted && !wanted->contains(*id))) continue;
-      snapshot.emplace(*id, ReadOwner(interpreter, user_or_role, false));
+      TryTerminateInterpreter(interpreter, [&](uint64_t id) {
+        if (!wanted || wanted->contains(id)) snapshot.emplace(id, ReadOwner(interpreter, user_or_role, false));
+        return false;
+      });
     }
   });
   return snapshot;
@@ -211,8 +212,6 @@ std::unordered_set<uint64_t> KillAuthorizedTransactions(InterpreterSet &interpre
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
     InterpreterSet &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids, QueryUserOrRole *user_or_role,
     PrivilegeChecker const &privilege_checker) {
-  // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed
-  // TERMINATE and SHOW TRANSACTIONS are mutually exclusive
   std::unordered_set<uint64_t> const wanted(maybe_kill_transaction_ids.begin(), maybe_kill_transaction_ids.end());
   auto killed = KillAuthorizedTransactions(interpreters, nullptr, &wanted, user_or_role, privilege_checker);
 

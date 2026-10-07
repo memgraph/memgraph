@@ -1253,6 +1253,32 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsSkipsATargetThatLoggedIn
   EXPECT_TRUE(result.to_close.empty());
 }
 
+TYPED_TEST(TransactionQueueSimpleTest, TerminateTransactionsSkipsATargetWhoseOwnerChangedDuringTheCheck) {
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  this->running_interpreter.Interpret("BEGIN");
+  auto const tx_id = target.GetTransactionId().value();
+
+  // The owner key changed between the unlocked check and the kill, so the kill is skipped.
+  auto checker = [&](memgraph::query::QueryUserOrRole *, std::string const &) {
+    target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("admin", {}));
+    return true;
+  };
+
+  auto rows = this->interpreter_context.TerminateTransactions(
+      this->interpreter_context.interpreters, {tx_id}, caller.user_or_role_.get(), checker);
+
+  ASSERT_EQ(rows.size(), 1U);
+  EXPECT_EQ(std::string_view{rows[0][0].ValueString()}, std::to_string(tx_id));
+  EXPECT_FALSE(rows[0][1].ValueBool());
+  EXPECT_EQ(target.transaction_status_.load(), memgraph::query::TransactionStatus::ACTIVE);
+  this->running_interpreter.Abort();
+}
+
 TYPED_TEST(TransactionQueueSimpleTest, TerminateTransactionsListsNotKilledBeforeKilledInInputOrder) {
   auto &target = this->running_interpreter.interpreter;
   auto &caller = this->main_interpreter.interpreter;
