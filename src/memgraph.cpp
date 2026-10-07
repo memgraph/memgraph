@@ -893,6 +893,11 @@ int main(int argc, char **argv) {
         if (!coordinator_state || !coordinator_state->IsCoordinator()) return {};
         return coordinator_state->ShowInstances().value_or(std::vector<memgraph::coordination::InstanceStatus>{});
       });
+  memgraph::metrics::Metrics().SetRaftStatusResolver(
+      [&coordinator_state]() -> std::optional<memgraph::coordination::RaftStatus> {
+        if (!coordinator_state || !coordinator_state->IsCoordinator()) return std::nullopt;
+        return coordinator_state->GetRaftStatus();
+      });
 #endif
 
   // singleton replication state

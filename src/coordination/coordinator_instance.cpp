@@ -325,6 +325,8 @@ auto CoordinatorInstance::ShowInstancesAsLeader() const -> std::optional<std::ve
   return instances_status;
 }
 
+auto CoordinatorInstance::GetRaftStatus() const -> RaftStatus { return raft_state_->GetRaftStatus(); }
+
 auto CoordinatorInstance::ShowInstance() const -> InstanceStatus {
   metrics::Metrics().global.show_instance->Increment();
   auto const curr_leader_id = raft_state_->GetLeaderId();

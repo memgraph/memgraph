@@ -19,6 +19,7 @@
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
+#include "coordination/raft_status.hpp"
 #include "coordination/utils.hpp"
 #include "coordination_observer.hpp"
 
@@ -70,6 +71,7 @@ class RaftState {
 
   auto IsLeader() const -> bool;
   auto GetLeaderId() const -> int32_t;
+  auto GetRaftStatus() const -> RaftStatus;
 
   // Waits until log is committed
   auto AppendLogAndWaitForCommit(CoordinatorClusterStateDelta const &delta_state) const -> bool;

@@ -810,7 +810,24 @@ PrometheusMetrics::PrometheusMetrics()
       instance_last_response_seconds_family_{prometheus::BuildGauge()
                                                  .Name("memgraph_instance_last_response_seconds")
                                                  .Help("Seconds since the last successful response from the instance")
-                                                 .Register(registry_)}
+                                                 .Register(registry_)},
+      raft_term_family_{prometheus::BuildGauge()
+                            .Name("memgraph_raft_term")
+                            .Help("Current Raft term of this coordinator")
+                            .Register(registry_)},
+      raft_committed_log_index_family_{prometheus::BuildGauge()
+                                           .Name("memgraph_raft_committed_log_index")
+                                           .Help("Last Raft log index this coordinator has applied")
+                                           .Register(registry_)},
+      raft_leader_committed_log_index_family_{prometheus::BuildGauge()
+                                                  .Name("memgraph_raft_leader_committed_log_index")
+                                                  .Help("Leader's committed Raft log index, as this coordinator last "
+                                                        "heard it")
+                                                  .Register(registry_)},
+      raft_has_leader_family_{prometheus::BuildGauge()
+                                  .Name("memgraph_raft_has_leader")
+                                  .Help("1 if this coordinator knows of a Raft leader, 0 otherwise")
+                                  .Register(registry_)}
 #endif
 {
   // Populate GlobalMetricHandles — only session, memory, and HA metrics
@@ -912,6 +929,10 @@ void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resol
 #ifdef MG_ENTERPRISE
 void PrometheusMetrics::SetInstanceStatusResolver(InstanceStatusResolver resolver) {
   instance_status_resolver_ = std::move(resolver);
+}
+
+void PrometheusMetrics::SetRaftStatusResolver(RaftStatusResolver resolver) {
+  raft_status_resolver_ = std::move(resolver);
 }
 #endif
 
@@ -1292,6 +1313,15 @@ void PrometheusMetrics::UpdateGauges() {
   global.memory_res_bytes->Set(static_cast<double>(utils::GetMemoryRES()));
 
 #ifdef MG_ENTERPRISE
+  // A family returns the gauge it already holds for a label set, so these series appear on the first scrape of a
+  // coordinator and never on a data instance.
+  if (auto const raft = raft_status_resolver_ ? raft_status_resolver_() : std::nullopt) {
+    raft_term_family_.Add({}).Set(static_cast<double>(raft->term));
+    raft_committed_log_index_family_.Add({}).Set(static_cast<double>(raft->committed_log_index));
+    raft_leader_committed_log_index_family_.Add({}).Set(static_cast<double>(raft->leader_committed_log_index));
+    raft_has_leader_family_.Add({}).Set(raft->has_leader ? 1.0 : 0.0);
+  }
+
   std::vector<coordination::InstanceStatus> instances;
   if (instance_status_resolver_) instances = instance_status_resolver_();
 

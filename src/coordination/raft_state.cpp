@@ -641,6 +641,13 @@ auto RaftState::GetRoutingTable(std::string_view const db_name,
 
 auto RaftState::GetLeaderId() const -> int32_t { return raft_server_->get_leader(); }
 
+auto RaftState::GetRaftStatus() const -> RaftStatus {
+  return RaftStatus{.term = raft_server_->get_term(),
+                    .committed_log_index = raft_server_->get_committed_log_idx(),
+                    .leader_committed_log_index = raft_server_->get_leader_committed_log_idx(),
+                    .has_leader = raft_server_->get_leader() != -1};
+}
+
 auto RaftState::GetEnabledReadsOnMain() const -> bool { return state_machine_->GetEnabledReadsOnMain(); }
 
 auto RaftState::GetSyncFailoverOnly() const -> bool { return state_machine_->GetSyncFailoverOnly(); }
