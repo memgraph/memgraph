@@ -8760,6 +8760,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter, interpreter_context](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
@@ -8810,6 +8813,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                             auth = interpreter_context->auth,
                             interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
             std::vector<std::vector<TypedValue>> status;
 
             try {
@@ -8887,6 +8893,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .query_handler =
               [old_name = query->db_name_, new_name = query->new_db_name_, db_handler, interpreter = &interpreter](
                   AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
             std::vector<std::vector<TypedValue>> status;
             std::string res;
 
@@ -8936,6 +8945,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
             auto result = db_handler->Suspend(db_name, interpreter->system_transaction_ptr());
             if (!result) {
               switch (result.error()) {
@@ -8978,6 +8990,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           .privileges = std::move(parsed_query.required_privileges),
           .query_handler = [db_name = query->db_name_, db_handler, interpreter = &interpreter](
                                AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
             auto result = db_handler->Resume(db_name, interpreter->system_transaction_ptr());
             if (!result) {
               switch (result.error()) {
