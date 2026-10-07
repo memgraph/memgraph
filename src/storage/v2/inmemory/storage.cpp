@@ -1114,9 +1114,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   DMG_ASSERT(!commit_args.replication_allowed() || durability_commit_timestamp == *commit_timestamp_,
              "on a main the durable commit timestamp must be the local one");
 
-  // Everything that can throw and that publishing needs is built here, before the point of no return (the first
-  // WAL byte, or the commit-flag flip for 2PC). engine_lock_ is held, so the point index cannot go stale.
-  // A STRICT_SYNC replica drops the lock between prepare and finalize, so it builds the index at finalize instead.
+  // Build whatever publishing needs and can throw before the point of no return (first WAL byte; 2PC flag flip).
+  // A STRICT_SYNC replica drops engine_lock_ before finalize, so it builds the point index there instead.
   PrepareSchemaUpdate(durability_commit_timestamp);
   bool replica_two_phase = false;
   commit_args.apply_if_replica_write(
@@ -1147,7 +1146,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     if (!wal_committed_) throw;
     // In a handler uncaught_exceptions() is 0, so the tracker could throw and skip the publish below.
     utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
-    // Publish first: the warning is best-effort and must never stand between a durable txn and its publish.
     if (is_transaction_active_) {
       FinalizeCommitPhase(durability_commit_timestamp);
     }
@@ -1207,7 +1205,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // The commit-flag flip inside FinalizeCommitPhase was the point of no return: from here a failure is only a
         // warning, and the remaining steps still run so replicas get their finalize.
         bool const committed = repl_prepare_phase_ok;
-        // Pre-PNR a failure propagates; post-PNR it must not, so the replica finalize still runs.
         auto const run_step = [&](char const *step, auto &&fn) -> bool {
           if (!committed) {
             fn();
@@ -1236,7 +1233,6 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }
 
         if (!failures.empty()) {
-          // prepare_ok means no replica failed, so a committed transaction cannot reach the abort below.
           DMG_ASSERT(!repl_prepare_phase_ok, "Aborting a transaction that already committed");
           // Release engine lock because we don't have to hold it anymore for abort
           engine_guard.unlock();
@@ -1287,7 +1283,6 @@ void InMemoryStorage::InMemoryAccessor::RecordPostCommitWarning(char const *cons
     post_commit_warning_ =
         fmt::format("The transaction was committed, but a post-commit step ('{}') failed: {}", step, what);
   } catch (...) {
-    // Shorter fallback, keeps the first-warning-wins rule.
     try {
       post_commit_warning_ = "The transaction was committed, but a post-commit step failed";
     } catch (...) {  // NOLINT(bugprone-empty-catch): out of memory even for the fallback; the log line remains
@@ -1317,7 +1312,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     // A replica re-mints the local commit timestamp between prepare and finalize.
     pending_schema_node_.mapped().local_commit_ts = *commit_timestamp_;
     std::lock_guard<std::mutex> const lock{mem_storage->schema_queue_mutex_};
-    // A duplicate key is ignored, as emplace did.
+    // A duplicate key is ignored.
     (void)mem_storage->pending_schema_updates_.insert(std::move(pending_schema_node_));
   }
 
@@ -1329,9 +1324,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // Under PERIODIC COMMIT / CALL IN TRANSACTIONS an OOM enabler can be live; the tracker must not throw here.
   utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
 
-  // Steps whose failure leaves other transactions' state intact: record the first error and carry on.
-  // Steps that mutate shared state (other transactions' deltas, the schema queue, the commit log): half-done is
-  // worse than down.
+  // Steps that mutate shared state (others' deltas, the schema queue, the commit log) die on failure: half-done is
+  // worse than down. All other steps go through RunPostCommitStep.
   auto const run_or_die = [](char const *step, auto &&fn) {
     try {
       fn();
@@ -1344,7 +1338,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   // If the transaction had non-sequential deltas (or another transaction propagated
   // the flag to us), we should re-establish the `has_uncommitted_non_sequential_deltas`
-  // flag on any vertices we've touched. A stale true only costs the slow path.
+  // flag on any vertices we've touched. If this fails, writers to those vertices get serialization
+  // errors until GC unlinks their deltas and clears the flag.
   RunPostCommitStep("vertex flag cleanup", [&] {
     bool const needs_vertex_flag_cleanup = std::invoke([&] -> bool {
       auto guard = std::lock_guard{transaction_.commit_info->lock};
@@ -1390,7 +1385,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // update main's cached info
   atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
 
-  // Install the point index built before the point of no return
   RunPostCommitStep("point index install", [&] {
     auto point_updater = mem_storage->indices_.MakeUpdater();
     mem_storage->indices_.point_index_.SwapInPointIndex(std::move(prepared_point_index_), point_updater);
@@ -4558,10 +4552,8 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // it still has the just-traversed deltas hot in cache. WAL commit order follows from engine_lock_.
   {
     durability::WalTxnDataPos positions;
-    // Start..End is the encoding window. For a non-2PC commit the first byte is the point of no return (recovery
-    // replays it as committed), so a failure inside cannot be undone by an abort and cannot be truncated away:
-    // the tracker is blocked from throwing, and anything else is fail-stop. A 2PC commit is not committed until the
-    // flag flips, so there an exception still aborts cleanly.
+    // Non-2PC: the first WAL byte is the point of no return (recovery replays it), so OOM is blocked and any other
+    // failure is fail-stop. 2PC is not committed until the flag flips, so an exception there still aborts cleanly.
     utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
     auto const write_wal = [&] {
       // Append txn start delta and remember the position in the WAL file in which this delta is saved.

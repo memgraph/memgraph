@@ -142,7 +142,7 @@ struct PointIndexStorage {
 
   /// May throw. Touches only the txn-local collector/context, never the live `indexes_`.
   /// Precondition: caller holds engine_lock_ (so `indexes_` is stable) and does not call it again for the same txn
-  /// after success. Retry after a throw is safe.
+  /// after success. A throw leaves `context` unusable: the caller must abort the txn, not retry.
   [[nodiscard]] PreparedPointIndex BuildNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context);
 
   /// Installs and publishes a prepared index. Same locking precondition as the build, with no

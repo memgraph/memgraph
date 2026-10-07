@@ -1821,8 +1821,8 @@ TEST(StorageV2CommitCallbacks, RunAllRunsEveryCallbackClearsAndRethrowsTheFirst)
   EXPECT_TRUE(callbacks.callbacks_.empty());
 }
 
-// A throwing commit callback runs after the transaction is visible, so the commit still has to finish: the later
-// callbacks run, the point index holds the write, the commit timestamp is marked finished and the GC horizon moves on.
+// The callback throws after the transaction is visible; the commit must still complete (later callbacks, point index,
+// GC).
 TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillCompletesTheCommit) {
   auto const label = storage->NameToLabel("L");
   auto const prop = storage->NameToProperty("p");
@@ -1871,7 +1871,6 @@ TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillCompletesTheCommit) {
     EXPECT_EQ(1, found);
   }
 
-  // Later garbage, committed while the older reader still pins the horizon.
   {
     auto acc = storage->Access(ms::WRITE);
     auto vertex = acc->FindVertex(gid, ms::View::OLD);
@@ -1887,8 +1886,7 @@ TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillCompletesTheCommit) {
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
-// The warning of a batch must not keep PeriodicCommit from handing its deltas to GC and committing the next batch,
-// whose own callbacks must still run.
+// A batch's warning must not stop PeriodicCommit from releasing its deltas or committing the next batch.
 TEST_F(StorageV2GcMetricsTest, PeriodicCommitBatchWithThrowingCallbackDoesNotSkipTheNext) {
   ms::Gid first_gid;
   ms::Gid second_gid;
@@ -1919,8 +1917,8 @@ TEST_F(StorageV2GcMetricsTest, PeriodicCommitBatchWithThrowingCallbackDoesNotSki
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
-// A non-2PC replica applies and finalizes in one step; a failing post-commit step must still leave a committed write.
-// Needs a WAL: without one the commit finalizes before the replica-apply branch is reached.
+// Non-2PC replica apply finalizes in one step and must still commit. Needs a WAL, else the replica-apply branch is
+// never reached.
 TEST(StorageV2CommitCallbacks, ReplicaApplyWithThrowingCallbackStillCommits) {
   auto const dir = std::filesystem::temp_directory_path() / "storage_v2_gc_replica_apply";
   std::filesystem::remove_all(dir);
