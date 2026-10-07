@@ -719,6 +719,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
     return true;
   }
 
+  std::optional<int64_t> EvaluateLocalDateTime(Expression &expression, bool &was_null) override {
+    auto const value = expression.Accept(*this);
+    was_null = value.IsNull();
+    if (!value.IsLocalDateTime()) return std::nullopt;
+    // The microseconds its ordering is defined on, which is the system time it
+    // holds rather than the one a timezone would show.
+    return value.ValueLocalDateTime().SysMicrosecondsSinceEpoch();
+  }
+
   Truth EvaluateTruth(Expression &expression) override {
     auto const value = expression.Accept(*this);
     if (value.IsNull()) return Truth::Null;

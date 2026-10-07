@@ -64,6 +64,12 @@ class RecordReader {
   /// value. Refused when it is no truth value, which the evaluator would have
   /// complained about in words the caller still has to produce.
   virtual Truth EvaluateTruth(Expression &expression) = 0;
+
+  /// Evaluates an expression a program does not cover and reads it as a local
+  /// date time, in the microseconds its ordering is defined on. Nothing when it
+  /// is null or is no local date time at all; the caller tells those apart by
+  /// asking first whether the expression was null.
+  virtual std::optional<int64_t> EvaluateLocalDateTime(Expression &expression, bool &was_null) = 0;
 };
 
 class TypedProgram {
@@ -114,10 +120,16 @@ class TypedProgram {
     LoadInt,       // from the frame, checking it really is one
     LoadPropInt,   // from a record on the frame, checking the same
     LoadParamInt,  // from the query's parameters, bound once per execution
-    ConstInt,      // from the expression itself, so never in doubt
+    // A local date time is held as the microseconds its ordering is defined on,
+    // so once loaded it is compared exactly as an integer is.
+    LoadTime,
+    LoadPropTime,
+    EvalTime,
+    ConstInt,  // from the expression itself, so never in doubt
     AddInt,
     SubInt,
     MulInt,
+    DivInt,
     EqInt,
     NeInt,
     LtInt,

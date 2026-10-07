@@ -21,6 +21,7 @@
 #include "query/interpret/typed_program.hpp"
 #include "query/parameters.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/temporal.hpp"
 
 using memgraph::query::AstStorage;
 using memgraph::query::Expression;
@@ -205,6 +206,53 @@ TEST_F(TypedProgramTest, AnUncoveredConjunctIsHandedToTheEvaluator) {
 
   Set(2, TypedValue(int64_t{9}));
   EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::False);
+}
+
+// The shape LDBC filters on: a time a record carries, against a time the query
+// names. Both are compared as microseconds, which is what the ordering on a
+// local date time is, so the comparison needs no value built around either.
+TEST_F(TypedProgramTest, ATemporalComparisonCompilesAndAnswers) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  // Parsed the same way the query's own constructor parses its argument, so
+  // the two sides cannot disagree for a reason that is not the comparison.
+  auto const [day, time] = memgraph::utils::ParseLocalDateTimeParameters("2020-06-01T12:00:00");
+  auto const when = memgraph::utils::LocalDateTime(day, time);
+  auto vertex = dba.InsertVertex();
+  ASSERT_TRUE(vertex
+                  .SetProperty(dba.NameToProperty("created"),
+                               memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+                                   memgraph::storage::TemporalType::LocalDateTime, when.SysMicrosecondsSinceEpoch())))
+                  .has_value());
+  dba.AdvanceCommand();
+  Set(0, TypedValue(vertex));
+
+  auto const compare_against = [&](int year) {
+    auto *literal = storage_.Create<memgraph::query::PrimitiveLiteral>(
+        memgraph::storage::ExternalPropertyValue(std::to_string(year) + "-06-01T12:00:00"));
+    auto *call = storage_.Create<memgraph::query::Function>("LOCALDATETIME", std::vector<Expression *>{literal});
+    return storage_.Create<memgraph::query::GreaterOperator>(
+        storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("created")), call);
+  };
+
+  auto *earlier = compare_against(2019);
+  auto *later = compare_against(2021);
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = &dba;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  auto after = TypedProgram::Compile(earlier);
+  ASSERT_TRUE(after.has_value()) << "a time compared with one the query names should compile";
+  EXPECT_EQ(after->Run(frame_, &evaluator), TypedProgram::Answer::True);
+
+  auto before = TypedProgram::Compile(later);
+  ASSERT_TRUE(before.has_value());
+  EXPECT_EQ(before->Run(frame_, &evaluator), TypedProgram::Answer::False);
 }
 
 // A chained comparison is a conjunction that evaluates both sides whatever the

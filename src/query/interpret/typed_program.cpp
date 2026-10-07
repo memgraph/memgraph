@@ -14,6 +14,7 @@
 #include "query/interpret/frame.hpp"
 
 #include <algorithm>
+#include <limits>
 
 #include "utils/typeinfo.hpp"
 
@@ -29,6 +30,21 @@ struct Operand {
   int32_t slot;
 };
 
+/// What an integer slot is holding. Both are int64, and a comparison of two of
+/// them is the same instruction either way; the kind decides only what a load
+/// will accept and what it takes out of it. Mixing the two is refused, since
+/// comparing a number with a time is an error rather than an answer.
+enum class Kind : uint8_t { Number, Time };
+
+/// Whether an expression says, by itself, that it is a time. A constructor does;
+/// a property or a parameter could be anything, and is read as whatever the
+/// other side of the comparison turned out to be.
+bool NamesATime(Expression *expression) {
+  if (expression == nullptr) return false;
+  if (expression->GetTypeInfo().id != utils::TypeId::AST_FUNCTION) return false;
+  return static_cast<Function *>(expression)->function_name_ == "LOCALDATETIME";
+}
+
 }  // namespace
 
 /// Walks the expression once, handing out working slots and emitting the
@@ -36,7 +52,7 @@ struct Operand {
 /// leaves that expression to the ordinary evaluator.
 class TypedProgramBuilder {
  public:
-  std::optional<Operand> Build(Expression *expression) {
+  std::optional<Operand> Build(Expression *expression, Kind kind = Kind::Number) {
     auto const refuse = [&] { return Refuse(expression); };
     switch (expression->GetTypeInfo().id) {
       case utils::TypeId::AST_PRIMITIVE_LITERAL: {
@@ -50,13 +66,28 @@ class TypedProgramBuilder {
         auto const position = static_cast<Identifier *>(expression)->symbol_pos_;
         if (position < 0) return refuse();
         auto const slot = NextInt();
-        Emit(TypedProgram::Op::LoadInt, slot, position, 0, 0);
+        Emit(kind == Kind::Time ? TypedProgram::Op::LoadTime : TypedProgram::Op::LoadInt, slot, position, 0, 0);
         return Operand{.is_tri = false, .slot = slot};
       }
       case utils::TypeId::AST_PARAMETER_LOOKUP: {
+        // A parameter bound to a time is read through the evaluator, which is
+        // the one place that knows how a bound value becomes one.
+        if (kind == Kind::Time) {
+          auto const slot = NextInt();
+          Emit(TypedProgram::Op::EvalTime, slot, 0, 0, 0, PropertyIx{}, nullptr, expression);
+          return Operand{.is_tri = false, .slot = slot};
+        }
         auto const position = static_cast<ParameterLookup *>(expression)->token_position_;
         auto const slot = NextInt();
         Emit(TypedProgram::Op::LoadParamInt, slot, position, 0, 0);
+        return Operand{.is_tri = false, .slot = slot};
+      }
+      case utils::TypeId::AST_FUNCTION: {
+        // The one call taken, and only where a time is what is wanted. Its
+        // arguments are left to the evaluator, which is what builds the time.
+        if (kind != Kind::Time || !NamesATime(expression)) return refuse();
+        auto const slot = NextInt();
+        Emit(TypedProgram::Op::EvalTime, slot, 0, 0, 0, PropertyIx{}, nullptr, expression);
         return Operand{.is_tri = false, .slot = slot};
       }
       case utils::TypeId::AST_LABELS_TEST: {
@@ -85,7 +116,12 @@ class TypedProgramBuilder {
         auto const position = static_cast<Identifier *>(lookup->expression_)->symbol_pos_;
         if (position < 0) return refuse();
         auto const slot = NextInt();
-        Emit(TypedProgram::Op::LoadPropInt, slot, position, 0, 0, lookup->property_);
+        Emit(kind == Kind::Time ? TypedProgram::Op::LoadPropTime : TypedProgram::Op::LoadPropInt,
+             slot,
+             position,
+             0,
+             0,
+             lookup->property_);
         return Operand{.is_tri = false, .slot = slot};
       }
       case utils::TypeId::AST_ADDITION_OPERATOR:
@@ -94,6 +130,8 @@ class TypedProgramBuilder {
         return Arithmetic(expression, TypedProgram::Op::SubInt);
       case utils::TypeId::AST_MULTIPLICATION_OPERATOR:
         return Arithmetic(expression, TypedProgram::Op::MulInt);
+      case utils::TypeId::AST_DIVISION_OPERATOR:
+        return Arithmetic(expression, TypedProgram::Op::DivInt);
       case utils::TypeId::AST_EQUAL_OPERATOR:
         return Comparison(expression, TypedProgram::Op::EqInt);
       case utils::TypeId::AST_NOT_EQUAL_OPERATOR:
@@ -161,9 +199,10 @@ class TypedProgramBuilder {
 
   std::optional<Operand> Comparison(Expression *expression, TypedProgram::Op op) {
     auto *binary = static_cast<BinaryOperator *>(expression);
-    auto const lhs = Build(binary->expression1_);
+    auto const kind = NamesATime(binary->expression1_) || NamesATime(binary->expression2_) ? Kind::Time : Kind::Number;
+    auto const lhs = Build(binary->expression1_, kind);
     if (!lhs || lhs->is_tri) return Refuse(expression);
-    auto const rhs = Build(binary->expression2_);
+    auto const rhs = Build(binary->expression2_, kind);
     if (!rhs || rhs->is_tri) return Refuse(expression);
     auto const slot = NextTri();
     Emit(op, slot, lhs->slot, rhs->slot, 0);
@@ -385,6 +424,52 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
         tris[in.dst] = !answer ? Answer::Null : (*answer ? Answer::True : Answer::False);
         break;
       }
+      case Op::LoadTime: {
+        auto const &value = frame.elems()[in.a];
+        if (value.IsLocalDateTime()) {
+          ints[in.dst] = value.ValueLocalDateTime().SysMicrosecondsSinceEpoch();
+          int_known[in.dst] = 1;
+        } else if (value.IsNull()) {
+          int_known[in.dst] = 0;
+        } else {
+          return false;
+        }
+        break;
+      }
+      case Op::LoadPropTime: {
+        if (reader == nullptr) return false;
+        auto const &record = frame.elems()[in.a];
+        if (!record.IsVertex() && !record.IsEdge()) {
+          if (record.IsNull()) {
+            int_known[in.dst] = 0;
+            break;
+          }
+          return false;
+        }
+        auto const value = reader->ReadProperty(record, in.property);
+        if (value.IsTemporalData() && value.ValueTemporalData().type == storage::TemporalType::LocalDateTime) {
+          ints[in.dst] = value.ValueTemporalData().microseconds;
+          int_known[in.dst] = 1;
+        } else if (value.IsNull()) {
+          int_known[in.dst] = 0;
+        } else {
+          return false;
+        }
+        break;
+      }
+      case Op::EvalTime: {
+        if (reader == nullptr) return false;
+        bool was_null = false;
+        auto const micros = reader->EvaluateLocalDateTime(*in.delegated, was_null);
+        if (!micros) {
+          if (!was_null) return false;
+          int_known[in.dst] = 0;
+          break;
+        }
+        ints[in.dst] = *micros;
+        int_known[in.dst] = 1;
+        break;
+      }
       case Op::AddInt:
       case Op::SubInt:
       case Op::MulInt: {
@@ -393,6 +478,18 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
           auto const x = ints[in.a];
           auto const y = ints[in.b];
           ints[in.dst] = in.op == Op::AddInt ? x + y : (in.op == Op::SubInt ? x - y : x * y);
+        }
+        break;
+      }
+      case Op::DivInt: {
+        int_known[in.dst] = int_known[in.a] & int_known[in.b];
+        if (int_known[in.dst] != 0) {
+          auto const x = ints[in.a];
+          auto const y = ints[in.b];
+          // Dividing by zero is the evaluator's complaint to make, and the one
+          // division C++ leaves undefined is handed back for the same reason.
+          if (y == 0 || (y == -1 && x == std::numeric_limits<int64_t>::min())) return false;
+          ints[in.dst] = x / y;
         }
         break;
       }
