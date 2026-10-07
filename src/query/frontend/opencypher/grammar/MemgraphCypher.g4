@@ -431,12 +431,6 @@ scopeClause : ASTERISK | variable ( ',' variable )* ;
 
 callSubquery : OPTIONAL? CALL ( '(' scopeClause? ')' )? '{' ( conditionalQuery | cypherQuery ) '}' ( periodicSubquery )? ;
 
-conditionalQuery : conditionalBranch+ ( ELSE conditionalBody )? ;
-
-conditionalBranch : WHEN expression THEN conditionalBody ;
-
-conditionalBody : '{' ( conditionalQuery | cypherQuery ) '}' | singleQuery ;
-
 streamQuery : checkStream
             | createStream
             | dropStream
