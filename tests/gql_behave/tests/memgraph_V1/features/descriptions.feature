@@ -470,11 +470,34 @@ Feature: Server-side descriptions
             | label     |
             | 'A point' |
 
+    Scenario: Property-value description with signed numbers
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY coord VALUE {x: -1, y: +2.5} "Signed point"
+            """
+        Then the result should be empty
+        When executing query:
+            """
+            RETURN description("coord", {x: -1, y: 2.5}) AS label
+            """
+        Then the result should be:
+            | label          |
+            | 'Signed point' |
+
     Scenario: A non-constant VALUE is rejected
         Given an empty graph
         When executing query:
             """
             SET DESCRIPTION ON PROPERTY p VALUE [1 + 2] "x"
+            """
+        Then an error should be raised
+
+    Scenario: A signed non-constant VALUE is rejected
+        Given an empty graph
+        When executing query:
+            """
+            SET DESCRIPTION ON PROPERTY p VALUE {x: -(1 + 2)} "x"
             """
         Then an error should be raised
 

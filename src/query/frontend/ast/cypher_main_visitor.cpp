@@ -5163,12 +5163,16 @@ antlrcpp::Any CypherMainVisitor::visitDescriptionQuery(MemgraphCypher::Descripti
 }
 
 namespace {
-// VALUE reuses the general `literal` rule, whose list/map alternatives admit arbitrary expressions. A property-value
-// code must be a constant, so reject anything that is not a literal (or a stripped-literal ParameterLookup) — otherwise
-// a non-constant would reach the prepare-time constant evaluator and terminate / evaluate to null.
+// VALUE reuses the general `literal` rule, whose list/map alternatives admit arbitrary expressions. Reject anything
+// that is not a constant (literal, stripped-literal ParameterLookup, or signed constant) so a non-constant VALUE gets
+// a clear semantic error at parse time.
 bool IsConstantLiteralExpression(Expression *expr) {
   if (utils::Downcast<PrimitiveLiteral>(expr) != nullptr || utils::Downcast<ParameterLookup>(expr) != nullptr) {
     return true;
+  }
+  if (auto *unary = utils::Downcast<UnaryOperator>(expr);
+      unary != nullptr && (utils::Downcast<UnaryPlusOperator>(unary) || utils::Downcast<UnaryMinusOperator>(unary))) {
+    return IsConstantLiteralExpression(unary->expression_);
   }
   if (auto *list = utils::Downcast<ListLiteral>(expr)) {
     return std::ranges::all_of(list->elements_, IsConstantLiteralExpression);

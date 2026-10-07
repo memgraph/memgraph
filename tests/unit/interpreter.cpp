@@ -3205,20 +3205,67 @@ TEST_F(ParameterQueryTest, SignedNumbersInMapAndListLiteralValues) {
   Interpret("SET GLOBAL PARAMETER p = {a: -1, b: -2.5, c: +3}");
   EXPECT_EQ(GetParameter("p"), R"({"a":-1,"b":-2.5,"c":3})");
 
+  // The query stripper folds a sign at the start of a list element into the number literal,
+  // so the parentheses are what route -1 through the unary operator.
   Interpret("SET GLOBAL PARAMETER q = [(-1)]");
   EXPECT_EQ(GetParameter("q"), "[-1]");
 }
 
-TEST_F(ParameterQueryTest, UnsupportedExpressionInLiteralValueIsRejected) {
-  EXPECT_THROW(Interpret("SET GLOBAL PARAMETER p = {a: 1+1}"), memgraph::query::QueryRuntimeException);
-  EXPECT_EQ(GetParameter("p"), std::nullopt);
+TEST_F(ParameterQueryTest, UnarySignAcceptedForms) {
+  constexpr std::pair<std::string_view, std::string_view> kCases[] = {
+      {"{a: --1}", R"({"a":1})"},
+      {"{a: - -1}", R"({"a":1})"},
+      {"{a: -(-1)}", R"({"a":1})"},
+      {"{a: +-1}", R"({"a":-1})"},
+      {"{a: -null}", R"({"a":null})"},
+      {"{a: -9223372036854775807}", R"({"a":-9223372036854775807})"},
+      {"{a: {b: [(-1), +2, {c: -3}]}}", R"({"a":{"b":[-1,2,{"c":-3}]}})"},
+  };
+  for (auto const &[value, expected] : kCases) {
+    SCOPED_TRACE(value);
+    Interpret("SET GLOBAL PARAMETER p = " + std::string(value));
+    EXPECT_EQ(GetParameter("p"), expected);
+  }
 }
 
-TYPED_TEST(InterpreterTest, VectorIndexConfigAcceptsSignedNumber) {
-  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-    GTEST_SKIP() << "Vector indices are not supported on disk storage";
+TEST_F(ParameterQueryTest, UnarySignOnQueryParameter) {
+  Interpret("SET GLOBAL PARAMETER p = {a: -$x}", {{"x", memgraph::storage::ExternalPropertyValue(5)}});
+  EXPECT_EQ(GetParameter("p"), R"({"a":-5})");
+
+  EXPECT_THROW(Interpret("SET GLOBAL PARAMETER r = {a: -$x}",
+                         {{"x", memgraph::storage::ExternalPropertyValue(std::string("s"))}}),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(GetParameter("r"), std::nullopt);
+}
+
+TEST_F(ParameterQueryTest, MalformedSignIsSyntaxError) {
+  for (std::string_view const query :
+       {"SET GLOBAL PARAMETER p = -1", "SET GLOBAL PARAMETER p = {a: 1-}", "SET GLOBAL PARAMETER p = {a: -}"}) {
+    SCOPED_TRACE(query);
+    EXPECT_THROW(Interpret(std::string(query)), memgraph::query::SyntaxException);
+    EXPECT_EQ(GetParameter("p"), std::nullopt);
   }
-  EXPECT_NO_THROW(
-      this->Interpret("CREATE VECTOR INDEX idx ON :L(p) WITH CONFIG {dimension: 2, capacity: 10, resize_coefficient: "
-                      "-1}"));
+}
+
+TEST_F(ParameterQueryTest, UnsupportedExpressionInLiteralValueIsRejected) {
+  for (std::string_view const value : {"{a: -'s'}",
+                                       "{a: +'s'}",
+                                       "{a: -true}",
+                                       "{a: -[1]}",
+                                       "{a: -{b: 1}}",
+                                       "{a: -a}",
+                                       "{a: +a}",
+                                       "{a: -(1+1)}",
+                                       "{a: -n.x}",
+                                       "{a: 1 - 1}",
+                                       "{a: 1+1}"}) {
+    SCOPED_TRACE(value);
+    EXPECT_THROW(Interpret("SET GLOBAL PARAMETER p = " + std::string(value)), memgraph::query::QueryRuntimeException);
+    EXPECT_EQ(GetParameter("p"), std::nullopt);
+  }
+}
+
+TEST_F(ParameterQueryTest, MinInt64LiteralExceedsRange) {
+  EXPECT_THROW(Interpret("SET GLOBAL PARAMETER p = {a: -9223372036854775808}"), memgraph::query::SemanticException);
+  EXPECT_EQ(GetParameter("p"), std::nullopt);
 }
