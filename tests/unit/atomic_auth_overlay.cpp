@@ -341,6 +341,22 @@ TEST_F(AtomicAuthOverlayTest, AnEmptinessOnlyScanStillConflictsOnThePrefixEmptyi
   EXPECT_FALSE(overlay.Flush()) << "the prefix was inhabited when scanned and is not now";
 }
 
+// A later full scan of the same prefix widens what the transaction depends on; it does not replace what the earlier
+// scan concluded.
+TEST_F(AtomicAuthOverlayTest, ALaterFullScanKeepsAnEarlierEmptinessObservation) {
+  store_->Put("user:alice", "alice_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  memgraph::auth::Repository repo{overlay};
+  EXPECT_TRUE(repo.HasAnyUser());
+  overlay.Put("user:bob", "bob_data");
+
+  store_->Delete("user:alice");
+
+  EXPECT_EQ(CountUnder(overlay, "user:"), 1);
+  EXPECT_FALSE(overlay.Flush()) << "the prefix was inhabited when first scanned and is not now";
+}
+
 TEST_F(AtomicAuthOverlayTest, FlushDetectsModificationOfScannedKey) {
   store_->Put("user:alice", "alice_data");
 

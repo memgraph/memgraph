@@ -106,11 +106,10 @@ bool AtomicAuthOverlay::Flush() {
   for (auto const &[prefix, dependency] : scanned_prefixes_) {
     auto it = base_.begin(prefix);
     auto const e = base_.end(prefix);
-    if (dependency.kind == ScanDependency::Kind::kEmptiness) {
-      // The scan concluded only whether anything was there, so only that flipping invalidates it.
-      if ((it == e) != dependency.was_empty) return false;
-      continue;
-    }
+    // Every scan of the prefix concluded at least whether anything was there, so that flipping invalidates it. A
+    // scan that stopped early concluded nothing more.
+    if ((it == e) != dependency.was_empty) return false;
+    if (dependency.kind == ScanDependency::Kind::kEmptiness) continue;
     for (; it != e; ++it) {
       if (!dependency.seen.contains(it->first)) return false;
     }
@@ -152,9 +151,8 @@ AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const &overlay, std::str
     // A fresh scan starts out depending on the key set, whatever an earlier short-circuiting one settled for. Only
     // the caller that stops early narrows it again, so the strictest scan of a prefix is what survives.
     //
-    // `was_empty` keeps the first scan's observation and is not refreshed here. It is only ever read for a
-    // `kEmptiness` dependency, and a scan of an empty prefix has nothing to stop early on, so it exhausts and
-    // pins the prefix to `kKeySet`. An entry that stays `kEmptiness` was therefore never empty.
+    // `was_empty` keeps the first scan's observation and is not refreshed here: a later scan widens what the
+    // transaction depends on, and never replaces what an earlier one concluded.
     if (!inserted) entry->second.kind = ScanDependency::Kind::kKeySet;
     write_it_ = overlay_->write_set_.lower_bound(prefix_);
     write_end_ = overlay_->write_set_.end();
