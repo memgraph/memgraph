@@ -63,7 +63,8 @@ Wrapping them in a transaction makes the whole sequence one change.
 
 Nothing it writes is visible to another session, or to a replica, until
 `COMMIT`. `ROLLBACK` discards it. Its reads are not isolated in the same way:
-a read sees what other sessions commit while the transaction is open. A
+a record read once reads the same for the rest of the transaction, but a scan,
+such as `SHOW USERS`, sees what other sessions have committed since. A
 concurrent change by another transaction to anything the transaction read or
 wrote fails the commit rather than overwriting it, and that check at `COMMIT`
 is what makes the outcome serializable.
@@ -204,12 +205,11 @@ as section 7 says, avoids that.
 - **Auth transactions are not counted in a database's commit or rollback
   metrics.** Those count data transactions; an auth transaction never touches a
   database.
-- **Fine-grained permissions do not reach sessions that are already
-  connected.** A connected session picks up a committed change to its
-  privileges on its next authorisation check. Label, edge-type, and property
-  permissions are cached when the session authenticates, so a `REVOKE` of one of
-  those takes effect on that session when it reconnects, not at `COMMIT`. This
-  is existing behaviour, unchanged here.
+- **Privilege changes do not reach sessions that are already connected.** A
+  session checks its statements against the privileges it had when it
+  authenticated, so a `REVOKE` or `DROP USER` takes effect on that session when
+  it reconnects, not at `COMMIT`. Triggers, streams, and transaction-management
+  queries re-read privileges. This is existing behaviour, unchanged here.
 - **A commit can fail for a reason other than a conflict.** If another session
   holds the system lock for more than 100ms, the commit is refused with
   "Multiple concurrent system queries are not supported." Unlike a conflict, that
@@ -222,7 +222,9 @@ as section 7 says, avoids that.
 
 A single auth statement outside a transaction behaves as before on the instance
 that runs it: it takes the lock, writes, replicates and releases, with no
-transaction involved. Existing scripts are unaffected.
+transaction involved. Existing scripts are unaffected, with one exception: a
+profile write, user or tenant, inside an explicit transaction was applied at
+once before and is now refused.
 
 Replication is the exception. Every auth change now goes out in the batched
 format, so an older replica cannot decode it. Outside a transaction each record

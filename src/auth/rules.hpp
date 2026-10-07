@@ -24,7 +24,7 @@ namespace memgraph::auth::rules {
 /// transaction's buffered overlay. Nothing here touches auth modules, the permission-cache epoch, resource
 /// monitoring or replication: those are side effects, and they stay with `Auth`.
 
-/// Resolves a user's roles, global then per-database, and attaches them. Reads the link entries.
+/// Resolves a user's roles, per-database then global, and attaches them. Reads the link entries.
 void LinkUser(Repository const &repo, User &user);
 
 std::optional<User> GetUser(Repository const &repo, std::string_view username);
