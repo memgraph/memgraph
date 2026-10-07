@@ -693,7 +693,6 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V1Request_UpgradesToASingleItemBatch) {
   EXPECT_EQ(seen_username, "alice") << "the upgraded batch must carry the user the V1 request held";
 }
 
-#ifdef MG_ENTERPRISE
 // A V2 request is answered at V2, so the response must exist at V2 as well. A replica that cannot encode its reply
 // drops the connection after applying the batch, and the main then snapshots it even though nothing was lost.
 TEST(RpcVersioning, UpdateAuthDataRpc_V2RequestGetsAV2Response) {
@@ -739,7 +738,6 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V2RequestGetsAV2Response) {
   EXPECT_TRUE(reply.success);
   EXPECT_TRUE(auth.Lock()->HasUser("alice"));
 }
-#endif
 
 // The batch is an ordered sequence, not per-kind lists: DROP USER alice then CREATE USER alice must survive the
 // round trip in that order, because applying them the other way round loses the user.
