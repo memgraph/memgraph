@@ -803,6 +803,10 @@ class Accessor {
 
   virtual void FinalizeTransaction() = 0;
 
+  /// Set when a commit succeeded but a step after its point of no return failed. The transaction is
+  /// durable and visible; the message is for the client. Taking it clears it.
+  virtual std::optional<std::string> TakePostCommitWarning() { return std::nullopt; }
+
   // Stable per-query id; preserved across PERIODIC COMMIT.
   std::optional<uint64_t> GetStartTimestamp() const;
 
