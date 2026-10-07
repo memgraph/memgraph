@@ -230,13 +230,8 @@ auto PointIndexStorage::BuildNewPointIndex(PointIndexChangeCollector &collector,
 
 void PointIndexStorage::SwapInPointIndex(PreparedPointIndex &&prepared, ActiveIndicesUpdater const &updater) {
   if (!prepared) return;
-  indexes_ = std::move(prepared.indexes_);
+  indexes_ = std::move(prepared.indexes);
   PublishActiveIndices(updater);
-}
-
-void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context,
-                                             ActiveIndicesUpdater const &updater) {
-  SwapInPointIndex(BuildNewPointIndex(collector, context), updater);
 }
 
 void PointIndexStorage::Clear() { indexes_ = std::make_shared<index_container_t>(); }

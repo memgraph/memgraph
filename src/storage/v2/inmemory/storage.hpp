@@ -222,6 +222,19 @@ class InMemoryStorage final : public Storage {
     // Keeps the first message; later ones are only logged.
     void RecordPostCommitWarning(char const *step, std::string_view what) noexcept;
 
+    // Runs a step past the point of no return: a failure is recorded as a warning, never propagated.
+    bool RunPostCommitStep(char const *step, auto &&fn) noexcept {
+      try {
+        fn();
+        return true;
+      } catch (std::exception const &e) {
+        RecordPostCommitWarning(step, e.what());
+      } catch (...) {
+        RecordPostCommitWarning(step, "unknown exception");
+      }
+      return false;
+    }
+
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
     InMemoryAccessor &operator=(const InMemoryAccessor &) = delete;
