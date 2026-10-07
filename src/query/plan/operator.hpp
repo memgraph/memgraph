@@ -22,6 +22,7 @@
 #include "query/common.hpp"
 #include "query/frontend/semantic/symbol.hpp"
 #include "query/parameters.hpp"
+#include "query/plan/cursor_awaitable_core.hpp"
 #include "query/plan/point_distance_condition.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/procedure/module_fwd.hpp"
@@ -115,10 +116,36 @@ class Cursor {
   /// @return true if a result was produced, false if the cursor is exhausted.
   /// Once false is returned, Pull must not be called again without first
   /// calling Reset().
-  virtual bool Pull(Frame &, ExecutionContext &) = 0;
+  ///
+  /// DUAL-PATH SEAM (Phase 1). Stable public entry. ROUTES per the COROUTINE_CURSORS flag captured at
+  /// construction (`use_coroutine_`): flag OFF -> PullLegacy() (the cursor's original synchronous
+  /// body; the whole call graph stays legacy because PullLegacy calls child->Pull() which re-routes);
+  /// flag ON -> drive the coroutine via PullCo()/DoPull() one row at a time (one resume == one
+  /// co_yield). A NOT-YET-CONVERTED cursor overrides Pull() directly with its legacy body (replacing
+  /// this router) and is unaffected by the flag. A CONVERTED cursor overrides PullLegacy() (old body)
+  /// + DoPull() (coroutine) + PullCo() (via MG_COROUTINE_CURSOR_PULLCO) and does NOT override Pull().
+  /// The two paths are proven identical by the parity harness. Phase 3 deletes PullLegacy() + the
+  /// legacy branch and makes Pull non-virtual.
+  virtual bool Pull(Frame &, ExecutionContext &);
 
-  /// Resets the Cursor to its initial state.
-  virtual void Reset() = 0;
+  /// The cursor's legacy synchronous body. CONVERTED cursors override this (verbatim from the
+  /// pre-coroutine engine); the router calls it when COROUTINE_CURSORS is off. Default is unreachable:
+  /// not-yet-converted cursors override Pull() directly and never route here.
+  virtual bool PullLegacy(Frame &, ExecutionContext &) {
+    LOG_FATAL("Cursor::PullLegacy() invoked on a cursor that did not override it");
+  }
+
+  /// Coroutine-resume entry. CONVERTED cursors override this (via MG_COROUTINE_CURSOR_PULLCO) to
+  /// lazily create and resume their generator. Others inherit this default, which immediate-wraps
+  /// their synchronous Pull() into a frame-less ResumeAwaitable, so a converted parent can pull any
+  /// child uniformly through PullChild() -> child.PullCo().
+  virtual PullAwaitable::ResumeAwaitable PullCo(Frame &f, ExecutionContext &ctx) {
+    return PullAwaitable::ResumeAwaitable::Immediate(Pull(f, ctx));
+  }
+
+  /// Resets the Cursor to its initial state. Base destroys the live generator frame (gen_);
+  /// converted cursors call Cursor::Reset() FIRST, then clear their retained members.
+  virtual void Reset();
 
   /// Releases whatever the cursor acquired while iterating, and may throw to report a failure doing
   /// so. Only a query that runs to completion reaches this; every failure, rollback and teardown path
@@ -128,7 +155,30 @@ class Cursor {
   virtual void Shutdown() = 0;
 
   virtual ~Cursor() = default;
+
+ protected:
+  Cursor();  // captures the COROUTINE_CURSORS flag into use_coroutine_ (defined in cursor_awaitable.cpp)
+
+  /// Coroutine body. CONVERTED cursors override this. Default is unreachable (legacy cursors override
+  /// Pull(); converted cursors override DoPull()).
+  virtual PullAwaitable DoPull(Frame & /*f*/, ExecutionContext & /*ctx*/) {
+    LOG_FATAL("Cursor::DoPull() invoked on a cursor that did not override it");
+  }
+
+  /// One heap coroutine frame per converted cursor per query, created lazily on first PullCo() (flag
+  /// on) and destroyed by Reset()/dtor. Stays nullopt on the legacy path.
+  std::optional<PullAwaitable> gen_;
+
+  /// Routing decision captured once at construction (per query). const => the branch in Pull() is on
+  /// an immutable member, not a per-row global flag read.
+  const bool use_coroutine_;
 };
+
+/// Bridge for a converted parent to pull a child without caring whether the child is converted or
+/// legacy: sugar for child.PullCo(f, ctx).
+inline PullAwaitable::ResumeAwaitable PullChild(Cursor &child, Frame &f, ExecutionContext &ctx) {
+  return child.PullCo(f, ctx);
+}
 
 /// unique_ptr to Cursor managed with a custom deleter.
 /// This allows us to use utils::MemoryResource for allocation.
@@ -390,7 +440,9 @@ class Once : public memgraph::query::plan::LogicalOperator {
   class OnceCursor : public Cursor {
    public:
     OnceCursor() = default;
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -469,7 +521,9 @@ class CreateNode : public memgraph::query::plan::LogicalOperator {
   class CreateNodeCursor : public Cursor {
    public:
     CreateNodeCursor(const CreateNode &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -564,7 +618,9 @@ class CreateExpand : public memgraph::query::plan::LogicalOperator {
   class CreateExpandCursor : public Cursor {
    public:
     CreateExpandCursor(const CreateExpand &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1005,7 +1061,9 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     ExpandCursor(const Expand &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
     ExpandCursor(const Expand &, int64_t input_degree, int64_t existing_node_degree, utils::MemoryResource *,
                  metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
     ExpansionInfo GetExpansionInfo(Frame &);
@@ -1031,6 +1089,10 @@ class Expand : public memgraph::query::plan::LogicalOperator {
     int64_t prev_existing_degree_{-1};
 
     bool InitEdges(Frame &, ExecutionContext &);
+    // Coroutine twin of InitEdges used by the DoPull (flag-on) path; co_awaits the input pull so the
+    // chain can cooperatively yield. PullLegacy (flag-off) keeps the synchronous InitEdges above.
+    // Phase 3 deletes InitEdges + PullLegacy and renames this back to InitEdges.
+    PullAwaitable InitEdgesCo(Frame &, ExecutionContext &);
   };
 
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
@@ -1242,7 +1304,9 @@ class Filter : public memgraph::query::plan::LogicalOperator {
   class FilterCursor : public Cursor {
    public:
     FilterCursor(const Filter &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1293,7 +1357,9 @@ class Produce : public memgraph::query::plan::LogicalOperator {
   class ProduceCursor : public Cursor {
    public:
     ProduceCursor(const Produce &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1344,7 +1410,9 @@ class Delete : public memgraph::query::plan::LogicalOperator {
   class DeleteCursor : public Cursor {
    public:
     DeleteCursor(const Delete &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1395,7 +1463,9 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
   class SetPropertyCursor : public Cursor {
    public:
     SetPropertyCursor(const SetProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1437,7 +1507,9 @@ class SetNestedProperty : public memgraph::query::plan::LogicalOperator {
   class SetNestedPropertyCursor : public Cursor {
    public:
     SetNestedPropertyCursor(const SetNestedProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1491,7 +1563,9 @@ class SetProperties : public memgraph::query::plan::LogicalOperator {
   class SetPropertiesCursor : public Cursor {
    public:
     SetPropertiesCursor(const SetProperties &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1534,7 +1608,9 @@ class SetLabels : public memgraph::query::plan::LogicalOperator {
   class SetLabelsCursor : public Cursor {
    public:
     SetLabelsCursor(const SetLabels &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1575,7 +1651,9 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
   class RemovePropertyCursor : public Cursor {
    public:
     RemovePropertyCursor(const RemoveProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1617,7 +1695,9 @@ class RemoveNestedProperty : public memgraph::query::plan::LogicalOperator {
   class RemoveNestedPropertyCursor : public Cursor {
    public:
     RemoveNestedPropertyCursor(const RemoveNestedProperty &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1660,7 +1740,9 @@ class RemoveLabels : public memgraph::query::plan::LogicalOperator {
   class RemoveLabelsCursor : public Cursor {
    public:
     RemoveLabelsCursor(const RemoveLabels &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -1715,7 +1797,9 @@ class EdgeUniquenessFilter : public memgraph::query::plan::LogicalOperator {
   class EdgeUniquenessFilterCursor : public Cursor {
    public:
     EdgeUniquenessFilterCursor(const EdgeUniquenessFilter &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2240,7 +2324,9 @@ class Skip : public memgraph::query::plan::LogicalOperator {
   class SkipCursor : public Cursor {
    public:
     SkipCursor(const Skip &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2289,7 +2375,9 @@ class EvaluatePatternFilter : public memgraph::query::plan::LogicalOperator {
    public:
     EvaluatePatternFilterCursor(const EvaluatePatternFilter &, utils::MemoryResource *,
                                 metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2343,7 +2431,9 @@ class Limit : public memgraph::query::plan::LogicalOperator {
   class LimitCursor : public Cursor {
    public:
     LimitCursor(const Limit &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2445,7 +2535,9 @@ class Merge : public memgraph::query::plan::LogicalOperator {
   class MergeCursor : public Cursor {
    public:
     MergeCursor(const Merge &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2499,7 +2591,9 @@ class Optional : public memgraph::query::plan::LogicalOperator {
   class OptionalCursor : public Cursor {
    public:
     OptionalCursor(const Optional &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2618,7 +2712,9 @@ class Union : public memgraph::query::plan::LogicalOperator {
   class UnionCursor : public Cursor {
    public:
     UnionCursor(const Union &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2942,7 +3038,9 @@ class Apply : public memgraph::query::plan::LogicalOperator {
   class ApplyCursor : public Cursor {
    public:
     ApplyCursor(const Apply &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame &, ExecutionContext &) override;
+    bool PullLegacy(Frame &, ExecutionContext &) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
@@ -2984,7 +3082,9 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
   class IndexedJoinCursor : public Cursor {
    public:
     IndexedJoinCursor(const IndexedJoin &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
-    bool Pull(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
+    bool PullLegacy(Frame & /*unused*/, ExecutionContext & /*unused*/) override;
+    MG_COROUTINE_CURSOR_PULLCO
+    PullAwaitable DoPull(Frame &, ExecutionContext &) override;
     void Shutdown() override;
     void Reset() override;
 
