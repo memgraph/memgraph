@@ -17,10 +17,11 @@
 
 namespace memgraph::coordination {
 
+// A status below is answered by whichever coordinator leads, and travels back to the follower that forwarded the
+// write, so a new enumerator goes last: a peer that has not been upgraded must keep decoding the ones it knows.
+// SUCCESS, LEADER_FAILED and LEADER_NOT_FOUND make an enum satisfy the ForwardableStatus concept, and a follower
+// reports one of the latter two when it could not reach the leader at all rather than crashing.
 enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER, LEADER_NOT_FOUND, LEADER_FAILED };
-// Forwarded to the leader (see CoordinatorInstance), like the role/privilege ops. SUCCESS/LEADER_FAILED/
-// LEADER_NOT_FOUND make the enum satisfy the ForwardableStatus concept; a follower maps a forwarding failure to
-// LEADER_FAILED (or LEADER_NOT_FOUND during an election) rather than crashing.
 enum class SetCoordinatorSettingStatus : uint8_t {
   SUCCESS = 0,
   RAFT_LOG_ERROR,
@@ -38,8 +39,7 @@ enum class CreateRoleStatus : uint8_t {
   RAFT_LOG_ERROR,
   LEADER_NOT_FOUND,
   LEADER_FAILED,
-  // Name doesn't match --auth-user-or-role-name-regex. New values go last: the status crosses the wire when a follower
-  // forwards the write, so an older peer must keep decoding the values it already knows.
+  // Name doesn't match --auth-user-or-role-name-regex.
   INVALID_ROLE_NAME
 };
 enum class DropRoleStatus : uint8_t {
