@@ -156,8 +156,16 @@ def main_test(snapshots_dir):
     with writing_in_the_background():
         for interval in ("*/1 * * * * *", "5"):
             initial_paths = snapshot_paths(cursor)
+            start = time.monotonic()
             execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'storage.snapshot.interval' TO '{interval}';")
             assert len(execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")) == 1
+            if interval == "5":
+                # Slow I/O only lowers the count, so an upper bound holds on a loaded machine.
+                # The +2 covers a snapshot the previous interval had in flight.
+                time.sleep(10)
+                new_snapshots = len(snapshot_paths(cursor) - initial_paths)
+                limit = int((time.monotonic() - start) / 5) + 2
+                assert new_snapshots <= limit, f"Interval 5s ignored: {new_snapshots} new snapshots, at most {limit}"
             mg_sleep_and_assert_eval_function(
                 lambda paths: len(paths - initial_paths) >= 2,
                 lambda: snapshot_paths(cursor),
