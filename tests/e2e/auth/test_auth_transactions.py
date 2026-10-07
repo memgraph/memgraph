@@ -89,7 +89,7 @@ def test_the_transaction_sees_its_own_writes(cursor):
 def test_mixing_auth_and_data_queries_is_rejected(cursor):
     execute(cursor, "BEGIN")
     execute(cursor, "CREATE USER frank")
-    with pytest.raises(mgclient.DatabaseError):
+    with pytest.raises(mgclient.DatabaseError, match="cannot mix auth queries with data queries"):
         execute(cursor, "CREATE (n:Node)")
     # The failed statement already aborted the transaction, so there is nothing left to roll back.
 
@@ -173,9 +173,11 @@ def test_a_tenant_profile_read_does_not_hold_the_system_lock(cursor):
 
 
 def test_profile_writes_are_still_rejected_in_a_data_transaction(cursor):
-    # The write half of the same guard: unchanged, and the reason the guard exists.
+    # The write half of the same guard, and the reason it exists. After a data statement a profile query does not
+    # mix modes, so the profile guard is what refuses it.
     execute(cursor, "BEGIN")
-    with pytest.raises(mgclient.DatabaseError):
+    execute(cursor, "MATCH (n) RETURN n")
+    with pytest.raises(mgclient.DatabaseError, match="Managing users is not allowed in multicommand transactions"):
         execute(cursor, "CREATE PROFILE unwritable LIMIT sessions 1")
 
 
