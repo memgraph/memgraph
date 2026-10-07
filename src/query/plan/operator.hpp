@@ -193,6 +193,7 @@ class Apply;
 class IndexedJoin;
 class HashJoin;
 class RollUpApply;
+class Conditional;
 class PeriodicCommit;
 class PeriodicSubquery;
 class SetNestedProperty;
@@ -217,7 +218,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     ScanAllByPointDistance, ScanAllByPointWithinbbox, Expand, ExpandVariable, ConstructNamedPath, Filter, Produce,
     Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
     Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
-    Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
+    Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, Conditional, PeriodicCommit,
     PeriodicSubquery, SetNestedProperty, RemoveNestedProperty, LoadParquet, LoadJsonl, AggregateParallel,
     OrderByParallel, ScanParallel, ScanParallelByLabel, ScanParallelByLabelProperties, ScanParallelByEdgeType,
     ScanParallelByEdgeTypeProperty, ScanParallelByEdge, ScanParallelByEdgeProperty, ScanParallelByVertexProperty,
@@ -3073,6 +3074,79 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   Symbol list_collection_symbol_{};
   bool pass_input_{false};
   Fold fold_{Fold::kList};
+};
+
+/// `WHEN p0 THEN b0 WHEN p1 THEN b1 ... ELSE bn`: per input row, runs the branch of the first true predicate.
+class Conditional : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  /// Writes a branch's column into the conditional's output column.
+  struct ColumnMapping {
+    Symbol from;
+    Symbol to;
+
+    bool operator==(const ColumnMapping &) const = default;
+  };
+
+  /// One `WHEN p THEN body`, or `ELSE body` with a null predicate.
+  struct Branch {
+    Expression *predicate{nullptr};
+    /// The predicate's subquery folds, pulled just before the predicate is evaluated. The cursor, not a `Filter`,
+    /// evaluates the predicate, so its folds live here; a body's `plan` holds its own.
+    std::vector<std::shared_ptr<LogicalOperator>> pattern_filters;
+    std::shared_ptr<LogicalOperator> plan;
+    std::vector<ColumnMapping> columns;
+  };
+
+  Conditional() = default;
+  /// Only the last branch may be an ELSE.
+  Conditional(std::shared_ptr<LogicalOperator> input, std::vector<Branch> branches, std::vector<Symbol> output_symbols);
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  /// The WHEN's columns, not a branch's: a branch ending in `CALL ... YIELD` reports its YIELD columns.
+  std::vector<Symbol> OutputSymbols(const SymbolTable &) const override { return output_symbols_; }
+
+  bool HasSingleInput() const override { return true; }
+
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::string ToString(const DbAccessor *dba) const override;
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
+  std::vector<Branch> branches_;
+  std::vector<Symbol> output_symbols_;
+
+ private:
+  class ConditionalCursor : public Cursor {
+   public:
+    ConditionalCursor(const Conditional &, utils::MemoryResource *, metrics::DatabaseMetricHandles &);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    /// The cursors of one `Branch`, made from its operators per execution.
+    struct BranchCursors {
+      std::vector<UniqueCursorPtr> pattern_filters;
+      UniqueCursorPtr plan;
+    };
+
+    const Conditional &self_;
+    UniqueCursorPtr input_;
+    std::vector<BranchCursors> branches_;
+    /// The branch producing rows for the current input row; empty when the next `Pull` must take a new input row.
+    std::optional<size_t> active_;
+  };
 };
 
 class PeriodicCommit : public memgraph::query::plan::LogicalOperator {

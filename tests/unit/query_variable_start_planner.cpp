@@ -497,6 +497,35 @@ TYPED_TEST(TestVariableStartPlanner, TestSubqueryWithTripleUnion) {
   });
 }
 
+// MATCH (m1)-[r1]->(n1) CALL (m1) { WHEN true THEN MATCH (a)-[r2]->(b) WITH a MATCH (a)-[r3]->(c) RETURN c
+//                                   ELSE RETURN 0 AS c } RETURN m1, c
+// A branch of two parts: every variation must put each part back where it came from.
+TYPED_TEST(TestVariableStartPlanner, TestConditionalSubqueryBranchWithTwoMatchParts) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+
+  auto v1 = dba.InsertVertex();
+  auto v2 = dba.InsertVertex();
+  ASSERT_TRUE(dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1")).has_value());
+
+  dba.AdvanceCommand();
+
+  auto *branches =
+      WHEN_BRANCHES({LITERAL(true),
+                     SINGLE_QUERY(MATCH(PATTERN(NODE("a"), EDGE("r2", EdgeAtom::Direction::OUT), NODE("b"))),
+                                  WITH("a"),
+                                  MATCH(PATTERN(NODE("a"), EDGE("r3", EdgeAtom::Direction::OUT), NODE("c"))),
+                                  RETURN("c"))},
+                    {nullptr, SINGLE_QUERY(RETURN(LITERAL(0), AS("c")))});
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("m1"), EDGE("r1", EdgeAtom::Direction::OUT), NODE("n1"))),
+                                   CALL_SUBQUERY_SCOPED(branches, {"m1"}),
+                                   RETURN("m1", "c")));
+
+  CheckPlansProduce(27, query, this->storage, &dba, [&](const auto &results) {
+    AssertRows(results, {{TypedValue(v1), TypedValue(v2)}}, dba);
+  });
+}
+
 // Test nested pattern comprehensions where inner PC starts from outer's expansion node
 // Query: MATCH (n) WHERE n.id = 1 RETURN [(n)-[]->(m) | [(m)-[]->(x) | x.id]] AS result
 // Graph: (a {id:1})-[:R]->(b {id:2})-[:R]->(c {id:3})

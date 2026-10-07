@@ -379,6 +379,7 @@ class PrometheusMetrics {
   prometheus::Family<prometheus::Counter> &indexed_join_operator_family_;
   prometheus::Family<prometheus::Counter> &hash_join_operator_family_;
   prometheus::Family<prometheus::Counter> &roll_up_apply_operator_family_;
+  prometheus::Family<prometheus::Counter> &conditional_operator_family_;
   prometheus::Family<prometheus::Counter> &periodic_commit_operator_family_;
   prometheus::Family<prometheus::Counter> &periodic_subquery_operator_family_;
   prometheus::Family<prometheus::Counter> &set_nested_property_operator_family_;

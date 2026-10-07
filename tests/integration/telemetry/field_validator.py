@@ -217,6 +217,7 @@ EXPECTED_EVENT_COUNTERS = {
     "CallProcedureOperator",
     "CartesianOperator",
     "CommitedTransactions",
+    "ConditionalOperator",
     "ConstructNamedPathOperator",
     "CreateExpandOperator",
     "CreateNodeOperator",

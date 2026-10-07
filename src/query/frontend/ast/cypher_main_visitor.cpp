@@ -14,6 +14,7 @@
 #include <cstring>
 #include <functional>
 #include <iterator>
+#include <optional>
 #include <range/v3/all.hpp>
 #include <ranges>
 #include <string>
@@ -131,6 +132,13 @@ std::unordered_set<std::string> GetRoleDatabases(MemgraphCypher::ListOfSymbolicN
   if (!db_ctx) return {};
   auto db_names = std::any_cast<std::vector<std::string>>(db_ctx->accept(visitor));
   return {std::make_move_iterator(db_names.begin()), std::make_move_iterator(db_names.end())};
+}
+
+/// Whether the query or any of its UNION parts updates the graph.
+bool HasUpdate(const CypherQuery &query) {
+  auto const updates = [](const SingleQuery *single_query) { return single_query && single_query->has_update; };
+  return updates(query.single_query_) ||
+         std::ranges::any_of(query.cypher_unions_, [&](const auto *u) { return updates(u->single_query_); });
 }
 }  // namespace
 
@@ -2030,17 +2038,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_return) {
         throw SemanticException("CALL can't be put after RETURN clause.");
       }
-      const auto *single_query = call_subquery->cypher_query_->single_query_;
-      if (single_query) {
-        subquery_has_update |= single_query->has_update;
-        for (auto *cypher_union : call_subquery->cypher_query_->cypher_unions_) {
-          if (subquery_has_update) break;
-          const auto *single_query = cypher_union->single_query_;
-          if (single_query) {
-            subquery_has_update |= single_query->has_update;
-          }
-        }
-      }
+      subquery_has_update |= HasUpdate(*call_subquery->cypher_query_);
     } else if (utils::IsSubtype(clause_type, Unwind::kType)) {
       check_write_procedure("UNWIND");
       if (has_update || has_return) {
@@ -4711,10 +4709,13 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   auto *call_subquery = storage_->Create<CallSubquery>();
   call_subquery->optional_ = ctx->OPTIONAL() != nullptr;
 
-  MG_ASSERT(ctx->cypherQuery(), "Expected query inside subquery clause");
+  MG_ASSERT(ctx->cypherQuery() || ctx->conditionalQuery(), "Expected query inside subquery clause");
 
-  if (ctx->cypherQuery()->queryMemoryLimit()) {
+  if (ctx->cypherQuery() && ctx->cypherQuery()->queryMemoryLimit()) {
     throw SyntaxException("Memory limit cannot be set on subqueries!");
+  }
+  if (ctx->conditionalQuery() && ctx->LPAREN() == nullptr) {
+    throw SyntaxException("WHEN ... THEN ... is not allowed in 'CALL { ... }'. Use 'CALL () { ... }' instead.");
   }
 
   // Parse the explicit scope clause. Forms (Cypher 5):
@@ -4745,7 +4746,9 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     }
   }
 
-  call_subquery->cypher_query_ = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+  call_subquery->cypher_query_ = ctx->conditionalQuery()
+                                     ? VisitConditionalQuery(ctx->conditionalQuery()).query
+                                     : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
 
   PreQueryDirectives pre_query_directives;
   if (auto const *periodic_commit = ctx->periodicSubquery()) {
@@ -4762,6 +4765,61 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   }
 
   return call_subquery;
+}
+
+CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
+    MemgraphCypher::ConditionalQueryContext *ctx) {
+  auto *branches = storage_->Create<ConditionalBranches>();
+  auto *single_query = storage_->Create<SingleQuery>();
+  std::optional<ConditionalKind> kind;
+  auto const add_branch = [&](Where *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
+    auto const body = VisitConditionalBody(body_ctx);
+    if (kind && *kind != body.kind) {
+      throw SemanticException(
+          "All WHEN branches must return rows, update the graph, or be a standalone procedure call.");
+    }
+    kind = body.kind;
+    branches->branches_.push_back({.predicate = predicate, .body = body.query});
+    single_query->has_update |= HasUpdate(*body.query);
+  };
+  for (auto *branch_ctx : ctx->conditionalBranch()) {
+    auto *predicate = std::any_cast<Expression *>(branch_ctx->expression()->accept(this));
+    add_branch(storage_->Create<Where>(predicate), branch_ctx->conditionalBody());
+  }
+  if (ctx->ELSE()) {
+    add_branch(nullptr, ctx->conditionalBody());
+  }
+  single_query->clauses_.push_back(branches);
+  auto *cypher_query = storage_->Create<CypherQuery>();
+  cypher_query->single_query_ = single_query;
+  return {.query = cypher_query, .kind = *kind};
+}
+
+CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalBody(
+    MemgraphCypher::ConditionalBodyContext *ctx) {
+  if (ctx->conditionalQuery()) return VisitConditionalQuery(ctx->conditionalQuery());
+  auto *cypher_query = std::invoke([&] {
+    if (ctx->cypherQuery()) {
+      if (ctx->cypherQuery()->queryMemoryLimit()) {
+        throw SyntaxException("Memory limit cannot be set on subqueries!");
+      }
+      if (ctx->cypherQuery()->preQueryDirectives()) {
+        throw SyntaxException("USING cannot be put in a WHEN branch.");
+      }
+      return std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    }
+    auto *query = storage_->Create<CypherQuery>();
+    query->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
+    return query;
+  });
+  // `visitSingleQuery` already put RETURN last, and rejected a RETURN-less body that neither updates nor is a lone
+  // call.
+  auto const *last = cypher_query->single_query_->clauses_.back();
+  if (utils::IsSubtype(*last, Return::kType)) return {.query = cypher_query, .kind = ConditionalKind::kReturns};
+  const auto *call = utils::Downcast<const CallProcedure>(last);
+  if (!call) return {.query = cypher_query, .kind = ConditionalKind::kUpdates};
+  if (call->where_) throw SemanticException("Cannot use a standalone CALL with WHERE in a WHEN branch.");
+  return {.query = cypher_query, .kind = ConditionalKind::kStandaloneCall};
 }
 
 LabelIx CypherMainVisitor::AddLabel(const std::string &name) { return storage_->GetLabelIx(name); }

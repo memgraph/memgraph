@@ -10136,6 +10136,134 @@ std::string RollUpApply::ToString(const DbAccessor * /*dba*/) const {
   LOG_FATAL("Unhandled RollUpApply fold");
 }
 
+Conditional::Conditional(std::shared_ptr<LogicalOperator> input, std::vector<Branch> branches,
+                         std::vector<Symbol> output_symbols)
+    : input_(input ? std::move(input) : std::make_shared<Once>()),
+      branches_(std::move(branches)),
+      output_symbols_(std::move(output_symbols)) {
+  DMG_ASSERT(!branches_.empty(), "A conditional needs at least one branch.");
+  DMG_ASSERT(std::ranges::all_of(branches_ | std::views::take(branches_.size() - 1),
+                                 [](const auto &branch) { return branch.predicate != nullptr; }),
+             "Only the last conditional branch may be an ELSE.");
+}
+
+bool Conditional::Accept(HierarchicalLogicalOperatorVisitor &visitor) {
+  if (visitor.PreVisit(*this)) {
+    input_->Accept(visitor);
+    for (const auto &branch : branches_) {
+      for (const auto &fold : branch.pattern_filters) fold->Accept(visitor);
+      branch.plan->Accept(visitor);
+    }
+  }
+  return visitor.PostVisit(*this);
+}
+
+UniqueCursorPtr Conditional::MakeCursor(utils::MemoryResource *mem,
+                                        metrics::DatabaseMetricHandles &metric_handles) const {
+  metric_handles.conditional_operator.Increment();
+  return MakeUniqueCursorPtr<ConditionalCursor>(mem, *this, mem, metric_handles);
+}
+
+std::vector<Symbol> Conditional::ModifiedSymbols(const SymbolTable &table) const {
+  auto symbols = input_->ModifiedSymbols(table);
+  symbols.insert(symbols.end(), output_symbols_.begin(), output_symbols_.end());
+  return symbols;
+}
+
+std::string Conditional::ToString(const DbAccessor * /*dba*/) const {
+  return fmt::format("Conditional {{{}}}",
+                     utils::IterableToString(output_symbols_, ", ", [](const auto &sym) { return sym.name(); }));
+}
+
+std::unique_ptr<LogicalOperator> Conditional::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<Conditional>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  for (const auto &branch : branches_) {
+    auto &cloned = object->branches_.emplace_back();
+    cloned.predicate = branch.predicate ? branch.predicate->Clone(storage) : nullptr;
+    for (const auto &fold : branch.pattern_filters) cloned.pattern_filters.push_back(fold->Clone(storage));
+    cloned.plan = branch.plan->Clone(storage);
+    cloned.columns = branch.columns;
+  }
+  object->output_symbols_ = output_symbols_;
+  return object;
+}
+
+Conditional::ConditionalCursor::ConditionalCursor(const Conditional &self, utils::MemoryResource *mem,
+                                                  metrics::DatabaseMetricHandles &metric_handles)
+    : self_(self), input_(self.input_->MakeCursor(mem, metric_handles)) {
+  branches_.reserve(self.branches_.size());
+  for (const auto &branch : self.branches_) {
+    branches_.push_back({.pattern_filters = MakeCursorVector(branch.pattern_filters, mem, metric_handles),
+                         .plan = branch.plan->MakeCursor(mem, metric_handles)});
+  }
+}
+
+namespace {
+/// A missing predicate (ELSE) is true; a null predicate value is not.
+bool IsPredicateTrue(ExpressionEvaluator &evaluator, Expression *predicate) {
+  if (!predicate) return true;
+  TypedValue const value = predicate->Accept(evaluator);
+  if (value.IsBool()) return value.ValueBool();
+  if (value.IsNull()) return false;
+  throw QueryRuntimeException("WHEN expected boolean expression, got {}.", value.type());
+}
+}  // namespace
+
+bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &context) {
+  const OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP_BY_REF(self_);
+
+  while (true) {
+    AbortCheck(context);
+    if (active_) {
+      auto const i = *active_;
+      if (branches_[i].plan->Pull(frame, context)) {
+        auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+        // A copy: under `RETURN *` `from` is an input symbol the body reads again on its next row.
+        for (const auto &[from, to] : self_.branches_[i].columns) {
+          frame_writer.Write(to, frame[from]);
+        }
+        return true;
+      }
+      active_.reset();
+    }
+
+    if (!input_->Pull(frame, context)) return false;
+
+    // Unlike a `Filter`, a predicate sees the writes earlier rows' branches made (View::NEW).
+    ExpressionEvaluator evaluator{
+        &frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops};
+    for (size_t i = 0; i < self_.branches_.size(); ++i) {
+      for (const auto &fold : branches_[i].pattern_filters) {
+        fold->Pull(frame, context);
+      }
+      if (IsPredicateTrue(evaluator, self_.branches_[i].predicate)) {
+        branches_[i].plan->Reset();
+        active_ = i;
+        break;
+      }
+    }
+  }
+}
+
+void Conditional::ConditionalCursor::Shutdown() {
+  input_->Shutdown();
+  for (const auto &branch : branches_) {
+    for (const auto &fold : branch.pattern_filters) fold->Shutdown();
+    branch.plan->Shutdown();
+  }
+}
+
+void Conditional::ConditionalCursor::Reset() {
+  active_.reset();
+  input_->Reset();
+  // A body is reset when its branch is taken; the folds are reset with the operator, as any child is.
+  for (const auto &branch : branches_) {
+    for (const auto &fold : branch.pattern_filters) fold->Reset();
+  }
+}
+
 PeriodicCommit::PeriodicCommit(std::shared_ptr<LogicalOperator> &&input, Expression *commit_frequency)
     : input_(input ? std::move(input) : std::make_shared<Once>()), commit_frequency_(commit_frequency) {}
 

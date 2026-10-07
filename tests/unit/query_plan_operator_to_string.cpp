@@ -11,6 +11,8 @@
 
 #include <gtest/gtest.h>
 
+#include <sstream>
+
 #include "disk_test_utils.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
@@ -901,4 +903,85 @@ TYPED_TEST(OperatorToStringTest, HashJoin) {
 
   std::string expected_string{"HashJoin {node1 : node2}"};
   EXPECT_EQ(last_op->ToString(&this->dba), expected_string);
+}
+
+/// `UNWIND [1] AS i CALL (i) { WHEN i = 1 AND EXISTS {...} THEN RETURN 10 AS x ELSE RETURN 20 AS x }`, or with
+/// `pattern_filters` as the predicate's folds.
+std::shared_ptr<Conditional> MakePrintedConditional(
+    AstStorage &storage, SymbolTable &symbol_table,
+    std::vector<std::shared_ptr<LogicalOperator>> pattern_filters = {}) {
+  auto i = symbol_table.CreateSymbol("i", true);
+  auto x = symbol_table.CreateSymbol("x", true);
+  auto exists = symbol_table.CreateSymbol("exists", true);
+  auto unwind = std::make_shared<plan::Unwind>(
+      nullptr, storage.Create<ListLiteral>(std::vector<Expression *>{storage.Create<PrimitiveLiteral>(1)}), i);
+  auto *predicate = storage.Create<EqualOperator>(storage.Create<Identifier>("i"), storage.Create<PrimitiveLiteral>(1));
+  if (pattern_filters.empty()) {
+    pattern_filters.push_back(std::make_shared<EvaluatePatternFilter>(nullptr, exists, Fold::kBool));
+  }
+  auto then = std::make_shared<Produce>(
+      nullptr,
+      std::vector<NamedExpression *>{storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(10))});
+  auto otherwise = std::make_shared<Produce>(
+      nullptr,
+      std::vector<NamedExpression *>{storage.Create<NamedExpression>("x", storage.Create<PrimitiveLiteral>(20))});
+  return std::make_shared<Conditional>(
+      unwind,
+      std::vector<Conditional::Branch>{{.predicate = predicate, .pattern_filters = pattern_filters, .plan = then},
+                                       {.plan = otherwise}},
+      std::vector<Symbol>{x});
+}
+
+TYPED_TEST(OperatorToStringTest, ConditionalPlan) {
+  auto conditional = MakePrintedConditional(this->storage, this->symbol_table);
+  std::stringstream out;
+  PrettyPrint(this->dba, conditional.get(), &out);
+  EXPECT_EQ(out.str(),
+            " * Conditional {x}\n"
+            " |\\ WHEN 0 EXISTS\n"
+            " | * EvaluatePatternFilter\n"
+            " | * Once\n"
+            " |\\ WHEN 0\n"
+            " | * Produce {x}\n"
+            " | * Once\n"
+            " |\\ ELSE\n"
+            " | * Produce {x}\n"
+            " | * Once\n"
+            " * Unwind\n"
+            " * Once\n");
+}
+
+TYPED_TEST(OperatorToStringTest, ConditionalPlanNamesFolds) {
+  // WHEN COUNT {...} > 0 AND size(COLLECT {...}) > 0 AND size([(n)--() | 1]) > 0
+  auto fold_symbol = this->GetSymbol("fold");
+  auto conditional = MakePrintedConditional(
+      this->storage,
+      this->symbol_table,
+      {std::make_shared<EvaluatePatternFilter>(nullptr, fold_symbol, Fold::kCount),
+       std::make_shared<EvaluatePatternFilter>(nullptr, fold_symbol, fold_symbol),
+       std::make_shared<RollUpApply>(
+           std::make_shared<Once>(), std::make_shared<Once>(), std::vector<Symbol>{fold_symbol}, fold_symbol)});
+  std::stringstream out;
+  PrettyPrint(this->dba, conditional.get(), &out);
+  EXPECT_EQ(out.str(),
+            " * Conditional {x}\n"
+            " |\\ WHEN 0 COUNT\n"
+            " | * EvaluatePatternFilter\n"
+            " | * Once\n"
+            " |\\ WHEN 0 COLLECT\n"
+            " | * EvaluatePatternFilter\n"
+            " | * Once\n"
+            " |\\ WHEN 0 pattern comprehension\n"
+            " | * RollUpApply (list)\n"
+            " | |\\ \n"
+            " | | * Once\n"
+            " | * Once\n"
+            " |\\ WHEN 0\n"
+            " | * Produce {x}\n"
+            " | * Once\n"
+            " |\\ ELSE\n"
+            " | * Produce {x}\n"
+            " | * Once\n"
+            " * Unwind\n"
+            " * Once\n");
 }

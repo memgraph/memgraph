@@ -111,6 +111,7 @@ PRE_VISIT(HashJoin)
 PRE_VISIT(PeriodicSubquery)
 
 PRE_VISIT(RollUpApply)
+PRE_VISIT(Conditional)
 
 #undef PRE_VISIT
 

@@ -433,6 +433,33 @@ class CostEstimator : public HierarchicalLogicalOperatorVisitor {
     return false;
   }
 
+  bool PreVisit(Conditional &op) override {
+    op.input_->Accept(*this);
+    // Taking a branch evaluates every predicate up to its own, then runs its body. The costliest such case bounds the
+    // cost, and the widest body bounds the rows.
+    double predicate_cost = 0.0;
+    double worst_cost = 0.0;
+    double total_cost = 0.0;
+    double worst_cardinality = 0.0;
+    for (auto const &branch : op.branches_) {
+      if (branch.predicate) {
+        double fold_cost = 0.0;
+        for (auto const &fold : branch.pattern_filters) {
+          fold_cost += EstimateCostOnBranch(&fold, scopes_.back()).cost;
+        }
+        predicate_cost += std::max(fold_cost, CostParam::kFilter);
+      }
+      auto const body = EstimateCostOnBranch(&branch.plan, scopes_.back());
+      auto const branch_cost = predicate_cost + body.cost;
+      worst_cost = std::max(worst_cost, branch_cost);
+      total_cost += branch_cost;
+      worst_cardinality = std::max(worst_cardinality, body.cardinality);
+    }
+    IncrementCost(worst_cost + CostParam::kConditionalTieBreak * total_cost);
+    cardinality_ *= !utils::ApproxEqualDecimal(worst_cardinality, 0.0) ? worst_cardinality : 1;
+    return false;
+  }
+
   bool PreVisit(Cartesian &op) override {
     // Get the cost of the main branch
     op.left_op_->Accept(*this);

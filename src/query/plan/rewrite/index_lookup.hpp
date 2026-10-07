@@ -856,6 +856,22 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  bool PreVisit(Conditional &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    auto const inherited = InheritedFor(op);
+    for (auto &branch : op.branches_) {
+      for (auto &fold : branch.pattern_filters) RewriteBranch(&fold, inherited);
+      RewriteBranch(&branch.plan, inherited);
+    }
+    return false;
+  }
+
+  bool PostVisit(Conditional &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   bool PreVisit(PeriodicCommit &op) override {
     prev_ops_.push_back(&op);
     return true;

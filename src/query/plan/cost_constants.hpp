@@ -34,6 +34,8 @@ inline constexpr double kUnwind{1.3};
 inline constexpr double kForeach{1.0};
 inline constexpr double kUnion{1.0};
 inline constexpr double kSubquery{1.0};
+// Share of every WHEN branch's cost added to the costliest, so plans that differ only in a cheaper branch do not tie.
+inline constexpr double kConditionalTieBreak{0.001};
 inline constexpr double kOrderBy{1.0};
 inline constexpr double kOrderByMinCardinality{
     2.0};  // floor so log2 >= 1; prevents sort appearing free on empty tables

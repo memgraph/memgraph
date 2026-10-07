@@ -697,6 +697,20 @@ auto GetCallSubqueryScopedAll(AstStorage &storage, TSubquery *subquery) {
   return call_subquery;
 }
 
+// `WHEN p0 THEN b0 ... [ELSE b]`, the whole body of a scoped `CALL`; a null predicate is `ELSE`.
+auto GetConditionalBranches(AstStorage &storage, const std::vector<std::pair<Expression *, SingleQuery *>> &branches) {
+  auto *conditional = storage.Create<memgraph::query::ConditionalBranches>();
+  for (auto [predicate, body] : branches) {
+    auto *query = storage.Create<CypherQuery>();
+    query->single_query_ = body;
+    conditional->branches_.push_back(
+        {.predicate = predicate ? storage.Create<memgraph::query::Where>(predicate) : nullptr, .body = query});
+  }
+  auto *single_query = storage.Create<SingleQuery>();
+  single_query->clauses_.push_back(conditional);
+  return single_query;
+}
+
 // `OPTIONAL CALL ... { ... }`. Composes with every `CALL` helper above, since the flag is orthogonal to the
 // scope clause.
 auto AsOptionalCall(memgraph::query::CallSubquery *call_subquery) {
@@ -956,6 +970,7 @@ auto GetCountPattern(AstStorage &storage, Pattern *pattern) {
 #define CALL_SUBQUERY_SCOPED(...) memgraph::query::test_common::GetCallSubqueryScoped(this->storage, __VA_ARGS__)
 #define CALL_SUBQUERY_SCOPED_ALL(...) memgraph::query::test_common::GetCallSubqueryScopedAll(this->storage, __VA_ARGS__)
 #define OPTIONAL_CALL(...) memgraph::query::test_common::AsOptionalCall(__VA_ARGS__)
+#define WHEN_BRANCHES(...) memgraph::query::test_common::GetConditionalBranches(this->storage, {__VA_ARGS__})
 #define PATTERN_COMPREHENSION(variable, pattern, filter, resultExpr) \
   this->storage.template Create<memgraph::query::PatternComprehension>(variable, pattern, filter, resultExpr)
 #define ENUM_VALUE(...) this->storage.template Create<memgraph::query::EnumValueAccess>(__VA_ARGS__)

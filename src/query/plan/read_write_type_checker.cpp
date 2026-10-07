@@ -141,6 +141,8 @@ bool ReadWriteTypeChecker::PreVisit(RollUpApply &op) {
   return false;
 }
 
+PRE_VISIT(Conditional, RWType::NONE, true)
+
 PRE_VISIT(AggregateParallel, RWType::NONE, true)
 PRE_VISIT(OrderByParallel, RWType::NONE, true)
 PRE_VISIT(ParallelMerge, RWType::NONE, true)
