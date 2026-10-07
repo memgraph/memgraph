@@ -1889,3 +1889,61 @@ TEST_F(StorageV2GcMetricsTest, PeriodicCommitBatchWithThrowingCallbackDoesNotSki
   }
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
+
+// The point index is rebuilt before the commit becomes visible and swapped in afterwards; a throwing callback must not
+// leave the swap undone.
+TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillSwapsInThePointIndex) {
+  auto const label = storage->NameToLabel("L");
+  auto const prop = storage->NameToProperty("p");
+  {
+    auto acc = storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreatePointIndex(label, prop).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto const point = ms::Point2d{ms::CoordinateReferenceSystem::Cartesian_2d, 1., 1.};
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(prop, ms::PropertyValue{point}).has_value());
+    acc->GetTransaction()->commit_callbacks_.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    EXPECT_TRUE(acc->TakePostCommitWarning().has_value());
+  }
+
+  auto reader = storage->Access(ms::READ);
+  size_t found = 0;
+  for (auto const &v : reader->PointVertices(label,
+                                             prop,
+                                             ms::CoordinateReferenceSystem::Cartesian_2d,
+                                             ms::PropertyValue{point},
+                                             ms::PropertyValue{0.5},
+                                             ms::PointDistanceCondition::INSIDE_AND_BOUNDARY)) {
+    (void)v;
+    ++found;
+  }
+  EXPECT_EQ(1, found);
+}
+
+// A non-2PC replica applies and finalizes in one step; a failing post-commit step must still leave a committed write.
+TEST_F(StorageV2GcMetricsTest, ReplicaApplyWithThrowingCallbackStillCommits) {
+  ms::Gid gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    gid = acc->CreateVertex().Gid();
+    acc->GetTransaction()->commit_callbacks_.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(ms::CommitArgs::make_replica_write(/*desired_commit_timestamp=*/100,
+                                                                              /*two_phase_commit=*/false,
+                                                                              [] {}))
+                    .has_value());
+    auto const warning = acc->TakePostCommitWarning();
+    ASSERT_TRUE(warning.has_value());
+    EXPECT_THAT(*warning, HasSubstr("callback failed"));
+  }
+
+  auto reader = storage->Access(ms::READ);
+  EXPECT_TRUE(reader->FindVertex(gid, ms::View::OLD).has_value());
+}
