@@ -26,13 +26,17 @@ void SessionRegistry::Register(std::string uuid, std::weak_ptr<TerminableSession
 }
 
 void SessionRegistry::Deregister(std::string_view uuid, TerminableSession const *self) {
-  const std::scoped_lock lock{mutex_};
-  auto it = sessions_.find(uuid);
-  if (it == sessions_.end()) return;
-  // Guard: a reused uuid must not let a stale session's dtor evict the current owner.
-  auto owner = it->second.lock();
-  if (owner == nullptr || owner.get() == self) {
-    sessions_.erase(it);
+  // Dropped after unlock: it may be the last ref, and ~Session re-enters Deregister.
+  std::shared_ptr<TerminableSession> owner;
+  {
+    const std::scoped_lock lock{mutex_};
+    auto it = sessions_.find(uuid);
+    if (it == sessions_.end()) return;
+    // Guard: a reused uuid must not let a stale session's dtor evict the current owner.
+    owner = it->second.lock();
+    if (owner == nullptr || owner.get() == self) {
+      sessions_.erase(it);
+    }
   }
 }
 

@@ -11,8 +11,13 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <functional>
+#include <iterator>
 #include <memory>
 #include <optional>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -77,8 +82,7 @@ namespace {
 // live transaction is left alone so the transaction runs to completion (a replica never aborts it); it releases the
 // database with its first query after the transaction ends, or is closed on a later tick once idle. A transaction
 // MAIN's FORCE drop already terminated does not protect its session.
-void CloseSessionsOnDroppingDatabases(
-    utils::Synchronized<std::unordered_set<Interpreter *>, utils::SpinLock> &interpreters) {
+void CloseSessionsOnDroppingDatabases(InterpreterSet &interpreters) {
   std::vector<std::string> to_close;
   interpreters.WithLock([&to_close](auto const &all) {
     for (auto *interpreter : all) {
@@ -124,107 +128,174 @@ bool TryTerminateInterpreter(Interpreter *interpreter, ShouldKill &&should_kill)
   return killed;
 }
 
-/// A caller may kill a transaction it owns, or any transaction on a database it holds
-/// TRANSACTION_MANAGEMENT for.
-bool MayTerminate(Interpreter const *interpreter, QueryUserOrRole *user_or_role,
-                  std::function<bool(QueryUserOrRole *, std::string const &)> const &privilege_checker) {
-  // user_or_role_ is owning-thread state; foreign_user_view_.load() snapshots it safely for cross-thread reads.
-  auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
-  if (SameUser(user_snapshot, user_or_role)) return true;
+/// What decides whether a caller may kill a target: owning the target, or holding the privilege on its database.
+struct TargetOwner {
+  bool same_user{false};
+  std::string db_name;
 
-  // Foreign thread: route through foreign_db_view() (takes db_acc_mutex_). The VERIFYING CAS in
-  // TryTerminateInterpreter does NOT order against SetCurrentDB, so an unlocked name() could tear
-  // against a concurrent USE DATABASE -- a use-after-free of the swapped-out DatabaseAccess.
-  auto const db_name = interpreter->current_db_.foreign_db_view().name;
-  return privilege_checker(user_or_role, db_name);
+  bool SameAuthorization(TargetOwner const &o) const {
+    return same_user == o.same_user && (same_user || db_name == o.db_name);
+  }
+};
+
+/// Call with `interpreters` locked. user_or_role_ is owning-thread state; foreign_user_view_.load() snapshots it
+/// safely. foreign_db_view() (not name()) because neither the VERIFYING CAS nor an IDLE target orders against
+/// SetCurrentDB, so a raw name() could tear against a concurrent USE DATABASE.
+TargetOwner ReadOwner(Interpreter const *interpreter, QueryUserOrRole *user_or_role, bool dbless_falls_back) {
+  TargetOwner owner;
+  owner.same_user = SameUser(interpreter->foreign_user_view_.load(std::memory_order_acquire), user_or_role);
+  owner.db_name = interpreter->current_db_.foreign_db_view().name;
+  if (dbless_falls_back && owner.db_name.empty()) owner.db_name = std::string{dbms::kDefaultDB};
+  return owner;
+}
+
+bool Authorized(TargetOwner const &owner, PrivilegeByDb &privilege_by_db) {
+  return owner.same_user || privilege_by_db(owner.db_name);
+}
+
+/// Phase 1: ACTIVE transactions (all, or only `wanted`) with their owner, read under the VERIFYING pin.
+std::unordered_map<uint64_t, TargetOwner> SnapshotTransactions(InterpreterSet &interpreters, Interpreter const *self,
+                                                               std::unordered_set<uint64_t> const *wanted,
+                                                               QueryUserOrRole *user_or_role) {
+  std::unordered_map<uint64_t, TargetOwner> snapshot;
+  interpreters.WithLock([&](auto const &all) {
+    for (Interpreter *interpreter : all) {
+      if (interpreter == self) continue;
+      auto const verifier = interpreter->TryAcquireForVerification();
+      if (!verifier || verifier->status() != TransactionStatus::ACTIVE) continue;
+      auto const id = interpreter->GetTransactionId();
+      if (!id || (wanted && !wanted->contains(*id))) continue;
+      snapshot.emplace(*id, ReadOwner(interpreter, user_or_role, false));
+    }
+  });
+  return snapshot;
+}
+
+/// Phases 2-3 shared by both transaction statements. Returns the ids actually killed.
+std::unordered_set<uint64_t> KillAuthorizedTransactions(InterpreterSet &interpreters, Interpreter const *self,
+                                                        std::unordered_set<uint64_t> const *wanted,
+                                                        QueryUserOrRole *user_or_role,
+                                                        PrivilegeChecker const &privilege_checker) {
+  auto const snapshot = SnapshotTransactions(interpreters, self, wanted, user_or_role);
+
+  PrivilegeByDb privilege_by_db{user_or_role, privilege_checker};
+  std::unordered_map<uint64_t, TargetOwner> authorized;
+  for (auto const &[id, owner] : snapshot) {
+    if (Authorized(owner, privilege_by_db)) {
+      authorized.emplace(id, owner);
+    } else {
+      spdlog::warn("Not enough rights to kill the transaction");
+    }
+  }
+
+  std::unordered_set<uint64_t> killed;
+  if (authorized.empty()) return killed;
+  interpreters.WithLock([&](auto const &all) {
+    for (Interpreter *interpreter : all) {
+      if (interpreter == self) continue;
+      TryTerminateInterpreter(interpreter, [&](uint64_t transaction_id) {
+        auto const it = authorized.find(transaction_id);
+        if (it == authorized.end()) return false;
+        // Re-read under the pin: the owner may have changed user or database since the snapshot.
+        if (!ReadOwner(interpreter, user_or_role, false).SameAuthorization(it->second)) return false;
+        killed.insert(transaction_id);
+        return true;
+      });
+    }
+  });
+  return killed;
 }
 
 }  // namespace
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
-    const std::unordered_set<Interpreter *> &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids,
-    QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker) {
-  auto not_found_midpoint = maybe_kill_transaction_ids.end();
-
+    InterpreterSet &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids, QueryUserOrRole *user_or_role,
+    PrivilegeChecker const &privilege_checker) {
   // Multiple simultaneous TERMINATE TRANSACTIONS aren't allowed
   // TERMINATE and SHOW TRANSACTIONS are mutually exclusive
-  for (Interpreter *interpreter : interpreters) {
-    TryTerminateInterpreter(interpreter, [&](uint64_t transaction_id) {
-      auto it = std::find(maybe_kill_transaction_ids.begin(), not_found_midpoint, transaction_id);
-      if (it == not_found_midpoint) return false;
+  std::unordered_set<uint64_t> const wanted(maybe_kill_transaction_ids.begin(), maybe_kill_transaction_ids.end());
+  auto killed = KillAuthorizedTransactions(interpreters, nullptr, &wanted, user_or_role, privilege_checker);
 
-      if (!MayTerminate(interpreter, user_or_role, privilege_checker)) {
-        spdlog::warn("Not enough rights to kill the transaction");
-        return false;
-      }
-      // Only authorized kills join the killed partition. An unauthorized match stays in the
-      // not-found partition so it reports killed=false and its existence isn't leaked.
-      --not_found_midpoint;
-      std::iter_swap(it, not_found_midpoint);
-      spdlog::warn("Transaction {} successfully killed", transaction_id);
-      return true;
-    });
+  // An unauthorized match reports killed=false like a missing id, so its existence isn't leaked. For a duplicated
+  // id only the first occurrence is the killed one. Not-killed rows come first, then killed rows, each in input order.
+  std::vector<std::vector<TypedValue>> not_killed_rows;
+  std::vector<std::vector<TypedValue>> killed_rows;
+  for (auto const id : maybe_kill_transaction_ids) {
+    if (killed.erase(id) != 0) {
+      killed_rows.push_back({TypedValue(std::to_string(id)), TypedValue(true)});
+      spdlog::warn("Transaction {} successfully killed", id);
+    } else {
+      not_killed_rows.push_back({TypedValue(std::to_string(id)), TypedValue(false)});
+      spdlog::warn("Transaction {} not found", id);
+    }
   }
 
-  std::vector<std::vector<TypedValue>> results;
-  for (auto it = maybe_kill_transaction_ids.begin(); it != not_found_midpoint; ++it) {
-    results.push_back({TypedValue(std::to_string(*it)), TypedValue(false)});
-    spdlog::warn("Transaction {} not found", *it);
-  }
-  for (auto it = not_found_midpoint; it != maybe_kill_transaction_ids.end(); ++it) {
-    results.push_back({TypedValue(std::to_string(*it)), TypedValue(true)});
-  }
-
+  auto results = std::move(not_killed_rows);
+  results.reserve(results.size() + killed_rows.size());
+  std::ranges::move(killed_rows, std::back_inserter(results));
   return results;
 }
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateAllTransactions(
-    const std::unordered_set<Interpreter *> &interpreters, Interpreter const *self, QueryUserOrRole *user_or_role,
-    std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker) {
-  std::vector<uint64_t> killed_transaction_ids;
-
-  for (Interpreter *interpreter : interpreters) {
-    // Terminating the issuing transaction would make its own commit throw, so the caller would
-    // never see which transactions it killed.
-    if (interpreter == self) continue;
-
-    TryTerminateInterpreter(interpreter, [&](uint64_t transaction_id) {
-      if (!MayTerminate(interpreter, user_or_role, privilege_checker)) {
-        spdlog::warn("Not enough rights to kill the transaction");
-        return false;
-      }
-      killed_transaction_ids.push_back(transaction_id);
-      spdlog::warn("Transaction {} successfully killed", transaction_id);
-      return true;
-    });
-  }
+    InterpreterSet &interpreters, Interpreter const *self, QueryUserOrRole *user_or_role,
+    PrivilegeChecker const &privilege_checker) {
+  // Terminating the issuing transaction would make its own commit throw, so the caller would
+  // never see which transactions it killed.
+  auto const killed = KillAuthorizedTransactions(interpreters, self, nullptr, user_or_role, privilege_checker);
 
   // Ids are handed out monotonically, so ascending id is oldest transaction first. Sort the
   // numbers rather than the formatted strings, which would order lexicographically.
+  std::vector<uint64_t> killed_transaction_ids(killed.begin(), killed.end());
   std::ranges::sort(killed_transaction_ids);
 
   std::vector<std::vector<TypedValue>> results;
   results.reserve(killed_transaction_ids.size());
   for (auto const transaction_id : killed_transaction_ids) {
     results.push_back({TypedValue(std::to_string(transaction_id)), TypedValue(true)});
+    spdlog::warn("Transaction {} successfully killed", transaction_id);
   }
 
   return results;
 }
 
-TerminateSessionsResult InterpreterContext::TerminateSessions(
-    const std::unordered_set<Interpreter *> &interpreters, const std::vector<std::string> &session_ids,
-    QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker,
-    std::string_view caller_session_uuid) {
+TerminateSessionsResult InterpreterContext::TerminateSessions(InterpreterSet &interpreters,
+                                                              const std::vector<std::string> &session_ids,
+                                                              QueryUserOrRole *user_or_role,
+                                                              PrivilegeChecker const &privilege_checker,
+                                                              std::string_view caller_session_uuid) {
   TerminateSessionsResult result;
   result.rows.reserve(session_ids.size());
 
-  // Tracks uuids accepted for termination in this call. A duplicate occurrence of an already-accepted
-  // id is reported killed=false (mirrors the TERMINATE TRANSACTIONS convention), without re-authorizing
-  // or re-adding to to_close.
-  std::unordered_set<std::string> accepted_for_kill;
+  std::unordered_set<std::string> requested;
+  for (auto const &id : session_ids) {
+    if (!id.empty() && id != caller_session_uuid) requested.insert(id);
+  }
 
-  for (const auto &id : session_ids) {
+  // Phase 1: the targets by uuid. The shared_ptr keeps the login's SessionInfo alive so phase 3 can compare identity.
+  struct Target {
+    std::shared_ptr<const Interpreter::SessionInfo> session;
+    TargetOwner owner;
+  };
+
+  std::unordered_map<std::string, Target> snapshot;
+  interpreters.WithLock([&](auto const &all) {
+    for (Interpreter *interpreter : all) {
+      // A null snapshot means SetSessionInfo has not run yet (unauthenticated), so it cannot carry a non-empty uuid.
+      auto session = interpreter->foreign_session_view_.load(std::memory_order_acquire);
+      if (!session || session->uuid.empty() || !requested.contains(session->uuid)) continue;
+      // A dbless session has no tenant; kDefaultDB lets a default-db admin still terminate it.
+      auto owner = ReadOwner(interpreter, user_or_role, true);
+      auto uuid = session->uuid;
+      snapshot.emplace(std::move(uuid), Target{std::move(session), std::move(owner)});
+    }
+  });
+
+  // Phase 2: authorize without the lock. Rule order and logs are per input id.
+  PrivilegeByDb privilege_by_db{user_or_role, privilege_checker};
+  std::unordered_set<std::string> accepted_for_kill;
+  std::vector<std::optional<size_t>> accepted_row(session_ids.size());
+  for (size_t i = 0; i < session_ids.size(); ++i) {
+    auto const &id = session_ids[i];
     // A connection is registered into `interpreters` before authentication completes, so a mid-handshake
     // session carries an empty uuid; without this guard an empty id would match every such session at once.
     if (id.empty()) {
@@ -247,55 +318,60 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
       continue;
     }
 
-    Interpreter *target = nullptr;
-    for (Interpreter *interpreter : interpreters) {
-      // A null snapshot means SetSessionInfo has not run yet (unauthenticated), so it cannot carry a non-empty uuid.
-      auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
-      if (session_snapshot && !session_snapshot->uuid.empty() && session_snapshot->uuid == id) {
-        target = interpreter;
-        break;
-      }
-    }
-
-    if (!target) {
+    auto const it = snapshot.find(id);
+    if (it == snapshot.end()) {
       result.rows.push_back({TypedValue(id), TypedValue(false)});
       spdlog::warn("Session {} not found", id);
       continue;
     }
 
-    // foreign_db_view(), not name(): IDLE sessions can't be pinned by the ACTIVE→VERIFYING CAS, so a raw name()
-    // read would tear against a concurrent USE DATABASE — foreign_db_view() closes that memory-safety hole.
-    // Authorization is check-time-only: a target that runs USE DATABASE after this check is still terminated
-    // (termination is by session uuid, not by database), so at worst a session is closed against a database the
-    // caller no longer holds privilege on — an availability effect, not a data-access escalation. This is the
-    // same check-time property as the pre-existing TERMINATE TRANSACTIONS path.
-    auto const target_user_snapshot = target->foreign_user_view_.load(std::memory_order_acquire);
-    if (!SameUser(target_user_snapshot, user_or_role)) {
-      // A dbless session has no tenant; kDefaultDB lets a default-db admin still terminate it.
-      auto target_db = target->current_db_.foreign_db_view().name;
-      if (target_db.empty()) {
-        target_db = std::string{dbms::kDefaultDB};
-      }
-      if (!privilege_checker(user_or_role, target_db)) {
-        result.rows.push_back({TypedValue(id), TypedValue(false)});
-        spdlog::warn("Not enough rights to kill the session");
-        continue;
-      }
+    if (!Authorized(it->second.owner, privilege_by_db)) {
+      result.rows.push_back({TypedValue(id), TypedValue(false)});
+      spdlog::warn("Not enough rights to kill the session");
+      continue;
     }
-
-    TransactionStatus alive_status = TransactionStatus::ACTIVE;
-    if (target->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
-      target->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
-    }
-    // Unlike TerminateTransactions, a failed CAS here must NOT skip termination -- the primary target of this
-    // feature is an IDLE session, for which the CAS above is expected to fail.
-    // Mid-commit case: CAS fails because status is STARTED_COMMITTING (not ACTIVE) -- intentionally left to
-    // complete on the owning thread; we terminate the session, not the in-flight commit.
 
     accepted_for_kill.insert(id);
-    result.to_close.push_back(id);
+    accepted_row[i] = result.rows.size();
     result.rows.push_back({TypedValue(id), TypedValue(true)});
-    spdlog::warn("Session {} successfully killed", id);
+  }
+
+  // Phase 3: authorization was evaluated without the lock, so the kill only proceeds if the target is still the same
+  // login (every login publishes a fresh SessionInfo) with the same authorization key. The later RequestTermination
+  // is still by uuid.
+  std::unordered_set<std::string> confirmed;
+  if (!accepted_for_kill.empty()) {
+    interpreters.WithLock([&](auto const &all) {
+      for (Interpreter *interpreter : all) {
+        auto const session = interpreter->foreign_session_view_.load(std::memory_order_acquire);
+        if (!session || !accepted_for_kill.contains(session->uuid)) continue;
+        auto const &target = snapshot.at(session->uuid);
+        if (session.get() != target.session.get()) continue;
+        if (!ReadOwner(interpreter, user_or_role, true).SameAuthorization(target.owner)) continue;
+
+        TransactionStatus alive_status = TransactionStatus::ACTIVE;
+        if (interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
+          interpreter->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
+        }
+        // Unlike TerminateTransactions, a failed CAS here must NOT skip termination -- the primary target of this
+        // feature is an IDLE session, for which the CAS above is expected to fail.
+        // Mid-commit case: CAS fails because status is STARTED_COMMITTING (not ACTIVE) -- intentionally left to
+        // complete on the owning thread; we terminate the session, not the in-flight commit.
+        confirmed.insert(session->uuid);
+      }
+    });
+  }
+
+  for (size_t i = 0; i < session_ids.size(); ++i) {
+    if (!accepted_row[i]) continue;
+    auto const &id = session_ids[i];
+    if (confirmed.contains(id)) {
+      result.to_close.push_back(id);
+      spdlog::warn("Session {} successfully killed", id);
+    } else {
+      result.rows[*accepted_row[i]][1] = TypedValue(false);
+      spdlog::warn("Session {} not found", id);
+    }
   }
 
   return result;
