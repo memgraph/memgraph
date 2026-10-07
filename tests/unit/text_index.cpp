@@ -9,11 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fmt/format.h>
 #include <gtest/gtest.h>
 #include <spdlog/sinks/base_sink.h>
 #include <spdlog/spdlog.h>
 #include <sys/resource.h>
 #include <sys/types.h>
+#include <array>
 #include <csignal>
 #include <filesystem>
 #include <functional>
@@ -473,7 +475,6 @@ class ScopedRetryHook {
   std::shared_ptr<OnRetrySink> sink_;
 };
 
-constexpr std::string_view second_index = "test_index_2";
 constexpr std::string_view edge_index = "test_edge_index";
 
 }  // namespace
@@ -489,6 +490,16 @@ class TextIndexFaultTest : public TextIndexTest {
   size_t CountVertices(std::string_view index = test_index) const {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     return acc->TextIndexSearch(std::string{index}, "*", text_search_mode::ALL_PROPERTIES, default_config).size();
+  }
+
+  size_t CountTitle(std::string_view title) const {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    return acc
+        ->TextIndexSearch(test_index.data(),
+                          fmt::format("data.title:{}", title),
+                          text_search_mode::SPECIFIED_PROPERTIES,
+                          default_config)
+        .size();
   }
 
   void CommitEdge(std::string_view title) const {
@@ -507,10 +518,20 @@ class TextIndexFaultTest : public TextIndexTest {
         .size();
   }
 
-  void CreateSecondIndex() const {
+  size_t CountEdgeTitle(std::string_view title) const {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    return acc
+        ->SearchEdgeTextIndex(std::string{edge_index},
+                              fmt::format("data.text_prop:{}", title),
+                              text_search_mode::SPECIFIED_PROPERTIES,
+                              default_config)
+        .size();
+  }
+
+  void CreateNamedIndex(std::string_view name) const {
     auto acc = this->storage->UniqueAccess();
     const auto label = acc->NameToLabel(test_label.data());
-    ASSERT_TRUE(acc->CreateTextIndex(TextIndexSpec{second_index.data(), label, {}}).has_value());
+    ASSERT_TRUE(acc->CreateTextIndex(TextIndexSpec{std::string{name}, label, {}}).has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
@@ -527,21 +548,6 @@ class TextIndexFaultTest : public TextIndexTest {
                                                            std::vector{acc->NameToProperty("text_prop")}})
                     .has_value());
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
-  }
-
-  void RunOneIndexFails(std::string_view broken, std::string_view healthy) const {
-    this->CreateIndex();
-    this->CreateSecondIndex();
-    this->CommitVertex("before");
-
-    std::filesystem::remove_all(std::filesystem::path{Config{}.durability.storage_directory} / kTextIndicesDirectory /
-                                broken);
-    // A failing index must neither throw out of the commit nor stop the other index from being updated.
-    this->CommitVertex("after");
-
-    EXPECT_EQ(this->CountVertices(healthy), 2);
-    EXPECT_THROW(this->CountVertices(broken), memgraph::storage::TextSearchException);
-    this->DropIndexByName(second_index);
   }
 };
 
@@ -561,6 +567,7 @@ TEST_F(TextIndexFaultTest, FailedCommitIsRetriedAndIndexRecovers) {
   }
 
   EXPECT_EQ(this->CountVertices(), 2);
+  EXPECT_EQ(this->CountTitle("during"), 1);
   this->CommitVertex("after");
   EXPECT_EQ(this->CountVertices(), 3);
 }
@@ -569,9 +576,14 @@ TEST_F(TextIndexFaultTest, PersistentFailureMarksIndexOutOfSyncUntilRecreated) {
   this->CreateIndex();
   this->CommitVertex("before");
 
+  int retries = 0;
   {
+    const ScopedRetryHook hook([&] { ++retries; });
     const WriteFault fault;
     this->CommitVertex("during");
+    EXPECT_EQ(retries, 1);
+    this->CommitVertex("after");  // a dirty index is skipped, not retried
+    EXPECT_EQ(retries, 1);
   }
 
   {
@@ -581,16 +593,34 @@ TEST_F(TextIndexFaultTest, PersistentFailureMarksIndexOutOfSyncUntilRecreated) {
     EXPECT_THROW(acc->TextIndexAggregate(test_index.data(), "*", "{}"), memgraph::storage::TextSearchException);
     EXPECT_TRUE(acc->ApproximateVerticesTextCount(test_index).has_value());
   }
-  this->CommitVertex("after");  // a dirty index is skipped, not retried
 
   this->DropIndexByName(test_index);
   this->CreateIndex();
   EXPECT_EQ(this->CountVertices(), 3);
 }
 
-TEST_F(TextIndexFaultTest, FailingIndexDoesNotSkipTheNext) { this->RunOneIndexFails(test_index, second_index); }
+// Iteration order over the indices is unspecified, so several healthy ones make an early exit on the broken one
+// observable whatever its position.
+TEST_F(TextIndexFaultTest, FailingIndexDoesNotSkipTheOthers) {
+  constexpr std::string_view broken = "broken_index";
+  constexpr std::array<std::string_view, 3> extra_healthy = {"healthy_1", "healthy_2", "healthy_3"};
+  this->CreateIndex();
+  this->CreateNamedIndex(broken);
+  for (const auto name : extra_healthy) this->CreateNamedIndex(name);
+  this->CommitVertex("before");
 
-TEST_F(TextIndexFaultTest, FailingSecondIndexDoesNotSkipTheFirst) { this->RunOneIndexFails(second_index, test_index); }
+  std::filesystem::remove_all(std::filesystem::path{Config{}.durability.storage_directory} / kTextIndicesDirectory /
+                              broken);
+  // A failing index must neither throw out of the commit nor stop the others from being updated.
+  this->CommitVertex("after");
+
+  EXPECT_EQ(this->CountVertices(test_index), 2);
+  for (const auto name : extra_healthy) EXPECT_EQ(this->CountVertices(name), 2);
+  EXPECT_THROW(this->CountVertices(broken), memgraph::storage::TextSearchException);
+
+  this->DropIndexByName(broken);
+  for (const auto name : extra_healthy) this->DropIndexByName(name);
+}
 
 TEST_F(TextIndexFaultTest, TextEdgeIndexRetriesThenGoesOutOfSync) {
   this->CreateEdgeIndex();
@@ -607,6 +637,9 @@ TEST_F(TextIndexFaultTest, TextEdgeIndexRetriesThenGoesOutOfSync) {
     EXPECT_TRUE(retried);
   }
   EXPECT_EQ(this->CountEdges(), 2);
+  EXPECT_EQ(this->CountEdgeTitle("during"), 1);
+  this->CommitEdge("after");  // index is not dirty: later commits are still applied
+  EXPECT_EQ(this->CountEdges(), 3);
 
   {
     const WriteFault fault;
@@ -619,28 +652,6 @@ TEST_F(TextIndexFaultTest, TextEdgeIndexRetriesThenGoesOutOfSync) {
                  memgraph::storage::TextSearchException);
     EXPECT_TRUE(acc->ApproximateEdgesTextCount(edge_index).has_value());
   }
-
-  this->DropIndexByName(edge_index);
-}
-
-TEST_F(TextIndexFaultTest, FailedEdgeCommitIsRetriedAndIndexRecovers) {
-  this->CreateEdgeIndex();
-  this->CommitEdge("before");
-
-  {
-    WriteFault fault;
-    bool retried = false;
-    const ScopedRetryHook hook([&] {
-      retried = true;
-      fault.Lift();
-    });
-    this->CommitEdge("during");
-    EXPECT_TRUE(retried);
-  }
-
-  EXPECT_EQ(this->CountEdges(), 2);
-  this->CommitEdge("after");  // index is not dirty: later commits are still applied
-  EXPECT_EQ(this->CountEdges(), 3);
 
   this->DropIndexByName(edge_index);
 }
