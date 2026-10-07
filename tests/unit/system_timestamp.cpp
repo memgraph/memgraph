@@ -11,8 +11,13 @@
 
 #include <unistd.h>
 
+#include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <gtest/gtest.h>
 
@@ -100,6 +105,78 @@ TEST(SystemTimestamp, TxnMintedBeforePromotionCommitsAboveLastCommitted) {
     EXPECT_EQ(txn->timestamp(), 7);
   }
   EXPECT_EQ(system.LastCommittedSystemTimestamp(), 7);
+}
+
+// Replica writes race with promotion and minting; no MAIN commit may land at or below the last committed ts.
+TEST(SystemTimestamp, PromotionRacingMintAndCommitNeverCommitsAtOrBelowLastCommitted) {
+  constexpr uint64_t kReplicaWrites = 2000;
+  constexpr int kMinters = 4;
+  constexpr int kTxnsPerMinter = 200;
+
+  struct Commit {
+    uint64_t ts;
+    uint64_t lcts_before;
+  };
+
+  System system;
+  auto access = system.CreateSystemStateAccess();
+  std::atomic_bool go{false};
+  std::atomic_bool promoted{false};
+  std::vector<std::vector<Commit>> commits(kMinters);
+
+  std::thread writer([&] {
+    while (!go.load(std::memory_order_acquire)) std::this_thread::yield();
+    for (uint64_t i = 1; i <= kReplicaWrites; ++i) access.SetLastCommitedTS(i);
+  });
+  std::thread promoter([&] {
+    while (!go.load(std::memory_order_acquire)) std::this_thread::yield();
+    writer.join();
+    system.ResyncTimestampOnNextTransaction();
+    promoted.store(true, std::memory_order_release);
+  });
+  std::vector<std::thread> minters;
+  for (int m = 0; m < kMinters; ++m) {
+    minters.emplace_back([&, m] {
+      while (!go.load(std::memory_order_acquire)) std::this_thread::yield();
+      for (int i = 0; i < kTxnsPerMinter; ++i) {
+        auto txn = system.TryCreateTransaction(std::chrono::seconds{5});
+        while (!txn) txn = system.TryCreateTransaction(std::chrono::seconds{5});
+        txn->AddAction<NoopAction>();
+        if (!promoted.load(std::memory_order_acquire)) {
+          txn->Commit(DoLocal{});
+          continue;
+        }
+        auto const lcts_before = system.LastCommittedSystemTimestamp();
+        txn->Commit(DoNothing{});
+        commits[m].push_back({txn->timestamp(), lcts_before});
+      }
+    });
+  }
+  go.store(true, std::memory_order_release);
+  for (auto &t : minters) t.join();
+  promoter.join();
+
+  // Guarantees the test is never vacuous.
+  {
+    auto txn = system.TryCreateTransaction(std::chrono::seconds{5});
+    ASSERT_TRUE(txn);
+    txn->AddAction<NoopAction>();
+    auto const lcts_before = system.LastCommittedSystemTimestamp();
+    txn->Commit(DoNothing{});
+    commits[0].push_back({txn->timestamp(), lcts_before});
+  }
+
+  std::vector<uint64_t> all;
+  for (auto const &per_thread : commits) {
+    for (auto const &c : per_thread) {
+      EXPECT_GT(c.ts, c.lcts_before);
+      EXPECT_GT(c.ts, kReplicaWrites);
+      all.push_back(c.ts);
+    }
+  }
+  std::ranges::sort(all);
+  EXPECT_EQ(std::ranges::adjacent_find(all), all.end());
+  EXPECT_EQ(system.LastCommittedSystemTimestamp(), all.back());
 }
 
 class SystemTimestampRestart : public ::testing::Test {
