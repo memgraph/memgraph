@@ -45,8 +45,13 @@ class RuntimeConfig {
   bool db_explicit_ = false;
 
  private:
+  // Best-effort return to the login user + default db after a failed Configure(); never throws
+  void RestoreLoginIdentity();
+
   SessionHL *session_;
   std::optional<bolt_map_t> previous_run_time_info_;
+  auth::Auth::Epoch auth_epoch_{};
+  std::optional<std::string> impersonation_db_;  // db the impersonation grant is checked against
 };
 #endif
 
