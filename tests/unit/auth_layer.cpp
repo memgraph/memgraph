@@ -34,11 +34,7 @@ class AuthLayerTest : public ::testing::Test {
   void SetUp() override {
     memgraph::utils::EnsureDir(test_folder_);
     memgraph::license::global_license_checker.EnableTesting();
-#ifdef MG_ENTERPRISE
     auth_.emplace(test_folder_ / "auth", Auth::Config{}, &resources_);
-#else
-    auth_.emplace(test_folder_ / "auth", Auth::Config{});
-#endif
     layer_.emplace(*auth_);
   }
 
@@ -49,9 +45,7 @@ class AuthLayerTest : public ::testing::Test {
   }
 
   fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth_layer"};
-#ifdef MG_ENTERPRISE
   memgraph::utils::ResourceMonitoring resources_;
-#endif
   std::optional<SynchedAuth> auth_;
   std::optional<AuthLayer> layer_;
 };
@@ -187,7 +181,6 @@ TEST_F(AuthLayerTest, TheSinkIsUnboundOutsideTheTransactionsOwnCalls) {
   EXPECT_EQ(tx.pending_actions().size(), 1);
 }
 
-#ifdef MG_ENTERPRISE
 TEST_F(AuthLayerTest, DroppingAUserInATransactionHoldsItsResourcesUntilCommit) {
   // ResourceMonitoring is process-wide and has no rollback, so the release waits for the flush. GetUser creates on
   // miss, so presence is observed through the map's own reference rather than by looking the user up again.
@@ -208,7 +201,6 @@ TEST_F(AuthLayerTest, DroppingAUserInATransactionHoldsItsResourcesUntilCommit) {
   EXPECT_EQ(held.use_count(), 1) << "resources still held after COMMIT";
 }
 
-#ifdef MG_ENTERPRISE
 // A replica applies a whole auth transaction or none of it. These drive the same entry point the replication
 // handler uses, so the batch either lands complete or leaves the store as it was.
 TEST_F(AuthLayerTest, ApplyingABatchWritesEveryOperation) {
@@ -270,7 +262,7 @@ TEST_F(AuthLayerTest, ABatchToleratesAProfileDropThatNamesNothing) {
 }
 
 // The point of batching: an operation that throws part-way leaves the store exactly as it was, so a replica
-// never holds a prefix of a transaction. An empty username is rejected by User construction downstream.
+// never holds a prefix of a transaction. An operation that names no record is one the applier cannot honour.
 TEST_F(AuthLayerTest, AThrowingBatchLeavesTheStoreUntouched) {
   {
     ASSERT_TRUE(layer_->Lock()->AddUser("existing").has_value());
@@ -286,7 +278,6 @@ TEST_F(AuthLayerTest, AThrowingBatchLeavesTheStoreUntouched) {
   EXPECT_FALSE(locked->HasUser("alice")) << "a failed batch must not leave its earlier operations behind";
   EXPECT_TRUE(locked->HasUser("existing")) << "a failed batch must not disturb what was already there";
 }
-#endif
 
 TEST_F(AuthLayerTest, RecreatingADroppedUserKeepsItsResources) {
   {
@@ -322,7 +313,6 @@ TEST_F(AuthLayerTest, AbandoningATransactionLeavesDroppedUsersResourcesIntact) {
   EXPECT_EQ(held.use_count(), 2);
   EXPECT_TRUE(layer_->Lock()->HasUser("alice"));
 }
-#endif
 
 TEST_F(AuthLayerTest, CommitBatchesCollectedOperationsIntoOneAction) {
   memgraph::system::System system;

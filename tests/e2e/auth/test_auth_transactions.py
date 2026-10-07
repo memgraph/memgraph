@@ -164,12 +164,12 @@ def test_a_tenant_profile_read_does_not_hold_the_system_lock(cursor):
     execute(cursor, "BEGIN")
     assert any(row[0] == "tenant_held" for row in execute(cursor, "SHOW TENANT PROFILES"))
 
-    execute(other, "CREATE PROFILE tenant_elsewhere LIMIT sessions 1")
-    assert execute(cursor, "SHOW TENANT PROFILES")
+    execute(other, "CREATE TENANT PROFILE tenant_elsewhere LIMIT memory_limit 100MB")
+    assert any(row[0] == "tenant_elsewhere" for row in execute(cursor, "SHOW TENANT PROFILES"))
     execute(cursor, "COMMIT")
 
     execute(cursor, "DROP TENANT PROFILE tenant_held")
-    execute(cursor, "DROP PROFILE tenant_elsewhere")
+    execute(cursor, "DROP TENANT PROFILE tenant_elsewhere")
 
 
 def test_profile_writes_are_still_rejected_in_a_data_transaction(cursor):

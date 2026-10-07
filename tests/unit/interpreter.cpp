@@ -155,9 +155,6 @@ class InterpreterTest : public ::testing::Test {
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
 
-// Lab's connection-check / probe queries are constant RETURNs and take the accessor-free fast
-// path; presence of "graph_free" in the summary marks that no storage transaction was opened.
-// (The query is still planned and executed like any other, so it also records "plan_execution_time".)
 // A rejected nested BEGIN must leave the open transaction as it was. An auth transaction buffers its writes in the
 // interpreter, so clearing the interpreter on the way to the rejection would lose them and let COMMIT succeed.
 TYPED_TEST(InterpreterTest, NestedBeginKeepsAnOpenAuthTransaction) {
@@ -199,6 +196,9 @@ TYPED_TEST(InterpreterTest, MixingDataThenAuthFailsTheTransaction) {
   EXPECT_EQ(this->Interpret("MATCH (n) RETURN count(n)").GetResults()[0][0].ValueInt(), 0);
 }
 
+// Lab's connection-check / probe queries are constant RETURNs and take the accessor-free fast
+// path; presence of "graph_free" in the summary marks that no storage transaction was opened.
+// (The query is still planned and executed like any other, so it also records "plan_execution_time".)
 TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
   {
     auto stream = this->Interpret("RETURN 1 AS APP_INTERNAL_EXEC_VAR");
