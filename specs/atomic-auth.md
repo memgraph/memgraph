@@ -202,13 +202,14 @@ as section 7 says, avoids that.
 - **Per-user resource limits are outside the transaction.** They are
   process-wide and have no rollback. A user dropped inside a transaction keeps
   its limits until the transaction commits.
-- **Auth transactions are not counted in a database's commit or rollback
-  metrics.** Those count data transactions; an auth transaction never touches a
-  database.
+- **Auth transactions are not counted in a database's transaction metrics.**
+  The commit and rollback counters and the active-transactions gauge count data
+  transactions; an auth transaction never touches a database.
 - **Privilege changes do not reach sessions that are already connected.** A
   session checks its statements against the privileges it had when it
   authenticated, so a `REVOKE` or `DROP USER` takes effect on that session when
-  it reconnects, not at `COMMIT`. Triggers, streams, and transaction-management
+  it reconnects, not at `COMMIT`. `COMMIT` checks no privilege of its own: each
+  statement was checked when it ran. Triggers, streams, and transaction-management
   queries re-read privileges. This is existing behaviour, unchanged here.
 - **A commit can fail for a reason other than a conflict.** If another session
   holds the system lock for more than 100ms, the commit is refused with
