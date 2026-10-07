@@ -609,7 +609,21 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   commit_accessor.reset();
   if (mem_storage->wal_file_) {
-    mem_storage->FinalizeWalFile();
+    if (req.decision) {
+      // The txn is already committed on this replica; a WAL rollover failure must not make MAIN see a failed finalize.
+      try {
+        mem_storage->FinalizeWalFile();
+      } catch (std::exception const &e) {
+        spdlog::error("Replica committed txn with ldt {} but failed to finalize the WAL file: {}",
+                      req.durability_commit_timestamp,
+                      e.what());
+      } catch (...) {
+        spdlog::error("Replica committed txn with ldt {} but failed to finalize the WAL file: unknown exception",
+                      req.durability_commit_timestamp);
+      }
+    } else {
+      mem_storage->FinalizeWalFile();
+    }
   }
 
   storage::replication::FinalizeCommitRes const res(true);

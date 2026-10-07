@@ -11634,6 +11634,9 @@ void Interpreter::Commit() {
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
+  // Must be taken before the accessor is moved into the after-commit trigger task.
+  auto post_commit_warning = current_db_.db_transactional_accessor_->TakePostCommitWarning();
+
   std::optional<std::string> replication_error_msg;
   bool replication_error_committed = false;
   if (!maybe_commit_error) {
@@ -11733,6 +11736,15 @@ void Interpreter::Commit() {
     commit_notification_.emplace(SeverityLevel::WARNING,
                                  NotificationCode::SYNC_REPLICATION_FAILURE,
                                  ReplicationFailureMessage(*replication_error_msg));
+  }
+
+  if (post_commit_warning) {
+    auto message = fmt::format("The transaction was committed but a post-commit step failed: {}", *post_commit_warning);
+    if (commit_notification_) {
+      // Only one notification fits: use POST_COMMIT_FAILURE, fold the replication title into the message.
+      message = fmt::format("{} {}", commit_notification_->title, message);
+    }
+    commit_notification_.emplace(SeverityLevel::WARNING, NotificationCode::POST_COMMIT_FAILURE, std::move(message));
   }
 
   memgraph::logging::EmitSessionTraceEvent("Commit successfully finished!");

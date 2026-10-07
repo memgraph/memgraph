@@ -55,6 +55,7 @@ enum class NotificationCode : uint8_t {
 #endif
   SET_REPLICA,
   SYNC_REPLICATION_FAILURE,
+  POST_COMMIT_FAILURE,
   START_STREAM,
   START_ALL_STREAMS,
   STOP_STREAM,

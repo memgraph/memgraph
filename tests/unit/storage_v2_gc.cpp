@@ -13,8 +13,11 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
+#include <filesystem>
 #include <optional>
 #include <set>
+#include <stdexcept>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -22,10 +25,12 @@
 #include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/gc_status.hpp"
+#include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage_v2_gc_metrics_fixture.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
+using testing::HasSubstr;
 using testing::UnorderedElementsAre;
 
 namespace ms = memgraph::storage;
@@ -1795,4 +1800,152 @@ TEST(StorageV2Gc, ConcurrentDeleteAndGcUAFSmoke) {
     ASSERT_TRUE(vf.has_value());
     EXPECT_EQ(vf->OutEdges(ms::View::OLD)->edges.size(), 0);
   }
+}
+
+TEST(StorageV2CommitCallbacks, RunAllRunsEveryCallbackClearsAndRethrowsTheFirst) {
+  ms::CommitCallbacks callbacks;
+  std::vector<int> ran;
+  callbacks.Add([&](uint64_t) { ran.push_back(1); });
+  callbacks.Add([&](uint64_t) {
+    ran.push_back(2);
+    throw std::runtime_error("first");
+  });
+  callbacks.Add([&](uint64_t) {
+    ran.push_back(3);
+    throw std::logic_error("second");
+  });
+  callbacks.Add([&](uint64_t) { ran.push_back(4); });
+
+  EXPECT_THROW(callbacks.RunAll(1), std::runtime_error);
+  EXPECT_THAT(ran, testing::ElementsAre(1, 2, 3, 4));
+  EXPECT_TRUE(callbacks.callbacks_.empty());
+}
+
+// The callback throws after the transaction is visible; the commit must still complete (later callbacks, point index,
+// GC).
+TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillCompletesTheCommit) {
+  auto const label = storage->NameToLabel("L");
+  auto const prop = storage->NameToProperty("p");
+  {
+    auto acc = storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreatePointIndex(label, prop).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  auto older_reader = storage->Access(ms::READ);
+
+  auto const point = ms::Point2d{ms::CoordinateReferenceSystem::Cartesian_2d, 1., 1.};
+  ms::Gid gid;
+  bool second_callback_ran = false;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(prop, ms::PropertyValue{point}).has_value());
+    auto &callbacks = acc->GetTransaction()->commit_callbacks_;
+    callbacks.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
+    callbacks.Add([&](uint64_t) { second_callback_ran = true; });
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto const warning = acc->TakePostCommitWarning();
+    ASSERT_TRUE(warning.has_value());
+    EXPECT_THAT(*warning, HasSubstr("callback failed"));
+    EXPECT_FALSE(acc->TakePostCommitWarning().has_value());
+    EXPECT_TRUE(callbacks.callbacks_.empty());
+  }
+  EXPECT_TRUE(second_callback_ran);
+
+  {
+    auto reader = storage->Access(ms::READ);
+    EXPECT_TRUE(reader->FindVertex(gid, ms::View::OLD).has_value());
+    size_t found = 0;
+    for (auto const &v : reader->PointVertices(label,
+                                               prop,
+                                               ms::CoordinateReferenceSystem::Cartesian_2d,
+                                               ms::PropertyValue{point},
+                                               ms::PropertyValue{0.5},
+                                               ms::PointDistanceCondition::INSIDE_AND_BOUNDARY)) {
+      (void)v;
+      ++found;
+    }
+    EXPECT_EQ(1, found);
+  }
+
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(vertex->SetProperty(acc->NameToProperty("q"), ms::PropertyValue{1}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  older_reader.reset();
+
+  for (auto i = 0; i != 2; ++i) {
+    storage->FreeMemory();
+  }
+  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
+}
+
+// A batch's warning must not stop PeriodicCommit from releasing its deltas or committing the next batch.
+TEST_F(StorageV2GcMetricsTest, PeriodicCommitBatchWithThrowingCallbackDoesNotSkipTheNext) {
+  ms::Gid first_gid;
+  ms::Gid second_gid;
+  bool second_batch_callback_ran = false;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    first_gid = acc->CreateVertex().Gid();
+    acc->GetTransaction()->commit_callbacks_.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
+    ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    EXPECT_TRUE(acc->TakePostCommitWarning().has_value());
+
+    second_gid = acc->CreateVertex().Gid();
+    acc->GetTransaction()->commit_callbacks_.Add([&](uint64_t) { second_batch_callback_ran = true; });
+    ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    EXPECT_FALSE(acc->TakePostCommitWarning().has_value());
+  }
+  EXPECT_TRUE(second_batch_callback_ran);
+
+  {
+    auto reader = storage->Access(ms::READ);
+    EXPECT_TRUE(reader->FindVertex(first_gid, ms::View::OLD).has_value());
+    EXPECT_TRUE(reader->FindVertex(second_gid, ms::View::OLD).has_value());
+  }
+
+  for (auto i = 0; i != 2; ++i) {
+    storage->FreeMemory();
+  }
+  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
+}
+
+// Non-2PC replica apply finalizes in one step and must still commit. Needs a WAL, else the replica-apply branch is
+// never reached.
+TEST(StorageV2CommitCallbacks, ReplicaApplyWithThrowingCallbackStillCommits) {
+  auto const dir = std::filesystem::temp_directory_path() / "storage_v2_gc_replica_apply";
+  std::filesystem::remove_all(dir);
+  ms::Config config;
+  ms::UpdatePaths(config, dir);
+  config.durability.snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  config.durability.snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours{1}};
+  config.gc = {.type = ms::Config::Gc::Type::NONE};
+  {
+    ms::InMemoryStorage storage{config};
+    ms::Gid gid;
+    {
+      auto acc = storage.Access(ms::WRITE);
+      gid = acc->CreateVertex().Gid();
+      acc->GetTransaction()->commit_callbacks_.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
+
+      ASSERT_TRUE(acc->PrepareForCommitPhase(ms::CommitArgs::make_replica_write(/*desired_commit_timestamp=*/100,
+                                                                                /*two_phase_commit=*/false,
+                                                                                [] {}))
+                      .has_value());
+      auto const warning = acc->TakePostCommitWarning();
+      ASSERT_TRUE(warning.has_value());
+      EXPECT_THAT(*warning, HasSubstr("callback failed"));
+    }
+
+    auto reader = storage.Access(ms::READ);
+    EXPECT_TRUE(reader->FindVertex(gid, ms::View::OLD).has_value());
+  }
+  std::filesystem::remove_all(dir);
 }

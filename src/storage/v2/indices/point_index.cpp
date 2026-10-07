@@ -205,12 +205,12 @@ std::shared_ptr<PointIndex const> PointIndexStorage::DropPointIndex(LabelId labe
   return evicted;
 }
 
-void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context,
-                                             ActiveIndicesUpdater const &updater) {
+auto PointIndexStorage::BuildNewPointIndex(PointIndexChangeCollector &collector, PointIndexContext &context)
+    -> PreparedPointIndex {
   if (!context.UsingLocalIndex() && !collector.CurrentChanges().AnyChanges()) {
     // Hence TXN didn't do AdvanceCommand that required new private local index
     // no modification during the last command to require new index now
-    return;
+    return {};
   }
 
   auto noOtherIndexUpdate = indexes_ == context.orig_indexes_;
@@ -219,15 +219,18 @@ void PointIndexStorage::InstallNewPointIndex(PointIndexChangeCollector &collecto
     //    if (!context.UsingLocalIndex() && context.orig_indexes_.use_count() == 3) { /* ??? */}
     //    3 becasue indexes_ + orig_indexes_ + current_indexes_ should be the only references
     context.update_current(collector);
-    indexes_ = context.current_indexes_;
   } else {
     // Another txn made a commit, we need to build from indexes_ + all collected changes (even from AdvanceCommand)
     // TODO: make a special case for inplace modification
     //    if (indexes_.use_count() == 1) { /* ??? */ }
     context.rebuild_current(indexes_, collector);
-    indexes_ = context.current_indexes_;
-  };
+  }
+  return PreparedPointIndex{context.current_indexes_};
+}
 
+void PointIndexStorage::SwapInPointIndex(PreparedPointIndex &&prepared, ActiveIndicesUpdater const &updater) {
+  if (!prepared) return;
+  indexes_ = std::move(prepared.indexes);
   PublishActiveIndices(updater);
 }
 

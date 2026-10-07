@@ -5821,3 +5821,46 @@ TEST_F(DurabilityTest, EdgeMetadataConsistentAfterSnapshotThenWalDelete) {
   }
   db.storage()->FreeMemory();
 }
+
+// Once a transaction is in the WAL it is committed: a failure in what follows (replication, WAL finalization) must
+// neither abort it nor leave live state behind what a restart recovers.
+TEST_P(DurabilityTest, CommitFailingAfterWalWriteIsCommittedLiveAndRecovered) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = true,
+                     .snapshot_wal_mode =
+                         memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                     .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                     .wal_file_flush_every_n_tx = 1},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+
+  nlohmann::json live_schema;
+  {
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *store = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+    store->test_hook_after_wal_commit_ = [] { throw std::bad_alloc{}; };
+
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      auto vertex = acc->CreateVertex();
+      ASSERT_TRUE(vertex.AddLabel(acc->NameToLabel("L")).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      EXPECT_TRUE(acc->TakePostCommitWarning().has_value());
+    }
+    store->test_hook_after_wal_commit_ = nullptr;
+
+    EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 1);
+    live_schema = store->schema_info_.ToJson(*store->name_id_mapper_, store->enum_store_);
+    ASSERT_EQ(live_schema["nodes"].size(), 1);
+    EXPECT_EQ(live_schema["nodes"][0]["count"], 1);
+  }
+
+  memgraph::dbms::Database db{config};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  auto *store = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 1);
+  auto const recovered_schema = store->schema_info_.ToJson(*store->name_id_mapper_, store->enum_store_);
+  EXPECT_TRUE(ConfrontJSON(live_schema, recovered_schema));
+}

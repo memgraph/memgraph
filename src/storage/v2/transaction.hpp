@@ -58,11 +58,19 @@ struct CommitCallbacks {
 
   void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
 
+  // Every callback runs and the list is always cleared, so one throwing callback can't skip the
+  // rest (they publish already-committed state). The first exception is rethrown afterwards.
   void RunAll(uint64_t commit_timestamp) {
+    std::exception_ptr first_error;
     for (auto &callback : callbacks_) {
-      callback(commit_timestamp);
+      try {
+        callback(commit_timestamp);
+      } catch (...) {
+        if (!first_error) first_error = std::current_exception();
+      }
     }
     callbacks_.clear();
+    if (first_error) std::rethrow_exception(first_error);
   }
 
   std::vector<std::function<void(uint64_t)>> callbacks_;

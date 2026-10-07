@@ -92,6 +92,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "SetReplica"sv;
     case NotificationCode::SYNC_REPLICATION_FAILURE:
       return "SyncReplicationFailure"sv;
+    case NotificationCode::POST_COMMIT_FAILURE:
+      return "PostCommitFailure"sv;
     case NotificationCode::START_STREAM:
       return "StartStream"sv;
     case NotificationCode::START_ALL_STREAMS:

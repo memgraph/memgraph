@@ -613,7 +613,13 @@ InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryStorage *storage,
     : Accessor(storage, override_isolation_level, std::move(guard)), config_(storage->config_.salient.items) {}
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(InMemoryAccessor &&other) noexcept
-    : Accessor(std::move(other)), config_(other.config_) {}
+    : Accessor(std::move(other)),
+      config_(other.config_),
+      wal_committed_(other.wal_committed_),
+      point_index_prepared_(other.point_index_prepared_),
+      pending_schema_node_(std::move(other.pending_schema_node_)),
+      prepared_point_index_(std::move(other.prepared_point_index_)),
+      post_commit_warning_(std::move(other.post_commit_warning_)) {}
 
 InMemoryStorage::InMemoryAccessor::~InMemoryAccessor() {
   if (is_transaction_active_) {
@@ -1108,6 +1114,17 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   DMG_ASSERT(!commit_args.replication_allowed() || durability_commit_timestamp == *commit_timestamp_,
              "on a main the durable commit timestamp must be the local one");
 
+  // Build whatever publishing needs and can throw before the point of no return (first WAL byte; 2PC flag flip).
+  // A STRICT_SYNC replica drops engine_lock_ before finalize, so it builds the point index there instead.
+  PrepareSchemaUpdate(durability_commit_timestamp);
+  bool replica_two_phase = false;
+  commit_args.apply_if_replica_write(
+      [&](bool two_phase_commit, uint64_t /*desired_commit_timestamp*/) { replica_two_phase = two_phase_commit; });
+  if (!replica_two_phase) {
+    PreparePointIndex();
+  }
+  wal_committed_ = false;
+
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
   if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
     FinalizeCommitPhase(durability_commit_timestamp);
@@ -1122,8 +1139,28 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // If main executes this: Block until we receive votes from all replicas.
   // If replica executes this:,
-  auto const repl_prepare_phase_ok =
-      HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
+  bool repl_prepare_phase_ok = false;
+  // A non-2PC commit is durable from its first WAL byte, so what throws afterwards (shipping, WAL rollover) must not
+  // abort it: publish, and surface the error as a warning instead.
+  auto const complete_after_wal_commit = [&](char const *what) {
+    if (!wal_committed_) throw;
+    // In a handler uncaught_exceptions() is 0, so the tracker could throw and skip the publish below.
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+    if (is_transaction_active_) {
+      FinalizeCommitPhase(durability_commit_timestamp);
+    }
+    RecordPostCommitWarning("replication or WAL finalization", what);
+  };
+  try {
+    repl_prepare_phase_ok = HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
+  } catch (std::exception const &e) {
+    // Not UpdateCommitTsInfo: which replicas failed is unknown.
+    complete_after_wal_commit(e.what());
+    return {};
+  } catch (...) {
+    complete_after_wal_commit("unknown exception");
+    return {};
+  }
 
   // If replica executes this
   bool const replica_write_was_applied =
@@ -1165,14 +1202,29 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
           // All replicas voted yes, hence they want to commit the current transaction
           FinalizeCommitPhase(durability_commit_timestamp);
         }
+        // The commit-flag flip inside FinalizeCommitPhase was the point of no return: from here a failure is only a
+        // warning, and the remaining steps still run so replicas get their finalize.
+        bool const committed = repl_prepare_phase_ok;
+        auto const run_step = [&](char const *step, auto &&fn) -> bool {
+          if (!committed) {
+            fn();
+            return true;
+          }
+          return RunPostCommitStep(step, fn);
+        };
         // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
 
         if (mem_storage->wal_file_) {
-          mem_storage->FinalizeWalFile();
+          run_step("WAL finalization", [&] { mem_storage->FinalizeWalFile(); });
         }
         // Send to all replicas they can finalize a transaction
-        replicating_txn.FinalizeTransaction(
-            repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
+        if (!run_step("replica finalization", [&] {
+              replicating_txn.FinalizeTransaction(
+                  repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
+            })) {
+          // Which replicas failed is unknown, so no failures and no commit-ts info.
+          return {};
+        }
 
         auto failures = replicating_txn.CollectAllFailures();
         // update replicas' cached commit info only if the txn was actually committed
@@ -1181,6 +1233,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         }
 
         if (!failures.empty()) {
+          DMG_ASSERT(!repl_prepare_phase_ok, "Aborting a transaction that already committed");
           // Release engine lock because we don't have to hold it anymore for abort
           engine_guard.unlock();
           AbortAndResetCommitTs();
@@ -1193,66 +1246,132 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   return *std::move(res);
 }
 
+void InMemoryStorage::InMemoryAccessor::PrepareSchemaUpdate(uint64_t const durability_commit_timestamp) {
+  if (!config_.enable_schema_info || !pending_schema_node_.empty()) return;
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  // Built in a scratch map so the queue node is allocated now and merely linked at publish time.
+  PendingSchemaUpdates scratch;
+  auto const it = scratch
+                      .emplace(durability_commit_timestamp,
+                               SchemaUpdateData(std::move(transaction_.schema_diff_),
+                                                std::move(transaction_.post_process_),
+                                                transaction_.start_timestamp,
+                                                *commit_timestamp_,
+                                                mem_storage->config_.salient.items.properties_on_edges))
+                      .first;
+  pending_schema_node_ = scratch.extract(it);
+}
+
+void InMemoryStorage::InMemoryAccessor::PreparePointIndex() {
+  if (point_index_prepared_) return;
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  prepared_point_index_ = mem_storage->indices_.point_index_.BuildNewPointIndex(
+      transaction_.point_index_change_collector_, transaction_.point_index_ctx_);
+  point_index_prepared_ = true;
+}
+
+void InMemoryStorage::InMemoryAccessor::RecordPostCommitWarning(char const *const step,
+                                                                std::string_view const what) noexcept {
+  // Callers are post-point-of-no-return handlers: nothing here may propagate, whatever allocation or logging does.
+  utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+  try {
+    spdlog::error("Transaction committed, but post-commit step '{}' failed: {}", step, what);
+  } catch (...) {  // NOLINT(bugprone-empty-catch): logging is best-effort
+  }
+  if (post_commit_warning_) return;
+  try {
+    post_commit_warning_ =
+        fmt::format("The transaction was committed, but a post-commit step ('{}') failed: {}", step, what);
+  } catch (...) {
+    try {
+      post_commit_warning_ = "The transaction was committed, but a post-commit step failed";
+    } catch (...) {  // NOLINT(bugprone-empty-catch): out of memory even for the fallback; the log line remains
+    }
+  }
+}
+
 void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  if (config_.enable_schema_info) {
-    // Queue schema update instead of processing immediately. This ensures
-    // schema updates are processed in commit timestamp order, solving a race
-    // condition whereby a slow in-flight edge operation can be accidentally
-    // read by the schema processing code in a label modification.
-    std::lock_guard<std::mutex> const lock{mem_storage->schema_queue_mutex_};
-    mem_storage->pending_schema_updates_.emplace(
-        durability_commit_timestamp,
-        SchemaUpdateData(std::move(transaction_.schema_diff_),
-                         std::move(transaction_.post_process_),
-                         transaction_.start_timestamp,
-                         *commit_timestamp_,
-                         mem_storage->config_.salient.items.properties_on_edges));
-  }
+  // No-ops when PrepareForCommitPhase already built them; the 2PC replica builds them here, after its commit
+  // timestamp was re-minted, still before the flip below.
+  PrepareSchemaUpdate(durability_commit_timestamp);
+  PreparePointIndex();
 
   // We only need to update commit flag from false->true if we are running 2PC. In all other situations, the default
-  // is fine.
+  // is fine. This flip is the point of no return for 2PC.
   if (wal_txn_positions_.commit_flag_wal_position_ != 0 && needs_wal_update_) {
     mem_storage->wal_file_->UpdateCommitStatus(wal_txn_positions_);
   }
 
+  if (!pending_schema_node_.empty()) {
+    // Queue schema update instead of processing immediately. This ensures
+    // schema updates are processed in commit timestamp order, solving a race
+    // condition whereby a slow in-flight edge operation can be accidentally
+    // read by the schema processing code in a label modification.
+    // A replica re-mints the local commit timestamp between prepare and finalize.
+    pending_schema_node_.mapped().local_commit_ts = *commit_timestamp_;
+    std::lock_guard<std::mutex> const lock{mem_storage->schema_queue_mutex_};
+    // A duplicate key is ignored.
+    (void)mem_storage->pending_schema_updates_.insert(std::move(pending_schema_node_));
+  }
+
   MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
+  // Point of no return when there is no WAL file. Everything below must not throw out of this function: the
+  // transaction is visible, so the destructor must never Abort() it.
   transaction_.commit_info->timestamp.store(*commit_timestamp_, std::memory_order_release);
+  auto const mark_inactive = utils::OnScopeExit{[this]() noexcept { is_transaction_active_ = false; }};
+  // Under PERIODIC COMMIT / CALL IN TRANSACTIONS an OOM enabler can be live; the tracker must not throw here.
+  utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+
+  // Steps that mutate shared state (others' deltas, the schema queue, the commit log) die on failure: half-done is
+  // worse than down. All other steps go through RunPostCommitStep.
+  auto const run_or_die = [](char const *step, auto &&fn) {
+    try {
+      fn();
+    } catch (std::exception const &e) {
+      LOG_FATAL("Commit publish step '{}' failed after the transaction became visible: {}", step, e.what());
+    } catch (...) {
+      LOG_FATAL("Commit publish step '{}' failed after the transaction became visible", step);
+    }
+  };
 
   // If the transaction had non-sequential deltas (or another transaction propagated
   // the flag to us), we should re-establish the `has_uncommitted_non_sequential_deltas`
-  // flag on any vertices we've touched
-  bool const needs_vertex_flag_cleanup = std::invoke([&] -> bool {
-    auto guard = std::lock_guard{transaction_.commit_info->lock};
-    auto prior_state = std::exchange(transaction_.commit_info->non_seq_propagation, NonSeqPropagationState::HANDLED);
-    return transaction_.has_non_sequential_deltas || prior_state == NonSeqPropagationState::PENDING;
-  });
+  // flag on any vertices we've touched. If this fails, writers to those vertices get serialization
+  // errors until GC unlinks their deltas and clears the flag.
+  RunPostCommitStep("vertex flag cleanup", [&] {
+    bool const needs_vertex_flag_cleanup = std::invoke([&] -> bool {
+      auto guard = std::lock_guard{transaction_.commit_info->lock};
+      auto prior_state = std::exchange(transaction_.commit_info->non_seq_propagation, NonSeqPropagationState::HANDLED);
+      return transaction_.has_non_sequential_deltas || prior_state == NonSeqPropagationState::PENDING;
+    });
 
-  if (needs_vertex_flag_cleanup) {
-    std::unordered_set<Vertex *> vertices_to_check;
-    DeltaVertexCache delta_vertex_cache{transaction_.transaction_id};
-    for (Delta const &delta : transaction_.deltas) {
-      auto prev = delta.prev.Get();
-      if (prev.type == PreviousPtr::Type::VERTEX) {
-        vertices_to_check.insert(prev.vertex);
-      } else if (prev.type == PreviousPtr::Type::DELTA && IsDeltaNonSequential(delta)) {
-        Vertex *vertex = delta_vertex_cache.GetVertexFromDelta(&delta);
-        if (vertex != nullptr) {
-          vertices_to_check.insert(vertex);
+    if (needs_vertex_flag_cleanup) {
+      std::unordered_set<Vertex *> vertices_to_check;
+      DeltaVertexCache delta_vertex_cache{transaction_.transaction_id};
+      for (Delta const &delta : transaction_.deltas) {
+        auto prev = delta.prev.Get();
+        if (prev.type == PreviousPtr::Type::VERTEX) {
+          vertices_to_check.insert(prev.vertex);
+        } else if (prev.type == PreviousPtr::Type::DELTA && IsDeltaNonSequential(delta)) {
+          Vertex *vertex = delta_vertex_cache.GetVertexFromDelta(&delta);
+          if (vertex != nullptr) {
+            vertices_to_check.insert(vertex);
+          }
+        }
+      }
+
+      // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
+      for (Vertex *vertex : vertices_to_check) {
+        auto guard = std::unique_lock{vertex->lock};
+        if (vertex->has_uncommitted_non_sequential_deltas()) {
+          vertex->set_has_uncommitted_non_sequential_deltas(
+              HasUncommittedNonSequentialDeltas(vertex, transaction_.transaction_id));
         }
       }
     }
-
-    // NOLINTNEXTLINE(bugprone-nondeterministic-pointer-iteration-order)
-    for (Vertex *vertex : vertices_to_check) {
-      auto guard = std::unique_lock{vertex->lock};
-      if (vertex->has_uncommitted_non_sequential_deltas()) {
-        vertex->set_has_uncommitted_non_sequential_deltas(
-            HasUncommittedNonSequentialDeltas(vertex, transaction_.transaction_id));
-      }
-    }
-  }
+  });
 
 #ifndef NDEBUG
   auto const prev = mem_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
@@ -1266,10 +1385,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // update main's cached info
   atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
 
-  // Install the new point index, if needed
-  auto point_updater = mem_storage->indices_.MakeUpdater();
-  mem_storage->indices_.point_index_.InstallNewPointIndex(
-      transaction_.point_index_change_collector_, transaction_.point_index_ctx_, point_updater);
+  RunPostCommitStep("point index install", [&] {
+    auto point_updater = mem_storage->indices_.MakeUpdater();
+    mem_storage->indices_.point_index_.SwapInPointIndex(std::move(prepared_point_index_), point_updater);
+  });
 
   // Drop abort callbacks before running publishers: from this point on we are
   // committing — partially or fully — state that must NOT be undone by a later
@@ -1277,33 +1396,39 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // see an empty abort list rather than tearing down indices that were already
   // published.
   transaction_.abort_callbacks_.Clear();
-  transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
+  RunPostCommitStep("commit callbacks", [&] { transaction_.commit_callbacks_.RunAll(*commit_timestamp_); });
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
   if (transaction_.storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    transaction_.async_index_helper_.DispatchRequests(mem_storage->async_indexer_);
+    RunPostCommitStep("async index dispatch",
+                      [&] { transaction_.async_index_helper_.DispatchRequests(mem_storage->async_indexer_); });
   }
 
-  // Mark transaction as finished for commit ordering and MVCC visibility.
+  // Mark transaction as finished for commit ordering and MVCC visibility. Skipping it would pin the GC horizon.
   // NOTE: Schema updates may still be queued in pending_schema_updates_ with raw pointers to
   // vertices. A queued entry walks version chains down to its reconstruction boundary, so it
   // requires that nothing at or above that boundary is unlinked while it waits.
-  mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
+  run_or_die("commit log", [&] { mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp); });
 
   if (config_.enable_schema_info) {
-    mem_storage->ProcessPendingSchemaUpdates(durability_commit_timestamp);
+    // Drains other transactions' queued entries too, so a throw would lose them.
+    run_or_die("schema queue", [&] { mem_storage->ProcessPendingSchemaUpdates(durability_commit_timestamp); });
   }
 
-  CheckForFastDiscardOfDeltas();
+  // A throw while unlinking would free other transactions' still-linked deltas.
+  run_or_die("delta discard", [&] { CheckForFastDiscardOfDeltas(); });
   // Skip the virtual dispatch when the txn didn't touch any text/text-edge data
   // (the common case for the commit hot path).
   if (!transaction_.text_index_change_collector_.empty()) {
-    transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+    RunPostCommitStep("text index", [&] {
+      transaction_.active_indices_->text_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+    });
   }
   if (!transaction_.text_edge_index_change_collector_.empty()) {
-    transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+    RunPostCommitStep("text edge index", [&] {
+      transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+    });
   }
-  is_transaction_active_ = false;
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
@@ -1329,6 +1454,11 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   }
 
   FinalizeTransaction();
+
+  // A warning from this batch's commit stays for the caller; the next batch builds its own prepared state.
+  pending_schema_node_ = {};
+  prepared_point_index_ = {};
+  point_index_prepared_ = false;
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
@@ -3774,7 +3904,14 @@ void InMemoryStorage::FinalizeWalFile() {
     wal_unsynced_transactions_ = 0;
   }
   if (wal_file_->GetSize() / 1024 >= config_.durability.wal_file_size_kibibytes) {
-    wal_file_->FinalizeWal();
+    try {
+      wal_file_->FinalizeWal();
+    } catch (...) {
+      // A rollover that failed midway must not leave a closed file behind for the next commit to append to.
+      wal_file_.reset();
+      wal_unsynced_transactions_ = 0;
+      throw;
+    }
     wal_file_.reset();
     wal_unsynced_transactions_ = 0;
   } else {
@@ -4415,35 +4552,55 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // it still has the just-traversed deltas hot in cache. WAL commit order follows from engine_lock_.
   {
     durability::WalTxnDataPos positions;
-    // Append txn start delta and remember the position in the WAL file in which this delta is saved.
-    positions.commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(
-        durability_commit_timestamp, !two_phase_commit, original_access_type_);
-    for (auto const *md_delta : commands.metadata) {
-      EncodeMetadataDelta(mem_storage->wal_file_->encoder(), *md_delta, mem_storage, durability_commit_timestamp);
-      mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
-      commit_args.apply_cb_if_replica_write();
-    }
-    for (auto const &cmd : commands.data) {
-      if (cmd.edge != nullptr) {
-        mem_storage->wal_file_->AppendDelta(
-            *cmd.delta, cmd.edge, durability_commit_timestamp, mem_storage, cmd.in_vertex_gid, cmd.edge_type_id);
-      } else {
-        mem_storage->wal_file_->AppendDelta(*cmd.delta, cmd.vertex, durability_commit_timestamp, mem_storage);
+    // Non-2PC: the first WAL byte is the point of no return (recovery replays it), so OOM is blocked and any other
+    // failure is fail-stop. 2PC is not committed until the flag flips, so an exception there still aborts cleanly.
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+    auto const write_wal = [&] {
+      // Append txn start delta and remember the position in the WAL file in which this delta is saved.
+      positions.commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(
+          durability_commit_timestamp, !two_phase_commit, original_access_type_);
+      wal_committed_ = !two_phase_commit;
+      for (auto const *md_delta : commands.metadata) {
+        EncodeMetadataDelta(mem_storage->wal_file_->encoder(), *md_delta, mem_storage, durability_commit_timestamp);
+        mem_storage->wal_file_->UpdateStats(durability_commit_timestamp);
+        commit_args.apply_cb_if_replica_write();
       }
-      commit_args.apply_cb_if_replica_write();
+      for (auto const &cmd : commands.data) {
+        if (cmd.edge != nullptr) {
+          mem_storage->wal_file_->AppendDelta(
+              *cmd.delta, cmd.edge, durability_commit_timestamp, mem_storage, cmd.in_vertex_gid, cmd.edge_type_id);
+        } else {
+          mem_storage->wal_file_->AppendDelta(*cmd.delta, cmd.vertex, durability_commit_timestamp, mem_storage);
+        }
+        commit_args.apply_cb_if_replica_write();
+      }
+      // Add a delta that indicates that the transaction is fully written to the WAL
+      auto const txn_end_positions = mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
+      positions.crc_wal_pos_ = txn_end_positions.crc_wal_pos_;
+      positions.stored_crc_ = txn_end_positions.stored_crc_;
+    };
+    if (two_phase_commit) {
+      write_wal();
+    } else {
+      try {
+        write_wal();
+      } catch (std::exception const &e) {
+        LOG_FATAL("Failed to write a committing transaction to the WAL; stopping to keep the WAL consistent: {}",
+                  e.what());
+      } catch (...) {
+        LOG_FATAL("Failed to write a committing transaction to the WAL; stopping to keep the WAL consistent");
+      }
     }
-    // Add a delta that indicates that the transaction is fully written to the WAL
-    auto const txn_end_positions = mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
-    positions.crc_wal_pos_ = txn_end_positions.crc_wal_pos_;
-    positions.stored_crc_ = txn_end_positions.stored_crc_;
     // When committing immediately the WAL file must be finalized before transaction ends ship to replicas.
+    // The transaction is already in the WAL, so a rollover failure must not keep the replicas from shipping.
     if (!two_phase_commit) {
-      mem_storage->FinalizeWalFile();
+      RunPostCommitStep("WAL finalization", [&] { mem_storage->FinalizeWalFile(); });
     }
     wal_txn_positions_ = positions;
   }
   // Durability achieved: open the gate so the fused tasks may ship their transaction ends.
   wal_promise.set_value();
+  if (mem_storage->test_hook_after_wal_commit_) mem_storage->test_hook_after_wal_commit_();
 
   // Collects every fused task, so no worker is left borrowing this frame, and folds their results
   // into the replication failures (the collect_workers guard backstops the unwind paths). Encoding

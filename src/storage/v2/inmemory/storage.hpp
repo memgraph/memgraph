@@ -14,9 +14,11 @@
 #include <concepts>
 #include <cstdint>
 #include <list>
+#include <map>
 #include <memory>
 #include <optional>
 #include <ranges>
+#include <string>
 #include <string_view>
 #include <utility>
 #include "memory/db_arena_fwd.hpp"
@@ -162,6 +164,29 @@ class InMemoryStorage final : public Storage {
     EdgeTypeId edge_type;
   };
 
+  struct SchemaUpdateData {
+    LocalSchemaTracking schema_diff;
+    SchemaInfoPostProcess post_process;
+    uint64_t start_ts;
+    // The local mint, which is what identifies this transaction's own deltas. Not the durable
+    // timestamp, for the reason GetState gives.
+    uint64_t local_commit_ts;
+    bool property_on_edges;
+
+    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t local_commit,
+                     bool prop_on_edges)
+        : schema_diff(std::move(diff)),
+          post_process(std::move(post_proc)),
+          start_ts(start),
+          local_commit_ts(local_commit),
+          property_on_edges(prop_on_edges) {}
+  };
+
+  // Keyed on the durable commit timestamp, which orders the queue on a replica as well, since a
+  // replica applies transactions in its main's order.
+  using PendingSchemaUpdates = std::map<uint64_t, SchemaUpdateData, std::less<uint64_t>,
+                                        memory::DbAwareAllocator<std::pair<const uint64_t, SchemaUpdateData>>>;
+
   class InMemoryAccessor : public Storage::Accessor {
    private:
     friend class InMemoryStorage;
@@ -188,6 +213,27 @@ class InMemoryStorage final : public Storage {
     [[nodiscard]] auto HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     TransactionReplication &replicating_txn,
                                                     CommitArgs const &commit_args) -> bool;
+
+    // Allocation-prone publish state is built before the point of no return so that publishing after it cannot
+    // throw. Both are idempotent and consumed by FinalizeCommitPhase.
+    void PrepareSchemaUpdate(uint64_t durability_commit_timestamp);
+    void PreparePointIndex();
+
+    // Keeps the first message; later ones are only logged.
+    void RecordPostCommitWarning(char const *step, std::string_view what) noexcept;
+
+    // Runs a step past the point of no return: a failure is recorded as a warning, never propagated.
+    bool RunPostCommitStep(char const *step, auto &&fn) noexcept {
+      try {
+        fn();
+        return true;
+      } catch (std::exception const &e) {
+        RecordPostCommitWarning(step, e.what());
+      } catch (...) {
+        RecordPostCommitWarning(step, "unknown exception");
+      }
+      return false;
+    }
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -475,6 +521,10 @@ class InMemoryStorage final : public Storage {
     // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
     // independently of PrepareForCommitPhase.
     void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
+
+    std::optional<std::string> TakePostCommitWarning() override {
+      return std::exchange(post_commit_warning_, std::nullopt);
+    }
 
     /// @throw std::bad_alloc
     void Abort() override;
@@ -789,6 +839,12 @@ class InMemoryStorage final : public Storage {
     // Bookkeeping
     durability::WalTxnDataPos wal_txn_positions_;
     bool needs_wal_update_{false};
+    // Set once this transaction's WAL record is the first thing a restart would replay (non-2PC commit).
+    bool wal_committed_{false};
+    bool point_index_prepared_{false};
+    PendingSchemaUpdates::node_type pending_schema_node_;
+    PointIndexStorage::PreparedPointIndex prepared_point_index_;
+    std::optional<std::string> post_commit_warning_;
   };
 
   using Storage::Access;
@@ -892,6 +948,10 @@ class InMemoryStorage final : public Storage {
   [[nodiscard]] uint64_t EdgeStoreSize() const { return edges_.size(); }
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
+
+  // Test-only: runs in HandleDurabilityAndReplicate once the transaction is in the WAL. A throw from it behaves
+  // like a failure of replication or WAL finalization after the point of no return.
+  std::function<void()> test_hook_after_wal_commit_;
 
  private:
   /// @throw std::system_error
@@ -1150,29 +1210,7 @@ class InMemoryStorage final : public Storage {
                               utils::SpinLock>
       label_counts_;
 
-  struct SchemaUpdateData {
-    LocalSchemaTracking schema_diff;
-    SchemaInfoPostProcess post_process;
-    uint64_t start_ts;
-    // The local mint, which is what identifies this transaction's own deltas. Not the durable
-    // timestamp, for the reason GetState gives.
-    uint64_t local_commit_ts;
-    bool property_on_edges;
-
-    SchemaUpdateData(LocalSchemaTracking diff, SchemaInfoPostProcess post_proc, uint64_t start, uint64_t local_commit,
-                     bool prop_on_edges)
-        : schema_diff(std::move(diff)),
-          post_process(std::move(post_proc)),
-          start_ts(start),
-          local_commit_ts(local_commit),
-          property_on_edges(prop_on_edges) {}
-  };
-
-  // Keyed on the durable commit timestamp, which orders the queue on a replica as well, since a
-  // replica applies transactions in its main's order.
-  std::map<uint64_t, SchemaUpdateData, std::less<uint64_t>,
-           memory::DbAwareAllocator<std::pair<const uint64_t, SchemaUpdateData>>>
-      pending_schema_updates_;
+  PendingSchemaUpdates pending_schema_updates_;
   std::mutex schema_queue_mutex_;
   uint64_t last_processed_commit_ts_{0};
 
