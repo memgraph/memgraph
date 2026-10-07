@@ -4616,6 +4616,7 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   }
   // Durability achieved: open the gate so the fused tasks may ship their transaction ends.
   wal_promise.set_value();
+  if (mem_storage->test_hook_after_wal_commit_) mem_storage->test_hook_after_wal_commit_();
 
   // Collects every fused task, so no worker is left borrowing this frame, and folds their results
   // into the replication failures (the collect_workers guard backstops the unwind paths). Encoding

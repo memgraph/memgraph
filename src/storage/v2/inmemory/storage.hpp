@@ -936,6 +936,10 @@ class InMemoryStorage final : public Storage {
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
 
+  // Test-only: runs in HandleDurabilityAndReplicate once the transaction is in the WAL. A throw from it behaves
+  // like a failure of replication or WAL finalization after the point of no return.
+  std::function<void()> test_hook_after_wal_commit_;
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc

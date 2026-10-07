@@ -15,6 +15,7 @@
 #include <atomic>
 #include <optional>
 #include <set>
+#include <stdexcept>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -26,6 +27,7 @@
 #include "storage_v2_gc_metrics_fixture.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
+using testing::HasSubstr;
 using testing::UnorderedElementsAre;
 
 namespace ms = memgraph::storage;
@@ -1795,4 +1797,95 @@ TEST(StorageV2Gc, ConcurrentDeleteAndGcUAFSmoke) {
     ASSERT_TRUE(vf.has_value());
     EXPECT_EQ(vf->OutEdges(ms::View::OLD)->edges.size(), 0);
   }
+}
+
+TEST(StorageV2CommitCallbacks, RunAllRunsEveryCallbackClearsAndRethrowsTheFirst) {
+  ms::CommitCallbacks callbacks;
+  std::vector<int> ran;
+  callbacks.Add([&](uint64_t) { ran.push_back(1); });
+  callbacks.Add([&](uint64_t) {
+    ran.push_back(2);
+    throw std::runtime_error("first");
+  });
+  callbacks.Add([&](uint64_t) {
+    ran.push_back(3);
+    throw std::logic_error("second");
+  });
+  callbacks.Add([&](uint64_t) { ran.push_back(4); });
+
+  EXPECT_THROW(callbacks.RunAll(1), std::runtime_error);
+  EXPECT_THAT(ran, testing::ElementsAre(1, 2, 3, 4));
+  EXPECT_TRUE(callbacks.callbacks_.empty());
+}
+
+// A throwing commit callback runs after the transaction is visible, so the commit still has to finish: the later
+// callbacks run, the commit timestamp is marked finished and the GC horizon moves on.
+TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillCompletesTheCommit) {
+  auto older_reader = storage->Access(ms::READ);
+
+  ms::Gid gid;
+  bool second_callback_ran = false;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    gid = acc->CreateVertex().Gid();
+    auto &callbacks = acc->GetTransaction()->commit_callbacks_;
+    callbacks.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
+    callbacks.Add([&](uint64_t) { second_callback_ran = true; });
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    auto const warning = acc->TakePostCommitWarning();
+    ASSERT_TRUE(warning.has_value());
+    EXPECT_THAT(*warning, HasSubstr("callback failed"));
+    EXPECT_FALSE(acc->TakePostCommitWarning().has_value());
+    EXPECT_TRUE(callbacks.callbacks_.empty());
+  }
+  EXPECT_TRUE(second_callback_ran);
+
+  {
+    auto reader = storage->Access(ms::READ);
+    EXPECT_TRUE(reader->FindVertex(gid, ms::View::OLD).has_value());
+  }
+
+  // Later garbage, committed while the older reader still pins the horizon.
+  {
+    auto acc = storage->Access(ms::WRITE);
+    auto vertex = acc->FindVertex(gid, ms::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(vertex->SetProperty(acc->NameToProperty("p"), ms::PropertyValue{1}).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  older_reader.reset();
+
+  for (auto i = 0; i != 2; ++i) {
+    storage->FreeMemory();
+  }
+  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
+}
+
+// The warning of a batch must not keep PeriodicCommit from handing its deltas to GC and starting the next batch.
+TEST_F(StorageV2GcMetricsTest, PeriodicCommitBatchWithThrowingCallbackDoesNotSkipTheNext) {
+  ms::Gid first_gid;
+  ms::Gid second_gid;
+  {
+    auto acc = storage->Access(ms::WRITE);
+    first_gid = acc->CreateVertex().Gid();
+    acc->GetTransaction()->commit_callbacks_.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
+    ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    EXPECT_TRUE(acc->TakePostCommitWarning().has_value());
+
+    second_gid = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
+    EXPECT_FALSE(acc->TakePostCommitWarning().has_value());
+  }
+
+  {
+    auto reader = storage->Access(ms::READ);
+    EXPECT_TRUE(reader->FindVertex(first_gid, ms::View::OLD).has_value());
+    EXPECT_TRUE(reader->FindVertex(second_gid, ms::View::OLD).has_value());
+  }
+
+  for (auto i = 0; i != 2; ++i) {
+    storage->FreeMemory();
+  }
+  EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
