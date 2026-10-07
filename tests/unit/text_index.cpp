@@ -412,7 +412,7 @@ TEST_F(TextIndexTest, FuzzyDistanceAboveTwoThrows) {
 
 namespace {
 
-// Makes every file write in the process fail with EFBIG, which (unlike chmod) also applies to root.
+// Makes file-extending writes fail with EFBIG (SIGXFSZ ignored); unlike chmod, this also applies to root.
 class WriteFault {
  public:
   WriteFault() {
@@ -441,7 +441,7 @@ class WriteFault {
   bool active_{false};
 };
 
-// Invokes the callback when ApplyTrackedChanges logs that it is retrying a failed update.
+// Fires the callback when ApplyTrackedChanges logs its "retrying once" warning.
 class OnRetrySink final : public spdlog::sinks::base_sink<std::mutex> {
  public:
   explicit OnRetrySink(std::function<void()> on_retry) : on_retry_(std::move(on_retry)) {}
@@ -599,8 +599,7 @@ TEST_F(TextIndexFaultTest, PersistentFailureMarksIndexOutOfSyncUntilRecreated) {
   EXPECT_EQ(this->CountVertices(), 3);
 }
 
-// Iteration order over the indices is unspecified, so several healthy ones make an early exit on the broken one
-// observable whatever its position.
+// Iteration order is unspecified (absl::flat_hash_map), so several healthy indices expose an early exit anywhere.
 TEST_F(TextIndexFaultTest, FailingIndexDoesNotSkipTheOthers) {
   constexpr std::string_view broken = "broken_index";
   constexpr std::array<std::string_view, 3> extra_healthy = {"healthy_1", "healthy_2", "healthy_3"};
@@ -611,7 +610,6 @@ TEST_F(TextIndexFaultTest, FailingIndexDoesNotSkipTheOthers) {
 
   std::filesystem::remove_all(std::filesystem::path{Config{}.durability.storage_directory} / kTextIndicesDirectory /
                               broken);
-  // A failing index must neither throw out of the commit nor stop the others from being updated.
   this->CommitVertex("after");
 
   EXPECT_EQ(this->CountVertices(test_index), 2);
