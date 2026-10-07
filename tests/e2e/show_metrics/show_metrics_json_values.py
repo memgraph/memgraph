@@ -112,6 +112,8 @@ EXPECTED_JSON_METRICS = {
         "SuccessfulQuery",
         "WriteWriteConflicts",
         "TransientErrors",
+        "ReplicationFailuresCommitted",
+        "ReplicationFailuresAborted",
     },
     "QueryType": {
         "ReadQuery",
