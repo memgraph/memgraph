@@ -16,7 +16,6 @@
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -3323,50 +3322,47 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, WalDeathResilience) {
-#if defined(__SANITIZE_THREAD__) || __has_feature(thread_sanitizer)
-  GTEST_SKIP() << "fork() with TSAN is not supported when other threads are running";
-#endif
-  pid_t pid = fork();
-  if (pid == 0) {
-    // Create WALs.
-    {
-      memgraph::storage::Config config{
-
-          .durability = {.storage_directory = storage_directory,
-                         .snapshot_wal_mode =
-                             memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
-                         .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
-                         .wal_file_flush_every_n_tx = kFlushWalEvery},
-          .salient = {.items = {.properties_on_edges = GetParam(),
-                                .enable_schema_info = false,
-                                .storage_light_edge = GetParam().light_edge}},
-      };
-      memgraph::dbms::Database db{config};
-      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-      // Create one million vertices.
-      for (uint64_t i = 0; i < 1'000'000; ++i) {
-        auto acc = db.Access(memgraph::storage::WRITE);
-        acc->CreateVertex();
-        MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value(),
-                  "Couldn't commit transaction!");
+  // Writer runs in a re-exec'd child: fork()ing this multi-threaded binary can inherit a RocksDB pool mutex held
+  // by a parent-only thread and hang in Database -> KVStore.
+  auto const writer = [&] {
+    // Started before Database so the deadline also bounds a ctor hang; the 1s after the WAL appears lets the kill
+    // land mid-commit.
+    std::thread killer([this] {
+      auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+      while (GetWalsList().empty() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
       }
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      kill(getpid(), SIGKILL);
+    });
+    killer.detach();
+
+    memgraph::storage::Config config{
+
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = kFlushWalEvery},
+        .salient = {.items = {.properties_on_edges = GetParam(),
+                              .enable_schema_info = false,
+                              .storage_light_edge = GetParam().light_edge}},
+    };
+    memgraph::dbms::Database db{config};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+
+    for (;;) {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value(),
+                "Couldn't commit transaction!");
     }
-  } else if (pid > 0) {
-    // Wait for the child to open its WAL file, then let it write for a while before killing it. A fixed sleep is
-    // too short when the runner is slow.
-    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
-    while (GetWalsList().empty() && std::chrono::steady_clock::now() < deadline) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    std::this_thread::sleep_for(std::chrono::seconds(1));
-    int status;
-    EXPECT_EQ(waitpid(pid, &status, WNOHANG), 0);
-    EXPECT_EQ(kill(pid, SIGKILL), 0);
-    EXPECT_EQ(waitpid(pid, &status, 0), pid);
-    EXPECT_NE(status, 0);
-  } else {
-    LOG_FATAL("Couldn't create process to execute test!");
-  }
+  };
+
+  auto const prev_style = GTEST_FLAG_GET(death_test_style);
+  GTEST_FLAG_SET(death_test_style, "threadsafe");
+  EXPECT_EXIT(writer(), ::testing::KilledBySignal(SIGKILL), "");
+  GTEST_FLAG_SET(death_test_style, prev_style);
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
   ASSERT_EQ(GetBackupSnapshotsList().size(), 0);
