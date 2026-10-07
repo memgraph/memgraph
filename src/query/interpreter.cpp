@@ -11744,8 +11744,7 @@ void Interpreter::Commit() {
     if (commit_notification_) {
       message = fmt::format("{} {}", commit_notification_->title, message);
     }
-    commit_notification_.emplace(
-        SeverityLevel::WARNING, NotificationCode::SYNC_REPLICATION_FAILURE, std::move(message));
+    commit_notification_.emplace(SeverityLevel::WARNING, NotificationCode::POST_COMMIT_FAILURE, std::move(message));
   }
 
   memgraph::logging::EmitSessionTraceEvent("Commit successfully finished!");
