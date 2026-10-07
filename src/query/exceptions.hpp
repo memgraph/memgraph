@@ -348,6 +348,12 @@ class UserModificationInMulticommandTxException : public MulticommandTxException
   SPECIALIZE_GET_EXCEPTION_NAME(UserModificationInMulticommandTxException)
 };
 
+class TenantProfileInMulticommandTxException : public MulticommandTxException {
+ public:
+  TenantProfileInMulticommandTxException() : MulticommandTxException("Managing tenant profiles") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(TenantProfileInMulticommandTxException)
+};
+
 class MixedAuthAndDataTxException : public QueryException {
  public:
   MixedAuthAndDataTxException()

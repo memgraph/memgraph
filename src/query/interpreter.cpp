@@ -9917,7 +9917,7 @@ PreparedQuery PrepareTenantProfileQuery([[maybe_unused]] ParsedQuery parsed_quer
   // the statement runs, so nothing rolls it back. Reads carry no such risk and stay allowed, as they are
   // outside a transaction. Same rule as a user profile write, for the same reason.
   if (interpreter->in_explicit_transaction_ && IsTenantProfileWrite(query->action_)) {
-    throw UserModificationInMulticommandTxException();
+    throw TenantProfileInMulticommandTxException();
   }
 
   auto *db_handler = interpreter_context->dbms_handler;
