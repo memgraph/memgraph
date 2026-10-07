@@ -66,8 +66,7 @@ void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acc
 
   // The whole batch or none of it. AuthLayer::ApplyBatch runs the operations against an overlay, in the order
   // the transaction made them, and flushes once; anything failing part-way leaves the store untouched. A false
-  // return leaves the response unacknowledged, and the main then marks this replica behind and re-sends a full
-  // snapshot.
+  // return is answered with failure, and the main then marks this replica behind and re-sends a full snapshot.
   if (auth::AuthLayer{auth}.ApplyBatch(req.ops)) {
     res = UpdateAuthDataRes(true);
     spdlog::debug("UpdateAuthDataHandler: SUCCESS, {} operation(s)", req.ops.size());

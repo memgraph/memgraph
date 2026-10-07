@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <thread>
 #include <utility>
 
 #include "auth/auth.hpp"
@@ -21,7 +20,6 @@
 #include "license/license.hpp"
 #include "query/auth_query_handler.hpp"
 #include "utils/join_vector.hpp"
-#include "utils/logging.hpp"
 #include "utils/string.hpp"
 
 namespace memgraph::glue {
@@ -239,7 +237,6 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                            system::Transaction *system_tx) override;
 #endif
 
- private:
   /// Locked access, routed through the caller's transaction when there is one.
   auto Lock(memgraph::auth::AuthTransaction *auth_tx) { return layer_.Lock(auth_tx); }
 
