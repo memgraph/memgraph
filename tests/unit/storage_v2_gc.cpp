@@ -13,6 +13,8 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <chrono>
+#include <filesystem>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -1820,15 +1822,26 @@ TEST(StorageV2CommitCallbacks, RunAllRunsEveryCallbackClearsAndRethrowsTheFirst)
 }
 
 // A throwing commit callback runs after the transaction is visible, so the commit still has to finish: the later
-// callbacks run, the commit timestamp is marked finished and the GC horizon moves on.
+// callbacks run, the point index holds the write, the commit timestamp is marked finished and the GC horizon moves on.
 TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillCompletesTheCommit) {
+  auto const label = storage->NameToLabel("L");
+  auto const prop = storage->NameToProperty("p");
+  {
+    auto acc = storage->UniqueAccess();
+    ASSERT_TRUE(acc->CreatePointIndex(label, prop).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
   auto older_reader = storage->Access(ms::READ);
 
+  auto const point = ms::Point2d{ms::CoordinateReferenceSystem::Cartesian_2d, 1., 1.};
   ms::Gid gid;
   bool second_callback_ran = false;
   {
     auto acc = storage->Access(ms::WRITE);
-    gid = acc->CreateVertex().Gid();
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(prop, ms::PropertyValue{point}).has_value());
     auto &callbacks = acc->GetTransaction()->commit_callbacks_;
     callbacks.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
     callbacks.Add([&](uint64_t) { second_callback_ran = true; });
@@ -1845,6 +1858,17 @@ TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillCompletesTheCommit) {
   {
     auto reader = storage->Access(ms::READ);
     EXPECT_TRUE(reader->FindVertex(gid, ms::View::OLD).has_value());
+    size_t found = 0;
+    for (auto const &v : reader->PointVertices(label,
+                                               prop,
+                                               ms::CoordinateReferenceSystem::Cartesian_2d,
+                                               ms::PropertyValue{point},
+                                               ms::PropertyValue{0.5},
+                                               ms::PointDistanceCondition::INSIDE_AND_BOUNDARY)) {
+      (void)v;
+      ++found;
+    }
+    EXPECT_EQ(1, found);
   }
 
   // Later garbage, committed while the older reader still pins the horizon.
@@ -1852,7 +1876,7 @@ TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillCompletesTheCommit) {
     auto acc = storage->Access(ms::WRITE);
     auto vertex = acc->FindVertex(gid, ms::View::OLD);
     ASSERT_TRUE(vertex.has_value());
-    ASSERT_TRUE(vertex->SetProperty(acc->NameToProperty("p"), ms::PropertyValue{1}).has_value());
+    ASSERT_TRUE(vertex->SetProperty(acc->NameToProperty("q"), ms::PropertyValue{1}).has_value());
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
   older_reader.reset();
@@ -1863,10 +1887,12 @@ TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillCompletesTheCommit) {
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
-// The warning of a batch must not keep PeriodicCommit from handing its deltas to GC and starting the next batch.
+// The warning of a batch must not keep PeriodicCommit from handing its deltas to GC and committing the next batch,
+// whose own callbacks must still run.
 TEST_F(StorageV2GcMetricsTest, PeriodicCommitBatchWithThrowingCallbackDoesNotSkipTheNext) {
   ms::Gid first_gid;
   ms::Gid second_gid;
+  bool second_batch_callback_ran = false;
   {
     auto acc = storage->Access(ms::WRITE);
     first_gid = acc->CreateVertex().Gid();
@@ -1875,9 +1901,11 @@ TEST_F(StorageV2GcMetricsTest, PeriodicCommitBatchWithThrowingCallbackDoesNotSki
     EXPECT_TRUE(acc->TakePostCommitWarning().has_value());
 
     second_gid = acc->CreateVertex().Gid();
+    acc->GetTransaction()->commit_callbacks_.Add([&](uint64_t) { second_batch_callback_ran = true; });
     ASSERT_TRUE(acc->PeriodicCommit(memgraph::tests::MakeMainCommitArgs()).has_value());
     EXPECT_FALSE(acc->TakePostCommitWarning().has_value());
   }
+  EXPECT_TRUE(second_batch_callback_ran);
 
   {
     auto reader = storage->Access(ms::READ);
@@ -1891,60 +1919,35 @@ TEST_F(StorageV2GcMetricsTest, PeriodicCommitBatchWithThrowingCallbackDoesNotSki
   EXPECT_EQ(0, handles().unreleased_delta_objects.Value());
 }
 
-// The point index is rebuilt before the commit becomes visible and swapped in afterwards; a throwing callback must not
-// leave the swap undone.
-TEST_F(StorageV2GcMetricsTest, ThrowingCommitCallbackStillSwapsInThePointIndex) {
-  auto const label = storage->NameToLabel("L");
-  auto const prop = storage->NameToProperty("p");
-  {
-    auto acc = storage->UniqueAccess();
-    ASSERT_TRUE(acc->CreatePointIndex(label, prop).has_value());
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-  }
-
-  auto const point = ms::Point2d{ms::CoordinateReferenceSystem::Cartesian_2d, 1., 1.};
-  {
-    auto acc = storage->Access(ms::WRITE);
-    auto vertex = acc->CreateVertex();
-    ASSERT_TRUE(vertex.AddLabel(label).has_value());
-    ASSERT_TRUE(vertex.SetProperty(prop, ms::PropertyValue{point}).has_value());
-    acc->GetTransaction()->commit_callbacks_.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
-
-    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
-    EXPECT_TRUE(acc->TakePostCommitWarning().has_value());
-  }
-
-  auto reader = storage->Access(ms::READ);
-  size_t found = 0;
-  for (auto const &v : reader->PointVertices(label,
-                                             prop,
-                                             ms::CoordinateReferenceSystem::Cartesian_2d,
-                                             ms::PropertyValue{point},
-                                             ms::PropertyValue{0.5},
-                                             ms::PointDistanceCondition::INSIDE_AND_BOUNDARY)) {
-    (void)v;
-    ++found;
-  }
-  EXPECT_EQ(1, found);
-}
-
 // A non-2PC replica applies and finalizes in one step; a failing post-commit step must still leave a committed write.
-TEST_F(StorageV2GcMetricsTest, ReplicaApplyWithThrowingCallbackStillCommits) {
-  ms::Gid gid;
+// Needs a WAL: without one the commit finalizes before the replica-apply branch is reached.
+TEST(StorageV2CommitCallbacks, ReplicaApplyWithThrowingCallbackStillCommits) {
+  auto const dir = std::filesystem::temp_directory_path() / "storage_v2_gc_replica_apply";
+  std::filesystem::remove_all(dir);
+  ms::Config config;
+  ms::UpdatePaths(config, dir);
+  config.durability.snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  config.durability.snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::hours{1}};
+  config.gc = {.type = ms::Config::Gc::Type::NONE};
   {
-    auto acc = storage->Access(ms::WRITE);
-    gid = acc->CreateVertex().Gid();
-    acc->GetTransaction()->commit_callbacks_.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
+    ms::InMemoryStorage storage{config};
+    ms::Gid gid;
+    {
+      auto acc = storage.Access(ms::WRITE);
+      gid = acc->CreateVertex().Gid();
+      acc->GetTransaction()->commit_callbacks_.Add([](uint64_t) { throw std::runtime_error("callback failed"); });
 
-    ASSERT_TRUE(acc->PrepareForCommitPhase(ms::CommitArgs::make_replica_write(/*desired_commit_timestamp=*/100,
-                                                                              /*two_phase_commit=*/false,
-                                                                              [] {}))
-                    .has_value());
-    auto const warning = acc->TakePostCommitWarning();
-    ASSERT_TRUE(warning.has_value());
-    EXPECT_THAT(*warning, HasSubstr("callback failed"));
+      ASSERT_TRUE(acc->PrepareForCommitPhase(ms::CommitArgs::make_replica_write(/*desired_commit_timestamp=*/100,
+                                                                                /*two_phase_commit=*/false,
+                                                                                [] {}))
+                      .has_value());
+      auto const warning = acc->TakePostCommitWarning();
+      ASSERT_TRUE(warning.has_value());
+      EXPECT_THAT(*warning, HasSubstr("callback failed"));
+    }
+
+    auto reader = storage.Access(ms::READ);
+    EXPECT_TRUE(reader->FindVertex(gid, ms::View::OLD).has_value());
   }
-
-  auto reader = storage->Access(ms::READ);
-  EXPECT_TRUE(reader->FindVertex(gid, ms::View::OLD).has_value());
+  std::filesystem::remove_all(dir);
 }
