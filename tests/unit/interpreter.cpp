@@ -172,6 +172,33 @@ TYPED_TEST(InterpreterTest, NestedBeginKeepsAnOpenAuthTransaction) {
   EXPECT_TRUE(auth.auth.ReadLock()->GetUser("alice").has_value());
 }
 
+// A statement refused for mixing auth and data fails the transaction like any other error, so COMMIT cannot land
+// the statements before it.
+TYPED_TEST(InterpreterTest, MixingAuthThenDataFailsTheTransaction) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  EXPECT_THROW(this->default_interpreter.Interpret("MATCH (n) RETURN n"), memgraph::query::MixedAuthAndDataTxException);
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::ExplicitTransactionUsageException);
+
+  EXPECT_FALSE(auth.auth.ReadLock()->GetUser("alice").has_value());
+}
+
+TYPED_TEST(InterpreterTest, MixingDataThenAuthFailsTheTransaction) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE (:Node)");
+  EXPECT_THROW(this->default_interpreter.Interpret("CREATE USER alice"), memgraph::query::MixedAuthAndDataTxException);
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::ExplicitTransactionUsageException);
+  this->default_interpreter.Interpret("ROLLBACK");
+
+  EXPECT_EQ(this->Interpret("MATCH (n) RETURN count(n)").GetResults()[0][0].ValueInt(), 0);
+}
+
 TYPED_TEST(InterpreterTest, ConstantReturnUsesAccessorFreeFastPath) {
   {
     auto stream = this->Interpret("RETURN 1 AS APP_INTERNAL_EXEC_VAR");
