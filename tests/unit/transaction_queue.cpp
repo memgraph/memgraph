@@ -188,32 +188,8 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowTransactionStatusCommitting) {
                                                                   std::memory_order_release);
 }
 
-TYPED_TEST(TransactionQueueSimpleTest, TerminateRefusesACommittingTransaction) {
-  // A committer claims the status before it makes anything durable. TERMINATE must then report that it did not
-  // kill the transaction, rather than reporting success for one that goes on to commit.
-  this->running_interpreter.Interpret("BEGIN");
-  this->running_interpreter.Interpret("CREATE (:Person {prop: 1})");
-
-  std::string const tx_id = std::to_string(this->running_interpreter.interpreter.GetTransactionId().value());
-
-  this->running_interpreter.interpreter.transaction_status_.store(
-      memgraph::query::TransactionStatus::STARTED_COMMITTING, std::memory_order_release);
-
-  auto stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS \"" + tx_id + "\"");
-  ASSERT_EQ(stream.GetResults().size(), 1U);
-  EXPECT_EQ(stream.GetResults()[0][0].ValueString(), tx_id);
-  EXPECT_FALSE(stream.GetResults()[0][1].ValueBool()) << "reported a kill for a transaction already committing";
-
-  EXPECT_EQ(this->running_interpreter.interpreter.transaction_status_.load(std::memory_order_acquire),
-            memgraph::query::TransactionStatus::STARTED_COMMITTING)
-      << "terminate changed the status out from under the committer";
-
-  this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
-                                                                  std::memory_order_release);
-}
-
-// The committer's half of the same rule, for an auth transaction: it claims the status before flushing, so a
-// terminate that landed first stops the flush, and nothing the transaction buffered reaches the store.
+// An auth committer claims the status before flushing, so a terminate that landed first stops the flush, and
+// nothing the transaction buffered reaches the store.
 TYPED_TEST(TransactionQueueSimpleTest, ATerminatedAuthTransactionDoesNotCommit) {
   AuthQueryHandlerFixture auth{this->data_directory / "auth"};
   this->interpreter_context.auth = &auth.handler;
@@ -288,6 +264,9 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateCommittingTransactionNotFound) {
   EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), tx_id);
   // The transaction should NOT be killed — it's already committing
   EXPECT_FALSE(terminate_stream.GetResults()[0][1].ValueBool());
+  EXPECT_EQ(this->running_interpreter.interpreter.transaction_status_.load(std::memory_order_acquire),
+            memgraph::query::TransactionStatus::STARTED_COMMITTING)
+      << "terminate changed the status out from under the committer";
 
   // Restore to IDLE
   this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,
