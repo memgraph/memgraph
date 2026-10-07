@@ -524,7 +524,7 @@ mod tests {
         assert!(err.contains("Unable to commit"), "{err}");
         assert!(!ctx.tantivyContext.broken);
 
-        // Before the fix the writer stayed alive with dead workers and silently dropped this document.
+        // A writer left with dead workers would silently drop this document.
         add_gid(&mut ctx, 3, false).unwrap();
         assert_eq!(get_num_docs(&ctx).unwrap(), 2);
 
