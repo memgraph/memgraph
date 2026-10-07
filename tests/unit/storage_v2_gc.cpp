@@ -23,6 +23,7 @@
 #include "flags/general.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "storage/v2/gc_status.hpp"
+#include "storage/v2/indices/point_iterator.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage_v2_gc_metrics_fixture.hpp"
 #include "tests/test_commit_args_helper.hpp"
