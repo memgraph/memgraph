@@ -543,11 +543,10 @@ mod tests {
         // A second rollback() on a writer whose rollback failed would panic; none of these may.
         let _ = rollback(&mut ctx);
         let _ = commit(&mut ctx);
-        if ctx.tantivyContext.broken {
-            assert!(add_gid(&mut ctx, 3, true).is_err());
-            assert!(commit(&mut ctx).is_err());
-            assert!(rollback(&mut ctx).is_err());
-        }
+        assert!(ctx.tantivyContext.broken);
+        assert!(add_gid(&mut ctx, 3, true).is_err());
+        assert!(commit(&mut ctx).is_err());
+        assert!(rollback(&mut ctx).is_err());
         let _ = drop_index(ctx);
     }
 }
@@ -982,7 +981,7 @@ fn commit(context: &mut ffi::Context) -> Result<(), std::io::Error> {
                 return Err(Error::new(
                     ErrorKind::Other,
                     format!(
-                        "Unable to reload reader after commit for text search index at {:?} -> {}",
+                        "Text search index at {:?}: changes committed, but refreshing the index reader failed: {}",
                         index_path, e
                     ),
                 ));
