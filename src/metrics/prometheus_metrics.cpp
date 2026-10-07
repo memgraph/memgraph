@@ -1403,7 +1403,7 @@ void PrometheusMetrics::UpdateReplicationGauges(ReplicationHealth const &health)
     auto [it, inserted] = entries.try_emplace({replica.replica, replica.database});
     auto &gauges = it->second;
     if (inserted) {
-      prometheus::Labels const labels{{"replica", replica.replica}, {"database", replica.database}};
+      prometheus::Labels const labels{{"mg_instance", replica.replica}, {"database", replica.database}};
       gauges.txns_behind = &replica_txns_behind_family_.Add(labels);
       gauges.states = replica.states | rv::keys | rv::transform([&](auto const state) {
                         auto state_labels = labels;
