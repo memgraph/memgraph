@@ -15,6 +15,7 @@ namespace memgraph::replication {
 
 ReplicationClient::ReplicationClient(const ReplicationClientConfig &config)
     : name_{config.name},
+      metrics_{metrics::Metrics().AddReplica(config.name)},
       rpc_context_{communication::CreateClientContext(config.tls_config)},
       rpc_client_{config.repl_server_endpoint, &rpc_context_},
       replica_check_frequency_{config.replica_check_frequency},

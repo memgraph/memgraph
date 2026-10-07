@@ -15,6 +15,7 @@
 #include <system_error>
 #include <type_traits>
 
+#include "metrics/metric_handles.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
 #include "rpc/messages.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -23,7 +24,7 @@
 namespace memgraph::storage {
 template <rpc::IsRpc T>
 struct RpcInfo {
-  static prometheus::Histogram *histogram();
+  static prometheus::Histogram *histogram(metrics::ReplicaMetricHandles const &replica_metrics);
   static void ObserveThroughput(std::string const &instance_name, double bytes_per_second);
 };
 
@@ -98,8 +99,9 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
                                                             std::filesystem::path const &root_data_dir,
                                                             replication_coordination_glue::ReplicationMode const mode,
                                                             std::string const &instance_name,
+                                                            metrics::ReplicaMetricHandles const &replica_metrics,
                                                             utils::PageCachePolicy const page_cache, Args &&...args) {
-  metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram()};
+  metrics::ScopedHistogramTimer const timer{RpcInfo<T>::histogram(replica_metrics)};
   std::optional<rpc::Client::StreamHandler<T>> maybe_stream_result;
 
   // if ASYNC mode, we shouldn't block on transferring durability files because there could be a commit task which holds

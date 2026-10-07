@@ -104,7 +104,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
   });
   try {
-    metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
+    metrics::ScopedHistogramTimer const timer{client.metrics_.handles().system_recovery_rpc_seconds.get()};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
     auto stream = std::invoke([&]() {
 #ifdef MG_ENTERPRISE

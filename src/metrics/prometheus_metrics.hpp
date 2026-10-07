@@ -21,9 +21,11 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <variant>
 #include <vector>
 
+#include <prometheus/client_metric.h>
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
@@ -127,9 +129,6 @@ struct GlobalMetricHandles {
   prometheus::Counter *demote_instance;
   prometheus::Counter *unregister_repl_instance;
   prometheus::Counter *remove_coord_instance;
-  prometheus::Counter *replica_recovery_success;
-  prometheus::Counter *replica_recovery_fail;
-  prometheus::Counter *replica_recovery_skip;
   prometheus::Counter *state_check_rpc_success;
   prometheus::Counter *state_check_rpc_fail;
   prometheus::Counter *unregister_replica_rpc_success;
@@ -152,23 +151,13 @@ struct GlobalMetricHandles {
   prometheus::Histogram *instance_fail_callback_seconds;
   prometheus::Histogram *choose_most_up_to_date_instance_seconds;
   prometheus::Histogram *socket_connect_seconds;
-  prometheus::Histogram *replica_stream_seconds;
   prometheus::Histogram *data_failover_seconds;
-  prometheus::Histogram *start_txn_replication_seconds;
-  prometheus::Histogram *finalize_txn_replication_seconds;
   prometheus::Histogram *promote_to_main_rpc_seconds;
   prometheus::Histogram *demote_main_to_replica_rpc_seconds;
   prometheus::Histogram *register_replica_on_main_rpc_seconds;
   prometheus::Histogram *unregister_replica_rpc_seconds;
   prometheus::Histogram *state_check_rpc_seconds;
   prometheus::Histogram *get_database_histories_rpc_seconds;
-  prometheus::Histogram *heartbeat_rpc_seconds;
-  prometheus::Histogram *prepare_commit_rpc_seconds;
-  prometheus::Histogram *snapshot_rpc_seconds;
-  prometheus::Histogram *current_wal_rpc_seconds;
-  prometheus::Histogram *wal_files_rpc_seconds;
-  prometheus::Histogram *frequent_heartbeat_rpc_seconds;
-  prometheus::Histogram *system_recovery_rpc_seconds;
   prometheus::Histogram *update_data_instance_config_rpc_seconds;
   prometheus::Histogram *get_histories_seconds;
 
@@ -220,6 +209,35 @@ class PrometheusMetrics {
   };
 
   [[nodiscard]] Registration AddDatabase(utils::UUID const &uuid, std::string_view name);
+
+  /// Owns one registration of a replica's metrics and releases it on destruction. Move-only, so
+  /// exactly one object releases each registration.
+  class ReplicaRegistration {
+   public:
+    ReplicaRegistration() = default;
+    ~ReplicaRegistration();
+
+    ReplicaRegistration(ReplicaRegistration &&other) noexcept;
+    ReplicaRegistration &operator=(ReplicaRegistration &&other) noexcept;
+    ReplicaRegistration(ReplicaRegistration const &) = delete;
+    ReplicaRegistration &operator=(ReplicaRegistration const &) = delete;
+
+    ReplicaMetricHandles const &handles() const { return handles_; }
+
+   private:
+    friend class PrometheusMetrics;
+
+    ReplicaRegistration(PrometheusMetrics *registry, std::string instance_name, ReplicaMetricHandles handles)
+        : registry_(registry), instance_name_(std::move(instance_name)), handles_(handles) {}
+
+    void Release() noexcept;
+
+    PrometheusMetrics *registry_{nullptr};
+    std::string instance_name_;
+    ReplicaMetricHandles handles_{};
+  };
+
+  [[nodiscard]] ReplicaRegistration AddReplica(std::string_view instance_name);
 
   /// Relabels the default database's entry onto @p new_uuid. The metric objects stay put, so
   /// every outstanding handle, ScopedGauge and delta_container keeps pointing at a live object.
@@ -296,6 +314,13 @@ class PrometheusMetrics {
 
   StorageSnapshot ResolveStorageSnapshot(utils::UUID const &uuid) const;
 
+  void ReleaseReplica(std::string const &instance_name);
+  // Every live replica's observations of the histogram that `member` selects.
+  std::vector<prometheus::ClientMetric::Histogram> ReplicaHistograms(
+      HistogramHandle ReplicaMetricHandles::*member) const;
+  // Live replicas' counts plus those of replicas already released.
+  int64_t ReplicaRecoveries(CounterHandle ReplicaMetricHandles::*member) const;
+
   prometheus::Registry registry_;
 
   struct {
@@ -303,6 +328,20 @@ class PrometheusMetrics {
     std::list<DatabaseEntry> entries;
     uint64_t next_entry_id{1};
   } databases_;
+
+  struct ReplicaEntry {
+    ReplicaMetricHandles handles;
+    // Registrations of one replica name share every handle, because a family returns the metric it
+    // already holds for a label set. The metrics go when the last registration does.
+    std::size_t registrations{1};
+  };
+
+  struct {
+    mutable std::mutex mutex;
+    std::unordered_map<std::string, ReplicaEntry> entries;
+    // Recovery counts of released replicas, so the totals reported without labels never decrease.
+    std::vector<std::pair<CounterHandle ReplicaMetricHandles::*, int64_t>> released_recoveries;
+  } replicas_;
 
   std::unordered_map<std::string, int64_t> legacy_json_prev_ha_counter_values_;
   StorageSnapshotResolver storage_snapshot_resolver_;

@@ -155,7 +155,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
       true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
-  EXPECT_NO_THROW(stream.Finalize());
+  EXPECT_NO_THROW(stream.Finalize({}));
 }
 
 // A response that never arrives while the client waits for it times out
@@ -201,7 +201,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
       true);
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
-  EXPECT_THROW(stream.Finalize(), RpcTimeoutException);
+  EXPECT_THROW(stream.Finalize({}), RpcTimeoutException);
 }
 
 // A progress message does not end the call: with none following, the client still times out
@@ -251,7 +251,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
 
   ReplicaStream stream{&main_storage, std::move(stream_handler)};
 
-  EXPECT_THROW(stream.Finalize(), RpcTimeoutException);
+  EXPECT_THROW(stream.Finalize({}), RpcTimeoutException);
 }
 
 TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
