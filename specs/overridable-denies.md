@@ -2,8 +2,9 @@
 
 Status: Draft.
 
-Lets a `DENY` on one role be overridden by a `GRANT` on another, so that a user
-holding two overlapping roles gets the access the broader role intends.
+Lets a `DENY` on one role be overridden by a `GRANT` of the same thing on
+another, so that a user holding two overlapping roles gets the access the
+broader role intends.
 
 ## Problem Statement
 
@@ -35,7 +36,8 @@ This adds a `strength` level to a `DENY` permission or privilege. In the
 first delivery, we will support two levels: `WEAK DENY` and `STRONG DENY`.
 
 - `STRONG` (the default, and what `DENY` means today). Absolute. No `GRANT` overrides it.
-- `WEAK`. The same prohibition, except a `GRANT` from another role overrides it.
+- `WEAK`. The same prohibition, except a `GRANT` of the same thing from another
+  role overrides it.
 
 ```cypher
 // engineer reads every property except salary
@@ -43,7 +45,7 @@ GRANT     READ          ON NODES CONTAINING LABELS :Employee TO ROLE engineer;
 GRANT     READ {*}      ON NODES CONTAINING LABELS :Employee TO ROLE engineer;
 WEAK DENY READ {salary} ON NODES CONTAINING LABELS :Employee TO ROLE engineer;
 
-// HR reads salary, and says so explicitly
+// HR reads salary; only the explicit {salary} grant overrides the weak deny
 GRANT     READ          ON NODES CONTAINING LABELS :Employee TO ROLE HR;
 GRANT     READ {*}      ON NODES CONTAINING LABELS :Employee TO ROLE HR;
 GRANT     READ {salary} ON NODES CONTAINING LABELS :Employee TO ROLE HR;
@@ -75,44 +77,55 @@ nothing arrives unprompted either.
 
 ## User Stories
 
-1. As an administrator, I want a deny on one role to be overridable by a grant on another, so that a user holding both roles gets the broader access.
+1. As an administrator, I want a deny on one role to be overridable by a grant of the same thing on another, so that a user holding both roles gets the broader access.
 2. As an administrator, I want existing `DENY` statements to keep their current meaning after upgrade, so that nothing I have already configured changes.
 3. As an administrator, I want `WEAK` to be something I opt into per statement, so that prohibitions stay absolute unless I say otherwise.
 4. As an administrator, I want to fix an overlap by weakening the deny that causes it, so that I do not have to enumerate properties or restructure roles.
-5. As an administrator, I want `WEAK DENY` to work with a `{*}` grant, so that I can express "everything except X" without listing the rest.
-6. As an administrator, I want a weak deny on a specific property to still hold against a wildcard grant in the same role, so that the common case does what it reads like.
-7. As an administrator, I want a strong deny on any role to win over a weak deny on another, so that a genuine prohibition cannot be relaxed by a second role.
+5. As an administrator, I want `WEAK DENY` to work with a `{*}` grant in the same role, so that I can express "everything except X" without listing the rest.
+6. As an administrator, I want a weak deny on a specific property to hold against a wildcard grant, from any role, so that only a grant naming what was denied can override it.
+7. As an administrator, I want a strong deny to win over a grant of the same thing, whatever else weak-denies it, so that a genuine prohibition cannot be relaxed by a second role.
 8. As an administrator, I want the result to be the same no matter what order a user's roles were assigned in, so that access is reproducible.
 9. As an auditor, I want `SHOW PRIVILEGES` to distinguish weak denies from strong ones, so that I do not read a weak deny as a protection it is not.
 10. As an auditor, I want two roles denying the same thing at different strengths to appear as separate entries, so that the weaker one is visible.
 11. As an administrator, I want `REVOKE` to remove a deny whatever its strength, so that there is nothing new to learn about removing permissions.
 12. As an administrator, I want weak denies available on labels, edge types, and privileges as well as properties, so that the same overlap problem has the same answer everywhere.
-13. As an administrator, I want a grant I give a user directly to override a weak deny on one of their roles, so that I can make an exception for one person without editing a shared role.
+13. As an administrator, I want a grant of the same thing that I give a user directly to override a weak deny on one of their roles, so that I can make an exception for one person without editing a shared role.
 14. As an administrator, I want a role scoped to one database to only override weak denies on that database, so that scoping a role still limits what it can do.
 
 ## Implementation Decisions
 
-### Where a permission comes from is part of the answer
+### An override needs a grant of the same thing
 
-Today a user's permissions are flattened into one set before anything is
-checked, because deny always wins and it makes no difference which role a deny
-came from. Weak denies break that: the same grant overrides a weak deny when it
-comes from another role and does not when it comes from the same one, so the
-origin of each permission has to survive into the check.
+A weak deny is overridden only by a grant of exactly what it denies: the same
+privilege; the same label or edge-type rule (same symbols and matching mode); or
+the same property under the same rule. A grant on `*` overrides a weak deny on
+`*`, and nothing else.
 
-This is the substantial part of the work, and it is larger than adding a
-keyword. It is not visible to users, but it is why this feature is not a small
-change.
+This is how a user's permissions are already combined. The user's own
+permissions and those of every role they hold on the database are merged into
+one set, keyed by exactly these targets, and today a deny at a key beats a grant
+at the same key. A weak deny changes only that comparison: at the same key, a
+grant beats a weak deny, and a strong deny beats both.
+
+One role cannot hold a grant and a deny at the same key, because granting
+clears the deny and denying clears the grant. So a grant beside a weak deny
+always comes from another role or from the user, and the origin of a
+permission never has to be tracked.
+
+Everything else is unchanged. A deny on one rule still wins over a grant on
+another rule that also matches, and a wildcard is still consulted only when
+nothing more specific decides.
 
 ### User permissions count as a separate source
 
 A user can hold permissions directly as well as through roles. A grant given to
-a user directly overrides a weak deny on any of their roles, the same as a grant
-from another role would, so an administrator can make an exception for one
-person without editing a shared role.
+a user directly overrides a weak deny of the same thing on any of their roles,
+the same as a grant from another role would, so an administrator can make an
+exception for one person without editing a shared role.
 
-A weak deny given to a user directly is overridden by a grant from any of that
-user's roles. The user level is another source, not a privileged one.
+A weak deny given to a user directly is overridden by a grant of the same thing
+from any of that user's roles. The user level is another source, not a
+privileged one.
 
 ### An override can differ between databases
 
@@ -148,40 +161,27 @@ grant or deny already overwrites today. `WEAK DENY` then `STRONG DENY` on one
 role leaves `STRONG`; the reverse leaves `WEAK`. The overwrite is silent, which
 is why `SHOW PRIVILEGES` showing the strength matters.
 
-These two rules look like one question and are not. Both belong in the documentation.
+A property wildcard also overwrites within its rule, as it does today: denying
+`{*}` clears the role's named denies on that rule. So `STRONG DENY {salary}`
+then `WEAK DENY {*}` on one role leaves `salary` covered only by the weak
+wildcard deny.
 
-### Specificity ranks within a role; across roles, any grant wins
+These rules look like one question and are not. All belong in the documentation.
 
-Two rules, and the split between them is what makes the feature work.
+### Wildcards are not specific
 
-**Within the role that holds the weak deny**, the more specific statement wins. A
-role that grants `{*}` and weak-denies `{salary}` denies `salary`: the explicit
-property is more specific than the wildcard. Without this a weak deny would be
-self-cancelling, because the wildcard grant it is meant to carve a hole in sits
-in the same role.
+A `{*}` grant does not override a weak deny on `{salary}`, whether it is on the
+same role or another. In the same role this is what makes "everything except
+`salary`" work: the role grants `{*}` and weak-denies `{salary}`. On another
+role it means the overriding role must name what it grants, so the override is
+visible in that role's own statements.
 
-**Across roles**, specificity does not apply. Any grant from another role
-overrides a weak deny, wildcard or not. Without this the feature does not solve
-the problem it exists for: the overriding role usually grants `{*}`, and ranking
-that below the weak deny would leave the user denied.
-
-These two produce opposite answers for statements that look identical, which is
-deliberate. `GRANT READ {*}` beside a weak deny on the same role does not
-override it; the same statement on a different role does. Origin decides, not
-wording.
-
-The worked example above grants `{salary}` explicitly on `HR` even though `{*}`
-would be enough, because a reader should be able to see the override without
-knowing this rule.
-
-Wildcards work differently for properties than for labels and edge types, and
-the rules above hold for both. For properties, `{*}` is an entry alongside the
-named ones, and the named entry is consulted first. For labels and edge types,
-`*` is not a rule at all; it is held separately and consulted only when no
-specific rule matches. Both give "specific beats wildcard" within a role.
-System privileges have no wildcard: `ALL PRIVILEGES` sets every bit
-individually, so every privilege deny is already specific.
-
+Wildcards work differently for properties than for labels and edge types. For
+properties, `{*}` is an entry alongside the named ones, and the named entry is
+consulted first. For labels and edge types, `*` is not a rule at all; it is
+held separately and consulted only when no specific rule matches. System
+privileges have no wildcard: `ALL PRIVILEGES` sets every bit individually, so
+every privilege deny is already specific.
 
 ### No `WEAK GRANT`
 
@@ -223,8 +223,10 @@ strength it is, which is the doubt the column exists to remove.
 
 Strength is stored as a new optional field beside the existing grant and deny
 records, rather than by changing them, so an auth store written by an older
-version loads unchanged. The stored format and its versions are documented in
-`auth-json-versions.md`, which this feature extends rather than revises.
+version loads unchanged. The field marks which of the existing denies are weak,
+so a version that does not know it reads every deny as strong. The stored
+format is versioned by `kCurrentEntityVersion` and migrated by
+`MigrateAuthJson`.
 
 ## Testing Decisions
 
@@ -239,9 +241,12 @@ Cases that need covering, each of which distinguishes this feature from doing
 nothing:
 
 - The worked example above, all three rows of its outcome table.
-- A weak deny and a `{*}` grant on the same role: denied. The same grant on
-  another role: allowed.
-- A strong deny on any role beating a weak deny and a grant on others.
+- A weak deny on `{salary}` and a `{*}` grant on the same role: denied. A `{*}`
+  grant on another role: denied. A `{salary}` grant on another role: allowed.
+- A weak deny on `*` overridden by a `*` grant on another role.
+- A strong deny on any role beating a weak deny and a grant of the same thing on
+  others.
+- A `{salary}` grant under a different label rule not overriding the weak deny.
 - A user-level grant overriding a weak deny on one of that user's roles.
 - The same set of roles assigned in a different order, giving the same answer.
 - A weak deny surviving a round trip through the auth store, and an auth store
