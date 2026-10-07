@@ -37,6 +37,7 @@
 #include "query/interpret/typed_program.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/unit/typed_value_shapes.hpp"
+#include "utils/temporal.hpp"
 
 using memgraph::query::AstStorage;
 using memgraph::query::Expression;
@@ -100,6 +101,13 @@ class ExpressionFuzz : public ::testing::Test {
     put("fraction", memgraph::storage::PropertyValue(2.5));
     put("word", memgraph::storage::PropertyValue(std::string{"seven"}));
     put("truth", memgraph::storage::PropertyValue(true));
+    {
+      auto const [day, time] = memgraph::utils::ParseLocalDateTimeParameters("2020-06-01T12:00:00");
+      auto const when = memgraph::utils::LocalDateTime(day, time);
+      put("moment",
+          memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
+              memgraph::storage::TemporalType::LocalDateTime, when.SysMicrosecondsSinceEpoch())));
+    }
     [[maybe_unused]] auto const labelled = vertex.AddLabel(dba_.NameToLabel("Present"));
     dba_.AdvanceCommand();
     record_ = TypedValue(vertex);
@@ -111,7 +119,7 @@ class ExpressionFuzz : public ::testing::Test {
     [[maybe_unused]] auto const removed = dba_.RemoveVertex(&doomed);
     dba_.AdvanceCommand();
     gone_ = TypedValue(doomed);
-    property_names_ = {"whole", "fraction", "word", "truth", "absent"};
+    property_names_ = {"whole", "fraction", "word", "truth", "absent", "moment"};
 
     auto writer = frame_.GetFrameWriter(nullptr, memgraph::utils::NewDeleteResource());
     for (size_t i = 0; i < operands_.size(); ++i) {
@@ -170,6 +178,13 @@ class ExpressionFuzz : public ::testing::Test {
   // A leaf reads one of the operands off the frame, so every type reaches the
   // operators rather than only the ones a literal can spell.
   Expression *Leaf(std::mt19937 &rng) {
+    if (rng() % 11 == 0) {
+      // A time the query names, which is the one call a program takes, and the
+      // only thing that makes it read anything beside it as a time.
+      auto *when = storage_.Create<memgraph::query::PrimitiveLiteral>(
+          memgraph::storage::ExternalPropertyValue(std::string{"2020-06-01T12:00:00"}));
+      return storage_.Create<memgraph::query::Function>("LOCALDATETIME", std::vector<Expression *>{when});
+    }
     if (rng() % 7 == 0) {
       // A label test over whatever the frame holds, so the operand that is not
       // a node comes up as often as the one that is.
@@ -199,7 +214,9 @@ class ExpressionFuzz : public ::testing::Test {
 
   Expression *Build(std::mt19937 &rng, int depth) {
     if (depth <= 0) return Leaf(rng);
-    switch (rng() % 16) {
+    switch (rng() % 17) {
+      case 16:
+        return storage_.Create<memgraph::query::DivisionOperator>(Build(rng, depth - 1), Build(rng, depth - 1));
       case 15:
         return storage_.Create<memgraph::query::IsNullOperator>(Build(rng, depth - 1));
       case 14: {
