@@ -75,18 +75,23 @@ def list_directory_contents(directory):
     return os.listdir(directory)
 
 
-# The one refusal a coordinator names as worth another try.
+# The refusal a coordinator names as worth another try when its own append loses the leadership it checked for.
 RAFT_LOG_REFUSAL = "Writing to Raft log failed. Please retry the operation."
 
+# The refusal a follower reports when it forwarded a write and the leader declined to serve it. The leader's own
+# reason does not cross the wire: the response carries whether it succeeded and nothing more, so this one text
+# covers a leader that was no longer ready as well as one that refused for good. Pass it only where the caller's
+# own request rules the lasting reasons out.
+FORWARDED_REFUSAL = "Request forwarded to the leader but leader failed with request processing!"
 
-def retrying_raft_write(write, deadline_s=30.0, now=time.monotonic, sleep=time.sleep):
-    """Run a coordinator write, asking again for as long as it is refused for a reason that passes.
+
+def retrying_raft_write(write, refusals=(RAFT_LOG_REFUSAL,), deadline_s=30.0, now=time.monotonic, sleep=time.sleep):
+    """Run a coordinator write, asking again for as long as it is refused for one of the given reasons.
 
     A coordinator checks that it leads and then appends, and nothing holds leadership still between the two. So a
     write can be refused for a reason that has already gone by the time the refusal arrives, and whether the append
     will be accepted is not answerable before it is attempted: no state the caller can read beforehand settles it.
-    The refusal is how the caller learns, which is why the server names this one as worth another try. Asking once
-    holds the coordinator to more than it offers.
+    The refusal is how the caller learns. Asking once holds the coordinator to more than it offers.
 
     The budget is what separates a cluster that is settling from one that never will: the second reaches the
     caller's assertion rather than the timeout the harness would otherwise apply.
@@ -98,12 +103,27 @@ def retrying_raft_write(write, deadline_s=30.0, now=time.monotonic, sleep=time.s
         try:
             return write()
         except Exception as refusal:
-            if RAFT_LOG_REFUSAL not in str(refusal):
+            if not any(passes in str(refusal) for passes in refusals):
                 raise
             sleep(min(0.05 * attempt, 0.5))
             # Checked after the wait so that no attempt starts once the budget is spent.
             if now() >= ends_at:
                 raise
+
+
+class RefusesThenCommits:
+    """A coordinator that refuses a write a given number of times before committing it."""
+
+    def __init__(self, refusals, message=RAFT_LOG_REFUSAL):
+        self.refusals = refusals
+        self.message = message
+        self.calls = 0
+
+    def __call__(self):
+        self.calls += 1
+        if self.calls <= self.refusals:
+            raise Exception(self.message)
+        return [("committed",)]
 
 
 def wait_until_main_writeable(cursor, query):
