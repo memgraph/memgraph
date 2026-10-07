@@ -172,6 +172,14 @@ def test_a_tenant_profile_read_does_not_hold_the_system_lock(cursor):
     execute(cursor, "DROP TENANT PROFILE tenant_elsewhere")
 
 
+def test_a_tenant_profile_write_is_rejected_in_a_transaction(cursor):
+    execute(cursor, "BEGIN")
+    with pytest.raises(
+        mgclient.DatabaseError, match="Managing tenant profiles is not allowed in multicommand transactions"
+    ):
+        execute(cursor, "CREATE TENANT PROFILE refused LIMIT memory_limit 100MB")
+
+
 def test_profile_writes_are_still_rejected_in_a_data_transaction(cursor):
     # The write half of the same guard, and the reason it exists. After a data statement a profile query does not
     # mix modes, so the profile guard is what refuses it.
