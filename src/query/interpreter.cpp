@@ -11503,9 +11503,9 @@ void Interpreter::Commit() {
     // Flush it here, under a system transaction created only now, so the system mutex covers the flush rather than
     // the whole time the user held the transaction open.
     if (auth_transaction_) {
-      // Covers every exit of this block, a throw included. The status claim is all this guard gives back; it
-      // never touches `system_transaction_`, which needs no help here because it holds the system mutex in a
-      // member lock and so frees it whenever it is destroyed.
+      // Covers every exit of this block, a throw included. On a throw it also drops `system_transaction_`, which
+      // would otherwise hold the system mutex until the session next aborts, refusing every other session's
+      // system queries meanwhile.
       //
       // On the way out normally, the claim is never given back here. Letting go would put the status back to
       // ACTIVE before the transaction is retired, and a terminate landing in between would report a kill for a
@@ -11523,6 +11523,7 @@ void Interpreter::Commit() {
         // (`InterpreterContext::TerminateSessions`) leaves STARTED_COMMITTING to the committing thread that has
         // already gone. Unwinding therefore always releases here.
         if (std::uncaught_exceptions() == entry_exceptions) return;
+        system_transaction_.reset();
         auto expected = TransactionStatus::STARTED_COMMITTING;
         while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::ACTIVE)) {
           if (expected == TransactionStatus::VERIFYING) {
