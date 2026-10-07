@@ -510,6 +510,15 @@ namespace memgraph::glue {
 
 AuthQueryHandler::AuthQueryHandler(memgraph::auth::SynchedAuth *auth) : layer_(*auth) {}
 
+bool AuthQueryHandler::CommitTransaction(memgraph::auth::AuthTransaction &tx,
+                                         memgraph::system::Transaction *system_tx) {
+  try {
+    return layer_.Commit(tx, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
 query::CreateUserResult AuthQueryHandler::CreateUser(const std::string &username,
                                                      const std::optional<std::string> &password,
                                                      memgraph::auth::AuthTransaction *auth_tx,

@@ -33,9 +33,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   explicit AuthQueryHandler(memgraph::auth::SynchedAuth *auth);
 
   [[nodiscard]] bool CommitTransaction(memgraph::auth::AuthTransaction &tx,
-                                       memgraph::system::Transaction *system_tx) override {
-    return layer_.Commit(tx, system_tx);
-  }
+                                       memgraph::system::Transaction *system_tx) override;
 
   query::CreateUserResult CreateUser(const std::string &username, const std::optional<std::string> &password,
                                      memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) override;
