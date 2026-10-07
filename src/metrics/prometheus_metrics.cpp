@@ -81,11 +81,13 @@ prometheus::Histogram::BucketBoundaries const kLatencyBuckets{
 
 inline prometheus::Histogram::BucketBoundaries const kThroughputBuckets{1e3, 1e4, 1e5, 1e6, 1e7, 1e8, 1e9};
 
-auto AddAbortedQueryCounters(prometheus::Family<prometheus::Counter> &family, prometheus::Labels labels)
-    -> std::array<CounterHandle, kAbortedQueryReasons.size()> {
-  std::array<CounterHandle, kAbortedQueryReasons.size()> counters;
-  for (auto const &[counter, reason] : rv::zip(counters, kAbortedQueryReasons)) {
-    labels.insert_or_assign("reason", std::string{reason.label});
+template <std::size_t N>
+auto AddLabelledCounters(prometheus::Family<prometheus::Counter> &family, prometheus::Labels labels,
+                         std::string const &label_name, std::array<CounterLabelValue, N> const &values)
+    -> std::array<CounterHandle, N> {
+  std::array<CounterHandle, N> counters;
+  for (auto const &[counter, value] : rv::zip(counters, values)) {
+    labels.insert_or_assign(label_name, std::string{value.label});
     counter.counter = &family.Add(labels);
   }
   return counters;
@@ -844,7 +846,7 @@ PrometheusMetrics::PrometheusMetrics()
   // No-db fallback counters: same family as per-db, but with no database label.
   // Incremented only when a query fires outside any database context.
   global.transient_errors = &transient_errors_family_.Add(no_labels);
-  global.aborted_queries = AddAbortedQueryCounters(aborted_queries_family_, no_labels);
+  global.aborted_queries = AddLabelledCounters(aborted_queries_family_, no_labels, "reason", kAbortedQueryReasons);
   global.failed_query = &failed_query_family_.Add(no_labels);
   global.failed_prepare = &failed_prepare_family_.Add(no_labels);
   global.failed_pull = &failed_pull_family_.Add(no_labels);
@@ -1042,7 +1044,7 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, ui
       .successful_query = {&successful_query_family_.Add(labels)},
       .write_write_conflicts = {&write_write_conflicts_family_.Add(labels)},
       .transient_errors = {&transient_errors_family_.Add(labels)},
-      .aborted_queries = AddAbortedQueryCounters(aborted_queries_family_, labels),
+      .aborted_queries = AddLabelledCounters(aborted_queries_family_, labels, "reason", kAbortedQueryReasons),
       .unreleased_delta_objects = {&unreleased_delta_objects_family_.Add(labels)},
       .read_query = {&read_query_family_.Add(labels)},
       .write_query = {&write_query_family_.Add(labels)},

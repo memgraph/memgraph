@@ -46,15 +46,16 @@ struct GaugeHandle {
   }
 };
 
-enum class AbortedQueryReason : uint8_t { MEMORY_LIMIT, TIMEOUT, TERMINATED, SHUTDOWN };
-
-struct AbortedQueryReasonNames {
-  std::string_view label;      // reason label of memgraph_aborted_queries_total
-  std::string_view info_name;  // SHOW METRICS INFO and the JSON endpoint
+// A value of a counter's label, and the name its counter has in SHOW METRICS INFO and the JSON endpoint.
+struct CounterLabelValue {
+  std::string_view label;
+  std::string_view info_name;
 };
 
+enum class AbortedQueryReason : uint8_t { MEMORY_LIMIT, TIMEOUT, TERMINATED, SHUTDOWN };
+
 // Indexed by AbortedQueryReason.
-inline constexpr std::array<AbortedQueryReasonNames, 4> kAbortedQueryReasons{{
+inline constexpr std::array<CounterLabelValue, 4> kAbortedQueryReasons{{
     {.label = "memory_limit", .info_name = "AbortedQueriesMemoryLimit"},
     {.label = "timeout", .info_name = "AbortedQueriesTimeout"},
     {.label = "terminated", .info_name = "AbortedQueriesTerminated"},
