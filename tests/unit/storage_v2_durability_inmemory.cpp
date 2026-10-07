@@ -5851,7 +5851,7 @@ TEST_P(DurabilityTest, CommitFailingAfterWalWriteIsCommittedLiveAndRecovered) {
     }
     store->test_hook_after_wal_commit_ = nullptr;
 
-    EXPECT_EQ(store->GetBaseInfo().vertex_count, 1);
+    EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 1);
     live_schema = store->schema_info_.ToJson(*store->name_id_mapper_, store->enum_store_);
     ASSERT_EQ(live_schema["nodes"].size(), 1);
     EXPECT_EQ(live_schema["nodes"][0]["count"], 1);
@@ -5860,7 +5860,7 @@ TEST_P(DurabilityTest, CommitFailingAfterWalWriteIsCommittedLiveAndRecovered) {
   memgraph::dbms::Database db{config};
   const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
   auto *store = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
-  EXPECT_EQ(store->GetBaseInfo().vertex_count, 1);
+  EXPECT_EQ(db.storage()->GetBaseInfo().vertex_count, 1);
   auto const recovered_schema = store->schema_info_.ToJson(*store->name_id_mapper_, store->enum_store_);
   EXPECT_TRUE(ConfrontJSON(live_schema, recovered_schema));
 }
