@@ -26,7 +26,7 @@ void SessionRegistry::Register(std::string uuid, std::weak_ptr<TerminableSession
 }
 
 void SessionRegistry::Deregister(std::string_view uuid, TerminableSession const *self) {
-  // Dropped after unlock: it may be the last ref, and ~Session re-enters Deregister.
+  // Dropped after unlock: if uuid was reused, this may be the last ref and ~Session re-enters Deregister.
   std::shared_ptr<TerminableSession> owner;
   {
     const std::scoped_lock lock{mutex_};

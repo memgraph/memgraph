@@ -100,12 +100,9 @@ void CloseSessionsOnDroppingDatabases(InterpreterSet &interpreters) {
 }
 #endif
 
-/// Foreign VERIFYING pins are only taken under `interpreters`, so concurrent SHOW/TERMINATE statements never
-/// observe each other's pins.
-/// Pins `interpreter`'s transaction so it can neither commit nor abort, hands its id to
-/// `should_kill`, and marks it TERMINATED if the predicate accepts. Only an ACTIVE
-/// transaction can be pinned, so one already committing, aborting or terminated is left
-/// alone. Returns whether the transaction was terminated.
+/// Pins `interpreter`'s ACTIVE transaction (so it can neither commit nor abort), hands its id to `should_kill`, and
+/// marks it TERMINATED if accepted; returns whether it was. Call with `interpreters` locked: every foreign VERIFYING
+/// pin is taken under it, so concurrent SHOW/TERMINATE statements never observe each other's pins.
 template <typename ShouldKill>
 bool TryTerminateInterpreter(Interpreter *interpreter, ShouldKill &&should_kill) {
   TransactionStatus alive_status = TransactionStatus::ACTIVE;
@@ -130,7 +127,7 @@ bool TryTerminateInterpreter(Interpreter *interpreter, ShouldKill &&should_kill)
   return killed;
 }
 
-/// What decides whether a caller may kill a target: owning the target, or holding the privilege on its database.
+/// Authorization key for a kill target: owned by the caller, or else the database the caller needs the privilege on.
 struct TargetOwner {
   bool same_user{false};
   std::string db_name;
@@ -140,9 +137,8 @@ struct TargetOwner {
   }
 };
 
-/// Call with `interpreters` locked. user_or_role_ is owning-thread state; foreign_user_view_.load() snapshots it
-/// safely. foreign_db_view() (not name()) because neither the VERIFYING CAS nor an IDLE target orders against
-/// SetCurrentDB, so a raw name() could tear against a concurrent USE DATABASE.
+/// Call with `interpreters` locked. Uses foreign_user_view_ / foreign_db_view() because user_or_role_ and name() are
+/// owning-thread state: neither the VERIFYING pin nor an IDLE target orders against SetUser/SetCurrentDB.
 TargetOwner ReadOwner(Interpreter const *interpreter, QueryUserOrRole *user_or_role, bool dbless_falls_back) {
   TargetOwner owner;
   owner.same_user = SameUser(interpreter->foreign_user_view_.load(std::memory_order_acquire), user_or_role);
@@ -155,7 +151,7 @@ bool Authorized(TargetOwner const &owner, PrivilegeByDb &privilege_by_db) {
   return owner.same_user || privilege_by_db(owner.db_name);
 }
 
-/// Phase 1: ACTIVE transactions (all, or only `wanted`) with their owner, read under the ACTIVE->VERIFYING pin.
+/// Phase 1: ACTIVE transactions (all, or only `wanted`) with their owner, read under the VERIFYING pin.
 std::unordered_map<uint64_t, TargetOwner> SnapshotTransactions(InterpreterSet &interpreters, Interpreter const *self,
                                                                std::unordered_set<uint64_t> const *wanted,
                                                                QueryUserOrRole *user_or_role) {
@@ -172,7 +168,7 @@ std::unordered_map<uint64_t, TargetOwner> SnapshotTransactions(InterpreterSet &i
   return snapshot;
 }
 
-/// Phases 2-3 shared by both transaction statements. Returns the ids actually killed.
+/// Both transaction statements: snapshot, authorize without the lock, then kill only targets whose owner is unchanged.
 std::unordered_set<uint64_t> KillAuthorizedTransactions(InterpreterSet &interpreters, Interpreter const *self,
                                                         std::unordered_set<uint64_t> const *wanted,
                                                         QueryUserOrRole *user_or_role,
@@ -215,8 +211,8 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
   std::unordered_set<uint64_t> const wanted(maybe_kill_transaction_ids.begin(), maybe_kill_transaction_ids.end());
   auto killed = KillAuthorizedTransactions(interpreters, nullptr, &wanted, user_or_role, privilege_checker);
 
-  // An unauthorized match reports killed=false like a missing id, so its existence isn't leaked. For a duplicated
-  // id only the first occurrence is the killed one. Not-killed rows come first, then killed rows, each in input order.
+  // An unauthorized match reports killed=false like a missing id (no existence leak); a duplicated id is killed only
+  // on its first occurrence. Rows: not-killed first, then killed, each in input order.
   std::vector<std::vector<TypedValue>> not_killed_rows;
   std::vector<std::vector<TypedValue>> killed_rows;
   for (auto const id : maybe_kill_transaction_ids) {
@@ -289,7 +285,7 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(InterpreterSet &in
     }
   });
 
-  // Phase 2: authorize without the lock. Rule order and logs are per input id.
+  // Phase 2: authorize without the lock, per input id.
   PrivilegeByDb privilege_by_db{user_or_role, privilege_checker};
   std::unordered_set<std::string> accepted_for_kill;
   std::vector<std::optional<size_t>> accepted_row(session_ids.size());
@@ -335,9 +331,8 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(InterpreterSet &in
     result.rows.push_back({TypedValue(id), TypedValue(true)});
   }
 
-  // Phase 3: authorization was evaluated without the lock, so the kill only proceeds if the target is still the same
-  // login (every login publishes a fresh SessionInfo) with the same authorization key. The later RequestTermination
-  // is still by uuid.
+  // Phase 3: kill only if the target is still the same login (each login publishes a fresh SessionInfo) with the same
+  // authorization key; the caller's later RequestTermination is by uuid.
   std::unordered_set<std::string> confirmed;
   if (!accepted_for_kill.empty()) {
     interpreters.WithLock([&](auto const &all) {

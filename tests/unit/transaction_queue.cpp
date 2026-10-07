@@ -1137,7 +1137,7 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminatePrivilegeCheckRunsWithoutTheInte
   target.SetSessionInfo("target-session-uuid", "bob", "ts");
   caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
   this->running_interpreter.Interpret("BEGIN");
-  auto const tx_id = std::to_string(target.GetTransactionId().value());
+  auto const tx_id = target.GetTransactionId().value();
 
   int calls = 0;
   bool lock_held = false;
@@ -1153,7 +1153,7 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminatePrivilegeCheckRunsWithoutTheInte
   EXPECT_GE(calls, 1) << "TerminateSessions never reached the checker";
 
   calls = 0;
-  this->interpreter_context.TerminateTransactions(interpreters, {std::stoull(tx_id)}, user, checker);
+  this->interpreter_context.TerminateTransactions(interpreters, {tx_id}, user, checker);
   EXPECT_GE(calls, 1) << "TerminateTransactions never reached the checker";
 
   calls = 0;
@@ -1165,7 +1165,6 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminatePrivilegeCheckRunsWithoutTheInte
 }
 
 namespace {
-// Authorization probe: reports whether `interpreters` was held while IsAuthorized ran, and denies.
 struct LockProbeUser : memgraph::query::QueryUserOrRole {
   LockProbeUser(std::string name, memgraph::query::InterpreterSet &interpreters, int &calls, bool &lock_held)
       : memgraph::query::QueryUserOrRole{std::move(name), {}},

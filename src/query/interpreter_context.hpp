@@ -130,9 +130,8 @@ struct InterpreterContext {
   /// their ongoing execution.
   void Shutdown() { is_shutting_down.store(true, std::memory_order_release); }
 
-  // The Terminate* functions below lock `interpreters` themselves (snapshot, then act) and run the privilege
-  // checker with it released. A target that leaves ACTIVE or changes identity/authorization in between reports
-  // killed=false.
+  // The Terminate* functions lock `interpreters` themselves and run the privilege checker with it released. A target
+  // whose identity/authorization changes in between reports killed=false, as does a transaction that leaves ACTIVE.
   static std::vector<std::vector<TypedValue>> TerminateTransactions(InterpreterSet &interpreters,
                                                                     std::vector<uint64_t> maybe_kill_transaction_ids,
                                                                     QueryUserOrRole *user_or_role,
