@@ -11742,6 +11742,7 @@ void Interpreter::Commit() {
     // The transaction is committed; a post-commit step failed. Report it as a warning, not an error.
     auto message = fmt::format("The transaction was committed but a post-commit step failed: {}", *post_commit_warning);
     if (commit_notification_) {
+      // Only one notification fits: use PostCommitFailure code, keep the replication title in the message.
       message = fmt::format("{} {}", commit_notification_->title, message);
     }
     commit_notification_.emplace(SeverityLevel::WARNING, NotificationCode::POST_COMMIT_FAILURE, std::move(message));

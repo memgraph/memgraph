@@ -1146,10 +1146,13 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // abort it: publish, and surface the error as a warning instead.
   auto const complete_after_wal_commit = [&](char const *what) {
     if (!wal_committed_) throw;
-    RecordPostCommitWarning("replication or WAL finalization", what);
+    // In a handler uncaught_exceptions() is 0, so the tracker could throw and skip the publish below.
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+    // Publish first: the warning is best-effort and must never stand between a durable txn and its publish.
     if (is_transaction_active_) {
       FinalizeCommitPhase(durability_commit_timestamp);
     }
+    RecordPostCommitWarning("replication or WAL finalization", what);
     completed_after_wal_commit = true;
   };
   try {
@@ -1213,9 +1216,12 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
             return true;
           } catch (std::exception const &e) {
             if (!committed) throw;
+            // The handler must not throw: a later step (replica finalize) still has to run.
+            utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
             RecordPostCommitWarning(step, e.what());
           } catch (...) {
             if (!committed) throw;
+            utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
             RecordPostCommitWarning(step, "unknown exception");
           }
           return false;
@@ -1279,11 +1285,24 @@ void InMemoryStorage::InMemoryAccessor::PreparePointIndex() {
   point_index_prepared_ = true;
 }
 
-void InMemoryStorage::InMemoryAccessor::RecordPostCommitWarning(char const *const step, std::string_view const what) {
-  spdlog::error("Transaction committed, but post-commit step '{}' failed: {}", step, what);
-  if (!post_commit_warning_) {
+void InMemoryStorage::InMemoryAccessor::RecordPostCommitWarning(char const *const step,
+                                                                std::string_view const what) noexcept {
+  // Callers are post-point-of-no-return handlers: nothing here may propagate, whatever allocation or logging does.
+  utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+  try {
+    spdlog::error("Transaction committed, but post-commit step '{}' failed: {}", step, what);
+  } catch (...) {  // NOLINT(bugprone-empty-catch): logging is best-effort
+  }
+  if (post_commit_warning_) return;
+  try {
     post_commit_warning_ =
         fmt::format("The transaction was committed, but a post-commit step ('{}') failed: {}", step, what);
+  } catch (...) {
+    // Shorter fallback, keeps the first-warning-wins rule.
+    try {
+      post_commit_warning_ = "The transaction was committed, but a post-commit step failed";
+    } catch (...) {  // NOLINT(bugprone-empty-catch): out of memory even for the fallback; the log line remains
+    }
   }
 }
 

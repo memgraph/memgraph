@@ -220,7 +220,7 @@ class InMemoryStorage final : public Storage {
     void PreparePointIndex();
 
     // Keeps the first message; later ones are only logged.
-    void RecordPostCommitWarning(char const *step, std::string_view what);
+    void RecordPostCommitWarning(char const *step, std::string_view what) noexcept;
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;

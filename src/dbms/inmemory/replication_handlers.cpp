@@ -601,11 +601,6 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
     mem_storage->commit_log_->MarkFinished(*commit_ts);
     commit_ts.emplace(mem_storage->GetCommitTimestamp());
     commit_accessor->FinalizeCommitPhase(req.durability_commit_timestamp);
-    if (auto warning = commit_accessor->TakePostCommitWarning()) {
-      spdlog::warn("Txn with ldt {} committed on replica with a post-commit warning: {}",
-                   req.durability_commit_timestamp,
-                   *warning);
-    }
     spdlog::trace("Finalized txn on replica");
   } else {
     commit_accessor->AbortAndResetCommitTs();
@@ -614,7 +609,21 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   commit_accessor.reset();
   if (mem_storage->wal_file_) {
-    mem_storage->FinalizeWalFile();
+    if (req.decision) {
+      // The txn is already committed on this replica; a WAL rollover failure must not make MAIN see a failed finalize.
+      try {
+        mem_storage->FinalizeWalFile();
+      } catch (std::exception const &e) {
+        spdlog::error("Replica committed txn with ldt {} but failed to finalize the WAL file: {}",
+                      req.durability_commit_timestamp,
+                      e.what());
+      } catch (...) {
+        spdlog::error("Replica committed txn with ldt {} but failed to finalize the WAL file: unknown exception",
+                      req.durability_commit_timestamp);
+      }
+    } else {
+      mem_storage->FinalizeWalFile();
+    }
   }
 
   storage::replication::FinalizeCommitRes const res(true);
@@ -1688,10 +1697,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
 
           if (!ret) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
-          }
-          // A post-commit warning is still a success; the accessor is reset below (non-2PC) or finalized in phase 2
-          if (auto warning = commit_accessor->TakePostCommitWarning()) {
-            spdlog::warn("Txn {} committed on replica with a post-commit warning: {}", commit_timestamp, *warning);
           }
           // If not STRICT SYNC replica, reset the commit accessor immediately because the txn is considered committed
           if (!two_phase_commit) {
