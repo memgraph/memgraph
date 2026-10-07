@@ -3322,12 +3322,21 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TEST_P(DurabilityTest, WalDeathResilience) {
-#if defined(__SANITIZE_THREAD__) || __has_feature(thread_sanitizer)
-  GTEST_SKIP() << "fork() with TSAN is not supported when other threads are running";
-#endif
   // Writer runs in a re-exec'd child: fork()ing this multi-threaded binary can inherit a RocksDB pool mutex held
   // by a parent-only thread and hang in Database -> KVStore.
   auto const writer = [&] {
+    // Started before Database so the deadline also bounds a hang in its constructor. Waits for the WAL file, then
+    // lets commits continue so the kill lands mid-commit; a missing WAL fails the parent's assertions.
+    std::thread killer([this] {
+      auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+      while (GetWalsList().empty() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      }
+      std::this_thread::sleep_for(std::chrono::seconds(1));
+      kill(getpid(), SIGKILL);
+    });
+    killer.detach();
+
     memgraph::storage::Config config{
 
         .durability = {.storage_directory = storage_directory,
@@ -3341,18 +3350,6 @@ TEST_P(DurabilityTest, WalDeathResilience) {
     };
     memgraph::dbms::Database db{config};
     const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-
-    // Wait for the WAL file, then let commits continue for a while so the kill lands mid-commit. The deadline
-    // makes a missing WAL fail the parent's assertions instead of hanging.
-    std::thread killer([this] {
-      auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
-      while (GetWalsList().empty() && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-      }
-      std::this_thread::sleep_for(std::chrono::seconds(1));
-      kill(getpid(), SIGKILL);
-    });
-    killer.detach();
 
     for (;;) {
       auto acc = db.Access(memgraph::storage::WRITE);
