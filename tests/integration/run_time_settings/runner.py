@@ -14,6 +14,7 @@
 import argparse
 import atexit
 import fcntl
+import glob
 import os
 import subprocess
 import sys
@@ -253,8 +254,13 @@ def run_persistence_test(
     env = {
         k: v for k, v in os.environ.items() if k not in ("MEMGRAPH_ENTERPRISE_LICENSE", "MEMGRAPH_ORGANIZATION_NAME")
     }
-    log_file = os.path.join(data_directory, "memgraph.log")
-    memgraph_args = memgraph_args + ["--log-file", log_file]
+    # The daily log sink inserts the date into the file name
+    memgraph_args = memgraph_args + ["--log-file", os.path.join(data_directory, "memgraph.log")]
+
+    def read_log() -> str:
+        log_files = glob.glob(os.path.join(data_directory, "memgraph*.log"))
+        assert log_files, "No log file written"
+        return "".join(open(path).read() for path in log_files)
 
     def start(extra_args: List[str] = []):
         memgraph = start_memgraph(memgraph_args + extra_args, env)
@@ -284,8 +290,7 @@ def run_persistence_test(
     check_flag(flag_tester_binary, "server.name", "Old Name")
     check_flag(flag_tester_binary, "query.timeout", "600")
     stop(memgraph)
-    with open(log_file) as f:
-        log = f.read()
+    log = read_log()
     assert "Setting 'server.name' was restored from the data directory" in log, "Missing deprecation warning"
     assert "--bolt-server-name-for-init=Old Name" in log, "Deprecation warning does not name the flag"
     assert "Setting 'query.timeout' was restored" not in log, "query.timeout was never restorable"

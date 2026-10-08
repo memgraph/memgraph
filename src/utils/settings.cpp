@@ -116,12 +116,12 @@ std::vector<std::pair<std::string, std::string>> Settings::AllSettings() const {
 }
 
 std::optional<std::string> Settings::StoredValue(const std::string &setting_name) const {
-  std::shared_lock settings_guard{settings_lock_};
+  const std::shared_lock settings_guard{settings_lock_};
   return storage_.Get(setting_name);
 }
 
 void Settings::DropStoredValue(const std::string &setting_name) {
-  std::lock_guard settings_guard{settings_lock_};
+  const std::scoped_lock settings_guard{settings_lock_};
   const auto it = settings_.find(setting_name);
   MG_ASSERT(it != settings_.end() && it->second.persistence != Persistence::kPersisted,
             "Only a non-persisted setting can drop its stored value");
