@@ -40,12 +40,6 @@ struct System {
   // TODO: this and LastCommittedSystemTimestamp maybe not needed
   auto GenTransactionGuard() -> TransactionGuard { return TransactionGuard{std::unique_lock{mtx_}}; }
 
-  /// Non-blocking: true if a system transaction currently holds the lock. Must not be called by the lock owner.
-  auto TransactionInFlight() -> bool {
-    auto const probe = std::unique_lock{mtx_, std::try_to_lock};
-    return !probe.owns_lock();
-  }
-
   auto LastCommittedSystemTimestamp() const -> uint64_t { return state_.LastCommittedSystemTimestamp(); }
 
   auto CreateSystemStateAccess() -> ReplicaHandlerAccessToState { return ReplicaHandlerAccessToState{state_}; }

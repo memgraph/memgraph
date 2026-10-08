@@ -79,14 +79,15 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
 
-  DbInfo db_info = std::invoke([&] {
-    auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
-      if constexpr (REQUIRE_LOCK) {
-        return system.GenTransactionGuard();
-      }
-      return std::nullopt;
-    });
+  // Held until the stream is built so a later system tx cannot send its deltas before the recovery request.
+  auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
+    if constexpr (REQUIRE_LOCK) {
+      return system.GenTransactionGuard();
+    }
+    return std::nullopt;
+  });
 
+  DbInfo db_info = std::invoke([&] {
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
       dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
@@ -107,33 +108,17 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
 #ifdef MG_ENTERPRISE
-    std::optional<std::unique_lock<utils::ResourceLock>> conn_guard;
     auth::Auth::Config auth_config;
     std::vector<auth::User> auth_users;
     std::vector<auth::Role> auth_roles;
     std::vector<auth::UserProfiles::Profile> auth_profiles;
     if (is_enterprise) {
-      // Lock the connection before the auth snapshot so no delta reaches the replica before the recovery message.
-      conn_guard.emplace(client.rpc_client_.LockConnection());
-      if constexpr (REQUIRE_LOCK) {
-        // An in-flight tx may have partly delivered its deltas: retry. A tx starting after this probe may already be
-        // in the snapshot; its deltas queue behind the held connection and re-apply idempotently after recovery.
-        if (system.TransactionInFlight()) {
-          client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
-          return;
-        }
-      }
       auth.WithReadLock([&](const auto &locked_auth) {
         auth_config = locked_auth.GetConfig();
         auth_users = locked_auth.AllUsers();
         auth_roles = locked_auth.AllRoles();
         auth_profiles = locked_auth.AllProfiles();
       });
-      // A system tx committed after DbInfo was taken: the snapshot may be newer than its timestamp, so retry.
-      if (system.LastCommittedSystemTimestamp() != db_info.last_committed_timestamp) {
-        client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
-        return;
-      }
     }
 #endif
     auto stream = std::invoke([&]() {
@@ -148,23 +133,15 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             std::vector<auth::UserProfiles::Profile>{},
                                                             params_snapshot);
       }
-      return client.rpc_client_.StreamWithLoad<SystemRecoveryRpc>(
-          [](auto *reader) {
-            SystemRecoveryRes response;
-            SystemRecoveryRes::Load(&response, reader);
-            return response;
-          },
-          /*try_lock_timeout*/ std::nullopt,
-          /*guard*/ std::move(conn_guard),
-          main_uuid,
-          db_info.last_committed_timestamp,
-          std::move(db_info.configs),
-          std::move(auth_config),
-          std::move(auth_users),
-          std::move(auth_roles),
-          std::move(auth_profiles),
-          params_snapshot,
-          std::move(db_info.cold_databases));
+      return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
+                                                          db_info.last_committed_timestamp,
+                                                          std::move(db_info.configs),
+                                                          std::move(auth_config),
+                                                          std::move(auth_users),
+                                                          std::move(auth_roles),
+                                                          std::move(auth_profiles),
+                                                          params_snapshot,
+                                                          std::move(db_info.cold_databases));
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                           db_info.last_committed_timestamp,
@@ -176,6 +153,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           params_snapshot);
 #endif
     });
+    guard.reset();
     auto const response = stream.SendAndWait();
     if (response.result == SystemRecoveryRes::Result::FAILURE) {
       // System recovery failed; do not record confirmations so the reset is re-advertised on the next
