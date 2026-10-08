@@ -22,4 +22,7 @@ enum class SchedulerType : uint8_t {
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(scheduler);
 
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DECLARE_bool(bolt_integrated_poller);
+
 SchedulerType GetSchedulerType();

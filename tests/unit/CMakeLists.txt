@@ -542,6 +542,12 @@ add_unit_test(utils_priority_thread_pool
     TEST_PROPERTIES TIMEOUT 120 PROCESSORS 12
 )
 
+add_unit_test(communication_epoll_poller
+    SOURCES communication_epoll_poller.cpp
+    LINK_TARGETS mg-communication mg-utils
+    TEST_PROPERTIES TIMEOUT 120
+)
+
 add_unit_test(utils_epoch_tracker
     SOURCES utils_epoch_tracker.cpp
     LINK_TARGETS mg-utils

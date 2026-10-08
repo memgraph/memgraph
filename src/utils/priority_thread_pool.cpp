@@ -11,10 +11,18 @@
 
 #include "utils/priority_thread_pool.hpp"
 
+#include <linux/futex.h>
+#include <sys/syscall.h>
+#include <unistd.h>
+
+#include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
+#include <climits>
 #include <cstddef>
 #include <cstdint>
+#include <ctime>
 #include <functional>
 #include <latch>
 #include <limits>
@@ -35,6 +43,22 @@ namespace {
 constexpr memgraph::utils::PriorityThreadPool::TaskID kMaxLowPriorityId = std::numeric_limits<int64_t>::max();
 constexpr memgraph::utils::PriorityThreadPool::TaskID kMinHighPriorityId = kMaxLowPriorityId;
 constexpr uint16_t kMaxWorkers = memgraph::utils::HotMask::kMaxElements;
+constexpr uint32_t kPollEverySpins = 64;
+constexpr auto kMonitorPeriod = std::chrono::milliseconds(100);
+constexpr double kMonitorLingerSeconds = 30e-6;
+
+// Raw FUTEX_WAIT with a relative timeout; wake it with FutexWakeAll on the same word. Returns false only on timeout.
+bool FutexWait(std::atomic<uint32_t> &word, uint32_t expected, std::chrono::nanoseconds timeout) {
+  timespec ts{.tv_sec = static_cast<time_t>(timeout.count() / 1'000'000'000),
+              .tv_nsec = static_cast<long>(timeout.count() % 1'000'000'000)};
+  const auto rc =
+      syscall(SYS_futex, reinterpret_cast<uint32_t *>(&word), FUTEX_WAIT_PRIVATE, expected, &ts, nullptr, 0);
+  return rc != -1 || errno != ETIMEDOUT;  // EAGAIN (gate moved) and EINTR: caller re-checks
+}
+
+void FutexWakeAll(std::atomic<uint32_t> &word) {
+  syscall(SYS_futex, reinterpret_cast<uint32_t *>(&word), FUTEX_WAKE_PRIVATE, INT_MAX, nullptr, nullptr, 0);
+}
 }  // namespace
 
 namespace memgraph::utils {
@@ -49,6 +73,25 @@ struct TmpHotElement {
     return {hot_id, new_state};
   }
 };
+
+bool HotMask::WaitUntilEmpty(const std::chrono::steady_clock::time_point deadline, const std::stop_token &stop) {
+  const auto g = gate_.load(std::memory_order::acquire);
+  waiter_parked_.store(true, std::memory_order::relaxed);
+  std::atomic_thread_fence(std::memory_order::seq_cst);
+  bool woken = true;
+  if (hot_masks_[0].load(std::memory_order::acquire) != 0 && !stop.stop_requested()) {
+    const auto remaining = deadline - std::chrono::steady_clock::now();
+    woken = remaining > std::chrono::steady_clock::duration::zero() &&
+            FutexWait(gate_, g, std::chrono::duration_cast<std::chrono::nanoseconds>(remaining));
+  }
+  waiter_parked_.store(false, std::memory_order::relaxed);
+  return woken;
+}
+
+void HotMask::WakeWaiter() {
+  gate_.fetch_add(1, std::memory_order::acq_rel);
+  FutexWakeAll(gate_);
+}
 
 std::optional<uint16_t> HotMask::GetHotElement() {
   // Go through all groups and check
@@ -65,7 +108,10 @@ std::optional<uint16_t> HotMask::GetHotElement() {
       res = TmpHotElement::Get(group_mask);
     }
     // Successfully updated the state | check if any hot element was available
-    if (group_mask != 0) return res.id + (group_i * kGroupSize);
+    if (group_mask != 0) {
+      if (n_groups_ == 1 && res.new_mask == 0) NotifyEmpty();
+      return res.id + (group_i * kGroupSize);
+    }
   }
   // None found
   return {};
@@ -103,7 +149,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
         if (thread_init_callback) {
           thread_init_callback();
         }
-        slots[i]->operator()<ThreadPriority>(i, workers_, hot_threads_);
+        slots[i]->operator()<ThreadPriority>(i, workers_, hot_threads_, idle_poll_);
       });
     }
   };
@@ -113,48 +159,119 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
 
   published->wait();
 
-  // Under heavy load a task can get stuck, monitor and move to different thread
-  monitoring_.SetInterval(std::chrono::milliseconds(100));
-  monitoring_.Run("sched_mon",
-                  [this,
-                   workers_num = workers_.size(),
-                   hp_workers_num = hp_workers_.size(),
-                   last_task = std::array<TaskID, kMaxWorkers>{}]() mutable {
-                    size_t i = 0;
-                    for (auto &worker : workers_) {
-                      const auto worker_id = i++;
-                      auto &worker_last_task = last_task[worker_id];
-                      auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
-                      if (worker_last_task == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
-                        // worker stuck on a task; move task to a different queue
-                        auto l = std::unique_lock{worker->mtx_, std::defer_lock};
-                        if (!l.try_lock()) continue;  // Thread is busy...
-                        // Recheck under lock
-                        if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
-                        // Update flag as soon as possible
-                        worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
-                        Worker::Work work{.id = worker->work_.top().id, .work = std::move(worker->work_.top().work)};
-                        worker->work_.pop();
-                        l.unlock();
+  // Under heavy load a task can get stuck; the monitor moves it, and blocks in the poller when one is attached
+  monitor_ = std::jthread([this](const std::stop_token &stop) { MonitorLoop(stop); });
+}
 
-                        auto tid = hot_threads_.GetHotElement();
-                        if (!tid) {
-                          // No hot LP threads available; schedule HP work to HP thread
-                          if (work.id > kMinHighPriorityId) {
-                            static size_t last_hp_thread = 0;
-                            auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
-                            if (!hp_worker->has_pending_work_) {
-                              hp_worker->push(std::move(work.work), work.id);
-                              continue;
-                            }
-                          }
-                          // No hot thread and low priority work, schedule to the next lp worker
-                          tid = (worker_id + 1) % workers_num;
-                        }
-                        workers_[*tid]->push(std::move(work.work), work.id);
-                      }
-                    }
-                  });
+void PriorityThreadPool::MonitorTick(std::array<TaskID, kMaxWorkers> &last_task) {
+  const auto workers_num = workers_.size();
+  const auto hp_workers_num = hp_workers_.size();
+  size_t i = 0;
+  for (auto &worker : workers_) {
+    const auto worker_id = i++;
+    auto &worker_last_task = last_task[worker_id];
+    auto update = utils::OnScopeExit{[&]() mutable { worker_last_task = worker->last_task_; }};
+    if (worker_last_task == worker->last_task_ && worker->working_ && worker->has_pending_work_) {
+      // worker stuck on a task; move task to a different queue
+      auto l = std::unique_lock{worker->mtx_, std::defer_lock};
+      if (!l.try_lock()) continue;  // Thread is busy...
+      // Recheck under lock
+      if (worker->work_.empty() || worker_last_task != worker->last_task_) continue;
+      // Update flag as soon as possible
+      worker->has_pending_work_.store(worker->work_.size() > 1, std::memory_order_release);
+      Worker::Work work{.id = worker->work_.top().id, .work = std::move(worker->work_.top().work)};
+      worker->work_.pop();
+      l.unlock();
+
+      auto tid = hot_threads_.GetHotElement();
+      if (!tid) {
+        // No hot LP threads available; schedule HP work to HP thread
+        if (work.id > kMinHighPriorityId) {
+          static size_t last_hp_thread = 0;
+          auto &hp_worker = hp_workers_[hp_workers_num > 1 ? last_hp_thread++ % hp_workers_num : 0];
+          if (!hp_worker->has_pending_work_) {
+            hp_worker->push(std::move(work.work), work.id);
+            continue;
+          }
+        }
+        // No hot thread and low priority work, schedule to the next lp worker
+        tid = (worker_id + 1) % workers_num;
+      }
+      workers_[*tid]->push(std::move(work.work), work.id);
+    }
+  }
+}
+
+void PriorityThreadPool::MonitorLoop(const std::stop_token &stop) {
+  using Clock = std::chrono::steady_clock;
+  utils::ThreadSetName("sched_mon");
+
+  const auto freq = utils::GetTSCFrequency();
+  const bool can_park = hot_threads_.SingleWord() && freq;
+
+  auto last_task = std::make_unique<std::array<TaskID, kMaxWorkers>>();
+  auto next_tick = Clock::now() + kMonitorPeriod;
+  while (!stop.stop_requested()) {
+    if (idle_poll_.poller.load(std::memory_order_acquire) == nullptr) {
+      auto lk = std::unique_lock{monitor_cv_mtx_};
+      monitor_cv_.wait_until(
+          lk, stop, next_tick, [this] { return idle_poll_.poller.load(std::memory_order_acquire) != nullptr; });
+    } else if (can_park && hot_threads_.AnyHot()) {
+      // Hot workers poll the poller themselves; park until they are all gone. A descheduled hot worker keeps its bit
+      // set, so the monitor keeps parking (bounded per tick) until that worker's <=1 ms spin ends.
+      hot_threads_.WaitUntilEmpty(next_tick, stop);
+      if (!hot_threads_.AnyHot()) {
+        const utils::TSCTimer linger{freq};
+        yielder y;  // NOLINT (misc-const-correctness)
+        while (!hot_threads_.AnyHot() && !stop.stop_requested() && linger.Elapsed() < kMonitorLingerSeconds) {
+          y();
+        }
+      }
+    } else {
+      auto use = std::unique_lock{monitor_use_mtx_};
+      if (auto *poller = idle_poll_.poller.load(std::memory_order_acquire)) {
+        const auto remaining = next_tick - Clock::now();
+        const auto ms =
+            std::max(std::chrono::milliseconds::zero(), std::chrono::ceil<std::chrono::milliseconds>(remaining));
+        poller->WaitAndDispatch(ms);
+      }
+    }
+    if (Clock::now() >= next_tick) {
+      MonitorTick(*last_task);
+      next_tick = Clock::now() + kMonitorPeriod;
+    }
+  }
+}
+
+void PriorityThreadPool::WakeMonitor(IdlePoller *poller, bool wake_poller) {
+  if (poller && wake_poller) poller->Wake();
+  hot_threads_.WakeWaiter();
+  {
+    auto lk = std::unique_lock{monitor_cv_mtx_};
+  }
+  monitor_cv_.notify_all();
+}
+
+void PriorityThreadPool::SetIdlePoller(IdlePoller *poller) {
+  DMG_ASSERT(poller, "use ClearIdlePoller to detach");
+  auto lk = std::unique_lock{attach_mtx_};
+  // Enable the waiter before publishing the poller: the monitor's first park depends on it.
+  if (hot_threads_.SingleWord()) hot_threads_.EnableWaiter();
+  idle_poll_.poller.store(poller, std::memory_order_seq_cst);
+  WakeMonitor(poller, /*wake_poller=*/false);
+}
+
+void PriorityThreadPool::ClearIdlePoller() {
+  auto lk = std::unique_lock{attach_mtx_};
+  auto *old = idle_poll_.poller.exchange(nullptr, std::memory_order_seq_cst);
+  if (!old) return;
+  WakeMonitor(old);
+  {
+    auto use = std::unique_lock{monitor_use_mtx_};
+  }  // the monitor is out of the poller; later loads see null
+  // Drain: a worker inside TryClaim holds the token; later ones re-load null after winning it.
+  while (idle_poll_.token.exchange(true, std::memory_order_acquire)) std::this_thread::yield();
+  idle_poll_.token.store(false, std::memory_order_release);
 }
 
 PriorityThreadPool::~PriorityThreadPool() {
@@ -169,7 +286,12 @@ void PriorityThreadPool::ShutDown() {
   {
     pool_stop_source_.request_stop();
     // Stop monitoring thread before workers
-    monitoring_.Stop();
+    monitor_.request_stop();
+    {
+      auto lk = std::unique_lock{attach_mtx_};
+      WakeMonitor(idle_poll_.poller.load(std::memory_order_seq_cst));
+    }
+    if (monitor_.joinable()) monitor_.join();
     // Mixed work workers
     for (auto &worker : workers_) {
       worker->stop();
@@ -221,7 +343,7 @@ void PriorityThreadPool::Worker::stop() {
 template <Priority ThreadPriority>
 void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
                                             const std::vector<std::unique_ptr<Worker>> &workers_pool,
-                                            HotMask &hot_threads) {
+                                            HotMask &hot_threads, IdlePollState &idle_poll) {
   utils::ThreadSetName(ThreadPriority == Priority::HIGH ? "high prior." : "low prior.");
 
   // Both mixed and high priority worker only steal from mixed worker
@@ -253,6 +375,8 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     task = std::move(work_.top().work);
     work_.pop();
   };
+
+  std::shared_ptr<IdleRunnable> claimed;  // NOLINT (misc-const-correctness)
 
   while (run_.load(std::memory_order_acquire)) {
     // Phase 1 get scheduled work <- cold thread???
@@ -321,9 +445,46 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
     const auto freq = utils::GetTSCFrequency();
     if (freq) {
       const utils::TSCTimer timer{freq};
-      yielder y;                         // NOLINT (misc-const-correctness)
+      yielder y;                                 // NOLINT (misc-const-correctness)
+      [[maybe_unused]] bool has_poller = false;  // NOLINT (misc-const-correctness) hint only; re-checked under token
+      if constexpr (ThreadPriority != Priority::HIGH) {
+        has_poller = idle_poll.poller.load(std::memory_order_acquire) != nullptr;
+      }
+      [[maybe_unused]] uint32_t spins = 0;  // NOLINT (misc-const-correctness)
+      auto ready = [&] {
+        if (has_pending_work_.load(std::memory_order_acquire)) return true;
+        if constexpr (ThreadPriority != Priority::HIGH) {
+          if (has_poller && (++spins % kPollEverySpins) == 0) {
+            if (!run_.load(std::memory_order_relaxed)) return true;
+            if (idle_poll.token.load(std::memory_order_relaxed) ||
+                idle_poll.token.exchange(true, std::memory_order_acquire)) {
+              return false;
+            }
+            if (auto *poller = idle_poll.poller.load(std::memory_order_acquire)) claimed = poller->TryClaim();
+            idle_poll.token.store(false, std::memory_order_release);
+            return claimed != nullptr;
+          }
+        }
+        return false;
+      };
       while (timer.Elapsed() < 0.001) {  // 1ms
-        if (y([this] { return has_pending_work_.load(std::memory_order_acquire); }, 1024U, 0U)) break;
+        if (y(ready, 1024U, 0U)) break;
+      }
+    }
+
+    if constexpr (ThreadPriority != Priority::HIGH) {
+      if (claimed) {
+        // A producer that took this worker's hot bit (bit already clear) is about to queue work here: that work
+        // must not wait behind the session, so the session goes back to the pool instead.
+        const bool was_set = hot_threads.ResetWasSet(worker_id);
+        if (!was_set || has_pending_work_.load(std::memory_order_acquire)) {
+          claimed->Dispatch();
+        } else {
+          working_.store(true, std::memory_order_release);
+          claimed->RunInline(ThreadPriority);
+        }
+        claimed.reset();
+        continue;
       }
     }
 
@@ -401,7 +562,7 @@ void TaskCollection::WaitOrSteal() {
 
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::LOW>(
     uint16_t worker_id, const std::vector<std::unique_ptr<memgraph::utils::PriorityThreadPool::Worker>> &,
-    memgraph::utils::HotMask &hot_threads);
+    memgraph::utils::HotMask &hot_threads, memgraph::utils::IdlePollState &idle_poll);
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::HIGH>(
     uint16_t worker_id, const std::vector<std::unique_ptr<memgraph::utils::PriorityThreadPool::Worker>> &,
-    memgraph::utils::HotMask &hot_threads);
+    memgraph::utils::HotMask &hot_threads, memgraph::utils::IdlePollState &idle_poll);
