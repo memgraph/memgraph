@@ -10623,18 +10623,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
-    // The first statement fixes the transaction's mode, and the two are mutually exclusive: an auth transaction
-    // releases the accessor BEGIN opened (see PrepareAuthQuery), so a later data query would have none to run
-    // against. A refusal fails the transaction like any other error in this block.
-    if (in_explicit_transaction_) {
-      auto const mode = utils::Downcast<AuthQuery>(parsed_query.query) ? TxMode::Auth : TxMode::Data;
-      if (!tx_mode_) {
-        tx_mode_ = mode;
-      } else if (*tx_mode_ != mode) {
-        throw MixedAuthAndDataTxException();
-      }
-    }
-
     // SetupInterpreterTransaction selected the execution DB for data queries.
     // System-only queries can intentionally have no current DB tracker.
     auto *db_query_tracker = current_db_.db_acc_ ? current_db_.db_acc_->get()->DbQueryMemoryTracker() : nullptr;
@@ -10654,6 +10642,18 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     query_execution->summary["parsing_time"] = parse_info.parsing_time;
     query_execution->query_string = parse_info.parsed_query.query_string;
     memgraph::logging::EmitSessionTraceEvent("Query parsing time: {}", parse_info.parsing_time);
+
+    // The first statement fixes the transaction's mode, and the two are mutually exclusive: an auth transaction
+    // releases the accessor BEGIN opened (see PrepareAuthQuery), so a later data query would have none to run
+    // against. A refusal fails the transaction like any other error in this block.
+    if (in_explicit_transaction_) {
+      auto const mode = utils::Downcast<AuthQuery>(parsed_query.query) ? TxMode::Auth : TxMode::Data;
+      if (!tx_mode_) {
+        tx_mode_ = mode;
+      } else if (*tx_mode_ != mode) {
+        throw MixedAuthAndDataTxException();
+      }
+    }
 
     // Set a default cost estimate of 0. Individual queries can overwrite this
     // field with an improved estimate.
