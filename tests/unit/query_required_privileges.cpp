@@ -45,6 +45,14 @@ TEST_F(TestPrivilegeExtractor, CreateNode) {
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CREATE));
 }
 
+// A conditional query as the whole statement needs the privileges of every branch.
+TEST_F(TestPrivilegeExtractor, TopLevelConditionalBranchCreates) {
+  auto *query =
+      QUERY(WHEN_BRANCHES({LITERAL(true), SINGLE_QUERY(CREATE(PATTERN(NODE("n"))), RETURN(LITERAL(1), AS("x")))},
+                          {nullptr, SINGLE_QUERY(RETURN(LITERAL(2), AS("x")))}));
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::CREATE));
+}
+
 TEST_F(TestPrivilegeExtractor, MatchNodeDelete) {
   auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), DELETE(IDENT("n"))));
   EXPECT_THAT(GetRequiredPrivileges(query),
