@@ -31,8 +31,8 @@
 
 namespace memgraph::auth {
 
-/// One auth transaction's buffered state. The interpreter owns one from BEGIN to COMMIT or ROLLBACK, and the auth
-/// query handler holds a pointer to it for the duration of a single query.
+/// One auth transaction's buffered state. The interpreter owns one from the first auth statement to COMMIT or
+/// ROLLBACK, and the auth query handler holds a pointer to it for the duration of a single query.
 ///
 /// The overlay is created lazily, on the first locked call, because it needs the base store and that is only
 /// reachable under the lock.
@@ -288,16 +288,16 @@ class AuthLayer {
   [[nodiscard]] bool Commit(LockedAuth &locked, AuthTransaction &tx, system::Transaction *system_tx) {
     if (tx.overlay_ && !tx.overlay_->Flush()) return false;
     // A read-only transaction is still validated above, because what it read can still have been invalidated. It
-    // has nothing to publish though, so it must not spend the epoch: bumping it invalidates every session's
-    // cached permissions, and nothing changed for them to re-read.
+    // has nothing to publish though, so it must not spend the epoch: bumping it invalidates every cached copy of
+    // permissions that refreshes on the epoch, and nothing changed for them to re-read.
     auto const has_writes = tx.HasWrites();
     auto nothing_to_publish = tx.pending_actions_.empty();
 #ifdef MG_ENTERPRISE
     nothing_to_publish = nothing_to_publish && tx.dropped_users_.empty();
 #endif
     // Anything to publish or release comes from a write, so the epoch always moves with it. Publishing without
-    // one would send replicas a change this instance never made durable, and leave every session's cached
-    // permissions unrefreshed, neither of which anything downstream detects.
+    // one would send replicas a change this instance never made durable, and leave permissions cached against the
+    // epoch unrefreshed, neither of which anything downstream detects.
     MG_ASSERT(has_writes || nothing_to_publish,
               "An auth transaction has something to publish but never wrote to the auth store. Replicas may "
               "have received a change this instance did not keep. Compare the users, roles and profiles here "

@@ -216,8 +216,8 @@ as section 7 says, avoids that.
 - **`DROP DATABASE ... FORCE` ends an open auth transaction in a session using
   that database.** The transactions it ends are chosen by each session's current
   database, as for a data transaction, so an auth transaction is ended even
-  though it never touches the database. Its `COMMIT` then fails, and the client
-  can run the transaction again.
+  though it never touches the database. Its `COMMIT` then fails, and running it
+  again needs a session with a current database that still exists.
 - **Privilege changes do not reach sessions that are already connected.** A
   session checks its statements against the privileges it had when it
   authenticated, so a `REVOKE` or `DROP USER` takes effect on that session when

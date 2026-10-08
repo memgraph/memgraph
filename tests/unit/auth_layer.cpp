@@ -436,8 +436,8 @@ TEST_F(AuthLayerTest, AListedUserSetIsInvalidatedByAConcurrentCreate) {
 }
 
 TEST_F(AuthLayerTest, AReadOnlyTransactionDoesNotSpendTheEpoch) {
-  // The epoch is what tells every session its cached permissions are stale. A transaction that only read has
-  // published nothing for them to re-read, so moving it would cost every session a refresh for no change.
+  // The epoch is what tells cached permissions that refresh on it they are stale. A transaction that only read has
+  // published nothing for them to re-read, so moving it would force a refresh for no change.
   {
     ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
   }
@@ -450,7 +450,7 @@ TEST_F(AuthLayerTest, AReadOnlyTransactionDoesNotSpendTheEpoch) {
     EXPECT_TRUE(layer_->ReadLock(&reader)->HasUsers());
   }
   ASSERT_TRUE(layer_->Commit(reader, nullptr));
-  EXPECT_TRUE(layer_->Lock()->UpToDate(seen)) << "a read-only transaction invalidated every session's cache";
+  EXPECT_TRUE(layer_->Lock()->UpToDate(seen)) << "a read-only transaction moved the epoch";
 
   // A transaction that did write still moves it.
   memgraph::auth::AuthTransaction writer;

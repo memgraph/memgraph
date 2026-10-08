@@ -80,8 +80,8 @@ class AtomicAuthOverlay {
     std::optional<value_type> current_;
     bool at_end_{false};
 
-    /// Keys this scan has walked past so far, yielded or not. Handed to the prefix's dependency if the scan reaches
-    /// the end.
+    /// Base keys this scan has walked past, yielded or not, and the write-set keys it has yielded. Handed to the
+    /// prefix's dependency if the scan reaches the end.
     std::set<std::string, std::less<>> seen_;
 
     /// Base entries this scan walked past, with the values it saw. Held here rather than in the read set until the
