@@ -172,14 +172,24 @@ class TypedProgram {
   enum class Shape : uint8_t { Predicate, Integer };
 
   /// Runs the code and leaves the slots behind for whichever result is wanted.
-  /// Null when a guard refused.
+  /// Only what says whether a slot holds anything starts out cleared: every
+  /// value is written by the instruction that produces it before any
+  /// instruction reads it, and clearing all of them costs a row more than the
+  /// work the row came to do.
   struct Slots {
+    Slots() { int_known.fill(0); }
+
     std::array<int64_t, 64> ints;
     std::array<char, 64> int_known;
     std::array<Answer, 64> tris;
   };
 
   bool Execute(Frame const &frame, RecordReader *reader, Parameters const *parameters, Slots &slots) const;
+
+  /// The instructions that come up rarely, kept out of the loop that runs the
+  /// common ones. Every row walks the loop, so what sits in it is what decides
+  /// how much of the instruction cache the loop needs.
+  bool RareOp(Instr const &in, Frame const &frame, RecordReader *reader, Slots &slots) const;
 
   std::vector<Instr> code_;
   Shape shape_{Shape::Predicate};

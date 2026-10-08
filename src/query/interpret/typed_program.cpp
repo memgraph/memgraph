@@ -424,52 +424,15 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
         tris[in.dst] = !answer ? Answer::Null : (*answer ? Answer::True : Answer::False);
         break;
       }
-      case Op::LoadTime: {
-        auto const &value = frame.elems()[in.a];
-        if (value.IsLocalDateTime()) {
-          ints[in.dst] = value.ValueLocalDateTime().SysMicrosecondsSinceEpoch();
-          int_known[in.dst] = 1;
-        } else if (value.IsNull()) {
-          int_known[in.dst] = 0;
-        } else {
-          return false;
-        }
+      case Op::LoadTime:
+      case Op::LoadPropTime:
+      case Op::EvalTime:
+      case Op::EvalTri:
+      case Op::DivInt:
+      case Op::IsNullInt:
+      case Op::IsNullTri:
+        if (!RareOp(in, frame, reader, slots)) return false;
         break;
-      }
-      case Op::LoadPropTime: {
-        if (reader == nullptr) return false;
-        auto const &record = frame.elems()[in.a];
-        if (!record.IsVertex() && !record.IsEdge()) {
-          if (record.IsNull()) {
-            int_known[in.dst] = 0;
-            break;
-          }
-          return false;
-        }
-        auto const value = reader->ReadProperty(record, in.property_ix);
-        if (value.IsTemporalData() && value.ValueTemporalData().type == storage::TemporalType::LocalDateTime) {
-          ints[in.dst] = value.ValueTemporalData().microseconds;
-          int_known[in.dst] = 1;
-        } else if (value.IsNull()) {
-          int_known[in.dst] = 0;
-        } else {
-          return false;
-        }
-        break;
-      }
-      case Op::EvalTime: {
-        if (reader == nullptr) return false;
-        bool was_null = false;
-        auto const micros = reader->EvaluateLocalDateTime(*in.delegated, was_null);
-        if (!micros) {
-          if (!was_null) return false;
-          int_known[in.dst] = 0;
-          break;
-        }
-        ints[in.dst] = *micros;
-        int_known[in.dst] = 1;
-        break;
-      }
       case Op::AddInt:
       case Op::SubInt:
       case Op::MulInt: {
@@ -478,18 +441,6 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
           auto const x = ints[in.a];
           auto const y = ints[in.b];
           ints[in.dst] = in.op == Op::AddInt ? x + y : (in.op == Op::SubInt ? x - y : x * y);
-        }
-        break;
-      }
-      case Op::DivInt: {
-        int_known[in.dst] = int_known[in.a] & int_known[in.b];
-        if (int_known[in.dst] != 0) {
-          auto const x = ints[in.a];
-          auto const y = ints[in.b];
-          // Dividing by zero is the evaluator's complaint to make, and the one
-          // division C++ leaves undefined is handed back for the same reason.
-          if (y == 0 || (y == -1 && x == std::numeric_limits<int64_t>::min())) return false;
-          ints[in.dst] = x / y;
         }
         break;
       }
@@ -534,19 +485,6 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
         tris[in.dst] = x == Answer::Null ? Answer::Null : (x == Answer::True ? Answer::False : Answer::True);
         break;
       }
-      case Op::IsNullInt:
-        tris[in.dst] = int_known[in.a] == 0 ? Answer::True : Answer::False;
-        break;
-      case Op::IsNullTri:
-        tris[in.dst] = tris[in.a] == Answer::Null ? Answer::True : Answer::False;
-        break;
-      case Op::EvalTri: {
-        if (reader == nullptr) return false;
-        auto const answer = reader->EvaluateTruth(*in.delegated);
-        if (answer == Answer::Refused) return false;
-        tris[in.dst] = answer;
-        break;
-      }
       case Op::CopyTri:
         tris[in.dst] = tris[in.a];
         break;
@@ -561,15 +499,98 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
   return true;
 }
 
+[[gnu::noinline]] bool TypedProgram::RareOp(Instr const &in, Frame const &frame, RecordReader *reader,
+                                            Slots &slots) const {
+  auto &ints = slots.ints;
+  auto &int_known = slots.int_known;
+  auto &tris = slots.tris;
+  switch (in.op) {
+    case Op::LoadTime: {
+      auto const &value = frame.elems()[in.a];
+      if (value.IsLocalDateTime()) {
+        ints[in.dst] = value.ValueLocalDateTime().SysMicrosecondsSinceEpoch();
+        int_known[in.dst] = 1;
+      } else if (value.IsNull()) {
+        int_known[in.dst] = 0;
+      } else {
+        return false;
+      }
+      return true;
+    }
+    case Op::LoadPropTime: {
+      if (reader == nullptr) return false;
+      auto const &record = frame.elems()[in.a];
+      if (!record.IsVertex() && !record.IsEdge()) {
+        if (record.IsNull()) {
+          int_known[in.dst] = 0;
+          break;
+        }
+        return false;
+      }
+      auto const value = reader->ReadProperty(record, in.property_ix);
+      if (value.IsTemporalData() && value.ValueTemporalData().type == storage::TemporalType::LocalDateTime) {
+        ints[in.dst] = value.ValueTemporalData().microseconds;
+        int_known[in.dst] = 1;
+      } else if (value.IsNull()) {
+        int_known[in.dst] = 0;
+      } else {
+        return false;
+      }
+      return true;
+    }
+    case Op::EvalTime: {
+      if (reader == nullptr) return false;
+      bool was_null = false;
+      auto const micros = reader->EvaluateLocalDateTime(*in.delegated, was_null);
+      if (!micros) {
+        if (!was_null) return false;
+        int_known[in.dst] = 0;
+        return true;
+      }
+      ints[in.dst] = *micros;
+      int_known[in.dst] = 1;
+      return true;
+    }
+    case Op::EvalTri: {
+      if (reader == nullptr) return false;
+      auto const answer = reader->EvaluateTruth(*in.delegated);
+      if (answer == Answer::Refused) return false;
+      tris[in.dst] = answer;
+      return true;
+    }
+    case Op::DivInt: {
+      int_known[in.dst] = int_known[in.a] & int_known[in.b];
+      if (int_known[in.dst] != 0) {
+        auto const x = ints[in.a];
+        auto const y = ints[in.b];
+        // Dividing by zero is the evaluator's complaint to make, and the one
+        // division C++ leaves undefined is handed back for the same reason.
+        if (y == 0 || (y == -1 && x == std::numeric_limits<int64_t>::min())) return false;
+        ints[in.dst] = x / y;
+      }
+      return true;
+    }
+    case Op::IsNullInt:
+      tris[in.dst] = int_known[in.a] == 0 ? Answer::True : Answer::False;
+      return true;
+    case Op::IsNullTri:
+      tris[in.dst] = tris[in.a] == Answer::Null ? Answer::True : Answer::False;
+      break;
+    default:
+      break;
+  }
+  return true;
+}
+
 TypedProgram::Answer TypedProgram::Run(Frame const &frame, RecordReader *reader, Parameters const *parameters) const {
-  Slots slots{};
+  Slots slots;
   if (!Execute(frame, reader, parameters, slots)) return Answer::Refused;
   return slots.tris[result_];
 }
 
 bool TypedProgram::RunInto(Frame const &frame, TypedValue &out, RecordReader *reader,
                            Parameters const *parameters) const {
-  Slots slots{};
+  Slots slots;
   if (!Execute(frame, reader, parameters, slots)) return false;
   if (shape_ == Shape::Integer) {
     // A missing operand leaves no integer, and null is a value a caller can
