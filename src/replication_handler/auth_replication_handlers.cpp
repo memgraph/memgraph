@@ -65,7 +65,8 @@ void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acc
   }
 
   // The whole batch or none of it. AuthLayer::ApplyBatch runs the operations against an overlay, in the order
-  // the transaction made them, and flushes once; anything failing part-way leaves the store untouched. A false
+  // the transaction made them, and flushes once; anything failing part-way leaves users and roles untouched. A
+  // profile operation applies durably first, which is safe because a batch carrying one carries nothing else. A false
   // return is answered with failure, and the main then marks this replica behind and re-sends a full snapshot.
   if (auth::AuthLayer{auth}.ApplyBatch(req.ops)) {
     res = UpdateAuthDataRes(true);

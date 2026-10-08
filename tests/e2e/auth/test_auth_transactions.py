@@ -136,7 +136,7 @@ def test_profile_reads_are_allowed_in_a_data_transaction(cursor):
 
 def test_a_profile_read_does_not_hold_the_system_lock(cursor):
     # A read publishes nothing, so it must not take a system transaction. Taking one would hold the system mutex
-    # for the rest of the transaction: another session's system queries would be refused for that whole time, and
+    # until the transaction's next statement: another session's system queries would be refused meanwhile, and
     # a second read here would find the mutex already taken.
     other = connect().cursor()
     execute(cursor, "CREATE PROFILE held LIMIT sessions 1")
@@ -190,7 +190,7 @@ def test_profile_writes_are_still_rejected_in_a_data_transaction(cursor):
 
 
 def test_a_transaction_conflicts_with_a_concurrent_change(cursor):
-    # Requirement 6: two transactions touching the same users cannot both win. The first reads the user list,
+    # Two transactions touching the same users cannot both win. The first reads the user list,
     # another session changes it underneath, and the first is refused at COMMIT rather than overwriting silently.
     # Opened before the first user exists, since creating one turns authentication on.
     other = connect().cursor()
@@ -204,8 +204,8 @@ def test_a_transaction_conflicts_with_a_concurrent_change(cursor):
     execute(other, "CREATE USER bob")
 
     execute(cursor, "CREATE USER carol")
-    # Reported as a serialization conflict, the same class the data path uses, so a driver retries rather than
-    # treating the query itself as wrong.
+    # Reported as a retryable serialization conflict, unlike the data path's commit conflict, so a driver retries
+    # rather than treating the query itself as wrong.
     with pytest.raises(mgclient.DatabaseError, match="Retry this transaction"):
         execute(cursor, "COMMIT")
 

@@ -102,8 +102,9 @@ bool AtomicAuthOverlay::Flush() {
     }
   }
 
-  // A scan saw every key under its prefix, so a key appearing there invalidates whatever it concluded. Keys the
-  // scan did see are in the read-set already, which covers their modification and removal.
+  // Each scanned prefix is held to what its scans concluded: whether it was empty, and for a scan that saw every
+  // key, that no key has appeared since. Keys a scan did see are in the read-set already, which covers their
+  // modification and removal.
   for (auto const &[prefix, dependency] : scanned_prefixes_) {
     auto it = base_.begin(prefix);
     auto const e = base_.end(prefix);
