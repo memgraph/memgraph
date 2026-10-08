@@ -117,7 +117,7 @@ class AuthQueryHandler {
 
   /// Delete database from all users
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void DeleteDatabase(std::string_view db, auth::AuthTransaction *auth_tx, system::Transaction *system_tx) = 0;
+  virtual void DeleteDatabase(std::string_view db, system::Transaction *system_tx) = 0;
 
   /// Get the main database for a user or role
   /// @return Optional database access if user/role exists and has a main database set
@@ -263,23 +263,17 @@ class AuthQueryHandler {
 // User profiles
 #ifdef MG_ENTERPRISE
   virtual void CreateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &defined_limits,
-                             const std::unordered_set<std::string> &usernames, auth::AuthTransaction *auth_tx,
-                             system::Transaction *system_tx) = 0;
+                             const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) = 0;
   virtual void UpdateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &updated_limits,
-                             auth::AuthTransaction *auth_tx, system::Transaction *system_tx) = 0;
-  virtual void DropProfile(const std::string &profile_name, auth::AuthTransaction *auth_tx,
-                           system::Transaction *system_tx) = 0;
-  virtual UserProfileQuery::limits_t GetProfile(std::string_view name, auth::AuthTransaction *auth_tx) = 0;
-  virtual std::vector<std::pair<std::string, UserProfileQuery::limits_t>> AllProfiles(
-      auth::AuthTransaction *auth_tx) = 0;
-  virtual void SetProfile(const std::string &profile_name, const std::string &user_or_role,
-                          auth::AuthTransaction *auth_tx, system::Transaction *system_tx) = 0;
-  virtual void RevokeProfile(const std::string &user_or_role, auth::AuthTransaction *auth_tx,
                              system::Transaction *system_tx) = 0;
-  virtual std::optional<std::string> GetProfileForUser(const std::string &user_or_role,
-                                                       auth::AuthTransaction *auth_tx) = 0;
-  virtual std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name,
-                                                          auth::AuthTransaction *auth_tx) = 0;
+  virtual void DropProfile(const std::string &profile_name, system::Transaction *system_tx) = 0;
+  virtual UserProfileQuery::limits_t GetProfile(std::string_view name) = 0;
+  virtual std::vector<std::pair<std::string, UserProfileQuery::limits_t>> AllProfiles() = 0;
+  virtual void SetProfile(const std::string &profile_name, const std::string &user_or_role,
+                          system::Transaction *system_tx) = 0;
+  virtual void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) = 0;
+  virtual std::optional<std::string> GetProfileForUser(const std::string &user_or_role) = 0;
+  virtual std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) = 0;
   // Role-based profile management is no longer supported
   virtual std::optional<std::string> GetProfileForRole(const std::string &user_or_role) = 0;
   virtual std::vector<std::string> GetRolenamesForProfile(const std::string &profile_name) = 0;

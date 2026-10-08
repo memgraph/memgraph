@@ -63,8 +63,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   void SetMainDatabase(std::string_view db_name, const std::string &user_or_role, auth::UserOrRoleType type,
                        memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) override;
 
-  void DeleteDatabase(std::string_view db_name, memgraph::auth::AuthTransaction *auth_tx,
-                      system::Transaction *system_tx) override;
+  void DeleteDatabase(std::string_view db_name, system::Transaction *system_tx) override;
 
   std::optional<std::string> GetMainDatabase(const std::string &user_or_role, auth::UserOrRoleType type,
                                              memgraph::auth::AuthTransaction *auth_tx) override;
@@ -155,24 +154,17 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 // User profiles
 #ifdef MG_ENTERPRISE
   void CreateProfile(const std::string &profile_name, const query::UserProfileQuery::limits_t &defined_limits,
-                     const std::unordered_set<std::string> &usernames, memgraph::auth::AuthTransaction *auth_tx,
-                     system::Transaction *system_tx) override;
+                     const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) override;
   void UpdateProfile(const std::string &profile_name, const query::UserProfileQuery::limits_t &updated_limits,
-                     memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) override;
-  void DropProfile(const std::string &profile_name, memgraph::auth::AuthTransaction *auth_tx,
-                   system::Transaction *system_tx) override;
-  query::UserProfileQuery::limits_t GetProfile(std::string_view name,
-                                               memgraph::auth::AuthTransaction *auth_tx) override;
-  std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AllProfiles(
-      memgraph::auth::AuthTransaction *auth_tx) override;
-  void SetProfile(const std::string &profile_name, const std::string &user_or_role,
-                  memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) override;
-  void RevokeProfile(const std::string &user_or_role, memgraph::auth::AuthTransaction *auth_tx,
                      system::Transaction *system_tx) override;
-  std::optional<std::string> GetProfileForUser(const std::string &user_or_role,
-                                               memgraph::auth::AuthTransaction *auth_tx) override;
-  std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name,
-                                                  memgraph::auth::AuthTransaction *auth_tx) override;
+  void DropProfile(const std::string &profile_name, system::Transaction *system_tx) override;
+  query::UserProfileQuery::limits_t GetProfile(std::string_view name) override;
+  std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AllProfiles() override;
+  void SetProfile(const std::string &profile_name, const std::string &user_or_role,
+                  system::Transaction *system_tx) override;
+  void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) override;
+  std::optional<std::string> GetProfileForUser(const std::string &user_or_role) override;
+  std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) override;
   std::optional<std::string> GetProfileForRole(const std::string &user_or_role) override;
   std::vector<std::string> GetRolenamesForProfile(const std::string &profile_name) override;
 
@@ -238,10 +230,10 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 #endif
 
   /// Locked access, routed through the caller's transaction when there is one.
-  auto Lock(memgraph::auth::AuthTransaction *auth_tx) { return layer_.Lock(auth_tx); }
+  auto Lock(memgraph::auth::AuthTransaction *auth_tx = nullptr) { return layer_.Lock(auth_tx); }
 
   /// Reads inside a transaction take the WRITE lock, not a shared one: installing the overlay mutates Auth's storage
   /// handle, so it cannot be shared with a concurrent reader. The exclusion lasts one statement, not the transaction.
-  auto ReadLock(memgraph::auth::AuthTransaction *auth_tx) { return layer_.ReadLock(auth_tx); }
+  auto ReadLock(memgraph::auth::AuthTransaction *auth_tx = nullptr) { return layer_.ReadLock(auth_tx); }
 };
 }  // namespace memgraph::glue
