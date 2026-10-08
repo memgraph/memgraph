@@ -392,6 +392,21 @@ TEST_F(AtomicAuthOverlayTest, FlushIgnoresChangeOutsideScannedPrefix) {
   EXPECT_EQ(store_->Get("user:alice").value(), "our_alice");
 }
 
+// The same with the prefix already inhabited, so only the key-set check can catch bob: a write to a key that
+// appeared after the scan must not exempt that key from it.
+TEST_F(AtomicAuthOverlayTest, WritingAKeyThatAppearedUnderAnInhabitedScannedPrefixConflicts) {
+  store_->Put("user:alice", "alice_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  EXPECT_EQ(CountUnder(overlay, "user:"), 1);
+
+  store_->Put("user:bob", "their_bob");
+  overlay.Put("user:bob", "our_bob");
+
+  EXPECT_FALSE(overlay.Flush());
+  EXPECT_EQ(store_->Get("user:bob").value(), "their_bob");
+}
+
 // A scan that walks a key this transaction already read, and finds a different value, means the transaction acted
 // on two states of that key. It must not commit even if the key has since changed back.
 TEST_F(AtomicAuthOverlayTest, AScanThatSeesAReadKeyChangedConflictsEvenAfterItChangesBack) {
