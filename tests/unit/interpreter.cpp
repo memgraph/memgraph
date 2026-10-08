@@ -2003,6 +2003,23 @@ std::vector<int64_t> IntColumn(const ResultStreamFaker &stream) {
   return out;
 }
 
+// A conditional query's columns come in its first branch's order.
+TYPED_TEST(InterpreterTest, ConditionalQueryHeader) {
+  this->Interpret("CREATE ()");
+  PropertyMap const params{{"a", ExternalPropertyValue(true)}, {"b", ExternalPropertyValue(true)}};
+  using Header = std::vector<std::string>;
+  for (auto const &[query, header] : std::initializer_list<std::pair<const char *, Header>>{
+           {"WHEN $b THEN RETURN 1 AS y, 2 AS x ELSE RETURN 20 AS x, 10 AS y", {"y", "x"}},
+           // `*` names come sorted, before the named items.
+           {"WHEN $a THEN MATCH (zz) RETURN *, 1 AS a ELSE RETURN 1 AS zz, 2 AS a", {"zz", "a"}},
+           {"WHEN true THEN { WHEN true THEN RETURN 1 AS y, 2 AS x } ELSE RETURN 3 AS x, 4 AS y", {"y", "x"}},
+           // A UNION's own column order is not settled, so a UNION first body keeps the name order.
+           {"WHEN $a THEN { RETURN 2 AS y, 1 AS x UNION RETURN 1 AS y, 2 AS x } ELSE RETURN 3 AS x, 4 AS y",
+            {"x", "y"}}}) {
+    EXPECT_EQ(this->Interpret(query, params).GetHeader(), header) << query;
+  }
+}
+
 TYPED_TEST(InterpreterTest, ConditionalQueryPlanCache) {
   auto const plan_cache_size = [&] {
     return this->db->plan_cache()->WithLock([](auto &cache) { return cache.size(); });
