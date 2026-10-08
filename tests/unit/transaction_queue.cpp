@@ -202,7 +202,9 @@ TYPED_TEST(TransactionQueueSimpleTest, ATerminatedAuthTransactionDoesNotCommit) 
   ASSERT_EQ(stream.GetResults().size(), 1U);
   EXPECT_TRUE(stream.GetResults()[0][1].ValueBool());
 
-  EXPECT_THROW(this->running_interpreter.Interpret("COMMIT"), memgraph::utils::BasicException);
+  EXPECT_THAT([&] { this->running_interpreter.Interpret("COMMIT"); },
+              testing::ThrowsMessage<memgraph::utils::BasicException>(
+                  testing::HasSubstr("requested to stop from other session")));
   EXPECT_FALSE(auth.auth.ReadLock()->GetUser("alice").has_value());
 }
 
