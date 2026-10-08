@@ -72,6 +72,21 @@ class PropertyStore {
 
   ExtendedPropertyType GetExtendedPropertyType(PropertyId property) const;
 
+  /// What reading an integer property found. A caller that only wants to
+  /// compare one does not need a value built around it, and building one is
+  /// most of what reading it costs.
+  enum class IntRead : uint8_t {
+    Ok,        //!< `out` holds it
+    Null,      //!< it is not there, or nothing on the way to it is
+    NotAnInt,  //!< it is there and is something else
+  };
+
+  /// Reads an integer property without building a value for it. `path` names
+  /// the property, and where it has more than one element each but the last
+  /// names a map to descend into, so a property nested inside others is read
+  /// in the one pass that reaches it.
+  IntRead ReadInt(std::span<PropertyId const> path, int64_t &out) const;
+
   /// Returns the size of the encoded property in bytes.
   /// Returns 0 if the property does not exist.
   /// The time complexity of this function is O(n).

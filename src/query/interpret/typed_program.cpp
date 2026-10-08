@@ -197,6 +197,45 @@ class TypedProgramBuilder {
     return Operand{.is_tri = false, .slot = slot};
   }
 
+  /// The frame position and property of a plain lookup, when that is what the
+  /// expression is.
+  static std::optional<std::pair<int32_t, int64_t>> PlainLookup(Expression *expression) {
+    if (expression == nullptr) return std::nullopt;
+    if (expression->GetTypeInfo().id != utils::TypeId::AST_PROPERTY_LOOKUP) return std::nullopt;
+    auto *lookup = static_cast<PropertyLookup *>(expression);
+    if (lookup->evaluation_mode_ != PropertyLookup::EvaluationMode::GET_OWN_PROPERTY) return std::nullopt;
+    if (lookup->property_path_.size() != 1) return std::nullopt;
+    if (lookup->expression_ == nullptr) return std::nullopt;
+    if (lookup->expression_->GetTypeInfo().id != utils::TypeId::AST_IDENTIFIER) return std::nullopt;
+    auto const position = static_cast<Identifier *>(lookup->expression_)->symbol_pos_;
+    if (position < 0) return std::nullopt;
+    return std::pair{position, lookup->property_.ix};
+  }
+
+  /// Emits the whole of a property compared with a literal or a parameter as
+  /// one instruction, which is the shape most filters have.
+  std::optional<Operand> FusedComparison(Expression *left, Expression *right, TypedProgram::Op op) {
+    auto const lookup = PlainLookup(left);
+    if (!lookup) return std::nullopt;
+    auto const [position, property_ix] = *lookup;
+
+    auto const kind = static_cast<int32_t>(op);
+    if (right->GetTypeInfo().id == utils::TypeId::AST_PRIMITIVE_LITERAL) {
+      auto const &value = static_cast<PrimitiveLiteral *>(right)->value_;
+      if (!value.IsInt()) return std::nullopt;
+      auto const slot = NextTri();
+      Emit(TypedProgram::Op::PropCmpConst, slot, position, kind, value.ValueInt(), property_ix);
+      return Operand{.is_tri = true, .slot = slot};
+    }
+    if (right->GetTypeInfo().id == utils::TypeId::AST_PARAMETER_LOOKUP) {
+      auto const token = static_cast<ParameterLookup *>(right)->token_position_;
+      auto const slot = NextTri();
+      Emit(TypedProgram::Op::PropCmpParam, slot, position, kind, token, property_ix);
+      return Operand{.is_tri = true, .slot = slot};
+    }
+    return std::nullopt;
+  }
+
   std::optional<Operand> Comparison(Expression *expression, TypedProgram::Op op) {
     auto *binary = static_cast<BinaryOperator *>(expression);
     auto const kind = NamesATime(binary->expression1_) || NamesATime(binary->expression2_) ? Kind::Time : Kind::Number;
@@ -353,6 +392,24 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
   auto &int_known = slots.int_known;
   auto &tris = slots.tris;
 
+  // Which way a comparison went, for the instruction that does one whole.
+  auto const Compare = [](Op op, int64_t x, int64_t y) {
+    switch (op) {
+      case Op::EqInt:
+        return x == y;
+      case Op::NeInt:
+        return x != y;
+      case Op::LtInt:
+        return x < y;
+      case Op::GtInt:
+        return x > y;
+      case Op::LeInt:
+        return x <= y;
+      default:
+        return x >= y;
+    }
+  };
+
   // A comparison of which either side is missing is null rather than false.
   auto compare = [&](int32_t a, int32_t b, auto decide) {
     return (int_known[a] == 0 || int_known[b] == 0) ? Answer::Null
@@ -407,14 +464,14 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
           }
           return false;
         }
-        auto const value = reader->ReadProperty(record, in.property_ix);
-        if (value.IsInt()) {
-          ints[in.dst] = value.ValueInt();
+        bool refused = false;
+        auto const value = reader->ReadIntProperty(record, in.property_ix, refused);
+        if (refused) return false;
+        if (value) {
+          ints[in.dst] = *value;
           int_known[in.dst] = 1;
-        } else if (value.IsNull()) {
-          int_known[in.dst] = 0;
         } else {
-          return false;
+          int_known[in.dst] = 0;
         }
         break;
       }
@@ -442,6 +499,39 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
           auto const y = ints[in.b];
           ints[in.dst] = in.op == Op::AddInt ? x + y : (in.op == Op::SubInt ? x - y : x * y);
         }
+        break;
+      }
+      case Op::PropCmpConst:
+      case Op::PropCmpParam: {
+        if (reader == nullptr) return false;
+        auto const &record = frame.elems()[in.a];
+        if (!record.IsVertex() && !record.IsEdge()) {
+          if (record.IsNull()) {
+            tris[in.dst] = Answer::Null;
+            break;
+          }
+          return false;
+        }
+        int64_t other = in.literal;
+        if (in.op == Op::PropCmpParam) {
+          if (parameters == nullptr) return false;
+          auto const *bound = parameters->FindAtTokenPosition(static_cast<int>(in.literal));
+          if (bound == nullptr) return false;
+          if (bound->IsNull()) {
+            tris[in.dst] = Answer::Null;
+            break;
+          }
+          if (!bound->IsInt()) return false;
+          other = bound->ValueInt();
+        }
+        bool refused = false;
+        auto const value = reader->ReadIntProperty(record, in.property_ix, refused);
+        if (refused) return false;
+        if (!value) {
+          tris[in.dst] = Answer::Null;
+          break;
+        }
+        tris[in.dst] = Compare(static_cast<Op>(in.b), *value, other) ? Answer::True : Answer::False;
         break;
       }
       case Op::EqInt:
