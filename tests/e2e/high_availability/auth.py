@@ -16,8 +16,9 @@ import sys
 import time
 
 import interactive_mg_runner
+import mgclient
 import pytest
-from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
+from common import connect, execute_and_fetch_all, get_data_path, get_logs_path, show_instances, show_replication_role
 from mg_utils import mg_sleep_and_assert
 from neo4j import Auth, GraphDatabase
 
@@ -207,6 +208,29 @@ def test_routing_connection(test_name):
         except Exception as e:
             print(f"Error: {str(e)}")
     driver.close()
+
+
+def test_system_query_acknowledged_across_demotion_reaches_new_main(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    # A lazy connection sends RUN on execute and PULL on fetch, so the main is demoted between prepare and commit.
+    lazy_cursor = mgclient.connect(host="localhost", port=7687, lazy=True).cursor()
+    lazy_cursor.execute("CREATE ROLE demoted_role")
+
+    coord_cursor = connect(host="localhost", port=7692).cursor()
+    execute_and_fetch_all(coord_cursor, "DEMOTE INSTANCE instance_1")
+    instance_1_cursor = connect(host="localhost", port=7687).cursor()
+    mg_sleep_and_assert([("replica",)], lambda: show_replication_role(instance_1_cursor))
+    execute_and_fetch_all(coord_cursor, "SET INSTANCE instance_2 TO MAIN")
+
+    try:
+        lazy_cursor.fetchall()
+    except mgclient.DatabaseError:
+        return
+
+    new_main_cursor = connect(host="localhost", port=7688).cursor()
+    assert "demoted_role" in [row[0] for row in execute_and_fetch_all(new_main_cursor, "SHOW ROLES")]
 
 
 def test_multi_database_no_auth(test_name):
