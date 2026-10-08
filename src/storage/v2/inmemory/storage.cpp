@@ -4884,8 +4884,9 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
 void InMemoryStorage::PrepareForNewEpoch(::memgraph::replication::ReplicationEpoch new_epoch) {
-  // Switch epoch in the same engine_lock_ hold as the WAL reset: TTL/async-indexer commits skip the repl_state lock
-  // and could otherwise open a WAL tagged with the old epoch.
+  // Switch epoch and raise timestamp_ in the same engine_lock_ hold as the WAL reset: TTL/async-indexer commits skip
+  // the repl_state lock and could otherwise open a WAL tagged with the old epoch or commit below the last durable
+  // timestamp.
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
@@ -4893,6 +4894,13 @@ void InMemoryStorage::PrepareForNewEpoch(::memgraph::replication::ReplicationEpo
   }
   repl_storage_state_.SaveLatestHistory();
   repl_storage_state_.epoch_ = std::move(new_epoch);
+
+  // ldt_ tracks the last durable timestamp (possibly received as a REPLICA) while timestamp_ is MVCC-driven; take the
+  // bigger one so new commits order above everything already durable.
+  if (auto const ldt = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_; ldt >= timestamp_) {
+    commit_log_->MarkFinishedInRange(timestamp_, ldt);
+    timestamp_ = ldt + 1;
+  }
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {

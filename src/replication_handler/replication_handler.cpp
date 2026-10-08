@@ -286,7 +286,8 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     spdlog::info("Generated new epoch {}", new_epoch.id());
 
     // STEP 2) bring down all REPLICA servers
-    // Also switches storage to new_epoch, atomically with the WAL reset (contract at Storage::PrepareForNewEpoch)
+    // Also switches storage to new_epoch and raises its timestamp, atomically with the WAL reset (contract at
+    // Storage::PrepareForNewEpoch)
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
       storage->PrepareForNewEpoch(new_epoch);
@@ -301,27 +302,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       return false;
     }
 
-    // STEP 4) We are now MAIN, update storage timestamp
-    dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
-      auto *storage = db_acc->storage();
-
-      // Modifying storage->timestamp_ needs to be done under the engine lock.
-      // Engine lock needs to be acquired after the repl state lock
-      auto lock = std::lock_guard{storage->engine_lock_};
-
-      // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
-      // We need to take bigger timestamp not to lose durability ordering
-      if (auto const ldt = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
-          ldt >= storage->timestamp_) {
-        // Mark all txns finished with IDs in range [old_storage_ts, global_ldt]
-        static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
-        spdlog::trace("Txn IDs in ranges [{},{}] marked as finished", storage->timestamp_, ldt);
-        storage->timestamp_ = ldt + 1;
-      }
-      spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
-    });
-
-    // STEP 5) Resume TTL
+    // STEP 4) Resume TTL
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       auto &ttl = db_acc->ttl();
       ttl.Resume();
