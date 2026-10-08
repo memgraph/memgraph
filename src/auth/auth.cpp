@@ -18,7 +18,6 @@
 #include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "auth/replication_action.hpp"
-#include "auth/rpc.hpp"
 #include "auth/rules.hpp"
 #include "flags/auth.hpp"
 #include "license/license.hpp"
