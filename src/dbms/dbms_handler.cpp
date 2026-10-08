@@ -1481,9 +1481,10 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
       // pointer-aliases `fresh`'s not-yet-freed metrics (heap-UAF), or let DeleteCold_ remove_all() the
       // data dir while `fresh` still holds it open.
       auto rollback_to_cold = [&] {
-        acc.reset();  // drop our accessor: fresh.count_ -> 0
-        // ~Gatekeeper<Database> runs now (count==0, HOT => no wait): ~Database -> RemoveDatabase(uuid)
-        // + storage teardown complete.
+        acc.reset();  // drop our accessor
+        // ~Gatekeeper<Database> runs now: it seals `fresh`, so background workers armed by on_resume_
+        // mint no new protectors, waits for the ones they hold to drain, then ~Database ->
+        // RemoveDatabase(uuid) + storage teardown complete.
         {
           auto dying = std::move(fresh);
         }
@@ -1503,7 +1504,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
           // cold entry carries no epoch to restore (cold-tenant epoch machinery was intentionally removed).
           auto it = suspended_.find(name);  // valid across the move below (it touches db_handler_, not suspended_)
           // Overwriting the RESUMING shell here is deadlock-free because Gatekeeper's move-assign tears
-          // the old state down via ~GKInternals (non-blocking), NOT the count-waiting ~Gatekeeper — see
+          // the old state down via ~GKInternals (which never waits), NOT the count-waiting ~Gatekeeper — see
           // the load-bearing note on Gatekeeper::operator=(Gatekeeper&&) in utils/gatekeeper.hpp.
           *gk = std::move(fresh);
           if (it != suspended_.end()) suspended_.erase(it);

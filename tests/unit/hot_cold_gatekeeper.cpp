@@ -392,6 +392,8 @@ TEST(HotColdGatekeeper, SealIsAdvisory) {
   EXPECT_FALSE(bool(*b));
 }
 
+namespace {
+
 struct SelfAware {
   Gatekeeper<SelfAware>::Ref ref;
   bool *dtor_saw_nullopt = nullptr;
@@ -402,6 +404,8 @@ struct SelfAware {
     if (dtor_saw_nullopt != nullptr) *dtor_saw_nullopt = !ref.access().has_value();
   }
 };
+
+}  // namespace
 
 TEST(HotColdGatekeeper, RefMintsAccessorsAndSurvivesGatekeeperMove) {
   Gatekeeper<SelfAware> gk{};
@@ -432,7 +436,7 @@ TEST(HotColdGatekeeper, RefRefusesSuspendedAndColdValue) {
   EXPECT_FALSE(ref.access().has_value());
 }
 
-// Move-assign destroys the old value without sealing it, so only the value's own teardown state
+// Move-assign destroys the old value without sealing it, so only GKInternals::value_ being empty
 // stops a Ref from minting an accessor to it.
 TEST(HotColdGatekeeper, RefSeesNoValueWhileValueIsDestroyed) {
   bool dtor_saw_nullopt = false;
