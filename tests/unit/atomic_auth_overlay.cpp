@@ -392,6 +392,23 @@ TEST_F(AtomicAuthOverlayTest, FlushIgnoresChangeOutsideScannedPrefix) {
   EXPECT_EQ(store_->Get("user:alice").value(), "our_alice");
 }
 
+// A scan that walks a key this transaction already read, and finds a different value, means the transaction acted
+// on two states of that key. It must not commit even if the key has since changed back.
+TEST_F(AtomicAuthOverlayTest, AScanThatSeesAReadKeyChangedConflictsEvenAfterItChangesBack) {
+  store_->Put("link:u", "with_r");
+
+  AtomicAuthOverlay overlay(*store_);
+  EXPECT_EQ(overlay.Get("link:u").value(), "with_r");
+
+  store_->Put("link:u", "without_r");
+  EXPECT_EQ(CountUnder(overlay, "link:"), 1);
+  overlay.Delete("role:r");
+
+  store_->Put("link:u", "with_r");
+
+  EXPECT_FALSE(overlay.Flush()) << "the scan acted on a value the earlier read never saw";
+}
+
 // A listing that missed bob, followed by a write to bob, must not commit once bob has appeared: no serial order
 // lets the listing miss a user the transaction then changed.
 TEST_F(AtomicAuthOverlayTest, WritingAKeyThatAppearedAfterAScanConflicts) {
