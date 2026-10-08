@@ -144,6 +144,10 @@ class AtomicAuthOverlay {
   /// conflict detection, not observable state: reads stay logically const so Auth's query methods can too.
   mutable std::map<std::string, std::optional<std::string>, std::less<>> read_set_;
 
+  /// Set when a scan walks a key this transaction already read and finds a different value: the transaction has
+  /// acted on two states of that key, and no later check can tell, since the key may change back.
+  mutable bool saw_two_values_{false};
+
   /// key -> new value (nullopt = tombstone)
   std::map<std::string, std::optional<std::string>, std::less<>> write_set_;
 };

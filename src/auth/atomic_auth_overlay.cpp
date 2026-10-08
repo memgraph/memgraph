@@ -45,7 +45,10 @@ void AtomicAuthOverlay::ScanDependsOnEmptinessOnly(std::string const &prefix) co
 
 void AtomicAuthOverlay::AdoptWalked(std::map<std::string, std::string, std::less<>> const &walked) const {
   // First read wins: a later one would record a value this transaction already saw.
-  for (auto const &[key, value] : walked) read_set_.emplace(key, value);
+  for (auto const &[key, value] : walked) {
+    auto const [it, inserted] = read_set_.emplace(key, value);
+    if (!inserted && it->second != value) saw_two_values_ = true;
+  }
 }
 
 void AtomicAuthOverlay::Put(std::string_view key, std::string_view value) {
@@ -94,6 +97,8 @@ bool AtomicAuthOverlay::DeleteMultiple(std::vector<std::string> const &keys) {
 }
 
 bool AtomicAuthOverlay::Flush() {
+  if (saw_two_values_) return false;
+
   // Validate read-set against current base state
   for (auto const &[key, snapshot_val] : read_set_) {
     auto current_val = base_.Get(key);
