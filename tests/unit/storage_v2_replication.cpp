@@ -1713,7 +1713,7 @@ TEST_F(ReplicationTest, PrepareForNewEpochSwitchesEpochWithTheWalReset) {
 
   auto const old_epoch = std::string{repl_state.epoch_.id()};
   create_vertex_and_commit();
-  auto const old_epoch_ldt = repl_state.commit_ts_info_.load().ldt_;
+  auto const old_epoch_ldt = repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_;
 
   memgraph::replication::ReplicationEpoch const new_epoch;
   ASSERT_NE(new_epoch.id(), old_epoch);
