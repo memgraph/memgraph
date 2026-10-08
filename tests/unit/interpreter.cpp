@@ -3208,6 +3208,22 @@ TYPED_TEST(InterpreterTest, UncacheableQueryDetachingAnInListOverAnIdentifier) {
   EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
 }
 
+// A regex is keyed for caching the same way a list is, so detaching one reaches the same key.
+TYPED_TEST(InterpreterTest, UncacheableQueryDetachingARegexMatchOverAnIdentifier) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  this->Interpret("CREATE (:Node {name: 'aa'}), (:Node {name: 'bb'}), (:Node {name: 'bb'})");
+
+  auto stream = this->Interpret(
+      "MATCH (n:$label) UNWIND ['a.*'] AS pat RETURN n.name =~ pat AS m, COUNT(*) AS c ORDER BY n.name =~ pat",
+      {{"label", EPV(std::string("Node"))}});
+
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_FALSE(stream.GetResults()[0][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_TRUE(stream.GetResults()[1][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+}
+
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {
   constexpr std::size_t kMaxSize = 2;
   memgraph::query::AstCache cache{kMaxSize};

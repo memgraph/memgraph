@@ -3082,6 +3082,42 @@ bool ProjectsAggregation(ReturnBody &body) {
 
 using ParameterNames = std::unordered_map<int32_t, std::string>;
 
+using MapElements = std::unordered_map<PropertyIx, Expression *>;
+
+// The values of a map ordered by their keys, so that two maps written with the same keys in a different order still
+// pair each value with the one it should be compared against.
+std::vector<Expression **> ValuesByKey(MapElements &elements) {
+  auto entries = std::vector<MapElements::value_type *>{};
+  entries.reserve(elements.size());
+  for (auto &entry : elements) entries.push_back(&entry);
+  std::ranges::sort(entries, {}, [](auto const *entry) -> std::string const & { return entry->first.name; });
+  return entries | std::views::transform([](auto *entry) { return &entry->second; }) | std::ranges::to<std::vector>();
+}
+
+// Whether two label expressions test the same thing. Operands are compared in the order written, so a conjunction
+// and its reordering are two different tests here and one of them loses a match it could have had.
+bool SameLabelTerm(LabelTerm const &lhs, LabelTerm const &rhs) {
+  if (lhs.node.index() != rhs.node.index()) return false;
+  if (auto const *label = lhs.As<LabelTerm::Label>()) return label->label == rhs.As<LabelTerm::Label>()->label;
+  if (lhs.As<LabelTerm::Wildcard>()) return true;
+  if (auto const *conjunction = lhs.As<LabelTerm::And>()) {
+    return std::ranges::equal(conjunction->operands, rhs.As<LabelTerm::And>()->operands, SameLabelTerm);
+  }
+  if (auto const *disjunction = lhs.As<LabelTerm::Or>()) {
+    return std::ranges::equal(disjunction->operands, rhs.As<LabelTerm::Or>()->operands, SameLabelTerm);
+  }
+  if (auto const *negation = lhs.As<LabelTerm::Not>()) {
+    return SameLabelTerm(*negation->operand, *rhs.As<LabelTerm::Not>()->operand);
+  }
+  // What remains is a label named by an expression, which this does not compare.
+  return false;
+}
+
+bool SameKeys(MapElements const &lhs, MapElements const &rhs) {
+  return lhs.size() == rhs.size() &&
+         std::ranges::all_of(lhs, [&](auto const &entry) { return rhs.contains(entry.first); });
+}
+
 // The child slots of the expression kinds that can match a projected item. Any other kind never matches.
 std::optional<std::vector<Expression **>> MatchableChildren(Expression *expr) {
   auto addresses = [](std::vector<Expression *> &exprs) {
@@ -3100,11 +3136,19 @@ std::optional<std::vector<Expression **>> MatchableChildren(Expression *expr) {
   if (auto *op = utils::Downcast<ListSlicingOperator>(expr)) {
     return std::vector{&op->list_, &op->lower_bound_, &op->upper_bound_};
   }
+  if (auto *match = utils::Downcast<RegexMatch>(expr)) return std::vector{&match->string_expr_, &match->regex_};
+  if (auto *lookup = utils::Downcast<AllPropertiesLookup>(expr)) return std::vector{&lookup->expression_};
+  if (auto *map = utils::Downcast<MapLiteral>(expr)) return ValuesByKey(map->elements_);
+  if (auto *projection = utils::Downcast<MapProjectionLiteral>(expr)) {
+    auto children = ValuesByKey(projection->elements_);
+    children.push_back(&projection->map_variable_);
+    return children;
+  }
   if (auto *function = utils::Downcast<Function>(expr)) return addresses(function->arguments_);
   if (auto *coalesce = utils::Downcast<Coalesce>(expr)) return addresses(coalesce->expressions_);
   if (auto *list = utils::Downcast<ListLiteral>(expr)) return addresses(list->elements_);
   if (utils::IsSubtype(*expr, Identifier::kType) || utils::IsSubtype(*expr, PrimitiveLiteral::kType) ||
-      utils::IsSubtype(*expr, ParameterLookup::kType)) {
+      utils::IsSubtype(*expr, ParameterLookup::kType) || utils::IsSubtype(*expr, EnumValueAccess::kType)) {
     return std::vector<Expression **>{};
   }
   return std::nullopt;
@@ -3131,9 +3175,19 @@ bool SameOwnFields(Expression &lhs, Expression &rhs, ParameterNames const &param
     return l->property_path_ == r->property_path_;
   }
   if (auto *l = utils::Downcast<LabelsTest>(&lhs), *r = utils::Downcast<LabelsTest>(&rhs); l && r) {
-    auto const *lhs_cnf = l->Cnf();
-    auto const *rhs_cnf = r->Cnf();
-    return lhs_cnf && rhs_cnf && *lhs_cnf == *rhs_cnf;
+    if (auto const *lhs_cnf = l->Cnf(), *rhs_cnf = r->Cnf(); lhs_cnf && rhs_cnf) return *lhs_cnf == *rhs_cnf;
+    auto const *lhs_term = l->Term();
+    auto const *rhs_term = r->Term();
+    return lhs_term && rhs_term && SameLabelTerm(*lhs_term, *rhs_term);
+  }
+  if (auto *l = utils::Downcast<MapLiteral>(&lhs), *r = utils::Downcast<MapLiteral>(&rhs); l && r) {
+    return SameKeys(l->elements_, r->elements_);
+  }
+  if (auto *l = utils::Downcast<MapProjectionLiteral>(&lhs), *r = utils::Downcast<MapProjectionLiteral>(&rhs); l && r) {
+    return SameKeys(l->elements_, r->elements_);
+  }
+  if (auto *l = utils::Downcast<EnumValueAccess>(&lhs), *r = utils::Downcast<EnumValueAccess>(&rhs); l && r) {
+    return l->enum_name_ == r->enum_name_ && l->enum_value_ == r->enum_value_;
   }
   if (auto *l = utils::Downcast<Function>(&lhs), *r = utils::Downcast<Function>(&rhs); l && r) {
     return l->function_name_ == r->function_name_ && IsFunctionPure(l->function_name_);
@@ -3157,7 +3211,7 @@ bool SameOwnFields(Expression &lhs, Expression &rhs, ParameterNames const &param
                  &InListOperator::kType,    &SubscriptOperator::kType,   &NotOperator::kType,
                  &UnaryPlusOperator::kType, &UnaryMinusOperator::kType,  &IsNullOperator::kType,
                  &IfOperator::kType,        &ListSlicingOperator::kType, &Coalesce::kType,
-                 &ListLiteral::kType};
+                 &ListLiteral::kType,       &RegexMatch::kType,          &AllPropertiesLookup::kType};
   return std::ranges::any_of(kStateless, [&](auto const *kind) { return *kind == lhs.GetTypeInfo(); });
 }
 

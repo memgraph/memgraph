@@ -608,7 +608,9 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByDifferentAggregatedItem) {
                            // nothing but the kinds themselves tells apart.
                            "MATCH (n) RETURN n:A AS a, count(*) AS c ORDER BY n.A",
                            "MATCH (n) RETURN n.x AS v, count(*) AS c ORDER BY [n.x]",
-                           "MATCH (n) RETURN n.x + n.y AS v, count(*) AS c ORDER BY n.x - n.y"}) {
+                           "MATCH (n) RETURN n.x + n.y AS v, count(*) AS c ORDER BY n.x - n.y",
+                           "MATCH (n) RETURN n:!A AS a, count(*) AS c ORDER BY n:!B",
+                           "MATCH (n) RETURN n:!A AS a, count(*) AS c ORDER BY n:A"}) {
     auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
     ASSERT_TRUE(query);
     auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
@@ -619,7 +621,11 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByDifferentAggregatedItem) {
 TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedLabelsTest) {
   auto &ast_generator = *GetParam();
   for (auto const *text : {"MATCH (n) RETURN n:A:B AS a, count(*) AS c ORDER BY n:A:B",
-                           "MATCH (n) RETURN n:A|B AS a, count(*) AS c ORDER BY n:A|B"}) {
+                           "MATCH (n) RETURN n:A|B AS a, count(*) AS c ORDER BY n:A|B",
+                           // A test the plain-label form cannot express is kept whole, and is matched whole.
+                           "MATCH (n) RETURN n:!A AS a, count(*) AS c ORDER BY n:!A",
+                           "MATCH (n) RETURN n:(A|B)&!C AS a, count(*) AS c ORDER BY n:(A|B)&!C",
+                           "MATCH (n) RETURN n:% AS a, count(*) AS c ORDER BY n:%"}) {
     auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
     ASSERT_TRUE(query);
     auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
@@ -647,6 +653,49 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWithParameter) {
   }
 }
 
+// A map holds its keys itself and its values as children, in no particular order, so matching it has to pair the two
+// sides up by key rather than by position.
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWithMap) {
+  auto &ast_generator = *GetParam();
+  auto const order_by = [&](auto const *text) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    return dynamic_cast<Return *>(query->single_query_->clauses_[1])->body_.order_by[0].expression;
+  };
+  for (auto const *text : {"MATCH (n) RETURN {t: n.type} AS k, count(*) AS c ORDER BY {t: n.type}",
+                           "MATCH (n) RETURN {a: n.x, b: n.y} AS k, count(*) AS c ORDER BY {b: n.y, a: n.x}",
+                           "MATCH (n) RETURN n {.type} AS k, count(*) AS c ORDER BY n {.type}",
+                           "MATCH (n) RETURN n {.*} AS k, count(*) AS c ORDER BY n {.*}"}) {
+    auto *same = dynamic_cast<Identifier *>(order_by(text));
+    ASSERT_TRUE(same) << text;
+    EXPECT_EQ(same->name_, "k") << text;
+  }
+  for (auto const *text : {"MATCH (n) RETURN {t: n.type} AS k, count(*) AS c ORDER BY {u: n.type}",
+                           "MATCH (n) RETURN {t: n.type} AS k, count(*) AS c ORDER BY {t: n.other}",
+                           "MATCH (n) RETURN {a: n.x} AS k, count(*) AS c ORDER BY {a: n.x, b: n.y}",
+                           "MATCH (n) RETURN n {.type} AS k, count(*) AS c ORDER BY n {.other}",
+                           "MATCH (m), (n) RETURN n {.type} AS k, count(*) AS c ORDER BY m {.type}"}) {
+    EXPECT_FALSE(dynamic_cast<Identifier *>(order_by(text))) << text;
+  }
+}
+
+// An enum value names no child, so the two names it holds are the whole of what distinguishes it.
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWithEnumValue) {
+  auto &ast_generator = *GetParam();
+  auto const order_by = [&](auto const *text) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    return dynamic_cast<Return *>(query->single_query_->clauses_[1])->body_.order_by[0].expression;
+  };
+  auto *same = dynamic_cast<Identifier *>(
+      order_by("MATCH (n) RETURN n.s = Status::OPEN AS v, count(*) AS c ORDER BY n.s = Status::OPEN"));
+  ASSERT_TRUE(same);
+  EXPECT_EQ(same->name_, "v");
+
+  for (auto const *text : {"MATCH (n) RETURN n.s = Status::OPEN AS v, count(*) AS c ORDER BY n.s = Status::SHUT",
+                           "MATCH (n) RETURN n.s = Status::OPEN AS v, count(*) AS c ORDER BY n.s = Other::OPEN"}) {
+    EXPECT_FALSE(dynamic_cast<Identifier *>(order_by(text))) << text;
+  }
+}
+
 // A kind whose only state is its children matches whenever its children do. The matcher has to name each such kind,
 // because a kind it does not name cannot match at all.
 TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWhoseStateIsItsChildren) {
@@ -666,7 +715,8 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWhoseStateIsItsChildren
         "MATCH (n) RETURN n.x IN n.l AS v, count(*) AS c ORDER BY n.x IN n.l",
         "MATCH (n) RETURN n.l[n.i] AS v, count(*) AS c ORDER BY n.l[n.i]",
         "MATCH (n) RETURN n.x IS NULL AS v, count(*) AS c ORDER BY n.x IS NULL",
-        "MATCH (n) RETURN NOT n.x AS v, count(*) AS c ORDER BY NOT n.x"}) {
+        "MATCH (n) RETURN NOT n.x AS v, count(*) AS c ORDER BY NOT n.x",
+        "MATCH (n) RETURN n.name =~ n.pat AS v, count(*) AS c ORDER BY n.name =~ n.pat"}) {
     auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
     ASSERT_TRUE(query) << text;
     auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
