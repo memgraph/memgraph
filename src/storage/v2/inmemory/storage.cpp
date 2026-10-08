@@ -1110,7 +1110,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
   if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
-    FinalizeCommitPhase(durability_commit_timestamp);
+    FinalizeCommitPhase(durability_commit_timestamp, engine_guard);
     // No WAL file, hence no need to finalize it
     return {};
   }
@@ -1131,7 +1131,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If SYNC and ASYNC replica executes this, commit immediately while holding the engine lock
         if (!two_phase_commit) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp);
+          FinalizeCommitPhase(durability_commit_timestamp, engine_guard);
         }
       });
   if (replica_write_was_applied) {
@@ -1146,7 +1146,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp);
+          FinalizeCommitPhase(durability_commit_timestamp, engine_guard);
 
           auto failures = replicating_txn.CollectAllFailures();
           // update replicas' cached commit info to this txn's absolute committed-txn count
@@ -1163,7 +1163,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 
         if (repl_prepare_phase_ok) {
           // All replicas voted yes, hence they want to commit the current transaction
-          FinalizeCommitPhase(durability_commit_timestamp);
+          FinalizeCommitPhase(durability_commit_timestamp, engine_guard);
         }
         // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
 
@@ -1193,29 +1193,35 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   return *std::move(res);
 }
 
-void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp) {
+void InMemoryStorage::InMemoryAccessor::QueueSchemaUpdate(uint64_t const durability_commit_timestamp) {
+  if (!config_.enable_schema_info) return;
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  // Deferring keeps schema updates in commit timestamp order, so the schema processing code cannot
+  // read a slow in-flight edge operation part-way through a label modification.
+  std::scoped_lock const lock{mem_storage->schema_queue_mutex_};
+  mem_storage->pending_schema_updates_.emplace(
+      durability_commit_timestamp,
+      SchemaUpdateData(std::move(transaction_.schema_diff_),
+                       std::move(transaction_.post_process_),
+                       transaction_.start_timestamp,
+                       *commit_timestamp_,
+                       mem_storage->config_.salient.items.properties_on_edges));
+}
 
-  if (config_.enable_schema_info) {
-    // Queue schema update instead of processing immediately. This ensures
-    // schema updates are processed in commit timestamp order, solving a race
-    // condition whereby a slow in-flight edge operation can be accidentally
-    // read by the schema processing code in a label modification.
-    std::lock_guard<std::mutex> const lock{mem_storage->schema_queue_mutex_};
-    mem_storage->pending_schema_updates_.emplace(
-        durability_commit_timestamp,
-        SchemaUpdateData(std::move(transaction_.schema_diff_),
-                         std::move(transaction_.post_process_),
-                         transaction_.start_timestamp,
-                         *commit_timestamp_,
-                         mem_storage->config_.salient.items.properties_on_edges));
-  }
-
+void InMemoryStorage::InMemoryAccessor::FinalizeWalCommitStatus() {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   // We only need to update commit flag from false->true if we are running 2PC. In all other situations, the default
   // is fine.
   if (wal_txn_positions_.commit_flag_wal_position_ != 0 && needs_wal_update_) {
     mem_storage->wal_file_->UpdateCommitStatus(wal_txn_positions_);
   }
+}
+
+void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_commit_timestamp,
+                                                      std::unique_lock<utils::SpinLock> const &engine_guard) {
+  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  DMG_ASSERT(engine_guard.owns_lock() && engine_guard.mutex() == &mem_storage->engine_lock_,
+             "PublishCommit requires engine_lock_ held");
 
   MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
   transaction_.commit_info->timestamp.store(*commit_timestamp_, std::memory_order_release);
@@ -1304,6 +1310,16 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
     transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
   is_transaction_active_ = false;
+}
+
+void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp,
+                                                            std::unique_lock<utils::SpinLock> const &engine_guard) {
+  // Queueing allocates and so can throw, which is why it runs first: a throw leaves the WAL commit
+  // flag false, so recovery rolls the transaction back and agrees with the abort that follows.
+  // Flipping the flag first would durably claim a commit that memory then discards.
+  QueueSchemaUpdate(durability_commit_timestamp);
+  FinalizeWalCommitStatus();
+  PublishCommit(durability_commit_timestamp, engine_guard);
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
