@@ -208,6 +208,11 @@ as section 7 says, avoids that.
 - **Auth transactions are not counted in a database's transaction metrics.**
   The commit and rollback counters and the active-transactions gauge count data
   transactions; an auth transaction never touches a database.
+- **`DROP DATABASE ... FORCE` ends an open auth transaction in a session using
+  that database.** The transactions it ends are chosen by each session's current
+  database, as for a data transaction, so an auth transaction is ended even
+  though it never touches the database. Its `COMMIT` then fails, and the client
+  can run the transaction again.
 - **Privilege changes do not reach sessions that are already connected.** A
   session checks its statements against the privileges it had when it
   authenticated, so a `REVOKE` or `DROP USER` takes effect on that session when
