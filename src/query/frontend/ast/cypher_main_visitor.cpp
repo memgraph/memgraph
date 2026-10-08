@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <any>
+#include <array>
 #include <cstdint>
 #include <cstring>
 #include <functional>
@@ -3086,6 +3087,9 @@ std::optional<std::vector<Expression **>> MatchableChildren(Expression *expr) {
   auto addresses = [](std::vector<Expression *> &exprs) {
     return exprs | std::views::transform([](auto &child) { return &child; }) | std::ranges::to<std::vector>();
   };
+  // An aggregation is matchable, and is the case the whole rewrite exists for: ORDER BY count(n) repeats a projected
+  // count(n). It is named ahead of BinaryOperator, which it derives from and would otherwise be matched as.
+  if (auto *agg = utils::Downcast<Aggregation>(expr)) return std::vector{&agg->expression1_, &agg->expression2_};
   if (auto *op = utils::Downcast<BinaryOperator>(expr)) return std::vector{&op->expression1_, &op->expression2_};
   if (auto *op = utils::Downcast<UnaryOperator>(expr)) return std::vector{&op->expression_};
   if (auto *lookup = utils::Downcast<PropertyLookup>(expr)) return std::vector{&lookup->expression_};
@@ -3106,40 +3110,55 @@ std::optional<std::vector<Expression **>> MatchableChildren(Expression *expr) {
   return std::nullopt;
 }
 
-// Compares the fields of two expressions of the same type, other than their children. Parameters match by name, and a
-// stripped literal never matches: the AST is cached by the stripped text, which does not hold literal values.
+// Compares two expressions by the state they hold other than their children. A literal the stripper replaced is a
+// ParameterLookup and matches by parameter name, which is distinct per literal, so two literals of different value
+// never match. A literal the stripper left in place matches by value.
 bool SameOwnFields(Expression &lhs, Expression &rhs, ParameterNames const &parameter_names) {
-  if (auto *l = utils::Downcast<Aggregation>(&lhs)) {
-    auto const &r = static_cast<Aggregation &>(rhs);
-    return l->op_ == r.op_ && l->distinct_ == r.distinct_;
+  // Two kinds that differ hold no common state to compare. The check also stands behind the stateless list at the
+  // end, which reads the left side only.
+  if (lhs.GetTypeInfo() != rhs.GetTypeInfo()) return false;
+
+  if (auto *l = utils::Downcast<Aggregation>(&lhs), *r = utils::Downcast<Aggregation>(&rhs); l && r) {
+    return l->op_ == r->op_ && l->distinct_ == r->distinct_;
   }
-  if (auto *l = utils::Downcast<Identifier>(&lhs)) return l->name_ == static_cast<Identifier &>(rhs).name_;
-  if (auto *l = utils::Downcast<PrimitiveLiteral>(&lhs)) {
-    return l->value_ == static_cast<PrimitiveLiteral &>(rhs).value_;
+  if (auto *l = utils::Downcast<Identifier>(&lhs), *r = utils::Downcast<Identifier>(&rhs); l && r) {
+    return l->name_ == r->name_;
   }
-  if (auto *l = utils::Downcast<PropertyLookup>(&lhs)) {
-    return l->property_path_ == static_cast<PropertyLookup &>(rhs).property_path_;
+  if (auto *l = utils::Downcast<PrimitiveLiteral>(&lhs), *r = utils::Downcast<PrimitiveLiteral>(&rhs); l && r) {
+    return l->value_ == r->value_;
   }
-  if (auto *l = utils::Downcast<LabelsTest>(&lhs)) {
+  if (auto *l = utils::Downcast<PropertyLookup>(&lhs), *r = utils::Downcast<PropertyLookup>(&rhs); l && r) {
+    return l->property_path_ == r->property_path_;
+  }
+  if (auto *l = utils::Downcast<LabelsTest>(&lhs), *r = utils::Downcast<LabelsTest>(&rhs); l && r) {
     auto const *lhs_cnf = l->Cnf();
-    auto const *rhs_cnf = static_cast<LabelsTest &>(rhs).Cnf();
+    auto const *rhs_cnf = r->Cnf();
     return lhs_cnf && rhs_cnf && *lhs_cnf == *rhs_cnf;
   }
-  if (auto *l = utils::Downcast<Function>(&lhs)) {
-    return l->function_name_ == static_cast<Function &>(rhs).function_name_ && IsFunctionPure(l->function_name_);
+  if (auto *l = utils::Downcast<Function>(&lhs), *r = utils::Downcast<Function>(&rhs); l && r) {
+    return l->function_name_ == r->function_name_ && IsFunctionPure(l->function_name_);
   }
-  if (auto *l = utils::Downcast<ParameterLookup>(&lhs)) {
+  if (auto *l = utils::Downcast<ParameterLookup>(&lhs), *r = utils::Downcast<ParameterLookup>(&rhs); l && r) {
     auto const lhs_name = parameter_names.find(l->token_position_);
-    auto const rhs_name = parameter_names.find(static_cast<ParameterLookup &>(rhs).token_position_);
+    auto const rhs_name = parameter_names.find(r->token_position_);
     return lhs_name != parameter_names.end() && rhs_name != parameter_names.end() &&
            lhs_name->second == rhs_name->second;
   }
-  // What is left are the kinds whose only state is their children, which the caller has already matched by type. A
-  // kind this function never names cannot match at all, so giving a kind children without also giving it a field
-  // comparison costs a match rather than making a wrong one.
-  return utils::IsSubtype(lhs, BinaryOperator::kType) || utils::IsSubtype(lhs, UnaryOperator::kType) ||
-         utils::IsSubtype(lhs, IfOperator::kType) || utils::IsSubtype(lhs, ListSlicingOperator::kType) ||
-         utils::IsSubtype(lhs, Coalesce::kType) || utils::IsSubtype(lhs, ListLiteral::kType);
+  // The kinds whose whole state is their children, so two of the same kind match once their children do. Naming the
+  // concrete kinds rather than BinaryOperator and UnaryOperator is what keeps that true: a new operator derived from
+  // either is absent from here and loses a match, where a test against the base would match it while a field of its
+  // own differed.
+  static auto const kStateless =
+      std::array{&OrOperator::kType,        &XorOperator::kType,         &AndOperator::kType,
+                 &AdditionOperator::kType,  &SubtractionOperator::kType, &MultiplicationOperator::kType,
+                 &DivisionOperator::kType,  &ModOperator::kType,         &ExponentiationOperator::kType,
+                 &NotEqualOperator::kType,  &EqualOperator::kType,       &LessOperator::kType,
+                 &GreaterOperator::kType,   &LessEqualOperator::kType,   &GreaterEqualOperator::kType,
+                 &InListOperator::kType,    &SubscriptOperator::kType,   &NotOperator::kType,
+                 &UnaryPlusOperator::kType, &UnaryMinusOperator::kType,  &IsNullOperator::kType,
+                 &IfOperator::kType,        &ListSlicingOperator::kType, &Coalesce::kType,
+                 &ListLiteral::kType};
+  return std::ranges::any_of(kStateless, [&](auto const *kind) { return *kind == lhs.GetTypeInfo(); });
 }
 
 // An identifier named like a projected item refers to that item, not to the variable the item was computed from.
@@ -3151,10 +3170,8 @@ bool IsShadowed(Expression *expr, std::vector<NamedExpression *> const &items) {
 bool AreEquivalent(Expression *lhs, Expression *rhs, std::vector<NamedExpression *> const &items,
                    ParameterNames const &parameter_names) {
   if (!lhs || !rhs) return lhs == rhs;
-  if (lhs->GetTypeInfo() != rhs->GetTypeInfo() || !SameOwnFields(*lhs, *rhs, parameter_names) ||
-      IsShadowed(lhs, items)) {
-    return false;
-  }
+  // SameOwnFields refuses two kinds that differ, so the children compared below belong to the one kind both have.
+  if (!SameOwnFields(*lhs, *rhs, parameter_names) || IsShadowed(lhs, items)) return false;
   auto const lhs_children = MatchableChildren(lhs);
   auto const rhs_children = MatchableChildren(rhs);
   return lhs_children && rhs_children && std::ranges::equal(*lhs_children, *rhs_children, [&](auto *l, auto *r) {
