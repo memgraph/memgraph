@@ -228,13 +228,16 @@ def test_system_query_acknowledged_across_demotion_reaches_new_main(test_name):
             mg_sleep_and_assert([("replica",)], lambda: show_replication_role(instance_1_cursor), max_duration=5)
         try:
             lazy_cursor.fetchall()
+            acknowledged = True
         except mgclient.DatabaseError:
-            return
+            acknowledged = False
         demotion.result()
+    mg_sleep_and_assert([("replica",)], lambda: show_replication_role(instance_1_cursor))
     execute_and_fetch_all(coord_cursor, "SET INSTANCE instance_2 TO MAIN")
 
-    new_main_cursor = connect(host="localhost", port=7688).cursor()
-    assert "demoted_role" in [row[0] for row in execute_and_fetch_all(new_main_cursor, "SHOW ROLES")]
+    if acknowledged:
+        new_main_cursor = connect(host="localhost", port=7688).cursor()
+        assert "demoted_role" in [row[0] for row in execute_and_fetch_all(new_main_cursor, "SHOW ROLES")]
 
 
 def test_multi_database_no_auth(test_name):
