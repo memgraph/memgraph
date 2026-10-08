@@ -264,7 +264,8 @@ StrippedQuery::StrippedQuery(std::string query) : original_(std::move(query)) {
              (jt->second != "," || num_open_parentheses || num_open_square_brackets || num_open_curly_brackets) &&
              !utils::IEquals(jt->second, "order") && !utils::IEquals(jt->second, "skip") &&
              !utils::IEquals(jt->second, "limit") && !utils::IEquals(jt->second, "union") &&
-             !utils::IEquals(jt->second, "query") && jt->second != ";";
+             !utils::IEquals(jt->second, "query") && jt->second != ";" &&
+             (jt->second != "}" || num_open_curly_brackets > 0);
            ++jt) {
         if (jt->second == "(") {
           ++num_open_parentheses;
