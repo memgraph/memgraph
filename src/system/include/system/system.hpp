@@ -40,6 +40,14 @@ struct System {
   // TODO: this and LastCommittedSystemTimestamp maybe not needed
   auto GenTransactionGuard() -> TransactionGuard { return TransactionGuard{std::unique_lock{mtx_}}; }
 
+  auto TryGenTransactionGuard(std::chrono::milliseconds timeout) -> std::optional<TransactionGuard> {
+    auto lock = std::unique_lock{mtx_, std::defer_lock};
+    if (!lock.try_lock_for(timeout)) {
+      return std::nullopt;
+    }
+    return TransactionGuard{std::move(lock)};
+  }
+
   auto LastCommittedSystemTimestamp() const -> uint64_t { return state_.LastCommittedSystemTimestamp(); }
 
   auto CreateSystemStateAccess() -> ReplicaHandlerAccessToState { return ReplicaHandlerAccessToState{state_}; }

@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 #pragma once
 
+#include <chrono>
+#include <optional>
 #include <utility>
 
 #include "auth/auth.hpp"
@@ -79,13 +81,15 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
 
-  DbInfo db_info = std::invoke([&] {
-    auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
-      if constexpr (REQUIRE_LOCK) {
-        return system.GenTransactionGuard();
-      }
-      return std::nullopt;
-    });
+  // Bounded wait: the system lock may be held by a thread that is joining this checker (e.g. DROP REPLICA).
+  constexpr auto kSystemTxTry = std::chrono::milliseconds(100);
+
+  auto maybe_db_info = std::invoke([&]() -> std::optional<DbInfo> {
+    std::optional<system::TransactionGuard> guard;
+    if constexpr (REQUIRE_LOCK) {
+      guard = system.TryGenTransactionGuard(kSystemTxTry);
+      if (!guard) return std::nullopt;
+    }
 
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
@@ -103,6 +107,12 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     // No license -> send only default config
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
   });
+  if (!maybe_db_info) {
+    // Could not take the system lock; retry on the next checker tick.
+    client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+    return;
+  }
+  DbInfo db_info = std::move(*maybe_db_info);
   try {
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();

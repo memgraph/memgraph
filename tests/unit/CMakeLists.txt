@@ -1286,6 +1286,12 @@ else ()
     )
 endif ()
 
+# Test that unregistering a replica does not deadlock against its frequent checker
+add_unit_test(replication_checker_shutdown
+    SOURCES replication_checker_shutdown.cpp
+    LINK_TARGETS mg::storage mg-dbms mg-repl_coord_glue mg-replication_handler mg-rpc mg-parameters mg::system
+)
+
 # Test distributed
 add_unit_test(distributed_lamport_clock
     SOURCES distributed_lamport_clock.cpp
