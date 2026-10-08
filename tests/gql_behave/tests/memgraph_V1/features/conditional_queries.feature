@@ -315,7 +315,7 @@ Feature: Conditional queries
             """
             WHEN $a THEN MATCH (n:Q) RETURN n.n
             """
-        # Neo4j: Neo.ClientError.Statement.SyntaxError. memgraph's text: assert in a unit test.
+        # The error text is asserted in a unit test.
         Then an error should be raised
 
     Scenario: Top-level WHEN predicate with an EXISTS subquery that holds
@@ -425,7 +425,7 @@ Feature: Conditional queries
             """
             WHEN 1 / ($one - 1) = 1 THEN RETURN 1 AS x ELSE RETURN 2 AS x
             """
-        # Neo4j: Neo.ClientError.Statement.ArithmeticError. memgraph's text: assert in a unit test.
+        # The error text is asserted in a unit test.
         Then an error should be raised
 
     Scenario: Top-level WHEN with a nested braced WHEN
@@ -527,7 +527,7 @@ Feature: Conditional queries
             | 1 |
 
     Scenario: A memory limit after a top-level WHEN applies to its branches
-        # Deliberate divergence from Neo4j: memgraph-only clause on the outer query.
+        # A memgraph-only clause; it applies to the outer query.
         # Without the limit the branch returns 1000000.
         Given an empty graph
         And parameters are:
@@ -539,7 +539,7 @@ Feature: Conditional queries
         Then an error should be raised
 
     Scenario: USING HOPS LIMIT before a top-level WHEN is query-wide
-        # Deliberate divergence from Neo4j: memgraph-only directive; the hop budget is shared by the whole query, as for UNION legs
+        # A memgraph-only directive: the hop budget is shared by the whole query, as for UNION legs.
         Given an empty graph
         And having executed:
             """
