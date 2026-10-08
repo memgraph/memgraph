@@ -5303,6 +5303,81 @@ TEST_F(DurabilityTest, WalNonSequentialDeltaEncoding) {
   }
 }
 
+// With delta_on_identical_property_update=false, writing Double 1.0 over Int 1 must still reach the WAL.
+TEST_F(DurabilityTest, WalRecordsEqualValueWriteOfAnotherType) {
+  using memgraph::storage::PropertyValue;
+  const auto make_config = [&](bool recover) {
+    return memgraph::storage::Config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = recover,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
+                       .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::minutes(20)},
+                       .wal_file_flush_every_n_tx = 1},
+        .salient = {.items = {.properties_on_edges = true, .delta_on_identical_property_update = false}},
+    };
+  };
+
+  memgraph::storage::Gid v1_gid;
+  {
+    memgraph::dbms::Database db{make_config(false)};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    const auto set = db.storage()->NameToProperty("set");
+    const auto update = db.storage()->NameToProperty("update");
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      auto v1 = acc->CreateVertex();
+      auto v2 = acc->CreateVertex();
+      v1_gid = v1.Gid();
+      auto edge = acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("et"));
+      ASSERT_TRUE(edge.has_value());
+      ASSERT_TRUE(v1.SetProperty(set, PropertyValue(1)).has_value());
+      ASSERT_TRUE(v1.SetProperty(update, PropertyValue(1)).has_value());
+      ASSERT_TRUE(edge->SetProperty(set, PropertyValue(1)).has_value());
+      ASSERT_TRUE(edge->SetProperty(update, PropertyValue(1)).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    {
+      auto acc = db.Access(memgraph::storage::WRITE);
+      auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
+      ASSERT_TRUE(v1.has_value());
+      auto out = v1->OutEdges(memgraph::storage::View::OLD);
+      ASSERT_TRUE(out.has_value());
+      ASSERT_EQ(out->edges.size(), 1);
+      auto edge = out->edges[0];
+      std::map<memgraph::storage::PropertyId, PropertyValue> vertex_update{{update, PropertyValue(1.0)}};
+      std::map<memgraph::storage::PropertyId, PropertyValue> edge_update{{update, PropertyValue(1.0)}};
+      ASSERT_TRUE(v1->SetProperty(set, PropertyValue(1.0)).has_value());
+      ASSERT_TRUE(v1->UpdateProperties(vertex_update).has_value());
+      ASSERT_TRUE(edge.SetProperty(set, PropertyValue(1.0)).has_value());
+      ASSERT_TRUE(edge.UpdateProperties(edge_update).has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+  }
+
+  ASSERT_EQ(GetSnapshotsList().size(), 0);
+  ASSERT_GE(GetWalsList().size(), 1);
+
+  memgraph::dbms::Database db{make_config(true)};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  const auto set = db.storage()->NameToProperty("set");
+  const auto update = db.storage()->NameToProperty("update");
+  auto acc = db.Access(memgraph::storage::READ);
+  auto v1 = acc->FindVertex(v1_gid, memgraph::storage::View::OLD);
+  ASSERT_TRUE(v1.has_value());
+  auto out = v1->OutEdges(memgraph::storage::View::OLD);
+  ASSERT_TRUE(out.has_value());
+  ASSERT_EQ(out->edges.size(), 1);
+  for (const auto &prop : {set, update}) {
+    for (const auto &value : {v1->GetProperty(prop, memgraph::storage::View::OLD),
+                              out->edges[0].GetProperty(prop, memgraph::storage::View::OLD)}) {
+      ASSERT_TRUE(value.has_value());
+      ASSERT_TRUE(value->IsDouble());
+      EXPECT_EQ(value->ValueDouble(), 1.0);
+    }
+  }
+}
+
 TEST_F(DurabilityTest, WalNonSequentialInterleavedSubchainsEmitEdgeCreateOncePerEdge) {
   memgraph::storage::Config config{};
   config.durability.storage_directory = storage_directory;

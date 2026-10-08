@@ -24,6 +24,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -206,7 +207,7 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
         property,
         IndexedPropertyDecoder<Edge>{
             .indices = &storage_->indices_, .name_id_mapper = storage_->name_id_mapper_.get(), .entity = edge_.ptr}));
-    if (skip_duplicate_write && *current_value == value) {
+    if (skip_duplicate_write && AreIdentical(*current_value, value)) {
       return;
     }
     // We could skip setting the value if the previous one is the same to the new
@@ -326,7 +327,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
   utils::AtomicMemoryBlock([this, &properties, &id_old_new_change, skip_duplicate_write, &schema_acc]() {
     id_old_new_change.emplace(edge_.ptr->properties.UpdateProperties(properties));
     for (auto const &[property, old_value, new_value] : *id_old_new_change) {
-      if (skip_duplicate_write && old_value == new_value) continue;
+      if (skip_duplicate_write && AreIdentical(old_value, new_value)) continue;
       DMG_ASSERT(from_vertex_, "Missing from vertex!");
       CreateAndLinkDeltaForEdgeSetProperty(
           transaction_, storage_->config_, edge_.ptr, from_vertex_, to_vertex_, edge_type_, property, old_value);
