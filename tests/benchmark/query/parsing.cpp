@@ -64,6 +64,10 @@ const Shape kShapes[] = {
     // above pay once, these pay on every execution.
     {"param_label",            "MATCH (n:$p) RETURN n",      true},
     {"param_label_mixed",      "MATCH (n:A&!$p|C) RETURN n", true},
+    // A statement may also start a conditional query, so these prefixes now predict between two rules.
+    {"periodic_commit",        "USING PERIODIC COMMIT 10 UNWIND range(1, 10) AS i CREATE (:T)"},
+    {"explain_union",          "EXPLAIN MATCH (n) RETURN n UNION MATCH (m) RETURN m AS n"},
+    {"profile_union",          "PROFILE RETURN 1 AS x UNION ALL RETURN 2 AS x"},
 };
 // clang-format on
 

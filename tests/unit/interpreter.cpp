@@ -1993,6 +1993,179 @@ TYPED_TEST(InterpreterTest, ConditionalBranchIndexDropInvalidatesCachedPlan) {
   EXPECT_FALSE(explain_has_label_scan());
 }
 
+using PropertyMap = memgraph::storage::ExternalPropertyValue::map_t;
+using memgraph::storage::ExternalPropertyValue;
+
+// The column of a single-column result, as integers.
+std::vector<int64_t> IntColumn(const ResultStreamFaker &stream) {
+  std::vector<int64_t> out;
+  for (const auto &row : stream.GetResults()) out.push_back(row.at(0).ValueInt());
+  return out;
+}
+
+TYPED_TEST(InterpreterTest, ConditionalQueryPlanCache) {
+  auto const plan_cache_size = [&] {
+    return this->db->plan_cache()->WithLock([](auto &cache) { return cache.size(); });
+  };
+  auto const query = "WHEN $a THEN RETURN 1 AS x ELSE RETURN 2 AS x";
+  for (auto const &[a, x] :
+       std::initializer_list<std::pair<ExternalPropertyValue, int64_t>>{{ExternalPropertyValue(true), 1},
+                                                                        {ExternalPropertyValue(false), 2},
+                                                                        {ExternalPropertyValue(true), 1},
+                                                                        {ExternalPropertyValue(), 2}}) {
+    EXPECT_EQ(IntColumn(this->Interpret(query, {{"a", a}})), std::vector<int64_t>{x});
+  }
+  EXPECT_EQ(plan_cache_size(), 1U);
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) return;
+  memgraph::license::global_license_checker.EnableTesting();
+  this->Interpret("CREATE (), (), ()");
+  auto const cached = plan_cache_size();
+  auto const parallel = "USING PARALLEL EXECUTION 4 WHEN $a THEN MATCH (n) RETURN count(n) AS c";
+  EXPECT_EQ(IntColumn(this->Interpret(parallel, {{"a", ExternalPropertyValue(true)}})), std::vector<int64_t>{3});
+  // The thread count is part of the query, so its plan is not cached.
+  EXPECT_EQ(plan_cache_size(), cached);
+}
+
+TYPED_TEST(InterpreterTest, ConditionalQueryExplainAndProfile) {
+  {
+    auto stream =
+        this->Interpret("EXPLAIN WHEN $a THEN RETURN 1 AS x ELSE RETURN 2 AS x", {{"a", ExternalPropertyValue(true)}});
+    std::vector<std::string> rows;
+    for (const auto &row : stream.GetResults()) rows.push_back(row.front().ValueString());
+    EXPECT_EQ(rows,
+              (std::vector<std::string>{" * Conditional {x}",
+                                        " |\\ WHEN 0",
+                                        " | * Produce {x}",
+                                        " | * Once",
+                                        " |\\ ELSE",
+                                        " | * Produce {x}",
+                                        " | * Once",
+                                        " * Once"}));
+  }
+  // PROFILE shows the branch it ran.
+  for (auto const a : {true, false}) {
+    auto stream = this->Interpret("PROFILE WHEN $a THEN CREATE (:T) RETURN 1 AS x ELSE RETURN 2 AS x",
+                                  {{"a", ExternalPropertyValue(a)}});
+    EXPECT_EQ(std::ranges::any_of(stream.GetResults(),
+                                  [](const auto &row) { return row.front().ValueString() == "| * CreateNode"; }),
+              a);
+  }
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    // An index hint before the conditional reaches its branches: without it the branch scans :P(n).
+    this->Interpret("CREATE INDEX ON :P(n)");
+    this->Interpret("CREATE INDEX ON :P(m)");
+    auto const scans = [&](const std::string &query, std::string_view scan) {
+      return std::ranges::any_of(
+          this->Interpret(query, {{"a", ExternalPropertyValue(true)}}).GetResults(),
+          [&](const auto &row) { return row.front().ValueString().find(scan) != std::string::npos; });
+    };
+    auto const branch = std::string{"WHEN $a THEN MATCH (p:P) WHERE p.n = 1 AND p.m = 2 RETURN p.n AS x"};
+    EXPECT_TRUE(scans("EXPLAIN " + branch, "ScanAllByLabelProperties (p :P {n})"));
+    EXPECT_TRUE(scans("EXPLAIN USING INDEX :P(m) " + branch, "ScanAllByLabelProperties (p :P {m})"));
+  }
+}
+
+// Each text is the one the `CALL () { ... }` form of the same body gives.
+TYPED_TEST(InterpreterTest, ConditionalQueryErrors) {
+  auto const error_of = [&](const std::string &query, const PropertyMap &params) -> std::string {
+    try {
+      this->Interpret(query, params);
+    } catch (const memgraph::query::QueryException &e) {
+      return e.what();
+    }
+    return "no error";
+  };
+  PropertyMap const a{{"a", ExternalPropertyValue(true)}};
+  PropertyMap const one{{"one", ExternalPropertyValue(1)}};
+  for (auto const &[query, params, text] : std::initializer_list<std::tuple<const char *, PropertyMap, const char *>>{
+           {"WHEN $a THEN CREATE (:T) ELSE RETURN 1 AS x",
+            a,
+            "All WHEN branches must return rows, update the graph, or be a standalone procedure call."},
+           {"WHEN $a THEN RETURN 1 AS x, 2 AS y ELSE RETURN 2 AS x",
+            a,
+            "All WHEN branches must return the same number of columns."},
+           {"WHEN $a THEN RETURN 1 AS x ELSE RETURN 2 AS y", a, "All WHEN branches must have the same column names."},
+           {"WHEN $a THEN MATCH (n) ELSE RETURN 1 AS x",
+            a,
+            "Query should either create or update something, or return results!"},
+           {"WHEN n.n > 0 THEN RETURN 1 AS x ELSE RETURN 2 AS x", {}, "Unbound variable: n."},
+           {"WHEN count(*) > 0 THEN RETURN 1 AS x ELSE RETURN 2 AS x",
+            {},
+            "Aggregation functions are only allowed in WITH and RETURN."},
+           {"WHEN (q:Q)-[:R]->() THEN RETURN 1 AS x ELSE RETURN 2 AS x",
+            {},
+            "Unbounded variables are not allowed in EXISTS!"},
+           {"WHEN $one THEN RETURN 1 AS x ELSE RETURN 2 AS x", one, "WHEN expected boolean expression, got int."},
+           {"WHEN $l THEN RETURN 1 AS x ELSE RETURN 2 AS x",
+            {{"l", ExternalPropertyValue(std::vector<ExternalPropertyValue>{})}},
+            "WHEN expected boolean expression, got list."},
+           {"WHEN 1 / ($one - 1) = 1 THEN RETURN 1 AS x ELSE RETURN 2 AS x",
+            one,
+            "Invalid types: int and int for '/'."}}) {
+    EXPECT_EQ(error_of(query, params), text) << query;
+  }
+}
+
+// A predicate's read of a predefined identifier consumes it, so a branch cannot read it again.
+TYPED_TEST(InterpreterTest, ConditionalQueryInTrigger) {
+  this->Interpret(
+      "CREATE TRIGGER t ON () CREATE BEFORE COMMIT EXECUTE WHEN size(createdVertices) > 0 THEN MATCH (v:V) SET v.a = 1 "
+      "ELSE MATCH (v:V) SET v.b = 2");
+  this->Interpret("CREATE (:V)");
+  auto stream = this->Interpret("MATCH (v:V) RETURN v.a AS a, v.b AS b");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  EXPECT_TRUE(stream.GetResults()[0][1].type() == memgraph::communication::bolt::Value::Type::Null);
+  this->Interpret("DROP TRIGGER t");
+}
+
+TYPED_TEST(InterpreterTest, ConditionalQueryOpensTransaction) {
+  auto stream = this->Interpret("WHEN $a THEN RETURN 1 AS x", {{"a", ExternalPropertyValue(true)}});
+  EXPECT_EQ(IntColumn(stream), std::vector<int64_t>{1});
+  EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
+}
+
+TYPED_TEST(InterpreterTest, StandaloneCallTopLevelBranch) {
+  PropertyMap const a{{"a", ExternalPropertyValue(true)}};
+  {
+    auto stream = this->Interpret("WHEN $a THEN CALL mg.procedures() YIELD name", a);
+    EXPECT_TRUE(stream.GetHeader().empty());
+    EXPECT_TRUE(stream.GetResults().empty());
+  }
+  {
+    auto const expected = this->Interpret("CALL mg.procedures() YIELD name RETURN name").GetResults().size();
+    ASSERT_GT(expected, 0U);
+    auto stream = this->Interpret("WHEN $a THEN CALL mg.procedures() YIELD name RETURN name", a);
+    EXPECT_EQ(stream.GetHeader(), std::vector<std::string>{"name"});
+    EXPECT_EQ(stream.GetResults().size(), expected);
+  }
+  EXPECT_EQ(IntColumn(this->Interpret("CALL () { WHEN true THEN CALL mg.procedures() YIELD name } RETURN 1 AS x")),
+            std::vector<int64_t>{1});
+}
+
+TYPED_TEST(InterpreterTest, InTransactionsInTopLevelBranch) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "On-disk storage has no periodic commit.";
+  }
+  auto const count_t = [&] { return IntColumn(this->Interpret("MATCH (t:T) RETURN count(t) AS c")).at(0); };
+  // Batch 2 fails after its CREATE.
+  std::string const batches =
+      "UNWIND [1, 2, 3] AS i CALL (i) { CREATE (:T {i: i}) WITH i RETURN 1 / (i - 2) AS r } IN TRANSACTIONS OF 1 ROWS "
+      "RETURN count(*) AS c";
+  // An unbraced UNION leg is the reference. The batches committed before the error stay; one transaction would
+  // leave no node.
+  EXPECT_THROW(this->Interpret(batches + " UNION ALL RETURN 0 AS c"), memgraph::query::QueryRuntimeException);
+  auto const committed = count_t();
+  EXPECT_GT(committed, 0);
+  this->Interpret("MATCH (t:T) DELETE t");
+  EXPECT_THROW(this->Interpret("WHEN $a THEN " + batches, {{"a", ExternalPropertyValue(true)}}),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(count_t(), committed);
+  this->Interpret("MATCH (t:T) DELETE t");
+  EXPECT_TRUE(this->Interpret("WHEN $a THEN " + batches, {{"a", ExternalPropertyValue(false)}}).GetResults().empty());
+  EXPECT_EQ(count_t(), 0);
+}
+
 TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->AstCacheSize(), 0U);

@@ -257,6 +257,7 @@ symbolicName : UnescapedSymbolicName
              ;
 
 query : cypherQuery
+      | conditionalStatement
       | indexQuery
       | edgeIndexQuery
       | pointIndexQuery
@@ -318,6 +319,12 @@ query : cypherQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
+
+conditionalStatement : ( preQueryDirectives )? conditionalQuery ( queryMemoryLimit )? ;
+
+explainQuery : EXPLAIN ( cypherQuery | conditionalStatement ) ;
+
+profileQuery : PROFILE ( cypherQuery | conditionalStatement ) ;
 
 authQuery : createRole
           | dropRole
