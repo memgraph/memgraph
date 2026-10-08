@@ -10137,10 +10137,11 @@ std::string RollUpApply::ToString(const DbAccessor * /*dba*/) const {
 }
 
 Conditional::Conditional(std::shared_ptr<LogicalOperator> input, std::vector<Branch> branches,
-                         std::vector<Symbol> output_symbols)
+                         std::vector<Symbol> output_symbols, storage::View predicate_view)
     : input_(input ? std::move(input) : std::make_shared<Once>()),
       branches_(std::move(branches)),
-      output_symbols_(std::move(output_symbols)) {
+      output_symbols_(std::move(output_symbols)),
+      predicate_view_(predicate_view) {
   DMG_ASSERT(!branches_.empty(), "A conditional needs at least one branch.");
   DMG_ASSERT(std::ranges::all_of(branches_ | std::views::take(branches_.size() - 1),
                                  [](const auto &branch) { return branch.predicate != nullptr; }),
@@ -10186,6 +10187,7 @@ std::unique_ptr<LogicalOperator> Conditional::Clone(AstStorage *storage) const {
     cloned.columns = branch.columns;
   }
   object->output_symbols_ = output_symbols_;
+  object->predicate_view_ = predicate_view_;
   return object;
 }
 
@@ -10231,9 +10233,8 @@ bool Conditional::ConditionalCursor::Pull(Frame &frame, ExecutionContext &contex
 
     if (!input_->Pull(frame, context)) return false;
 
-    // Unlike a `Filter`, a predicate sees the writes earlier rows' branches made (View::NEW).
     ExpressionEvaluator evaluator{
-        &frame, context, storage::View::NEW, context.frame_change_collector, &context.number_of_hops};
+        &frame, context, self_.predicate_view_, context.frame_change_collector, &context.number_of_hops};
     for (size_t i = 0; i < self_.branches_.size(); ++i) {
       for (const auto &fold : branches_[i].pattern_filters) {
         fold->Pull(frame, context);
