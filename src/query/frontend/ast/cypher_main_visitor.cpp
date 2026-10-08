@@ -4782,7 +4782,7 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
 
   // A CALL body is not a fold body, even inside one, so it also gets the top-level "return or update" check.
   auto const old_fold = std::exchange(subquery_fold_, std::nullopt);
-  // A CALL's WHEN body keeps the CALL alias rule, which the symbol generator applies.
+  // A CALL body, plain or WHEN, keeps the CALL alias rule, which the symbol generator applies.
   auto const old_in_when_body = std::exchange(in_when_body_, false);
   call_subquery->cypher_query_ = ctx->conditionalQuery()
                                      ? BuildConditionalQuery(ctx->conditionalQuery()).query

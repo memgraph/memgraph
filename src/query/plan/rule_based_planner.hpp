@@ -705,7 +705,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     std::unordered_map<std::string, Symbol> output_by_name;
     for (const auto &sym : conditional.output_symbols) output_by_name.emplace(sym.name(), sym);
 
-    auto output_symbols = conditional.output_symbols;
+    std::vector<Symbol> output_symbols;
     std::vector<Conditional::Branch> branches;
     branches.reserve(conditional.branches.size());
     for (const auto &parts : conditional.branches) {
@@ -713,17 +713,13 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       context_->bound_symbols = bound_symbols;
       branch.plan = Plan(parts.body);
       // A UNION's columns are in no settled order, so a UNION first body keeps the symbol generator's name order.
-      if (branches.size() == 1 && parts.body.query_parts.size() == 1) {
-        output_symbols.clear();
-        for (const auto &branch_sym : branch.plan->OutputSymbols(symbol_table)) {
-          if (auto it = output_by_name.find(branch_sym.name()); it != output_by_name.end()) {
-            output_symbols.push_back(it->second);
-          }
-        }
-      }
+      bool const is_first = &parts == &conditional.branches.front();
+      bool const takes_order = is_first && parts.body.query_parts.size() == 1;
+      if (is_first && !takes_order) output_symbols = conditional.output_symbols;
       for (const auto &branch_sym : branch.plan->OutputSymbols(symbol_table)) {
         auto it = output_by_name.find(branch_sym.name());
         if (it == output_by_name.end()) continue;
+        if (takes_order) output_symbols.push_back(it->second);
         // The symbol generator made an import-named column the import's own symbol, so the caller keeps its value;
         // a single branch's column is the branch's own symbol.
         if (bound_symbols.contains(it->second) || it->second == branch_sym) continue;
