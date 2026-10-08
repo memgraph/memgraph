@@ -18,6 +18,7 @@
 #include <range/v3/all.hpp>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -4227,6 +4228,12 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   return static_cast<Expression *>(subquery);
 }
 
+namespace {
+[[noreturn]] void ThrowFoldClauseRefused(std::string_view construct) {
+  throw SyntaxException("Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
+}
+}  // namespace
+
 Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyContext *ctx,
                                                  SubqueryExpression::Fold fold) {
   auto const construct = SubqueryExpression::FoldName(fold);
@@ -4270,8 +4277,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
         if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Unwind::kType) ||
               utils::IsSubtype(type, Where::kType) || utils::IsSubtype(type, With::kType) ||
               utils::IsSubtype(type, Return::kType))) {
-          throw SyntaxException("Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.",
-                                construct);
+          ThrowFoldClauseRefused(construct);
         }
       }
       // The list fold collects one column per branch row, and `RETURN *` names an unknown number. Caught here so
@@ -4720,6 +4726,8 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
 
   MG_ASSERT(ctx->cypherQuery() || ctx->conditionalQuery(), "Expected query inside subquery clause");
 
+  // Refused before its body is parsed, so the body's own checks cannot report first.
+  if (subquery_fold_) ThrowFoldClauseRefused(SubqueryExpression::FoldName(*subquery_fold_));
   if (ctx->cypherQuery() && ctx->cypherQuery()->queryMemoryLimit()) {
     throw SyntaxException("Memory limit cannot be set on subqueries!");
   }
@@ -4755,12 +4763,9 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     }
   }
 
-  // A CALL body is not a fold body, even inside one, so it also gets the top-level "return or update" check.
-  auto const old_fold = std::exchange(subquery_fold_, std::nullopt);
   call_subquery->cypher_query_ = ctx->conditionalQuery()
                                      ? BuildConditionalQuery(ctx->conditionalQuery()).query
                                      : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
-  subquery_fold_ = old_fold;
 
   PreQueryDirectives pre_query_directives;
   if (auto const *periodic_commit = ctx->periodicSubquery()) {

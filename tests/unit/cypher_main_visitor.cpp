@@ -8766,16 +8766,19 @@ TEST_P(CypherMainVisitorTest, SubqueryExpressionConditional) {
       "RETURN COLLECT { WHEN true THEN { RETURN 1 AS x UNION RETURN * } } AS r",
       ast_generator,
       "COLLECT subquery must end with a RETURN of exactly one column.");
-  // A CALL body inside a fold is not a fold body: its own WHEN may be RETURN-less.
+  // A CALL in a fold is refused before its body's own checks: a RETURN-less WHEN, a RETURN-less body.
   TestInvalidQueryWithMessage<SyntaxException>(
       "MATCH (n) WHERE EXISTS { CALL (n) { WHEN true THEN SET n.p = 1 } RETURN 1 AS x } RETURN n",
       ast_generator,
       "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
-  // The fold comes back after a CALL body: a later RETURN-less branch still gets the fold's RETURN rule.
   TestInvalidQueryWithMessage<SyntaxException>(
-      "RETURN EXISTS { WHEN true THEN CALL () { RETURN 1 AS y } RETURN y ELSE MATCH (m) } AS e",
+      "RETURN EXISTS { CALL () { MATCH (m) } RETURN 1 AS x } AS e",
       ast_generator,
-      "Every WHEN branch of EXISTS must end with RETURN.");
+      "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "RETURN COUNT { WHEN true THEN CALL () { MATCH (m) } RETURN 1 AS x } AS c",
+      ast_generator,
+      "Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in COUNT subqueries.");
 }
 
 TEST_P(CypherMainVisitorTest, CallSubquery) {
