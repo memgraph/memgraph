@@ -22,16 +22,12 @@ class Query;
 
 namespace memgraph::query::frontend {
 
-/// What parsing established about a query beyond its tree.
 using QueryInfo = CypherMainVisitor::QueryInfo;
 
-/// Parses `query` and puts the result in `storage`, which receives the nodes the query reaches and no
-/// others. Building a tree can leave a node behind that nothing goes on to read, and anything reading
-/// the storage rather than walking the tree would otherwise meet it; a storage this returns into has
-/// none, and goes on holding none for as long as a cache keeps it.
-///
-/// Returns the root, which `storage` owns. Throws for a query that does not parse, and for one that
-/// parses but asks for something the frontend rejects.
+/// Parses `query` into `storage`, which receives the nodes the query reaches and no others: building
+/// a tree can leave one behind that nothing reads, and a cache holds what it is given for the life of
+/// the entry. The root returned is owned by `storage`. Throws if the query does not parse, or parses
+/// and asks for something the frontend rejects.
 Query *ParseToAst(std::string const &query, ParsingContext context, Parameters *parameters, AstStorage &storage,
                   QueryInfo &info);
 

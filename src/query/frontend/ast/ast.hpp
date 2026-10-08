@@ -1328,9 +1328,8 @@ class Function : public Expression {
     object->function_name_ = function_name_;
     object->function_ = function_;
     object->is_user_defined_ = is_user_defined_;
-    // The id names the function in whichever storage the call lives in, so it is asked for again
-    // rather than carried: the storage being copied into need not name the same functions in the
-    // same order, and need not have named any.
+    // The id indexes the storage the call lives in, so a copy asks for it again rather than
+    // carrying a number that need not name the same function there.
     object->user_function_id_ = is_user_defined_ ? storage->FindOrAddUserFunction(function_name_) : user_function_id_;
     return object;
   }
@@ -2641,8 +2640,8 @@ class CallProcedure : public memgraph::query::Clause {
   CallProcedure *DoClone(AstStorage *storage) const override {
     CallProcedure *object = storage->Create<CallProcedure>();
     object->procedure_name_ = procedure_name_;
-    // Naming it again is what tells the storage it was built against the module registry, which is
-    // what decides whether a reload makes what is held here stale.
+    // Naming it records that this storage read the module registry, which decides when a reload
+    // makes it stale.
     storage->FindOrAddCallProcedure(procedure_name_);
     object->arguments_.resize(arguments_.size());
     for (auto i7 = 0; i7 < arguments_.size(); ++i7) {

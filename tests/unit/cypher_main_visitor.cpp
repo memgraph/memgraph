@@ -136,9 +136,8 @@ class AstGenerator : public Base {
     auto const before = ast_storage_.NodeCount();
     frontend::QueryInfo info;
     auto *query = frontend::ParseToAst(query_string, context_, &parameters, ast_storage_, info);
-    // Parsing puts the nodes the query reaches in the storage and no others, so a copy of the
-    // result holds exactly what this parse added: no fewer, or a node reached by several paths
-    // was copied once per path; no more, or the storage is holding one nothing will read.
+    // A copy of the result holds exactly what this parse added: fewer means a shared node was
+    // split, more means the storage kept one nothing will read.
     AstStorage reachable;
     query->Clone(&reachable);
     EXPECT_EQ(reachable.NodeCount(), ast_storage_.NodeCount() - before) << query_string;
@@ -1759,8 +1758,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternFixedRange) {
   CheckRWType(query, kRead);
 }
 
-// A node's property index names that property in the storage the node lives in. Parsing again into
-// the same storage adds to it, so what the first query's indices name has to stay where it was.
+// Parsing again into one storage must not move what the first query's indices name.
 TEST(ParsingIntoOneStorage, LeavesTheFirstQuerysNamesWhereTheyWere) {
   AstStorage storage;
   ParsingContext context;
@@ -1780,8 +1778,7 @@ TEST(ParsingIntoOneStorage, LeavesTheFirstQuerysNamesWhereTheyWere) {
   EXPECT_EQ(storage.properties_[lookup->property_.ix], lookup->property_.name);
 }
 
-// A call's function id names that function in the storage the call lives in, the same way a
-// property index does, and has to survive another query being parsed into the same storage.
+// Same for a call's function id, which indexes the storage the same way.
 TEST_P(CypherMainVisitorTest, ParsingAgainLeavesTheFirstUserFunctionWhereItWas) {
   AddFunc(*mock_module, "one", {});
   AddFunc(*mock_module, "two", {});
@@ -1805,9 +1802,8 @@ TEST_P(CypherMainVisitorTest, ParsingAgainLeavesTheFirstUserFunctionWhereItWas) 
   EXPECT_EQ(storage.user_functions_[call->user_function_id_], call->function_name_);
 }
 
-// A fixed range names one bound and means it twice, so both bounds are the same node. Copying
-// reaches that node by two paths and has to arrive at one node again, or the copy holds a pair
-// that can drift apart.
+// A fixed range names one bound and means it twice, so both bounds are one node, and a copy has
+// to arrive at one node again.
 TEST_P(CypherMainVisitorTest, CloningKeepsAFixedRangeBoundShared) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r*42]->() RETURN r"));

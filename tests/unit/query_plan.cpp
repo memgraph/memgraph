@@ -8512,9 +8512,8 @@ TYPED_TEST(TestPlanner, PreferCompositeIndexOverSinglePropertyIndex) {
             ExpectProduce());
 }
 
-// A rewrite can leave one expression evaluated in two places. Copying the plan has to arrive at one
-// expression again, or the copy evaluates twice what the original evaluated once, and the two can be
-// changed apart.
+// A rewrite can leave one expression evaluated in two places, and copying the plan has to arrive
+// at one expression again.
 TEST(PlanCopying, KeepsASharedExpressionShared) {
   memgraph::query::AstStorage storage;
   auto *shared = storage.Create<memgraph::query::PrimitiveLiteral>(int64_t{42});

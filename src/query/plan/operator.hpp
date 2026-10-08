@@ -360,9 +360,8 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
   }
 
  protected:
-  /// Makes this one operator and asks for copies of what it holds. `Clone` is what a caller wants:
-  /// it spans the whole branch, and a node reached from two operators is copied once only within
-  /// such a span.
+  /// Makes this one operator, asking `Clone` for copies of what it holds. A copy started here
+  /// rather than at `Clone` does not span the branch, so operators sharing a node each get one.
   virtual std::unique_ptr<LogicalOperator> DoClone(AstStorage *storage) const = 0;
 
   LogicalOperator() = default;

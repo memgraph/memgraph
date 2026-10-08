@@ -20,17 +20,14 @@ Query *ParseToAst(std::string const &query, ParsingContext context, Parameters *
                   QueryInfo &info) {
   opencypher::Parser parser{query};
 
-  // The tree is built somewhere of its own, so whatever the build leaves behind is left behind here.
-  // Copying follows the edges the query reaches, which is what makes the caller's storage hold those
-  // nodes and no others.
+  // Built somewhere of its own, so what the build leaves behind is dropped with it.
   AstStorage built;
   CypherMainVisitor visitor{context, &built, parameters};
   visitor.visit(parser.tree());
 
   info = visitor.GetQueryInfo();
 
-  // Names come across with the copy, which asks `storage` for an index per name it meets, so a
-  // storage that already holds a query keeps what its indices named.
+  // Copying asks `storage` for an index per name it meets, so no table has to be carried.
   return visitor.query()->Clone(&storage);
 }
 

@@ -108,9 +108,8 @@ class AstStorage {
   // machinery out of Create, which is instantiated once per node type.
   void Adopt(std::unique_ptr<Tree> node);
 
-  /// Makes the copies taken while the returned object lives one copy, so a node reached from two
-  /// of them is copied once. Copying a plan needs this: an operator holds expressions, and two
-  /// operators can hold the same one, so the copies have to agree with each other.
+  /// Makes the copies taken while the returned object lives one copy, so a node reached from two of
+  /// them is copied once.
   [[nodiscard]] auto CopyScope() {
     ++copy_depth_;
     return utils::OnScopeExit{[this] {
@@ -140,9 +139,7 @@ class AstStorage {
   std::vector<std::string> user_functions_;
   std::vector<std::string> call_procedures_;
 
-  /// How many nodes this storage owns, reachable from a query or not. A storage that
-  /// received only what a query reaches holds exactly as many nodes as a copy of that
-  /// query does, because copying follows the same edges.
+  /// Every node this storage owns, whether a query reaches it or not.
   std::size_t NodeCount() const { return storage_.size(); }
 
   // Public only for serialization access
@@ -151,10 +148,7 @@ class AstStorage {
  private:
   friend class Tree;
 
-  /// What `Tree::Clone` dispatches through. A node the source reaches by more than one path is
-  /// copied once and shared again in the copy, so a shape that names a value once and means it
-  /// twice does not come back as a pair that can drift apart. The record lives for as long as the
-  /// outermost copy and is discarded with it.
+  /// What `Tree::Clone` dispatches through, and where the record of what a copy has made lives.
   template <typename T>
     requires std::derived_from<T, Tree>
   T *Copy(T const *node) {
@@ -173,8 +167,7 @@ class AstStorage {
     Tree *copy;
   };
 
-  /// What the copy in progress has already made, so a node reached again is not made twice.
-  /// Only meaningful while a copy is running, which is what `copy_depth_` tracks.
+  /// What the copy in progress has made; meaningful only while `copy_depth_` is above zero.
   std::vector<CopiedNode> copied_;
   int copy_depth_{0};
 
@@ -198,18 +191,16 @@ class Tree {
   Tree() = default;
   virtual ~Tree() = default;
 
-  /// Copies this node and everything it reaches into `storage`, copying a node once however many
-  /// paths reach it, so a shape that names a value once and means it twice does not come back as a
-  /// pair that can drift apart.
+  /// Copies this node and everything it reaches into `storage`. A node reached by several paths is
+  /// copied once, so the copy shares what the source shared.
   template <typename Self>
   Self *Clone(this Self const &self, AstStorage *storage) {
     return storage->Copy(&self);
   }
 
  protected:
-  /// Makes this one node in `storage` and asks for copies of what it holds. `Clone` is what a
-  /// caller wants: it keeps the record that makes a node reached twice one node again, and a copy
-  /// starting here would be outside that record and take one per path.
+  /// Makes this one node in `storage`, asking `Clone` for copies of what it holds. A copy started
+  /// here rather than at `Clone` is outside the record, and takes one copy per path.
   virtual Tree *DoClone(AstStorage *storage) const = 0;
 
   Tree(const Tree &) = default;
