@@ -109,7 +109,7 @@ void ParseAndBuildAst(benchmark::State &state, std::string query, bool names_a_p
 
 /// A query the cache holds pays this on every execution to hand the caller its own copy. Read it
 /// against the parse above for what it costs a query the cache never holds.
-void CopyAst(benchmark::State &state, std::string query, bool names_a_parameter) {
+void CloneAst(benchmark::State &state, std::string query, bool names_a_parameter) {
   memgraph::query::frontend::ParsingContext context;
   context.is_query_cached = false;
   memgraph::query::AstStorage storage;
@@ -152,7 +152,7 @@ std::string WideProjection(int width) {
 int main(int argc, char **argv) {
   for (int width : {2, 8, 32, 128, 512}) {
     benchmark::RegisterBenchmark(
-        ("CopyAst/wide_" + std::to_string(width)).c_str(), CopyAst, WideProjection(width), false)
+        ("CloneAst/wide_" + std::to_string(width)).c_str(), CloneAst, WideProjection(width), false)
         ->Unit(benchmark::kMicrosecond);
   }
   for (const auto &shape : kShapes) {
@@ -162,7 +162,7 @@ int main(int argc, char **argv) {
         (std::string{"ParseAndBuildAst/"} + shape.name).c_str(), ParseAndBuildAst, shape.query, shape.names_a_parameter)
         ->Unit(benchmark::kMicrosecond);
     benchmark::RegisterBenchmark(
-        (std::string{"CopyAst/"} + shape.name).c_str(), CopyAst, shape.query, shape.names_a_parameter)
+        (std::string{"CloneAst/"} + shape.name).c_str(), CloneAst, shape.query, shape.names_a_parameter)
         ->Unit(benchmark::kMicrosecond);
     benchmark::RegisterBenchmark((std::string{"Strip/"} + shape.name).c_str(), Strip, shape.query)
         ->Unit(benchmark::kMicrosecond);

@@ -29,9 +29,9 @@ class PatternAtom : public memgraph::query::Tree, public utils::Visitable<Hierar
 
   memgraph::query::Identifier *identifier_{nullptr};
 
+ protected:
   PatternAtom *DoClone(AstStorage *storage) const override = 0;
 
- protected:
   explicit PatternAtom(Identifier *identifier) : identifier_(identifier) {}
 
  private:

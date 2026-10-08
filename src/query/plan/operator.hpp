@@ -355,7 +355,7 @@ class LogicalOperator : public utils::Visitable<HierarchicalLogicalOperatorVisit
   /// Copies this operator and the branch below it into `storage`. One expression held by two
   /// operators is copied once, so the copy evaluates what the original evaluated.
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const {
-    AstStorage::CopyScope const one_copy{*storage};
+    AstStorage::CloneScope const one_clone{*storage};
     return DoClone(storage);
   }
 

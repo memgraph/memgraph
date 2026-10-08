@@ -27,8 +27,6 @@ class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor
 
   Query() = default;
 
-  Query *DoClone(AstStorage *storage) const override = 0;
-
   /// What this query states about itself. Pure, so a new query has to answer rather than inherit a
   /// set of answers that happens to compile.
   ///
@@ -37,6 +35,8 @@ class Query : public memgraph::query::Tree, public utils::Visitable<QueryVisitor
   virtual QueryTraits Traits() const = 0;
 
  private:
+  Query *DoClone(AstStorage *storage) const override = 0;
+
   friend class AstStorage;
 };
 }  // namespace memgraph::query

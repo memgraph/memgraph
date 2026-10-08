@@ -95,7 +95,7 @@ class AstStorage {
   /// stack of the outermost copy, which is as long as it means anything. Looked up rather than
   /// scanned: every node is looked up once before it is made, so a scan would cost each of them a
   /// walk over all the ones before it, and a generated query can be thousands of nodes.
-  struct CopyRecord {
+  struct CloneRecord {
     Tree *Find(Tree const *source) const {
       auto const made = made_.find(source);
       return made == made_.end() ? nullptr : made->second;
@@ -127,25 +127,25 @@ class AstStorage {
 
   /// Makes the copies taken while it lives one copy, so a node reached from two of them is copied
   /// once. It holds the record of what has been made, which is why it outlives none of them.
-  class CopyScope {
+  class CloneScope {
    public:
-    explicit CopyScope(AstStorage &storage) : storage_{storage.copying_ == nullptr ? &storage : nullptr} {
-      if (storage_ != nullptr) storage_->copying_ = &record_;
+    explicit CloneScope(AstStorage &storage) : storage_{storage.cloning_ == nullptr ? &storage : nullptr} {
+      if (storage_ != nullptr) storage_->cloning_ = &record_;
     }
 
-    ~CopyScope() {
-      if (storage_ != nullptr) storage_->copying_ = nullptr;
+    ~CloneScope() {
+      if (storage_ != nullptr) storage_->cloning_ = nullptr;
     }
 
-    CopyScope(CopyScope const &) = delete;
-    CopyScope(CopyScope &&) = delete;
-    CopyScope &operator=(CopyScope const &) = delete;
-    CopyScope &operator=(CopyScope &&) = delete;
+    CloneScope(CloneScope const &) = delete;
+    CloneScope(CloneScope &&) = delete;
+    CloneScope &operator=(CloneScope const &) = delete;
+    CloneScope &operator=(CloneScope &&) = delete;
 
    private:
     /// Null when a copy was already running, which leaves that one's record in place.
     AstStorage *storage_;
-    CopyRecord record_;
+    CloneRecord record_;
   };
 
   LabelIx GetLabelIx(const std::string &name) { return LabelIx{name, FindOrAddName(name, &labels_)}; }
@@ -182,17 +182,16 @@ class AstStorage {
   /// What `Tree::Clone` dispatches through.
   template <typename T>
     requires std::derived_from<T, Tree>
-  T *Copy(T const *node) {
-    if (!node) return nullptr;
-    CopyScope const one_copy{*this};
-    if (auto *made = copying_->Find(node)) return static_cast<T *>(made);
+  T *Clone(T const *node) {
+    CloneScope const one_clone{*this};
+    if (auto *made = cloning_->Find(node)) return static_cast<T *>(made);
     auto *copy = node->DoClone(this);
-    copying_->Remember(node, copy);
+    cloning_->Remember(node, copy);
     return copy;
   }
 
   /// Non-null exactly while a copy into this storage is running.
-  CopyRecord *copying_{nullptr};
+  CloneRecord *cloning_{nullptr};
 
   int64_t FindOrAddName(const std::string &name, std::vector<std::string> *names) {
     for (int64_t i = 0; i < names->size(); ++i) {
@@ -218,7 +217,7 @@ class Tree {
   /// copied once, so the copy shares what the source shared.
   template <typename Self>
   Self *Clone(this Self const &self, AstStorage *storage) {
-    return storage->Copy(&self);
+    return storage->Clone(&self);
   }
 
  protected:

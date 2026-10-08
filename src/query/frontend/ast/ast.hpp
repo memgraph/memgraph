@@ -73,9 +73,9 @@ class UnaryOperator : public Expression {
 
   memgraph::query::Expression *expression_{nullptr};
 
+ protected:
   UnaryOperator *DoClone(AstStorage *storage) const override = 0;
 
- protected:
   explicit UnaryOperator(Expression *expression) : expression_(expression) {}
 
  private:
@@ -878,9 +878,9 @@ class BaseLiteral : public Expression {
 
   BaseLiteral() = default;
 
+ private:
   BaseLiteral *DoClone(AstStorage *storage) const override = 0;
 
- private:
   friend class AstStorage;
 };
 
@@ -2005,9 +2005,9 @@ class Clause : public memgraph::query::Tree, public utils::Visitable<Hierarchica
 
   Clause() = default;
 
+ private:
   Clause *DoClone(AstStorage *storage) const override = 0;
 
- private:
   friend class AstStorage;
 };
 
@@ -2396,9 +2396,10 @@ class TextIndexQuery : public memgraph::query::Query {
   TextIndexQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<TextIndexQuery>();
     object->action_ = action_;
-    object->label_ = label_;
+    object->label_ = storage->GetLabelIx(label_.name);
     object->index_name_ = index_name_;
-    object->properties_ = properties_;
+    object->properties_.reserve(properties_.size());
+    for (auto const &named : properties_) object->properties_.push_back(storage->GetPropertyIx(named.name));
     return object;
   }
 
@@ -2428,9 +2429,10 @@ class CreateTextEdgeIndexQuery : public memgraph::query::Query {
 
   CreateTextEdgeIndexQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<CreateTextEdgeIndexQuery>();
-    object->edge_type_ = edge_type_;
+    object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
     object->index_name_ = index_name_;
-    object->properties_ = properties_;
+    object->properties_.reserve(properties_.size());
+    for (auto const &named : properties_) object->properties_.push_back(storage->GetPropertyIx(named.name));
     return object;
   }
 
@@ -4658,11 +4660,15 @@ class DescriptionQuery : public memgraph::query::Query {
     auto *object = storage->Create<DescriptionQuery>();
     object->action_ = action_;
     object->target_kind_ = target_kind_;
-    object->labels_ = labels_;
-    object->edge_type_ = edge_type_;
-    object->properties_ = properties_;
-    object->from_labels_ = from_labels_;
-    object->to_labels_ = to_labels_;
+    object->labels_.reserve(labels_.size());
+    for (auto const &named : labels_) object->labels_.push_back(storage->GetLabelIx(named.name));
+    object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
+    object->properties_.reserve(properties_.size());
+    for (auto const &named : properties_) object->properties_.push_back(storage->GetPropertyIx(named.name));
+    object->from_labels_.reserve(from_labels_.size());
+    for (auto const &named : from_labels_) object->from_labels_.push_back(storage->GetLabelIx(named.name));
+    object->to_labels_.reserve(to_labels_.size());
+    for (auto const &named : to_labels_) object->to_labels_.push_back(storage->GetLabelIx(named.name));
     object->database_name_ = database_name_;
     object->description_ = description_;
     object->value_ = value_ ? value_->Clone(storage) : nullptr;
