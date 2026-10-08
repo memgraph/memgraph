@@ -79,14 +79,17 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
 
-  DbInfo db_info = std::invoke([&] {
-    auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
-      if constexpr (REQUIRE_LOCK) {
-        return system.GenTransactionGuard();
-      }
-      return std::nullopt;
-    });
+  // Bounded, because a demotion holding the system transaction joins this checker thread.
+  auto guard = std::optional<system::TransactionGuard>{};
+  if constexpr (REQUIRE_LOCK) {
+    guard = system.TryGenTransactionGuard();
+    if (!guard) {
+      client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+      return;
+    }
+  }
 
+  DbInfo db_info = std::invoke([&] {
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
       dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
@@ -103,6 +106,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     // No license -> send only default config
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
   });
+  guard.reset();
   try {
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
