@@ -11,6 +11,7 @@
 
 import base64
 import concurrent
+import contextlib
 import os
 import sys
 import time
@@ -214,20 +215,23 @@ def test_system_query_acknowledged_across_demotion_reaches_new_main(test_name):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
 
-    # A lazy connection sends RUN on execute and PULL on fetch, so the main is demoted between prepare and commit.
+    # A lazy connection sends RUN on execute and PULL on fetch, so the demotion is requested between prepare and commit.
     lazy_cursor = mgclient.connect(host="localhost", port=7687, lazy=True).cursor()
     lazy_cursor.execute("CREATE ROLE demoted_role")
 
     coord_cursor = connect(host="localhost", port=7692).cursor()
-    execute_and_fetch_all(coord_cursor, "DEMOTE INSTANCE instance_1")
     instance_1_cursor = connect(host="localhost", port=7687).cursor()
-    mg_sleep_and_assert([("replica",)], lambda: show_replication_role(instance_1_cursor))
+    with concurrent.futures.ThreadPoolExecutor(1) as executor:
+        demotion = executor.submit(execute_and_fetch_all, coord_cursor, "DEMOTE INSTANCE instance_1")
+        # The demotion may wait for the pending query, so give it time to land but do not require it.
+        with contextlib.suppress(AssertionError):
+            mg_sleep_and_assert([("replica",)], lambda: show_replication_role(instance_1_cursor), max_duration=5)
+        try:
+            lazy_cursor.fetchall()
+        except mgclient.DatabaseError:
+            return
+        demotion.result()
     execute_and_fetch_all(coord_cursor, "SET INSTANCE instance_2 TO MAIN")
-
-    try:
-        lazy_cursor.fetchall()
-    except mgclient.DatabaseError:
-        return
 
     new_main_cursor = connect(host="localhost", port=7688).cursor()
     assert "demoted_role" in [row[0] for row in execute_and_fetch_all(new_main_cursor, "SHOW ROLES")]
