@@ -422,176 +422,193 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
   // again every time round, and the length is a division by the size of one.
   auto const *const first = code_.data();
   auto const *const limit = first + code_.size();
-  for (auto const *step = first; step != limit; ++step) {
-    auto const &in = *step;
-    switch (in.op) {
-      case Op::ConstInt:
-        ints[in.dst] = in.literal;
-        int_known[in.dst] = 1;
-        break;
-      case Op::LoadInt: {
-        auto const &value = frame.elems()[in.a];
-        if (value.IsInt()) {
-          ints[in.dst] = value.UnsafeValueInt();
-          int_known[in.dst] = 1;
-        } else if (value.IsNull()) {
-          int_known[in.dst] = 0;
-        } else {
-          // Not what the guess settled on, so this row is not ours.
-          return false;
-        }
-        break;
-      }
-      case Op::LoadParamInt: {
-        if (parameters == nullptr) return false;
-        // A position with nothing bound to it belongs to the evaluator, which
-        // decides what an unbound parameter means.
-        auto const *value = parameters->FindAtTokenPosition(in.a);
-        if (value == nullptr) return false;
-        if (value->IsInt()) {
-          ints[in.dst] = value->ValueInt();
-          int_known[in.dst] = 1;
-        } else if (value->IsNull()) {
-          int_known[in.dst] = 0;
-        } else {
-          return false;
-        }
-        break;
-      }
-      case Op::LoadPropInt: {
-        if (reader == nullptr) return false;
-        auto const &record = frame.elems()[in.a];
-        // Only a record has properties; anything else was not what the guess
-        // settled on.
-        if (!record.IsVertex() && !record.IsEdge()) {
-          if (record.IsNull()) {
-            int_known[in.dst] = 0;
-            break;
-          }
-          return false;
-        }
-        bool refused = false;
-        auto const value = reader->ReadIntProperty(record, in.property_ix, refused);
-        if (refused) return false;
-        if (value) {
-          ints[in.dst] = *value;
-          int_known[in.dst] = 1;
-        } else {
-          int_known[in.dst] = 0;
-        }
-        break;
-      }
-      case Op::TestLabels: {
-        if (reader == nullptr) return false;
-        auto const answer = reader->TestLabels(frame.elems()[in.a], *in.labels);
-        tris[in.dst] = !answer ? Answer::Null : (*answer ? Answer::True : Answer::False);
-        break;
-      }
-      case Op::LoadTime:
-      case Op::LoadPropTime:
-      case Op::EvalTime:
-      case Op::EvalTri:
-      case Op::DivInt:
-      case Op::IsNullInt:
-      case Op::IsNullTri:
-        if (!RareOp(in, frame, reader, slots)) return false;
-        break;
-      case Op::AddInt:
-      case Op::SubInt:
-      case Op::MulInt: {
-        int_known[in.dst] = int_known[in.a] & int_known[in.b];
-        if (int_known[in.dst] != 0) {
-          auto const x = ints[in.a];
-          auto const y = ints[in.b];
-          ints[in.dst] = in.op == Op::AddInt ? x + y : (in.op == Op::SubInt ? x - y : x * y);
-        }
-        break;
-      }
-      case Op::PropCmpConst:
-      case Op::PropCmpParam: {
-        if (reader == nullptr) return false;
-        auto const &record = frame.elems()[in.a];
-        if (!record.IsVertex() && !record.IsEdge()) {
-          if (record.IsNull()) {
-            tris[in.dst] = Answer::Null;
-            break;
-          }
-          return false;
-        }
-        int64_t other = in.literal;
-        if (in.op == Op::PropCmpParam) {
-          if (parameters == nullptr) return false;
-          auto const *bound = parameters->FindAtTokenPosition(static_cast<int>(in.literal));
-          if (bound == nullptr) return false;
-          if (bound->IsNull()) {
-            tris[in.dst] = Answer::Null;
-            break;
-          }
-          if (!bound->IsInt()) return false;
-          other = bound->ValueInt();
-        }
-        bool refused = false;
-        auto const value = reader->ReadIntProperty(record, in.property_ix, refused);
-        if (refused) return false;
-        if (!value) {
-          tris[in.dst] = Answer::Null;
-          break;
-        }
-        tris[in.dst] = Compare(static_cast<Op>(in.b), *value, other) ? Answer::True : Answer::False;
-        break;
-      }
-      case Op::EqInt:
-        tris[in.dst] = compare(in.a, in.b, [](int64_t x, int64_t y) { return x == y; });
-        break;
-      case Op::NeInt:
-        tris[in.dst] = compare(in.a, in.b, [](int64_t x, int64_t y) { return x != y; });
-        break;
-      case Op::LtInt:
-        tris[in.dst] = compare(in.a, in.b, [](int64_t x, int64_t y) { return x < y; });
-        break;
-      case Op::GtInt:
-        tris[in.dst] = compare(in.a, in.b, [](int64_t x, int64_t y) { return x > y; });
-        break;
-      case Op::LeInt:
-        tris[in.dst] = compare(in.a, in.b, [](int64_t x, int64_t y) { return x <= y; });
-        break;
-      case Op::GeInt:
-        tris[in.dst] = compare(in.a, in.b, [](int64_t x, int64_t y) { return x >= y; });
-        break;
-      case Op::AndTri: {
-        // False beats null, which is what makes this three-valued rather than
-        // a null that swallows everything.
-        auto const x = tris[in.a];
-        auto const y = tris[in.b];
-        tris[in.dst] = (x == Answer::False || y == Answer::False)
-                           ? Answer::False
-                           : ((x == Answer::Null || y == Answer::Null) ? Answer::Null : Answer::True);
-        break;
-      }
-      case Op::OrTri: {
-        auto const x = tris[in.a];
-        auto const y = tris[in.b];
-        tris[in.dst] = (x == Answer::True || y == Answer::True)
-                           ? Answer::True
-                           : ((x == Answer::Null || y == Answer::Null) ? Answer::Null : Answer::False);
-        break;
-      }
-      case Op::NotTri: {
-        auto const x = tris[in.a];
-        tris[in.dst] = x == Answer::Null ? Answer::Null : (x == Answer::True ? Answer::False : Answer::True);
-        break;
-      }
-      case Op::CopyTri:
-        tris[in.dst] = tris[in.a];
-        break;
-      case Op::JumpIfFalseTri:
-        if (tris[in.a] == Answer::False) step = first + in.b - 1;
-        break;
-      case Op::JumpIfTrueTri:
-        if (tris[in.a] == Answer::True) step = first + in.b - 1;
-        break;
-    }
+  // Threaded dispatch: every instruction jumps straight to the next one's
+  // code rather than back to a loop that works out where to go. The address of
+  // a label is a GNU extension, which both compilers this is built with have.
+  static void *const kDispatch[] = {
+      &&op_TestLabels, &&op_LoadInt,  &&op_LoadPropInt,  &&op_LoadParamInt,   &&op_LoadTime,      &&op_LoadPropTime,
+      &&op_EvalTime,   &&op_ConstInt, &&op_PropCmpConst, &&op_PropCmpParam,   &&op_AddInt,        &&op_SubInt,
+      &&op_MulInt,     &&op_DivInt,   &&op_EqInt,        &&op_NeInt,          &&op_LtInt,         &&op_GtInt,
+      &&op_LeInt,      &&op_GeInt,    &&op_AndTri,       &&op_OrTri,          &&op_NotTri,        &&op_IsNullInt,
+      &&op_IsNullTri,  &&op_CopyTri,  &&op_EvalTri,      &&op_JumpIfFalseTri, &&op_JumpIfTrueTri,
+  };
+#define MG_NEXT()                                    \
+  do {                                               \
+    if (++step == limit) goto finished;              \
+    goto *kDispatch[static_cast<uint8_t>(step->op)]; \
+  } while (0)
+
+  if (first == limit) return true;
+  auto const *step = first;
+  goto *kDispatch[static_cast<uint8_t>(step->op)];
+
+op_ConstInt:
+  ints[step->dst] = step->literal;
+  int_known[step->dst] = 1;
+  MG_NEXT();
+op_LoadInt: {
+  auto const &value = frame.elems()[step->a];
+  if (value.IsInt()) {
+    ints[step->dst] = value.UnsafeValueInt();
+    int_known[step->dst] = 1;
+  } else if (value.IsNull()) {
+    int_known[step->dst] = 0;
+  } else {
+    // Not what the guess settled on, so this row is not ours.
+    return false;
   }
+  MG_NEXT();
+}
+op_LoadParamInt: {
+  if (parameters == nullptr) return false;
+  // A position with nothing bound to it belongs to the evaluator, which
+  // decides what an unbound parameter means.
+  auto const *value = parameters->FindAtTokenPosition(step->a);
+  if (value == nullptr) return false;
+  if (value->IsInt()) {
+    ints[step->dst] = value->ValueInt();
+    int_known[step->dst] = 1;
+  } else if (value->IsNull()) {
+    int_known[step->dst] = 0;
+  } else {
+    return false;
+  }
+  MG_NEXT();
+}
+op_LoadPropInt: {
+  if (reader == nullptr) return false;
+  auto const &record = frame.elems()[step->a];
+  // Only a record has properties; anything else was not what the guess
+  // settled on.
+  if (!record.IsVertex() && !record.IsEdge()) {
+    if (record.IsNull()) {
+      int_known[step->dst] = 0;
+      MG_NEXT();
+    }
+    return false;
+  }
+  bool refused = false;
+  auto const value = reader->ReadIntProperty(record, step->property_ix, refused);
+  if (refused) return false;
+  if (value) {
+    ints[step->dst] = *value;
+    int_known[step->dst] = 1;
+  } else {
+    int_known[step->dst] = 0;
+  }
+  MG_NEXT();
+}
+op_TestLabels: {
+  if (reader == nullptr) return false;
+  auto const answer = reader->TestLabels(frame.elems()[step->a], *step->labels);
+  tris[step->dst] = !answer ? Answer::Null : (*answer ? Answer::True : Answer::False);
+  MG_NEXT();
+}
+op_LoadTime:
+op_LoadPropTime:
+op_EvalTime:
+op_EvalTri:
+op_DivInt:
+op_IsNullInt:
+op_IsNullTri:
+  if (!RareOp(*step, frame, reader, slots)) return false;
+  MG_NEXT();
+op_AddInt:
+op_SubInt:
+op_MulInt: {
+  int_known[step->dst] = int_known[step->a] & int_known[step->b];
+  if (int_known[step->dst] != 0) {
+    auto const x = ints[step->a];
+    auto const y = ints[step->b];
+    ints[step->dst] = step->op == Op::AddInt ? x + y : (step->op == Op::SubInt ? x - y : x * y);
+  }
+  MG_NEXT();
+}
+op_PropCmpConst:
+op_PropCmpParam: {
+  if (reader == nullptr) return false;
+  auto const &record = frame.elems()[step->a];
+  if (!record.IsVertex() && !record.IsEdge()) {
+    if (record.IsNull()) {
+      tris[step->dst] = Answer::Null;
+      MG_NEXT();
+    }
+    return false;
+  }
+  int64_t other = step->literal;
+  if (step->op == Op::PropCmpParam) {
+    if (parameters == nullptr) return false;
+    auto const *bound = parameters->FindAtTokenPosition(static_cast<int>(step->literal));
+    if (bound == nullptr) return false;
+    if (bound->IsNull()) {
+      tris[step->dst] = Answer::Null;
+      MG_NEXT();
+    }
+    if (!bound->IsInt()) return false;
+    other = bound->ValueInt();
+  }
+  bool refused = false;
+  auto const value = reader->ReadIntProperty(record, step->property_ix, refused);
+  if (refused) return false;
+  if (!value) {
+    tris[step->dst] = Answer::Null;
+    MG_NEXT();
+  }
+  tris[step->dst] = Compare(static_cast<Op>(step->b), *value, other) ? Answer::True : Answer::False;
+  MG_NEXT();
+}
+op_EqInt:
+  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x == y; });
+  MG_NEXT();
+op_NeInt:
+  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x != y; });
+  MG_NEXT();
+op_LtInt:
+  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x < y; });
+  MG_NEXT();
+op_GtInt:
+  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x > y; });
+  MG_NEXT();
+op_LeInt:
+  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x <= y; });
+  MG_NEXT();
+op_GeInt:
+  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x >= y; });
+  MG_NEXT();
+op_AndTri: {
+  // False beats null, which is what makes this three-valued rather than
+  // a null that swallows everything.
+  auto const x = tris[step->a];
+  auto const y = tris[step->b];
+  tris[step->dst] = (x == Answer::False || y == Answer::False)
+                        ? Answer::False
+                        : ((x == Answer::Null || y == Answer::Null) ? Answer::Null : Answer::True);
+  MG_NEXT();
+}
+op_OrTri: {
+  auto const x = tris[step->a];
+  auto const y = tris[step->b];
+  tris[step->dst] = (x == Answer::True || y == Answer::True)
+                        ? Answer::True
+                        : ((x == Answer::Null || y == Answer::Null) ? Answer::Null : Answer::False);
+  MG_NEXT();
+}
+op_NotTri: {
+  auto const x = tris[step->a];
+  tris[step->dst] = x == Answer::Null ? Answer::Null : (x == Answer::True ? Answer::False : Answer::True);
+  MG_NEXT();
+}
+op_CopyTri:
+  tris[step->dst] = tris[step->a];
+  MG_NEXT();
+op_JumpIfFalseTri:
+  if (tris[step->a] == Answer::False) step = first + step->b - 1;
+  MG_NEXT();
+op_JumpIfTrueTri:
+  if (tris[step->a] == Answer::True) step = first + step->b - 1;
+  MG_NEXT();
+finished:
+#undef MG_NEXT
   return true;
 }
 
