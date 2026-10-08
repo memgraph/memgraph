@@ -11550,7 +11550,8 @@ void Interpreter::Commit() {
         // leaving this block skips both, and the claim would be stranded: nothing else gives it back,
         // `TERMINATE TRANSACTIONS` cannot mark a status that is not ACTIVE, and `TERMINATE SESSIONS`
         // (`InterpreterContext::TerminateSessions`) leaves STARTED_COMMITTING to the committing thread that has
-        // already gone. Unwinding therefore always releases here.
+        // already gone. Unwinding therefore always releases here, to ACTIVE: a failed commit leaves the transaction
+        // open until ROLLBACK, as a failed statement does, so it stays listed and terminable. Abort() accepts it.
         if (std::uncaught_exceptions() == entry_exceptions) return;
         system_transaction_.reset();
         auto expected = TransactionStatus::STARTED_COMMITTING;

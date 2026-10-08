@@ -183,6 +183,26 @@ TYPED_TEST(InterpreterTest, MixingAuthThenDataFailsTheTransaction) {
   EXPECT_FALSE(auth.auth.ReadLock()->GetUser("alice").has_value());
 }
 
+// A failed auth COMMIT leaves the transaction open until ROLLBACK, as a failed statement does: still active, still
+// listed, and refusing a second COMMIT.
+TYPED_TEST(InterpreterTest, AFailedAuthCommitLeavesTheTransactionOpenUntilRollback) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  ASSERT_TRUE(auth.auth.Lock()->AddUser("alice").has_value());
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::TransactionSerializationException);
+
+  EXPECT_EQ(this->default_interpreter.interpreter.transaction_status_.load(),
+            memgraph::query::TransactionStatus::ACTIVE);
+  EXPECT_TRUE(this->default_interpreter.interpreter.GetTransactionId().has_value());
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::ExplicitTransactionUsageException);
+
+  this->default_interpreter.Interpret("ROLLBACK");
+  EXPECT_EQ(this->default_interpreter.interpreter.transaction_status_.load(), memgraph::query::TransactionStatus::IDLE);
+}
+
 TYPED_TEST(InterpreterTest, MixingDataThenAuthFailsTheTransaction) {
   AuthQueryHandlerFixture auth{this->data_directory / "auth"};
   this->interpreter_context.auth = &auth.handler;
