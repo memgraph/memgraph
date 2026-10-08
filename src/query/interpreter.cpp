@@ -10676,7 +10676,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     // System queries require strict ordering; since there is no MVCC-like thing, we allow single queries
     // A profile read publishes nothing, so it needs no system transaction. Taking one would hold the system mutex
-    // for the rest of an explicit transaction, since the interpreter keeps it until COMMIT: every other session's
+    // until the transaction's next statement, since the interpreter keeps it until then: every other session's
     // system query would be refused meanwhile, and a second profile read in the same transaction would find the
     // mutex already taken and fail. The same applies to tenant profiles.
     auto const *user_profile_query = utils::Downcast<UserProfileQuery>(parsed_query.query);
@@ -11605,11 +11605,11 @@ void Interpreter::Commit() {
       // rather than incidental: a community build has no auth delta to send.
       // Failing here costs the user the whole transaction, not one statement: the throw leaves through
       // AbortCommand, which sets `expect_rollback_`, and the buffered work goes with it. That is the same
-      // bargain a serialization error strikes on the data path (`Unable to commit due to serialization error.
-      // Try retrying this transaction...`), where retrying also means running the statements again, so auth is
-      // not the odd one out. `kSystemTxTryMS` is a fixed 100ms shared with the single-statement path above, and it
-      // is shorter than the lock is ever held, because the holder keeps it across replication. A longer wait would
-      // need to stay interruptible, and to apply at both call sites.
+      // bargain a serialization error strikes on the data path (`Unable to commit due to serialization error.`),
+      // where retrying also means running the statements again, so auth is not the odd one out. `kSystemTxTryMS`
+      // is a fixed 100ms shared with the single-statement path above, and is usually shorter than the lock is
+      // held, because the holder keeps it across replication. A longer wait would need to stay interruptible, and
+      // to apply at both call sites.
 #ifdef MG_ENTERPRISE
       bool const names_databases = !auth_transaction_->named_databases().empty();
 #else
@@ -11678,7 +11678,8 @@ void Interpreter::Commit() {
       //
       // An auth commit arrives still holding STARTED_COMMITTING: it keeps the claim across the replication
       // below, so a terminate arriving during it reports that it killed nothing rather than reporting a kill
-      // for a transaction that goes on to finish. The data path arrives at ACTIVE. Retire either.
+      // for a transaction that goes on to finish. A system query outside a transaction arrives at ACTIVE.
+      // Retire either.
       auto expected = TransactionStatus::ACTIVE;
       while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::IDLE)) {
         if (expected == TransactionStatus::TERMINATED || expected == TransactionStatus::STARTED_COMMITTING) {

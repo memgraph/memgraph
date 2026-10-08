@@ -2,7 +2,7 @@
 
 **Status:** Implemented (PR #4524), preview
 **Author:** Colin Barry
-**Last updated:** 2026-10-05
+**Last updated:** 2026-10-08
 
 > Auth statements run inside `BEGIN` .. `COMMIT`. Everything the transaction
 > changes becomes visible on this instance at once, or not at all. Each replica
