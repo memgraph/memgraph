@@ -700,7 +700,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
  private:
-  /// Plans each branch's body and predicate folds from @p bound_symbols alone, and binds the output symbols.
+  /// Plans each branch's body and predicate folds from @p bound_symbols alone, and binds the output symbols in the
+  /// first branch's column order.
   std::unique_ptr<LogicalOperator> PlanConditional(std::unique_ptr<LogicalOperator> input,
                                                    const ConditionalQueryParts &conditional,
                                                    std::unordered_set<Symbol> bound_symbols) {
@@ -720,12 +721,22 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         std::ranges::any_of(conditional.branches, [](const auto &b) { return b.body.writes; });
     bool const scans_see_writes = subquery_branch_after_write_ || accumulated_branch_write;
 
+    auto output_symbols = conditional.output_symbols;
     std::vector<Conditional::Branch> branches;
     branches.reserve(conditional.branches.size());
     for (const auto &parts : conditional.branches) {
       auto &branch = branches.emplace_back();
       context_->bound_symbols = bound_symbols;
       branch.plan = Plan(parts.body);
+      // A UNION's columns are in no settled order, so a UNION first body keeps the symbol generator's name order.
+      if (branches.size() == 1 && parts.body.query_parts.size() == 1) {
+        output_symbols.clear();
+        for (const auto &branch_sym : branch.plan->OutputSymbols(symbol_table)) {
+          if (auto it = output_by_name.find(branch_sym.name()); it != output_by_name.end()) {
+            output_symbols.push_back(it->second);
+          }
+        }
+      }
       for (const auto &branch_sym : branch.plan->OutputSymbols(symbol_table)) {
         auto it = output_by_name.find(branch_sym.name());
         if (it == output_by_name.end()) continue;
@@ -750,11 +761,11 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           ExtractPatternFilters(parts.predicate_filters, symbol_table, storage, fold_bound_symbols);
     }
 
+    bound_symbols.insert(output_symbols.begin(), output_symbols.end());
     auto root = std::make_unique<Conditional>(std::move(input),
                                               std::move(branches),
-                                              conditional.output_symbols,
+                                              std::move(output_symbols),
                                               sees_writes ? storage::View::NEW : storage::View::OLD);
-    bound_symbols.insert(conditional.output_symbols.begin(), conditional.output_symbols.end());
     context_->bound_symbols = std::move(bound_symbols);
     return root;
   }
