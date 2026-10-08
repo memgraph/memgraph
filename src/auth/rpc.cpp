@@ -16,10 +16,8 @@
 #include <nlohmann/json.hpp>
 #include "auth/auth.hpp"
 #include "auth/profiles/user_profiles.hpp"
-#include "replication/replication_client.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
-#include "system/transaction.hpp"
 #include "utils/enum.hpp"
 
 namespace {
@@ -271,19 +269,6 @@ void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *r
 }
 
 }  // namespace memgraph::slk
-
-#ifdef MG_ENTERPRISE
-namespace memgraph::auth {
-
-bool BatchedAuthAction::DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                                      memgraph::system::Transaction const &txn) const {
-  auto check_response = [](const replication::UpdateAuthDataRes &response) { return response.success; };
-  return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-      check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), ops_);
-}
-
-}  // namespace memgraph::auth
-#endif
 
 namespace memgraph::replication {
 
