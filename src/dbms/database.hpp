@@ -13,7 +13,6 @@
 
 #include <atomic>
 #include <chrono>
-#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -24,7 +23,6 @@
 #include "query/plan_cache.hpp"
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/database_protector.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/gatekeeper.hpp"
@@ -112,9 +110,9 @@ class Database {
   // gatekeeper.hpp) so ~Gatekeeper's stall warning can name the tenant — looks unused otherwise.
   std::string gatekeeper_label() const { return name(); }
 
-  // Opt-in customization point utils::Gatekeeper<Database> calls once this database is in place, so its
-  // background workers can pin it without looking it up by name.
-  void BindGatekeeper(utils::Gatekeeper<Database>::Ref ref) { gatekeeper_.store(ref, std::memory_order_release); }
+  // Opt-in customization point utils::Gatekeeper<Database> calls once this database is in place. The
+  // handle stays valid across rename and gatekeeper moves, so background workers pin this database by it.
+  void BindGatekeeper(utils::Gatekeeper<Database>::Ref ref) { gatekeeper_ref_.store(ref, std::memory_order_release); }
 
   /**
    * @brief Unique storage identified (uuid)
@@ -266,7 +264,7 @@ class Database {
   std::unique_ptr<memory::ArenaPool> db_arena_;  //!< Per-DB jemalloc arena pool with tracking hooks
 
   // Declared before storage_ so it outlives the storage's TTL and async-indexer threads, which read it.
-  std::atomic<utils::Gatekeeper<Database>::Ref> gatekeeper_{};
+  std::atomic<utils::Gatekeeper<Database>::Ref> gatekeeper_ref_{};
   std::unique_ptr<storage::Storage> storage_;           //!< Underlying storage
   std::unique_ptr<query::TriggerStore> trigger_store_;  //!< Triggers associated with the storage
   // One-way latch: transitions ACTIVE → TERMINATED exactly once (during force-drop teardown) and is

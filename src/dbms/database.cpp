@@ -11,6 +11,7 @@
 
 #include "dbms/database.hpp"
 
+#include <functional>
 #include <memory>
 
 #include "spdlog/spdlog.h"
@@ -25,6 +26,7 @@
 #include "metrics/prometheus_metrics.hpp"
 #include "query/stream/streams.hpp"
 #include "query/trigger.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -164,7 +166,7 @@ Database::Database(storage::Config config)
   trigger_store_ = std::make_unique<query::TriggerStore>(config.durability.storage_directory / "triggers");
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
   auto database_protector_factory = [this]() -> storage::DatabaseProtectorPtr {
-    if (auto db_acc = gatekeeper_.load(std::memory_order_acquire).access()) {
+    if (auto db_acc = gatekeeper_ref_.load(std::memory_order_acquire).access()) {
       return std::make_unique<DatabaseProtector>(*std::move(db_acc));
     }
     return nullptr;

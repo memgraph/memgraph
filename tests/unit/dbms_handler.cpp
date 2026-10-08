@@ -1284,7 +1284,9 @@ TEST(DBMS_Handler, RenamedTenantKeepsItsDatabaseProtector) {
 
   {
     auto db = dbms.Get("protector_after");
-    EXPECT_NE(db->storage()->make_database_protector(), nullptr);
+    auto const protector = db->storage()->make_database_protector();
+    ASSERT_NE(protector, nullptr);
+    EXPECT_FALSE(protector->sealed());
   }
 
   ASSERT_TRUE(dbms.TryDelete("protector_after").has_value());
