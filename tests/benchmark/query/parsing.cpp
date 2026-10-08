@@ -149,10 +149,34 @@ std::string WideProjection(int width) {
   return query;
 }
 
+/// The same shape with a distinct property per item, so the storage's name table grows with the
+/// node count. Read against `wide_` to price what finding a name costs, which both building and
+/// copying pay per name they meet.
+std::string WideDistinctProjection(int width) {
+  std::string query = "MATCH (n) RETURN ";
+  for (int item = 0; item < width; ++item) {
+    if (item != 0) query += ", ";
+    auto const i = std::to_string(item);
+    query += "n.a" + i + " + n.b" + i + " AS c" + i;
+  }
+  return query;
+}
+
 int main(int argc, char **argv) {
   for (int width : {2, 8, 32, 128, 512}) {
     benchmark::RegisterBenchmark(
         ("CloneAst/wide_" + std::to_string(width)).c_str(), CloneAst, WideProjection(width), false)
+        ->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        ("CloneAst/wide_distinct_" + std::to_string(width)).c_str(), CloneAst, WideDistinctProjection(width), false)
+        ->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        ("ParseAndBuildAst/wide_" + std::to_string(width)).c_str(), ParseAndBuildAst, WideProjection(width), false)
+        ->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(("ParseAndBuildAst/wide_distinct_" + std::to_string(width)).c_str(),
+                                 ParseAndBuildAst,
+                                 WideDistinctProjection(width),
+                                 false)
         ->Unit(benchmark::kMicrosecond);
   }
   for (const auto &shape : kShapes) {

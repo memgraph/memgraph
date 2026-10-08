@@ -110,11 +110,8 @@ class AstStorage {
   AstStorage() = default;
   AstStorage(const AstStorage &) = delete;
   AstStorage &operator=(const AstStorage &) = delete;
-  // A storage is only handed on once the copy that filled it has finished, so neither side of a
-  // move is mid-copy. These say so rather than carrying a record across, which would leave two
-  // storages naming one and the same record.
-  AstStorage(AstStorage &&other) noexcept;
-  AstStorage &operator=(AstStorage &&other) noexcept;
+  AstStorage(AstStorage &&) = default;
+  AstStorage &operator=(AstStorage &&) = default;
 
   template <typename T, typename... Args>
   T *Create(Args &&...args) {
@@ -131,12 +128,12 @@ class AstStorage {
   /// once. It holds the record of what has been made, which is why it outlives none of them.
   class [[nodiscard]] CloneScope {
    public:
-    explicit CloneScope(AstStorage &storage) : storage_{storage.cloning_ == nullptr ? &storage : nullptr} {
-      if (storage_ != nullptr) storage_->cloning_ = &record_;
+    explicit CloneScope(AstStorage &storage) : storage_{storage.cloning_.record == nullptr ? &storage : nullptr} {
+      if (storage_ != nullptr) storage_->cloning_.record = &record_;
     }
 
     ~CloneScope() {
-      if (storage_ != nullptr) storage_->cloning_ = nullptr;
+      if (storage_ != nullptr) storage_->cloning_.record = nullptr;
     }
 
     CloneScope(CloneScope const &) = delete;
@@ -186,14 +183,34 @@ class AstStorage {
     requires std::derived_from<T, Tree>
   T *Clone(T const *node) {
     CloneScope const one_clone{*this};
-    if (auto *made = cloning_->Find(node)) return static_cast<T *>(made);
+    if (auto *made = cloning_.record->Find(node)) return static_cast<T *>(made);
     auto *copy = node->DoClone(this);
-    cloning_->Remember(node, copy);
+    cloning_.record->Remember(node, copy);
     return copy;
   }
 
-  /// Non-null exactly while a copy into this storage is running.
-  CloneRecord *cloning_{nullptr};
+  /// Names the record of a copy running into this storage, and nothing the rest of the time. A
+  /// move leaves both sides naming nothing: a storage is only handed on once the copy that filled
+  /// it has finished, and carrying the name across would leave two storages sharing one record.
+  /// Saying that here rather than in a move operator keeps the move operators defaulted, so a
+  /// member added later is still moved.
+  struct RunningCopy {
+    RunningCopy() = default;
+
+    RunningCopy(RunningCopy && /*other*/) noexcept {}
+
+    RunningCopy &operator=(RunningCopy && /*other*/) noexcept {
+      record = nullptr;
+      return *this;
+    }
+
+    RunningCopy(RunningCopy const &) = delete;
+    RunningCopy &operator=(RunningCopy const &) = delete;
+
+    CloneRecord *record{nullptr};
+  };
+
+  RunningCopy cloning_;
 
   int64_t FindOrAddName(const std::string &name, std::vector<std::string> *names) {
     for (int64_t i = 0; i < names->size(); ++i) {
