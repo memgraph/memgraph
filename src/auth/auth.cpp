@@ -987,7 +987,7 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
 #ifdef MG_ENTERPRISE
 bool Auth::CreateBuiltinRoles(system::Transaction *system_tx) {
   if (!license::global_license_checker.IsEnterpriseValidFast()) return false;
-  if (storage_.HasAnyRole()) {
+  if (!AllRolenames().empty()) {
     spdlog::debug("Skipping built-in role creation: roles already exist");
     return false;
   }
