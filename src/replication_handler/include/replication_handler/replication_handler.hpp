@@ -79,31 +79,33 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
 
-  DbInfo db_info = std::invoke([&] {
-    auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
-      if constexpr (REQUIRE_LOCK) {
-        return system.GenTransactionGuard();
-      }
-      return std::nullopt;
-    });
-
-    if (is_enterprise) {
-      auto configs = std::vector<storage::SalientConfig>{};
-      dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
-      // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
-#ifdef MG_ENTERPRISE
-      // Snapshot the COLD set inside the same system-transaction guard as the HOT ForEach so the two
-      // are coherent as-of last_committed_timestamp.
-      auto cold_databases = dbms_handler.SuspendedConfigsForRecovery();
-      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), std::move(cold_databases)};
-#else
-      return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), {}};
-#endif
-    }
-    // No license -> send only default config
-    return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
-  });
+  // Never throws: an escaping exception would leave the client stuck in RECOVERY (or terminate the
+  // FrequentCheck thread).
   try {
+    DbInfo db_info = std::invoke([&] {
+      auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
+        if constexpr (REQUIRE_LOCK) {
+          return system.GenTransactionGuard();
+        }
+        return std::nullopt;
+      });
+
+      if (is_enterprise) {
+        auto configs = std::vector<storage::SalientConfig>{};
+        dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
+        // TODO: This is `SystemRestore` maybe DbInfo is incorrect as it will need Auth also
+#ifdef MG_ENTERPRISE
+        // Snapshot the COLD set inside the same system-transaction guard as the HOT ForEach so the two
+        // are coherent as-of last_committed_timestamp.
+        auto cold_databases = dbms_handler.SuspendedConfigsForRecovery();
+        return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), std::move(cold_databases)};
+#else
+        return DbInfo{std::move(configs), system.LastCommittedSystemTimestamp(), {}};
+#endif
+      }
+      // No license -> send only default config
+      return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
+    });
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
     auto stream = std::invoke([&]() {
@@ -147,13 +149,19 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
       client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
       return;
     }
+
+    using State = ReplicationClient::State;
+    client.state_.WithLock([](auto &state) {
+      // Do not overwrite a concurrent transition (e.g. BEHIND set by a failed replication).
+      if (state == State::RECOVERY) state = State::READY;
+    });
   } catch (rpc::RpcFailedException const &) {  // intentionally RpcFailedException and not Generic because we want to
                                                // handle both Generic and timeout type of errors
     client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
-    return;
+  } catch (std::exception const &e) {
+    spdlog::error("System recovery of replica {} failed: {}", client.name_, e.what());
+    client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
   }
-  // Successfully recovered
-  client.state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::READY; });
 }
 
 /// A handler type that keep in sync current ReplicationState and the MAIN/REPLICA-ness of Storage
