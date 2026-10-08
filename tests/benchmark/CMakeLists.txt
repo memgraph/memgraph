@@ -65,6 +65,9 @@ target_link_libraries(${test_prefix}stripped mg-query)
 add_benchmark(query/parsing.cpp)
 target_link_libraries(${test_prefix}parsing mg-query)
 
+add_benchmark(query/parse_query.cpp)
+target_link_libraries(${test_prefix}parse_query mg-query)
+
 if (MG_ENTERPRISE)
 add_benchmark(rpc.cpp)
 target_link_libraries(${test_prefix}rpc mg-rpc)
