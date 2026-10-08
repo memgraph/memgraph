@@ -70,37 +70,15 @@ jobs:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --no-ccache \
-          run --custom-mirror $USE_CUSTOM_MIRROR
-
-      - name: Check core dump support
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          check-core-dumps
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
+          no-ccache: 'true'
 
       # This is also needed if we want do to comparison against other branches
       # See https://github.community/t/checkout-code-fails-when-it-runs-lerna-run-test-since-master/17920
@@ -248,11 +226,17 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+  core_fail_fast:
+    name: "Fail fast (Core tests)"
+    needs: core
+    if: ${{ failure() && github.event_name == 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Coverage / Core tests"
 
   clang-tidy:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -266,29 +250,16 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.ref }}
 
-      - name: Clean up Docker
-        if: always()
-        continue-on-error: true
-        run: |
-          ./tools/ci/docker_cleanup.sh
-
-      - name: Log in to Docker Hub
-        uses: ./.github/actions/docker-login
+      - name: Open mgbuild session
+        uses: ./.github/actions/mgbuild-session
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Spin up mgbuild container
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          USE_CUSTOM_MIRROR="$(./tools/ci/ubuntu-mirrors/use_custom_mirror.sh --os "$OS" --arch "$ARCH")"
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --no-ccache \
-          run --custom-mirror $USE_CUSTOM_MIRROR
+          os: ${{ env.OS }}
+          arch: ${{ env.ARCH }}
+          toolchain: ${{ env.TOOLCHAIN }}
+          no-ccache: 'true'
+          check-core-dumps: 'false'
 
       - name: Set base branch
         run: |
@@ -379,8 +350,14 @@ jobs:
         run: |
           ./tools/ci/docker_cleanup.sh
 
+  clang_tidy_fail_fast:
+    name: "Fail fast (Clang tidy)"
+    needs: clang-tidy
+    if: ${{ failure() && github.event_name == 'merge_group' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Set up repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Cancel run on merge_group failure
-        if: ${{ failure() && github.event_name == 'merge_group' }}
         uses: ./.github/actions/cancel-on-failure-in-merge-queue
-        with:
-          job-name: "Coverage / Clang tidy"
