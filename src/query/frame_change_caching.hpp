@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,13 +29,13 @@ inline void PrepareCaching(const AstStorage &ast_storage, FrameChangeCollector *
   if (!frame_change_collector) return;
 
   auto process_inlist = [&](InListOperator const &tree) {
-    const auto cached_id = utils::GetFrameChangeId(tree);
-
     auto dependencies = std::set<Symbol::Position_t>{};
     auto visitor = DependantSymbolVisitor(dependencies);
     tree.expression2_->Accept(visitor);
 
     if (visitor.is_cacheable()) {
+      // Keying on an identifier reads the symbol it was given, which only an expression the query still reaches has.
+      const auto cached_id = utils::GetFrameChangeId(tree);
       // This InListOperator can be processed into a set and cached
       frame_change_collector->AddInListKey(cached_id);
       // If any dependency changes then the cache must be invalidated
@@ -46,13 +46,12 @@ inline void PrepareCaching(const AstStorage &ast_storage, FrameChangeCollector *
   };
 
   auto process_regexMatch = [&](const RegexMatch &tree) {
-    const auto cached_id = utils::GetFrameChangeId(tree);
-
     auto dependencies = std::set<Symbol::Position_t>{};
     auto visitor = DependantSymbolVisitor(dependencies);
     tree.regex_->Accept(visitor);
 
     if (visitor.is_cacheable()) {
+      const auto cached_id = utils::GetFrameChangeId(tree);
       frame_change_collector->AddRegexKey(cached_id);
       for (auto const symbol_pos : dependencies) {
         frame_change_collector->AddInvalidator(cached_id, symbol_pos);

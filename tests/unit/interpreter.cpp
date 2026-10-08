@@ -3190,6 +3190,24 @@ TYPED_TEST(InterpreterTest, UncacheableQueryDetachingAnInListTest) {
   EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
 }
 
+// A list named by an identifier is keyed for caching on the symbol that holds it, so reading the key at all requires
+// the identifier to have one. A detached subtree keeps whatever identifiers it was built with, and those were never
+// reached by symbol generation.
+TYPED_TEST(InterpreterTest, UncacheableQueryDetachingAnInListOverAnIdentifier) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  this->Interpret("CREATE (:Node {x: 1}), (:Node {x: 3}), (:Node {x: 3})");
+
+  auto stream = this->Interpret(
+      "MATCH (n:$label) UNWIND [[1, 2]] AS lst RETURN n.x IN lst AS found, COUNT(*) AS c ORDER BY n.x IN lst",
+      {{"label", EPV(std::string("Node"))}});
+
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_FALSE(stream.GetResults()[0][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_TRUE(stream.GetResults()[1][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+}
+
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {
   constexpr std::size_t kMaxSize = 2;
   memgraph::query::AstCache cache{kMaxSize};
