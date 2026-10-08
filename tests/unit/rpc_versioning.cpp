@@ -739,8 +739,9 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V2RequestGetsAV2Response) {
   EXPECT_TRUE(auth.Lock()->HasUser("alice"));
 }
 
-// The batch is an ordered sequence, not per-kind lists: DROP USER alice then CREATE USER alice must survive the
-// round trip in that order, because applying them the other way round loses the user.
+// The batch is an ordered sequence, not per-kind lists: DROP ROLE admin then CREATE ROLE admin must survive the
+// round trip in that order, because applying them the other way round loses the role. ROLE is not the drop kind's
+// zero value, so the round trip also shows the kind was read rather than left at its default.
 TEST(RpcVersioning, UpdateAuthDataRpc_V2BatchKeepsOperationOrder) {
   std::vector<uint8_t> buf;
   memgraph::slk::Builder builder_obj(
@@ -751,8 +752,8 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V2BatchKeepsOperationOrder) {
       memgraph::utils::UUID{},
       0,
       1,
-      {memgraph::replication::AuthDropOp{memgraph::replication::AuthDataType::USER, "alice"},
-       memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}}}};
+      {memgraph::replication::AuthDropOp{memgraph::replication::AuthDataType::ROLE, "admin"},
+       memgraph::replication::AuthUpdateOp{memgraph::auth::Role{"admin"}}}};
   memgraph::replication::UpdateAuthDataReq::Save(req, builder);
   builder_obj.Finalize();
 
@@ -763,11 +764,12 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V2BatchKeepsOperationOrder) {
   ASSERT_EQ(loaded.ops.size(), 2U);
   auto const *first = std::get_if<memgraph::replication::AuthDropOp>(&loaded.ops[0]);
   ASSERT_NE(first, nullptr) << "the drop must still come first";
-  EXPECT_EQ(first->name, "alice");
+  EXPECT_EQ(first->type, memgraph::replication::AuthDataType::ROLE);
+  EXPECT_EQ(first->name, "admin");
   auto const *second = std::get_if<memgraph::replication::AuthUpdateOp>(&loaded.ops[1]);
   ASSERT_NE(second, nullptr) << "the create must still come second";
-  ASSERT_TRUE(second->user.has_value());
-  EXPECT_EQ(second->user->username(), "alice");
+  ASSERT_TRUE(second->role.has_value());
+  EXPECT_EQ(second->role->rolename(), "admin");
 }
 
 // An operation kind this build does not know must be refused by the discriminator, not decoded as the nearest
