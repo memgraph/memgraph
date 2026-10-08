@@ -4655,6 +4655,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
 
   if (force) {
     ClearLocked({});
+    if (on_recover_snapshot_cleared_hook_) on_recover_snapshot_cleared_hook_();
   } else {
     if (repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ != kTimestampInitialId) {
       handler_error();
