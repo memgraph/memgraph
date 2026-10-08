@@ -416,8 +416,14 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
                                                     : (decide(ints[a], ints[b]) ? Answer::True : Answer::False);
   };
 
-  for (size_t ip = 0; ip < code_.size(); ++ip) {
-    auto const &in = code_[ip];
+  // Walked by pointer rather than by index. The body calls out through the
+  // reader, which the compiler must assume could change the program, so an
+  // index costs the length and the address of the instruction to be worked out
+  // again every time round, and the length is a division by the size of one.
+  auto const *const first = code_.data();
+  auto const *const limit = first + code_.size();
+  for (auto const *step = first; step != limit; ++step) {
+    auto const &in = *step;
     switch (in.op) {
       case Op::ConstInt:
         ints[in.dst] = in.literal;
@@ -579,10 +585,10 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
         tris[in.dst] = tris[in.a];
         break;
       case Op::JumpIfFalseTri:
-        if (tris[in.a] == Answer::False) ip = static_cast<size_t>(in.b) - 1;
+        if (tris[in.a] == Answer::False) step = first + in.b - 1;
         break;
       case Op::JumpIfTrueTri:
-        if (tris[in.a] == Answer::True) ip = static_cast<size_t>(in.b) - 1;
+        if (tris[in.a] == Answer::True) step = first + in.b - 1;
         break;
     }
   }
