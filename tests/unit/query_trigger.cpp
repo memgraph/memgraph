@@ -1240,23 +1240,27 @@ TYPED_TEST(TriggerStoreTest, Restore) {
   check_empty();
 }
 
-// A predicate's read of a predefined identifier consumes it, so the branches after it cannot read it.
+// Each read of a predefined identifier consumes it, so a second branch that reads it fails.
 TYPED_TEST(TriggerStoreTest, ConditionalQueryReadsPredefinedIdentifierOnce) {
   memgraph::query::TriggerStore store{this->testing_directory};
-  ASSERT_THROW(store.AddTrigger("trigger",
-                                "WHEN true THEN UNWIND createdVertices AS v SET v.a = 1 "
-                                "ELSE UNWIND createdVertices AS v SET v.b = 2",
-                                {},
-                                memgraph::query::TriggerEventType::VERTEX_CREATE,
-                                memgraph::query::TriggerPhase::BEFORE_COMMIT,
-                                &this->ast_cache,
-                                &*this->dba,
-                                memgraph::query::InterpreterConfig::Query{},
-                                this->auth_checker.GenQueryUser(std::nullopt, {}),
-                                memgraph::dbms::kDefaultDB,
-                                memgraph::query::TriggerPrivilegeContext::DEFINER,
-                                nullptr),
-               memgraph::utils::BasicException);
+  try {
+    store.AddTrigger("trigger",
+                     "WHEN true THEN UNWIND createdVertices AS v SET v.a = 1 "
+                     "ELSE UNWIND createdVertices AS v SET v.b = 2",
+                     {},
+                     memgraph::query::TriggerEventType::VERTEX_CREATE,
+                     memgraph::query::TriggerPhase::BEFORE_COMMIT,
+                     &this->ast_cache,
+                     &*this->dba,
+                     memgraph::query::InterpreterConfig::Query{},
+                     this->auth_checker.GenQueryUser(std::nullopt, {}),
+                     memgraph::dbms::kDefaultDB,
+                     memgraph::query::TriggerPrivilegeContext::DEFINER,
+                     nullptr);
+    FAIL() << "the trigger was created";
+  } catch (const memgraph::utils::BasicException &e) {
+    EXPECT_THAT(e.what(), ::testing::HasSubstr("Unbound variable: createdVertices."));
+  }
 }
 
 TYPED_TEST(TriggerStoreTest, AddTrigger) {

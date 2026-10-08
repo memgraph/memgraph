@@ -8835,10 +8835,10 @@ TEST_P(CypherMainVisitorTest, PeriodicCommitWithConditional) {
 
 TEST_P(CypherMainVisitorTest, ConditionalQueryRejectedShapes) {
   auto &ast_generator = *GetParam();
-  // Directives and a memory limit belong to the outermost statement only.
   for (auto const *query : {"ELSE RETURN 1 AS x",
                             "WHEN $a THEN ELSE RETURN 1 AS x",
                             "WHEN $a THEN RETURN 1 AS x UNION RETURN 2 AS x",
+                            // Directives and a memory limit belong to the outermost statement only.
                             "CALL () { USING HOPS LIMIT 1 WHEN true THEN RETURN 1 AS x } RETURN x",
                             "CALL () { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } RETURN x",
                             "RETURN EXISTS { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } AS e",
@@ -8858,8 +8858,9 @@ TEST_P(CypherMainVisitorTest, UnaliasedReturnInWhenBody) {
                             "RETURN COLLECT { WHEN true THEN MATCH (n) RETURN n.n } AS c",
                             "WHEN $a THEN RETURN 1 + 1",
                             "WHEN $a THEN { RETURN 1 + 1 }",
-                            // The flag comes back after the CALL body.
-                            "WHEN $a THEN CALL () { RETURN 1 AS y } RETURN y + 1"}) {
+                            // The flag comes back after the CALL body and after a plain fold body.
+                            "WHEN $a THEN CALL () { RETURN 1 AS y } RETURN y + 1",
+                            "WHEN $a THEN RETURN COUNT { MATCH (n) RETURN n.n } + 1"}) {
     TestInvalidQueryWithMessage<SemanticException>(
         query, ast_generator, "Expression in WHEN ... THEN ... must be aliased (use AS)!");
   }
@@ -8868,6 +8869,8 @@ TEST_P(CypherMainVisitorTest, UnaliasedReturnInWhenBody) {
                             "WHEN $a THEN RETURN COUNT { MATCH (n) RETURN n.n } AS x",
                             "RETURN 1 + 1 UNION RETURN 1 + 1",
                             "CALL () { WHEN true THEN RETURN 1 AS x } RETURN x + 1",
+                            // The flag is cleared after a fold's WHEN body.
+                            "RETURN EXISTS { WHEN true THEN RETURN 1 AS x } AS e, 1 + 1",
                             // A CALL's WHEN body keeps the CALL alias rule, applied by the symbol generator.
                             "CALL () { WHEN true THEN RETURN 1 + 1 } RETURN 1 AS q"}) {
     EXPECT_NO_THROW(ast_generator.ParseQuery(query)) << query;

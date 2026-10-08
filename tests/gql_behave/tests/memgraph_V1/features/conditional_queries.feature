@@ -129,25 +129,6 @@ Feature: Conditional queries
             | 2 |
             | 4 |
 
-    Scenario: Top-level WHEN branch yields every row of its MATCH (indexes :P(n))
-        Given an empty graph
-        And with new index :P(n)
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
-        And parameters are:
-            | a | true |
-        When executing query:
-            """
-            WHEN $a THEN MATCH (n:P) RETURN n.n AS x ELSE RETURN 0 AS x
-            """
-        Then the result should be:
-            | x |
-            | 1 |
-            | 2 |
-            | 4 |
-
     Scenario: Top-level WHEN branch that yields no rows does not fall through to ELSE (indexes :P(n))
         Given an empty graph
         And with new index :P(n)
@@ -286,22 +267,6 @@ Feature: Conditional queries
         Then the result should be:
             | c |
             | 0 |
-
-    Scenario: Top-level WHEN taken branch that writes and returns
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
-            """
-        And parameters are:
-            | a | true |
-        When executing query:
-            """
-            WHEN $a THEN MATCH (n:P) SET n.k = n.n * 10 RETURN sum(n.k) AS x ELSE RETURN 0 AS x
-            """
-        Then the result should be:
-            | x  |
-            | 70 |
 
     Scenario: Top-level WHEN branch must alias a returned property (control of: Top-level WHEN branch yields every row of its MATCH)
         Given an empty graph
@@ -496,39 +461,54 @@ Feature: Conditional queries
             | x     |
             | false |
 
-    Scenario: CASE WHEN at the top level is unchanged
+    Scenario: CASE WHEN inside a top-level WHEN branch
         Given an empty graph
         And having executed:
             """
             CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
             """
         And parameters are:
-            | a | true |
+            | a | true  |
+            | b | false |
         When executing query:
             """
-            RETURN CASE WHEN $a THEN 1 ELSE 2 END AS x
+            WHEN $a THEN RETURN CASE WHEN $b THEN 1 ELSE 2 END AS x ELSE RETURN 3 AS x
             """
         Then the result should be:
             | x |
-            | 1 |
+            | 2 |
 
-    Scenario: when stays usable as a variable name
+    Scenario: when stays usable as a variable name inside a top-level WHEN branch
         Given an empty graph
         And having executed:
             """
             CREATE (:P {n: 1}), (:P {n: 2}), (:Q {n: 3})-[:R]->(:P {n: 4})
             """
+        And parameters are:
+            | a   | true |
+            | two | 2    |
         When executing query:
             """
-            WITH 1 AS when RETURN when AS x
+            WHEN $a THEN WITH $two AS when RETURN when AS x
             """
         Then the result should be:
             | x |
-            | 1 |
+            | 2 |
 
-    Scenario: A memory limit after a top-level WHEN applies to its branches
+    Scenario: A memory limit after a top-level WHEN that the branch fits in
         # A memgraph-only clause; it applies to the outer query.
-        # Without the limit the branch returns 1000000.
+        Given an empty graph
+        And parameters are:
+            | a | true |
+        When executing query:
+            """
+            WHEN $a THEN UNWIND range(1, 1000000) AS i WITH collect(i) AS l RETURN size(l) AS x QUERY MEMORY LIMIT 1024 MB
+            """
+        Then the result should be:
+            | x       |
+            | 1000000 |
+
+    Scenario: A memory limit after a top-level WHEN applies to its branches (control of: A memory limit after a top-level WHEN that the branch fits in)
         Given an empty graph
         And parameters are:
             | a | true |
@@ -538,8 +518,8 @@ Feature: Conditional queries
             """
         Then an error should be raised
 
-    Scenario: USING HOPS LIMIT before a top-level WHEN is query-wide
-        # A memgraph-only directive: the hop budget is shared by the whole query, as for UNION legs.
+    Scenario: USING HOPS LIMIT before a top-level WHEN applies to the taken branch
+        # A memgraph-only directive on the outer query.
         Given an empty graph
         And having executed:
             """

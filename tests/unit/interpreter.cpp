@@ -2102,6 +2102,10 @@ TYPED_TEST(InterpreterTest, ConditionalQueryErrors) {
             a,
             "All WHEN branches must return the same number of columns."},
            {"WHEN $a THEN RETURN 1 AS x ELSE RETURN 2 AS y", a, "All WHEN branches must have the same column names."},
+           // A CALL body inside a branch keeps the CALL alias rule.
+           {"WHEN $a THEN CALL () { RETURN 1 + 1 } RETURN 1 AS x",
+            a,
+            "Expression returned from subquery must be aliased (use AS)!"},
            {"WHEN $a THEN MATCH (n) ELSE RETURN 1 AS x",
             a,
             "Query should either create or update something, or return results!"},
@@ -2123,7 +2127,7 @@ TYPED_TEST(InterpreterTest, ConditionalQueryErrors) {
   }
 }
 
-// A predicate's read of a predefined identifier consumes it, so a branch cannot read it again.
+// A top-level WHEN runs as a trigger statement; its predicate reads a predefined identifier.
 TYPED_TEST(InterpreterTest, ConditionalQueryInTrigger) {
   this->Interpret(
       "CREATE TRIGGER t ON () CREATE BEFORE COMMIT EXECUTE WHEN size(createdVertices) > 0 THEN MATCH (v:V) SET v.a = 1 "
