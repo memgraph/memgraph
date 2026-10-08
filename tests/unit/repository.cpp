@@ -158,10 +158,10 @@ TEST_F(RepositoryTest, EntityScansDoNotSeeEachOther) {
 TEST_F(RepositoryTest, HasAnyEntity) {
   ForBothArms([](Repository &storage) {
     EXPECT_FALSE(storage.HasAnyUser());
-    EXPECT_FALSE(storage.HasAnyRole());
+    EXPECT_TRUE(storage.Put(Repository::RoleKey("admin"), "a"));
+    EXPECT_FALSE(storage.HasAnyUser()) << "a role is not a user";
     EXPECT_TRUE(storage.Put(Repository::UserKey("alice"), "a"));
     EXPECT_TRUE(storage.HasAnyUser());
-    EXPECT_FALSE(storage.HasAnyRole());
   });
   ExpectSameState();
 }

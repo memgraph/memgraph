@@ -21,10 +21,10 @@
 
 #include "auth/atomic_auth_overlay.hpp"
 #include "auth/auth.hpp"
+#include "auth/ops.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "auth/replication_action.hpp"
 #include "auth/repository.hpp"
-#include "auth/rpc.hpp"
 #include "system/transaction.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"

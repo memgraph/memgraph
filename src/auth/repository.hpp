@@ -104,8 +104,6 @@ class Repository {
 
   bool HasAnyUser() const { return HasAny(kUserPrefix); }
 
-  bool HasAnyRole() const { return HasAny(kRolePrefix); }
-
   /// True when writes are buffering in a transaction's overlay rather than landing on disk.
   bool IsTransactional() const { return std::holds_alternative<AtomicAuthOverlay *>(target_); }
 
