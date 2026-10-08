@@ -314,6 +314,23 @@ TEST_F(AuthLayerTest, AbandoningATransactionLeavesDroppedUsersResourcesIntact) {
   EXPECT_TRUE(layer_->Lock()->HasUser("alice"));
 }
 
+namespace {
+// Counts the actions a committed system transaction hands to replication.
+struct NoopHandler {
+  memgraph::system::AllSyncReplicaStatus ApplyAction(memgraph::system::ISystemAction const & /*action*/,
+                                                     memgraph::system::Transaction const & /*txn*/) {
+    ++applied;
+    return memgraph::system::AllSyncReplicaStatus::AllCommitsConfirmed;
+  }
+
+  memgraph::system::AllSyncReplicaStatus FinalizeTransaction(memgraph::system::Transaction const & /*txn*/) {
+    return memgraph::system::AllSyncReplicaStatus::AllCommitsConfirmed;
+  }
+
+  int &applied;
+};
+}  // namespace
+
 TEST_F(AuthLayerTest, CommitBatchesCollectedOperationsIntoOneAction) {
   memgraph::system::System system;
   auto system_tx = system.TryCreateTransaction();
@@ -334,20 +351,6 @@ TEST_F(AuthLayerTest, CommitBatchesCollectedOperationsIntoOneAction) {
   // Commit reports AllCommitsConfirmed and aborts when it holds nothing, so a transaction that received the
   // action is distinguishable from one that did not. Counting them also pins the batching: two statements
   // must arrive as one action, or a replica could apply the first without the second.
-  struct NoopHandler {
-    memgraph::system::AllSyncReplicaStatus ApplyAction(memgraph::system::ISystemAction const & /*action*/,
-                                                       memgraph::system::Transaction const & /*txn*/) {
-      ++applied;
-      return memgraph::system::AllSyncReplicaStatus::AllCommitsConfirmed;
-    }
-
-    memgraph::system::AllSyncReplicaStatus FinalizeTransaction(memgraph::system::Transaction const & /*txn*/) {
-      return memgraph::system::AllSyncReplicaStatus::AllCommitsConfirmed;
-    }
-
-    int &applied;
-  };
-
   int applied = 0;
   system_tx->Commit(NoopHandler{applied});
   EXPECT_EQ(applied, 1) << "a transaction replicates as one batched action, however many statements it ran";
@@ -380,6 +383,10 @@ TEST_F(AuthLayerTest, AConflictingCommitLeavesTheSystemTransactionEmpty) {
 
   EXPECT_FALSE(layer_->Commit(tx, &*system_tx));
   EXPECT_FALSE(tx.pending_actions().empty()) << "a conflicted transaction must keep its actions undrained";
+
+  int applied = 0;
+  system_tx->Commit(NoopHandler{applied});
+  EXPECT_EQ(applied, 0) << "a conflicted commit must hand replication nothing";
 }
 
 TEST_F(AuthLayerTest, AReadGuardKeepsTheOverlayInstalled) {

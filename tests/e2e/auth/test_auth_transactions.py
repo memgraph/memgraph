@@ -224,7 +224,7 @@ def test_a_terminated_auth_transaction_cannot_commit(cursor):
 
     execute(other, 'TERMINATE TRANSACTIONS "*"')
 
-    with pytest.raises(mgclient.DatabaseError):
+    with pytest.raises(mgclient.DatabaseError, match="requested to stop from other session"):
         execute(cursor, "COMMIT")
 
     assert "doomed" not in usernames(other), "a terminated transaction committed anyway"
@@ -275,6 +275,9 @@ def test_a_database_dropped_before_commit_fails_the_commit(cursor, setup, statem
     execute(cursor, "CREATE DATABASE d1")
     try:
         assert "d1" not in database_grants(cursor, "u")
+        # With `*` access, only the session's database shows whether SET MAIN DATABASE landed.
+        logged_in = mgclient.connect(host="localhost", port=7687, username="u", password="")
+        assert execute(logged_in.cursor(), "SHOW DATABASE")[0][0] != "d1"
     finally:
         execute(cursor, "DROP DATABASE d1")
 
