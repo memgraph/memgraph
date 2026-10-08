@@ -128,6 +128,9 @@ property permissions, database grants, impersonation, and the `SHOW` family
 that reads them. A transaction adds no restriction of its own, so a statement
 that needs an enterprise licence, or that is not permitted on a replica or a
 coordinator, is refused inside a transaction exactly as it is outside one.
+`BEGIN` itself still needs a current database, as it does for a data
+transaction, so a session without one, such as on a coordinator, cannot open
+an auth transaction.
 
 Statements that are not auth statements are refused, including profile queries
 and the rest of Cypher. A profile query is a data query, so inside an auth
