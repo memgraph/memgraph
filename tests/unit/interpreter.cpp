@@ -3147,6 +3147,20 @@ TYPED_TEST(InterpreterTest, OptionalCallSubquery) {
   }
 }
 
+// The grammar accepts shapes the frontend goes on to reject, so a query can parse and still be a
+// query error. Failing to parse the stripped text is the stripper's fault and nothing a client can
+// cause; being rejected is a client's, and has to reach them as an error.
+TEST(ParseQueryRejects, AQueryTheGrammarAcceptsAndTheFrontendDoesNot) {
+  memgraph::query::AstCache cache{16};
+  memgraph::query::InterpreterConfig::Query const query_config{};
+
+  for (auto const *query : {"RETURN all(x IN [1, 2])", "RETURN single(x IN [1, 2])"}) {
+    EXPECT_THROW(memgraph::query::ParseQuery(query, {}, &cache, query_config, "uuid", nullptr),
+                 memgraph::query::SyntaxException)
+        << query;
+  }
+}
+
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {
   constexpr std::size_t kMaxSize = 2;
   memgraph::query::AstCache cache{kMaxSize};

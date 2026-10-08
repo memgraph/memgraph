@@ -156,13 +156,18 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
       parsed = frontend::ParseToAst(
           stripped_query.stripped_query().str(), context, &query_parameters, ast_storage, query_info);
     } catch (const SyntaxException &e) {
-      // There is a syntax exception in the stripped query. Re-run the parser
-      // on the original query to get an appropriate error messsage.
-      frontend::opencypher::Parser original{query_string};
-
-      // If an exception was not thrown here, the stripper messed something
-      // up.
-      LOG_FATAL("The stripped query can't be parsed, but the original can.");
+      // The grammar accepts shapes the frontend goes on to reject, so this is the client's query
+      // error unless it was the stripped text that would not parse. Parsing that alone tells the
+      // two apart.
+      try {
+        frontend::opencypher::Parser const stripped_alone{stripped_query.stripped_query().str()};
+      } catch (const SyntaxException &) {
+        // Stripping is what made it unparseable, so the original's own message is the one worth
+        // reporting. Reaching past that means stripping changed the query's meaning.
+        frontend::opencypher::Parser const original{query_string};
+        LOG_FATAL("The stripped query can't be parsed, but the original can.");
+      }
+      throw;
     }
 
     if (query_info.has_load_csv && !query_config.allow_load_csv) {
