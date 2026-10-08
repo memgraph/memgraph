@@ -911,10 +911,8 @@ int main(int argc, char **argv) {
   // TTL will be stopped with StopAllBackgroundTasks in DatabaseHandler
   if (!is_coordinator_instance) {
     dbms_handler->ForEach([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
-      db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
-        const auto locked_repl_state = repl_state->ReadLock();
-        return locked_repl_state->IsMainWriteable();
-      });
+      db_acc->storage()->ttl_.SetUserCheck(
+          [&repl_state]() { return memgraph::replication::TryIsMainWriteable(*repl_state); });
     });
   }
 
@@ -1046,10 +1044,8 @@ int main(int argc, char **argv) {
     dh->SetOnResume([dh, ic, &repl_state](memgraph::dbms::DatabaseAccess db_acc) {
       memgraph::dbms::DbmsHandler::RestoreTriggersFor(db_acc, ic);
       dh->RestoreStreamsFor(db_acc, ic);
-      db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
-        const auto locked_repl_state = repl_state->ReadLock();
-        return locked_repl_state->IsMainWriteable();
-      });
+      db_acc->storage()->ttl_.SetUserCheck(
+          [&repl_state]() { return memgraph::replication::TryIsMainWriteable(*repl_state); });
     });
   }
 #endif

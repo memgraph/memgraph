@@ -18,6 +18,8 @@
 #include "replication_coordination_glue/role.hpp"
 #include "replication_server.hpp"
 #include "status.hpp"
+#include "utils/rw_spin_lock.hpp"
+#include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
 #include <atomic>
@@ -177,5 +179,14 @@ struct ReplicationState {
   std::atomic<RolePersisted> role_persisted_ = RolePersisted::UNKNOWN_OR_NO;
   bool part_of_ha_cluster_{false};
 };
+
+// Non-blocking: if a writer holds the lock (role change, replica (un)registration), report not-writeable.
+inline bool TryIsMainWriteable(utils::Synchronized<ReplicationState, utils::RWSpinLock> const &repl_state) {
+  try {
+    return repl_state.TryReadLock()->IsMainWriteable();
+  } catch (const utils::TryLockException &) {
+    return false;
+  }
+}
 
 }  // namespace memgraph::replication
