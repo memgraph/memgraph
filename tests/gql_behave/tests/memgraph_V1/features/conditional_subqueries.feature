@@ -641,6 +641,159 @@ Feature: Conditional subqueries
             | EXISTS { MATCH (x:C) }        |
             | COUNT { MATCH (x:C) } = 1     |
 
+    Scenario: A read-only predicate sees a write earlier in the same query
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            MATCH (b)
+            SET b.x = 5
+            CALL (b) { WHEN b.x = 5 THEN RETURN 'seen' AS r ELSE RETURN 'none' AS r }
+            RETURN r
+            """
+        Then the result should be:
+            | r      |
+            | 'seen' |
+
+    Scenario: A predicate in a nested CALL sees a write before the outer CALL
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            MATCH (b)
+            SET b.x = 5
+            CALL (b) { CALL (b) { WHEN b.x = 5 THEN RETURN 'seen' AS r ELSE RETURN 'none' AS r } RETURN r }
+            RETURN r
+            """
+        Then the result should be:
+            | r      |
+            | 'seen' |
+
+    Scenario: A read-only predicate in a CALL body sees what the body wrote for earlier rows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            MATCH (b)
+            CALL (b, i) {
+              CALL (b) { WHEN b.x = 0 THEN RETURN 1 AS q ELSE RETURN 0 AS q }
+              SET b.x = i
+              RETURN q AS r
+            }
+            RETURN i, r
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | r |
+            | 1 | 1 |
+            | 2 | 0 |
+
+    Scenario: A subquery in a predicate sees what an earlier row's branch wrote
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            MATCH (b)
+            CALL (b, i) { WHEN EXISTS { WHEN b.x = 0 THEN RETURN 1 AS q } THEN SET b.x = i RETURN 1 AS r ELSE RETURN 0 AS r }
+            RETURN i, r
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | r |
+            | 1 | 1 |
+            | 2 | 0 |
+
+    Scenario: A subquery in a predicate scans what an earlier row's branch created
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [0, 1] AS i
+            CALL (i) { WHEN EXISTS { MATCH (m:New) } THEN RETURN 1 AS r ELSE CREATE (:New) RETURN 0 AS r }
+            RETURN i, r
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | r |
+            | 0 | 0 |
+            | 1 | 1 |
+
+    Scenario Outline: A subquery in a predicate does not scan what a later clause created for earlier rows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({id: 1})
+            """
+        When executing query:
+            """
+            MATCH (b {id: 1})
+            <before>
+            UNWIND [0, 1] AS i
+            CALL (b, i) { WHEN EXISTS { MATCH (m:New) } THEN RETURN 1 AS r ELSE RETURN 0 AS r }
+            CREATE (:New)
+            RETURN i, r
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | r |
+            | 0 | 0 |
+            | 1 | 0 |
+
+        Examples:
+            | before             |
+            | WITH b             |
+            | SET b.y = 1 WITH b |
+
+    Scenario Outline: A subquery in a predicate of a writing CALL does not scan a later clause's writes under a periodic commit
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({id: 1})
+            """
+        When executing query:
+            """
+            <query>
+            """
+        Then the result should be, in order:
+            | i | r |
+            | 0 | 0 |
+            | 1 | 0 |
+
+        Examples:
+            | query                                                                                                                                                                                                              |
+            | USING PERIODIC COMMIT 10 MATCH (b {id: 1}) UNWIND [0, 1] AS i CALL (b, i) { WHEN EXISTS { MATCH (m:New) } THEN RETURN 1 AS r ELSE CREATE (:Y) RETURN 0 AS r } CREATE (:New) RETURN i, r ORDER BY i                    |
+            | MATCH (b {id: 1}) CALL (b) { UNWIND [0, 1] AS i CALL (b, i) { WHEN EXISTS { MATCH (m:New) } THEN RETURN 1 AS r ELSE CREATE (:Y) RETURN 0 AS r } CREATE (:New) RETURN i, r } IN TRANSACTIONS OF 10 ROWS RETURN i, r ORDER BY i |
+
+    Scenario: A subquery in a predicate sees a write earlier in the same query
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            MATCH (b)
+            SET b.x = 5
+            CALL (b) { WHEN EXISTS { WHEN b.x = 5 THEN RETURN 1 AS q } THEN SET b.y = 1 RETURN 'seen' AS r ELSE RETURN 'none' AS r }
+            RETURN r
+            """
+        Then the result should be:
+            | r      |
+            | 'seen' |
+
     Scenario: A branch seeks a label-property index on an imported value
         Given an empty graph
         And with new index :L(p)
@@ -791,6 +944,89 @@ Feature: Conditional subqueries
             | l   | e     | c |
             | 'A' | true  | 1 |
             | 'B' | false | 0 |
+
+    Scenario Outline: A fold's predicate does not see a write later in the same query, as a WHERE does not
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 1, c: 0}), ({x: 0, c: 0})
+            """
+        When executing query:
+            """
+            UNWIND [0, 1] AS i
+            MATCH (b)
+            WHERE <predicate>
+            SET b.x = 1, b.c = b.c + 1
+            RETURN b.c AS c
+            """
+        Then the result should be:
+            | c |
+            | 1 |
+            | 1 |
+
+        Examples:
+            | predicate                                                  |
+            | EXISTS { WHEN b.x = i THEN RETURN 1 AS r }                 |
+            | COUNT { WHEN b.x = i THEN RETURN 1 AS r } > 0              |
+            | size(COLLECT { WHEN b.x = i THEN RETURN 1 AS r }) > 0      |
+
+    Scenario: A fold's predicate after a WITH does not see a write later in the same query
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 1, c: 0}), ({x: 0, c: 0})
+            """
+        When executing query:
+            """
+            UNWIND [0, 1] AS i
+            MATCH (b)
+            SET b.y = 1
+            WITH b, i WHERE EXISTS { WHEN b.x = i THEN RETURN 1 AS r }
+            SET b.x = 1, b.c = b.c + 1
+            RETURN b.c AS c
+            """
+        Then the result should be:
+            | c |
+            | 1 |
+            | 1 |
+
+    Scenario: A fold's predicate in a CALL body does not see a write later in that body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 1, c: 0}), ({x: 0, c: 0})
+            """
+        When executing query:
+            """
+            CALL () {
+              UNWIND [0, 1] AS i
+              MATCH (b)
+              WHERE EXISTS { WHEN b.x = i THEN RETURN 1 AS r }
+              SET b.x = 1, b.c = b.c + 1
+              RETURN b.c AS c
+            }
+            RETURN c
+            """
+        Then the result should be:
+            | c |
+            | 1 |
+            | 1 |
+
+    Scenario: A fold's predicate sees a write earlier in the same query
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            MATCH (b)
+            SET b.x = 5
+            RETURN EXISTS { WHEN b.x = 5 THEN RETURN 1 AS r } AS e
+            """
+        Then the result should be:
+            | e    |
+            | true |
 
     Scenario: With no matching branch and no ELSE, the folds give false, 0 and an empty list
         Given an empty graph
