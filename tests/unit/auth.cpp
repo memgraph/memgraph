@@ -1256,6 +1256,88 @@ TEST(AuthWithoutStorage, PermissionsMaskTest) {
   Permissions p4(3, 2);
   ASSERT_EQ(p4.grants(), 1);
   ASSERT_EQ(p4.denies(), 2);
+
+  Permissions p5(1, 1, 1);
+  ASSERT_EQ(p5.grants(), 1);
+  ASSERT_EQ(p5.denies(), 1);
+  ASSERT_EQ(p5.weak_denies(), 1);
+
+  Permissions p6(0, 2, 3);
+  ASSERT_EQ(p6.weak_denies(), 2);
+}
+
+TEST(AuthWithoutStorage, PermissionsWeakDeny) {
+  auto const match = std::to_underlying(Permission::MATCH);
+  Permissions permissions;
+
+  permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
+  ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::DENY);
+  ASSERT_EQ(permissions.denies(), match);
+  ASSERT_EQ(permissions.weak_denies(), match);
+
+  permissions.Deny(Permission::MATCH);
+  ASSERT_EQ(permissions.weak_denies(), 0);
+
+  permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
+  permissions.Grant(Permission::MATCH);
+  ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
+  ASSERT_EQ(permissions.weak_denies(), 0);
+
+  permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
+  permissions.Revoke(Permission::MATCH);
+  ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::NEUTRAL);
+  ASSERT_EQ(permissions.weak_denies(), 0);
+}
+
+TEST(AuthWithoutStorage, PermissionsMergeWeakDeny) {
+  Permissions grant;
+  grant.Grant(Permission::MATCH);
+  Permissions weak;
+  weak.Deny(Permission::MATCH, DenyStrength::WEAK);
+  Permissions strong;
+  strong.Deny(Permission::MATCH);
+
+  ASSERT_EQ(Merge(weak, grant).Has(Permission::MATCH), PermissionLevel::GRANT);
+  ASSERT_EQ(Merge(grant, weak).Has(Permission::MATCH), PermissionLevel::GRANT);
+  ASSERT_EQ(Merge(weak, Permissions{}).Has(Permission::MATCH), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(strong, grant).Has(Permission::MATCH), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(Merge(weak, grant), strong).Has(Permission::MATCH), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(Merge(strong, grant), weak).Has(Permission::MATCH), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(weak, strong).weak_denies(), 0);
+}
+
+TEST(AuthWithoutStorage, PermissionsSerializeWeakDeny) {
+  Permissions permissions;
+  permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
+  permissions.Deny(Permission::CREATE);
+  auto const loaded = Permissions::Deserialize(permissions.Serialize());
+  ASSERT_EQ(loaded, permissions);
+  ASSERT_EQ(loaded.weak_denies(), std::to_underlying(Permission::MATCH));
+
+  auto const legacy =
+      Permissions::Deserialize({{"grants", uint64_t{0}}, {"denies", std::to_underlying(Permission::MATCH)}});
+  ASSERT_EQ(legacy.weak_denies(), 0);
+  ASSERT_EQ(legacy.Has(Permission::MATCH), PermissionLevel::DENY);
+}
+
+TEST(AuthWithoutStorage, UserRolePermissionsWeakDeny) {
+  Permissions weak;
+  weak.Deny(Permission::MATCH, DenyStrength::WEAK);
+  Permissions grant;
+  grant.Grant(Permission::MATCH);
+
+  User user_grant{"alice", std::nullopt, grant};
+  user_grant.AddRole(Role{"engineer", weak});
+  ASSERT_EQ(user_grant.GetPermissions().Has(Permission::MATCH), PermissionLevel::GRANT);
+
+  User user_weak{"bob", std::nullopt, weak};
+  user_weak.AddRole(Role{"hr", grant});
+  ASSERT_EQ(user_weak.GetPermissions().Has(Permission::MATCH), PermissionLevel::GRANT);
+
+  User user_roles{"carol"};
+  user_roles.AddRole(Role{"engineer", weak});
+  user_roles.AddRole(Role{"hr", grant});
+  ASSERT_EQ(user_roles.GetPermissions().Has(Permission::MATCH), PermissionLevel::GRANT);
 }
 
 #ifdef MG_ENTERPRISE

@@ -30,6 +30,7 @@ constexpr auto kBuiltIn = "builtin";
 constexpr auto kPermissions = "permissions";
 constexpr auto kGrants = "grants";
 constexpr auto kDenies = "denies";
+constexpr auto kWeakDenies = "weak_denies";
 constexpr auto kUsername = "username";
 constexpr auto kUUID = "uuid";
 constexpr auto kPasswordHash = "password_hash";
@@ -238,20 +239,20 @@ FineGrainedAccessPermissions Merge(FineGrainedAccessPermissions const &first,
 }
 #endif
 
-Permissions::Permissions(uint64_t grants, uint64_t denies) {
-  // The deny bitmask has higher priority than the grant bitmask.
-  denies_ = denies;
-  // Mask out the grant bitmask to make sure that it is correct.
-  grants_ = grants & (~denies);
-}
+Permissions::Permissions(uint64_t grants, uint64_t denies, uint64_t weak_denies)
+    : grants_{grants & (~denies | weak_denies)}, denies_{denies}, weak_denies_{weak_denies & denies} {}
 
 PermissionLevel Permissions::Has(Permission permission) const {
-  // Check for the deny first because it has greater priority than a grant.
-  if (denies_ & std::to_underlying(permission)) {
+  auto const bit = std::to_underlying(permission);
+  // A strong deny beats a grant, and a grant beats a weak deny.
+  if (denies_ & ~weak_denies_ & bit) {
     return PermissionLevel::DENY;
   }
-  if (grants_ & std::to_underlying(permission)) {
+  if (grants_ & bit) {
     return PermissionLevel::GRANT;
+  }
+  if (denies_ & bit) {
+    return PermissionLevel::DENY;
   }
   return PermissionLevel::NEUTRAL;
 }
@@ -259,6 +260,7 @@ PermissionLevel Permissions::Has(Permission permission) const {
 void Permissions::Grant(Permission permission) {
   // Remove the possible deny.
   denies_ &= ~std::to_underlying(permission);
+  weak_denies_ &= ~std::to_underlying(permission);
   // Now we grant the permission.
   grants_ |= std::to_underlying(permission);
 }
@@ -268,11 +270,17 @@ void Permissions::Revoke(Permission permission) {
   grants_ &= ~std::to_underlying(permission);
   // Remove the possible deny.
   denies_ &= ~std::to_underlying(permission);
+  weak_denies_ &= ~std::to_underlying(permission);
 }
 
-void Permissions::Deny(Permission permission) {
+void Permissions::Deny(Permission permission, DenyStrength strength) {
   // First deny the permission.
   denies_ |= std::to_underlying(permission);
+  if (strength == DenyStrength::WEAK) {
+    weak_denies_ |= std::to_underlying(permission);
+  } else {
+    weak_denies_ &= ~std::to_underlying(permission);
+  }
   // Remove the possible grant.
   grants_ &= ~std::to_underlying(permission);
 }
@@ -302,6 +310,7 @@ nlohmann::json Permissions::Serialize() const {
 
   data[kGrants] = grants_;
   data[kDenies] = denies_;
+  data[kWeakDenies] = weak_denies_;
   return data;
 }
 
@@ -317,15 +326,29 @@ Permissions Permissions::Deserialize(const nlohmann::json &data) {
   if (!grants->is_number_unsigned() || !denies->is_number_unsigned()) {
     throw AuthException("Couldn't load permissions data!");
   }
-  return Permissions{data[kGrants], data[kDenies]};
+  auto const weak_denies = data.find(kWeakDenies);
+  if (weak_denies != data.end() && !weak_denies->is_number_unsigned()) {
+    throw AuthException("Couldn't load permissions data!");
+  }
+  return Permissions{data[kGrants], data[kDenies], weak_denies != data.end() ? weak_denies->get<uint64_t>() : 0};
 }
 
 uint64_t Permissions::grants() const { return grants_; }
 
 uint64_t Permissions::denies() const { return denies_; }
 
+uint64_t Permissions::weak_denies() const { return weak_denies_; }
+
+Permissions Merge(Permissions const &first, Permissions const &second) {
+  auto const strong_denies = (first.denies() & ~first.weak_denies()) | (second.denies() & ~second.weak_denies());
+  return Permissions{first.grants() | second.grants(),
+                     first.denies() | second.denies(),
+                     (first.weak_denies() | second.weak_denies()) & ~strong_denies};
+}
+
 bool operator==(const Permissions &first, const Permissions &second) {
-  return first.grants() == second.grants() && first.denies() == second.denies();
+  return first.grants() == second.grants() && first.denies() == second.denies() &&
+         first.weak_denies() == second.weak_denies();
 }
 
 bool operator!=(const Permissions &first, const Permissions &second) { return !(first == second); }
