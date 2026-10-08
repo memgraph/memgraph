@@ -4786,7 +4786,7 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::BuildConditionalQuery(
   std::optional<ConditionalKind> kind;
   auto const add_branch = [&](Where *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
     auto const body = BuildConditionalBody(body_ctx);
-    // A RETURN-less branch passes its input row through: nothing to fold. Cypher 25 has the same rule.
+    // A RETURN-less branch passes its input row through: nothing to fold.
     if (subquery_fold_ && body.kind != ConditionalKind::kReturns) {
       throw SyntaxException("Every WHEN branch of {} must end with RETURN.",
                             SubqueryExpression::FoldName(*subquery_fold_));
