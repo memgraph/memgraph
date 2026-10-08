@@ -10170,6 +10170,9 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
                      profile_name = std::move(query->profile_name_),
                      limits = std::move(query->limits_),
                      interpreter]() {
+        if (!interpreter->system_transaction_) {
+          throw QueryRuntimeException("Expected to be in a system transaction");
+        }
         auth->CreateProfile(
             profile_name, limits, {/* no linked users */}, nullptr, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
@@ -10183,6 +10186,9 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
                      profile_name = std::move(query->profile_name_),
                      limits = std::move(query->limits_),
                      interpreter]() {
+        if (!interpreter->system_transaction_) {
+          throw QueryRuntimeException("Expected to be in a system transaction");
+        }
         auth->UpdateProfile(profile_name, limits, nullptr, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
@@ -10195,6 +10201,9 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
                      profile_name = std::move(query->profile_name_),
                      limits = std::move(query->limits_),
                      interpreter]() {
+        if (!interpreter->system_transaction_) {
+          throw QueryRuntimeException("Expected to be in a system transaction");
+        }
         auth->DropProfile(profile_name, nullptr, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
@@ -10207,6 +10216,9 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
                      profile_name = std::move(query->profile_name_),
                      user_or_role = std::move(query->user_or_role_),
                      interpreter]() {
+        if (!interpreter->system_transaction_) {
+          throw QueryRuntimeException("Expected to be in a system transaction");
+        }
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
@@ -10219,6 +10231,9 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         throw QueryException("Query forbidden on the replica!");
       }
       callback.fn = [auth = interpreter_context->auth, user_or_role = std::move(query->user_or_role_), interpreter]() {
+        if (!interpreter->system_transaction_) {
+          throw QueryRuntimeException("Expected to be in a system transaction");
+        }
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
