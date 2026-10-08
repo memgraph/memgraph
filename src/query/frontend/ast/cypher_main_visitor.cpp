@@ -490,7 +490,30 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
 
-  if (auto *pre_query_directives_ctx = ctx->preQueryDirectives()) {
+  SetQueryDirectives(cypher_query, ctx->preQueryDirectives(), ctx->queryMemoryLimit());
+  query_ = cypher_query;
+  return cypher_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitConditionalStatement(MemgraphCypher::ConditionalStatementContext *ctx) {
+  auto const old_in_when_body = std::exchange(in_when_body_, true);
+  auto *cypher_query = BuildConditionalQuery(ctx->conditionalQuery()).query;
+  in_when_body_ = old_in_when_body;
+  SetQueryDirectives(cypher_query, ctx->preQueryDirectives(), ctx->queryMemoryLimit());
+  // Each branch would inherit the commit frequency and plan its own root PeriodicCommit.
+  if (cypher_query->pre_query_directives_.commit_frequency_ != nullptr) {
+    throw SyntaxException(
+        "USING PERIODIC COMMIT cannot be used with WHEN ... THEN. Put 'CALL (row) { ... } IN TRANSACTIONS OF n ROWS' "
+        "inside the branch instead.");
+  }
+  query_ = cypher_query;
+  return cypher_query;
+}
+
+void CypherMainVisitor::SetQueryDirectives(CypherQuery *cypher_query,
+                                           MemgraphCypher::PreQueryDirectivesContext *pre_query_directives_ctx,
+                                           MemgraphCypher::QueryMemoryLimitContext *memory_limit_ctx) {
+  if (pre_query_directives_ctx) {
     cypher_query->pre_query_directives_ = std::any_cast<PreQueryDirectives>(pre_query_directives_ctx->accept(this));
     // NOTE Parallel exectution cannot be cached because the user can define number of threads that is used to generate
     // the parallel branches
@@ -499,16 +522,13 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     }
   }
 
-  if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
+  if (memory_limit_ctx) {
     const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
     if (memory_limit_info) {
       cypher_query->memory_limit_ = memory_limit_info->first;
       cypher_query->memory_scale_ = memory_limit_info->second;
     }
   }
-
-  query_ = cypher_query;
-  return cypher_query;
 }
 
 auto get_index_properties(auto &&ctx, CypherMainVisitor &cypher_main_visitor) -> std::vector<PropertyIxPath> {
@@ -3084,6 +3104,9 @@ antlrcpp::Any CypherMainVisitor::visitReturnItem(MemgraphCypher::ReturnItemConte
     if (in_with_ && !utils::IsSubtype(*named_expr->expression_, Identifier::kType)) {
       throw SemanticException("Only variables can be non-aliased in WITH.");
     }
+    if (in_when_body_ && !utils::IsSubtype(*named_expr->expression_, Identifier::kType)) {
+      throw SemanticException("Expression in WHEN ... THEN ... must be aliased (use AS)!");
+    }
     named_expr->name_ = std::string(ctx->getText());
     named_expr->token_position_ = ctx->expression()->getStart()->getTokenIndex();
   }
@@ -4253,8 +4276,10 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
     auto const old_fold = std::exchange(subquery_fold_, fold);
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
     auto const old_in_with = std::exchange(in_with_, false);
+    auto const old_in_when_body = std::exchange(in_when_body_, ctx->conditionalQuery() != nullptr);
     auto *cypher_query = ctx->conditionalQuery() ? BuildConditionalQuery(ctx->conditionalQuery()).query
                                                  : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    in_when_body_ = old_in_when_body;
     in_with_ = old_in_with;
     subquery_fold_ = old_fold;
     subquery->content_ = cypher_query;
@@ -4757,9 +4782,12 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
 
   // A CALL body is not a fold body, even inside one, so it also gets the top-level "return or update" check.
   auto const old_fold = std::exchange(subquery_fold_, std::nullopt);
+  // A CALL body, plain or WHEN, keeps the CALL alias rule, which the symbol generator applies.
+  auto const old_in_when_body = std::exchange(in_when_body_, false);
   call_subquery->cypher_query_ = ctx->conditionalQuery()
                                      ? BuildConditionalQuery(ctx->conditionalQuery()).query
                                      : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+  in_when_body_ = old_in_when_body;
   subquery_fold_ = old_fold;
 
   PreQueryDirectives pre_query_directives;

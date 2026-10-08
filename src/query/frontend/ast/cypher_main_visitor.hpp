@@ -109,6 +109,16 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCypherQuery(MemgraphCypher::CypherQueryContext *ctx) override;
 
   /**
+   * @return CypherQuery*
+   */
+  antlrcpp::Any visitConditionalStatement(MemgraphCypher::ConditionalStatementContext *ctx) override;
+
+  /// Puts a query's USING directives and memory limit on its CypherQuery.
+  void SetQueryDirectives(CypherQuery *cypher_query,
+                          MemgraphCypher::PreQueryDirectivesContext *pre_query_directives_ctx,
+                          MemgraphCypher::QueryMemoryLimitContext *memory_limit_ctx);
+
+  /**
    * @return PreQueryDirectives*
    */
   antlrcpp::Any visitPreQueryDirectives(MemgraphCypher::PreQueryDirectivesContext *ctx) override;
@@ -1566,6 +1576,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   bool in_with_ = false;
   // The fold whose brace body is being parsed, if any.
   std::optional<SubqueryExpression::Fold> subquery_fold_;
+  // In a top-level or fold WHEN body, where a returned expression must be aliased.
+  bool in_when_body_ = false;
   Parameters *parameters_;
 
   QueryInfo query_info_;

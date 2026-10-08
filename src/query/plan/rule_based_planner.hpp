@@ -695,7 +695,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
  private:
-  /// Plans each branch's body and predicate folds from @p bound_symbols alone, and binds the output symbols.
+  /// Plans each branch's body and predicate folds from @p bound_symbols alone, and binds the output symbols in the
+  /// first branch's column order.
   std::unique_ptr<LogicalOperator> PlanConditional(std::unique_ptr<LogicalOperator> input,
                                                    const ConditionalQueryParts &conditional,
                                                    std::unordered_set<Symbol> bound_symbols) {
@@ -704,15 +705,21 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     std::unordered_map<std::string, Symbol> output_by_name;
     for (const auto &sym : conditional.output_symbols) output_by_name.emplace(sym.name(), sym);
 
+    std::vector<Symbol> output_symbols;
     std::vector<Conditional::Branch> branches;
     branches.reserve(conditional.branches.size());
     for (const auto &parts : conditional.branches) {
       auto &branch = branches.emplace_back();
       context_->bound_symbols = bound_symbols;
       branch.plan = Plan(parts.body);
+      // A UNION's columns are in no settled order, so a UNION first body keeps the symbol generator's name order.
+      bool const is_first = &parts == &conditional.branches.front();
+      bool const takes_order = is_first && parts.body.query_parts.size() == 1;
+      if (is_first && !takes_order) output_symbols = conditional.output_symbols;
       for (const auto &branch_sym : branch.plan->OutputSymbols(symbol_table)) {
         auto it = output_by_name.find(branch_sym.name());
         if (it == output_by_name.end()) continue;
+        if (takes_order) output_symbols.push_back(it->second);
         // The symbol generator made an import-named column the import's own symbol, so the caller keeps its value;
         // a single branch's column is the branch's own symbol.
         if (bound_symbols.contains(it->second) || it->second == branch_sym) continue;
@@ -731,8 +738,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
           ExtractPatternFilters(parts.predicate_filters, symbol_table, storage, fold_bound_symbols);
     }
 
-    auto root = std::make_unique<Conditional>(std::move(input), std::move(branches), conditional.output_symbols);
-    bound_symbols.insert(conditional.output_symbols.begin(), conditional.output_symbols.end());
+    bound_symbols.insert(output_symbols.begin(), output_symbols.end());
+    auto root = std::make_unique<Conditional>(std::move(input), std::move(branches), std::move(output_symbols));
     context_->bound_symbols = std::move(bound_symbols);
     return root;
   }

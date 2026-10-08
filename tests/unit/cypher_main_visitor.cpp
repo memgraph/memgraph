@@ -8778,6 +8778,105 @@ TEST_P(CypherMainVisitorTest, SubqueryExpressionConditional) {
       "Every WHEN branch of EXISTS must end with RETURN.");
 }
 
+TEST_P(CypherMainVisitorTest, TopLevelConditionalQuery) {
+  auto &ast_generator = *GetParam();
+  // The root query's sole clause as a ConditionalBranches; null when the shape differs.
+  auto const root_branches = [](const CypherQuery *query) -> const ConditionalBranches * {
+    if (!query || !query->cypher_unions_.empty() || query->single_query_->clauses_.size() != 1) return nullptr;
+    return dynamic_cast<const ConditionalBranches *>(query->single_query_->clauses_[0]);
+  };
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("WHEN $a THEN RETURN 1 AS x WHEN $b THEN RETURN 2 AS x ELSE RETURN 3 AS x"));
+    const auto *branches = root_branches(query);
+    ASSERT_TRUE(branches);
+    ASSERT_EQ(branches->branches_.size(), 3U);
+    EXPECT_TRUE(dynamic_cast<ParameterLookup *>(branches->branches_[0].predicate->expression_));
+    EXPECT_TRUE(dynamic_cast<ParameterLookup *>(branches->branches_[1].predicate->expression_));
+    EXPECT_EQ(branches->branches_[2].predicate, nullptr);
+    EXPECT_EQ(query->pre_query_directives_.hops_limit_, nullptr);
+    EXPECT_EQ(query->memory_limit_, nullptr);
+    CheckRWType(query, kRead);
+  }
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("USING HOPS LIMIT 1 WHEN $a THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB"));
+    ASSERT_TRUE(root_branches(query));
+    EXPECT_TRUE(query->pre_query_directives_.hops_limit_);
+    EXPECT_TRUE(query->memory_limit_);
+    EXPECT_EQ(query->memory_scale_, 1024U * 1024U);
+  }
+  {
+    const auto *query = dynamic_cast<ExplainQuery *>(ast_generator.ParseQuery("EXPLAIN WHEN $a THEN RETURN 1 AS x"));
+    ASSERT_TRUE(query);
+    EXPECT_TRUE(root_branches(query->cypher_query_));
+  }
+  {
+    const auto *query = dynamic_cast<ProfileQuery *>(
+        ast_generator.ParseQuery("PROFILE WHEN $a THEN CREATE (:T) RETURN 1 AS x ELSE RETURN 2 AS x"));
+    ASSERT_TRUE(query);
+    EXPECT_TRUE(root_branches(query->cypher_query_));
+    CheckRWType(query, kWrite);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, PeriodicCommitWithConditional) {
+  auto &ast_generator = *GetParam();
+  TestInvalidQueryWithMessage<SyntaxException>(
+      "USING PERIODIC COMMIT 1 WHEN $a THEN CREATE (:T)",
+      ast_generator,
+      "USING PERIODIC COMMIT cannot be used with WHEN ... THEN. Put 'CALL (row) { ... } IN TRANSACTIONS OF n ROWS' "
+      "inside the branch instead.");
+  const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING PERIODIC COMMIT 1 CREATE (:T)"));
+  ASSERT_TRUE(query);
+  EXPECT_TRUE(query->pre_query_directives_.commit_frequency_);
+}
+
+TEST_P(CypherMainVisitorTest, ConditionalQueryRejectedShapes) {
+  auto &ast_generator = *GetParam();
+  for (auto const *query : {"ELSE RETURN 1 AS x",
+                            "WHEN $a THEN ELSE RETURN 1 AS x",
+                            "WHEN $a THEN RETURN 1 AS x UNION RETURN 2 AS x",
+                            // Directives and a memory limit belong to the outermost statement only.
+                            "CALL () { USING HOPS LIMIT 1 WHEN true THEN RETURN 1 AS x } RETURN x",
+                            "CALL () { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } RETURN x",
+                            "RETURN EXISTS { WHEN true THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB } AS e",
+                            // A nested WHEN needs braces, and the conditional is the whole statement.
+                            "WHEN $a THEN WHEN $b THEN RETURN 1 AS x ELSE RETURN 2 AS x",
+                            "WHEN $a THEN { RETURN 1 AS x } RETURN 2 AS y",
+                            "MATCH (n) WHEN $a THEN RETURN 1 AS x"}) {
+    TestInvalidQuery<SyntaxException>(query, ast_generator);
+  }
+  EXPECT_TRUE(dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("CALL () { USING HOPS LIMIT 1 MATCH (n) RETURN n AS m } RETURN m")));
+}
+
+TEST_P(CypherMainVisitorTest, UnaliasedReturnInWhenBody) {
+  auto &ast_generator = *GetParam();
+  for (auto const *query : {"RETURN EXISTS { WHEN true THEN RETURN 1 + 1 } AS e",
+                            "RETURN COLLECT { WHEN true THEN MATCH (n) RETURN n.n } AS c",
+                            "WHEN $a THEN RETURN 1 + 1",
+                            "WHEN $a THEN { RETURN 1 + 1 }",
+                            // The flag comes back after the CALL body and after a plain fold body.
+                            "WHEN $a THEN CALL () { RETURN 1 AS y } RETURN y + 1",
+                            "WHEN $a THEN RETURN COUNT { MATCH (n) RETURN n.n } + 1"}) {
+    TestInvalidQueryWithMessage<SemanticException>(
+        query, ast_generator, "Expression in WHEN ... THEN ... must be aliased (use AS)!");
+  }
+  for (auto const *query : {"WHEN $a THEN MATCH (n:Q) RETURN n",
+                            "WHEN $a THEN CALL () { RETURN 1 AS y } RETURN y",
+                            "WHEN $a THEN RETURN COUNT { MATCH (n) RETURN n.n } AS x",
+                            "RETURN 1 + 1 UNION RETURN 1 + 1",
+                            "CALL () { WHEN true THEN RETURN 1 AS x } RETURN x + 1",
+                            // The flag is cleared after a fold's WHEN body.
+                            "RETURN EXISTS { WHEN true THEN RETURN 1 AS x } AS e, 1 + 1",
+                            // A CALL's WHEN body keeps the CALL alias rule, applied by the symbol generator.
+                            "CALL () { WHEN true THEN RETURN 1 + 1 } RETURN 1 AS q"}) {
+    EXPECT_NO_THROW(ast_generator.ParseQuery(query)) << query;
+  }
+}
+
 TEST_P(CypherMainVisitorTest, CallSubquery) {
   auto &ast_generator = *GetParam();
 
@@ -10716,7 +10815,18 @@ TEST(CypherParserTest, ValidQueryNeedsNoFullContextPrediction) {
                             "MATCH (n) RETURN COUNT { WHEN n.p = 1 THEN MATCH (n)-->(m) RETURN m ELSE RETURN 1 AS m } "
                             "AS c, EXISTS { MATCH (n) } AS e, COLLECT { WHEN true THEN { WHEN false THEN RETURN 1 AS "
                             "x } } AS l",
-                            "MATCH (n) RETURN EXISTS { when = (n)-->() } AS e, COUNT { when = (n)-->() } AS c"}) {
+                            "MATCH (n) RETURN EXISTS { when = (n)-->() } AS e, COUNT { when = (n)-->() } AS c",
+                            "WHEN $a THEN RETURN 1 AS x ELSE RETURN 2 AS x",
+                            "WHEN $a THEN { RETURN 1 AS x } ELSE { RETURN 2 AS x }",
+                            "WHEN $a THEN CREATE (:T) RETURN 1 AS x",
+                            "WHEN EXISTS { MATCH (n) } THEN RETURN 1 AS x",
+                            "WHEN $a THEN { RETURN 1 AS x UNION ALL RETURN 2 AS x } ELSE RETURN 3 AS x",
+                            "WHEN $a THEN { WHEN $b THEN RETURN 1 AS x } ELSE RETURN 3 AS x",
+                            "EXPLAIN WHEN $a THEN RETURN 1 AS x",
+                            "PROFILE WHEN $a THEN RETURN 1 AS x",
+                            "USING HOPS LIMIT 1 WHEN $a THEN RETURN 1 AS x",
+                            "USING PERIODIC COMMIT 1 WHEN $a THEN CREATE (:T)",
+                            "WHEN $a THEN RETURN 1 AS x QUERY MEMORY LIMIT 10 MB"}) {
     ::frontend::opencypher::Parser parser(query);
     ASSERT_TRUE(parser.tree()) << query;
     EXPECT_EQ(parser.FullContextPredictions(), 0U) << query;
