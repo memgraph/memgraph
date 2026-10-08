@@ -14,3 +14,6 @@ workloads:
   - name: "Hot/cold tenant convergence"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["system_replication/hot_cold_convergence.py"]
+  - name: "System restore race"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["system_replication/system_restore_race.py"]
