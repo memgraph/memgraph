@@ -5,6 +5,7 @@ target_sources(mg-auth PRIVATE
     crypto.cpp
     models.cpp
     module.cpp
+    replication_action.cpp
     rpc.cpp
     rules.cpp
     profiles/user_profiles.cpp
