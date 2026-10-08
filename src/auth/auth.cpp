@@ -1515,6 +1515,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
       User user = auth::User::Deserialize(ParseAndMigrateJson(it->second));
       LinkUser(user);
       user.db_access().Revoke(db);
+      user.ClearMultiTenantRoles(db);
       SaveUser(user, system_tx);
     } catch (AuthException &) {
       continue;

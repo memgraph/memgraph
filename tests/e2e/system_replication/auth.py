@@ -1046,6 +1046,15 @@ def test_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "CLEAR ROLES FOR mt_user ON mt_db1")
     check(partial(get_mt_roles, username="mt_user", database="mt_db1"), set())
 
+    # Dropping a database must clear its role links on every instance, so a re-created db starts clean
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR mt_user TO mt_role1 ON mt_db1")
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1"})
+    execute_and_fetch_all(cursor_main, "DROP DATABASE mt_db1")
+    execute_and_fetch_all(cursor_main, "CREATE DATABASE mt_db1")
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE mt_db1 TO mt_role1")
+    assert get_mt_roles(cursor_main, username="mt_user", database="mt_db1")() == set()
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), set())
+
     # Test error handling for role without database access
     try:
         execute_and_fetch_all(cursor_main, "SET ROLE FOR mt_user TO mt_role1 ON mt_db2")

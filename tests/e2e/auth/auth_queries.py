@@ -645,6 +645,44 @@ def test_database_specific_role_management(memgraph):
     memgraph.execute("DROP DATABASE db3;")
 
 
+def test_drop_database_clears_multi_tenant_role_links(memgraph):
+    """Dropped databases leave no stale role links; SET/GRANT ROLE ON an unknown database is rejected."""
+    memgraph.execute("CREATE DATABASE db_x;")
+    memgraph.execute("CREATE DATABASE db_y;")
+    memgraph.execute("CREATE USER mt_u;")
+    memgraph.execute("CREATE ROLE mt_r;")
+    memgraph.execute("CREATE ROLE mt_ra;")
+    try:
+        memgraph.execute("GRANT DATABASE db_x TO mt_r;")
+        memgraph.execute("GRANT DATABASE * TO mt_ra;")
+
+        memgraph.execute("SET ROLE FOR mt_u TO mt_r ON db_x;")
+        assert len(list(memgraph.execute_and_fetch("SHOW ROLES FOR mt_u ON DATABASE db_x;"))) == 1
+        memgraph.execute("DROP DATABASE db_x;")
+        memgraph.execute("CREATE DATABASE db_x;")
+        memgraph.execute("GRANT DATABASE db_x TO mt_r;")
+        assert list(memgraph.execute_and_fetch("SHOW ROLES FOR mt_u ON DATABASE db_x;")) == []
+
+        # allow-all role: re-creating the database alone must not revive the link
+        memgraph.execute("SET ROLE FOR mt_u TO mt_ra ON db_y;")
+        memgraph.execute("DROP DATABASE db_y;")
+        memgraph.execute("CREATE DATABASE db_y;")
+        assert list(memgraph.execute_and_fetch("SHOW ROLES FOR mt_u ON DATABASE db_y;")) == []
+
+        with pytest.raises(Exception, match="unknown database"):
+            memgraph.execute("SET ROLE FOR mt_u TO mt_ra ON no_such_db;")
+        with pytest.raises(Exception, match="unknown database"):
+            memgraph.execute("GRANT ROLE mt_ra TO mt_u ON no_such_db;")
+        # CLEAR stays permissive so stale links from older versions can still be removed
+        memgraph.execute("CLEAR ROLE FOR mt_u ON no_such_db;")
+    finally:
+        memgraph.execute("DROP USER mt_u;")
+        memgraph.execute("DROP ROLE mt_r;")
+        memgraph.execute("DROP ROLE mt_ra;")
+        memgraph.execute("DROP DATABASE db_x;")
+        memgraph.execute("DROP DATABASE db_y;")
+
+
 def test_role_syntax_compatibility(memgraph):
     """Test that both ROLE and ROLES keywords work interchangeably"""
     # Create test users and roles

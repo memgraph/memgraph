@@ -1364,6 +1364,23 @@ auth::Permission RequiredCoordinatorPermission(Query *query) {
 }
 #endif
 
+#ifdef MG_ENTERPRISE
+// Caller must keep the result alive to pin the databases; throws QueryRuntimeException if one does not exist.
+std::vector<dbms::DatabaseAccess> AcquireRoleDatabases(dbms::DbmsHandler *db_handler,
+                                                       const std::unordered_set<std::string> &role_databases) {
+  std::vector<dbms::DatabaseAccess> held;
+  held.reserve(role_databases.size());
+  try {
+    for (const auto &db : role_databases) {
+      held.push_back(db_handler->Get(db));
+    }
+  } catch (dbms::UnknownDatabaseException &e) {
+    throw QueryRuntimeException(e.what());
+  }
+  return held;
+}
+#endif
+
 /// returns false if the replication role can't be set
 /// @throw QueryRuntimeException if an error occurred.
 
@@ -1728,11 +1745,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                      username,
                      roles = std::move(auth_query->roles_),
                      interpreter = &interpreter,
+#ifdef MG_ENTERPRISE
+                     db_handler,
+#endif
                      role_databases = std::move(role_databases)] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 #ifdef MG_ENTERPRISE
+        const auto held_dbs = AcquireRoleDatabases(db_handler, role_databases);
         auth->SetRoles(username, roles, role_databases, &*interpreter->system_transaction_);
 #else
         if (!role_databases.empty()) {
@@ -1767,11 +1788,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                      username,
                      roles = std::move(auth_query->roles_),
                      interpreter = &interpreter,
+#ifdef MG_ENTERPRISE
+                     db_handler,
+#endif
                      role_databases = std::move(role_databases)] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 #ifdef MG_ENTERPRISE
+        const auto held_dbs = AcquireRoleDatabases(db_handler, role_databases);
         auth->AddRoles(username, roles, role_databases, &*interpreter->system_transaction_);
 #else
         if (!role_databases.empty()) {
