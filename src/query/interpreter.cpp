@@ -8847,7 +8847,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
               }
               if (success) {
                 // Remove from auth
-                if (auth) auth->DeleteDatabase(db_name, nullptr, interpreter->system_transaction_ptr());
+                if (auth) auth->DeleteDatabase(db_name, interpreter->system_transaction_ptr());
               } else {
                 switch (success.error()) {
                   case dbms::DeleteError::DEFAULT_DB:
@@ -10173,8 +10173,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
-        auth->CreateProfile(
-            profile_name, limits, {/* no linked users */}, nullptr, interpreter->system_transaction_ptr());
+        auth->CreateProfile(profile_name, limits, {/* no linked users */}, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -10189,7 +10188,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
-        auth->UpdateProfile(profile_name, limits, nullptr, interpreter->system_transaction_ptr());
+        auth->UpdateProfile(profile_name, limits, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -10204,7 +10203,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         if (!interpreter->system_transaction_) {
           throw QueryRuntimeException("Expected to be in a system transaction");
         }
-        auth->DropProfile(profile_name, nullptr, interpreter->system_transaction_ptr());
+        auth->DropProfile(profile_name, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -10222,7 +10221,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
-        auth->SetProfile(profile_name, *user_or_role, nullptr, interpreter->system_transaction_ptr());
+        auth->SetProfile(profile_name, *user_or_role, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -10237,7 +10236,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
-        auth->RevokeProfile(*user_or_role, nullptr, interpreter->system_transaction_ptr());
+        auth->RevokeProfile(*user_or_role, interpreter->system_transaction_ptr());
         return std::vector<std::vector<TypedValue>>{};
       };
     } break;
@@ -10245,7 +10244,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
       callback.header = {"profile"};
       callback.fn = [auth = interpreter_context->auth]() {
         std::vector<std::vector<TypedValue>> res;
-        for (const auto &[name, _] : auth->AllProfiles(nullptr)) {
+        for (const auto &[name, _] : auth->AllProfiles()) {
           res.emplace_back(std::vector<TypedValue>{TypedValue(name)});
         }
         return res;
@@ -10255,7 +10254,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
       callback.header = {"limit", "value"};
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_)] {
         std::vector<std::vector<TypedValue>> res;
-        auto limits = auth->GetProfile(profile_name, nullptr);
+        auto limits = auth->GetProfile(profile_name);
         auto limit_to_tv = [](auto limit) {
           switch (limit.type) {
             case UserProfileQuery::LimitValueResult::Type::UNLIMITED:
@@ -10287,7 +10286,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
       callback.fn = [auth = interpreter_context->auth, profile_name = std::move(query->profile_name_), show_user]() {
         std::vector<std::vector<TypedValue>> res;
         if (show_user) {
-          for (const auto &profile : auth->GetUsernamesForProfile(profile_name, nullptr)) {
+          for (const auto &profile : auth->GetUsernamesForProfile(profile_name)) {
             res.emplace_back(std::vector<TypedValue>{TypedValue(profile)});
           }
         } else {
@@ -10307,7 +10306,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         std::vector<std::vector<TypedValue>> res;
         std::optional<std::string> profile;
         try {
-          profile = auth->GetProfileForUser(*user_or_role, nullptr);
+          profile = auth->GetProfileForUser(*user_or_role);
         } catch (const QueryRuntimeException & /*unused*/) {
           try {
             profile = auth->GetProfileForRole(*user_or_role);
@@ -10331,7 +10330,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         if (!user_or_role) {
           throw QueryException("Expected user or role.");
         }
-        (void)auth->GetProfileForUser(*user_or_role, nullptr);  // Throws if user doesn't exist
+        (void)auth->GetProfileForUser(*user_or_role);  // Throws if user doesn't exist
         std::vector<std::vector<TypedValue>> res;
         const auto resource = resource_monitor->GetUser(*user_or_role);
         // Session usage

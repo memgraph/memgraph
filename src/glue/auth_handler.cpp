@@ -723,10 +723,9 @@ void AuthQueryHandler::SetMainDatabase(std::string_view db_name, const std::stri
   }
 }
 
-void AuthQueryHandler::DeleteDatabase(std::string_view db_name, memgraph::auth::AuthTransaction *auth_tx,
-                                      system::Transaction *system_tx) {
+void AuthQueryHandler::DeleteDatabase(std::string_view db_name, system::Transaction *system_tx) {
   try {
-    Lock(auth_tx)->DeleteDatabase(std::string(db_name), system_tx);
+    Lock()->DeleteDatabase(std::string(db_name), system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -1565,8 +1564,7 @@ void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
 
 void AuthQueryHandler::CreateProfile(const std::string &profile_name,
                                      const query::UserProfileQuery::limits_t &defined_limits,
-                                     const std::unordered_set<std::string> &usernames,
-                                     memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) {
+                                     const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) {
   auth::UserProfiles::limits_t limits;
   for (const auto &[limit_name, limit_value] : defined_limits) {
     const auto limit_type = name_to_limit(limit_name);
@@ -1583,7 +1581,7 @@ void AuthQueryHandler::CreateProfile(const std::string &profile_name,
       } break;
     }
   }
-  auto locked_auth = Lock(auth_tx);
+  auto locked_auth = Lock();
   if (!locked_auth->CreateProfile(profile_name, std::move(limits), usernames, system_tx)) {
     throw memgraph::query::QueryRuntimeException("Profile '{}' already exists.", profile_name);
   }
@@ -1591,7 +1589,7 @@ void AuthQueryHandler::CreateProfile(const std::string &profile_name,
 
 void AuthQueryHandler::UpdateProfile(const std::string &profile_name,
                                      const query::UserProfileQuery::limits_t &updated_limits,
-                                     memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) {
+                                     system::Transaction *system_tx) {
   auth::UserProfiles::limits_t limits;
   for (const auto &[limit_name, limit_value] : updated_limits) {
     const auto limit_type = name_to_limit(limit_name);
@@ -1608,24 +1606,22 @@ void AuthQueryHandler::UpdateProfile(const std::string &profile_name,
       } break;
     }
   }
-  auto locked_auth = Lock(auth_tx);
+  auto locked_auth = Lock();
   const auto &profile = locked_auth->UpdateProfile(profile_name, limits, system_tx);
   if (!profile) {
     throw memgraph::query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
   }
 }
 
-void AuthQueryHandler::DropProfile(const std::string &profile_name, memgraph::auth::AuthTransaction *auth_tx,
-                                   system::Transaction *system_tx) {
-  auto locked_auth = Lock(auth_tx);
+void AuthQueryHandler::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
+  auto locked_auth = Lock();
   if (locked_auth->DropProfile(profile_name, system_tx) != auth::UserProfiles::DropResult::kDropped) {
     throw memgraph::query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
   }
 }
 
-query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view profile_name,
-                                                               memgraph::auth::AuthTransaction *auth_tx) {
-  auto locked_auth = ReadLock(auth_tx);
+query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view profile_name) {
+  auto locked_auth = ReadLock();
   auto profile = locked_auth->GetProfile(profile_name);
   if (!profile) {
     throw query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
@@ -1640,10 +1636,9 @@ query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view 
   return convert_limit_value(*profile);
 }
 
-std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQueryHandler::AllProfiles(
-    memgraph::auth::AuthTransaction *auth_tx) {
+std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQueryHandler::AllProfiles() {
   std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> res;
-  auto locked_auth = ReadLock(auth_tx);
+  auto locked_auth = ReadLock();
   for (const auto &profile : locked_auth->AllProfiles()) {
     // Fill missing/unlimited limits
     for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
@@ -1659,9 +1654,9 @@ std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQuery
 }
 
 void AuthQueryHandler::SetProfile(const std::string &profile_name, const std::string &user_or_role,
-                                  memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) {
+                                  system::Transaction *system_tx) {
   try {
-    auto locked_auth = Lock(auth_tx);
+    auto locked_auth = Lock();
     const auto profile = locked_auth->SetProfile(profile_name, user_or_role, system_tx);
     DMG_ASSERT(profile, "Missing profile");
   } catch (const memgraph::auth::AuthException &e) {
@@ -1669,26 +1664,23 @@ void AuthQueryHandler::SetProfile(const std::string &profile_name, const std::st
   }
 }
 
-void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, memgraph::auth::AuthTransaction *auth_tx,
-                                     system::Transaction *system_tx) {
+void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) {
   try {
-    auto locked_auth = Lock(auth_tx);
+    auto locked_auth = Lock();
     locked_auth->RevokeProfile(user_or_role, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
-std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string &user_or_role,
-                                                               memgraph::auth::AuthTransaction *auth_tx) {
-  auto locked_auth = ReadLock(auth_tx);
+std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string &user_or_role) {
+  auto locked_auth = ReadLock();
   return locked_auth->GetProfileForUsername(user_or_role);
 }
 
-std::vector<std::string> AuthQueryHandler::GetUsernamesForProfile(const std::string &profile_name,
-                                                                  memgraph::auth::AuthTransaction *auth_tx) {
+std::vector<std::string> AuthQueryHandler::GetUsernamesForProfile(const std::string &profile_name) {
   try {
-    auto locked_auth = ReadLock(auth_tx);
+    auto locked_auth = ReadLock();
     auto usernames_set = locked_auth->GetUsernamesForProfile(profile_name);
     return {usernames_set.begin(), usernames_set.end()};
   } catch (const memgraph::auth::AuthException &e) {
