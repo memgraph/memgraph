@@ -68,7 +68,7 @@ constexpr auto full_json_str = R"({
     "label_permissions":{"global_grants":507,"global_denies":-1,"permissions":[{"symbols":["A"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["B"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["C"],"granted":483,"denied":0,"matching":"ANY"},{"symbols":["D"],"granted":0,"denied":507,"matching":"ANY"}]}
   },
   "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
-  "permissions":{"denies":0,"grants":134217727},
+  "permissions":{"denies":0,"grants":134217727,"weak_denies":0},
   "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
   "user_imp":{
     "user_imp_denied":[
@@ -108,7 +108,7 @@ constexpr auto community_saved_with_license_json_str = R"({
             "label_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]}
           },
           "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
-          "permissions":{"denies":0,"grants":134217727},
+          "permissions":{"denies":0,"grants":134217727,"weak_denies":0},
           "property_access_permissions":{"edge_type_property_permissions":{"global":{"*":{"denies":0,"grants":3}}},"label_property_permissions":{"global":{"*":{"denies":0,"grants":3}}}},
           "user_imp":null,
           "username":"a",
@@ -992,7 +992,7 @@ TEST(AuthModule, UserSerialization) {
             "label_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]}
           },
           "password_hash":null,
-          "permissions":{"denies":0,"grants":0},
+          "permissions":{"denies":0,"grants":0,"weak_denies":0},
           "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
           "user_imp":null,
           "username":"",
@@ -1184,7 +1184,7 @@ TEST(AuthModule, RoleSerialization) {
             "edge_type_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]},
             "label_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]}
           },
-          "permissions":{"denies":0,"grants":0},
+          "permissions":{"denies":0,"grants":0,"weak_denies":0},
           "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
           "rolename":"",
           "user_imp":null,
