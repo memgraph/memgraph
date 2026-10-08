@@ -208,6 +208,11 @@ as section 7 says, avoids that.
 - **Auth transactions are not counted in a database's transaction metrics.**
   The commit and rollback counters and the active-transactions gauge count data
   transactions; an auth transaction never touches a database.
+- **A stream runs each batch as one transaction.** A batch whose transformation
+  emits auth statements is an auth transaction, so it cannot also contain data
+  statements. The stream owner's privileges are checked against the database
+  each statement targets, the system database for auth statements, as they are
+  for a session.
 - **`DROP DATABASE ... FORCE` ends an open auth transaction in a session using
   that database.** The transactions it ends are chosen by each session's current
   database, as for a data transaction, so an auth transaction is ended even
