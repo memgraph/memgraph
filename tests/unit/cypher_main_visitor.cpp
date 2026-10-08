@@ -64,6 +64,15 @@ using testing::UnorderedElementsAre;
 namespace r = ranges;
 namespace rv = ranges::views;
 
+// A copy of a parse result holds exactly what that parse added to the storage: fewer means a node
+// reached by several paths was split, more means the storage kept one nothing will read.
+void CheckCopyHoldsWhatTheQueryReaches(Query *query, AstStorage const &storage, std::size_t before,
+                                       std::string const &query_string) {
+  AstStorage reachable;
+  query->Clone(&reachable);
+  EXPECT_EQ(reachable.NodeCount(), storage.NodeCount() - before) << query_string;
+}
+
 // Base class for all test types
 class Base {
  public:
@@ -136,11 +145,7 @@ class AstGenerator : public Base {
     auto const before = ast_storage_.NodeCount();
     frontend::QueryInfo info;
     auto *query = frontend::ParseToAst(query_string, context_, &parameters, ast_storage_, info);
-    // A copy of the result holds exactly what this parse added: fewer means a shared node was
-    // split, more means the storage kept one nothing will read.
-    AstStorage reachable;
-    query->Clone(&reachable);
-    EXPECT_EQ(reachable.NodeCount(), ast_storage_.NodeCount() - before) << query_string;
+    CheckCopyHoldsWhatTheQueryReaches(query, ast_storage_, before, query_string);
     return query;
   }
 
@@ -185,7 +190,10 @@ class ClonedAstGenerator : public Base {
     }
     CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
     visitor.visit(parser.tree());
-    return visitor.query()->Clone(&ast_storage_);
+    auto const before = ast_storage_.NodeCount();
+    auto *query = visitor.query()->Clone(&ast_storage_);
+    CheckCopyHoldsWhatTheQueryReaches(query, ast_storage_, before, query_string);
+    return query;
   }
 
   PropertyIx Prop(const std::string &prop_name) override { return ast_storage_.GetPropertyIx(prop_name); }
@@ -212,7 +220,10 @@ class CachedAstGenerator : public Base {
     AstStorage tmp_storage;
     CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
     visitor.visit(parser.tree());
-    return visitor.query()->Clone(&ast_storage_);
+    auto const before = ast_storage_.NodeCount();
+    auto *query = visitor.query()->Clone(&ast_storage_);
+    CheckCopyHoldsWhatTheQueryReaches(query, ast_storage_, before, query_string);
+    return query;
   }
 
   PropertyIx Prop(const std::string &prop_name) override { return ast_storage_.GetPropertyIx(prop_name); }
@@ -1800,6 +1811,28 @@ TEST_P(CypherMainVisitorTest, ParsingAgainLeavesTheFirstUserFunctionWhereItWas) 
   ASSERT_TRUE(call->IsUserDefined());
   ASSERT_LT(call->user_function_id_, static_cast<int64_t>(storage.user_functions_.size()));
   EXPECT_EQ(storage.user_functions_[call->user_function_id_], call->function_name_);
+}
+
+// An index into a storage's name tables only means anything in that storage, so a copy has to ask
+// the one it is copying into rather than carry the number. One generator copies out of a storage
+// seeded with decoy names, so a carried number would not match what the name resolves to here.
+TEST_P(CypherMainVisitorTest, CopyingAQueryAsksForItsNameIndices) {
+  auto &ast_generator = *GetParam();
+
+  auto *text_index = dynamic_cast<TextIndexQuery *>(ast_generator.ParseQuery("CREATE TEXT INDEX thing ON :Label(a)"));
+  ASSERT_TRUE(text_index);
+  EXPECT_EQ(text_index->label_.ix, ast_generator.Label(text_index->label_.name).ix);
+  for (auto const &property : text_index->properties_) {
+    EXPECT_EQ(property.ix, ast_generator.Prop(property.name).ix) << property.name;
+  }
+
+  auto *edge_index =
+      dynamic_cast<CreateTextEdgeIndexQuery *>(ast_generator.ParseQuery("CREATE TEXT EDGE INDEX thing ON :Type(a)"));
+  ASSERT_TRUE(edge_index);
+  EXPECT_EQ(edge_index->edge_type_.ix, ast_generator.EdgeType(edge_index->edge_type_.name).ix);
+  for (auto const &property : edge_index->properties_) {
+    EXPECT_EQ(property.ix, ast_generator.Prop(property.name).ix) << property.name;
+  }
 }
 
 // A fixed range names one bound and means it twice, so both bounds are one node, and a copy has

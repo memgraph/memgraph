@@ -59,6 +59,7 @@ class Aggregation : public memgraph::query::BinaryOperator {
   int32_t symbol_pos_{-1};
   bool distinct_{false};
 
+ private:
   Aggregation *DoClone(AstStorage *storage) const override {
     Aggregation *object = storage->Create<Aggregation>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;

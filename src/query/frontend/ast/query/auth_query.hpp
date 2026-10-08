@@ -177,6 +177,7 @@ class AuthQuery : public memgraph::query::Query {
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
   UserOrRoleType entity_type_{UserOrRoleType::UNSPECIFIED};
 
+ private:
   AuthQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<AuthQuery>();
     object->action_ = action_;

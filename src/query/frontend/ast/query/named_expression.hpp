@@ -55,6 +55,7 @@ class NamedExpression : public memgraph::query::Tree,
   /// True if the variable is aliased
   bool is_aliased_{false};
 
+ private:
   NamedExpression *DoClone(AstStorage *storage) const override {
     NamedExpression *object = storage->Create<NamedExpression>();
     object->name_ = name_;

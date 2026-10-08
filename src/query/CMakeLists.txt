@@ -121,7 +121,6 @@ target_sources(mg-query
     plan_v2/rewrite/fold.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
-    frontend/ast/parse.hpp
     frontend/ast/query/aggregation.hpp
     frontend/ast/query/auth_query.hpp
     frontend/ast/query/binary_operator.hpp
@@ -154,6 +153,7 @@ target_sources(mg-query
     FILE_SET private_headers
     TYPE HEADERS
     FILES
+    frontend/ast/parse.hpp
     plan_v2/frontend/builder.hpp
     plan_v2/resolve/analysis.hpp
     plan_v2/resolve/constant_identity.hpp

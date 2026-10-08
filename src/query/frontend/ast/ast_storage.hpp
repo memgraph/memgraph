@@ -15,7 +15,6 @@
 
 #include "utils/typeinfo.hpp"
 
-#include <algorithm>
 #include <concepts>
 #include <cstddef>
 #include <memory>
@@ -111,8 +110,11 @@ class AstStorage {
   AstStorage() = default;
   AstStorage(const AstStorage &) = delete;
   AstStorage &operator=(const AstStorage &) = delete;
-  AstStorage(AstStorage &&) = default;
-  AstStorage &operator=(AstStorage &&) = default;
+  // A storage is only handed on once the copy that filled it has finished, so neither side of a
+  // move is mid-copy. These say so rather than carrying a record across, which would leave two
+  // storages naming one and the same record.
+  AstStorage(AstStorage &&other) noexcept;
+  AstStorage &operator=(AstStorage &&other) noexcept;
 
   template <typename T, typename... Args>
   T *Create(Args &&...args) {
@@ -127,7 +129,7 @@ class AstStorage {
 
   /// Makes the copies taken while it lives one copy, so a node reached from two of them is copied
   /// once. It holds the record of what has been made, which is why it outlives none of them.
-  class CloneScope {
+  class [[nodiscard]] CloneScope {
    public:
     explicit CloneScope(AstStorage &storage) : storage_{storage.cloning_ == nullptr ? &storage : nullptr} {
       if (storage_ != nullptr) storage_->cloning_ = &record_;

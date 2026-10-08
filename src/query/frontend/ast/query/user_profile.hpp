@@ -92,6 +92,7 @@ class UserProfileQuery : public memgraph::query::Query {
   std::optional<std::string> user_or_role_;
   std::optional<bool> show_user_;
 
+ private:
   UserProfileQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<UserProfileQuery>();
     object->action_ = action_;

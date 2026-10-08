@@ -483,6 +483,19 @@ constexpr utils::TypeInfo query::TenantProfileQuery::kType{
 
 namespace query {
 
+AstStorage::AstStorage(AstStorage &&other) noexcept { *this = std::move(other); }
+
+AstStorage &AstStorage::operator=(AstStorage &&other) noexcept {
+  DMG_ASSERT(cloning_ == nullptr && other.cloning_ == nullptr, "a storage moved while a copy into it was running");
+  labels_ = std::move(other.labels_);
+  edge_types_ = std::move(other.edge_types_);
+  properties_ = std::move(other.properties_);
+  user_functions_ = std::move(other.user_functions_);
+  call_procedures_ = std::move(other.call_procedures_);
+  storage_ = std::move(other.storage_);
+  return *this;
+}
+
 void AstStorage::Adopt(std::unique_ptr<Tree> node) { storage_.emplace_back(std::move(node)); }
 
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);

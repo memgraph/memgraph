@@ -63,6 +63,7 @@ class Pattern : public memgraph::query::Tree, public utils::Visitable<Hierarchic
   memgraph::query::Identifier *identifier_{nullptr};
   std::vector<memgraph::query::PatternAtom *> atoms_;
 
+ private:
   Pattern *DoClone(AstStorage *storage) const override {
     Pattern *object = storage->Create<Pattern>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;

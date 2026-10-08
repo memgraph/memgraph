@@ -100,6 +100,7 @@ class OrOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   OrOperator *DoClone(AstStorage *storage) const override {
     OrOperator *object = storage->Create<OrOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -132,6 +133,7 @@ class XorOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   XorOperator *DoClone(AstStorage *storage) const override {
     XorOperator *object = storage->Create<XorOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -164,6 +166,7 @@ class AndOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   AndOperator *DoClone(AstStorage *storage) const override {
     AndOperator *object = storage->Create<AndOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -196,6 +199,7 @@ class AdditionOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   AdditionOperator *DoClone(AstStorage *storage) const override {
     AdditionOperator *object = storage->Create<AdditionOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -228,6 +232,7 @@ class SubtractionOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   SubtractionOperator *DoClone(AstStorage *storage) const override {
     SubtractionOperator *object = storage->Create<SubtractionOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -260,6 +265,7 @@ class MultiplicationOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   MultiplicationOperator *DoClone(AstStorage *storage) const override {
     MultiplicationOperator *object = storage->Create<MultiplicationOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -292,6 +298,7 @@ class DivisionOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   DivisionOperator *DoClone(AstStorage *storage) const override {
     DivisionOperator *object = storage->Create<DivisionOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -324,6 +331,7 @@ class ModOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   ModOperator *DoClone(AstStorage *storage) const override {
     ModOperator *object = storage->Create<ModOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -356,6 +364,7 @@ class ExponentiationOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   ExponentiationOperator *DoClone(AstStorage *storage) const override {
     ExponentiationOperator *object = storage->Create<ExponentiationOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -388,6 +397,7 @@ class NotEqualOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   NotEqualOperator *DoClone(AstStorage *storage) const override {
     NotEqualOperator *object = storage->Create<NotEqualOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -420,6 +430,7 @@ class EqualOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   EqualOperator *DoClone(AstStorage *storage) const override {
     EqualOperator *object = storage->Create<EqualOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -452,6 +463,7 @@ class LessOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   LessOperator *DoClone(AstStorage *storage) const override {
     LessOperator *object = storage->Create<LessOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -484,6 +496,7 @@ class GreaterOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   GreaterOperator *DoClone(AstStorage *storage) const override {
     GreaterOperator *object = storage->Create<GreaterOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -516,6 +529,7 @@ class LessEqualOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   LessEqualOperator *DoClone(AstStorage *storage) const override {
     LessEqualOperator *object = storage->Create<LessEqualOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -548,6 +562,7 @@ class GreaterEqualOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   GreaterEqualOperator *DoClone(AstStorage *storage) const override {
     GreaterEqualOperator *object = storage->Create<GreaterEqualOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -583,6 +598,7 @@ class RangeOperator : public Expression {
     return visitor.PostVisit(*this);
   }
 
+ private:
   RangeOperator *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<RangeOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -612,6 +628,7 @@ class InListOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   InListOperator *DoClone(AstStorage *storage) const override {
     InListOperator *object = storage->Create<InListOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -644,6 +661,7 @@ class SubscriptOperator : public memgraph::query::BinaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   SubscriptOperator *DoClone(AstStorage *storage) const override {
     SubscriptOperator *object = storage->Create<SubscriptOperator>();
     object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
@@ -676,6 +694,7 @@ class NotOperator : public memgraph::query::UnaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   NotOperator *DoClone(AstStorage *storage) const override {
     NotOperator *object = storage->Create<NotOperator>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
@@ -707,6 +726,7 @@ class UnaryPlusOperator : public memgraph::query::UnaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   UnaryPlusOperator *DoClone(AstStorage *storage) const override {
     UnaryPlusOperator *object = storage->Create<UnaryPlusOperator>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
@@ -738,6 +758,7 @@ class UnaryMinusOperator : public memgraph::query::UnaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   UnaryMinusOperator *DoClone(AstStorage *storage) const override {
     UnaryMinusOperator *object = storage->Create<UnaryMinusOperator>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
@@ -769,6 +790,7 @@ class IsNullOperator : public memgraph::query::UnaryOperator {
     return visitor.PostVisit(*this);
   }
 
+ private:
   IsNullOperator *DoClone(AstStorage *storage) const override {
     IsNullOperator *object = storage->Create<IsNullOperator>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
@@ -812,6 +834,7 @@ class ListSlicingOperator : public Expression {
   memgraph::query::Expression *lower_bound_{nullptr};
   memgraph::query::Expression *upper_bound_{nullptr};
 
+ private:
   ListSlicingOperator *DoClone(AstStorage *storage) const override {
     ListSlicingOperator *object = storage->Create<ListSlicingOperator>();
     object->list_ = list_ ? list_->Clone(storage) : nullptr;
@@ -854,6 +877,7 @@ class IfOperator : public Expression {
   memgraph::query::Expression *then_expression_;
   memgraph::query::Expression *else_expression_;
 
+ private:
   IfOperator *DoClone(AstStorage *storage) const override {
     IfOperator *object = storage->Create<IfOperator>();
     object->condition_ = condition_ ? condition_->Clone(storage) : nullptr;
@@ -903,6 +927,7 @@ class PrimitiveLiteral : public memgraph::query::BaseLiteral {
   /// is not created from query, leave its value at -1.
   int32_t token_position_{-1};
 
+ private:
   PrimitiveLiteral *DoClone(AstStorage *storage) const override {
     PrimitiveLiteral *object = storage->Create<PrimitiveLiteral>();
     object->value_ = value_;
@@ -944,6 +969,7 @@ class ListLiteral : public memgraph::query::BaseLiteral {
 
   std::vector<memgraph::query::Expression *> elements_;
 
+ private:
   ListLiteral *DoClone(AstStorage *storage) const override {
     ListLiteral *object = storage->Create<ListLiteral>();
     object->elements_.resize(elements_.size());
@@ -984,6 +1010,7 @@ class MapLiteral : public memgraph::query::BaseLiteral {
 
   std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *> elements_;
 
+ private:
   MapLiteral *DoClone(AstStorage *storage) const override {
     MapLiteral *object = storage->Create<MapLiteral>();
     for (const auto &entry : elements_) {
@@ -1034,6 +1061,7 @@ class MapProjectionLiteral : public memgraph::query::BaseLiteral {
   Expression *map_variable_;
   std::unordered_map<PropertyIx, Expression *> elements_;
 
+ private:
   MapProjectionLiteral *DoClone(AstStorage *storage) const override {
     MapProjectionLiteral *object = storage->Create<MapProjectionLiteral>();
     object->map_variable_ = map_variable_->Clone(storage);
@@ -1098,6 +1126,7 @@ class PropertyLookup : public Expression {
   memgraph::query::PropertyLookup::LookupMode lookup_mode_{LookupMode::REPLACE};
   bool use_nested_property_update_{false};
 
+ private:
   PropertyLookup *DoClone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
@@ -1141,6 +1170,7 @@ class AllPropertiesLookup : public Expression {
 
   memgraph::query::Expression *expression_{nullptr};
 
+ private:
   AllPropertiesLookup *DoClone(AstStorage *storage) const override {
     AllPropertiesLookup *object = storage->Create<AllPropertiesLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
@@ -1204,6 +1234,7 @@ class LabelsTest : public Expression {
   /// cannot express, held whole so the subject is evaluated once. See `LabelsTest::Make`.
   std::variant<LabelCnf, LabelTerm> test_;
 
+ private:
   LabelsTest *DoClone(AstStorage *storage) const override {
     LabelsTest *object = storage->Create<LabelsTest>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
@@ -1276,6 +1307,7 @@ class EdgeTypesTest : public Expression {
   Expression *expression_{nullptr};  // expression used to get the Edge
   std::vector<EdgeTypeIx> valid_edgetypes_;
 
+ private:
   EdgeTypesTest *DoClone(AstStorage *storage) const override {
     EdgeTypesTest *object = storage->Create<EdgeTypesTest>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
@@ -1319,6 +1351,7 @@ class Function : public Expression {
   bool is_user_defined_{false};
   int64_t user_function_id_{-1};
 
+ private:
   Function *DoClone(AstStorage *storage) const override {
     Function *object = storage->Create<Function>();
     object->arguments_.resize(arguments_.size());
@@ -1334,6 +1367,7 @@ class Function : public Expression {
     return object;
   }
 
+ public:
   bool IsBuiltin() const { return !is_user_defined_; }
 
   bool IsUserDefined() const { return is_user_defined_; }
@@ -1386,6 +1420,7 @@ class Reduce : public Expression {
   /// Expression which does the reduction, i.e. produces the new accumulator value.
   memgraph::query::Expression *expression_{nullptr};
 
+ private:
   Reduce *DoClone(AstStorage *storage) const override {
     Reduce *object = storage->Create<Reduce>();
     object->accumulator_ = accumulator_ ? accumulator_->Clone(storage) : nullptr;
@@ -1434,6 +1469,7 @@ class Coalesce : public Expression {
   /// A list of expressions to evaluate. None of the expressions should be nullptr.
   std::vector<memgraph::query::Expression *> expressions_;
 
+ private:
   Coalesce *DoClone(AstStorage *storage) const override {
     Coalesce *object = storage->Create<Coalesce>();
     object->expressions_.resize(expressions_.size());
@@ -1476,6 +1512,7 @@ class Extract : public Expression {
   /// Expression which produces the new value for list element.
   memgraph::query::Expression *expression_{nullptr};
 
+ private:
   Extract *DoClone(AstStorage *storage) const override {
     Extract *object = storage->Create<Extract>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -1516,6 +1553,7 @@ class All : public Expression {
   memgraph::query::Expression *list_expression_{nullptr};
   memgraph::query::Where *where_{nullptr};
 
+ private:
   All *DoClone(AstStorage *storage) const override {
     All *object = storage->Create<All>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -1556,6 +1594,7 @@ class Single : public Expression {
   memgraph::query::Expression *list_expression_{nullptr};
   memgraph::query::Where *where_{nullptr};
 
+ private:
   Single *DoClone(AstStorage *storage) const override {
     Single *object = storage->Create<Single>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -1596,6 +1635,7 @@ class Any : public Expression {
   memgraph::query::Expression *list_expression_{nullptr};
   memgraph::query::Where *where_{nullptr};
 
+ private:
   Any *DoClone(AstStorage *storage) const override {
     Any *object = storage->Create<Any>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -1636,6 +1676,7 @@ class None : public Expression {
   memgraph::query::Expression *list_expression_{nullptr};
   memgraph::query::Where *where_{nullptr};
 
+ private:
   None *DoClone(AstStorage *storage) const override {
     None *object = storage->Create<None>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -1688,6 +1729,7 @@ class ListComprehension : public Expression {
   /// Expression which produces the new value for list element.
   memgraph::query::Expression *expression_{nullptr};
 
+ private:
   ListComprehension *DoClone(AstStorage *storage) const override {
     ListComprehension *object = storage->Create<ListComprehension>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -1723,6 +1765,7 @@ class ParameterLookup : public Expression {
   /// is not created from a literal leave this value at -1.
   int32_t token_position_{-1};
 
+ private:
   ParameterLookup *DoClone(AstStorage *storage) const override {
     ParameterLookup *object = storage->Create<ParameterLookup>();
     object->token_position_ = token_position_;
@@ -1759,6 +1802,7 @@ class RegexMatch : public Expression {
   memgraph::query::Expression *string_expr_;
   memgraph::query::Expression *regex_;
 
+ private:
   RegexMatch *DoClone(AstStorage *storage) const override {
     RegexMatch *object = storage->Create<RegexMatch>();
     object->string_expr_ = string_expr_ ? string_expr_->Clone(storage) : nullptr;
@@ -1816,6 +1860,7 @@ class NodeAtom : public memgraph::query::PatternAtom {
   /// Unset when the pattern names no label; a `$param` bound to an empty list names none either.
   std::optional<LabelTerm> label_term_;
 
+ private:
   NodeAtom *DoClone(AstStorage *storage) const override {
     NodeAtom *object = storage->Create<NodeAtom>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -1950,6 +1995,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   /// Limit for the number of paths returned in kshortest path expansion.
   memgraph::query::Expression *limit_{nullptr};
 
+ private:
   EdgeAtom *DoClone(AstStorage *storage) const override {
     EdgeAtom *object = storage->Create<EdgeAtom>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -2033,6 +2079,7 @@ class SingleQuery : public memgraph::query::Tree, public utils::Visitable<Hierar
   std::vector<memgraph::query::Clause *> clauses_;
   bool has_update{};  // used during antlr -> ast conversion for semantic analysis (unused after that)
 
+ private:
   SingleQuery *DoClone(AstStorage *storage) const override {
     SingleQuery *object = storage->Create<SingleQuery>();
     object->clauses_.resize(clauses_.size());
@@ -2070,6 +2117,7 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
   /// combines single query results.
   std::vector<Symbol> union_symbols_;
 
+ private:
   CypherUnion *DoClone(AstStorage *storage) const override {
     CypherUnion *object = storage->Create<CypherUnion>();
     object->single_query_ = single_query_ ? single_query_->Clone(storage) : nullptr;
@@ -2182,6 +2230,7 @@ class CypherQuery : public memgraph::query::Query, public utils::Visitable<Hiera
   /// Using statement
   memgraph::query::PreQueryDirectives pre_query_directives_;
 
+ private:
   CypherQuery *DoClone(AstStorage *storage) const override {
     CypherQuery *object = storage->Create<CypherQuery>();
     object->single_query_ = single_query_ ? single_query_->Clone(storage) : nullptr;
@@ -2214,6 +2263,7 @@ class ExplainQuery : public memgraph::query::Query {
   /// The CypherQuery to explain.
   memgraph::query::CypherQuery *cypher_query_{nullptr};
 
+ private:
   ExplainQuery *DoClone(AstStorage *storage) const override {
     ExplainQuery *object = storage->Create<ExplainQuery>();
     object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
@@ -2239,6 +2289,7 @@ class ProfileQuery : public memgraph::query::Query {
   /// The CypherQuery to profile.
   memgraph::query::CypherQuery *cypher_query_{nullptr};
 
+ private:
   ProfileQuery *DoClone(AstStorage *storage) const override {
     ProfileQuery *object = storage->Create<ProfileQuery>();
     object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
@@ -2275,6 +2326,7 @@ class IndexQuery : public memgraph::query::Query {
   std::unordered_map<Expression *, Expression *> config_;
   bool is_global_ = false;
 
+ private:
   IndexQuery *DoClone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
     object->action_ = action_;
@@ -2319,6 +2371,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
   bool global_{false};
   std::optional<std::string> name_;
 
+ private:
   EdgeIndexQuery *DoClone(AstStorage *storage) const override {
     EdgeIndexQuery *object = storage->Create<EdgeIndexQuery>();
     object->action_ = action_;
@@ -2358,6 +2411,7 @@ class PointIndexQuery : public memgraph::query::Query {
   memgraph::query::LabelIx label_;
   memgraph::query::PropertyIx property_;
 
+ private:
   PointIndexQuery *DoClone(AstStorage *storage) const override {
     PointIndexQuery *object = storage->Create<PointIndexQuery>();
     object->action_ = action_;
@@ -2393,6 +2447,7 @@ class TextIndexQuery : public memgraph::query::Query {
   std::vector<memgraph::query::PropertyIx> properties_;
   std::string index_name_;
 
+ private:
   TextIndexQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<TextIndexQuery>();
     object->action_ = action_;
@@ -2427,6 +2482,7 @@ class CreateTextEdgeIndexQuery : public memgraph::query::Query {
   std::vector<memgraph::query::PropertyIx> properties_;
   std::string index_name_;
 
+ private:
   CreateTextEdgeIndexQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<CreateTextEdgeIndexQuery>();
     object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
@@ -2467,6 +2523,7 @@ class VectorIndexQuery : public memgraph::query::Query {
   memgraph::query::PropertyIx property_;
   std::variant<ConfigMap, Expression *> config_;
 
+ private:
   VectorIndexQuery *DoClone(AstStorage *storage) const override {
     VectorIndexQuery *object = storage->Create<VectorIndexQuery>();
     object->action_ = action_;
@@ -2523,6 +2580,7 @@ class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
   memgraph::query::PropertyIx property_;
   std::variant<ConfigMap, Expression *> config_;
 
+ private:
   CreateVectorEdgeIndexQuery *DoClone(AstStorage *storage) const override {
     CreateVectorEdgeIndexQuery *object = storage->Create<CreateVectorEdgeIndexQuery>();
     object->index_name_ = index_name_;
@@ -2579,6 +2637,7 @@ class Create : public memgraph::query::Clause {
 
   std::vector<memgraph::query::Pattern *> patterns_;
 
+ private:
   Create *DoClone(AstStorage *storage) const override {
     Create *object = storage->Create<Create>();
     object->patterns_.resize(patterns_.size());
@@ -2639,6 +2698,7 @@ class CallProcedure : public memgraph::query::Clause {
   memgraph::query::GraphAccess graph_access_{memgraph::query::GraphAccess::Read};
   memgraph::query::Where *where_{nullptr};
 
+ private:
   CallProcedure *DoClone(AstStorage *storage) const override {
     CallProcedure *object = storage->Create<CallProcedure>();
     object->procedure_name_ = procedure_name_;
@@ -2694,6 +2754,7 @@ class Match : public memgraph::query::Clause {
   memgraph::query::Where *where_{nullptr};
   bool optional_{false};
 
+ private:
   Match *DoClone(AstStorage *storage) const override {
     Match *object = storage->Create<Match>();
     object->patterns_.resize(patterns_.size());
@@ -2801,6 +2862,7 @@ class Return : public memgraph::query::Clause {
 
   memgraph::query::ReturnBody body_;
 
+ private:
   Return *DoClone(AstStorage *storage) const override {
     Return *object = storage->Create<Return>();
     object->body_ = body_.Clone(storage);
@@ -2849,6 +2911,7 @@ class With : public memgraph::query::Clause {
   memgraph::query::ReturnBody body_;
   memgraph::query::Where *where_{nullptr};
 
+ private:
   With *DoClone(AstStorage *storage) const override {
     With *object = storage->Create<With>();
     object->body_ = body_.Clone(storage);
@@ -2883,6 +2946,7 @@ class Delete : public memgraph::query::Clause {
   std::vector<memgraph::query::Expression *> expressions_;
   bool detach_{false};
 
+ private:
   Delete *DoClone(AstStorage *storage) const override {
     Delete *object = storage->Create<Delete>();
     object->expressions_.resize(expressions_.size());
@@ -2918,6 +2982,7 @@ class SetProperty : public memgraph::query::Clause {
   memgraph::query::PropertyLookup *property_lookup_{nullptr};
   memgraph::query::Expression *expression_{nullptr};
 
+ private:
   SetProperty *DoClone(AstStorage *storage) const override {
     SetProperty *object = storage->Create<SetProperty>();
     object->property_lookup_ = property_lookup_ ? property_lookup_->Clone(storage) : nullptr;
@@ -2952,6 +3017,7 @@ class SetProperties : public memgraph::query::Clause {
   memgraph::query::Expression *expression_{nullptr};
   bool update_{false};
 
+ private:
   SetProperties *DoClone(AstStorage *storage) const override {
     SetProperties *object = storage->Create<SetProperties>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -2986,6 +3052,7 @@ class SetLabels : public memgraph::query::Clause {
   memgraph::query::Identifier *identifier_{nullptr};
   std::vector<QueryLabelType> labels_;
 
+ private:
   SetLabels *DoClone(AstStorage *storage) const override {
     SetLabels *object = storage->Create<SetLabels>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -3025,6 +3092,7 @@ class RemoveProperty : public memgraph::query::Clause {
 
   memgraph::query::PropertyLookup *property_lookup_{nullptr};
 
+ private:
   RemoveProperty *DoClone(AstStorage *storage) const override {
     RemoveProperty *object = storage->Create<RemoveProperty>();
     object->property_lookup_ = property_lookup_ ? property_lookup_->Clone(storage) : nullptr;
@@ -3056,6 +3124,7 @@ class RemoveLabels : public memgraph::query::Clause {
   memgraph::query::Identifier *identifier_{nullptr};
   std::vector<QueryLabelType> labels_;
 
+ private:
   RemoveLabels *DoClone(AstStorage *storage) const override {
     RemoveLabels *object = storage->Create<RemoveLabels>();
     object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
@@ -3113,6 +3182,7 @@ class Merge : public memgraph::query::Clause {
   std::vector<memgraph::query::Clause *> on_match_;
   std::vector<memgraph::query::Clause *> on_create_;
 
+ private:
   Merge *DoClone(AstStorage *storage) const override {
     Merge *object = storage->Create<Merge>();
     object->pattern_ = pattern_ ? pattern_->Clone(storage) : nullptr;
@@ -3152,6 +3222,7 @@ class Unwind : public memgraph::query::Clause {
 
   memgraph::query::NamedExpression *named_expression_{nullptr};
 
+ private:
   Unwind *DoClone(AstStorage *storage) const override {
     Unwind *object = storage->Create<Unwind>();
     object->named_expression_ = named_expression_ ? named_expression_->Clone(storage) : nullptr;
@@ -3181,6 +3252,7 @@ class DatabaseInfoQuery : public memgraph::query::Query {
 
   memgraph::query::DatabaseInfoQuery::InfoType info_type_;
 
+ private:
   DatabaseInfoQuery *DoClone(AstStorage *storage) const override {
     DatabaseInfoQuery *object = storage->Create<DatabaseInfoQuery>();
     object->info_type_ = info_type_;
@@ -3204,6 +3276,7 @@ class SystemInfoQuery : public memgraph::query::Query {
   std::optional<std::string> database_;
   bool is_current_database_{false};
 
+ private:
   SystemInfoQuery *DoClone(AstStorage *storage) const override {
     SystemInfoQuery *object = storage->Create<SystemInfoQuery>();
     object->info_type_ = info_type_;
@@ -3254,6 +3327,7 @@ class ConstraintQuery : public memgraph::query::Query {
   memgraph::query::Constraint constraint_;
   std::optional<std::string> name_;
 
+ private:
   ConstraintQuery *DoClone(AstStorage *storage) const override {
     ConstraintQuery *object = storage->Create<ConstraintQuery>();
     object->action_type_ = action_type_;
@@ -3273,6 +3347,7 @@ class DumpQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = FixedAccess{.access = HeldAccess::kRead}}; }
 
+ private:
   DumpQuery *DoClone(AstStorage *storage) const override {
     DumpQuery *object = storage->Create<DumpQuery>();
     return object;
@@ -3305,6 +3380,7 @@ class ReplicationQuery : public memgraph::query::Query {
   Expression *port_{nullptr};
   SyncMode sync_mode_;
 
+ private:
   ReplicationQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<ReplicationQuery>();
     object->action_ = action_;
@@ -3339,6 +3415,7 @@ class ReplicationInfoQuery : public memgraph::query::Query {
 
   memgraph::query::ReplicationInfoQuery::Action action_;
 
+ private:
   ReplicationInfoQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<ReplicationInfoQuery>();
     object->action_ = action_;
@@ -3389,6 +3466,7 @@ class CoordinatorQuery : public memgraph::query::Query {
   Expression *setting_name_{nullptr};
   Expression *setting_value_{nullptr};
 
+ private:
   CoordinatorQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<CoordinatorQuery>();
 
@@ -3421,6 +3499,7 @@ class DropAllIndexesQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = FixedAccess{.access = HeldAccess::kUnique}}; }
 
+ private:
   DropAllIndexesQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<DropAllIndexesQuery>();
     return object;
@@ -3442,6 +3521,7 @@ class DropAllConstraintsQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = FixedAccess{.access = HeldAccess::kUnique}}; }
 
+ private:
   DropAllConstraintsQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<DropAllConstraintsQuery>();
     return object;
@@ -3463,6 +3543,7 @@ class DropGraphQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = FixedAccess{.access = HeldAccess::kUnique}}; }
 
+ private:
   DropGraphQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<DropGraphQuery>();
     return object;
@@ -3488,6 +3569,7 @@ class EdgeImportModeQuery : public memgraph::query::Query {
 
   memgraph::query::EdgeImportModeQuery::Status status_;
 
+ private:
   EdgeImportModeQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<EdgeImportModeQuery>();
     object->status_ = status_;
@@ -3514,6 +3596,7 @@ class LockPathQuery : public memgraph::query::Query {
 
   memgraph::query::LockPathQuery::Action action_;
 
+ private:
   LockPathQuery *DoClone(AstStorage *storage) const override {
     LockPathQuery *object = storage->Create<LockPathQuery>();
     object->action_ = action_;
@@ -3548,6 +3631,7 @@ class LoadCsv : public memgraph::query::Clause {
   memgraph::query::Identifier *row_var_{nullptr};
   ConfigMap configs_;
 
+ private:
   LoadCsv *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadCsv>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
@@ -3599,6 +3683,7 @@ class LoadParquet : public Clause {
   ConfigMap configs_;
   Identifier *row_var_{nullptr};
 
+ private:
   LoadParquet *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadParquet>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
@@ -3637,6 +3722,7 @@ class LoadJsonl : public Clause {
   Identifier *row_var_{nullptr};
   ConfigMap configs_;
 
+ private:
   LoadJsonl *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<LoadJsonl>();
     object->file_ = file_ ? file_->Clone(storage) : nullptr;
@@ -3666,6 +3752,7 @@ class FreeMemoryQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
+ private:
   FreeMemoryQuery *DoClone(AstStorage *storage) const override {
     FreeMemoryQuery *object = storage->Create<FreeMemoryQuery>();
     return object;
@@ -3711,6 +3798,7 @@ class TriggerQuery : public memgraph::query::Query {
   std::string statement_;
   TriggerPrivilegeContext privilege_context_;
 
+ private:
   TriggerQuery *DoClone(AstStorage *storage) const override {
     TriggerQuery *object = storage->Create<TriggerQuery>();
     object->action_ = action_;
@@ -3745,6 +3833,7 @@ class IsolationLevelQuery : public memgraph::query::Query {
   memgraph::query::IsolationLevelQuery::IsolationLevel isolation_level_;
   memgraph::query::IsolationLevelQuery::IsolationLevelScope isolation_level_scope_;
 
+ private:
   IsolationLevelQuery *DoClone(AstStorage *storage) const override {
     IsolationLevelQuery *object = storage->Create<IsolationLevelQuery>();
     object->isolation_level_ = isolation_level_;
@@ -3774,6 +3863,7 @@ class StorageModeQuery : public memgraph::query::Query {
 
   memgraph::query::StorageModeQuery::StorageMode storage_mode_;
 
+ private:
   StorageModeQuery *DoClone(AstStorage *storage) const override {
     StorageModeQuery *object = storage->Create<StorageModeQuery>();
     object->storage_mode_ = storage_mode_;
@@ -3795,6 +3885,7 @@ class CreateSnapshotQuery : public memgraph::query::Query {
   // Also reached on the periodic path, so it arranges its own access internally.
   QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
+ private:
   CreateSnapshotQuery *DoClone(AstStorage *storage) const override {
     CreateSnapshotQuery *object = storage->Create<CreateSnapshotQuery>();
     return object;
@@ -3811,6 +3902,7 @@ class RecoverSnapshotQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = FixedAccess{.access = HeldAccess::kUnique}}; }
 
+ private:
   RecoverSnapshotQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<RecoverSnapshotQuery>();
     object->snapshot_ = snapshot_ ? snapshot_->Clone(storage) : nullptr;
@@ -3821,6 +3913,7 @@ class RecoverSnapshotQuery : public memgraph::query::Query {
     return object;
   }
 
+ public:
   Expression *snapshot_;
   ConfigMap configs_;
   bool force_;
@@ -3836,6 +3929,7 @@ class ShowSnapshotsQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
+ private:
   ShowSnapshotsQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowSnapshotsQuery>();
     return object;
@@ -3852,6 +3946,7 @@ class ShowNextSnapshotQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}}; }
 
+ private:
   ShowNextSnapshotQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowNextSnapshotQuery>();
     return object;
@@ -3898,6 +3993,7 @@ class StreamQuery : public memgraph::query::Query {
   ConfigMap configs_;
   ConfigMap credentials_;
 
+ private:
   StreamQuery *DoClone(AstStorage *storage) const override {
     StreamQuery *object = storage->Create<StreamQuery>();
     object->action_ = action_;
@@ -3951,6 +4047,7 @@ class SettingQuery : public memgraph::query::Query {
   memgraph::query::Expression *setting_name_{nullptr};
   memgraph::query::Expression *setting_value_{nullptr};
 
+ private:
   SettingQuery *DoClone(AstStorage *storage) const override {
     SettingQuery *object = storage->Create<SettingQuery>();
     object->action_ = action_;
@@ -3984,6 +4081,7 @@ class ParameterQuery : public memgraph::query::Query {
   std::variant<Expression *, std::unordered_map<Expression *, Expression *>> parameter_value_{
       static_cast<Expression *>(nullptr)};
 
+ private:
   ParameterQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<ParameterQuery>();
     object->action_ = action_;
@@ -4020,6 +4118,7 @@ class VersionQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
+ private:
   VersionQuery *DoClone(AstStorage *storage) const override {
     VersionQuery *object = storage->Create<VersionQuery>();
     return object;
@@ -4047,6 +4146,7 @@ class Foreach : public memgraph::query::Clause {
   memgraph::query::NamedExpression *named_expression_{nullptr};
   std::vector<memgraph::query::Clause *> clauses_;
 
+ private:
   Foreach *DoClone(AstStorage *storage) const override {
     Foreach *object = storage->Create<Foreach>();
     object->named_expression_ = named_expression_ ? named_expression_->Clone(storage) : nullptr;
@@ -4075,6 +4175,7 @@ class ShowConfigQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
+ private:
   ShowConfigQuery *DoClone(AstStorage *storage) const override {
     ShowConfigQuery *object = storage->Create<ShowConfigQuery>();
     return object;
@@ -4091,6 +4192,7 @@ class ShowQueryCallableMappingsQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
+ private:
   ShowQueryCallableMappingsQuery *DoClone(AstStorage *storage) const override {
     ShowQueryCallableMappingsQuery *object = storage->Create<ShowQueryCallableMappingsQuery>();
     return object;
@@ -4119,6 +4221,7 @@ class TransactionQueueQuery : public memgraph::query::Query {
   std::vector<Expression *> transaction_id_list_;
   std::vector<StatusFilter> status_filter_;  // empty = show all statuses
 
+ private:
   TransactionQueueQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<TransactionQueueQuery>();
     object->action_ = action_;
@@ -4145,6 +4248,7 @@ class SessionQuery : public memgraph::query::Query {
   memgraph::query::SessionQuery::Action action_;
   std::vector<Expression *> session_id_list_;  // populated for TERMINATE; empty for SHOW
 
+ private:
   SessionQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<SessionQuery>();
     object->action_ = action_;
@@ -4168,6 +4272,7 @@ class AnalyzeGraphQuery : public memgraph::query::Query {
   memgraph::query::AnalyzeGraphQuery::Action action_;
   std::vector<std::string> labels_;
 
+ private:
   AnalyzeGraphQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<AnalyzeGraphQuery>();
     object->action_ = action_;
@@ -4205,6 +4310,7 @@ class CallSubquery : public memgraph::query::Clause {
   // `OPTIONAL CALL`: an input row whose body yields nothing is still emitted once, its symbols null.
   bool optional_{false};
 
+ private:
   CallSubquery *DoClone(AstStorage *storage) const override {
     CallSubquery *object = storage->Create<CallSubquery>();
     object->cypher_query_ = cypher_query_ ? cypher_query_->Clone(storage) : nullptr;
@@ -4239,6 +4345,7 @@ class MultiDatabaseQuery : public memgraph::query::Query {
   bool force_{false};
   std::optional<std::string> new_db_name_;
 
+ private:
   MultiDatabaseQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<MultiDatabaseQuery>();
     object->action_ = action_;
@@ -4261,6 +4368,7 @@ class UseDatabaseQuery : public memgraph::query::Query {
 
   std::string db_name_;
 
+ private:
   UseDatabaseQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<UseDatabaseQuery>();
     object->db_name_ = db_name_;
@@ -4278,6 +4386,7 @@ class ShowDatabaseQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
+ private:
   ShowDatabaseQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowDatabaseQuery>();
     return object;
@@ -4294,6 +4403,7 @@ class ShowDatabasesQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
+ private:
   ShowDatabasesQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowDatabasesQuery>();
     return object;
@@ -4315,6 +4425,7 @@ class CreateEnumQuery : public memgraph::query::Query {
   std::string enum_name_;
   std::vector<std::string> enum_values_;
 
+ private:
   CreateEnumQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<CreateEnumQuery>();
     object->enum_name_ = enum_name_;
@@ -4338,6 +4449,7 @@ class ShowEnumsQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = FixedAccess{.access = HeldAccess::kRead}}; }
 
+ private:
   ShowEnumsQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowEnumsQuery>();
     return object;
@@ -4368,6 +4480,7 @@ class EnumValueAccess : public Expression {
   std::string enum_value_;
   int32_t symbol_pos_{-1};
 
+ private:
   EnumValueAccess *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<EnumValueAccess>();
     object->enum_name_ = enum_name_;
@@ -4394,6 +4507,7 @@ class AlterEnumAddValueQuery : public memgraph::query::Query {
   std::string enum_name_;
   std::string enum_value_;
 
+ private:
   AlterEnumAddValueQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<AlterEnumAddValueQuery>();
     object->enum_name_ = enum_name_;
@@ -4421,6 +4535,7 @@ class AlterEnumUpdateValueQuery : public memgraph::query::Query {
   std::string old_enum_value_;
   std::string new_enum_value_;
 
+ private:
   AlterEnumUpdateValueQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<AlterEnumUpdateValueQuery>();
     object->enum_name_ = enum_name_;
@@ -4449,6 +4564,7 @@ class AlterEnumRemoveValueQuery : public memgraph::query::Query {
   std::string enum_name_;
   std::string removed_value_;
 
+ private:
   AlterEnumRemoveValueQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<AlterEnumRemoveValueQuery>();
     object->enum_name_ = enum_name_;
@@ -4475,6 +4591,7 @@ class DropEnumQuery : public memgraph::query::Query {
 
   std::string enum_name_;
 
+ private:
   DropEnumQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<DropEnumQuery>();
     object->enum_name_ = enum_name_;
@@ -4497,6 +4614,7 @@ class ShowSchemaInfoQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = FixedAccess{.access = HeldAccess::kRead}}; }
 
+ private:
   ShowSchemaInfoQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowSchemaInfoQuery>();
     return object;
@@ -4520,6 +4638,7 @@ class ReloadSSLQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
+ private:
   ReloadSSLQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<ReloadSSLQuery>();
     object->type_ = type_;
@@ -4540,6 +4659,7 @@ class ShowMemoryInfoQuery : public memgraph::query::Query {
 
   QueryTraits Traits() const override { return {.access = NoAccess{}, .operates_on_graph_data = false}; }
 
+ private:
   ShowMemoryInfoQuery *DoClone(AstStorage *storage) const override { return storage->Create<ShowMemoryInfoQuery>(); }
 
  private:
@@ -4564,6 +4684,7 @@ class TtlQuery : public memgraph::query::Query {
   // asynchronously under whatever access their own population requires.
   QueryTraits Traits() const override { return {.access = FixedAccess{.access = HeldAccess::kUnique}}; }
 
+ private:
   TtlQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<TtlQuery>();
     object->type_ = type_;
@@ -4590,6 +4711,7 @@ class SessionTraceQuery : public memgraph::query::Query {
 
   bool enabled_{false};
 
+ private:
   SessionTraceQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<SessionTraceQuery>();
     object->enabled_ = enabled_;
@@ -4618,6 +4740,7 @@ class SessionSettingQuery : public memgraph::query::Query {
   Expression *setting_name_{nullptr};
   Expression *setting_value_{nullptr};
 
+ private:
   SessionSettingQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<SessionSettingQuery>();
     object->action_ = action_;
@@ -4656,6 +4779,7 @@ class DescriptionQuery : public memgraph::query::Query {
   std::string description_;
   Expression *value_{nullptr};
 
+ private:
   DescriptionQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<DescriptionQuery>();
     object->action_ = action_;
