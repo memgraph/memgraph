@@ -737,6 +737,35 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
     return Truth::Refused;
   }
 
+  std::optional<int64_t> ReadIntProperty(TypedValue const &record, int64_t property_ix, bool &refused) override {
+    refused = false;
+    auto const id = ctx_->properties[property_ix];
+    if (record.IsVertex()) {
+      int64_t value = 0;
+      std::array<storage::PropertyId, 1> const path{id};
+      switch (record.ValueVertex().impl_.ReadIntProperty(path, view_, value)) {
+        case storage::VertexAccessor::IntRead::Ok:
+          return value;
+        case storage::VertexAccessor::IntRead::Null:
+          return std::nullopt;
+        case storage::VertexAccessor::IntRead::NotAnInt:
+          refused = true;
+          return std::nullopt;
+        case storage::VertexAccessor::IntRead::HasDeltas:
+          break;
+      }
+    }
+    // Whatever the quick read would not answer is answered the ordinary way,
+    // which is also where a record that cannot be read at all complains.
+    auto const boxed = ReadProperty(record, property_ix);
+    if (boxed.IsNull()) return std::nullopt;
+    if (!boxed.IsInt()) {
+      refused = true;
+      return std::nullopt;
+    }
+    return boxed.ValueInt();
+  }
+
   std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) override {
     if (record.IsNull()) return std::nullopt;
     if (record.IsVertex()) return LabelsMatch(record.ValueVertex(), test);

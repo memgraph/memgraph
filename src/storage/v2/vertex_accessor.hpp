@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <span>
+
 #include <optional>
 
 #include "storage/v2/result.hpp"
@@ -94,6 +96,15 @@ class VertexAccessor final {
 
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view) const;
+
+  /// What reading an integer property found, with a fourth answer for a vertex
+  /// carrying changes that only the ordinary read applies.
+  enum class IntRead : uint8_t { Ok, Null, NotAnInt, HasDeltas };
+
+  /// Reads an integer property without building a value for it. `HasDeltas`
+  /// when the vertex has been changed in a way this does not apply, where the
+  /// ordinary read is the only correct one.
+  IntRead ReadIntProperty(std::span<PropertyId const> path, View view, int64_t &out) const;
 
   /// Returns the size of the encoded vertex property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;

@@ -2724,6 +2724,41 @@ void PropertyStore::ExtractPropertyValuesMissingAsNull(std::span<PropertyPath co
   });
 }
 
+PropertyStore::IntRead PropertyStore::ReadInt(std::span<PropertyId const> path, int64_t &out) const {
+  if (path.empty()) return IntRead::Null;
+  auto read_int = [&](Reader &reader) -> IntRead {
+    // Each property but the last names a map to step inside, which is the same
+    // walk an index does to compare something nested without decoding it.
+    for (auto const inner : path.first(path.size() - 1)) {
+      auto const info = FindSpecificPropertyAndBufferInfoMinimal(&reader, inner);
+      if (info.status != ExpectedPropertyStatus::EQUAL) return IntRead::Null;
+      reader.SetPosition(info.property_begin);
+      auto const metadata = reader.ReadMetadata();
+      if (!metadata) return IntRead::Null;
+      // Reaching inside something that is not a map is not an integer, and is
+      // the evaluator's to complain about or answer null for.
+      if (metadata->type != Type::MAP) return IntRead::NotAnInt;
+      reader.SkipBytes(SizeToByteSize(metadata->id_size) + SizeToByteSize(metadata->payload_size));
+    }
+
+    auto const orig_reader = reader;
+    auto const info = FindSpecificPropertyAndBufferInfoMinimal(&reader, path.back());
+    auto const property_size = info.property_size();
+    if (property_size == 0) return IntRead::Null;
+
+    auto prop_reader = Reader(orig_reader, info.property_begin, property_size);
+    auto const metadata = prop_reader.ReadMetadata();
+    if (!metadata) return IntRead::Null;
+    if (!prop_reader.ReadUint(metadata->id_size)) return IntRead::Null;
+    if (metadata->type != Type::INT) return IntRead::NotAnInt;
+    auto const value = prop_reader.ReadInt(metadata->payload_size);
+    if (!value) return IntRead::NotAnInt;
+    out = *value;
+    return IntRead::Ok;
+  };
+  return WithReader(read_int);
+}
+
 bool PropertyStore::IsPropertyEqual(PropertyId property, const PropertyValue &value) const {
   auto property_equal = [&](Reader &reader) -> bool {
     auto const orig_reader = reader;

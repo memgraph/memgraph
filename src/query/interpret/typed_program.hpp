@@ -59,6 +59,12 @@ class RecordReader {
   /// a string wide, and every row walks every instruction.
   virtual storage::PropertyValue ReadProperty(TypedValue const &record, int64_t property_ix) = 0;
 
+  /// Reads an integer property without a value being built around it. Nothing
+  /// when the property is missing, which makes a comparison against it null;
+  /// `refused` when it is there and is not an integer, which is a guess the
+  /// program got wrong.
+  virtual std::optional<int64_t> ReadIntProperty(TypedValue const &record, int64_t property_ix, bool &refused) = 0;
+
   /// Nothing when the record is null, which makes the test null. Throws what
   /// the ordinary evaluator throws when the record is not a node.
   virtual std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) = 0;
@@ -129,6 +135,11 @@ class TypedProgram {
     LoadPropTime,
     EvalTime,
     ConstInt,  // from the expression itself, so never in doubt
+    // A property compared with something the query names. This is what almost
+    // every filter is, and running it as one instruction keeps the loop that
+    // walks a program from being most of the cost of a short one.
+    PropCmpConst,
+    PropCmpParam,
     AddInt,
     SubInt,
     MulInt,

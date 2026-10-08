@@ -21,6 +21,7 @@
 #include "query/interpret/typed_program.hpp"
 #include "query/parameters.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/temporal.hpp"
 
 using memgraph::query::AstStorage;
@@ -253,6 +254,55 @@ TEST_F(TypedProgramTest, ATemporalComparisonCompilesAndAnswers) {
   auto before = TypedProgram::Compile(later);
   ASSERT_TRUE(before.has_value());
   EXPECT_EQ(before->Run(frame_, &evaluator), TypedProgram::Answer::False);
+}
+
+// An integer property is read without a value being built around it, which is
+// only correct for a record nobody has changed. One that has been changed
+// carries deltas that only the ordinary read applies, so it must answer the
+// same either way.
+TEST_F(TypedProgramTest, APropertyReadAgreesWhetherOrNotTheRecordHasChanged) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  auto const age = [&] {
+    auto setup = db->Access(memgraph::storage::WRITE);
+    memgraph::query::DbAccessor dba{setup.get()};
+    auto const id = dba.NameToProperty("age");
+    auto vertex = dba.InsertVertex();
+    [[maybe_unused]] auto const ok = vertex.SetProperty(id, memgraph::storage::PropertyValue(int64_t{30}));
+    [[maybe_unused]] auto const committed = setup->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+    return id;
+  }();
+
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  auto *expr = storage_.Create<memgraph::query::GreaterOperator>(
+      storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("age")),
+      storage_.Create<memgraph::query::PrimitiveLiteral>(int64_t{20}));
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value());
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = &dba;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  auto found = dba.Vertices(memgraph::storage::View::OLD);
+  auto it = found.begin();
+  ASSERT_NE(it, found.end());
+  auto vertex = *it;
+
+  // Nothing has touched it in this transaction, so the quick read answers.
+  Set(0, TypedValue(vertex));
+  EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
+
+  // Now it carries a change. The store keeps what the property is now and the
+  // deltas say how to get back to what it was, so a read of what it was cannot
+  // come from the store alone.
+  ASSERT_TRUE(vertex.SetProperty(age, memgraph::storage::PropertyValue(int64_t{10})).has_value());
+  Set(0, TypedValue(vertex));
+  EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True)
+      << "a record that has changed must be read the way that walks back to what it was";
 }
 
 // A chained comparison is a conjunction that evaluates both sides whatever the
