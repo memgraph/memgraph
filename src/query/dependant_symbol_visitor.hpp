@@ -39,7 +39,12 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
   explicit DependantSymbolVisitor(std::set<Symbol::Position_t> &dependencies) : dependencies_(dependencies) {}
 
   void Visit(Identifier &identifier) override {
-    MG_ASSERT(identifier.symbol_pos_ != -1);
+    // An identifier with no symbol was never reached by symbol generation, so it belongs to a subtree the query no
+    // longer holds. Nothing will evaluate it, and a cache keyed on a symbol it does not have cannot be invalidated.
+    if (identifier.symbol_pos_ == -1) {
+      is_cacheable_ = false;
+      return;
+    }
     dependencies_.insert(identifier.symbol_pos_);
   }
 

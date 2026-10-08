@@ -3173,6 +3173,23 @@ TYPED_TEST(InterpreterTest, OptionalCallSubquery) {
   }
 }
 
+// A query the AST cache never holds is handed out as the parser built it. Where ORDER BY repeated a projected item,
+// the parser left the replaced subtree in the AST storage with its identifiers unresolved, so whatever reads the
+// storage rather than walking the tree meets an identifier that symbol generation never reached.
+TYPED_TEST(InterpreterTest, UncacheableQueryDetachingAnInListTest) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  this->Interpret("CREATE (:Node {x: 1, list: [1, 2]}), (:Node {x: 3, list: [1, 2]}), (:Node {x: 3, list: [1, 2]})");
+
+  auto stream = this->Interpret("MATCH (n:$label) RETURN n.x IN n.list AS found, COUNT(*) AS c ORDER BY n.x IN n.list",
+                                {{"label", EPV(std::string("Node"))}});
+
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_FALSE(stream.GetResults()[0][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_TRUE(stream.GetResults()[1][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+}
+
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {
   constexpr std::size_t kMaxSize = 2;
   memgraph::query::AstCache cache{kMaxSize};

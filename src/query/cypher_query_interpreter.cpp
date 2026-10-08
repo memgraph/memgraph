@@ -205,14 +205,8 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
       get_information_from_cache(*cached_query);
     } else {
       result.required_privileges = query::GetRequiredPrivileges(visitor.query());
-      if (visitor.GetQueryInfo().has_detached_nodes) {
-        // Cloning walks the tree, so the nodes the parser detached from it are left behind. Whatever reads the storage
-        // rather than the tree would otherwise meet a node that symbol generation never reached.
-        clone_query(ast_storage, visitor.query());
-      } else {
-        result.query = visitor.query();
-        result.ast_storage = std::move(ast_storage);
-      }
+      result.query = visitor.query();
+      result.ast_storage = std::move(ast_storage);
 
       result.is_cypher_read = read_check();
       result.using_schema_assert = visitor.GetQueryInfo().has_schema_assert;

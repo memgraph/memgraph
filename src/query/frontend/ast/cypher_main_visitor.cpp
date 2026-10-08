@@ -3162,36 +3162,31 @@ bool AreEquivalent(Expression *lhs, Expression *rhs, std::vector<NamedExpression
          });
 }
 
-// Returns whether any subtree was replaced, which leaves that subtree detached from the tree but still in the storage.
-bool ReferToProjectedItems(Expression *&expr, std::vector<NamedExpression *> const &items,
+void ReferToProjectedItems(Expression *&expr, std::vector<NamedExpression *> const &items,
                            ParameterNames const &parameter_names, AstStorage &storage) {
-  if (!expr) return false;
+  if (!expr) return;
   auto const item = std::ranges::find_if(
       items, [&](auto *item) { return AreEquivalent(item->expression_, expr, items, parameter_names); });
   if (item != items.end()) {
     expr = storage.Create<Identifier>((*item)->name_);
-    return true;
+    return;
   }
   // An aggregation that repeats no projected item is rejected once the symbols are generated, so rewriting within its
   // arguments would only detach a subtree that nothing goes on to read.
-  if (utils::IsSubtype(*expr, Aggregation::kType)) return false;
-  bool replaced = false;
+  if (utils::IsSubtype(*expr, Aggregation::kType)) return;
   for (auto *child : MatchableChildren(expr).value_or(std::vector<Expression **>{})) {
-    replaced |= ReferToProjectedItems(*child, items, parameter_names, storage);
+    ReferToProjectedItems(*child, items, parameter_names, storage);
   }
-  return replaced;
 }
 
 // When a projection aggregates, ORDER BY and WHERE only see the projected items, so any part of them that repeats a
 // projected item's expression is replaced with a reference to that item.
-bool ReferToProjectedItems(ReturnBody &body, Where *where, ParameterNames const &parameter_names, AstStorage &storage) {
-  if ((body.order_by.empty() && !where) || !ProjectsAggregation(body)) return false;
-  bool replaced = false;
+void ReferToProjectedItems(ReturnBody &body, Where *where, ParameterNames const &parameter_names, AstStorage &storage) {
+  if ((body.order_by.empty() && !where) || !ProjectsAggregation(body)) return;
   for (auto &sort_item : body.order_by) {
-    replaced |= ReferToProjectedItems(sort_item.expression, body.named_expressions, parameter_names, storage);
+    ReferToProjectedItems(sort_item.expression, body.named_expressions, parameter_names, storage);
   }
-  if (where) replaced |= ReferToProjectedItems(where->expression_, body.named_expressions, parameter_names, storage);
-  return replaced;
+  if (where) ReferToProjectedItems(where->expression_, body.named_expressions, parameter_names, storage);
 }
 }  // namespace
 
@@ -3201,7 +3196,7 @@ antlrcpp::Any CypherMainVisitor::visitCypherReturn(MemgraphCypher::CypherReturnC
   if (ctx->DISTINCT()) {
     return_clause->body_.distinct = true;
   }
-  query_info_.has_detached_nodes |= ReferToProjectedItems(return_clause->body_, nullptr, parameter_names_, *storage_);
+  ReferToProjectedItems(return_clause->body_, nullptr, parameter_names_, *storage_);
   return return_clause;
 }
 
@@ -4752,7 +4747,7 @@ antlrcpp::Any CypherMainVisitor::visitWith(MemgraphCypher::WithContext *ctx) {
   if (ctx->where()) {
     with->where_ = std::any_cast<Where *>(ctx->where()->accept(this));
   }
-  query_info_.has_detached_nodes |= ReferToProjectedItems(with->body_, with->where_, parameter_names_, *storage_);
+  ReferToProjectedItems(with->body_, with->where_, parameter_names_, *storage_);
   return with;
 }
 
