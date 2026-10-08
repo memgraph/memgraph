@@ -4804,7 +4804,7 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
     }
   }
 
-  // A CALL's WHEN body keeps the CALL alias rule, which the symbol generator applies.
+  // A CALL body, plain or WHEN, keeps the CALL alias rule, which the symbol generator applies.
   auto const old_in_when_body = std::exchange(in_when_body_, false);
   call_subquery->cypher_query_ = ctx->conditionalQuery()
                                      ? BuildConditionalQuery(ctx->conditionalQuery()).query
