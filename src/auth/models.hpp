@@ -206,6 +206,8 @@ std::string PermissionToString(Permission permission);
 // Class that indicates what permission level the user/role has.
 enum class PermissionLevel : uint8_t { GRANT, NEUTRAL, DENY };
 
+enum class DenyStrength : uint8_t { WEAK, STRONG };
+
 // Function that converts a permission level to its string representation.
 std::string PermissionLevelToString(PermissionLevel level);
 
@@ -217,7 +219,7 @@ std::string FineGrainedPermissionToString(uint64_t permission, bool is_label);
 
 class Permissions final {
  public:
-  explicit Permissions(uint64_t grants = 0, uint64_t denies = 0);
+  explicit Permissions(uint64_t grants = 0, uint64_t denies = 0, uint64_t weak_denies = 0);
 
   Permissions(const Permissions &) = default;
   Permissions &operator=(const Permissions &) = default;
@@ -231,7 +233,7 @@ class Permissions final {
 
   void Revoke(Permission permission);
 
-  void Deny(Permission permission);
+  void Deny(Permission permission, DenyStrength strength = DenyStrength::STRONG);
 
   std::vector<Permission> GetGrants() const;
 
@@ -244,11 +246,15 @@ class Permissions final {
 
   uint64_t grants() const;
   uint64_t denies() const;
+  uint64_t weak_denies() const;
 
  private:
   uint64_t grants_{0};
   uint64_t denies_{0};
+  uint64_t weak_denies_{0};
 };
+
+Permissions Merge(Permissions const &first, Permissions const &second);
 
 bool operator==(const Permissions &first, const Permissions &second);
 
@@ -843,12 +849,10 @@ class Roles {
     for (const auto &role : roles_) {
 #ifdef MG_ENTERPRISE
       if (!db_name || role.HasAccess(*db_name)) {
-        permissions = Permissions{permissions.grants() | role.permissions().grants(),
-                                  permissions.denies() | role.permissions().denies()};
+        permissions = Merge(permissions, role.permissions());
       }
 #else
-      permissions = Permissions{permissions.grants() | role.permissions().grants(),
-                                permissions.denies() | role.permissions().denies()};
+      permissions = Merge(permissions, role.permissions());
 #endif
     }
     return permissions;
@@ -1080,14 +1084,12 @@ class User final {
     // filter roles based on the database name and combine with user permissions
     const auto &roles_permissions = roles_.GetPermissions(db_name);
     if (!db_name || has_access(*db_name)) {  // User only level access check
-      return Permissions{permissions_.grants() | roles_permissions.grants(),
-                         permissions_.denies() | roles_permissions.denies()};
+      return Merge(permissions_, roles_permissions);
     }
     return roles_permissions;
 #else
     const auto roles_permissions = roles_.GetPermissions();
-    return Permissions{permissions_.grants() | roles_permissions.grants(),
-                       permissions_.denies() | roles_permissions.denies()};
+    return Merge(permissions_, roles_permissions);
 #endif
   }
 
