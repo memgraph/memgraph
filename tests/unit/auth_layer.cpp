@@ -96,7 +96,8 @@ TEST_F(AuthLayerTest, StorageIsRestoredAfterEachTransactionalCall) {
   {
     ASSERT_TRUE(layer_->Lock()->AddUser("bob").has_value());
   }
-  EXPECT_TRUE(layer_->Lock()->HasUser("bob"));
+  memgraph::auth::AuthTransaction other;
+  EXPECT_TRUE(layer_->Lock(&other)->HasUser("bob")) << "a plain write went into the transaction's overlay";
 
   ASSERT_TRUE(layer_->Commit(tx, nullptr));
   EXPECT_TRUE(layer_->Lock()->HasUser("alice"));
