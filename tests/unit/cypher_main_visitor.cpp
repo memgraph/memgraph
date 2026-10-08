@@ -602,7 +602,13 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByDifferentAggregatedItem) {
   auto &ast_generator = *GetParam();
   for (auto const *text : {"MATCH (n) RETURN count(DISTINCT n.x) AS c ORDER BY count(n.x)",
                            "MATCH (n) RETURN toUpper(n.x) AS u, count(*) AS c ORDER BY toLower(n.x)",
-                           "MATCH (n) RETURN n:A AS a, count(*) AS c ORDER BY n:B"}) {
+                           "MATCH (n) RETURN n:A AS a, count(*) AS c ORDER BY n:B",
+                           // Two kinds that differ hold no common state, so neither is read through the other. The
+                           // last pair is two kinds that are both state-free and take the same children, which
+                           // nothing but the kinds themselves tells apart.
+                           "MATCH (n) RETURN n:A AS a, count(*) AS c ORDER BY n.A",
+                           "MATCH (n) RETURN n.x AS v, count(*) AS c ORDER BY [n.x]",
+                           "MATCH (n) RETURN n.x + n.y AS v, count(*) AS c ORDER BY n.x - n.y"}) {
     auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
     ASSERT_TRUE(query);
     auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
@@ -652,7 +658,15 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWhoseStateIsItsChildren
         "MATCH (n) RETURN coalesce(n.x, n.y) AS v, count(*) AS c ORDER BY coalesce(n.x, n.y)",
         "MATCH (n) RETURN n.l[n.a..n.b] AS v, count(*) AS c ORDER BY n.l[n.a..n.b]",
         "MATCH (n) RETURN CASE WHEN n.x THEN n.y ELSE n.z END AS v, count(*) AS c ORDER BY CASE WHEN n.x THEN n.y "
-        "ELSE n.z END"}) {
+        "ELSE n.z END",
+        "MATCH (n) RETURN n.x AND n.y AS v, count(*) AS c ORDER BY n.x AND n.y",
+        "MATCH (n) RETURN n.x OR n.y AS v, count(*) AS c ORDER BY n.x OR n.y",
+        "MATCH (n) RETURN n.x < n.y AS v, count(*) AS c ORDER BY n.x < n.y",
+        "MATCH (n) RETURN n.x = n.y AS v, count(*) AS c ORDER BY n.x = n.y",
+        "MATCH (n) RETURN n.x IN n.l AS v, count(*) AS c ORDER BY n.x IN n.l",
+        "MATCH (n) RETURN n.l[n.i] AS v, count(*) AS c ORDER BY n.l[n.i]",
+        "MATCH (n) RETURN n.x IS NULL AS v, count(*) AS c ORDER BY n.x IS NULL",
+        "MATCH (n) RETURN NOT n.x AS v, count(*) AS c ORDER BY NOT n.x"}) {
     auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
     ASSERT_TRUE(query) << text;
     auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
