@@ -11,7 +11,8 @@
 
 #pragma once
 
-#include "utils/on_scope_exit.hpp"
+#include <boost/unordered/unordered_flat_map.hpp>
+
 #include "utils/typeinfo.hpp"
 
 #include <algorithm>
@@ -90,6 +91,22 @@ class Tree;
 // which could be renamed to Node or AstTreeNode, but we also have a class
 // called NodeAtom...
 class AstStorage {
+  /// What a copy has already made, so a node it reaches again is not made twice. Lives on the
+  /// stack of the outermost copy, which is as long as it means anything. Looked up rather than
+  /// scanned: every node is looked up once before it is made, so a scan would cost each of them a
+  /// walk over all the ones before it, and a generated query can be thousands of nodes.
+  struct CopyRecord {
+    Tree *Find(Tree const *source) const {
+      auto const made = made_.find(source);
+      return made == made_.end() ? nullptr : made->second;
+    }
+
+    void Remember(Tree const *source, Tree *copy) { made_.emplace(source, copy); }
+
+   private:
+    boost::unordered_flat_map<Tree const *, Tree *> made_;
+  };
+
  public:
   AstStorage() = default;
   AstStorage(const AstStorage &) = delete;
@@ -108,14 +125,28 @@ class AstStorage {
   // machinery out of Create, which is instantiated once per node type.
   void Adopt(std::unique_ptr<Tree> node);
 
-  /// Makes the copies taken while the returned object lives one copy, so a node reached from two of
-  /// them is copied once.
-  [[nodiscard]] auto CopyScope() {
-    ++copy_depth_;
-    return utils::OnScopeExit{[this] {
-      if (--copy_depth_ == 0) copied_.clear();
-    }};
-  }
+  /// Makes the copies taken while it lives one copy, so a node reached from two of them is copied
+  /// once. It holds the record of what has been made, which is why it outlives none of them.
+  class CopyScope {
+   public:
+    explicit CopyScope(AstStorage &storage) : storage_{storage.copying_ == nullptr ? &storage : nullptr} {
+      if (storage_ != nullptr) storage_->copying_ = &record_;
+    }
+
+    ~CopyScope() {
+      if (storage_ != nullptr) storage_->copying_ = nullptr;
+    }
+
+    CopyScope(CopyScope const &) = delete;
+    CopyScope(CopyScope &&) = delete;
+    CopyScope &operator=(CopyScope const &) = delete;
+    CopyScope &operator=(CopyScope &&) = delete;
+
+   private:
+    /// Null when a copy was already running, which leaves that one's record in place.
+    AstStorage *storage_;
+    CopyRecord record_;
+  };
 
   LabelIx GetLabelIx(const std::string &name) { return LabelIx{name, FindOrAddName(name, &labels_)}; }
 
@@ -148,28 +179,20 @@ class AstStorage {
  private:
   friend class Tree;
 
-  /// What `Tree::Clone` dispatches through, and where the record of what a copy has made lives.
+  /// What `Tree::Clone` dispatches through.
   template <typename T>
     requires std::derived_from<T, Tree>
   T *Copy(T const *node) {
     if (!node) return nullptr;
-    auto const one_copy = CopyScope();
-    // A query is tens of nodes, so scanning what has been made costs less than hashing it would.
-    auto const made = std::ranges::find(copied_, static_cast<Tree const *>(node), &CopiedNode::source);
-    if (made != copied_.end()) return static_cast<T *>(made->copy);
+    CopyScope const one_copy{*this};
+    if (auto *made = copying_->Find(node)) return static_cast<T *>(made);
     auto *copy = node->DoClone(this);
-    copied_.emplace_back(node, copy);
+    copying_->Remember(node, copy);
     return copy;
   }
 
-  struct CopiedNode {
-    Tree const *source;
-    Tree *copy;
-  };
-
-  /// What the copy in progress has made; meaningful only while `copy_depth_` is above zero.
-  std::vector<CopiedNode> copied_;
-  int copy_depth_{0};
+  /// Non-null exactly while a copy into this storage is running.
+  CopyRecord *copying_{nullptr};
 
   int64_t FindOrAddName(const std::string &name, std::vector<std::string> *names) {
     for (int64_t i = 0; i < names->size(); ++i) {

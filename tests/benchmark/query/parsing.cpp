@@ -118,6 +118,7 @@ void CopyAst(benchmark::State &state, std::string query, bool names_a_parameter)
   memgraph::query::frontend::CypherMainVisitor visitor(context, &storage, &parameters);
   visitor.visit(parser.tree());
   auto *parsed = visitor.query();
+  state.counters["nodes"] = static_cast<double>(storage.NodeCount());
   for (auto _ : state) {
     memgraph::query::AstStorage copy;
     benchmark::DoNotOptimize(parsed->Clone(&copy));
@@ -135,7 +136,25 @@ void Strip(benchmark::State &state, std::string query) {
 
 }  // namespace
 
+/// A projection of `width` sums, which is how the node count is varied: what a copy costs to look up
+/// what it has already made depends on how much that is, and a real query can be any of these sizes.
+/// Every item names the same two properties, so the storage's name table stays short and its own
+/// lookup does not grow with the node count being measured.
+std::string WideProjection(int width) {
+  std::string query = "MATCH (n) RETURN ";
+  for (int item = 0; item < width; ++item) {
+    if (item != 0) query += ", ";
+    query += "n.a + n.b AS c" + std::to_string(item);
+  }
+  return query;
+}
+
 int main(int argc, char **argv) {
+  for (int width : {2, 8, 32, 128, 512}) {
+    benchmark::RegisterBenchmark(
+        ("CopyAst/wide_" + std::to_string(width)).c_str(), CopyAst, WideProjection(width), false)
+        ->Unit(benchmark::kMicrosecond);
+  }
   for (const auto &shape : kShapes) {
     benchmark::RegisterBenchmark((std::string{"Parse/"} + shape.name).c_str(), Parse, shape.query)
         ->Unit(benchmark::kMicrosecond);
