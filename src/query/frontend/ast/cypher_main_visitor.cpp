@@ -490,7 +490,15 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     cypher_query->cypher_unions_.push_back(std::any_cast<CypherUnion *>(child->accept(this)));
   }
 
-  if (auto *pre_query_directives_ctx = ctx->preQueryDirectives()) {
+  SetQueryDirectives(cypher_query, ctx->preQueryDirectives(), ctx->queryMemoryLimit());
+  query_ = cypher_query;
+  return cypher_query;
+}
+
+void CypherMainVisitor::SetQueryDirectives(CypherQuery *cypher_query,
+                                           MemgraphCypher::PreQueryDirectivesContext *pre_query_directives_ctx,
+                                           MemgraphCypher::QueryMemoryLimitContext *memory_limit_ctx) {
+  if (pre_query_directives_ctx) {
     cypher_query->pre_query_directives_ = std::any_cast<PreQueryDirectives>(pre_query_directives_ctx->accept(this));
     // NOTE Parallel exectution cannot be cached because the user can define number of threads that is used to generate
     // the parallel branches
@@ -499,16 +507,13 @@ antlrcpp::Any CypherMainVisitor::visitCypherQuery(MemgraphCypher::CypherQueryCon
     }
   }
 
-  if (auto *memory_limit_ctx = ctx->queryMemoryLimit()) {
+  if (memory_limit_ctx) {
     const auto memory_limit_info = VisitMemoryLimit(memory_limit_ctx->memoryLimit(), this);
     if (memory_limit_info) {
       cypher_query->memory_limit_ = memory_limit_info->first;
       cypher_query->memory_scale_ = memory_limit_info->second;
     }
   }
-
-  query_ = cypher_query;
-  return cypher_query;
 }
 
 auto get_index_properties(auto &&ctx, CypherMainVisitor &cypher_main_visitor) -> std::vector<PropertyIxPath> {
