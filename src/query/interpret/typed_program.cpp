@@ -74,7 +74,7 @@ class TypedProgramBuilder {
         // the one place that knows how a bound value becomes one.
         if (kind == Kind::Time) {
           auto const slot = NextInt();
-          Emit(TypedProgram::Op::EvalTime, slot, 0, 0, 0, PropertyIx{}, nullptr, expression);
+          Emit(TypedProgram::Op::EvalTime, slot, 0, 0, 0, 0, nullptr, expression);
           return Operand{.is_tri = false, .slot = slot};
         }
         auto const position = static_cast<ParameterLookup *>(expression)->token_position_;
@@ -87,7 +87,7 @@ class TypedProgramBuilder {
         // arguments are left to the evaluator, which is what builds the time.
         if (kind != Kind::Time || !NamesATime(expression)) return refuse();
         auto const slot = NextInt();
-        Emit(TypedProgram::Op::EvalTime, slot, 0, 0, 0, PropertyIx{}, nullptr, expression);
+        Emit(TypedProgram::Op::EvalTime, slot, 0, 0, 0, 0, nullptr, expression);
         return Operand{.is_tri = false, .slot = slot};
       }
       case utils::TypeId::AST_LABELS_TEST: {
@@ -100,7 +100,7 @@ class TypedProgramBuilder {
         auto const position = static_cast<Identifier *>(test->expression_)->symbol_pos_;
         if (position < 0) return refuse();
         auto const slot = NextTri();
-        Emit(TypedProgram::Op::TestLabels, slot, position, 0, 0, PropertyIx{}, test);
+        Emit(TypedProgram::Op::TestLabels, slot, position, 0, 0, 0, test);
         return Operand{.is_tri = true, .slot = slot};
       }
       case utils::TypeId::AST_PROPERTY_LOOKUP: {
@@ -121,7 +121,7 @@ class TypedProgramBuilder {
              position,
              0,
              0,
-             lookup->property_);
+             lookup->property_.ix);
         return Operand{.is_tri = false, .slot = slot};
       }
       case utils::TypeId::AST_ADDITION_OPERATOR:
@@ -259,7 +259,7 @@ class TypedProgramBuilder {
     // The walk may have recorded why it stopped; it no longer stops here.
     refused_on_ = nullptr;
     auto const slot = NextTri();
-    Emit(TypedProgram::Op::EvalTri, slot, 0, 0, 0, PropertyIx{}, nullptr, expression);
+    Emit(TypedProgram::Op::EvalTri, slot, 0, 0, 0, 0, nullptr, expression);
     return Operand{.is_tri = true, .slot = slot};
   }
 
@@ -267,14 +267,14 @@ class TypedProgramBuilder {
 
   int32_t NextTri() { return static_cast<int32_t>(tri_slots_++); }
 
-  void Emit(TypedProgram::Op op, int32_t dst, int32_t a, int32_t b, int64_t literal, PropertyIx property = PropertyIx{},
+  void Emit(TypedProgram::Op op, int32_t dst, int32_t a, int32_t b, int64_t literal, int64_t property_ix = 0,
             LabelsTest *labels = nullptr, Expression *delegated = nullptr) {
     code_.push_back(TypedProgram::Instr{.op = op,
                                         .dst = dst,
                                         .a = a,
                                         .b = b,
                                         .literal = literal,
-                                        .property = std::move(property),
+                                        .property_ix = property_ix,
                                         .labels = labels,
                                         .delegated = delegated});
   }
@@ -407,7 +407,7 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
           }
           return false;
         }
-        auto const value = reader->ReadProperty(record, in.property);
+        auto const value = reader->ReadProperty(record, in.property_ix);
         if (value.IsInt()) {
           ints[in.dst] = value.ValueInt();
           int_known[in.dst] = 1;
@@ -446,7 +446,7 @@ bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters 
           }
           return false;
         }
-        auto const value = reader->ReadProperty(record, in.property);
+        auto const value = reader->ReadProperty(record, in.property_ix);
         if (value.IsTemporalData() && value.ValueTemporalData().type == storage::TemporalType::LocalDateTime) {
           ints[in.dst] = value.ValueTemporalData().microseconds;
           int_known[in.dst] = 1;

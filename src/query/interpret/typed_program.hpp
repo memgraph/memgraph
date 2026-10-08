@@ -54,7 +54,10 @@ class RecordReader {
 
   /// Null when the record has no such property, or when it may not be read.
   /// Throws what the ordinary evaluator throws for a record that is gone.
-  virtual storage::PropertyValue ReadProperty(TypedValue const &record, PropertyIx const &property) = 0;
+  /// The property is named by its place in the query's table of them, which is
+  /// all a read needs: an instruction that carried the name too would be half
+  /// a string wide, and every row walks every instruction.
+  virtual storage::PropertyValue ReadProperty(TypedValue const &record, int64_t property_ix) = 0;
 
   /// Nothing when the record is null, which makes the test null. Throws what
   /// the ordinary evaluator throws when the record is not a node.
@@ -159,7 +162,7 @@ class TypedProgram {
     int32_t a;
     int32_t b;
     int64_t literal;
-    PropertyIx property;
+    int64_t property_ix;
     LabelsTest *labels{nullptr};
     Expression *delegated{nullptr};
   };

@@ -322,9 +322,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
  public:
   /// Lets a compiled program read a property without repeating what reading one
   /// involves: the view, the permission check, and a record that is gone.
-  storage::PropertyValue ReadProperty(TypedValue const &record, PropertyIx const &property) override {
-    if (record.IsVertex()) return GetProperty(record.ValueVertex(), property);
-    if (record.IsEdge()) return GetProperty(record.ValueEdge(), property);
+  storage::PropertyValue ReadProperty(TypedValue const &record, int64_t property_ix) override {
+    if (record.IsVertex()) return GetPropertyById(record.ValueVertex(), ctx_->properties[property_ix]);
+    if (record.IsEdge()) return GetPropertyById(record.ValueEdge(), ctx_->properties[property_ix]);
     return storage::PropertyValue{};
   }
 
@@ -1216,9 +1216,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
+    return GetPropertyById(record_accessor, ctx_->properties[prop.ix]);
+  }
+
+  template <class TRecordAccessor>
+  storage::PropertyValue GetPropertyById(const TRecordAccessor &record_accessor, storage::PropertyId id) {
     RequireAccessor("Reading a property");
-    if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
-    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
+    if (!IsPropertyAllowed(record_accessor, id)) return storage::PropertyValue{};
+    auto maybe_prop = record_accessor.GetProperty(view_, id);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1226,7 +1231,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix]);
+      maybe_prop = record_accessor.GetProperty(storage::View::NEW, id);
     }
     if (!maybe_prop) {
       switch (maybe_prop.error()) {
