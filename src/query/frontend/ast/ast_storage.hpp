@@ -90,8 +90,8 @@ class Tree;
 // which could be renamed to Node or AstTreeNode, but we also have a class
 // called NodeAtom...
 class AstStorage {
-  /// What a copy has already made, so a node it reaches again is not made twice. Lives on the
-  /// stack of the outermost copy, which is as long as it means anything. Looked up rather than
+  /// What a clone has already made, so a node it reaches again is not made twice. Lives on the
+  /// stack of the outermost clone, which is as long as it means anything. Looked up rather than
   /// scanned: every node is looked up once before it is made, so a scan would cost each of them a
   /// walk over all the ones before it, and a generated query can be thousands of nodes.
   struct CloneRecord {
@@ -124,7 +124,7 @@ class AstStorage {
   // machinery out of Create, which is instantiated once per node type.
   void Adopt(std::unique_ptr<Tree> node);
 
-  /// Makes the copies taken while it lives one copy, so a node reached from two of them is copied
+  /// Makes the clones taken while it lives one clone, so a node reached from two of them is made
   /// once. It holds the record of what has been made, which is why it outlives none of them.
   class [[nodiscard]] CloneScope {
    public:
@@ -142,7 +142,7 @@ class AstStorage {
     CloneScope &operator=(CloneScope &&) = delete;
 
    private:
-    /// Null when a copy was already running, which leaves that one's record in place.
+    /// Null when a clone was already running, which leaves that one's record in place.
     AstStorage *storage_;
     CloneRecord record_;
   };
@@ -189,28 +189,32 @@ class AstStorage {
     return copy;
   }
 
-  /// Names the record of a copy running into this storage, and nothing the rest of the time. A
-  /// move leaves both sides naming nothing: a storage is only handed on once the copy that filled
-  /// it has finished, and carrying the name across would leave two storages sharing one record.
-  /// Saying that here rather than in a move operator keeps the move operators defaulted, so a
-  /// member added later is still moved.
-  struct RunningCopy {
-    RunningCopy() = default;
+  /// Names the record of a clone running into this storage, and nothing the rest of the time. It
+  /// names rather than holds: a storage outlives the clones made into it, and a record kept past
+  /// its own clone would hold keys into a source that may be gone by the next one. Living in the
+  /// scope that started the clone makes that a stack frame rather than a rule, and leaves a
+  /// nested scope able to see that a record is already in place and let it be.
+  ///
+  /// A move leaves both sides naming nothing, since a storage is only handed on once the clone
+  /// that filled it has finished. Saying that here rather than in a move operator is what lets
+  /// the move operators stay defaulted, so a member added later is still moved.
+  struct RunningClone {
+    RunningClone() = default;
 
-    RunningCopy(RunningCopy && /*other*/) noexcept {}
+    RunningClone(RunningClone && /*other*/) noexcept {}
 
-    RunningCopy &operator=(RunningCopy && /*other*/) noexcept {
+    RunningClone &operator=(RunningClone && /*other*/) noexcept {
       record = nullptr;
       return *this;
     }
 
-    RunningCopy(RunningCopy const &) = delete;
-    RunningCopy &operator=(RunningCopy const &) = delete;
+    RunningClone(RunningClone const &) = delete;
+    RunningClone &operator=(RunningClone const &) = delete;
 
     CloneRecord *record{nullptr};
   };
 
-  RunningCopy cloning_;
+  RunningClone cloning_;
 
   int64_t FindOrAddName(const std::string &name, std::vector<std::string> *names) {
     for (int64_t i = 0; i < names->size(); ++i) {
