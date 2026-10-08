@@ -177,7 +177,7 @@ class AuthQuery : public memgraph::query::Query {
   DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
   UserOrRoleType entity_type_{UserOrRoleType::UNSPECIFIED};
 
-  AuthQuery *CloneImpl(AstStorage *storage) const override {
+  AuthQuery *DoClone(AstStorage *storage) const override {
     auto *object = storage->Create<AuthQuery>();
     object->action_ = action_;
     object->user_ = user_;
@@ -187,7 +187,7 @@ class AuthQuery : public memgraph::query::Query {
     object->old_password_ = old_password_;
     object->new_password_ = new_password_;
     object->if_not_exists_ = if_not_exists_;
-    object->password_ = password_ ? password_->Copy(storage) : nullptr;
+    object->password_ = password_ ? password_->Clone(storage) : nullptr;
     object->database_ = database_;
     object->privileges_ = privileges_;
     object->all_privileges_ = all_privileges_;

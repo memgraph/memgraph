@@ -141,7 +141,7 @@ ParsedQuery ParseQuery(const std::string &raw_query_string, UserParameters const
     result.ast_storage.user_functions_ = cached_query.ast_storage.user_functions_;
     result.ast_storage.call_procedures_ = cached_query.ast_storage.call_procedures_;
 
-    result.query = result.ast_storage.Copy(cached_query.query);
+    result.query = cached_query.query->Clone(&result.ast_storage);
     result.required_privileges = cached_query.required_privileges;
     result.is_cypher_read = cached_query.is_cypher_read;
     result.using_schema_assert = cached_query.using_schema_assert;

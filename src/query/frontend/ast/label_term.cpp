@@ -35,7 +35,7 @@ LabelTerm LabelTerm::Clone(AstStorage *storage) const {
   };
   return std::visit(utils::Overloaded{
                         [&](const Label &leaf) { return LabelTerm{Label{storage->GetLabelIx(leaf.label.name)}}; },
-                        [&](const Dynamic &leaf) { return LabelTerm{Dynamic{leaf.expression->Copy(storage)}}; },
+                        [&](const Dynamic &leaf) { return LabelTerm{Dynamic{leaf.expression->Clone(storage)}}; },
                         [](const Wildcard &) { return LabelTerm{Wildcard{}}; },
                         [&](const And &conjunction) { return LabelTerm{And{clone_all(conjunction.operands)}}; },
                         [&](const Or &disjunction) { return LabelTerm{Or{clone_all(disjunction.operands)}}; },
@@ -131,14 +131,14 @@ std::vector<LabelsTest *> LabelsTest::Split(AstStorage &storage, const LabelsTes
   if (!conjunction || std::ranges::none_of(conjunction->operands, IsLabelChoice)) {
     // Normalising alone can still leave a label, as of `!!A`, or fewer operators to test.
     if (!changed) return {};
-    return {Make(storage, test.expression_->Copy(&storage), std::move(term))};
+    return {Make(storage, test.expression_->Clone(&storage), std::move(term))};
   }
 
   std::vector<LabelsTest *> pieces;
   std::vector<LabelTerm> rest;
   for (auto &conjunct : conjunction->operands) {
     if (IsLabelChoice(conjunct)) {
-      pieces.push_back(Make(storage, test.expression_->Copy(&storage), std::move(conjunct)));
+      pieces.push_back(Make(storage, test.expression_->Clone(&storage), std::move(conjunct)));
     } else {
       rest.push_back(std::move(conjunct));
     }
@@ -146,7 +146,7 @@ std::vector<LabelsTest *> LabelsTest::Split(AstStorage &storage, const LabelsTes
   // The rest stay one test, so the subject is read once for all of them.
   if (!rest.empty()) {
     auto rest_term = rest.size() == 1U ? std::move(rest.front()) : LabelTerm{LabelTerm::And{std::move(rest)}};
-    pieces.push_back(Make(storage, test.expression_->Copy(&storage), std::move(rest_term)));
+    pieces.push_back(Make(storage, test.expression_->Clone(&storage), std::move(rest_term)));
   }
   DMG_ASSERT(std::ranges::all_of(pieces, [&](const LabelsTest *piece) { return Split(storage, *piece).empty(); }),
              "A piece of a split labels test splits again");

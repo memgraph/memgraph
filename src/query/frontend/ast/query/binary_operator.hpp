@@ -25,7 +25,7 @@ class BinaryOperator : public memgraph::query::Expression {
   memgraph::query::Expression *expression1_{nullptr};
   memgraph::query::Expression *expression2_{nullptr};
 
-  BinaryOperator *CloneImpl(AstStorage *storage) const override = 0;
+  BinaryOperator *DoClone(AstStorage *storage) const override = 0;
 
  protected:
   BinaryOperator(Expression *expression1, Expression *expression2)

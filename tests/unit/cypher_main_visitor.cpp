@@ -140,7 +140,7 @@ class AstGenerator : public Base {
     // result holds exactly what this parse added: no fewer, or a node reached by several paths
     // was copied once per path; no more, or the storage is holding one nothing will read.
     AstStorage reachable;
-    reachable.Copy(query);
+    query->Clone(&reachable);
     EXPECT_EQ(reachable.NodeCount(), ast_storage_.NodeCount() - before) << query_string;
     return query;
   }
@@ -163,7 +163,7 @@ class OriginalAfterCloningAstGenerator : public AstGenerator {
   Query *ParseQuery(const std::string &query_string) override {
     auto *original_query = AstGenerator::ParseQuery(query_string);
     AstStorage storage;
-    original_query->Copy(&storage);
+    original_query->Clone(&storage);
     return original_query;
   }
 };
@@ -186,7 +186,7 @@ class ClonedAstGenerator : public Base {
     }
     CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
     visitor.visit(parser.tree());
-    return visitor.query()->Copy(&ast_storage_);
+    return visitor.query()->Clone(&ast_storage_);
   }
 
   PropertyIx Prop(const std::string &prop_name) override { return ast_storage_.GetPropertyIx(prop_name); }
@@ -213,7 +213,7 @@ class CachedAstGenerator : public Base {
     AstStorage tmp_storage;
     CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
     visitor.visit(parser.tree());
-    return visitor.query()->Copy(&ast_storage_);
+    return visitor.query()->Clone(&ast_storage_);
   }
 
   PropertyIx Prop(const std::string &prop_name) override { return ast_storage_.GetPropertyIx(prop_name); }

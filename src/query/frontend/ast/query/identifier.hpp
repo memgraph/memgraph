@@ -43,7 +43,7 @@ class Identifier : public memgraph::query::Expression {
   /// Symbol table position of the symbol this Identifier is mapped to.
   int32_t symbol_pos_{-1};
 
-  Identifier *CloneImpl(AstStorage *storage) const override {
+  Identifier *DoClone(AstStorage *storage) const override {
     Identifier *object = storage->Create<Identifier>();
     object->name_ = name_;
     object->user_declared_ = user_declared_;

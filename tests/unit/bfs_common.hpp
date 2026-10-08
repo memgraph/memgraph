@@ -134,7 +134,7 @@ class Yield : public memgraph::query::plan::LogicalOperator {
     LOG_FATAL("Please go away, visitor!");
   }
 
-  std::unique_ptr<LogicalOperator> CloneImpl(memgraph::query::AstStorage *storage) const override {
+  std::unique_ptr<LogicalOperator> DoClone(memgraph::query::AstStorage *storage) const override {
     LOG_FATAL("Don't clone Yield operator!");
   }
 

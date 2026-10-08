@@ -29,7 +29,7 @@ class PatternAtom : public memgraph::query::Tree, public utils::Visitable<Hierar
 
   memgraph::query::Identifier *identifier_{nullptr};
 
-  PatternAtom *CloneImpl(AstStorage *storage) const override = 0;
+  PatternAtom *DoClone(AstStorage *storage) const override = 0;
 
  protected:
   explicit PatternAtom(Identifier *identifier) : identifier_(identifier) {}
@@ -63,12 +63,12 @@ class Pattern : public memgraph::query::Tree, public utils::Visitable<Hierarchic
   memgraph::query::Identifier *identifier_{nullptr};
   std::vector<memgraph::query::PatternAtom *> atoms_;
 
-  Pattern *CloneImpl(AstStorage *storage) const override {
+  Pattern *DoClone(AstStorage *storage) const override {
     Pattern *object = storage->Create<Pattern>();
-    object->identifier_ = identifier_ ? identifier_->Copy(storage) : nullptr;
+    object->identifier_ = identifier_ ? identifier_->Clone(storage) : nullptr;
     object->atoms_.resize(atoms_.size());
     for (auto i3 = 0; i3 < atoms_.size(); ++i3) {
-      object->atoms_[i3] = atoms_[i3] ? atoms_[i3]->Copy(storage) : nullptr;
+      object->atoms_[i3] = atoms_[i3] ? atoms_[i3]->Clone(storage) : nullptr;
     }
     return object;
   }

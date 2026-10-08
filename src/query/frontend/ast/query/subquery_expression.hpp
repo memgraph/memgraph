@@ -66,13 +66,13 @@ class SubqueryExpression : public memgraph::query::Expression {
 
   constexpr std::string_view FoldName() const { return FoldName(fold_); }
 
-  SubqueryExpression *CloneImpl(AstStorage *storage) const override {
+  SubqueryExpression *DoClone(AstStorage *storage) const override {
     SubqueryExpression *object = storage->Create<SubqueryExpression>();
     object->fold_ = fold_;
     if (std::holds_alternative<Pattern *>(content_)) {
-      object->content_ = std::get<Pattern *>(content_)->Copy(storage);
+      object->content_ = std::get<Pattern *>(content_)->Clone(storage);
     } else if (std::holds_alternative<CypherQuery *>(content_)) {
-      object->content_ = std::get<CypherQuery *>(content_)->Copy(storage);
+      object->content_ = std::get<CypherQuery *>(content_)->Clone(storage);
     } else {
       object->content_ = std::monostate{};
     }
