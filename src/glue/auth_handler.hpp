@@ -230,10 +230,10 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 #endif
 
   /// Locked access, routed through the caller's transaction when there is one.
-  auto Lock(memgraph::auth::AuthTransaction *auth_tx = nullptr) { return layer_.Lock(auth_tx); }
+  auto Lock(memgraph::auth::AuthTransaction *auth_tx) { return layer_.Lock(auth_tx); }
 
   /// Reads inside a transaction take the WRITE lock, not a shared one: installing the overlay mutates Auth's storage
   /// handle, so it cannot be shared with a concurrent reader. The exclusion lasts one statement, not the transaction.
-  auto ReadLock(memgraph::auth::AuthTransaction *auth_tx = nullptr) { return layer_.ReadLock(auth_tx); }
+  auto ReadLock(memgraph::auth::AuthTransaction *auth_tx) { return layer_.ReadLock(auth_tx); }
 };
 }  // namespace memgraph::glue

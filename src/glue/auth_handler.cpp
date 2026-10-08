@@ -725,7 +725,7 @@ void AuthQueryHandler::SetMainDatabase(std::string_view db_name, const std::stri
 
 void AuthQueryHandler::DeleteDatabase(std::string_view db_name, system::Transaction *system_tx) {
   try {
-    Lock()->DeleteDatabase(std::string(db_name), system_tx);
+    layer_.Lock()->DeleteDatabase(std::string(db_name), system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -1581,7 +1581,7 @@ void AuthQueryHandler::CreateProfile(const std::string &profile_name,
       } break;
     }
   }
-  auto locked_auth = Lock();
+  auto locked_auth = layer_.Lock();
   if (!locked_auth->CreateProfile(profile_name, std::move(limits), usernames, system_tx)) {
     throw memgraph::query::QueryRuntimeException("Profile '{}' already exists.", profile_name);
   }
@@ -1606,7 +1606,7 @@ void AuthQueryHandler::UpdateProfile(const std::string &profile_name,
       } break;
     }
   }
-  auto locked_auth = Lock();
+  auto locked_auth = layer_.Lock();
   const auto &profile = locked_auth->UpdateProfile(profile_name, limits, system_tx);
   if (!profile) {
     throw memgraph::query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
@@ -1614,14 +1614,14 @@ void AuthQueryHandler::UpdateProfile(const std::string &profile_name,
 }
 
 void AuthQueryHandler::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
-  auto locked_auth = Lock();
+  auto locked_auth = layer_.Lock();
   if (locked_auth->DropProfile(profile_name, system_tx) != auth::UserProfiles::DropResult::kDropped) {
     throw memgraph::query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
   }
 }
 
 query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view profile_name) {
-  auto locked_auth = ReadLock();
+  auto locked_auth = layer_.ReadLock();
   auto profile = locked_auth->GetProfile(profile_name);
   if (!profile) {
     throw query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
@@ -1638,7 +1638,7 @@ query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view 
 
 std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQueryHandler::AllProfiles() {
   std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> res;
-  auto locked_auth = ReadLock();
+  auto locked_auth = layer_.ReadLock();
   for (const auto &profile : locked_auth->AllProfiles()) {
     // Fill missing/unlimited limits
     for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
@@ -1656,7 +1656,7 @@ std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQuery
 void AuthQueryHandler::SetProfile(const std::string &profile_name, const std::string &user_or_role,
                                   system::Transaction *system_tx) {
   try {
-    auto locked_auth = Lock();
+    auto locked_auth = layer_.Lock();
     const auto profile = locked_auth->SetProfile(profile_name, user_or_role, system_tx);
     DMG_ASSERT(profile, "Missing profile");
   } catch (const memgraph::auth::AuthException &e) {
@@ -1666,7 +1666,7 @@ void AuthQueryHandler::SetProfile(const std::string &profile_name, const std::st
 
 void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) {
   try {
-    auto locked_auth = Lock();
+    auto locked_auth = layer_.Lock();
     locked_auth->RevokeProfile(user_or_role, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -1674,13 +1674,13 @@ void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, system::Tr
 }
 
 std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string &user_or_role) {
-  auto locked_auth = ReadLock();
+  auto locked_auth = layer_.ReadLock();
   return locked_auth->GetProfileForUsername(user_or_role);
 }
 
 std::vector<std::string> AuthQueryHandler::GetUsernamesForProfile(const std::string &profile_name) {
   try {
-    auto locked_auth = ReadLock();
+    auto locked_auth = layer_.ReadLock();
     auto usernames_set = locked_auth->GetUsernamesForProfile(profile_name);
     return {usernames_set.begin(), usernames_set.end()};
   } catch (const memgraph::auth::AuthException &e) {
