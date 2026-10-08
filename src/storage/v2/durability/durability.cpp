@@ -20,6 +20,7 @@
 #include <fmt/format.h>
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <ranges>
 #include <string>
@@ -31,7 +32,9 @@
 #include "replication/epoch.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
+#include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/edge_metadata_index.hpp"
@@ -127,6 +130,49 @@ bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry) {
   return true;
 }
 
+namespace {
+// A file whose writer never finalized it (crash right after creation, or still being written) is cut short within the
+// offsets section or has its leading offset slots still zero. offset_edges is legitimately 0 without edge properties,
+// so two slots are read. A WAL ending exactly at offset_deltas holds no deltas. Truncation is judged by size, never by
+// a failed decode: a rotted byte must stay an unreadable candidate.
+bool LooksNeverFinalized(std::filesystem::path const &path, bool is_wal) {
+  constexpr uint64_t kSlotBytes = sizeof(Marker) + sizeof(uint64_t);
+  auto const &magic = is_wal ? kWalMagic : kSnapshotMagic;
+
+  std::error_code ec;
+  auto const size = std::filesystem::file_size(path, ec);
+  if (ec) return false;
+  if (size < magic.size() + sizeof(uint64_t)) return true;
+
+  Decoder decoder;
+  if (!decoder.Initialize(path, magic)) return false;
+  if (decoder.GetPosition() >= size) return true;
+  auto const marker = decoder.ReadMarker();
+  if (!marker || *marker != Marker::SECTION_OFFSETS) return false;
+
+  std::array<uint64_t, 2> offsets{};  // snapshot: edges, vertices; WAL: metadata, deltas
+  for (auto &slot : offsets) {
+    if (decoder.GetPosition() + kSlotBytes > size) return true;
+    auto const offset = decoder.ReadUint();
+    if (!offset) return false;
+    slot = *offset;
+  }
+  auto const [first, second] = offsets;
+  if (first == 0 && second == 0) return true;
+  return is_wal && second == size;
+}
+
+bool SkipIfNeverFinalized(std::filesystem::path const &path, bool is_wal, std::string_view error) {
+  if (!LooksNeverFinalized(path, is_wal)) return false;
+  std::error_code ec;
+  spdlog::warn("Skipping {} ({} bytes): its header was never finalized (incomplete write). Error: {}",
+               path,
+               std::filesystem::file_size(path, ec),
+               error);
+  return true;
+}
+}  // namespace
+
 std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
                                                                     const std::string_view uuid,
                                                                     std::size_t *unreadable_candidates_out) {
@@ -151,6 +197,7 @@ std::optional<std::vector<SnapshotDurabilityInfo>> GetSnapshotFiles(const std::f
         spdlog::warn("Skipping snapshot file '{}' because UUIDs does not match!", item.path());
       }
     } catch (const RecoveryFailure &e) {
+      if (SkipIfNeverFinalized(item.path(), false, e.what())) continue;
       spdlog::error("Couldn't read snapshot info in GetSnapshotFiles for file {}: {}", e.what(), item.path());
       if (unreadable_candidates_out != nullptr) ++*unreadable_candidates_out;
     }
@@ -190,6 +237,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
     try {
       header = ReadWalHeader(item.path());
     } catch (const RecoveryFailure &e) {
+      if (SkipIfNeverFinalized(item.path(), true, e.what())) continue;
       if (unreadable_candidates_out != nullptr) ++*unreadable_candidates_out;
       spdlog::warn("Failed to read WAL header for {}. Error: {}", item.path(), e.what());
       continue;

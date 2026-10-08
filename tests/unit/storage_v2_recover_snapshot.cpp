@@ -11,6 +11,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -21,6 +22,8 @@
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/paths.hpp"
+#include "storage/v2/durability/serialization.hpp"
+#include "storage/v2/durability/version.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
@@ -76,6 +79,40 @@ class RecoverSnapshotTest : public ::testing::Test {
     config_.durability.wal_file_flush_every_n_tx = 1;
     config_.durability.recover_on_startup = false;
     config_.durability.snapshot_on_exit = false;
+  }
+
+  // Commits a vertex and returns the only WAL left on disk (snapshots removed), with its header offsets.
+  struct RealWal {
+    std::filesystem::path path;
+    uint64_t offset_metadata{};
+    uint64_t offset_deltas{};
+  };
+
+  RealWal MakeOnlyRealWal() {
+    {
+      memgraph::dbms::Database db{config_};
+      const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+      auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+      auto acc = storage->Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      EXPECT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    auto const root = config_.durability.storage_directory;
+    for (auto const &entry :
+         std::filesystem::directory_iterator(root / memgraph::storage::durability::kSnapshotDirectory)) {
+      std::filesystem::remove(entry.path());
+    }
+    RealWal wal;
+    for (auto const &entry : std::filesystem::directory_iterator(root / memgraph::storage::durability::kWalDirectory)) {
+      wal.path = entry.path();
+    }
+    // Layout: magic(4) + version(8) + SECTION_OFFSETS(1), then marker(1) + value(8) per slot.
+    std::ifstream f{wal.path, std::ios::binary};
+    f.seekg(4 + 8 + 1 + 1);
+    f.read(reinterpret_cast<char *>(&wal.offset_metadata), sizeof(uint64_t));
+    f.seekg(4 + 8 + 1 + 9 + 1);
+    f.read(reinterpret_cast<char *>(&wal.offset_deltas), sizeof(uint64_t));
+    return wal;
   }
 
   TmpDirManager temp_dir_{"MG_test_unit_storage_v2_recover_snapshot"};
@@ -632,4 +669,157 @@ TEST_F(RecoverSnapshotTest, CorruptSnapshotWithValidWalStillRecoversFromWal) {
     }
     EXPECT_EQ(count, 3) << "WAL-only recovery must restore all 3 committed vertices";
   });
+}
+
+namespace {
+// Writes magic and version, then, if `marker` is given, that byte followed by one integer per entry of `slots`.
+void WriteDurabilityPrefix(std::filesystem::path const &path, std::string const &magic, std::optional<uint8_t> marker,
+                           std::vector<uint64_t> const &slots) {
+  using memgraph::storage::durability::Marker;
+  std::ofstream f{path, std::ios::binary | std::ios::trunc};
+  f.write(magic.data(), static_cast<std::streamsize>(magic.size()));
+  uint64_t const version = memgraph::storage::durability::kVersion;
+  f.write(reinterpret_cast<char const *>(&version), sizeof(version));
+  if (!marker) return;
+  f.put(static_cast<char>(*marker));
+  for (auto const slot : slots) {
+    f.put(static_cast<char>(Marker::TYPE_INT));
+    f.write(reinterpret_cast<char const *>(&slot), sizeof(slot));
+  }
+}
+
+constexpr uint8_t kOffsetsMarker = static_cast<uint8_t>(memgraph::storage::durability::Marker::SECTION_OFFSETS);
+constexpr uint8_t kInvalidMarker = 0xFF;  // not in kMarkersAll
+}  // namespace
+
+// Files a crash leaves behind before finalization: recovery must start empty, as master did.
+TEST_F(RecoverSnapshotTest, NeverFinalizedSnapshotAloneStartsEmpty) {
+  using namespace memgraph::storage::durability;
+  auto const dir = config_.durability.storage_directory / kSnapshotDirectory;
+  std::filesystem::create_directories(dir);
+  WriteDurabilityPrefix(dir / "empty", kSnapshotMagic, std::nullopt, {});
+  {
+    std::ofstream{dir / "zero_bytes"};
+  }
+  WriteDurabilityPrefix(dir / "one_slot", kSnapshotMagic, kOffsetsMarker, {0});
+  WriteDurabilityPrefix(dir / "all_zero_slots", kSnapshotMagic, kOffsetsMarker, std::vector<uint64_t>(13, 0));
+
+  auto recover_cfg = config_;
+  recover_cfg.durability.recover_on_startup = true;
+  EXPECT_NO_THROW({ memgraph::dbms::Database db{recover_cfg}; });
+}
+
+TEST_F(RecoverSnapshotTest, NeverFinalizedWalAloneStartsEmpty) {
+  using namespace memgraph::storage::durability;
+  auto const dir = config_.durability.storage_directory / kWalDirectory;
+  std::filesystem::create_directories(dir);
+  {
+    std::ofstream{dir / "zero_bytes"};
+  }
+  // Constructor crashed before patching the offsets.
+  WriteDurabilityPrefix(dir / "zero_offsets", kWalMagic, kOffsetsMarker, {0, 0});
+
+  auto recover_cfg = config_;
+  recover_cfg.durability.recover_on_startup = true;
+  EXPECT_NO_THROW({ memgraph::dbms::Database db{recover_cfg}; });
+}
+
+namespace {
+// Byte inside the metadata section (the uuid) whose flip breaks the header CRC but not the decoding.
+constexpr uint64_t kHeaderCrcBreakOffset = 30;
+
+void FlipByte(std::filesystem::path const &path, uint64_t position) {
+  std::fstream f{path, std::ios::binary | std::ios::in | std::ios::out};
+  f.seekg(static_cast<std::streamoff>(position));
+  char byte{};
+  f.get(byte);
+  f.seekp(static_cast<std::streamoff>(position));
+  f.put(static_cast<char>(byte ^ 0xFF));
+}
+}  // namespace
+
+// Commits one transaction, then leaves only the resulting WAL: the snapshot dir is emptied.
+TEST_F(RecoverSnapshotTest, CorruptWalHeaderWithDeltasFailsRecovery) {
+  auto const real_wal = MakeOnlyRealWal();
+  ASSERT_GT(std::filesystem::file_size(real_wal.path), real_wal.offset_deltas) << "WAL must hold deltas";
+  FlipByte(real_wal.path, real_wal.offset_metadata + kHeaderCrcBreakOffset);
+
+  auto recover_cfg = config_;
+  recover_cfg.durability.recover_on_startup = true;
+  EXPECT_THROW({ memgraph::dbms::Database db{recover_cfg}; }, memgraph::storage::durability::RecoveryFailure);
+}
+
+// Crash between the offsets patch and the header CRC patch: header complete, no deltas, CRC wrong.
+TEST_F(RecoverSnapshotTest, TornWalHeaderWithoutDeltasStartsEmpty) {
+  auto const real_wal = MakeOnlyRealWal();
+  std::filesystem::resize_file(real_wal.path, real_wal.offset_deltas);
+  FlipByte(real_wal.path, real_wal.offset_metadata + kHeaderCrcBreakOffset);
+
+  auto recover_cfg = config_;
+  recover_cfg.durability.recover_on_startup = true;
+  EXPECT_NO_THROW({ memgraph::dbms::Database db{recover_cfg}; });
+}
+
+// A byte that is not a marker at all is corruption, not truncation, however short the rest of the file is.
+TEST_F(RecoverSnapshotTest, InvalidMarkerAfterVersionFailsRecovery) {
+  using namespace memgraph::storage::durability;
+  auto const dir = config_.durability.storage_directory / kSnapshotDirectory;
+  std::filesystem::create_directories(dir);
+  WriteDurabilityPrefix(dir / "rotted", kSnapshotMagic, kInvalidMarker, std::vector<uint64_t>(13, 0));
+
+  auto recover_cfg = config_;
+  recover_cfg.durability.recover_on_startup = true;
+  EXPECT_THROW({ memgraph::dbms::Database db{recover_cfg}; }, RecoveryFailure);
+}
+
+// Without edge properties a finalized snapshot has offset_edges == 0, so its first offset slot is zero too. Corrupting
+// it past the offsets header must still fail loudly rather than be mistaken for an interrupted write.
+TEST_F(RecoverSnapshotTest, TruncatedFinalizedSnapshotWithZeroEdgeOffsetFailsRecovery) {
+  config_.salient.items.properties_on_edges = false;
+  {
+    memgraph::dbms::Database db{config_};
+    const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+    auto *storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+    {
+      auto acc = storage->Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+    ASSERT_TRUE(storage->CreateSnapshot().has_value());
+  }
+
+  auto const storage_dir = config_.durability.storage_directory;
+  // Leave only the snapshot: with a WAL present recovery would not need to fail.
+  for (auto const &entry :
+       std::filesystem::directory_iterator(storage_dir / memgraph::storage::durability::kWalDirectory)) {
+    std::filesystem::remove(entry.path());
+  }
+
+  // Layout: magic(4) + version(8) + SECTION_OFFSETS(1), then marker(1) + value(8) per slot; the offsets header
+  // is 13 slots.
+  constexpr std::streamoff kFirstSlot = 4 + 8 + 1 + 1;
+  constexpr std::streamoff kSecondSlot = kFirstSlot + 9;
+  constexpr std::uintmax_t kHeaderEnd = 4 + 8 + 1 + 13 * 9;
+  int truncated = 0;
+  for (auto const &entry :
+       std::filesystem::directory_iterator(storage_dir / memgraph::storage::durability::kSnapshotDirectory)) {
+    uint64_t first = 1, second = 0;
+    {
+      std::ifstream f{entry.path(), std::ios::binary};
+      f.seekg(kFirstSlot);
+      f.read(reinterpret_cast<char *>(&first), sizeof(first));
+      f.seekg(kSecondSlot);
+      f.read(reinterpret_cast<char *>(&second), sizeof(second));
+    }
+    ASSERT_EQ(first, 0U) << "offset_edges must be zero without edge properties";
+    ASSERT_NE(second, 0U);
+    ASSERT_GT(std::filesystem::file_size(entry.path()), kHeaderEnd);
+    std::filesystem::resize_file(entry.path(), kHeaderEnd);
+    ++truncated;
+  }
+  ASSERT_GT(truncated, 0);
+
+  auto recover_cfg = config_;
+  recover_cfg.durability.recover_on_startup = true;
+  EXPECT_THROW({ memgraph::dbms::Database db{recover_cfg}; }, memgraph::storage::durability::RecoveryFailure);
 }
