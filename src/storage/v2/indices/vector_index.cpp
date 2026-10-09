@@ -11,8 +11,6 @@
 
 #include "storage/v2/indices/vector_index.hpp"
 
-#include <set>
-
 #include <range/v3/all.hpp>
 #include "storage/v2/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
@@ -280,6 +278,11 @@ void VectorIndex::RestoreIndex(DroppedIndexCapture &&capture) {
 void VectorIndex::Clear() { index_ = std::make_shared<VectorIndexContainer>(); }
 
 void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
+  ApplyAddLabel(label, vertex, decoder, /*restore=*/false);
+}
+
+void VectorIndex::ApplyAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder,
+                                bool restore) {
   auto matching = GetIndicesByLabel(label);
   if (matching.empty()) {
     return;
@@ -302,8 +305,17 @@ void VectorIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, const IndexedP
                                                       : utils::small_vector<uint64_t>{};
       if (std::ranges::contains(ids, index_id)) continue;
 
-      auto vector_property = old_property_value.IsVectorIndexId() ? old_property_value.ValueVectorIndexList()
-                                                                  : ListToVector(old_property_value);
+      utils::small_vector<float> vector_property;
+      if (old_property_value.IsVectorIndexId()) {
+        vector_property = old_property_value.ValueVectorIndexList();
+      } else if (restore) {
+        // A value that is not a vector of this index's dimension was never indexed, so there is nothing to restore.
+        auto maybe_vector = TryListToVector(old_property_value);
+        if (!maybe_vector || maybe_vector->size() != item_ptr->spec.dimension) continue;
+        vector_property = *std::move(maybe_vector);
+      } else {
+        vector_property = ListToVector(old_property_value);
+      }
       UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, vertex, vector_property);
 
       ids.push_back(index_id);
@@ -344,8 +356,9 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Index
         }
         return old_vertex_property_value;
       });
-      item_ptr->mg_index.index.remove(vertex);
+      // Store first: a failure here must not leave a tag whose usearch entry is already gone.
       vertex->properties.SetProperty(property_id, property_value_to_set);
+      item_ptr->mg_index.index.remove(vertex);
     }
   }
 }
@@ -581,109 +594,37 @@ std::vector<std::pair<uint64_t, VectorLabelFilter const *>> VectorIndex::GetIndi
   return result;
 }
 
-void VectorIndex::AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection) {
-  // Runs after storage abort restored labels and properties. Label hooks rewrite properties without a delta, so
-  // replay is order-dependent; reconcile every index on an affected property with the restored vertex instead.
-  for (auto &[vertex, properties] : cleanup_collection) {
-    const IndexedPropertyDecoder<Vertex> decoder{
-        .indices = indices, .name_id_mapper = name_id_mapper, .entity = vertex};
-    for (const auto &[property, before_image] : properties) {
-      auto value = vertex->properties.GetProperty(property);
-      const bool vector_changed = before_image.has_value();
-      // Only a tag left untouched by this transaction's writes proves usearch already holds the restored vector.
-      const bool index_holds_value = value.IsVectorIndexId() && !vector_changed;
-      if (value.IsVectorIndexId()) {
-        // A tag in the store is the oldest before-image, whose floats only the delta kept.
-        DMG_ASSERT(!vector_changed || before_image->IsVectorIndexId(),
-                   "Restored vector index tag without a tagged before-image");
-        if (vector_changed) {
-          value = *before_image;
-        } else {
-          decoder.DecodeProperty(value);
-        }
-      }
-      const auto vector = value.IsVectorIndexId() ? value.ValueVectorIndexList()
-                                                  : TryListToVector(value).value_or(utils::small_vector<float>{});
+bool VectorIndex::HasIndexOnLabel(LabelId label) const {
+  return r::any_of(*index_, [&](const auto &kv) { return kv.second->spec.label_filter.IsInteresting(label); });
+}
 
-      utils::small_vector<uint64_t> ids;
-      for (const auto &[index_id, label_filter] : GetIndicesByProperty(property)) {
-        auto &item_ptr = index_->at(index_id);
-        const bool indexed = std::invoke([&] {
-          auto guard =
-              utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
-          return item_ptr->mg_index.index.contains(vertex);
-        });
-        if (vector.empty() || !label_filter->Matches(vertex->labels)) {
-          if (indexed) RemoveVertexFromIndex(vertex, index_id);
-          continue;
-        }
-        if (!index_holds_value || !indexed) UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, vertex, vector);
-        ids.push_back(index_id);
-      }
+bool VectorIndex::HasIndexOnProperty(PropertyId property) const { return AnyIndexOnProperty(*index_, property); }
 
-      if (!ids.empty()) {
-        if (!value.IsVectorIndexId() || value.ValueVectorIndexIds() != ids) {
-          vertex->properties.SetProperty(
-              property, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}));
-        }
-      } else if (value.IsVectorIndexId()) {
-        vertex->properties.SetProperty(property, PropertyValue(std::vector<double>(vector.begin(), vector.end())));
-      }
-    }
+void VectorIndex::DropEntries(Vertex *vertex, PropertyId property) {
+  for (const auto &[index_id, _] : GetIndicesByProperty(property)) {
+    RemoveVertexFromIndex(vertex, index_id);
   }
 }
 
-// AbortProcessor implementation
+void VectorIndex::RestoreOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
+  if (!HasIndexOnLabel(label)) return;
+  ApplyAddLabel(label, vertex, decoder, /*restore=*/true);
+}
 
-VectorIndex::AbortProcessor VectorIndex::GetAbortProcessor() const {
-  AbortProcessor res{};
-  for (const auto &[_, item_ptr] : *index_) {
-    const auto &filter = item_ptr->spec.label_filter;
-    const auto property = item_ptr->spec.property;
-    if (filter.mode == VectorMatchMode::WILDCARD) {
-      res.wildcard_properties.insert(property);
-    } else {
-      for (const auto &label : filter.ids) {
-        res.l2p[label].push_back(property);
-        res.p2l[property].push_back(label);
-      }
-    }
+void VectorIndex::RestoreOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
+  if (!HasIndexOnLabel(label)) return;
+  UpdateOnRemoveLabel(label, vertex, decoder);
+}
+
+void VectorIndex::RestoreOnSetProperty(PropertyId property, const PropertyValue &before, Vertex *vertex) {
+  if (!HasIndexOnProperty(property)) return;
+  // A non-tag value is in no index. Every index on the property is cleared, not only those matching the current
+  // labels: a forward write that raced a label change can leave an entry the filter no longer admits.
+  if (!before.IsVectorIndexId()) {
+    DropEntries(vertex, property);
+    return;
   }
-  return res;
-}
-
-void VectorIndex::AbortProcessor::CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
-  if (l2p.empty()) return;
-  auto properties = l2p.find(label);
-  if (properties == l2p.end()) return;
-  auto vertex_properties = vertex->properties.ExtractPropertyIds();
-  if (!r::any_of(properties->second, [&](auto p) { return r::contains(vertex_properties, p); })) return;
-  auto &affected = cleanup_collection[vertex];
-  for (auto property : properties->second) affected.try_emplace(property);
-}
-
-void VectorIndex::AbortProcessor::CollectOnLabelAddition(LabelId label, Vertex *vertex) {
-  if (l2p.empty()) return;
-  auto properties = l2p.find(label);
-  if (properties == l2p.end()) return;
-  auto vertex_properties = vertex->properties.ExtractPropertyIds();
-  if (!r::any_of(properties->second, [&](auto p) { return r::contains(vertex_properties, p); })) return;
-  auto &affected = cleanup_collection[vertex];
-  for (auto property : properties->second) affected.try_emplace(property);
-}
-
-bool VectorIndex::AbortProcessor::IsInteresting(PropertyId property, Vertex const *vertex) const {
-  if (wildcard_properties.contains(property)) return true;
-  auto const labels = p2l.find(property);
-  if (labels == p2l.end()) return false;
-  auto const has_any_label = [&](auto label) { return r::contains(vertex->labels, label); };
-  return r::any_of(labels->second, has_any_label);
-}
-
-void VectorIndex::AbortProcessor::CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value,
-                                                          Vertex *vertex) {
-  if (!IsInteresting(propId, vertex)) return;
-  cleanup_collection[vertex][propId] = old_value;
+  UpdateOnSetProperty(property, before, vertex);
 }
 
 // VectorIndexRecovery implementation

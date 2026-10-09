@@ -12,7 +12,6 @@
 #pragma once
 
 #include <algorithm>
-#include <optional>
 #include <span>
 #include <string_view>
 
@@ -189,23 +188,6 @@ using VectorIndexContainer = std::unordered_map<uint64_t, std::shared_ptr<IndexI
 /// so ActiveIndices snapshots remain stable while Create/Drop swap in a new version.
 class VectorIndex {
  public:
-  // Oldest before-image per affected property; nullopt when only an index-label change touched it.
-  using AbortableInfo = std::map<Vertex *, std::map<PropertyId, std::optional<PropertyValue>>>;
-
-  struct AbortProcessor {
-    std::map<LabelId, std::vector<PropertyId>> l2p;
-    std::map<PropertyId, std::vector<LabelId>> p2l;
-    std::set<PropertyId> wildcard_properties;
-
-    void CollectOnLabelRemoval(LabelId label, Vertex *vertex);
-    void CollectOnLabelAddition(LabelId label, Vertex *vertex);
-    void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
-
-    bool IsInteresting(PropertyId property, Vertex const *vertex) const;
-
-    AbortableInfo cleanup_collection;
-  };
-
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
 
   explicit VectorIndex(utils::MemoryTracker *memory_tracker = nullptr);
@@ -296,11 +278,12 @@ class VectorIndex {
   /// @param decoder Decoder for this vertex (decoder.entity must be vertex).
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder);
 
-  /// @brief Aborts the entries in the vector index.
-  /// @param indices Indices (for property decoding).
-  /// @param name_id_mapper Name id mapper (for property decoding).
-  /// @param cleanup_collection The cleanup collection to use.
-  void AbortEntries(Indices *indices, NameIdMapper *name_id_mapper, AbortableInfo &cleanup_collection);
+  /// @brief Abort-path inverses of the three hooks above, run once per undone delta (newest first) under the vertex
+  /// lock. `RestoreOnRemoveLabel` / `RestoreOnAddLabel` follow the label pop / push; `RestoreOnSetProperty` follows
+  /// the property store taking `before` back.
+  void RestoreOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder);
+  void RestoreOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder);
+  void RestoreOnSetProperty(PropertyId property, const PropertyValue &before, Vertex *vertex);
 
   /// @brief Updates all vector indices referenced by a VectorIndexId property.
   /// @param property The property that was modified.
@@ -340,10 +323,6 @@ class VectorIndex {
   /// Called by GC before skip list removal, while the vertex pointer is still valid.
   void RemoveVertices(std::vector<Vertex *> const &vertices_to_remove) const;
 
-  /// @brief Returns an abort processor snapshot used during transaction abort.
-  /// @return AbortProcessor containing label/property mappings for vector indices.
-  AbortProcessor GetAbortProcessor() const;
-
   /// @brief Checks if a vector index exists for the given name.
   /// @param index_name The name of the index to check.
   /// @param name_id_mapper Mapper for name/ID conversions.
@@ -375,6 +354,16 @@ class VectorIndex {
   void SerializeAllVectorIndices(durability::BaseEncoder *encoder, std::unordered_set<uint64_t> &mapped_ids) const;
 
  private:
+  /// @param restore Undoing a label removal: a value that was never indexed is skipped instead of throwing.
+  void ApplyAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder, bool restore);
+
+  /// Allocation-free: whether a change to `label` / `property` can affect any index.
+  bool HasIndexOnLabel(LabelId label) const;
+  bool HasIndexOnProperty(PropertyId property) const;
+
+  /// Abort path: removes the vertex from every index on `property`.
+  void DropEntries(Vertex *vertex, PropertyId property);
+
   /// @brief Removes a vertex from a vector index.
   /// @param vertex The vertex to remove.
   /// @param index_id The index ID of the index to remove the vertex from.
