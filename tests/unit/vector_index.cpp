@@ -12,6 +12,8 @@
 #include <sys/types.h>
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -2176,4 +2178,56 @@ TEST_F(VectorIndexAbortTest, AbortOfNonVectorRestoreDropsStaleEntryOfFilterMisma
     acc->Abort();
   }
   ExpectPlain(v, PropertyValue("abc"));
+}
+
+TEST_F(VectorIndexAbortTest, VertexWriteRacingAbortedLabelChangeTagsByLabelsUnderLock) {
+  using namespace std::chrono_literals;
+  for (const bool add_label : {true, false}) {
+    for (const bool map_write : {false, true}) {
+      SCOPED_TRACE(std::string(add_label ? "racing SET n:L; ROLLBACK" : "racing REMOVE n:L; ROLLBACK") +
+                   (map_write ? " vs SET n += map" : " vs SET n.p"));
+      ResetWithIndex();
+      const auto v = add_label ? CommitVertex({}, std::nullopt) : CommitVertex({test_label}, FloatList({1, 2}));
+
+      auto toggler = storage->Access(WRITE);
+      auto toggled = toggler->FindVertex(v, View::OLD).value();
+      const auto label = toggler->NameToLabel(test_label);
+      ASSERT_NO_ERROR(add_label ? toggled.AddLabel(label) : toggled.RemoveLabel(label));
+
+      auto writer = storage->Access(WRITE);
+      auto written = writer->FindVertex(v, View::OLD).value();
+      const auto property = writer->NameToProperty(test_property);
+      auto &lock = written.vertex_->lock;
+
+      // A held read lock makes the abort the pending writer; the write below starts before the rollback and locks
+      // after.
+      lock.lock_shared();
+      std::jthread aborter([&] { toggler->Abort(); });
+      while (lock.try_lock_shared()) lock.unlock_shared();
+      std::atomic<bool> setter_started{false};
+      bool set_ok = false;
+      std::jthread setter([&] {
+        setter_started = true;
+        if (map_write) {
+          std::map<PropertyId, PropertyValue> properties{{property, FloatList({3, 4})}};
+          set_ok = written.UpdateProperties(properties).has_value();
+        } else {
+          set_ok = written.SetProperty(property, FloatList({3, 4})).has_value();
+        }
+      });
+      while (!setter_started) std::this_thread::yield();
+      std::this_thread::sleep_for(100ms);
+      lock.unlock_shared();
+      aborter.join();
+      setter.join();
+
+      ASSERT_TRUE(set_ok);
+      ASSERT_NO_ERROR(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+      if (add_label) {
+        ExpectPlain(v, FloatList({3, 4}));
+      } else {
+        ExpectIndexed(v, Floats{3.0F, 4.0F});
+      }
+    }
+  }
 }
