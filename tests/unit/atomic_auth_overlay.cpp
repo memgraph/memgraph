@@ -13,7 +13,9 @@
 
 #include <algorithm>
 #include <array>
+#include <filesystem>
 #include <map>
+#include <memory>
 #include <optional>
 #include <random>
 #include <set>
@@ -585,6 +587,25 @@ TEST_F(AtomicAuthOverlayTest, HasAnyAnsweredThroughOwnTombstoneCommitsWhileItsWi
   overlay.Put("user:carol", "carol_data");
 
   EXPECT_TRUE(overlay.Flush());
+}
+
+TEST_F(AtomicAuthOverlayTest, EndIteratorsOfDifferentPrefixesDiffer) {
+  AtomicAuthOverlay const overlay(*store_);
+  EXPECT_EQ(overlay.end("p:"), overlay.end("p:"));
+  EXPECT_NE(overlay.end("p:"), overlay.end("q:"));
+}
+
+// A key-set scan abandoned before its end recorded no key set, so the commit is refused rather than held to an
+// empty one. Here only the transaction's own write is under the prefix, which the key-set check alone would pass.
+TEST_F(AtomicAuthOverlayTest, AnAbandonedScanRefusesTheCommit) {
+  AtomicAuthOverlay overlay(*store_);
+  overlay.Put("p:a", "ours");
+  {
+    auto it = overlay.begin("p:");
+    ASSERT_NE(it, overlay.end("p:"));
+  }
+
+  EXPECT_FALSE(overlay.Flush());
 }
 
 // As WritingAKeyThatAppearedAfterAScanConflicts, but with the prefix already inhabited, so only the key-set check

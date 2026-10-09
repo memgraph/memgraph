@@ -15,7 +15,6 @@
 #include <utility>
 
 #include "auth/exceptions.hpp"
-#include "utils/logging.hpp"
 
 namespace memgraph::auth {
 
@@ -109,7 +108,10 @@ bool AtomicAuthOverlay::Flush() {
     // scan that stopped early concluded nothing more.
     if ((it == e) != dependency.was_empty) return false;
     if (dependency.kind == ScanDependency::Kind::kEmptiness) continue;
-    DMG_ASSERT(dependency.exhausted, "A scan of '{}' stopped early without narrowing its dependency", prefix);
+    // A key-set scan that never reached the end recorded no key set to hold the transaction to. No caller leaves
+    // one behind, since a scan that throws fails its statement and COMMIT then refuses; this refusal holds even if
+    // that ever changes.
+    if (!dependency.exhausted) return false;
     for (; it != e; ++it) {
       if (!dependency.seen.contains(it->first)) return false;
     }
@@ -248,7 +250,7 @@ AtomicAuthOverlay::iterator &AtomicAuthOverlay::iterator::operator++() {
 }
 
 bool AtomicAuthOverlay::iterator::operator==(iterator const &other) const {
-  if (at_end_ && other.at_end_) return true;
+  if (at_end_ && other.at_end_) return prefix_ == other.prefix_;
   if (at_end_ != other.at_end_) return false;
   return current_ == other.current_;
 }
