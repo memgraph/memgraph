@@ -560,8 +560,7 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByExpressionOfAggregatedItem) {
   EXPECT_EQ(count->name_, "c");
 }
 
-// An aggregation that matches no projected item is rejected once the symbols are generated, so rewriting inside its
-// argument only detaches a subtree that nothing will read.
+// Rewriting inside it would detach a subtree that nothing goes on to read.
 TEST_P(CypherMainVisitorTest, ReturnOrderByUnprojectedAggregationKeepsItsArgument) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
@@ -603,8 +602,8 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByDifferentAggregatedItem) {
   for (auto const *text : {"MATCH (n) RETURN count(DISTINCT n.x) AS c ORDER BY count(n.x)",
                            "MATCH (n) RETURN toUpper(n.x) AS u, count(*) AS c ORDER BY toLower(n.x)",
                            "MATCH (n) RETURN n:A AS a, count(*) AS c ORDER BY n:B",
-                           // Two kinds that differ hold no common state, so neither is read through the other. The
-                           // last pair is two kinds that are both state-free and take the same children, which
+                           // Two kinds that differ hold no common state, so neither is read through the other. An
+                           // addition and a subtraction are both state-free and take the same children, which
                            // nothing but the kinds themselves tells apart.
                            "MATCH (n) RETURN n:A AS a, count(*) AS c ORDER BY n.A",
                            "MATCH (n) RETURN n.x AS v, count(*) AS c ORDER BY [n.x]",

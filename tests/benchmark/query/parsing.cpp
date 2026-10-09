@@ -106,8 +106,8 @@ void ParseAndBuildAst(benchmark::State &state, std::string query, bool names_a_p
   state.SetItemsProcessed(state.iterations());
 }
 
-/// Copying the built AST into a fresh storage. A query the cache holds pays this on every execution to hand the
-/// caller its own copy; read it against the parse above to see what it costs a query the cache never holds.
+/// Copying the built AST into a fresh storage, which is what a query the cache holds pays on every execution to
+/// hand the caller its own copy. A query the cache never holds pays ParseAndBuildAst every execution instead.
 void CloneAst(benchmark::State &state, std::string query, bool names_a_parameter) {
   memgraph::query::frontend::ParsingContext context;
   context.is_query_cached = false;
