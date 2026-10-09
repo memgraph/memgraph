@@ -1265,6 +1265,33 @@ class Database {
     }
   }
 
+  // The texts for the weights the v3.13 filter spelling produces name the migration, word for word.
+  void KShortestWeightedTestWeightErrorTexts(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    const std::string hint =
+        "KSHORTEST takes the weight lambda first. To filter without a weight, write (e, n | 1) (e, n | <filter>).";
+    const std::vector<std::tuple<const char *, PV, std::string>> cases{
+        {"boolean", PV(true), hint},
+        {"null",
+         PV(),
+         "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
+         "weight, or filter the ones without one out. " +
+             hint},
+        {"negative", PV(int64_t{-1}), "Weight must be non-negative, got -1."}};
+
+    for (const auto &[name, weight, expected] : cases) {
+      SCOPED_TRACE(name);
+      auto weights = DetourIntWeights();
+      weights[{0, 1}] = weight;
+      try {
+        DetourResults(db, weights);
+        ADD_FAILURE() << "expected an error";
+      } catch (const memgraph::query::QueryRuntimeException &e) {
+        EXPECT_EQ(std::string(e.what()), expected);
+      }
+    }
+  }
+
   // The filter lambda still prunes under weights. Blocking vertex 2 leaves only the single expensive
   // hop, so an expansion that ran the lambda nowhere, or only in the forward search, is visible here.
   void KShortestWeightedTestFilterLambda(Database *db) {

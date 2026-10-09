@@ -15,6 +15,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -3259,13 +3260,59 @@ TEST_P(CypherMainVisitorTest, MatchKShortestWithAnonymousTotalWeightReturn) {
   EXPECT_FALSE(shortest->total_weight_->user_declared_);
 }
 
+constexpr std::string_view kKShortestWeightFirstHint =
+    "KSHORTEST takes the weight lambda first. To filter without a weight, write (e, n | 1) (e, n | <filter>).";
+
+// A v3.13 path filter `(e, n, p | ...)` is now a weight lambda, which cannot take the path.
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestWeightLambdaWithAccumulatedPath) {
   auto &ast_generator = *GetParam();
-  try {
-    ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n, p | e.w) total]->() RETURN r");
-    FAIL() << "Expected the accumulated path to be rejected in a weight lambda";
-  } catch (const SemanticException &e) {
-    EXPECT_THAT(e.what(), HasSubstr("accumulated path"));
+  for (const auto *lambda : {"(e, n, p | e.w) total", "(e, n, p | size(p) > 0)"}) {
+    SCOPED_TRACE(lambda);
+    try {
+      ast_generator.ParseQuery(fmt::format("MATCH ()-[r:type1 *kShortest {}]->() RETURN r", lambda));
+      ADD_FAILURE() << "Expected the accumulated path to be rejected in a weight lambda";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string(e.what()),
+                fmt::format("The lambda for calculating weights cannot take the accumulated path or the "
+                            "accumulated weight. {}",
+                            kKShortestWeightFirstHint));
+    }
+  }
+}
+
+// A lone lambda shaped like a v3.13 filter is refused before any edge is read. A literal reaches the
+// visitor as a parameter when the query is cached, so only the uncached parse can see `true`; the
+// runtime check catches it there.
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestBooleanShapedLoneLambda) {
+  auto &ast_generator = *GetParam();
+  const bool cached = std::string(typeid(ast_generator).name()).ends_with("CachedAstGenerator");
+  std::vector<std::string> lambdas{"(e, n | n.id <> 'C')",
+                                   "(e, n | e.w > 0 AND n.ok)",
+                                   "(e, n | NOT e.hidden)",
+                                   "(e, n | n.name STARTS WITH 'a')",
+                                   "(e, n | e.w IS NOT NULL)",
+                                   "(e, n | n.id IN ['A'])"};
+  if (!cached) lambdas.emplace_back("(e, n | true)");
+  for (const auto &lambda : lambdas) {
+    SCOPED_TRACE(lambda);
+    try {
+      ast_generator.ParseQuery(fmt::format("MATCH ()-[r:type1 *kShortest {}]->() RETURN r", lambda));
+      ADD_FAILURE() << "Expected the boolean-shaped weight lambda to be refused";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string(e.what()), kKShortestWeightFirstHint);
+    }
+  }
+}
+
+// Weights that are not boolean-shaped parse, and the check is for KSHORTEST's lone lambda only.
+TEST_P(CypherMainVisitorTest, KShortestNumericWeightLambdaParses) {
+  auto &ast_generator = *GetParam();
+  for (const auto *query : {"MATCH ()-[r *kShortest (e, n | e.w)]->() RETURN r",
+                            "MATCH ()-[r *kShortest (e, n | n.cost + e.w)]->() RETURN r",
+                            "MATCH ()-[r *kShortest (e, n | e.w) (e, n | n.ok)]->() RETURN r",
+                            "MATCH ()-[r *wShortest (e, n | e.w > 0) total]->() RETURN r"}) {
+    SCOPED_TRACE(query);
+    EXPECT_NO_THROW(ast_generator.ParseQuery(query));
   }
 }
 

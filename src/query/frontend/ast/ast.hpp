@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <range/v3/view/transform.hpp>
+#include <string_view>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -1842,6 +1843,10 @@ using QueryEdgeType = std::variant<EdgeTypeIx, Expression *>;
 class EdgeAtom : public memgraph::query::PatternAtom {
  public:
   static const utils::TypeInfo kType;
+
+  /// Appended to every KSHORTEST refusal a v3.13 filter-only spelling can produce.
+  static constexpr std::string_view kKShortestWeightFirstHint =
+      "KSHORTEST takes the weight lambda first. To filter without a weight, write (e, n | 1) (e, n | <filter>).";
 
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
