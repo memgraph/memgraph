@@ -478,33 +478,34 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
   return result;
 }
 
-void VectorEdgeIndex::AbortEntries(AbortProcessor::AbortableInfo &cleanup_collection) {
-  for (auto &[edge, info] : cleanup_collection) {
-    for (const auto &[property, old_value] : info.properties) {
-      if (old_value.IsVectorIndexId()) {
-        const auto &vector_property = old_value.ValueVectorIndexList();
-        const auto &index_ids = old_value.ValueVectorIndexIds();
-        // Lock order: uSearch mutex (inside UpdateVectorIndex) → edge_endpoints_mutex_
-        for (auto index_id : index_ids) {
-          auto &item_ptr = index_->at(index_id);
-          storage::UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, edge, vector_property);
-        }
-        {
-          auto lock = std::unique_lock{edge_endpoints_mutex_};
-          edge_endpoints_[edge] =
-              EdgeEndpoints{.from_vertex = info.from_vertex, .to_vertex = info.to_vertex, .edge_type = info.edge_type};
-        }
-      } else {
-        // Any non-tag before-image (null or a plain list such as []) means the edge was not indexed.
-        const auto indices_by_prop = GetIndicesByProperty(property);
-        for (const auto &[idx_id, filter] : indices_by_prop) {
-          if (!filter->Matches(info.edge_type)) continue;
-          RemoveEdgeFromIndex(edge, idx_id);
-        }
-        EraseEndpointsIfUnreferenced(edge);
-      }
-    }
+bool VectorEdgeIndex::HasIndexOnProperty(PropertyId property) const { return AnyIndexOnProperty(*index_, property); }
+
+void VectorEdgeIndex::DropEntries(Edge *edge, PropertyId property) {
+  for (const auto &[index_id, _] : GetIndicesByProperty(property)) {
+    RemoveEdgeFromIndex(edge, index_id);
   }
+  EraseEndpointsIfUnreferenced(edge);
+}
+
+void VectorEdgeIndex::RestoreOnSetProperty(Vertex *from_vertex, Edge *edge, PropertyId property,
+                                           const PropertyValue &before,
+                                           std::optional<std::pair<EdgeTypeId, Vertex *>> link) {
+  if (!HasIndexOnProperty(property)) return;
+  // A non-tag value is in no index, so no endpoints are needed; every index on the property is cleared, not only
+  // those matching the edge type, in case a forward write left an entry the filter no longer admits.
+  if (!before.IsVectorIndexId()) {
+    DropEntries(edge, property);
+    return;
+  }
+  if (!link) {
+    // The link is gone (e.g. the edge was deleted and its deltas hold no type): fall back to the recorded one.
+    auto lock = std::shared_lock{edge_endpoints_mutex_};
+    const auto it = edge_endpoints_.find(edge);
+    // Nothing recorded to restore against: skipped, as the deferred pass did.
+    if (it == edge_endpoints_.end()) return;
+    link = std::pair{it->second.edge_type, it->second.to_vertex};
+  }
+  UpdateOnSetProperty(from_vertex, link->second, edge, link->first, property, before);
 }
 
 bool VectorEdgeIndex::Empty() const { return index_->empty(); }
@@ -527,40 +528,6 @@ void VectorEdgeIndex::RemoveEdges(std::span<Edge *const> edges_to_remove) const 
       edge_endpoints_.erase(edge);
     }
   }
-}
-
-VectorEdgeIndex::AbortProcessor VectorEdgeIndex::GetAbortProcessor() const {
-  AbortProcessor res{};
-  for (const auto &[_, item_ptr] : *index_) {
-    const auto &filter = item_ptr->spec.edge_type_filter;
-    const auto property = item_ptr->spec.property;
-    if (filter.mode == VectorMatchMode::WILDCARD) {
-      res.wildcard_properties.insert(property);
-    } else {
-      for (const auto &edge_type : filter.ids) {
-        res.et2p[edge_type].push_back(property);
-        res.p2et[property].push_back(edge_type);
-      }
-    }
-  }
-  return res;
-}
-
-void VectorEdgeIndex::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property,
-                                                              const PropertyValue &old_value, Vertex *from_vertex,
-                                                              Vertex *to_vertex, Edge *edge) {
-  const auto matches = std::invoke([&] {
-    if (wildcard_properties.contains(property)) return true;
-    auto edge_types = p2et.find(property);
-    return edge_types != p2et.end() && r::contains(edge_types->second, edge_type);
-  });
-  if (!matches) return;
-
-  auto &info = cleanup_collection[edge];
-  info.edge_type = edge_type;
-  info.from_vertex = from_vertex;
-  info.to_vertex = to_vertex;
-  info.properties[property] = old_value;
 }
 
 bool VectorEdgeIndex::IndexExists(std::string_view index_name) const {

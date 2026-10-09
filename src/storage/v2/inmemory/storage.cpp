@@ -1507,10 +1507,21 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
                 auto prop_id = current->property.key;
                 auto *from_vertex = current->property.out_vertex;
 
-                index_abort_processor.CollectOnEdgePropertyChange(
-                    prop_id, *current->property.value, from_vertex, edge, transaction_.deltas);
+                // One link lookup serves both the non-vector collectors and the vector restore.
+                auto &vector_edge_index = storage_->indices_.vector_edge_index_;
+                auto const non_vector_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
+                auto link = std::optional<std::pair<EdgeTypeId, Vertex *>>{};
+                if (non_vector_interesting || vector_edge_index.HasIndexOnProperty(prop_id)) {
+                  link = index_abort_processor.FindEdgeLink(from_vertex, edge, transaction_.deltas);
+                }
+                if (non_vector_interesting && link) {
+                  index_abort_processor.CollectOnPropertyChange(link->first, prop_id, from_vertex, link->second, edge);
+                }
 
                 edge->properties.SetProperty(prop_id, *current->property.value);
+
+                // Undone inline under the edge lock, like the vertex path below.
+                vector_edge_index.RestoreOnSetProperty(from_vertex, edge, prop_id, *current->property.value, link);
 
                 break;
               }
@@ -1773,7 +1784,7 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
     /// this is because they point into vertices skip_list
 
     // Cleanup INDICES
-    index_abort_processor.Process(storage_->indices_, *transaction_.active_indices_, transaction_.start_timestamp);
+    index_abort_processor.Process(*transaction_.active_indices_, transaction_.start_timestamp);
     // Handed to CollectGarbage for the same reason as the edges below: a removal on this thread
     // races a sweep or scan holding no pin on `vertices_`.
     if (!my_deleted_vertices.empty()) {

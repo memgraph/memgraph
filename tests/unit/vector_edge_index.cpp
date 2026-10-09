@@ -11,11 +11,13 @@
 
 #include <gtest/gtest.h>
 #include <sys/types.h>
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <optional>
 #include <string_view>
 #include <thread>
+#include <tuple>
 #include <unordered_map>
 
 #include "flags/general.hpp"
@@ -1541,4 +1543,136 @@ TEST_F(VectorEdgeIndexTest, AbortMapStyleWriteRestoresEmbedding) {
     ASSERT_EQ(result.size(), 1);
     EXPECT_EQ(std::get<0>(result[0]).Gid(), edge_gid);
   }
+}
+
+namespace {
+PropertyValue FloatList(std::initializer_list<double> values) {
+  std::vector<PropertyValue> list;
+  for (const auto value : values) list.emplace_back(value);
+  return PropertyValue(std::move(list));
+}
+}  // namespace
+
+// Abort undoes vector edge index changes per delta under the edge lock; these pin the stored value (tag vs plain
+// list) and the usearch membership/value after it.
+class VectorEdgeIndexAbortTest : public VectorEdgeIndexTest {
+ protected:
+  using Floats = memgraph::utils::small_vector<float>;
+
+  Gid CommitEdge(std::string_view property, const PropertyValue &value) {
+    auto acc = storage->Access(WRITE);
+    auto [from_vertex, to_vertex, edge] = CreateEdge(acc.get(), property, value, test_edge_type);
+    const auto gid = edge.Gid();
+    MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());  // NOLINT
+    return gid;
+  }
+
+  void ExpectIndexed(Gid gid, const Floats &expected, std::size_t expected_size = 1) {
+    auto acc = storage->Access(READ);
+    auto edge = acc->FindEdge(gid, View::OLD).value();
+    const auto value = edge.GetProperty(acc->NameToProperty(test_property), View::OLD).value();
+    ASSERT_TRUE(value.IsVectorIndexId());
+    EXPECT_EQ(value.ValueVectorIndexList(), expected);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, expected_size);
+    const auto hits = acc->VectorIndexSearchOnEdges(
+        test_index.data(), expected_size, std::vector<float>(expected.begin(), expected.end()));
+    const auto hit = std::ranges::find_if(hits, [&](const auto &h) { return std::get<0>(h).Gid() == gid; });
+    ASSERT_NE(hit, hits.end());
+    EXPECT_FLOAT_EQ(std::get<1>(*hit), 0.0);
+  }
+
+  void ExpectPlain(Gid gid, const PropertyValue &expected, std::size_t expected_size = 0) {
+    auto acc = storage->Access(READ);
+    auto edge = acc->FindEdge(gid, View::OLD).value();
+    const auto value = edge.GetProperty(acc->NameToProperty(test_property), View::OLD).value();
+    EXPECT_FALSE(value.IsVectorIndexId());
+    EXPECT_EQ(value, expected);
+    EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, expected_size);
+  }
+};
+
+TEST_F(VectorEdgeIndexAbortTest, SetOverIndexedVectorThenAbortRestoresIt) {
+  CreateEdgeIndex(2, 10);
+  const auto e = CommitEdge(test_property, FloatList({1, 2}));
+  const std::vector<std::pair<std::string_view, PropertyValue>> writes{
+      {"empty list", PropertyValue(std::vector<PropertyValue>{})},
+      {"null", PropertyValue()},
+      {"string", PropertyValue("abc")},
+      {"other vector", FloatList({3, 4})},
+  };
+  for (const auto &[name, value] : writes) {
+    SCOPED_TRACE(name);
+    auto acc = storage->Access(WRITE);
+    auto edge = acc->FindEdge(e, View::OLD).value();
+    ASSERT_NO_ERROR(edge.SetProperty(acc->NameToProperty(test_property), value));
+    acc->Abort();
+    ExpectIndexed(e, Floats{1.0F, 2.0F});
+  }
+}
+
+TEST_F(VectorEdgeIndexAbortTest, WrongDimensionSetThenAbortRestoresIndexedVector) {
+  CreateEdgeIndex(2, 10);
+  const auto e = CommitEdge(test_property, FloatList({1, 2}));
+  auto acc = storage->Access(WRITE);
+  auto edge = acc->FindEdge(e, View::OLD).value();
+  EXPECT_ANY_THROW(std::ignore = edge.SetProperty(acc->NameToProperty(test_property), FloatList({1, 2, 3})));
+  acc->Abort();
+  ExpectIndexed(e, Floats{1.0F, 2.0F});
+}
+
+TEST_F(VectorEdgeIndexAbortTest, SetOverNonVectorStartThenAbortLeavesItUnindexed) {
+  CreateEdgeIndex(2, 10);
+  const std::vector<std::pair<std::string_view, PropertyValue>> starts{
+      {"string", PropertyValue("abc")},
+      {"empty list", PropertyValue(std::vector<PropertyValue>{})},
+  };
+  for (const auto &[name, start] : starts) {
+    SCOPED_TRACE(name);
+    const auto e = CommitEdge(test_property, start);
+    auto acc = storage->Access(WRITE);
+    auto edge = acc->FindEdge(e, View::OLD).value();
+    ASSERT_NO_ERROR(edge.SetProperty(acc->NameToProperty(test_property), FloatList({3, 4})));
+    acc->Abort();
+    ExpectPlain(e, start);
+  }
+}
+
+TEST_F(VectorEdgeIndexAbortTest, SetThenDeleteThenAbortRestoresIndexedVector) {
+  // Deleting the edge takes its link off the source vertex, so the undo has to find the edge type in the deltas.
+  CreateEdgeIndex(2, 10);
+  const auto e = CommitEdge(test_property, FloatList({1, 2}));
+  {
+    auto acc = storage->Access(WRITE);
+    auto edge = acc->FindEdge(e, View::OLD).value();
+    ASSERT_NO_ERROR(edge.SetProperty(acc->NameToProperty(test_property), FloatList({3, 4})));
+    ASSERT_NO_ERROR(acc->DeleteEdge(&edge));
+    acc->Abort();
+  }
+  ExpectIndexed(e, Floats{1.0F, 2.0F});
+}
+
+TEST_F(VectorEdgeIndexAbortTest, ConcurrentWriterBetweenEdgeUndosKeepsItsEmbedding) {
+  CreateEdgeIndex(2, 10);
+  const auto e = CommitEdge(test_property, FloatList({1, 2}));
+  const auto other = CommitEdge("unrelated", PropertyValue(0));
+  auto acc = storage->Access(WRITE);
+  auto edge = acc->FindEdge(e, View::OLD).value();
+  ASSERT_NO_ERROR(edge.SetProperty(acc->NameToProperty(test_property), FloatList({3, 4})));
+  auto other_edge = acc->FindEdge(other, View::OLD).value();
+  ASSERT_NO_ERROR(other_edge.SetProperty(acc->NameToProperty("unrelated"), PropertyValue(1)));
+
+  // The edges pass calls back before each delta, in delta order: the second call is after e's undo, before the
+  // other edge's. The vertices pass then calls back once per delta without touching edges.
+  std::size_t calls = 0;
+  static_cast<InMemoryStorage::InMemoryAccessor *>(acc.get())->Abort([&] {
+    if (++calls != 2) return;
+    auto writer = storage->Access(WRITE);
+    auto written = writer->FindEdge(e, View::OLD).value();
+    ASSERT_NO_ERROR(written.SetProperty(writer->NameToProperty(test_property), FloatList({5, 6})));
+    ASSERT_NO_ERROR(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  });
+  // Two deltas, each seen once by the edges pass and once by the vertices pass.
+  ASSERT_EQ(calls, 4U);
+
+  ExpectIndexed(e, Floats{5.0F, 6.0F});
 }

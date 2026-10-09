@@ -87,7 +87,6 @@ struct Indices {
     VertexPropertyIndex::AbortProcessor vertex_property_;
     // TODO: point? Nothing to abort, it gets built in Commit
     // TODO: text?
-    VectorEdgeIndex::AbortProcessor vector_edge_;
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, EdgeRef edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
@@ -95,19 +94,19 @@ struct Indices {
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                  Edge *edge);
 
-    /// Undo a property written on an edge, given the transaction's own deltas to find the edge by.
+    /// Finds the source vertex's link naming an edge's type and target, given the transaction's own deltas.
     ///
     /// An edge's type is not held on the edge: it is on the link its source vertex holds, so
     /// undoing an entry means finding that link. A transaction that went on to delete the edge has
     /// already taken the link out, and the deltas that would put it back are the only remaining
     /// record. Callers therefore hand the deltas over rather than the type, because a caller that
     /// had to find the type itself would silently do nothing in exactly that case.
-    void CollectOnEdgePropertyChange(PropertyId property, PropertyValue const &old_value, Vertex *from_vertex,
-                                     Edge *edge, delta_container const &deltas);
+    auto FindEdgeLink(Vertex *from_vertex, Edge *edge, delta_container const &deltas)
+        -> std::optional<std::pair<EdgeTypeId, Vertex *>>;
 
     bool IsInterestingEdgeProperty(PropertyId property) const;
 
-    void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp);
+    void Process(ActiveIndices const &active_indices, uint64_t start_timestamp);
 
     /// Reached only for an edge whose link its source vertex no longer holds. The first few are
     /// answered by scanning the deltas; past that the scanning is what costs, so they are indexed.

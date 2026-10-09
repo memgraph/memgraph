@@ -131,29 +131,6 @@ using VectorEdgeIndexContainer = std::unordered_map<uint64_t, std::shared_ptr<Ed
 /// so ActiveIndices snapshots remain stable while Create/Drop swap in a new version.
 class VectorEdgeIndex {
  public:
-  struct AbortProcessor {
-    std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
-    std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
-    std::set<PropertyId> wildcard_properties;
-
-    struct EdgeAbortInfo {
-      EdgeTypeId edge_type;
-      Vertex *from_vertex;
-      Vertex *to_vertex;
-      std::map<PropertyId, PropertyValue> properties;
-    };
-
-    using AbortableInfo = std::map<Edge *, EdgeAbortInfo>;
-    AbortableInfo cleanup_collection;
-
-    bool IsInteresting(PropertyId property) const {
-      return p2et.contains(property) || wildcard_properties.contains(property);
-    }
-
-    void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, const PropertyValue &old_value,
-                                 Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
-  };
-
   struct EdgeIndexEntry {
     Vertex *from_vertex;
     Vertex *to_vertex;
@@ -262,15 +239,18 @@ class VectorEdgeIndex {
   VectorSearchEdgeResults SearchEdges(std::string_view index_name, uint64_t result_set_size,
                                       const std::vector<float> &query_vector) const;
 
-  /// @brief Aborts the entries in the vector edge index.
-  void AbortEntries(AbortProcessor::AbortableInfo &cleanup_collection);
+  /// @brief Allocation-free: whether any index covers `property`.
+  bool HasIndexOnProperty(PropertyId property) const;
+
+  /// @brief Abort-path inverse of UpdateOnSetProperty: called once per undone SET_PROPERTY delta under the edge lock,
+  /// after the property store took `before` back. `link` is the edge's type and target as found by the caller; when
+  /// absent the recorded endpoints are used.
+  void RestoreOnSetProperty(Vertex *from_vertex, Edge *edge, PropertyId property, const PropertyValue &before,
+                            std::optional<std::pair<EdgeTypeId, Vertex *>> link);
 
   /// @brief Removes edges from the index by GID.
   /// Must be called before the edge is removed from the skip list (while the pointer is still valid).
   void RemoveEdges(std::span<Edge *const> edges_to_remove) const;
-
-  /// @brief Returns an abort processor snapshot used during transaction abort.
-  AbortProcessor GetAbortProcessor() const;
 
   /// @brief Checks if any vector index exists.
   bool Empty() const;
@@ -304,6 +284,9 @@ class VectorEdgeIndex {
   void RemoveEdgeFromIndex(Edge *edge, uint64_t index_id);
 
   void EraseEndpointsIfUnreferenced(Edge *edge);
+
+  /// Abort path: removes the edge from every index on `property`.
+  void DropEntries(Edge *edge, PropertyId property);
 
   utils::MemoryTracker *memory_tracker_{nullptr};
   // Invariant: `index_` is only mutated under UNIQUE storage access (see the MG_ASSERTs in
