@@ -693,6 +693,8 @@ class InMemoryStorage final : public Storage {
       // Only MAIN should be running the TTL worker, it does write operations which only MAIN should be doing
       if (repl_args.is_main) {
         storage_->ttl_.Resume();
+      } else {
+        storage_->ttl_.SetWanted(true);
       }
       transaction_.md_deltas.emplace_back(
           MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE, std::nullopt, std::nullopt, false);

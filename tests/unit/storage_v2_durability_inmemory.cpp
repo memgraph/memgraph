@@ -5007,6 +5007,7 @@ TEST_F(DurabilityTest, TtlDurability) {
       ASSERT_TRUE(config.should_run_edge_ttl);
       ASSERT_TRUE(config.start_time.has_value());
       ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_FALSE(db.storage()->ttl_.Paused());
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
     }
   }
@@ -5175,6 +5176,48 @@ TEST_F(DurabilityTest, TtlDurability) {
       ASSERT_TRUE(db.storage()->ttl_.Enabled());
     }
   }
+}
+
+namespace {
+
+// Enables TTL, optionally stops it, and shuts down so that only the exit snapshot records it.
+void EnableTtlAndShutDown(std::filesystem::path const &storage_directory, bool const stop) {
+  memgraph::dbms::Database db{
+      memgraph::storage::Config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true}}};
+  const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
+  {
+    auto acc = db.UniqueAccess();
+    acc->ConfigureTtl(memgraph::storage::ttl::TtlInfo{std::chrono::hours(24), std::chrono::system_clock::now(), false});
+    acc->StartTtl();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+  if (stop) {
+    auto acc = db.UniqueAccess();
+    acc->StopTtl();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+}
+
+}  // namespace
+
+TEST_F(DurabilityTest, RunningTtlStillRunsAfterExitSnapshotRestart) {
+  EnableTtlAndShutDown(storage_directory, false);
+  ASSERT_EQ(GetWalsList().size(), 0);
+
+  memgraph::dbms::Database db{
+      memgraph::storage::Config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true}}};
+  EXPECT_TRUE(db.storage()->ttl_.Running());
+  EXPECT_FALSE(db.storage()->ttl_.Paused());
+}
+
+TEST_F(DurabilityTest, StoppedTtlStaysStoppedAfterExitSnapshotRestart) {
+  EnableTtlAndShutDown(storage_directory, true);
+  ASSERT_EQ(GetWalsList().size(), 0);
+
+  memgraph::dbms::Database db{
+      memgraph::storage::Config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true}}};
+  EXPECT_TRUE(db.storage()->ttl_.Running());
+  EXPECT_TRUE(db.storage()->ttl_.Paused());
 }
 #endif
 
