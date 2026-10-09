@@ -3253,7 +3253,9 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   // in the second GC phase in this GC iteration or some of the following
   // ones.
 
+  // Read before commit_windows_ so a commit that publishes and finalizes in between cannot make us over-reclaim.
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
+  uint64_t const raw_oldest_active = oldest_active_start_timestamp;
 
   // Also consider unprocessed schema updates as a safety horizon.
   // `pending_schema_updates_` contains raw pointers to vertices (in SchemaInfoEdge.from/.to
@@ -3269,6 +3271,19 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
         min_queued_bound = std::min(min_queued_bound, update_data.snapshot_bound);
       }
       oldest_active_start_timestamp = std::min(min_queued_bound, oldest_active_start_timestamp);
+    }
+  }
+
+  // Horizon for the unlink gate, chain trim and index/constraint sweeps. A txn that began inside the front
+  // commit window reads at that commit's ts, so the horizon must not pass it. OFF: identical to master.
+  uint64_t visibility_horizon = oldest_active_start_timestamp;
+  if (config_.experimental_commit_lock_narrowing) {
+    auto const engine_guard = std::scoped_lock{engine_lock_};
+    while (!commit_windows_.empty() && commit_windows_.front().end_ts <= raw_oldest_active) {
+      commit_windows_.pop_front();
+    }
+    if (!commit_windows_.empty() && commit_windows_.front().commit_ts < raw_oldest_active) {
+      visibility_horizon = std::min(visibility_horizon, commit_windows_.front().commit_ts);
     }
   }
 
@@ -3313,7 +3328,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
 
           // Track highest commit timestamp among all contributors. We can only
           // unlink when ALL contributors are inactive, so we must wait until
-          // highest_commit_ts < oldest_active_start_timestamp.
+          // highest_commit_ts < visibility_horizon.
           if (ts > highest_commit_ts) {
             highest_commit_ts = ts;
           }
@@ -3374,7 +3389,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
     auto const unlinkable_timestamp = linked_entry->unlinkable_timestamp_;
 
     // only process those that are no longer active
-    if (unlinkable_timestamp >= oldest_active_start_timestamp) {
+    if (unlinkable_timestamp >= visibility_horizon) {
       ++linked_entry;  // can not process, skip
       continue;        // must continue to next transaction, because committed_transactions_ was not ordered
     }
@@ -3461,6 +3476,8 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
             //            ▲
             //            │
             //  oldest_active_start_timestamp
+            // Under commit-lock narrowing the boundary used below is visibility_horizon, which may sit
+            // below oldest_active_start_timestamp (see CollectGarbage).
 
             if (prev.delta->commit_info == commit_info_ptr) {
               // The delta that is newer than this one is also a delta from this
@@ -3469,7 +3486,7 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
               break;
             }
 
-            if (prev.delta->commit_info->timestamp.load() < oldest_active_start_timestamp) {
+            if (prev.delta->commit_info->timestamp.load() < visibility_horizon) {
               if (IsDeltaNonSequential(*prev.delta)) {
                 // Non-sequential predecessor: readers follow next, so we must
                 // null it to stop traversal into freed memory. We can skip the
@@ -3630,12 +3647,12 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
     uint64_t swept = 0;
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
-      swept += indices_.RemoveObsoleteVertexEntries(this, oldest_active_start_timestamp, token, sweep_arming);
+      swept += indices_.RemoveObsoleteVertexEntries(this, visibility_horizon, token, sweep_arming);
       auto *mem_unique_constraints = static_cast<InMemoryUniqueConstraints *>(constraints_.unique_constraints_.get());
-      swept += mem_unique_constraints->RemoveObsoleteEntries(this, oldest_active_start_timestamp, token, sweep_arming);
+      swept += mem_unique_constraints->RemoveObsoleteEntries(this, visibility_horizon, token, sweep_arming);
     }
     if (index_cleanup_edge_needed || index_cleanup_edge_performance) {
-      swept += indices_.RemoveObsoleteEdgeEntries(this, oldest_active_start_timestamp, token, sweep_arming);
+      swept += indices_.RemoveObsoleteEdgeEntries(this, visibility_horizon, token, sweep_arming);
     }
     metric_handles_.gc_index_sweeps.Increment(static_cast<double>(swept));
   }
