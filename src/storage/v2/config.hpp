@@ -123,6 +123,11 @@ struct Config {
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 
+  // Selects the commit-lock-narrowing MVCC path. Startup-only and per-instance, so members of one
+  // cluster may disagree about it. Must stay out of SalientConfig: durable output must not depend on
+  // it, which is what lets an instance restart with the flag flipped and still recover what it wrote.
+  bool experimental_commit_lock_narrowing{false};
+
   struct Transaction {
     IsolationLevel isolation_level{IsolationLevel::SNAPSHOT_ISOLATION};
     friend bool operator==(const Transaction &lrh, const Transaction &rhs) = default;
