@@ -81,6 +81,12 @@ class AtomicAuthOverlay {
     std::optional<value_type> current_;
     bool at_end_{false};
 
+    /// Set when this transaction has deleted a key under the prefix by the time the scan starts. Base being
+    /// inhabited then no longer means the transaction's view is, so the scan's answer rests on the keys it yields
+    /// from base, and each is observed as it is yielded: a scan narrowed to emptiness would otherwise depend on a
+    /// key it never recorded.
+    bool own_delete_under_prefix_{false};
+
     /// Base keys this scan has walked past, yielded or not, and the write-set keys it has yielded. Handed to the
     /// prefix's dependency if the scan reaches the end.
     std::set<std::string, std::less<>> seen_;
@@ -115,6 +121,9 @@ class AtomicAuthOverlay {
   /// it. Only an exhaustive scan calls this: one that stopped early depends on the prefix, not on what is under it.
   /// A read key under `prefix` that the scan did not walk is observed as absent.
   void AdoptWalked(std::string_view prefix, std::map<std::string, std::string, std::less<>> const &walked) const;
+
+  /// Records one observation of `key`, holding it to the first: a disagreement sets `saw_two_values_`.
+  void Observe(std::string const &key, std::optional<std::string> const &value) const;
 
   kvstore::KVStore &base_;
 
