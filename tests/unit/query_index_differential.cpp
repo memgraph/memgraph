@@ -185,6 +185,15 @@ class IndexDifferentialTest : public ::testing::Test {
     return false;
   }
 
+  /// Whether the plan still sorts, rather than leaning on the scan beneath it.
+  bool PlanKeepsTheSort(std::string const &query) {
+    auto stream = interpreter.Interpret("EXPLAIN " + query);
+    for (auto const &row : stream.GetResults()) {
+      if (row.front().ValueString().find("OrderBy") != std::string::npos) return true;
+    }
+    return false;
+  }
+
   /// A row as it reads, which is how two orders are compared.
   ///
   /// A NaN is not equal to itself, so comparing two orders that both hold one
@@ -204,6 +213,20 @@ class IndexDifferentialTest : public ::testing::Test {
     return rows;
   }
 
+  /// What a query answers with: the column it hands back, or the refusal it
+  /// ends in.
+  ///
+  /// A refusal is an answer. A sort that declines a pair it cannot place has
+  /// told the caller something, and a scan standing in for it has to tell them
+  /// the same thing rather than hand back an order of its own.
+  std::vector<std::string> Answer(std::string const &query) {
+    try {
+      return Ordered(query);
+    } catch (std::exception const &refusal) {
+      return {std::string{"refused: "} + refusal.what()};
+    }
+  }
+
   /// Runs each query with no index, then with one, and hands back both.
   std::pair<std::vector<std::vector<std::string>>, std::vector<std::vector<std::string>>> OrderAgrees(
       std::vector<std::string> const &values, std::vector<std::string> const &queries,
@@ -212,12 +235,12 @@ class IndexDifferentialTest : public ::testing::Test {
     for (auto const &value : values) Run("CREATE (:O {p: " + value + "});");
 
     auto without_index = std::vector<std::vector<std::string>>{};
-    for (auto const &query : queries) without_index.push_back(Ordered(query));
+    for (auto const &query : queries) without_index.push_back(Answer(query));
 
     for (auto const &statement : index_statements) Run(statement);
 
     auto with_index = std::vector<std::vector<std::string>>{};
-    for (auto const &query : queries) with_index.push_back(Ordered(query));
+    for (auto const &query : queries) with_index.push_back(Answer(query));
 
     return {std::move(without_index), std::move(with_index)};
   }
@@ -403,6 +426,148 @@ TEST_F(IndexDifferentialTest, AnIndexOverAColumnOfListsAnswersAsTheFilterDoes) {
       "[2]",
   };
   AnswersAgree(values, "a column of lists");
+}
+
+TEST_F(IndexDifferentialTest, AnIndexDoesNotPlaceAPairASortRefuses) {
+  // A sort places a map against a value of another type, and refuses a pair of
+  // maps: the stored order tells two maps apart by the identifiers their keys
+  // were interned as, which is a fact about the order the keys were first seen
+  // in rather than about the maps. A scan walking that order has a place for
+  // the pair the sort refuses, and handing it back answers a query the sort
+  // would not.
+  //
+  // The refusal is reached by a pair rather than by a type, so a column holding
+  // one map is placed and a column holding two is not. Both are asked here, so
+  // that a scan refusing the whole type would fail as loudly as one refusing
+  // nothing.
+  auto const query = std::vector<std::string>{"MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;"};
+
+  struct Column {
+    std::string_view what;
+    std::vector<std::string> values;
+  };
+
+  auto const columns = std::vector<Column>{
+      {"a pair of maps", {"{a: 1}", "{a: 2}"}},
+      {"maps a sort reads through to", {"{}", "{a: 1}", "{a: 2}", "{b: 1}"}},
+      {"one map beside another type", {"{a: 1}", "7"}},
+      {"one map alone", {"{a: 1}"}},
+      {"a pair of lists holding maps", {"[{a: 1}]", "[{a: 2}]"}},
+  };
+
+  for (auto const &[what, values] : columns) {
+    SCOPED_TRACE(what);
+    auto const [without_index, with_index] = OrderAgrees(values, query, {"CREATE INDEX ON :O(p);"});
+    EXPECT_EQ(with_index, without_index) << "an index changed the answer for " << what;
+    Run("DROP INDEX ON :O(p);");
+  }
+}
+
+TEST_F(IndexDifferentialTest, EveryIndexAScanCanStandInForRefusesThePairASortRefuses) {
+  // The label index is one of four an ORDER BY can be answered from, and the
+  // other three walk a stored order just as it does. A pair of maps reaches all
+  // of them, so a refusal kept to one leaves the same query answering
+  // differently for having one of the others.
+  struct Case {
+    std::string_view what;
+    std::vector<std::string> load;
+    std::string query;
+    std::string create_index;
+    std::string drop_index;
+  };
+
+  auto const vertices = std::vector<std::string>{"CREATE (:O {p: {a: 1}}), (:O {p: {a: 2}});"};
+  auto const edges = std::vector<std::string>{
+      "CREATE (:From), (:To);",
+      "MATCH (a:From), (b:To) CREATE (a)-[:D {p: {a: 1}}]->(b);",
+      "MATCH (a:From), (b:To) CREATE (a)-[:D {p: {a: 2}}]->(b);",
+  };
+
+  auto const pair_of_maps = std::vector<Case>{
+      {"a label index",
+       vertices,
+       "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;",
+       "CREATE INDEX ON :O(p);",
+       "DROP INDEX ON :O(p);"},
+      {"a global vertex index",
+       vertices,
+       "MATCH (n) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;",
+       "CREATE GLOBAL INDEX ON :(p);",
+       "DROP GLOBAL INDEX ON :(p);"},
+      {"an edge type index",
+       edges,
+       "MATCH ()-[r:D]->() WHERE r.p IS NOT NULL RETURN r.p AS v ORDER BY r.p;",
+       "CREATE EDGE INDEX ON :D(p);",
+       "DROP EDGE INDEX ON :D(p);"},
+      {"a global edge index",
+       edges,
+       "MATCH ()-[r]->() WHERE r.p IS NOT NULL RETURN r.p AS v ORDER BY r.p;",
+       "CREATE GLOBAL EDGE INDEX ON :(p);",
+       "DROP GLOBAL EDGE INDEX ON :(p);"},
+  };
+
+  for (auto const &one : pair_of_maps) {
+    SCOPED_TRACE(one.what);
+
+    Run("MATCH (n) DETACH DELETE n;");
+    for (auto const &statement : one.load) Run(statement);
+
+    auto const without_index = Answer(one.query);
+    Run(one.create_index);
+    auto const with_index = Answer(one.query);
+
+    // Without this the comparison could hold by asking the same plan twice: a
+    // sort the planner keeps is a sort on both sides, which says nothing about
+    // what the walk standing in for it hands back.
+    EXPECT_FALSE(PlanKeepsTheSort(one.query))
+        << "the sort was kept with " << one.what << ", so the comparison asked the same plan twice";
+
+    EXPECT_EQ(with_index, without_index) << one.what << " changed the answer for a pair of maps";
+
+    Run(one.drop_index);
+  }
+}
+
+TEST_F(IndexDifferentialTest, AWalkRefusesOnlyThePairsTheSortWouldHaveBeenAsked) {
+  // The refusal is asked of the rows the walk produces, and the sort it stands
+  // in for would have been asked of the rows that reached it. Anything between
+  // the two that drops a row makes those two sets different, and a pair the
+  // walk reaches may be one the sort never saw.
+  //
+  // A global index walks every vertex carrying the property, whatever its
+  // label, so a label test above it is exactly such a drop: the maps never
+  // reach the sort, and the query answers rather than refusing.
+  Run("MATCH (n) DETACH DELETE n;");
+  Run("CREATE (:N {p: 2}), (:N {p: 1});");
+  Run("CREATE (:M {p: {a: 1}}), (:M {p: {a: 2}});");
+
+  auto const query = std::string{"MATCH (n:N) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;"};
+  auto const without_index = Answer(query);
+
+  Run("CREATE GLOBAL INDEX ON :(p);");
+  auto const with_index = Answer(query);
+  Run("DROP GLOBAL INDEX ON :(p);");
+
+  EXPECT_EQ(without_index, (std::vector<std::string>{"1", "2"})) << "the column the sort read holds two integers";
+  EXPECT_EQ(with_index, without_index) << "a global index refused a pair the label test keeps from the sort";
+}
+
+TEST_F(IndexDifferentialTest, AFilterAboveAWalkKeepsThePairsItDropsFromTheRefusal) {
+  // The same question of the label index, where the filter that drops the rows
+  // is one the scan could not absorb. Only the integer reaches the sort, which
+  // places a single row and compares nothing, so the query answers.
+  Run("MATCH (n) DETACH DELETE n;");
+  Run("CREATE (:O {k: 1, p: 1}), (:O {k: 2, p: {a: 1}}), (:O {k: 3, p: {a: 2}});");
+
+  auto const query = std::string{"MATCH (n:O) WHERE n.p IS NOT NULL AND n.k = 1 RETURN n.p AS v ORDER BY n.p;"};
+  auto const without_index = Answer(query);
+
+  Run("CREATE INDEX ON :O(p);");
+  auto const with_index = Answer(query);
+  Run("DROP INDEX ON :O(p);");
+
+  EXPECT_EQ(without_index, (std::vector<std::string>{"1"})) << "one row reaches the sort";
+  EXPECT_EQ(with_index, without_index) << "an index refused a pair the filter keeps from the sort";
 }
 
 TEST_F(IndexDifferentialTest, AnIndexWalksTheTemporalKindsInTheOrderASortReadsThem) {

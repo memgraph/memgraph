@@ -53,8 +53,8 @@ class OrderByEliminator {
     [[nodiscard]] bool may_overlap(storage::PropertyId prop) const { return !has_path() || resolved[0] == prop; }
   };
 
-  using ProvidedScan = std::variant<const ScanAllByLabelProperties *, const ScanAllByEdgeTypeProperty *,
-                                    const ScanAllByEdgeProperty *, const ScanAllByVertexProperty *>;
+  using ProvidedScan = std::variant<ScanAllByLabelProperties *, ScanAllByEdgeTypeProperty *, ScanAllByEdgeProperty *,
+                                    ScanAllByVertexProperty *>;
 
   struct OrderByInfo {
     OrderBy *op{nullptr};
@@ -63,6 +63,10 @@ class OrderByEliminator {
     Ordering ordering{Ordering::ASC};          // shared direction of all ORDER BY columns
     bool well_formed{false};
     bool order_preserving_path{true};  // set false if walk from first scan to OrderBy fails
+
+    /// Whether the rows a scan walks are the rows the sort would have been
+    /// asked about, which is what lets a walk refuse in the sort's place.
+    bool every_row_reaches_the_sort{true};
 
     [[nodiscard]] bool has_pending_entries() const {
       return std::ranges::any_of(entries, [](const auto &e) { return !e.has_path(); });
@@ -90,7 +94,9 @@ class OrderByEliminator {
   bool TryEliminate() {
     DMG_ASSERT(!order_by_stack_.empty(), "OrderBy stack underflow in TryEliminate");
     const auto &ctx = order_by_stack_.back();
-    const bool eliminate = CanEliminate(ctx);
+    auto sort_columns = std::vector<std::vector<std::size_t>>{};
+    const bool eliminate = CanEliminate(ctx, &sort_columns);
+    if (eliminate) TellScansTheyStandInForTheSort(ctx, sort_columns);
     order_by_stack_.pop_back();
     return eliminate;
   }
@@ -229,6 +235,12 @@ class OrderByEliminator {
         ctx.order_preserving_path = false;
         break;
       }
+      // Only what this walk can settle now. A row-dropping operator is left to
+      // the pass over the finished plan, since the filter a scan is about to
+      // absorb still sits here and would withdraw the refusal from the queries
+      // it is for. An operator with more than one input is not absorbed, and
+      // that pass cannot see past it, so it is settled here instead.
+      if (!(*it)->HasSingleInput()) ctx.every_row_reaches_the_sort = false;
     }
   }
 
@@ -276,7 +288,8 @@ class OrderByEliminator {
   // -- scan matching --------------------------------------------------------
 
   static bool MatchGroupAgainstScan(const ProvidedScan &scan, const std::vector<OrderByEntry> &entries,
-                                    size_t group_start, size_t group_size) {
+                                    size_t group_start, size_t group_size,
+                                    std::vector<std::size_t> *sort_columns = nullptr) {
     return std::visit(
         [&](const auto *s) -> bool {
           using T = std::remove_cvref_t<decltype(*s)>;
@@ -284,6 +297,7 @@ class OrderByEliminator {
             size_t ob_ptr = 0;
             for (size_t i = 0; i < s->properties_.size() && ob_ptr < group_size; ++i) {
               if (s->properties_[i] == entries[group_start + ob_ptr].resolved) {
+                if (sort_columns) sort_columns->push_back(i);
                 // A composite index stores a missing property as NULL and sorts
                 // NULL first, but ORDER BY places NULL last, so the index order
                 // only matches ORDER BY when the sort column cannot be NULL. A
@@ -326,7 +340,33 @@ class OrderByEliminator {
   }
 
   /// Can the provided scans satisfy all ORDER BY entries without an explicit sort?
-  [[nodiscard]] static bool CanEliminate(const OrderByInfo &ctx) {
+  /// Hands each scan the columns the sort read, so that a walk kept in place of
+  /// the sort refuses the pairs the sort would have refused.
+  static void TellScansTheyStandInForTheSort(const OrderByInfo &ctx,
+                                             const std::vector<std::vector<std::size_t>> &sort_columns) {
+    if (!ctx.every_row_reaches_the_sort) return;
+
+    for (size_t i = 0; i != sort_columns.size(); ++i) {
+      std::visit(
+          [&](auto *s) {
+            using T = std::remove_cvref_t<decltype(*s)>;
+            if constexpr (std::is_same_v<T, ScanAllByLabelProperties>) {
+              s->sort_columns_ = sort_columns[i];
+            } else {
+              // The rest are fenced by one property, and a sort they stand in
+              // for matched exactly that one, so there is no column to name.
+              s->stands_in_for_a_sort_ = true;
+            }
+          },
+          ctx.provided_scans[i]);
+    }
+  }
+
+  /// @param sort_columns filled, per provided scan, with the columns the sort
+  /// read, so that a walk kept in place of the sort can refuse the pairs the
+  /// sort would have. Only meaningful where this answers true.
+  [[nodiscard]] static bool CanEliminate(const OrderByInfo &ctx,
+                                         std::vector<std::vector<std::size_t>> *sort_columns = nullptr) {
     if (!ctx.well_formed || !ctx.order_preserving_path || ctx.has_pending_entries()) return false;
     if (ctx.provided_scans.empty()) return false;
 
@@ -348,7 +388,11 @@ class OrderByEliminator {
       }
       const size_t group_size = entry_idx - group_start;
 
-      if (!MatchGroupAgainstScan(ctx.provided_scans[scan_idx], ctx.entries, group_start, group_size)) return false;
+      auto columns = std::vector<std::size_t>{};
+      if (!MatchGroupAgainstScan(ctx.provided_scans[scan_idx], ctx.entries, group_start, group_size, &columns)) {
+        return false;
+      }
+      if (sort_columns) sort_columns->push_back(std::move(columns));
 
       ++scan_idx;
     }
@@ -356,5 +400,50 @@ class OrderByEliminator {
     return entry_idx == ctx.entries.size();
   }
 };
+
+/// Does every row handed to this operator reach the one above it, carrying the
+/// value a sort would have read?
+///
+/// Narrower than keeping the order, and asked for a different reason. An
+/// operator may drop a row and leave the rest in order, which is enough to drop
+/// the sort and not enough to refuse in its place: a pair the walk beneath
+/// reaches would be one the sort was never asked about. A mutation is excluded
+/// for the other half of the question, since it can rewrite the very value the
+/// walk compared.
+inline bool EveryRowIsHandedOn(const utils::TypeInfo &type_info) {
+  return type_info == ConstructNamedPath::kType || type_info == Produce::kType || type_info == Accumulate::kType ||
+         type_info == SetLabels::kType || type_info == RemoveLabels::kType;
+}
+
+/// Leaves a walk refusing in a sort's place only where every row it hands up
+/// reaches that place.
+///
+/// Read from the finished plan rather than while it is being rewritten. At
+/// rewrite time the filter a scan is about to absorb still sits above it, and
+/// reading the plan then would withdraw the refusal from exactly the queries it
+/// exists for.
+inline std::unique_ptr<LogicalOperator> KeepTheRefusalWhereNothingDropsARow(std::unique_ptr<LogicalOperator> root) {
+  auto a_row_may_be_dropped = false;
+
+  for (auto *op = root.get(); op != nullptr;) {
+    if (a_row_may_be_dropped) {
+      if (auto *scan = dynamic_cast<ScanAllByLabelProperties *>(op)) {
+        scan->sort_columns_.clear();
+      } else if (auto *vertex_scan = dynamic_cast<ScanAllByVertexProperty *>(op)) {
+        vertex_scan->stands_in_for_a_sort_ = false;
+      } else if (auto *edge_type_scan = dynamic_cast<ScanAllByEdgeTypeProperty *>(op)) {
+        edge_type_scan->stands_in_for_a_sort_ = false;
+      } else if (auto *edge_scan = dynamic_cast<ScanAllByEdgeProperty *>(op)) {
+        edge_scan->stands_in_for_a_sort_ = false;
+      }
+    }
+
+    if (!EveryRowIsHandedOn(op->GetTypeInfo())) a_row_may_be_dropped = true;
+    if (!op->HasSingleInput()) break;
+    op = op->input().get();
+  }
+
+  return root;
+}
 
 }  // namespace memgraph::query::plan
