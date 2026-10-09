@@ -618,6 +618,36 @@ TEST_P(CypherMainVisitorTest, ReturnOrderByDifferentAggregatedItem) {
   }
 }
 
+// A form that binds a variable holds the bound variable, the list it ranges over, and a body that reads the variable.
+// Comparing only some of those would call two different tests the same, so matching such a form at all requires
+// comparing the body under the binding, and until it does the form matches nothing.
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemBindingAVariable) {
+  auto &ast_generator = *GetParam();
+  auto const order_by = [&](auto const *text) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    return dynamic_cast<Return *>(query->single_query_->clauses_[1])->body_.order_by[0].expression;
+  };
+  for (auto const *text :
+       {"MATCH (n) RETURN all(x IN n.list WHERE x > n.a) AS v, count(*) AS c ORDER BY all(x IN n.list WHERE x > n.b)",
+        "MATCH (n) RETURN any(x IN n.list WHERE x > n.a) AS v, count(*) AS c ORDER BY any(x IN n.list WHERE x > n.b)",
+        "MATCH (n) RETURN [x IN n.list WHERE x > n.a] AS v, count(*) AS c ORDER BY [x IN n.list WHERE x > n.b]",
+        "MATCH (n) RETURN none(x IN n.list WHERE x > n.a) AS v, count(*) AS c ORDER BY none(x IN n.list WHERE x > "
+        "n.b)",
+        "MATCH (n) RETURN single(x IN n.list WHERE x > n.a) AS v, count(*) AS c ORDER BY single(x IN n.list WHERE x "
+        "> n.b)",
+        "MATCH (n) RETURN reduce(a = n.z, x IN n.list | a + n.p) AS v, count(*) AS c ORDER BY reduce(a = n.z, x IN "
+        "n.list | a + n.q)"}) {
+    EXPECT_FALSE(dynamic_cast<Identifier *>(order_by(text))) << text;
+  }
+
+  // The list a binding form ranges over is read outside the binding, so a projected item repeating it may not be
+  // substituted in: the name the item carries is the one the form goes on to bind.
+  auto *reduce = dynamic_cast<Reduce *>(
+      order_by("MATCH (n) RETURN n.list AS x, count(*) AS c ORDER BY reduce(a = 0, x IN n.list | a + x)"));
+  ASSERT_TRUE(reduce);
+  EXPECT_TRUE(dynamic_cast<PropertyLookup *>(reduce->list_));
+}
+
 TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedLabelsTest) {
   auto &ast_generator = *GetParam();
   for (auto const *text : {"MATCH (n) RETURN n:A:B AS a, count(*) AS c ORDER BY n:A:B",
