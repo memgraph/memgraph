@@ -80,11 +80,14 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
       // Older versions didn't advance the last log entry when a snapshot compacted past it, leaving an empty store
       // with the start index beyond the last log entry.
       if (durable_start_idx_value > last_log_entry + 1) {
+        auto const repaired_last_log_entry = durable_start_idx_value - 1;
         logger_.Log(nuraft_log_level::WARNING,
-                    fmt::format("Start index {} is beyond last log entry {}, treating the log store as empty.",
+                    fmt::format("Start index {} is beyond last log entry {}, treating the log store as empty and "
+                                "repairing last log entry to {}.",
                                 durable_start_idx_value,
-                                last_log_entry));
-        durability_->Put(kLastLogEntry, std::to_string(durable_start_idx_value - 1));
+                                last_log_entry,
+                                repaired_last_log_entry));
+        durability_->Put(kLastLogEntry, std::to_string(repaired_last_log_entry));
         return true;
       }
 

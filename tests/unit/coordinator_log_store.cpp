@@ -589,6 +589,8 @@ TEST_F(CoordinatorLogStoreTests, TestCompactPastLastEntrySurvivesRestart) {
     log_store.compact(10);
     ASSERT_EQ(log_store.start_index(), 11);
     ASSERT_EQ(log_store.next_slot(), 11);
+    ASSERT_EQ(kv->Get(memgraph::coordination::kLastLogEntry), "10");
+    ASSERT_EQ(kv->Get(memgraph::coordination::kStartIdx), "11");
   }
 
   {
@@ -621,5 +623,6 @@ TEST_F(CoordinatorLogStoreTests, TestStartIndexBeyondLastEntryRecovers) {
 
     ASSERT_EQ(log_store.start_index(), 11);
     ASSERT_EQ(log_store.next_slot(), 11);
+    ASSERT_EQ(kv->Get(memgraph::coordination::kLastLogEntry), "10");
   }
 }
