@@ -81,11 +81,20 @@ struct MgpValueDeleter {
   }
 };
 
+struct MgpListDeleter {
+  void operator()(mgp_list *l) {
+    if (l != nullptr) {
+      mgp_list_destroy(l);
+    }
+  }
+};
+
 using MgpEdgePtr = std::unique_ptr<mgp_edge, MgpEdgeDeleter>;
 using MgpEdgesIteratorPtr = std::unique_ptr<mgp_edges_iterator, MgpEdgesIteratorDeleter>;
 using MgpVertexPtr = std::unique_ptr<mgp_vertex, MgpVertexDeleter>;
 using MgpVerticesIteratorPtr = std::unique_ptr<mgp_vertices_iterator, MgpVerticesIteratorDeleter>;
 using MgpValuePtr = std::unique_ptr<mgp_value, MgpValueDeleter>;
+using MgpListPtr = std::unique_ptr<mgp_list, MgpListDeleter>;
 
 template <typename TMaybeIterable, typename TIterableAccessor>
 size_t CountMaybeIterables(TMaybeIterable &&maybe_iterable, TIterableAccessor func) {
@@ -799,6 +808,72 @@ TYPED_TEST(MgpGraphTest, VirtualGraphRejectsMutations) {
   EXPECT_EQ(mgp_list_all_label_indices(&graph, &this->memory, &list_result), mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
   EXPECT_EQ(mgp_list_all_vertex_property_indices(&graph, &this->memory, &list_result),
             mgp_error::MGP_ERROR_IMMUTABLE_OBJECT);
+}
+
+TYPED_TEST(MgpGraphTest, OrdinaryIndexAndConstraintRefusedOnVectorIndexedProperty) {
+  if constexpr (!std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>) {
+    GTEST_SKIP() << "Vector indexes exist only for in-memory storage";
+  } else {
+    using namespace memgraph::storage;
+    const auto label = this->storage->NameToLabel("L");
+    const auto emb = this->storage->NameToProperty("emb");
+    const auto other = this->storage->NameToProperty("other");
+    {
+      auto acc = this->storage->UniqueAccess();
+      ASSERT_TRUE(
+          acc->CreateVectorIndex(VectorIndexSpec{.index_name = "vi",
+                                                 .label_filter = VectorLabelFilter{VectorMatchMode::SINGLE, {label}},
+                                                 .property = emb,
+                                                 .metric_kind = unum::usearch::metric_kind_t::l2sq_k,
+                                                 .dimension = 2,
+                                                 .resize_coefficient = 2,
+                                                 .capacity = 100,
+                                                 .scalar_kind = unum::usearch::scalar_kind_t::f32_k})
+              .has_value());
+      ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    auto acc = this->storage->UniqueAccess();
+    memgraph::query::DbAccessor dba{acc.get()};
+    mgp_graph graph{
+        .impl = &dba, .view = View::NEW, .ctx = nullptr, .storage_mode = StorageMode::IN_MEMORY_TRANSACTIONAL};
+
+    const auto make_props = [&](const char *name) {
+      MgpListPtr props{EXPECT_MGP_NO_ERROR(mgp_list *, mgp_list_make_empty, 1, &this->memory)};
+      MgpValuePtr value{EXPECT_MGP_NO_ERROR(mgp_value *, mgp_value_make_string, name, &this->memory)};
+      EXPECT_SUCCESS(mgp_list_append(props.get(), value.get()));
+      return props;
+    };
+    const auto emb_props = make_props("emb");
+    const auto other_props = make_props("other");
+
+    int result = 0;
+    EXPECT_EQ(mgp_create_label_property_index(&graph, "L", "emb", &result), mgp_error::MGP_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(mgp_create_vertex_property_index(&graph, "emb", &result), mgp_error::MGP_ERROR_INVALID_ARGUMENT);
+    EXPECT_EQ(mgp_create_unique_constraint(&graph, "L", emb_props.get(), &result),
+              mgp_error::MGP_ERROR_INVALID_ARGUMENT);
+
+    const auto indices = dba.ListAllIndices();
+    EXPECT_TRUE(indices.label_properties.empty());
+    EXPECT_TRUE(indices.vertex_property.empty());
+    EXPECT_TRUE(dba.ListAllConstraints().unique.empty());
+
+    EXPECT_SUCCESS(mgp_create_label_property_index(&graph, "L", "other", &result));
+    EXPECT_SUCCESS(mgp_create_vertex_property_index(&graph, "other", &result));
+    EXPECT_SUCCESS(mgp_create_unique_constraint(&graph, "L", other_props.get(), &result));
+
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    acc.reset();
+
+    auto check_acc = this->storage->Access(StorageAccessType::READ);
+    memgraph::query::DbAccessor check{check_acc.get()};
+    const auto after = check.ListAllIndices();
+    ASSERT_EQ(after.label_properties.size(), 1);
+    EXPECT_EQ(after.label_properties[0].label, label);
+    EXPECT_THAT(after.vertex_property, ::testing::ElementsAre(other));
+    ASSERT_EQ(check.ListAllConstraints().unique.size(), 1);
+    EXPECT_EQ(check.ListAllConstraints().unique[0].second, (std::set<PropertyId>{other}));
+  }
 }
 
 TYPED_TEST(MgpGraphTest, GetStartTimestamp) {
