@@ -534,7 +534,7 @@ class Auth final {
 
   // Durability updated -> new epoch, invalidating permissions cached against it. A transactional repository means
   // nothing is durable yet, so the epoch must not move: bumping it would invalidate those caches against
-  // uncommitted state, and spend the invalidation that Commit owes them once the flush lands.
+  // uncommitted state. Commit moves it once the flush lands.
   void UpdateEpoch() {
     if (!storage_.IsTransactional()) ++epoch_;
   }

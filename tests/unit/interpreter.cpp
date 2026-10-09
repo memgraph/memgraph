@@ -186,6 +186,8 @@ TYPED_TEST(InterpreterTest, MixingAuthThenDataFailsTheTransaction) {
 // A failed auth COMMIT leaves the transaction open until ROLLBACK, as a failed statement does: still active, still
 // listed, and refusing a second COMMIT.
 TYPED_TEST(InterpreterTest, AFailedAuthCommitLeavesTheTransactionOpenUntilRollback) {
+  // Licensed, so the commit has replication actions and takes the system transaction it must then give back.
+  memgraph::license::global_license_checker.EnableTesting();
   AuthQueryHandlerFixture auth{this->data_directory / "auth"};
   this->interpreter_context.auth = &auth.handler;
 
@@ -197,6 +199,8 @@ TYPED_TEST(InterpreterTest, AFailedAuthCommitLeavesTheTransactionOpenUntilRollba
   EXPECT_EQ(this->default_interpreter.interpreter.transaction_status_.load(),
             memgraph::query::TransactionStatus::ACTIVE);
   EXPECT_TRUE(this->default_interpreter.interpreter.GetTransactionId().has_value());
+  EXPECT_EQ(this->default_interpreter.interpreter.system_transaction_ptr(), nullptr)
+      << "a failed commit kept the system mutex";
   EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::ExplicitTransactionUsageException);
 
   this->default_interpreter.Interpret("ROLLBACK");
