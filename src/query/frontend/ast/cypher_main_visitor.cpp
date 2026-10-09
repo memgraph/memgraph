@@ -3930,11 +3930,9 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
             "shortest paths expansion.");
       }
     };
-    // KSHORTEST takes a lone lambda as the filter, which is what it has always meant. The total
-    // weight variable after it is what makes that lambda the weight one instead.
-    const bool weight_lambda_comes_first =
-        edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS ||
-        (edge->type_ == EdgeAtom::Type::KSHORTEST && relationshipDetail->total_weight != nullptr);
+    const bool weight_lambda_comes_first = edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
+                                           edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS ||
+                                           edge->type_ == EdgeAtom::Type::KSHORTEST;
     switch (relationshipLambdas.size()) {
       case 0:
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH)
@@ -3960,7 +3958,7 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         break;
       case 1:
         if (weight_lambda_comes_first) {
-          // For wShortest and allShortest, the first (and required) lambda is
+          // For wShortest, allShortest and kShortest, the first lambda is
           // used for weight calculation.
           edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
           reject_accumulators_in_weight_lambda();
