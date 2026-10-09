@@ -156,7 +156,9 @@ Conflicts are detected per record read, not per subsystem. Two sessions each
 creating a different user both succeed; two sessions changing the same user do
 not. One exception at bootstrap: on an instance with no users yet, two sessions
 each creating their first user conflict, because each has to decide whether it
-is creating the first one.
+is creating the first one. And once a transaction has dropped a user, a
+`CREATE USER` in it decides whether it is the first user from the user it found
+still there, so a concurrent change to that user fails the commit too.
 
 A statement that lists records depends on the whole list. This is worth
 knowing, because it is the case that surprises people:
@@ -214,6 +216,10 @@ as section 7 says, avoids that.
   statements. The stream owner's privileges are checked against the database
   each statement targets, the system database for auth statements, as they are
   for a session.
+- **`SHOW TRANSACTIONS` and `TERMINATE TRANSACTIONS` find an auth transaction
+  by its session's current database.** A user with `TRANSACTION_MANAGEMENT` on
+  that database can list the open transaction's statements, with passwords
+  masked, and terminate it, without the `AUTH` privilege.
 - **`DROP DATABASE ... FORCE` ends an open auth transaction in a session using
   that database.** The transactions it ends are chosen by each session's current
   database, as for a data transaction, so an auth transaction is ended even
