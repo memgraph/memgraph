@@ -192,7 +192,7 @@ void AtomicAuthOverlay::iterator::Advance() {
         d->second.exhausted = true;
         d->second.kind = ScanDependency::Kind::kKeySet;
         // Reaching the end is what makes the values read, so this is where they join the read set. A scan that
-        // stopped early never gets here and leaves them behind.
+        // stopped early never gets here and leaves them behind, except those it observed as it yielded them.
         overlay_->AdoptWalked(prefix_, walked_);
       }
       return;

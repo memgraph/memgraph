@@ -183,8 +183,7 @@ class AuthLayer {
   /// store. Anything throwing part-way discards the overlay, leaving them as they were, and the false return
   /// tells the caller to refuse the request so the main re-sends a full snapshot. A profile is not in that set:
   /// it applies durably as it is read, for the reason below. The main never puts a profile in a batch with
-  /// anything else, but nothing here enforces that, so a mixed batch that fails after its profile keeps the
-  /// profile change.
+  /// anything else, and a batch that does is refused before anything is applied.
   ///
   /// A drop naming nothing is not a failure. The main may have created and dropped a record between snapshots,
   /// so a removal that finds nothing is the state the main asked for. A removal that fails is a different
