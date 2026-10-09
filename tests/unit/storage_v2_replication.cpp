@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <memory>
@@ -2138,6 +2139,87 @@ TEST_F(ReplicationTest, ConcurrentDropsOfOneIndexKeepTheStreamRunning) {
         << "the replica stopped applying the stream, which is what refusing the second drop does";
     EXPECT_THAT(racc->ListAllIndices().label, IsEmpty());
   }
+}
+
+// The replica state check must copy main's epoch id/history under engine_lock_ (RECOVER SNAPSHOT FORCE rewrites both)
+// and must not report a false branching point between Clear() and LoadSnapshot. UNIQUE access does not exclude the
+// check.
+TEST_F(ReplicationTest, ReplicaStateCheckDoesNotRaceWithRecoverSnapshot) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  replica.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = "REPLICA",
+                      .mode = ReplicationMode::ASYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+
+  auto *storage = static_cast<InMemoryStorage *>(main.db.storage());
+  const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+  memgraph::storage::Gid gid;
+  {
+    auto acc = main.db.Access(memgraph::storage::WRITE);
+    gid = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+  }
+
+  // The epoch-mismatch branch is only reached once the replica holds a non-zero last durable timestamp.
+  auto const replica_has_vertex = [&] {
+    const memgraph::memory::DbArenaScope replica_scope{&replica.db.Arena()};
+    auto racc = replica.db.Access(memgraph::storage::WRITE);
+    return racc->FindVertex(gid, View::OLD).has_value();
+  };
+  for (int tries = 0; !replica_has_vertex() || main.db.storage()->GetReplicaState("REPLICA") != ReplicaState::READY;
+       ++tries) {
+    ASSERT_LT(tries, 500) << "Waited too long for the replica to receive the vertex";
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+
+  // Fires between Clear() and LoadSnapshot, where main's epoch is reset and its history empty. A check that reads them
+  // there reports DIVERGED_FROM_MAIN; with the fix it blocks on engine_lock_ (held by RecoverSnapshot) until the load
+  // is done. The check runs on the maintenance pool, so the hook can only bound its wait.
+  memgraph::dbms::DatabaseProtector const protector{main.db_acc};
+  std::atomic<bool> diverged_in_window{false};
+  std::atomic<int> hook_calls{0};
+  memgraph::utils::OnScopeExit const clear_hook{[&] { storage->on_recover_snapshot_cleared_hook_ = nullptr; }};
+  storage->on_recover_snapshot_cleared_hook_ = [&] {
+    hook_calls.fetch_add(1, std::memory_order_relaxed);
+    main.db.storage()->repl_storage_state_.WithClient(
+        "REPLICA", [&](auto &client) { client.TryCheckReplicaStateAsync(main.db.storage(), protector); });
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (main.db.storage()->GetReplicaState("REPLICA") == ReplicaState::DIVERGED_FROM_MAIN) {
+        diverged_in_window.store(true, std::memory_order_release);
+        return;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+  };
+
+  auto const snapshot = storage->CreateSnapshot(/*force*/ true);
+  ASSERT_TRUE(snapshot.has_value());
+  // Only a completed state check moves the replica back to READY, so reaching it below proves the check ran.
+  main.db.storage()->repl_storage_state_.WithClient("REPLICA", [](auto &client) { client.SetMaybeBehind(); });
+  {
+    auto const unique = storage->UniqueAccess();
+    auto const res =
+        storage->RecoverSnapshot(*snapshot, true, memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+    ASSERT_TRUE(res.has_value());
+  }
+  EXPECT_EQ(hook_calls.load(std::memory_order_relaxed), 1);
+  EXPECT_FALSE(diverged_in_window.load(std::memory_order_acquire));
+
+  // The blocked check resumes once the load is done and must see the restored epoch/history.
+  for (int tries = 0; tries < 200; ++tries) {
+    if (main.db.storage()->GetReplicaState("REPLICA") == ReplicaState::READY) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  EXPECT_EQ(main.db.storage()->GetReplicaState("REPLICA"), ReplicaState::READY);
 }
 
 TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {

@@ -906,7 +906,13 @@ class InMemoryStorage final : public Storage {
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
 
+  // Test-only, set before use; called with gc_lock_ and engine_lock_ held, so it must not take either.
+  std::function<void()> on_recover_snapshot_cleared_hook_;
+
  private:
+  // Clear() body; caller must hold gc_lock_ and engine_lock_.
+  void ClearLocked(std::function<void()> const &on_progress);
+
   /// @throw std::system_error
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
