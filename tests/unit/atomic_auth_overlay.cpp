@@ -11,6 +11,11 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
+#include <map>
+#include <optional>
+#include <random>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -390,6 +395,112 @@ TEST_F(AtomicAuthOverlayTest, FlushIgnoresChangeOutsideScannedPrefix) {
 
   EXPECT_TRUE(overlay.Flush());
   EXPECT_EQ(store_->Get("user:alice").value(), "our_alice");
+}
+
+// A key a full scan no longer finds is an observation too: gone and recreated with the same bytes, it must still
+// fail the commit, since the transaction acted on its absence.
+TEST_F(AtomicAuthOverlayTest, AKeyThatVanishesBetweenScansConflictsEvenWhenRecreated) {
+  store_->Put("link:u", "with_r");
+
+  AtomicAuthOverlay overlay(*store_);
+  EXPECT_EQ(CountUnder(overlay, "link:"), 1);
+
+  store_->Delete("link:u");
+  EXPECT_EQ(CountUnder(overlay, "link:"), 0);
+  overlay.Delete("role:r");
+
+  store_->Put("link:u", "with_r");
+
+  EXPECT_FALSE(overlay.Flush()) << "the second scan acted on link:u being gone";
+}
+
+// A key the transaction wrote is not observed by its scans, so another session changing it and changing it back
+// conflicts with nothing the transaction saw.
+TEST_F(AtomicAuthOverlayTest, AScanDoesNotObserveAKeyTheTransactionWrote) {
+  store_->Put("link:u", "with_r");
+
+  AtomicAuthOverlay overlay(*store_);
+  overlay.Put("link:u", "ours");
+
+  store_->Put("link:u", "changed");
+  EXPECT_EQ(CountUnder(overlay, "link:"), 1);
+  store_->Put("link:u", "with_r");
+
+  EXPECT_TRUE(overlay.Flush());
+}
+
+// Walking a key again at the value already read is the same observation, not a second one.
+TEST_F(AtomicAuthOverlayTest, RescanningAnUnchangedReadKeyDoesNotConflict) {
+  store_->Put("link:u", "with_r");
+
+  AtomicAuthOverlay overlay(*store_);
+  EXPECT_EQ(overlay.Get("link:u").value(), "with_r");
+  EXPECT_EQ(CountUnder(overlay, "link:"), 1);
+  overlay.Delete("role:x");
+
+  EXPECT_TRUE(overlay.Flush());
+}
+
+// A committed transaction is serialised at its commit: every value it observed, and every key a full scan found
+// absent, must equal durable state as Flush finds it. Random interleavings of the transaction's reads, scans and
+// writes with concurrent changes check that Flush never accepts otherwise. It may still refuse conservatively.
+TEST_F(AtomicAuthOverlayTest, ACommittedTransactionSawOnlyTheStateItCommitsAgainst) {
+  std::array<std::string, 2> const keys{"p:a", "p:b"};
+  std::mt19937 rng{20261009};
+  auto const pick = [&rng](size_t n) { return std::uniform_int_distribution<size_t>{0, n - 1}(rng); };
+
+  for (int round = 0; round < 20000; ++round) {
+    for (auto const &key : keys) {
+      store_->Delete(key);
+      if (pick(2) != 0) store_->Put(key, std::to_string(pick(2)));
+    }
+
+    AtomicAuthOverlay overlay(*store_);
+    std::set<std::string> written;
+    std::vector<std::pair<std::string, std::optional<std::string>>> observed;
+    for (int step = 0; step < 10; ++step) {
+      auto const &key = keys[pick(keys.size())];
+      switch (pick(5)) {
+        case 0:
+          if (!written.contains(key)) observed.emplace_back(key, overlay.Get(key));
+          break;
+        case 1: {
+          std::set<std::string> found;
+          for (auto it = overlay.begin("p:"), e = overlay.end("p:"); it != e; ++it) {
+            auto const &[scanned, value] = *it;
+            found.insert(scanned);
+            if (!written.contains(scanned)) observed.emplace_back(scanned, value);
+          }
+          for (auto const &absent : keys) {
+            if (!found.contains(absent) && !written.contains(absent)) observed.emplace_back(absent, std::nullopt);
+          }
+          break;
+        }
+        case 2:
+          overlay.Put(key, "ours");
+          written.insert(key);
+          break;
+        case 3:
+          overlay.Delete(key);
+          written.insert(key);
+          break;
+        default:
+          if (pick(2) != 0) {
+            store_->Put(key, std::to_string(pick(2)));
+          } else {
+            store_->Delete(key);
+          }
+      }
+    }
+
+    std::map<std::string, std::optional<std::string>> durable;
+    for (auto const &key : keys) durable[key] = store_->Get(key);
+    if (!overlay.Flush()) continue;
+    for (auto const &[key, value] : observed) {
+      ASSERT_EQ(value, durable[key]) << "round " << round << ": committed after observing " << key
+                                     << " in a state durable storage no longer had";
+    }
+  }
 }
 
 // The same with the prefix already inhabited, so only the key-set check can catch bob: a write to a key that

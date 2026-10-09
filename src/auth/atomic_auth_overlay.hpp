@@ -111,7 +111,8 @@ class AtomicAuthOverlay {
   /// Adopts the base entries an exhaustive scan walked past, so its dependency on their values is conflict-checked
   /// the same way a named read is. Without this a transaction can decide on which keys exist and leave no trace of
   /// it. Only an exhaustive scan calls this: one that stopped early depends on the prefix, not on what is under it.
-  void AdoptWalked(std::map<std::string, std::string, std::less<>> const &walked) const;
+  /// A read key under `prefix` that the scan did not walk is observed as absent.
+  void AdoptWalked(std::string_view prefix, std::map<std::string, std::string, std::less<>> const &walked) const;
 
   kvstore::KVStore &base_;
 
@@ -142,10 +143,14 @@ class AtomicAuthOverlay {
 
   /// key -> value at snapshot time (nullopt = did not exist). Mutable because recording a read is bookkeeping for
   /// conflict detection, not observable state: reads stay logically const so Auth's query methods can too.
+  ///
+  /// Holds the first observation of each key, and every later one must agree with it: a read, a value a scan
+  /// walked past, or an exhaustive scan not finding the key. A key this transaction wrote is not observed by its
+  /// scans, since they see the write instead.
   mutable std::map<std::string, std::optional<std::string>, std::less<>> read_set_;
 
-  /// Set when a scan walks a key this transaction already read and finds a different value: the transaction has
-  /// acted on two states of that key, and no later check can tell, since the key may change back.
+  /// Set when an observation disagrees with the first one in `read_set_`: the transaction has acted on two states
+  /// of that key, and no later check can tell, since the key may change back.
   mutable bool saw_two_values_{false};
 
   /// key -> new value (nullopt = tombstone)
