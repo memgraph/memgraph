@@ -1212,7 +1212,7 @@ void InMemoryStorage::InMemoryAccessor::QueueSchemaUpdate(uint64_t const durabil
       durability_commit_timestamp,
       SchemaUpdateData(std::move(transaction_.schema_diff_),
                        std::move(transaction_.post_process_),
-                       transaction_.start_timestamp,
+                       transaction_.SchemaReconstructionBound(),
                        *commit_timestamp_,
                        mem_storage->config_.salient.items.properties_on_edges));
 }
