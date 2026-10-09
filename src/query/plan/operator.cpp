@@ -3308,12 +3308,9 @@ void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
       "https://memgr.ph/wsp"));
 }
 
-TypedValue CalculateNextWeight(const std::optional<memgraph::query::plan::ExpansionLambda> &weight_lambda,
-                               const TypedValue &total_weight, ExpressionEvaluator &evaluator) {
-  if (!weight_lambda) {
-    return {};
-  }
-  TypedValue current_weight = weight_lambda->expression->Accept(evaluator);
+TypedValue CalculateNextWeight(const ExpansionLambda &weight_lambda, const TypedValue &total_weight,
+                               ExpressionEvaluator &evaluator) {
+  TypedValue current_weight = weight_lambda.expression->Accept(evaluator);
   ValidateWeight(current_weight);
   if (total_weight.IsNull()) {
     return current_weight;
@@ -3323,29 +3320,37 @@ TypedValue CalculateNextWeight(const std::optional<memgraph::query::plan::Expans
   return current_weight + total_weight;
 }
 
-/// True when the user may read `edge` and the `endpoint` an expansion reaches over it. Without
-/// enterprise fine-grained access control everything is readable.
-bool EdgeAndEndpointReadable(const EdgeAccessor &edge, const VertexAccessor &endpoint, ExecutionContext &context) {
+/// Fine-grained access checks apply only with an enterprise license and a user to check.
+bool FineGrainedChecksActive(const ExecutionContext &context) {
 #ifdef MG_ENTERPRISE
-  if (!license::global_license_checker.IsEnterpriseValidFast() || !context.auth_checker) return true;
-  return context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-         context.auth_checker->Has(
-             endpoint, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+  return license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker != nullptr;
 #else
-  (void)edge;
-  (void)endpoint;
+  (void)context;
+  return false;
+#endif
+}
+
+/// True when the user may read `vertex`.
+bool VertexReadable(const VertexAccessor &vertex, const ExecutionContext &context) {
+#ifdef MG_ENTERPRISE
+  return !FineGrainedChecksActive(context) ||
+         context.auth_checker->Has(vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+#else
+  (void)vertex;
   (void)context;
   return true;
 #endif
 }
 
-/// True when the user may read `vertex`. Without enterprise fine-grained access control everything is readable.
-bool VertexReadable(const VertexAccessor &vertex, ExecutionContext &context) {
+/// True when the user may read `edge` and `head`, the arc's head in path order.
+bool EdgeAndEndpointReadable(const EdgeAccessor &edge, const VertexAccessor &head, const ExecutionContext &context) {
 #ifdef MG_ENTERPRISE
-  if (!license::global_license_checker.IsEnterpriseValidFast() || !context.auth_checker) return true;
-  return context.auth_checker->Has(vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+  return !FineGrainedChecksActive(context) ||
+         (context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+          context.auth_checker->Has(head, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ));
 #else
-  (void)vertex;
+  (void)edge;
+  (void)head;
   (void)context;
   return true;
 #endif
@@ -3354,11 +3359,11 @@ bool VertexReadable(const VertexAccessor &vertex, ExecutionContext &context) {
 /// Binds the weight lambda's inner symbols to `edge` and `node`, then folds the lambda's value into
 /// `total_weight`. Seeding passes a null edge: nothing has been traversed yet.
 template <typename TEdge>
-TypedValue BindAndCalculateNextWeight(const std::optional<ExpansionLambda> &weight_lambda, TEdge &&edge,
-                                      const VertexAccessor &node, const TypedValue &total_weight,
-                                      FrameWriter &frame_writer, ExpressionEvaluator &evaluator) {
-  frame_writer.Write(weight_lambda->inner_edge_symbol, std::forward<TEdge>(edge));
-  frame_writer.Write(weight_lambda->inner_node_symbol, node);
+TypedValue BindAndCalculateNextWeight(const ExpansionLambda &weight_lambda, TEdge &&edge, const VertexAccessor &node,
+                                      const TypedValue &total_weight, FrameWriter &frame_writer,
+                                      ExpressionEvaluator &evaluator) {
+  frame_writer.Write(weight_lambda.inner_edge_symbol, std::forward<TEdge>(edge));
+  frame_writer.Write(weight_lambda.inner_node_symbol, node);
   return CalculateNextWeight(weight_lambda, total_weight, evaluator);
 }
 
@@ -3396,7 +3401,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
                                                                                 const TypedValue &total_weight,
                                                                                 int64_t depth) {
       TypedValue next_weight =
-          BindAndCalculateNextWeight(self_.weight_lambda_, edge, vertex, total_weight, frame_writer, evaluator);
+          BindAndCalculateNextWeight(*self_.weight_lambda_, edge, vertex, total_weight, frame_writer, evaluator);
 
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.expression) {
@@ -3494,7 +3499,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
               "least 1.");
 
         TypedValue current_weight = BindAndCalculateNextWeight(
-            self_.weight_lambda_, TypedValue(), vertex, /* total_weight */ TypedValue(), frame_writer, evaluator);
+            *self_.weight_lambda_, TypedValue(), vertex, /* total_weight */ TypedValue(), frame_writer, evaluator);
 
         // Clear existing data structures.
         previous_.clear();
@@ -3694,7 +3699,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
       // Evaluate current weight
       TypedValue next_weight =
-          BindAndCalculateNextWeight(self_.weight_lambda_, edge, next_vertex, total_weight, frame_writer, evaluator);
+          BindAndCalculateNextWeight(*self_.weight_lambda_, edge, next_vertex, total_weight, frame_writer, evaluator);
 
       // If filter expression exists, evaluate filter
       std::optional<Path> curr_acc_path = std::nullopt;
@@ -3946,7 +3951,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(*start_vertex));
         }
 
-        TypedValue current_weight = BindAndCalculateNextWeight(self_.weight_lambda_,
+        TypedValue current_weight = BindAndCalculateNextWeight(*self_.weight_lambda_,
                                                                TypedValue(),
                                                                *start_vertex,
                                                                /* total_weight */ TypedValue(),
@@ -4084,7 +4089,7 @@ class KShortestPathsCursor : public Cursor {
         ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
     // A cost switch only, not a semantic one: `ShouldExpand` agrees either way.
-    memoize_expansion_ = self_.filter_lambda_.expression != nullptr || FineGrainedAccessCheckEnabled(context);
+    memoize_expansion_ = self_.filter_lambda_.expression != nullptr || FineGrainedChecksActive(context);
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
@@ -4221,17 +4226,17 @@ class KShortestPathsCursor : public Cursor {
     }
   };
 
-  // `node` is the arc's head in path order, so both passes share one verdict per arc.
+  // One verdict per arc, whichever pass reaches it.
   struct ExpansionKey {
     storage::Gid edge;
-    storage::Gid node;
+    storage::Gid head;
 
     friend bool operator==(const ExpansionKey &, const ExpansionKey &) = default;
   };
 
   struct ExpansionKeyHash {
     size_t operator()(const ExpansionKey &key) const {
-      return utils::HashCombine<storage::Gid, storage::Gid>{}(key.edge, key.node);
+      return utils::HashCombine<storage::Gid, storage::Gid>{}(key.edge, key.head);
     }
   };
 
@@ -4446,15 +4451,6 @@ class KShortestPathsCursor : public Cursor {
   static constexpr bool kBackward = true;
   static constexpr bool kForward = !kBackward;
 
-  static bool FineGrainedAccessCheckEnabled(const ExecutionContext &context) {
-#ifdef MG_ENTERPRISE
-    return license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker != nullptr;
-#else
-    (void)context;
-    return false;
-#endif
-  }
-
   bool EvaluateFilterLambda(const EdgeAccessor &edge, const VertexAccessor &vertex, Frame &frame,
                             ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if (!self_.filter_lambda_.expression) return true;
@@ -4470,8 +4466,9 @@ class KShortestPathsCursor : public Cursor {
     throw QueryRuntimeException("Expansion condition must evaluate to boolean or null");
   }
 
-  /// `Backward` marks the target-side pass, where the access check and the lambda take the vertex we
-  /// expand *from*, not the one we reach - that asymmetry makes the search test the pairs a forward walk would.
+  /// The access check and the lambda take the arc's head in path order: the vertex we reach on the source-side
+  /// pass, the vertex we expand *from* on the target-side (`Backward`) pass. So both passes test the pairs a
+  /// forward walk would, and an arc's verdict does not depend on which pass reaches it.
   template <bool To, bool Backward>
   bool ShouldExpand(const EdgeAccessor &edge, const VertexAccessor &expand_from, const VertexEdgeMapT &reached,
                     Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
@@ -4479,15 +4476,15 @@ class KShortestPathsCursor : public Cursor {
     if (blocked_edges_.contains(edge.Gid()) || blocked_vertices_.contains(next.Gid()) || reached.contains(next))
       return false;
 
-    const VertexAccessor &inner_node = Backward ? expand_from : next;
+    const VertexAccessor &head = Backward ? expand_from : next;
     // Access check first: an edge the user cannot read must never make the lambda run on it.
     auto verdict = [&] {
-      return EdgeAndEndpointReadable(edge, inner_node, context) &&
-             EvaluateFilterLambda(edge, inner_node, frame, evaluator, context);
+      return EdgeAndEndpointReadable(edge, head, context) &&
+             EvaluateFilterLambda(edge, head, frame, evaluator, context);
     };
     if (!memoize_expansion_) return verdict();
 
-    const ExpansionKey key{.edge = edge.Gid(), .node = inner_node.Gid()};
+    const ExpansionKey key{.edge = edge.Gid(), .head = head.Gid()};
     if (const auto it = expansion_memo_.find(key); it != expansion_memo_.end()) return it->second;
 
     const bool allowed = verdict();
