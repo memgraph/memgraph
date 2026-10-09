@@ -69,7 +69,6 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
   }
 
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
-  const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
 
   // Create allocators with the database-specific memory tracker
   TrackedVectorAllocator<64> tape_allocator{memory_tracker_};
@@ -82,14 +81,13 @@ std::optional<uint64_t> VectorIndex::SetupIndex(const VectorIndexSpec &spec, Nam
         "Failed to create vector index {}, error message: {}", spec.index_name, mg_vector_index.error.what()));
   }
 
-  if (!mg_vector_index.index.try_reserve(limits)) {
-    throw VectorSearchException(
-        fmt::format("Failed to create vector index {}. Failed to reserve memory for the index", spec.index_name));
-  }
+  auto &tracker = memory_tracker_ ? *memory_tracker_ : utils::vector_index_memory_tracker;
+  ReserveOrThrow(mg_vector_index.index, spec.index_name, spec.capacity);
 
   auto new_map = std::make_shared<VectorIndexContainer>(*index_);
-  const auto [_, inserted] =
-      new_map->try_emplace(index_id, std::make_shared<IndexItem>(std::move(mg_vector_index.index), spec));
+  auto item = std::make_shared<IndexItem>(std::move(mg_vector_index.index), spec);
+  item->mg_index.memory_tracker = &tracker;
+  const auto [_, inserted] = new_map->try_emplace(index_id, std::move(item));
   if (inserted) {
     index_ = new_map;
   }
@@ -365,6 +363,14 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
     auto vertex_matches = [&](const auto &id_filter_pair) { return id_filter_pair.second->Matches(vertex->labels); };
     r::for_each(indices | rv::filter(vertex_matches),
                 [&](const auto &id_filter_pair) { RemoveVertexFromIndex(vertex, id_filter_pair.first); });
+  }
+}
+
+void VectorIndex::EnsureHeadroom(const PropertyValue &converted, Vertex *vertex) const {
+  if (!converted.IsVectorIndexId()) return;
+  for (const auto index_id : converted.ValueVectorIndexIds()) {
+    const auto &item_ptr = index_->at(index_id);
+    EnsureVectorIndexHeadroom(item_ptr->mg_index, item_ptr->spec, vertex);
   }
 }
 

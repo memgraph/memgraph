@@ -57,7 +57,6 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
   }
 
   const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
-  const unum::usearch::index_limits_t limits(spec.capacity, GetVectorIndexThreadCount());
 
   // Create allocators with the database-specific memory tracker
   TrackedVectorAllocator<64> tape_allocator{memory_tracker_};
@@ -70,14 +69,13 @@ std::optional<uint64_t> VectorEdgeIndex::SetupIndex(const VectorEdgeIndexSpec &s
         "Failed to create vector edge index {}, error message: {}", spec.index_name, mg_edge_index.error.what()));
   }
 
-  if (!mg_edge_index.index.try_reserve(limits)) {
-    throw VectorSearchException(
-        fmt::format("Failed to create vector edge index {}. Failed to reserve memory for the index", spec.index_name));
-  }
+  auto &tracker = memory_tracker_ ? *memory_tracker_ : utils::vector_index_memory_tracker;
+  ReserveOrThrow(mg_edge_index.index, spec.index_name, spec.capacity);
 
   auto new_map = std::make_shared<VectorEdgeIndexContainer>(*index_);
-  const auto [_, inserted] =
-      new_map->try_emplace(index_id, std::make_shared<EdgeTypeIndexItem>(std::move(mg_edge_index.index), spec));
+  auto item = std::make_shared<EdgeTypeIndexItem>(std::move(mg_edge_index.index), spec);
+  item->mg_index.memory_tracker = &tracker;
+  const auto [_, inserted] = new_map->try_emplace(index_id, std::move(item));
   if (inserted) {
     index_ = new_map;
   }
@@ -385,6 +383,14 @@ void VectorEdgeIndex::UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex
       RemoveEdgeFromIndex(edge, idx_id);
     }
     EraseEndpointsIfUnreferenced(edge);
+  }
+}
+
+void VectorEdgeIndex::EnsureHeadroom(const PropertyValue &converted, Edge *edge) const {
+  if (!converted.IsVectorIndexId()) return;
+  for (const auto index_id : converted.ValueVectorIndexIds()) {
+    const auto &item_ptr = index_->at(index_id);
+    EnsureVectorIndexHeadroom(item_ptr->mg_index, item_ptr->spec, edge);
   }
 }
 

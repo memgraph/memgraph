@@ -77,16 +77,13 @@ class TrackedVectorAllocator {
 
   pointer allocate(size_type count_bytes) {
     const auto extended = unum::usearch::divide_round_up<alignment_ak>(count_bytes) * alignment_ak;
-    const bool tracked = [this, extended] {
-      const utils::MemoryTracker::RefusalHandledScope refusal_handled;
+    // usearch calls this inside noexcept add/node_malloc_, so it must not throw; the limit is enforced by DoCheck
+    // after add in UpdateVectorIndex.
+    [[maybe_unused]] const bool tracked = [this, extended] {
+      const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
       return tracker_->Alloc(static_cast<int64_t>(extended));
     }();
-    if (!tracked) {
-      auto msg = utils::MemoryErrorStatus().msg();
-      DMG_ASSERT(msg, "MemoryErrorStatus should have a message when allocation fails");
-      [[maybe_unused]] auto blocker = utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
-      throw utils::OutOfMemoryException(std::move(*msg));
-    }
+    DMG_ASSERT(tracked, "Alloc must not refuse while OutOfMemoryExceptionBlocker is active");
 
     auto *result = inner_.allocate(count_bytes);
     if (!result) {

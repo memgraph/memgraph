@@ -11,7 +11,9 @@
 #include <gtest/gtest.h>
 #include <sys/types.h>
 #include <algorithm>
+#include <array>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <string_view>
 #include <thread>
@@ -28,6 +30,8 @@
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
+#include "utils/atomic_memory_block.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
 
@@ -1494,4 +1498,197 @@ TEST_F(VectorIndexRecoveryTest, RecoverAllVectorIndicesLeavesEmptyListUntouched)
   EXPECT_FALSE(stored.IsVectorIndexId());
   EXPECT_TRUE(stored.IsAnyList());
   EXPECT_EQ(stored.ListSize(), 0u);
+}
+
+namespace {
+using memgraph::utils::MemoryTracker;
+
+mg_vector_index_t MakeUsearchIndex(MemoryTracker *tracker) {
+  auto made = mg_vector_index_t::make(unum::usearch::metric_punned_t(2, metric, scalar_kind),
+                                      {},
+                                      {},
+                                      TrackedVectorAllocator<64>{tracker},
+                                      TrackedVectorAllocator<8>{tracker});
+  MG_ASSERT(made);
+  return std::move(made.index);
+}
+
+Vertex *FakeKey(std::size_t i) { return reinterpret_cast<Vertex *>((i + 1) * 8); }
+
+const memgraph::utils::small_vector<float> kVector{1.0F, 2.0F};
+
+VectorIndexSpec MakeSpec(const synchronized_mg_vector_index_t &sync_index, std::uint16_t coefficient) {
+  return VectorIndexSpec{
+      .index_name = "test_index",
+      .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {LabelId::FromUint(1)}},
+      .property = PropertyId::FromUint(1),
+      .metric_kind = metric,
+      .dimension = 2,
+      .resize_coefficient = coefficient,
+      .capacity = sync_index.index.capacity(),
+      .scalar_kind = scalar_kind};
+}
+
+void FillToCapacity(synchronized_mg_vector_index_t &sync_index, VectorIndexSpec &spec) {
+  const auto capacity = sync_index.index.capacity();
+  for (std::size_t i = 0; i < capacity; ++i) {
+    UpdateVectorIndex(sync_index, spec, FakeKey(i), kVector);
+  }
+  ASSERT_EQ(sync_index.index.size(), capacity);
+  ASSERT_EQ(sync_index.index.capacity(), capacity);
+}
+}  // namespace
+
+TEST(VectorIndexReserve, ReserveYieldsKeyLookupSlotCount) {
+  const std::pair<std::size_t, std::size_t> kCases[] = {{1, 64},
+                                                        {10, 64},
+                                                        {43, 64},
+                                                        {64, 128},
+                                                        {171, 256},
+                                                        {683, 1024},
+                                                        {1000, 2048},
+                                                        {100'000, 262'144},
+                                                        {1'048'577, 2'097'152}};
+  for (const auto &[n, expected] : kCases) {
+    MemoryTracker tape;
+    auto index = MakeUsearchIndex(&tape);
+    ReserveOrThrow(index, "test_index", n);
+    const auto capacity = index.capacity();
+    EXPECT_EQ(capacity, expected) << n;
+    EXPECT_EQ(capacity, ReservedSlots(n)) << n;
+    if (n > 100'000) continue;
+
+    for (std::size_t i = 0; i < capacity; ++i) {
+      auto result = index.add(FakeKey(i), kVector.data());
+      ASSERT_FALSE(result.error) << n << " " << i;
+    }
+    auto overflow = index.add(FakeKey(capacity), kVector.data());
+    EXPECT_TRUE(overflow.error) << n;
+    overflow.error.release();
+    EXPECT_EQ(index.capacity(), capacity) << n;
+  }
+}
+
+TEST(VectorIndexReserve, AddRefusedByTrackerDoesNotTerminate) {
+  MemoryTracker tape;
+  tape.SetHardLimit(tape.Amount() + 64 * 1024);
+  synchronized_mg_vector_index_t sync_index{MakeUsearchIndex(&tape)};
+  sync_index.memory_tracker = &tape;
+  ReserveOrThrow(sync_index.index, "test_index", 10'000);
+
+  VectorIndexSpec spec{
+      .index_name = "test_index",
+      .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {LabelId::FromUint(1)}},
+      .property = PropertyId::FromUint(1),
+      .metric_kind = metric,
+      .dimension = 2,
+      .resize_coefficient = 2,
+      .capacity = sync_index.index.capacity(),
+      .scalar_kind = scalar_kind};
+
+  constexpr std::size_t kLoopBound = 100'000;
+  std::size_t last = 0;
+  bool refused = false;
+  {
+    const MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+    try {
+      for (; last < kLoopBound; ++last) {
+        UpdateVectorIndex(sync_index, spec, FakeKey(last), kVector);
+      }
+    } catch (const memgraph::utils::OutOfMemoryException &) {
+      refused = true;
+    }
+  }
+  ASSERT_TRUE(refused);
+
+  tape.SetHardLimit(0);
+  EXPECT_FALSE(sync_index.index.contains(FakeKey(last)));
+  UpdateVectorIndex(sync_index, spec, FakeKey(last), kVector);
+  EXPECT_TRUE(sync_index.index.contains(FakeKey(last)));
+  UpdateVectorIndex(sync_index, spec, FakeKey(last), memgraph::utils::small_vector<float>{});
+  EXPECT_FALSE(sync_index.index.contains(FakeKey(last)));
+  EXPECT_FALSE(sync_index.index.search(kVector.data(), 1).error);
+}
+
+TEST(VectorIndexReserve, ResizeCoefficientOneGrows) {
+  for (const std::uint16_t coefficient : {std::uint16_t{1}, std::uint16_t{2}}) {
+    MemoryTracker tape;
+    synchronized_mg_vector_index_t sync_index{MakeUsearchIndex(&tape)};
+    sync_index.memory_tracker = &tape;
+    ReserveOrThrow(sync_index.index, "test_index", 10);
+
+    VectorIndexSpec spec{
+        .index_name = "test_index",
+        .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE, .ids = {LabelId::FromUint(1)}},
+        .property = PropertyId::FromUint(1),
+        .metric_kind = metric,
+        .dimension = 2,
+        .resize_coefficient = coefficient,
+        .capacity = sync_index.index.capacity(),
+        .scalar_kind = scalar_kind};
+
+    constexpr std::size_t kKeys = 5000;
+    for (std::size_t i = 0; i < kKeys; ++i) {
+      ASSERT_NO_THROW(UpdateVectorIndex(sync_index, spec, FakeKey(i), kVector)) << coefficient << " " << i;
+    }
+    EXPECT_EQ(sync_index.index.size(), kKeys) << coefficient;
+  }
+}
+
+TEST(VectorIndexReserve, GrowthInsideAtomicMemoryBlockIsCapped) {
+  MemoryTracker tape;
+  synchronized_mg_vector_index_t sync_index{MakeUsearchIndex(&tape)};
+  sync_index.memory_tracker = &tape;
+  ReserveOrThrow(sync_index.index, "test_index", 1000);
+  auto spec = MakeSpec(sync_index, std::numeric_limits<std::uint16_t>::max());
+  FillToCapacity(sync_index, spec);
+  const auto capacity = sync_index.index.capacity();
+
+  ASSERT_NO_THROW(
+      memgraph::utils::AtomicMemoryBlock([&] { UpdateVectorIndex(sync_index, spec, FakeKey(capacity), kVector); }));
+  EXPECT_TRUE(sync_index.index.contains(FakeKey(capacity)));
+  EXPECT_EQ(sync_index.index.capacity(), ReservedSlots(capacity + capacity / 8));
+  EXPECT_EQ(spec.capacity, sync_index.index.capacity());
+}
+
+TEST(VectorIndexReserve, UpdatingExistingKeyOnFullIndexDoesNotGrow) {
+  MemoryTracker tape;
+  synchronized_mg_vector_index_t sync_index{MakeUsearchIndex(&tape)};
+  sync_index.memory_tracker = &tape;
+  ReserveOrThrow(sync_index.index, "test_index", 1000);
+  auto spec = MakeSpec(sync_index, std::numeric_limits<std::uint16_t>::max());
+  FillToCapacity(sync_index, spec);
+  const auto capacity = sync_index.index.capacity();
+
+  const memgraph::utils::small_vector<float> other{3.0F, 4.0F};
+  UpdateVectorIndex(sync_index, spec, FakeKey(7), other);
+  EXPECT_EQ(sync_index.index.capacity(), capacity);
+  EXPECT_EQ(sync_index.index.size(), capacity);
+
+  EnsureVectorIndexHeadroom(sync_index, spec, FakeKey(7));
+  EXPECT_EQ(sync_index.index.capacity(), capacity);
+}
+
+TEST(VectorIndexReserve, EnsureHeadroomGrowsFullIndexForNewKey) {
+  MemoryTracker tape;
+  synchronized_mg_vector_index_t sync_index{MakeUsearchIndex(&tape)};
+  sync_index.memory_tracker = &tape;
+  ReserveOrThrow(sync_index.index, "test_index", 1000);
+  auto spec = MakeSpec(sync_index, 2);
+  FillToCapacity(sync_index, spec);
+  const auto capacity = sync_index.index.capacity();
+
+  EnsureVectorIndexHeadroom(sync_index, spec, FakeKey(capacity));
+  EXPECT_EQ(sync_index.index.capacity(), ReservedSlots(2 * capacity));
+  EXPECT_EQ(spec.capacity, sync_index.index.capacity());
+}
+
+TEST_F(VectorIndexRecoveryTest, ReserveBeyondSlotRangeIsRejected) {
+  for (const std::size_t capacity : {kMaxVectorIndexCapacity + 1, std::size_t{1} << 62U}) {
+    auto spec = CreateRecoveryInfo("test_index", capacity).spec;
+    auto vertices_acc = vertices_.access();
+    EXPECT_THROW(vector_index_.CreateIndex(spec, vertices_acc, &storage_->indices_, storage_->name_id_mapper_.get()),
+                 VectorSearchException);
+    EXPECT_TRUE(vector_index_.ListVectorIndicesInfo().empty());
+  }
 }

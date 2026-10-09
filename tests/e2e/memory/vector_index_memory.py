@@ -30,6 +30,10 @@ TOLERANCE_MIB = 10.0
 INDEX_VECTOR_COUNT = 1000
 INDEX_CAPACITY = 50_000
 PAYLOAD_BYTES = 4096
+SMALL_DIMENSION = 2
+SMALL_INDEX_CAPACITY = 64
+MAX_RESIZE_COEFFICIENT = 65535
+HUGE_INDEX_CAPACITY = 50_000_000
 
 
 def instance_with_memory_limit(mib):
@@ -175,6 +179,90 @@ def test_vector_insert_oom_throws_exception():
         oom_raised = True
 
     assert oom_raised, "Expected an OutOfMemoryException to be raised during vector insertion, but it was not."
+
+
+def create_full_small_index(cursor):
+    """Index with a huge resize coefficient, filled to its capacity; returns that capacity."""
+    execute_and_fetch_all(
+        cursor,
+        f"CREATE VECTOR INDEX emb_idx ON :Embedding(vec) "
+        f'WITH CONFIG {{"dimension": {SMALL_DIMENSION}, "capacity": {SMALL_INDEX_CAPACITY}, '
+        f'"resize_coefficient": {MAX_RESIZE_COEFFICIENT}}}',
+    )
+    capacity = get_vector_index_info(cursor)[3]
+    for i in range(capacity):
+        execute_and_fetch_all(cursor, "CREATE (:Embedding {vec: $vec})", {"vec": [float(i), 1.0]})
+    assert get_vector_index_info(cursor)[6] == capacity
+    return capacity
+
+
+def get_vector_index_info(cursor):
+    return execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO")[0]
+
+
+def test_map_create_refused_when_index_growth_exceeds_limit():
+    """
+    CREATE with a property map writes through InitProperties, which indexes inside an atomic memory block that
+    cannot refuse an allocation. The index must be grown before it, so an oversized growth is refused cleanly.
+    """
+    interactive_mg_runner.start_all(INSTANCE_50MB)
+    cursor = connect(host="localhost", port=BOLT_PORT).cursor()
+    capacity = create_full_small_index(cursor)
+
+    with pytest.raises(mgclient.DatabaseError, match="Memory limit exceeded"):
+        execute_and_fetch_all(cursor, "CREATE (:Embedding {vec: $vec, z: 1})", {"vec": [-1.0, 1.0]})
+
+    info = get_vector_index_info(cursor)
+    assert info[3] == capacity, f"capacity changed after a refused growth: {info[3]} != {capacity}"
+    assert info[6] == capacity
+    assert execute_and_fetch_all(cursor, "MATCH (n:Embedding) RETURN count(n)")[0][0] == capacity
+    assert execute_and_fetch_all(cursor, "MATCH (n) WHERE n.z = 1 RETURN count(n)")[0][0] == 0
+
+
+def test_map_set_refused_when_index_growth_exceeds_limit():
+    """
+    SET n += {...} on an existing vertex goes through UpdateProperties; a refused index growth must leave the vertex's
+    other properties untouched.
+    """
+    interactive_mg_runner.start_all(INSTANCE_50MB)
+    cursor = connect(host="localhost", port=BOLT_PORT).cursor()
+    capacity = create_full_small_index(cursor)
+    execute_and_fetch_all(cursor, "CREATE (:Embedding {z: 0})")
+
+    with pytest.raises(mgclient.DatabaseError, match="Memory limit exceeded"):
+        execute_and_fetch_all(cursor, "MATCH (n:Embedding {z: 0}) SET n += {vec: $vec, z: 1}", {"vec": [-1.0, 1.0]})
+
+    info = get_vector_index_info(cursor)
+    assert info[3] == capacity, f"capacity changed after a refused growth: {info[3]} != {capacity}"
+    assert info[6] == capacity
+    assert execute_and_fetch_all(cursor, "MATCH (n:Embedding) WHERE n.z = 1 RETURN count(n)")[0][0] == 0
+    assert execute_and_fetch_all(cursor, "MATCH (n:Embedding) WHERE n.z = 0 RETURN count(n)")[0][0] == 1
+
+
+def test_create_index_refused_when_capacity_exceeds_limit():
+    """
+    CREATE VECTOR INDEX reserves its whole capacity up front, so a capacity beyond the memory limit is refused
+    cleanly and leaves no index behind; the instance keeps serving.
+    """
+    interactive_mg_runner.start_all(INSTANCE_50MB)
+    cursor = connect(host="localhost", port=BOLT_PORT).cursor()
+
+    with pytest.raises(mgclient.DatabaseError, match="Memory limit exceeded"):
+        execute_and_fetch_all(
+            cursor,
+            f"CREATE VECTOR INDEX huge_idx ON :Embedding(vec) "
+            f'WITH CONFIG {{"dimension": {SMALL_DIMENSION}, "capacity": {HUGE_INDEX_CAPACITY}}}',
+        )
+
+    assert execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO") == []
+
+    execute_and_fetch_all(
+        cursor,
+        f"CREATE VECTOR INDEX small_idx ON :Embedding(vec) "
+        f'WITH CONFIG {{"dimension": {SMALL_DIMENSION}, "capacity": {SMALL_INDEX_CAPACITY}}}',
+    )
+    assert [row[0] for row in execute_and_fetch_all(cursor, "SHOW VECTOR INDEX INFO")] == ["small_idx"]
+    execute_and_fetch_all(cursor, "DROP VECTOR INDEX small_idx")
 
 
 def test_remove_vector_property_vector_index_unchanged():

@@ -1,0 +1,11 @@
+--- a/include/usearch/index_plugins.hpp
++++ b/include/usearch/index_plugins.hpp
+@@ -2674,7 +2674,7 @@
+         capacity_slots_ = 0;
+     }
+ 
+-    bool try_reserve(std::size_t capacity) noexcept {
++    bool try_reserve(std::size_t capacity) {
+         if (capacity * 3u <= capacity_slots_ * 2u)
+             return true;
+ 

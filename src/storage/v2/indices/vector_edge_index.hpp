@@ -105,6 +105,7 @@ using mg_vector_edge_index_t = unum::usearch::index_dense_gt<Edge *, unum::usear
 struct synchronized_mg_vector_edge_index_t {
   mg_vector_edge_index_t index;
   mutable utils::ResourceLock mutex{};
+  utils::MemoryTracker *memory_tracker{&utils::vector_index_memory_tracker};
 
   explicit synchronized_mg_vector_edge_index_t(mg_vector_edge_index_t &&idx) : index(std::move(idx)) {}
 };
@@ -248,6 +249,11 @@ class VectorEdgeIndex {
 
   void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
                            PropertyId property, const PropertyValue &value);
+
+  /// @brief Grows the full indices a converted value targets, while the memory tracker can still refuse it.
+  /// Call before the write's AtomicMemoryBlock, with no edge locked.
+  /// @throws utils::OutOfMemoryException if the growth is refused; nothing is mutated then.
+  void EnsureHeadroom(const PropertyValue &converted, Edge *edge) const;
 
   /// @brief Lists the info of all existing indexes.
   std::vector<VectorEdgeIndexInfo> ListVectorIndicesInfo() const;

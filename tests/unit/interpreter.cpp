@@ -49,6 +49,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 
@@ -3257,7 +3258,7 @@ TYPED_TEST(InterpreterTest, VectorIndexHugeCapacityIsRejectedWithoutCreatingInde
   for (const std::string create :
        {"CREATE VECTOR INDEX huge ON :H(v) WITH CONFIG ", "CREATE VECTOR EDGE INDEX huge ON :HR(v) WITH CONFIG "}) {
     expect_throws(create + R"({"dimension": 2, "capacity": 4611686018427387904})",
-                  "exceeds the maximum of 1099511627775");
+                  "exceeds the maximum of 366503875925");
   }
   EXPECT_EQ(this->Interpret("SHOW VECTOR INDEX INFO").GetResults().size(), 0U);
 

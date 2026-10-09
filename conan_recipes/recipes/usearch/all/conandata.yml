@@ -15,3 +15,7 @@ patches:
       patch_description: "Skip tombstones while advancing flat_hash_multi_set iterators."
     - patch_file: "patches/0003-fix-mmap-anonymous-fd-freebsd.patch"
       patch_description: "Use fd=-1 with MAP_ANONYMOUS for POSIX compliance; FreeBSD rejects any other fd. Fixed upstream in 2.24.0, so this goes away with the next version bump."
+    - patch_file: "patches/0004-flat-hash-multi-set-try-reserve-may-throw.patch"
+      patch_description: "Let flat_hash_multi_set_gt::try_reserve propagate allocator exceptions instead of terminating, so Memgraph's memory tracker can refuse the allocation."
+    - patch_file: "patches/0005-reserve-slot-lookup-with-load-factor-headroom.patch"
+      patch_description: "Reserve the key lookup with 2x the members' slots (members sized exactly as before and never shrinking), so add() never grows the lookup inside noexcept code."

@@ -250,6 +250,7 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
     for (auto &[property_id, property_value] : properties) {
       if (auto converted = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property_id, property_value)) {
         property_value = std::move(*converted);
+        storage_->indices_.vector_edge_index_.EnsureHeadroom(property_value, edge_.ptr);
       }
     }
   }
@@ -304,6 +305,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
     for (auto &[property_id, property_value] : properties) {
       if (auto converted = TryConvertToVectorEdgeIndexProperty(storage_, edge_type_, property_id, property_value)) {
         property_value = std::move(*converted);
+        storage_->indices_.vector_edge_index_.EnsureHeadroom(property_value, edge_.ptr);
       }
     }
   }
