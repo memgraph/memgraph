@@ -180,6 +180,14 @@ TEST_F(FineGrainedKShortestTestInMemory, DeniedHeadBlocksArcOnBothPasses) {
   db_->KShortestTestDeniedHeadBlocksArcOnBothPasses(db_.get());
 }
 
+TEST_F(FineGrainedKShortestTestInMemory, UnreadableVertexSpendsNoHops) {
+  db_->KShortestTestUnreadableVertexSpendsNoHops(db_.get());
+}
+
+TEST_F(FineGrainedKShortestTestInMemory, UnreadableNeighbourEndsSearch) {
+  db_->KShortestTestUnreadableNeighbourEndsSearch(db_.get());
+}
+
 class FineGrainedKShortestTestOnDisk : public ::testing::TestWithParam<FineGrainedCase> {
  public:
   using StorageType = memgraph::storage::DiskStorage;

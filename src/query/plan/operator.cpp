@@ -3339,6 +3339,18 @@ bool EdgeAndEndpointReadable(const EdgeAccessor &edge, const VertexAccessor &end
 #endif
 }
 
+/// True when the user may read `vertex`. Without enterprise fine-grained access control everything is readable.
+bool VertexReadable(const VertexAccessor &vertex, ExecutionContext &context) {
+#ifdef MG_ENTERPRISE
+  if (!license::global_license_checker.IsEnterpriseValidFast() || !context.auth_checker) return true;
+  return context.auth_checker->Has(vertex, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ);
+#else
+  (void)vertex;
+  (void)context;
+  return true;
+#endif
+}
+
 /// Binds the weight lambda's inner symbols to `edge` and `node`, then folds the lambda's value into
 /// `total_weight`. Seeding passes a null edge: nothing has been traversed yet.
 template <typename TEdge>
@@ -4566,9 +4578,8 @@ class KShortestPathsCursor : public Cursor {
       ++current_length;
       if (std::cmp_greater(current_length, upper_bound)) return PathInfo(evaluator.GetMemoryResource());
 
-      // When expanding from the target we have to be careful which edge
-      // endpoint we pass to `should_expand`, because everything is
-      // reversed.
+      // An unreadable vertex joins no target frontier: every arc this pass takes from a vertex has it as head,
+      // so it would expand nowhere and only spend hops.
       for (const auto &vertex : bfs_target_frontier_) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
@@ -4589,7 +4600,7 @@ class KShortestPathsCursor : public Cursor {
             if (bfs_in_edge_.contains(edge.To())) {
               return ReconstructPath(edge.To(), evaluator.GetMemoryResource());
             }
-            bfs_target_next_.push_back(edge.To());
+            if (VertexReadable(edge.To(), context)) bfs_target_next_.push_back(edge.To());
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
@@ -4610,7 +4621,7 @@ class KShortestPathsCursor : public Cursor {
             if (bfs_in_edge_.contains(edge.From())) {
               return ReconstructPath(edge.From(), evaluator.GetMemoryResource());
             }
-            bfs_target_next_.push_back(edge.From());
+            if (VertexReadable(edge.From(), context)) bfs_target_next_.push_back(edge.From());
           }
         }
       }

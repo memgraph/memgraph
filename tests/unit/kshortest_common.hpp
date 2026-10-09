@@ -12,6 +12,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cstdint>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -30,6 +31,7 @@
 #include "query/plan/operator.hpp"
 #include "query_common.hpp"
 #include "query_plan_common.hpp"
+#include "storage/v2/hops_limit.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/join_vector.hpp"
@@ -1025,6 +1027,123 @@ class Database {
 
     ASSERT_EQ(results.size(), 1);
     EXPECT_EQ(PathVertexIds(&db_accessor, results[0]), (std::vector<int>{2, 5, 3}));
+  }
+
+  // An unreadable vertex must not spend the hops budget. Readable chain 0->...->5; unreadable 6-8 point into
+  // the sink, and each has four unreadable in-neighbours 9-12. The target side's second round expands its whole
+  // frontier before the search meets, so the edge order does not matter. The search needs 8 hops; expanding 6-8
+  // would cost 12 more and hit the limit of 12.
+  void KShortestTestUnreadableVertexSpendsNoHops(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor db_accessor(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = &TestMetricHandles()};
+    memgraph::query::Symbol source_symbol = context.symbol_table.CreateSymbol("source", true);
+    memgraph::query::Symbol sink_symbol = context.symbol_table.CreateSymbol("sink", true);
+    memgraph::query::Symbol edges_symbol = context.symbol_table.CreateSymbol("edges", true);
+    memgraph::query::Symbol inner_node_symbol = context.symbol_table.CreateSymbol("inner_node", true);
+    memgraph::query::Symbol inner_edge_symbol = context.symbol_table.CreateSymbol("inner_edge", true);
+
+    std::vector<std::tuple<int, int, std::string>> graph_edges;
+    for (int hidden = 6; hidden <= 8; ++hidden) {
+      graph_edges.emplace_back(hidden, 5, "a");
+      for (int pool = 9; pool <= 12; ++pool) graph_edges.emplace_back(pool, hidden, "a");
+    }
+    for (int i = 0; i < 5; ++i) graph_edges.emplace_back(i, i + 1, "a");
+
+    std::vector<memgraph::query::VertexAccessor> vertices;
+    std::vector<memgraph::query::EdgeAccessor> edges;
+    std::tie(vertices, edges) = db->BuildGraph(&db_accessor, std::vector<int>(13, 0), graph_edges);
+    db_accessor.AdvanceCommand();
+
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+    for (int id = 0; id <= 5; ++id) {
+      user.fine_grained_access_handler().label_permissions().Grant({std::to_string(id)},
+                                                                   memgraph::auth::FineGrainedPermission::READ);
+    }
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor};
+    context.auth_checker = &auth_checker;
+    context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &db_accessor);
+    context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &db_accessor);
+
+    auto pull = [&](std::optional<uint64_t> hops_limit) {
+      std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator = nullptr;
+      input_operator = YieldVertices(&db_accessor, {vertices[0]}, source_symbol, input_operator);
+      input_operator = YieldVertices(&db_accessor, {vertices[5]}, sink_symbol, input_operator);
+      input_operator = db->MakeKShortestOperator(
+          source_symbol,
+          sink_symbol,
+          edges_symbol,
+          memgraph::query::EdgeAtom::Direction::OUT,
+          {},
+          input_operator,
+          true,
+          nullptr,
+          nullptr,
+          memgraph::query::plan::ExpansionLambda{inner_edge_symbol, inner_node_symbol, nullptr});
+      context.hops_limit = hops_limit ? memgraph::storage::HopsLimit{*hops_limit} : memgraph::storage::HopsLimit{};
+      return PullResults(input_operator.get(),
+                         &context,
+                         std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol});
+    };
+
+    ASSERT_EQ(pull(std::nullopt).size(), 1);
+    const auto results = pull(12);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(PathVertexIds(&db_accessor, results[0]), (std::vector<int>{0, 1, 2, 3, 4, 5}));
+  }
+
+  // The sink's one in-neighbour 4 is unreadable, so after one round per side nothing is left to expand: the
+  // search must stop on the 2 hops it fetched, not run another source round for a frontier of vertex 4.
+  void KShortestTestUnreadableNeighbourEndsSearch(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor db_accessor(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = &TestMetricHandles()};
+    memgraph::query::Symbol source_symbol = context.symbol_table.CreateSymbol("source", true);
+    memgraph::query::Symbol sink_symbol = context.symbol_table.CreateSymbol("sink", true);
+    memgraph::query::Symbol edges_symbol = context.symbol_table.CreateSymbol("edges", true);
+    memgraph::query::Symbol inner_node_symbol = context.symbol_table.CreateSymbol("inner_node", true);
+    memgraph::query::Symbol inner_edge_symbol = context.symbol_table.CreateSymbol("inner_edge", true);
+
+    std::vector<memgraph::query::VertexAccessor> vertices;
+    std::vector<memgraph::query::EdgeAccessor> edges;
+    std::tie(vertices, edges) =
+        db->BuildGraph(&db_accessor, std::vector<int>(5, 0), {{0, 1, "a"}, {1, 2, "a"}, {4, 3, "a"}});
+    db_accessor.AdvanceCommand();
+
+    memgraph::auth::User user{"test"};
+    user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+    for (int id = 0; id <= 3; ++id) {
+      user.fine_grained_access_handler().label_permissions().Grant({std::to_string(id)},
+                                                                   memgraph::auth::FineGrainedPermission::READ);
+    }
+    memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor};
+    context.auth_checker = &auth_checker;
+    context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &db_accessor);
+    context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);
+    context.evaluation_context.edgetypes = memgraph::query::NamesToEdgeTypes(storage.edge_types_, &db_accessor);
+
+    std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator = nullptr;
+    input_operator = YieldVertices(&db_accessor, {vertices[0]}, source_symbol, input_operator);
+    input_operator = YieldVertices(&db_accessor, {vertices[3]}, sink_symbol, input_operator);
+    input_operator = db->MakeKShortestOperator(
+        source_symbol,
+        sink_symbol,
+        edges_symbol,
+        memgraph::query::EdgeAtom::Direction::OUT,
+        {},
+        input_operator,
+        true,
+        nullptr,
+        nullptr,
+        memgraph::query::plan::ExpansionLambda{inner_edge_symbol, inner_node_symbol, nullptr});
+
+    EXPECT_TRUE(PullResults(input_operator.get(),
+                            &context,
+                            std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol})
+                    .empty());
+    EXPECT_EQ(context.number_of_hops, 2);
   }
 #endif
 
