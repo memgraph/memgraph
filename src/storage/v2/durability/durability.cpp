@@ -261,6 +261,23 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
                             utils::SkipListDb<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
                             ProgressCallback const &on_progress) {
+  if (!properties_on_edges) {
+    if (!indices_metadata.edge.empty()) {
+      throw RecoveryFailure("Trying to recover edge type indices while properties on edges are disabled.");
+    }
+    if (!indices_metadata.edge_type_property.empty()) {
+      throw RecoveryFailure("Trying to recover edge type+property indices while properties on edges are disabled.");
+    }
+    if (!indices_metadata.edge_property.empty()) {
+      throw RecoveryFailure("Trying to recover global edge property indices while properties on edges are disabled.");
+    }
+    if (!indices_metadata.text_edge_indices.empty()) {
+      throw RecoveryFailure("Trying to recover text edge indices while properties on edges are disabled.");
+    }
+    if (!indices_metadata.vector_edge_indices.empty()) {
+      throw RecoveryFailure("Trying to recover vector edge indices while properties on edges are disabled.");
+    }
+  }
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   auto updater = indices->MakeUpdater();
   // Recover label indices.
@@ -361,9 +378,6 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
   {
     spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge.size());
     auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(indices->edge_type_index_.get());
-    MG_ASSERT(indices_metadata.edge.empty() || properties_on_edges,
-              "Trying to recover edge type indices while properties on edges are disabled.");
-
     for (const auto &item : indices_metadata.edge) {
       // TODO: parallel execution
       if (!mem_edge_type_index->CreateIndexOnePass(item, vertices->access(), updater, on_progress)) {
@@ -376,8 +390,6 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
 
   // Recover edge-type + property indices.
   spdlog::info("Recreating {} edge-type indices from metadata.", indices_metadata.edge_type_property.size());
-  MG_ASSERT(indices_metadata.edge_type_property.empty() || properties_on_edges,
-            "Trying to recover edge type+property indices while properties on edges are disabled.");
   auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
   for (const auto &item : indices_metadata.edge_type_property) {
@@ -394,8 +406,6 @@ void RecoverIndicesAndStats(RecoveredIndicesAndConstraints::IndicesMetadata &ind
 
   // Recover global edge property indices.
   spdlog::info("Recreating {} global edge property indices from metadata.", indices_metadata.edge_property.size());
-  MG_ASSERT(indices_metadata.edge_property.empty() || properties_on_edges,
-            "Trying to recover global edge property indices while properties on edges are disabled.");
   auto *mem_edge_property_index = static_cast<InMemoryEdgePropertyIndex *>(indices->edge_property_index_.get());
   for (const auto &property : indices_metadata.edge_property) {
     // TODO: parallel execution
