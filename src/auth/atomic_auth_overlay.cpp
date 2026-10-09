@@ -43,11 +43,14 @@ void AtomicAuthOverlay::ScanDependsOnEmptinessOnly(std::string const &prefix) co
   }
 }
 
-void AtomicAuthOverlay::AdoptWalked(std::map<std::string, std::string, std::less<>> const &walked) const {
-  // First read wins: a later one would record a value this transaction already saw.
+void AtomicAuthOverlay::AdoptWalked(std::string_view prefix,
+                                    std::map<std::string, std::string, std::less<>> const &walked) const {
   for (auto const &[key, value] : walked) {
     auto const [it, inserted] = read_set_.emplace(key, value);
     if (!inserted && it->second != value) saw_two_values_ = true;
+  }
+  for (auto it = read_set_.lower_bound(prefix); it != read_set_.end() && it->first.starts_with(prefix); ++it) {
+    if (it->second && !walked.contains(it->first) && !write_set_.contains(it->first)) saw_two_values_ = true;
   }
 }
 
@@ -192,7 +195,7 @@ void AtomicAuthOverlay::iterator::Advance() {
         d->second.kind = ScanDependency::Kind::kKeySet;
         // Reaching the end is what makes the values read, so this is where they join the read set. A scan that
         // stopped early never gets here and leaves them behind.
-        overlay_->AdoptWalked(walked_);
+        overlay_->AdoptWalked(prefix_, walked_);
       }
       return;
     }
@@ -200,10 +203,10 @@ void AtomicAuthOverlay::iterator::Advance() {
     if (have_base && have_write) {
       if (base_it_->first < write_it_->first) {
         // Base entry not overridden; check it's not deleted in write-set
-        walked_.emplace(base_it_->first, base_it_->second);
         seen_.insert(base_it_->first);
         auto ws = overlay_->write_set_.find(base_it_->first);
         if (ws == overlay_->write_set_.end()) {
+          walked_.emplace(base_it_->first, base_it_->second);
           current_ = *base_it_;
         }
         ++base_it_;
@@ -215,8 +218,7 @@ void AtomicAuthOverlay::iterator::Advance() {
         }
         ++write_it_;
       } else {
-        // Same key: write-set wins
-        walked_.emplace(base_it_->first, base_it_->second);
+        // Same key: write-set wins, so the base value is not observed
         seen_.insert(base_it_->first);
         if (write_it_->second.has_value()) {
           current_ = std::make_pair(write_it_->first, *write_it_->second);
@@ -225,10 +227,10 @@ void AtomicAuthOverlay::iterator::Advance() {
         ++write_it_;
       }
     } else if (have_base) {
-      walked_.emplace(base_it_->first, base_it_->second);
       seen_.insert(base_it_->first);
       auto ws = overlay_->write_set_.find(base_it_->first);
       if (ws == overlay_->write_set_.end()) {
+        walked_.emplace(base_it_->first, base_it_->second);
         current_ = *base_it_;
       }
       ++base_it_;
