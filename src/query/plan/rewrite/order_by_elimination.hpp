@@ -340,6 +340,10 @@ class OrderByEliminator {
             using T = std::remove_cvref_t<decltype(*s)>;
             if constexpr (std::is_same_v<T, ScanAllByLabelProperties>) {
               s->sort_columns_ = sort_columns[i];
+            } else {
+              // The rest are fenced by one property, and a sort they stand in
+              // for matched exactly that one, so there is no column to name.
+              s->stands_in_for_a_sort_ = true;
             }
           },
           ctx.provided_scans[i]);

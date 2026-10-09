@@ -185,6 +185,15 @@ class IndexDifferentialTest : public ::testing::Test {
     return false;
   }
 
+  /// Whether the plan still sorts, rather than leaning on the scan beneath it.
+  bool PlanKeepsTheSort(std::string const &query) {
+    auto stream = interpreter.Interpret("EXPLAIN " + query);
+    for (auto const &row : stream.GetResults()) {
+      if (row.front().ValueString().find("OrderBy") != std::string::npos) return true;
+    }
+    return false;
+  }
+
   /// A row as it reads, which is how two orders are compared.
   ///
   /// A NaN is not equal to itself, so comparing two orders that both hold one
@@ -451,6 +460,71 @@ TEST_F(IndexDifferentialTest, AnIndexDoesNotPlaceAPairASortRefuses) {
     auto const [without_index, with_index] = OrderAgrees(values, query, {"CREATE INDEX ON :O(p);"});
     EXPECT_EQ(with_index, without_index) << "an index changed the answer for " << what;
     Run("DROP INDEX ON :O(p);");
+  }
+}
+
+TEST_F(IndexDifferentialTest, EveryIndexAScanCanStandInForRefusesThePairASortRefuses) {
+  // The label index is one of four an ORDER BY can be answered from, and the
+  // other three walk a stored order just as it does. A pair of maps reaches all
+  // of them, so a refusal kept to one leaves the same query answering
+  // differently for having one of the others.
+  struct Case {
+    std::string_view what;
+    std::vector<std::string> load;
+    std::string query;
+    std::string create_index;
+    std::string drop_index;
+  };
+
+  auto const vertices = std::vector<std::string>{"CREATE (:O {p: {a: 1}}), (:O {p: {a: 2}});"};
+  auto const edges = std::vector<std::string>{
+      "CREATE (:From), (:To);",
+      "MATCH (a:From), (b:To) CREATE (a)-[:D {p: {a: 1}}]->(b);",
+      "MATCH (a:From), (b:To) CREATE (a)-[:D {p: {a: 2}}]->(b);",
+  };
+
+  auto const pair_of_maps = std::vector<Case>{
+      {"a label index",
+       vertices,
+       "MATCH (n:O) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;",
+       "CREATE INDEX ON :O(p);",
+       "DROP INDEX ON :O(p);"},
+      {"a global vertex index",
+       vertices,
+       "MATCH (n) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;",
+       "CREATE GLOBAL INDEX ON :(p);",
+       "DROP GLOBAL INDEX ON :(p);"},
+      {"an edge type index",
+       edges,
+       "MATCH ()-[r:D]->() WHERE r.p IS NOT NULL RETURN r.p AS v ORDER BY r.p;",
+       "CREATE EDGE INDEX ON :D(p);",
+       "DROP EDGE INDEX ON :D(p);"},
+      {"a global edge index",
+       edges,
+       "MATCH ()-[r]->() WHERE r.p IS NOT NULL RETURN r.p AS v ORDER BY r.p;",
+       "CREATE GLOBAL EDGE INDEX ON :(p);",
+       "DROP GLOBAL EDGE INDEX ON :(p);"},
+  };
+
+  for (auto const &one : pair_of_maps) {
+    SCOPED_TRACE(one.what);
+
+    Run("MATCH (n) DETACH DELETE n;");
+    for (auto const &statement : one.load) Run(statement);
+
+    auto const without_index = Answer(one.query);
+    Run(one.create_index);
+    auto const with_index = Answer(one.query);
+
+    // Without this the comparison could hold by asking the same plan twice: a
+    // sort the planner keeps is a sort on both sides, which says nothing about
+    // what the walk standing in for it hands back.
+    EXPECT_FALSE(PlanKeepsTheSort(one.query))
+        << "the sort was kept with " << one.what << ", so the comparison asked the same plan twice";
+
+    EXPECT_EQ(with_index, without_index) << one.what << " changed the answer for a pair of maps";
+
+    Run(one.drop_index);
   }
 }
 
