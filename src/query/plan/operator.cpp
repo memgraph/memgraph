@@ -3298,6 +3298,18 @@ void ValidateWeight(TypedValue current_weight) {
   }
 }
 
+/// One KSHORTEST weight. A boolean is a v3.13 filter read as a weight; a null has no place in the order.
+void ValidateKShortestWeight(const TypedValue &weight) {
+  if (weight.IsBool()) throw QueryRuntimeException("{}", EdgeAtom::kKShortestWeightFirstHint);
+  if (weight.IsNull()) {
+    throw QueryRuntimeException(
+        "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
+        "weight, or filter the ones without one out. {}",
+        EdgeAtom::kKShortestWeightFirstHint);
+  }
+  ValidateWeight(weight);
+}
+
 void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
   if ((lhs.IsNumeric() && rhs.IsNumeric()) || (lhs.IsDuration() && rhs.IsDuration())) [[likely]] {
     return;
@@ -4762,13 +4774,10 @@ class KShortestPathsCursor : public Cursor {
     if (EdgeAndEndpointReadable(edge, head, context) && EvaluateFilterLambda(edge, head, frame, evaluator, context)) {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       // The lambda is folded into a running total by the caller, so it is asked for this arc alone.
-      TypedValue weight = BindAndCalculateNextWeight(
-          self_.weight_lambda_, edge, head, /* total_weight */ TypedValue(), frame_writer, evaluator);
-      if (weight.IsNull()) {
-        throw QueryRuntimeException(
-            "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
-            "weight, or filter the ones without one out.");
-      }
+      frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, edge);
+      frame_writer.Write(self_.weight_lambda_->inner_node_symbol, head);
+      TypedValue weight = self_.weight_lambda_->expression->Accept(evaluator);
+      ValidateKShortestWeight(weight);
       verdict.emplace(std::move(weight));
     }
     expansion_memo_.emplace(key, verdict);

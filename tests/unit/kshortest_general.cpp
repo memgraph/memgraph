@@ -279,6 +279,8 @@ TEST_F(WeightedKShortestCasesInMemory, UnreachableTargetDoesNotSearch) {
 
 TEST_F(WeightedKShortestCasesInMemory, WeightErrors) { db_->KShortestWeightedTestWeightErrors(db_.get()); }
 
+TEST_F(WeightedKShortestCasesInMemory, WeightErrorTexts) { db_->KShortestWeightedTestWeightErrorTexts(db_.get()); }
+
 TEST_F(WeightedKShortestCasesInMemory, FilterLambda) { db_->KShortestWeightedTestFilterLambda(db_.get()); }
 
 // The ladder drives deviation indices the 6-vertex fixture never reaches; under weights the root

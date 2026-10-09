@@ -20,6 +20,7 @@
 #include <range/v3/all.hpp>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -150,6 +151,33 @@ bool HasUpdate(const CypherQuery &query) {
   auto const updates = [](const SingleQuery *single_query) { return single_query && single_query->has_update; };
   return updates(query.single_query_) ||
          std::ranges::any_of(query.cypher_unions_, [&](const auto *u) { return updates(u->single_query_); });
+}
+
+template <typename... TExpression>
+bool IsAnyOf(Expression *expression) {
+  return ((utils::Downcast<TExpression>(expression) != nullptr) || ...);
+}
+
+/// Whether `expression` can only evaluate to a boolean or null: the body of a v3.13 KSHORTEST filter.
+bool IsBooleanShaped(Expression *expression) {
+  if (const auto *literal = utils::Downcast<PrimitiveLiteral>(expression)) return literal->value_.IsBool();
+  if (const auto *function = utils::Downcast<Function>(expression)) {
+    return function->function_name_ == kStartsWith || function->function_name_ == kEndsWith ||
+           function->function_name_ == kContains;
+  }
+  return IsAnyOf<OrOperator,
+                 XorOperator,
+                 AndOperator,
+                 NotOperator,
+                 EqualOperator,
+                 NotEqualOperator,
+                 LessOperator,
+                 GreaterOperator,
+                 LessEqualOperator,
+                 GreaterEqualOperator,
+                 IsNullOperator,
+                 InListOperator,
+                 RegexMatch>(expression);
 }
 }  // namespace
 
@@ -3913,8 +3941,12 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
     // would otherwise raise.
     auto reject_accumulators_in_weight_lambda = [&]() {
       if (edge->weight_lambda_.accumulated_path) {
-        throw SemanticException(
-            "The lambda for calculating weights cannot take the accumulated path or the accumulated weight.");
+        constexpr std::string_view kText =
+            "The lambda for calculating weights cannot take the accumulated path or the accumulated weight.";
+        if (edge->type_ == EdgeAtom::Type::KSHORTEST) {
+          throw SemanticException("{} {}", kText, EdgeAtom::kKShortestWeightFirstHint);
+        }
+        throw SemanticException("{}", kText);
       }
     };
     // A bidirectional search reusing inner searches has no one path leading to the tested edge, and
@@ -3962,6 +3994,10 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
           // used for weight calculation.
           edge->weight_lambda_ = visit_lambda(relationshipLambdas[0]);
           reject_accumulators_in_weight_lambda();
+          // A cached query sees literals as parameters, so a constant `true` is left to the runtime check.
+          if (edge->type_ == EdgeAtom::Type::KSHORTEST && IsBooleanShaped(edge->weight_lambda_.expression)) {
+            throw SemanticException("{}", EdgeAtom::kKShortestWeightFirstHint);
+          }
           visit_total_weight();
           // Add mandatory inner variables for filter lambda.
           anonymous_identifiers.push_back(&edge->filter_lambda_.inner_edge);

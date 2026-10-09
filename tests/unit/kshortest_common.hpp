@@ -515,7 +515,7 @@ void AppendEntities(const std::vector<memgraph::query::VertexAccessor> &vertices
 // path order - the vertex both cursors check whichever pass walks the arc. The label arms leave
 // vertex 5 ungranted as well as the one they are named for.
 inline std::vector<std::pair<int, int>> ReadableArcs(FineGrainedTestType fine_grained_test_type,
-                                                             memgraph::query::EdgeAtom::Direction direction) {
+                                                     memgraph::query::EdgeAtom::Direction direction) {
   auto readable = [&](const std::vector<std::string> &types, const std::vector<int> &unreadable) {
     auto arcs = GetEdgeList(kEdges, direction, types);
     std::erase_if(arcs, [&](const auto &arc) { return std::ranges::contains(unreadable, arc.second); });
@@ -1265,6 +1265,33 @@ class Database {
       auto weights = DetourIntWeights();
       weights[{0, 1}] = weight;
       EXPECT_THROW(DetourResults(db, weights), memgraph::query::QueryRuntimeException);
+    }
+  }
+
+  // The texts for the weights the v3.13 filter spelling produces name the migration, word for word.
+  void KShortestWeightedTestWeightErrorTexts(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    const std::string hint =
+        "KSHORTEST takes the weight lambda first. To filter without a weight, write (e, n | 1) (e, n | <filter>).";
+    const std::vector<std::tuple<const char *, PV, std::string>> cases{
+        {"boolean", PV(true), hint},
+        {"null",
+         PV(),
+         "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
+         "weight, or filter the ones without one out. " +
+             hint},
+        {"negative", PV(int64_t{-1}), "Weight must be non-negative, got -1."}};
+
+    for (const auto &[name, weight, expected] : cases) {
+      SCOPED_TRACE(name);
+      auto weights = DetourIntWeights();
+      weights[{0, 1}] = weight;
+      try {
+        DetourResults(db, weights);
+        ADD_FAILURE() << "expected an error";
+      } catch (const memgraph::query::QueryRuntimeException &e) {
+        EXPECT_EQ(std::string(e.what()), expected);
+      }
     }
   }
 
