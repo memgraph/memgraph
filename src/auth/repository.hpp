@@ -142,7 +142,8 @@ class Repository {
   }
 
   /// Whether anything exists under `prefix`. Stops at the first key, so inside a transaction this depends only on
-  /// the prefix being inhabited; saying so keeps the conflict check from holding the scan to keys it never read.
+  /// the prefix being inhabited, unless the transaction has deleted a key under it, when it depends on the key it
+  /// found. Saying so keeps the conflict check from holding the scan to keys it never read.
   bool HasAny(std::string_view prefix) const {
     auto const found = AnyOf(prefix, [](auto const &) { return true; });
     std::visit(

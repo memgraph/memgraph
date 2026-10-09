@@ -94,7 +94,8 @@ class AtomicAuthOverlay {
     /// Base entries this scan walked past and the transaction has not written, with the values it saw. Held here
     /// rather than in the read set until the scan reaches the end, because only then is it known to depend on them:
     /// a scan that stops early and is narrowed to emptiness never read these values and must not conflict on them
-    /// changing.
+    /// changing. When the transaction has deleted a key under the prefix, the keys it yields are observed at once
+    /// instead (`own_delete_under_prefix_`).
     std::map<std::string, std::string, std::less<>> walked_;
   };
 
@@ -103,8 +104,9 @@ class AtomicAuthOverlay {
 
   /// Narrow a just-completed scan to depending only on whether the prefix was inhabited. The caller says so after
   /// the fact, because only it knows it stopped early; a scan is recorded as depending on the whole key set until
-  /// told otherwise. Only a caller whose answer depends on nothing but that may narrow: no key or value it read is
-  /// checked for conflicts afterwards.
+  /// told otherwise. Only a caller whose answer depends on nothing but that may narrow: afterwards no key or value
+  /// the scan read is checked, except the base keys it yielded after the transaction had deleted a key under the
+  /// prefix.
   void ScanDependsOnEmptinessOnly(std::string const &prefix) const;
 
   /// Whether this transaction wrote anything. A read-only transaction still validates what it read, but has
@@ -118,7 +120,8 @@ class AtomicAuthOverlay {
  private:
   /// Adopts the base entries an exhaustive scan walked past, so its dependency on their values is conflict-checked
   /// the same way a named read is. Without this a transaction can decide on which keys exist and leave no trace of
-  /// it. Only an exhaustive scan calls this: one that stopped early depends on the prefix, not on what is under it.
+  /// it. Only an exhaustive scan calls this: one that stopped early depends on the prefix, not on what is under it,
+  /// beyond the keys it observed through `own_delete_under_prefix_`.
   /// A read key under `prefix` that the scan did not walk is observed as absent.
   void AdoptWalked(std::string_view prefix, std::map<std::string, std::string, std::less<>> const &walked) const;
 
