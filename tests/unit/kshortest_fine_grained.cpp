@@ -176,8 +176,8 @@ TEST_F(FineGrainedKShortestTestInMemory, AccessCheckRunsBeforeFilterLambda) {
   db_->KShortestTestAccessCheckBeforeFilterLambda(db_.get());
 }
 
-TEST_F(FineGrainedKShortestTestInMemory, MemoDistinguishesSearchDirections) {
-  db_->KShortestTestMemoDistinguishesSearchDirections(db_.get());
+TEST_F(FineGrainedKShortestTestInMemory, DeniedHeadBlocksArcOnBothPasses) {
+  db_->KShortestTestDeniedHeadBlocksArcOnBothPasses(db_.get());
 }
 
 class FineGrainedKShortestTestOnDisk : public ::testing::TestWithParam<FineGrainedCase> {

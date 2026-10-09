@@ -4075,8 +4075,7 @@ class KShortestPathsCursor : public Cursor {
         ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
     // A cost switch only, not a semantic one: `ShouldExpand` agrees either way.
-    fine_grained_access_check_enabled_ = FineGrainedAccessCheckEnabled(context);
-    memoize_expansion_ = self_.filter_lambda_.expression != nullptr || fine_grained_access_check_enabled_;
+    memoize_expansion_ = self_.filter_lambda_.expression != nullptr || FineGrainedAccessCheckEnabled(context);
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
@@ -4213,19 +4212,17 @@ class KShortestPathsCursor : public Cursor {
     }
   };
 
-  // The pass is in the key because the two halves of the search check opposite endpoints of an edge.
+  // `node` is the arc's head in path order, so both passes share one verdict per arc.
   struct ExpansionKey {
     storage::Gid edge;
     storage::Gid node;
-    bool backward;
 
     friend bool operator==(const ExpansionKey &, const ExpansionKey &) = default;
   };
 
   struct ExpansionKeyHash {
     size_t operator()(const ExpansionKey &key) const {
-      return utils::HashCombine<size_t, bool>{}(utils::HashCombine<storage::Gid, storage::Gid>{}(key.edge, key.node),
-                                                key.backward);
+      return utils::HashCombine<storage::Gid, storage::Gid>{}(key.edge, key.node);
     }
   };
 
@@ -4292,7 +4289,6 @@ class KShortestPathsCursor : public Cursor {
   // blocked sets - the only per-deviation inputs - are checked outside the memo.
   utils::pmr::unordered_map<ExpansionKey, bool, ExpansionKeyHash> expansion_memo_;
   bool memoize_expansion_{false};
-  bool fine_grained_access_check_enabled_{false};
 
   // Bidirectional search state
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
@@ -4450,16 +4446,16 @@ class KShortestPathsCursor : public Cursor {
 #endif
   }
 
-  template <bool To>
-  static bool FineGrainedAccessCheck(const EdgeAccessor &edge, ExecutionContext &context) {
+  /// An arc is readable when its edge and its head in path order are, whichever pass reaches it.
+  static bool FineGrainedAccessCheck(const EdgeAccessor &edge, const VertexAccessor &head, ExecutionContext &context) {
 #ifdef MG_ENTERPRISE
-    return (!license::global_license_checker.IsEnterpriseValidFast() || !context.auth_checker ||
-            (context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-             context.auth_checker->Has(To == kTo ? edge.To() : edge.From(),
-                                       storage::View::OLD,
-                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ)));
+    return (
+        !license::global_license_checker.IsEnterpriseValidFast() || !context.auth_checker ||
+        (context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+         context.auth_checker->Has(head, storage::View::OLD, memgraph::query::AuthQuery::FineGrainedPrivilege::READ)));
 #else
     (void)edge;
+    (void)head;
     (void)context;
     return true;
 #endif
@@ -4480,8 +4476,8 @@ class KShortestPathsCursor : public Cursor {
     throw QueryRuntimeException("Expansion condition must evaluate to boolean or null");
   }
 
-  /// `Backward` marks the target-side pass, where the lambda binds the vertex we expand *from*, not
-  /// the one we reach - that asymmetry makes the search test the pairs a forward walk would.
+  /// `Backward` marks the target-side pass, where the access check and the lambda take the vertex we
+  /// expand *from*, not the one we reach - that asymmetry makes the search test the pairs a forward walk would.
   template <bool To, bool Backward>
   bool ShouldExpand(const EdgeAccessor &edge, const VertexAccessor &expand_from, const VertexEdgeMapT &reached,
                     Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
@@ -4492,14 +4488,12 @@ class KShortestPathsCursor : public Cursor {
     const VertexAccessor &inner_node = Backward ? expand_from : next;
     // Access check first: an edge the user cannot read must never make the lambda run on it.
     auto verdict = [&] {
-      return FineGrainedAccessCheck<To>(edge, context) &&
+      return FineGrainedAccessCheck(edge, inner_node, context) &&
              EvaluateFilterLambda(edge, inner_node, frame, evaluator, context);
     };
     if (!memoize_expansion_) return verdict();
 
-    // With access checks off the verdict depends only on `(edge, inner_node)`, so the two agree.
-    const ExpansionKey key{
-        .edge = edge.Gid(), .node = inner_node.Gid(), .backward = Backward && fine_grained_access_check_enabled_};
+    const ExpansionKey key{.edge = edge.Gid(), .node = inner_node.Gid()};
     if (const auto it = expansion_memo_.find(key); it != expansion_memo_.end()) return it->second;
 
     const bool allowed = verdict();
