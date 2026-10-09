@@ -21,17 +21,13 @@ namespace memgraph::auth {
 AtomicAuthOverlay::AtomicAuthOverlay(kvstore::KVStore &base) : base_(base) {}
 
 std::optional<std::string> AtomicAuthOverlay::Get(std::string_view key) const {
-  auto const key_str = std::string(key);
-
-  if (auto it = write_set_.find(key_str); it != write_set_.end()) {
+  if (auto it = write_set_.find(key); it != write_set_.end()) {
     return it->second;  // nullopt if tombstone
   }
 
-  if (!read_set_.contains(key_str)) {
-    auto val = base_.Get(key);
-    read_set_.emplace(key_str, val);
-  }
-  return read_set_.at(key_str);
+  auto it = read_set_.find(key);
+  if (it == read_set_.end()) it = read_set_.emplace(std::string(key), base_.Get(key)).first;
+  return it->second;
 }
 
 void AtomicAuthOverlay::ScanDependsOnEmptinessOnly(std::string const &prefix) const {
@@ -55,24 +51,14 @@ void AtomicAuthOverlay::AdoptWalked(std::string_view prefix,
 }
 
 void AtomicAuthOverlay::Put(std::string_view key, std::string_view value) {
-  auto const key_str = std::string(key);
-
   // Record in read-set if not already there (for conflict detection on existing keys)
-  if (!read_set_.contains(key_str)) {
-    read_set_.emplace(key_str, base_.Get(key));
-  }
-
-  write_set_[key_str] = std::string(value);
+  if (!read_set_.contains(key)) read_set_.emplace(std::string(key), base_.Get(key));
+  write_set_.insert_or_assign(std::string(key), std::string(value));
 }
 
 void AtomicAuthOverlay::Delete(std::string_view key) {
-  auto const key_str = std::string(key);
-
-  if (!read_set_.contains(key_str)) {
-    read_set_.emplace(key_str, base_.Get(key));
-  }
-
-  write_set_[key_str] = std::nullopt;  // tombstone
+  if (!read_set_.contains(key)) read_set_.emplace(std::string(key), base_.Get(key));
+  write_set_.insert_or_assign(std::string(key), std::nullopt);  // tombstone
 }
 
 void AtomicAuthOverlay::PutAndDeleteMultiple(std::map<std::string, std::string> const &puts,

@@ -503,8 +503,8 @@ TEST_F(AtomicAuthOverlayTest, ACommittedTransactionSawOnlyTheStateItCommitsAgain
   }
 }
 
-// The same with the prefix already inhabited, so only the key-set check can catch bob: a write to a key that
-// appeared after the scan must not exempt that key from it.
+// As WritingAKeyThatAppearedAfterAScanConflicts, but with the prefix already inhabited, so only the key-set check
+// can catch bob: a write to a key that appeared after the scan must not exempt that key from it.
 TEST_F(AtomicAuthOverlayTest, WritingAKeyThatAppearedUnderAnInhabitedScannedPrefixConflicts) {
   store_->Put("user:alice", "alice_data");
 
