@@ -11622,18 +11622,12 @@ void Interpreter::Commit() {
           throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
         }
       }
-      auto const abort_system_transaction = [this] {
-        if (!system_transaction_) return;
-        system_transaction_->Abort();
-        system_transaction_.reset();
-      };
 #ifdef MG_ENTERPRISE
       // DROP DATABASE needs the system transaction held here, so a database that exists now still exists when the
       // overlay flushes.
       try {
         for (auto const &db : auth_transaction_->named_databases()) interpreter_context_->dbms_handler->Get(db);
       } catch (dbms::UnknownDatabaseException const &e) {
-        abort_system_transaction();
         throw QueryRuntimeException(e.what());
       }
 #endif
@@ -11647,7 +11641,6 @@ void Interpreter::Commit() {
           !demoted && interpreter_context_->auth->CommitTransaction(*auth_transaction_, system_transaction_ptr());
       locked_repl_state.reset();
       if (!committed) {
-        abort_system_transaction();
         if (demoted) throw QueryException("Cannot commit because instance is not main anymore.");
         throw TransactionSerializationException();
       }
