@@ -150,16 +150,24 @@ class TypedProgram {
   /// caller wants is settled when it compiles, not when it runs.
   enum class Shape : uint8_t { Predicate, Integer };
 
+  /// What a working slot is holding. The value itself is kept as eight bytes
+  /// whatever it is, so the kind is what says how to read them, and what two
+  /// slots may be compared as.
+  ///
+  /// `Unknown` is a slot that holds nothing, which is what a missing property
+  /// leaves, and makes a comparison against it null.
+  enum class SlotKind : uint8_t { Unknown, Int };
+
   /// Runs the code and leaves the slots behind for whichever result is wanted.
   /// Only what says whether a slot holds anything starts out cleared: every
   /// value is written by the instruction that produces it before any
   /// instruction reads it, and clearing all of them costs a row more than the
   /// work the row came to do.
   struct Slots {
-    Slots() { int_known.fill(0); }
+    Slots() { kinds.fill(SlotKind::Unknown); }
 
     std::array<int64_t, 64> ints;
-    std::array<char, 64> int_known;
+    std::array<SlotKind, 64> kinds;
     std::array<Answer, 64> tris;
   };
 

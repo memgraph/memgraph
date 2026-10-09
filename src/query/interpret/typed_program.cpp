@@ -420,7 +420,7 @@ bool TypedProgram::Execute(Frame const &frame, ExpressionEvaluator *reader, Para
   if (int_slots_ > kMaxSlots || tri_slots_ > kMaxSlots) return false;
 
   auto &ints = slots.ints;
-  auto &int_known = slots.int_known;
+  auto &kinds = slots.kinds;
   auto &tris = slots.tris;
 
   // Which way a comparison went, for the instruction that does one whole.
@@ -443,8 +443,9 @@ bool TypedProgram::Execute(Frame const &frame, ExpressionEvaluator *reader, Para
 
   // A comparison of which either side is missing is null rather than false.
   auto compare = [&](int32_t a, int32_t b, auto decide) {
-    return (int_known[a] == 0 || int_known[b] == 0) ? Answer::Null
-                                                    : (decide(ints[a], ints[b]) ? Answer::True : Answer::False);
+    return (kinds[a] == SlotKind::Unknown || kinds[b] == SlotKind::Unknown)
+               ? Answer::Null
+               : (decide(ints[a], ints[b]) ? Answer::True : Answer::False);
   };
 
   // Walked by pointer rather than by index. The body calls out through the
@@ -475,15 +476,15 @@ bool TypedProgram::Execute(Frame const &frame, ExpressionEvaluator *reader, Para
 
 op_ConstInt:
   ints[step->dst] = step->literal;
-  int_known[step->dst] = 1;
+  kinds[step->dst] = SlotKind::Int;
   MG_NEXT();
 op_LoadInt: {
   auto const &value = frame.elems()[step->a];
   if (value.IsInt()) {
     ints[step->dst] = value.UnsafeValueInt();
-    int_known[step->dst] = 1;
+    kinds[step->dst] = SlotKind::Int;
   } else if (value.IsNull()) {
-    int_known[step->dst] = 0;
+    kinds[step->dst] = SlotKind::Unknown;
   } else {
     // Not what the guess settled on, so this row is not ours.
     return false;
@@ -498,9 +499,9 @@ op_LoadParamInt: {
   if (value == nullptr) return false;
   if (value->IsInt()) {
     ints[step->dst] = value->ValueInt();
-    int_known[step->dst] = 1;
+    kinds[step->dst] = SlotKind::Int;
   } else if (value->IsNull()) {
-    int_known[step->dst] = 0;
+    kinds[step->dst] = SlotKind::Unknown;
   } else {
     return false;
   }
@@ -513,7 +514,7 @@ op_LoadPropInt: {
   // settled on.
   if (!record.IsVertex() && !record.IsEdge()) {
     if (record.IsNull()) {
-      int_known[step->dst] = 0;
+      kinds[step->dst] = SlotKind::Unknown;
       MG_NEXT();
     }
     return false;
@@ -523,9 +524,9 @@ op_LoadPropInt: {
   if (refused) return false;
   if (value) {
     ints[step->dst] = *value;
-    int_known[step->dst] = 1;
+    kinds[step->dst] = SlotKind::Int;
   } else {
-    int_known[step->dst] = 0;
+    kinds[step->dst] = SlotKind::Unknown;
   }
   MG_NEXT();
 }
@@ -547,8 +548,9 @@ op_IsNullTri:
 op_AddInt:
 op_SubInt:
 op_MulInt: {
-  int_known[step->dst] = int_known[step->a] & int_known[step->b];
-  if (int_known[step->dst] != 0) {
+  kinds[step->dst] =
+      (kinds[step->a] == SlotKind::Int && kinds[step->b] == SlotKind::Int) ? SlotKind::Int : SlotKind::Unknown;
+  if (kinds[step->dst] != SlotKind::Unknown) {
     auto const x = ints[step->a];
     auto const y = ints[step->b];
     ints[step->dst] = step->op == Op::AddInt ? x + y : (step->op == Op::SubInt ? x - y : x * y);
@@ -651,16 +653,16 @@ finished:
 [[gnu::noinline]] bool TypedProgram::RareOp(Instr const &in, Frame const &frame, ExpressionEvaluator *reader,
                                             Slots &slots) const {
   auto &ints = slots.ints;
-  auto &int_known = slots.int_known;
+  auto &kinds = slots.kinds;
   auto &tris = slots.tris;
   switch (in.op) {
     case Op::LoadTime: {
       auto const &value = frame.elems()[in.a];
       if (value.IsLocalDateTime()) {
         ints[in.dst] = value.ValueLocalDateTime().SysMicrosecondsSinceEpoch();
-        int_known[in.dst] = 1;
+        kinds[in.dst] = SlotKind::Int;
       } else if (value.IsNull()) {
-        int_known[in.dst] = 0;
+        kinds[in.dst] = SlotKind::Unknown;
       } else {
         return false;
       }
@@ -671,7 +673,7 @@ finished:
       auto const &record = frame.elems()[in.a];
       if (!record.IsVertex() && !record.IsEdge()) {
         if (record.IsNull()) {
-          int_known[in.dst] = 0;
+          kinds[in.dst] = SlotKind::Unknown;
           break;
         }
         return false;
@@ -680,9 +682,9 @@ finished:
       auto const value = reader->ReadProperty(record, paths_[in.path_at]);
       if (value.IsTemporalData() && value.ValueTemporalData().type == storage::TemporalType::LocalDateTime) {
         ints[in.dst] = value.ValueTemporalData().microseconds;
-        int_known[in.dst] = 1;
+        kinds[in.dst] = SlotKind::Int;
       } else if (value.IsNull()) {
-        int_known[in.dst] = 0;
+        kinds[in.dst] = SlotKind::Unknown;
       } else {
         return false;
       }
@@ -694,11 +696,11 @@ finished:
       auto const micros = reader->EvaluateLocalDateTime(*in.delegated, was_null);
       if (!micros) {
         if (!was_null) return false;
-        int_known[in.dst] = 0;
+        kinds[in.dst] = SlotKind::Unknown;
         return true;
       }
       ints[in.dst] = *micros;
-      int_known[in.dst] = 1;
+      kinds[in.dst] = SlotKind::Int;
       return true;
     }
     case Op::EvalTri: {
@@ -709,8 +711,9 @@ finished:
       return true;
     }
     case Op::DivInt: {
-      int_known[in.dst] = int_known[in.a] & int_known[in.b];
-      if (int_known[in.dst] != 0) {
+      kinds[in.dst] =
+          (kinds[in.a] == SlotKind::Int && kinds[in.b] == SlotKind::Int) ? SlotKind::Int : SlotKind::Unknown;
+      if (kinds[in.dst] != SlotKind::Unknown) {
         auto const x = ints[in.a];
         auto const y = ints[in.b];
         // Dividing by zero is the evaluator's complaint to make, and the one
@@ -721,7 +724,7 @@ finished:
       return true;
     }
     case Op::IsNullInt:
-      tris[in.dst] = int_known[in.a] == 0 ? Answer::True : Answer::False;
+      tris[in.dst] = kinds[in.a] == SlotKind::Unknown ? Answer::True : Answer::False;
       return true;
     case Op::IsNullTri:
       tris[in.dst] = tris[in.a] == Answer::Null ? Answer::True : Answer::False;
@@ -746,7 +749,7 @@ bool TypedProgram::RunInto(Frame const &frame, TypedValue &out, ExpressionEvalua
   if (shape_ == Shape::Integer) {
     // A missing operand leaves no integer, and null is a value a caller can
     // perfectly well take.
-    if (slots.int_known[result_] == 0) {
+    if (slots.kinds[result_] == SlotKind::Unknown) {
       out = TypedValue();
     } else {
       out = TypedValue(slots.ints[result_]);
