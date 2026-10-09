@@ -30,6 +30,12 @@ struct Operand {
   int32_t slot;
 };
 
+/// Where an instruction's property path sits among all of them.
+struct PathRef {
+  int32_t at{0};
+  int32_t len{0};
+};
+
 /// What an integer slot is holding. Both are int64, and a comparison of two of
 /// them is the same instruction either way; the kind decides only what a load
 /// will accept and what it takes out of it. Mixing the two is refused, since
@@ -74,7 +80,7 @@ class TypedProgramBuilder {
         // the one place that knows how a bound value becomes one.
         if (kind == Kind::Time) {
           auto const slot = NextInt();
-          Emit(TypedProgram::Op::EvalTime, slot, 0, 0, 0, 0, nullptr, expression);
+          Emit(TypedProgram::Op::EvalTime, slot, 0, 0, 0, {}, nullptr, expression);
           return Operand{.is_tri = false, .slot = slot};
         }
         auto const position = static_cast<ParameterLookup *>(expression)->token_position_;
@@ -87,7 +93,7 @@ class TypedProgramBuilder {
         // arguments are left to the evaluator, which is what builds the time.
         if (kind != Kind::Time || !NamesATime(expression)) return refuse();
         auto const slot = NextInt();
-        Emit(TypedProgram::Op::EvalTime, slot, 0, 0, 0, 0, nullptr, expression);
+        Emit(TypedProgram::Op::EvalTime, slot, 0, 0, 0, {}, nullptr, expression);
         return Operand{.is_tri = false, .slot = slot};
       }
       case utils::TypeId::AST_LABELS_TEST: {
@@ -100,28 +106,20 @@ class TypedProgramBuilder {
         auto const position = static_cast<Identifier *>(test->expression_)->symbol_pos_;
         if (position < 0) return refuse();
         auto const slot = NextTri();
-        Emit(TypedProgram::Op::TestLabels, slot, position, 0, 0, 0, test);
+        Emit(TypedProgram::Op::TestLabels, slot, position, 0, 0, {}, test);
         return Operand{.is_tri = true, .slot = slot};
       }
       case utils::TypeId::AST_PROPERTY_LOOKUP: {
-        auto *lookup = static_cast<PropertyLookup *>(expression);
-        // Only the plain case. A plain lookup carries a path of one, which is
-        // the property itself; a longer path reaches inside a value, and a
-        // lookup that takes all of them is a map. Both are left to the
-        // evaluator rather than guessed at.
-        if (lookup->evaluation_mode_ != PropertyLookup::EvaluationMode::GET_OWN_PROPERTY) return refuse();
-        if (lookup->property_path_.size() != 1) return refuse();
-        if (lookup->expression_ == nullptr) return refuse();
-        if (lookup->expression_->GetTypeInfo().id != utils::TypeId::AST_IDENTIFIER) return refuse();
-        auto const position = static_cast<Identifier *>(lookup->expression_)->symbol_pos_;
-        if (position < 0) return refuse();
+        std::vector<int32_t> path;
+        auto const position = PropertyChain(expression, path);
+        if (!position) return refuse();
         auto const slot = NextInt();
         Emit(kind == Kind::Time ? TypedProgram::Op::LoadPropTime : TypedProgram::Op::LoadPropInt,
              slot,
-             position,
+             *position,
              0,
              0,
-             lookup->property_.ix);
+             AddPath(path));
         return Operand{.is_tri = false, .slot = slot};
       }
       case utils::TypeId::AST_ADDITION_OPERATOR:
@@ -179,6 +177,7 @@ class TypedProgramBuilder {
     TypedProgram program;
     program.shape_ = root.is_tri ? TypedProgram::Shape::Predicate : TypedProgram::Shape::Integer;
     program.code_ = std::move(code_);
+    program.paths_ = std::move(paths_);
     program.int_slots_ = int_slots_;
     program.tri_slots_ = tri_slots_;
     program.result_ = root.slot;
@@ -197,40 +196,58 @@ class TypedProgramBuilder {
     return Operand{.is_tri = false, .slot = slot};
   }
 
-  /// The frame position and property of a plain lookup, when that is what the
-  /// expression is.
-  static std::optional<std::pair<int32_t, int64_t>> PlainLookup(Expression *expression) {
+  /// Reads a lookup, or a chain of them, back to the record it starts from.
+  /// `a.b.c` parses as a lookup of `c` on a lookup of `b` on `a`, so walking
+  /// down to the identifier and collecting each property on the way back up
+  /// gives the path from the record to the value.
+  ///
+  /// Returns the record's place on the frame, and leaves the path in `path`.
+  /// Nothing when the chain does not start at a record, or reaches further in
+  /// than a read will go.
+  static std::optional<int32_t> PropertyChain(Expression *expression, std::vector<int32_t> &path) {
     if (expression == nullptr) return std::nullopt;
     if (expression->GetTypeInfo().id != utils::TypeId::AST_PROPERTY_LOOKUP) return std::nullopt;
     auto *lookup = static_cast<PropertyLookup *>(expression);
+    // A lookup that takes every property is a map rather than a value, and a
+    // path of more than one here is a target of SET or REMOVE rather than
+    // something read. Both are left to the evaluator.
     if (lookup->evaluation_mode_ != PropertyLookup::EvaluationMode::GET_OWN_PROPERTY) return std::nullopt;
     if (lookup->property_path_.size() != 1) return std::nullopt;
     if (lookup->expression_ == nullptr) return std::nullopt;
-    if (lookup->expression_->GetTypeInfo().id != utils::TypeId::AST_IDENTIFIER) return std::nullopt;
-    auto const position = static_cast<Identifier *>(lookup->expression_)->symbol_pos_;
-    if (position < 0) return std::nullopt;
-    return std::pair{position, lookup->property_.ix};
+
+    if (lookup->expression_->GetTypeInfo().id == utils::TypeId::AST_IDENTIFIER) {
+      auto const position = static_cast<Identifier *>(lookup->expression_)->symbol_pos_;
+      if (position < 0) return std::nullopt;
+      path.push_back(static_cast<int32_t>(lookup->property_.ix));
+      return position;
+    }
+
+    auto const position = PropertyChain(lookup->expression_, path);
+    if (!position) return std::nullopt;
+    if (path.size() >= kMaxPathDepth) return std::nullopt;
+    path.push_back(static_cast<int32_t>(lookup->property_.ix));
+    return position;
   }
 
   /// Emits the whole of a property compared with a literal or a parameter as
   /// one instruction, which is the shape most filters have.
   std::optional<Operand> FusedComparison(Expression *left, Expression *right, TypedProgram::Op op) {
-    auto const lookup = PlainLookup(left);
-    if (!lookup) return std::nullopt;
-    auto const [position, property_ix] = *lookup;
+    std::vector<int32_t> path;
+    auto const position = PropertyChain(left, path);
+    if (!position) return std::nullopt;
 
     auto const kind = static_cast<int32_t>(op);
     if (right->GetTypeInfo().id == utils::TypeId::AST_PRIMITIVE_LITERAL) {
       auto const &value = static_cast<PrimitiveLiteral *>(right)->value_;
       if (!value.IsInt()) return std::nullopt;
       auto const slot = NextTri();
-      Emit(TypedProgram::Op::PropCmpConst, slot, position, kind, value.ValueInt(), property_ix);
+      Emit(TypedProgram::Op::PropCmpConst, slot, *position, kind, value.ValueInt(), AddPath(path));
       return Operand{.is_tri = true, .slot = slot};
     }
     if (right->GetTypeInfo().id == utils::TypeId::AST_PARAMETER_LOOKUP) {
       auto const token = static_cast<ParameterLookup *>(right)->token_position_;
       auto const slot = NextTri();
-      Emit(TypedProgram::Op::PropCmpParam, slot, position, kind, token, property_ix);
+      Emit(TypedProgram::Op::PropCmpParam, slot, *position, kind, token, AddPath(path));
       return Operand{.is_tri = true, .slot = slot};
     }
     return std::nullopt;
@@ -298,7 +315,7 @@ class TypedProgramBuilder {
     // The walk may have recorded why it stopped; it no longer stops here.
     refused_on_ = nullptr;
     auto const slot = NextTri();
-    Emit(TypedProgram::Op::EvalTri, slot, 0, 0, 0, 0, nullptr, expression);
+    Emit(TypedProgram::Op::EvalTri, slot, 0, 0, 0, {}, nullptr, expression);
     return Operand{.is_tri = true, .slot = slot};
   }
 
@@ -306,19 +323,28 @@ class TypedProgramBuilder {
 
   int32_t NextTri() { return static_cast<int32_t>(tri_slots_++); }
 
-  void Emit(TypedProgram::Op op, int32_t dst, int32_t a, int32_t b, int64_t literal, int64_t property_ix = 0,
+  void Emit(TypedProgram::Op op, int32_t dst, int32_t a, int32_t b, int64_t literal, PathRef path = {},
             LabelsTest *labels = nullptr, Expression *delegated = nullptr) {
     code_.push_back(TypedProgram::Instr{.op = op,
                                         .dst = dst,
                                         .a = a,
                                         .b = b,
                                         .literal = literal,
-                                        .property_ix = property_ix,
+                                        .path_at = path.at,
+                                        .path_len = path.len,
                                         .labels = labels,
                                         .delegated = delegated});
   }
 
+  /// Lays a path down end to end with the others and says where it went.
+  PathRef AddPath(std::vector<int32_t> const &path) {
+    auto const at = static_cast<int32_t>(paths_.size());
+    paths_.insert(paths_.end(), path.begin(), path.end());
+    return PathRef{.at = at, .len = static_cast<int32_t>(path.size())};
+  }
+
   std::vector<TypedProgram::Instr> code_;
+  std::vector<int32_t> paths_;
   size_t int_slots_{0};
   size_t tri_slots_{0};
 
@@ -488,7 +514,7 @@ op_LoadPropInt: {
     return false;
   }
   bool refused = false;
-  auto const value = reader->ReadIntProperty(record, step->property_ix, refused);
+  auto const value = reader->ReadIntProperty(record, PathOf(*step), refused);
   if (refused) return false;
   if (value) {
     ints[step->dst] = *value;
@@ -548,7 +574,7 @@ op_PropCmpParam: {
     other = bound->ValueInt();
   }
   bool refused = false;
-  auto const value = reader->ReadIntProperty(record, step->property_ix, refused);
+  auto const value = reader->ReadIntProperty(record, PathOf(*step), refused);
   if (refused) return false;
   if (!value) {
     tris[step->dst] = Answer::Null;
@@ -640,7 +666,8 @@ finished:
         }
         return false;
       }
-      auto const value = reader->ReadProperty(record, in.property_ix);
+      if (in.path_len != 1) return false;
+      auto const value = reader->ReadProperty(record, paths_[in.path_at]);
       if (value.IsTemporalData() && value.ValueTemporalData().type == storage::TemporalType::LocalDateTime) {
         ints[in.dst] = value.ValueTemporalData().microseconds;
         int_known[in.dst] = 1;

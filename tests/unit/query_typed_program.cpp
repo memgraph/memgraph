@@ -97,6 +97,86 @@ TEST_F(TypedProgramTest, APropertyComparisonCompilesAndAnswers) {
   EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
 }
 
+// `n.outer.middle.inner` parses as a lookup on a lookup on a lookup, and the
+// value it names sits inside nested maps in the property store. Reading it is
+// one walk into the stored bytes rather than a map built per level.
+TEST_F(TypedProgramTest, ANestedPropertyComparisonReadsWithoutBuildingTheMaps) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  // Committed first, so the record carries no deltas of this transaction's own
+  // and the read is the one that walks the stored bytes.
+  {
+    auto setup = db->Access(memgraph::storage::WRITE);
+    memgraph::query::DbAccessor writer{setup.get()};
+    memgraph::storage::PropertyValue::map_t innermost{
+        {writer.NameToProperty("inner"), memgraph::storage::PropertyValue(int64_t{4})}};
+    memgraph::storage::PropertyValue::map_t level{
+        {writer.NameToProperty("middle"), memgraph::storage::PropertyValue(std::move(innermost))}};
+    auto written = writer.InsertVertex();
+    [[maybe_unused]] auto const ok =
+        written.SetProperty(writer.NameToProperty("outer"), memgraph::storage::PropertyValue(std::move(level)));
+    [[maybe_unused]] auto const committed = setup->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+  }
+
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  auto found = dba.Vertices(memgraph::storage::View::OLD);
+  auto it = found.begin();
+  ASSERT_NE(it, found.end());
+  Set(0, TypedValue(*it));
+
+  auto *chain = storage_.Create<memgraph::query::PropertyLookup>(
+      storage_.Create<memgraph::query::PropertyLookup>(
+          storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("outer")),
+          storage_.GetPropertyIx("middle")),
+      storage_.GetPropertyIx("inner"));
+  auto *expr = storage_.Create<memgraph::query::EqualOperator>(
+      chain, storage_.Create<memgraph::query::PrimitiveLiteral>(int64_t{4}));
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value()) << "a nested property compared with a literal should compile";
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = &dba;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
+}
+
+// Reaching inside something that is not a map is an error the evaluator words,
+// so the program has to hand the row back rather than answer false for it.
+TEST_F(TypedProgramTest, ANestedReadThroughANonMapHandsTheRowBack) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  auto vertex = dba.InsertVertex();
+  // An integer, where the expression expects something to reach inside.
+  ASSERT_TRUE(
+      vertex.SetProperty(dba.NameToProperty("outer"), memgraph::storage::PropertyValue(int64_t{7})).has_value());
+  dba.AdvanceCommand();
+  Set(0, TypedValue(vertex));
+
+  auto *chain = storage_.Create<memgraph::query::PropertyLookup>(
+      storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("outer")),
+      storage_.GetPropertyIx("inner"));
+  auto *expr = storage_.Create<memgraph::query::EqualOperator>(
+      chain, storage_.Create<memgraph::query::PrimitiveLiteral>(int64_t{4}));
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value());
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = &dba;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::Refused);
+}
+
 // A query that runs without a storage accessor never has the name to id
 // mapping built, so a program that reads a property has nothing to index. It
 // has to complain the way the evaluator does rather than read off the end.

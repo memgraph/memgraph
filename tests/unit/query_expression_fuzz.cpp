@@ -108,6 +108,16 @@ class ExpressionFuzz : public ::testing::Test {
           memgraph::storage::PropertyValue(memgraph::storage::TemporalData(
               memgraph::storage::TemporalType::LocalDateTime, when.SysMicrosecondsSinceEpoch())));
     }
+    {
+      // A map, so a chain of lookups has something to reach inside, with an
+      // integer at the bottom and a value that is not a map beside it.
+      memgraph::storage::PropertyValue::map_t deeper{
+          {dba_.NameToProperty("whole"), memgraph::storage::PropertyValue(int64_t{11})}};
+      memgraph::storage::PropertyValue::map_t nested{
+          {dba_.NameToProperty("whole"), memgraph::storage::PropertyValue(std::move(deeper))},
+          {dba_.NameToProperty("word"), memgraph::storage::PropertyValue(std::string{"eleven"})}};
+      put("nest", memgraph::storage::PropertyValue(std::move(nested)));
+    }
     [[maybe_unused]] auto const labelled = vertex.AddLabel(dba_.NameToLabel("Present"));
     dba_.AdvanceCommand();
     record_ = TypedValue(vertex);
@@ -119,7 +129,7 @@ class ExpressionFuzz : public ::testing::Test {
     [[maybe_unused]] auto const removed = dba_.RemoveVertex(&doomed);
     dba_.AdvanceCommand();
     gone_ = TypedValue(doomed);
-    property_names_ = {"whole", "fraction", "word", "truth", "absent", "moment"};
+    property_names_ = {"whole", "fraction", "word", "truth", "absent", "moment", "nest"};
 
     auto writer = frame_.GetFrameWriter(nullptr, memgraph::utils::NewDeleteResource());
     for (size_t i = 0; i < operands_.size(); ++i) {
@@ -204,8 +214,16 @@ class ExpressionFuzz : public ::testing::Test {
       bool const from_a_deleted_record = rng() % 4 == 0;
       auto *record = storage_.Create<memgraph::query::Identifier>(from_a_deleted_record ? "gone" : "record");
       record->symbol_pos_ = from_a_deleted_record ? gone_position_ : record_position_;
-      auto const &name = property_names_[rng() % property_names_.size()];
-      return storage_.Create<memgraph::query::PropertyLookup>(record, storage_.GetPropertyIx(name));
+      // A chain reaches inside what the first lookup found, which is a map for
+      // some of the properties and something that cannot be reached inside for
+      // the rest. Both have to answer the way the evaluator answers.
+      Expression *lookup = record;
+      auto const steps = 1 + rng() % 3;
+      for (size_t step = 0; step != steps; ++step) {
+        auto const &name = property_names_[rng() % property_names_.size()];
+        lookup = storage_.Create<memgraph::query::PropertyLookup>(lookup, storage_.GetPropertyIx(name));
+      }
+      return lookup;
     }
     auto *identifier = storage_.Create<memgraph::query::Identifier>("v");
     identifier->symbol_pos_ = static_cast<int32_t>(rng() % operands_.size());

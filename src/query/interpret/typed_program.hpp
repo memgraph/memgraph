@@ -15,6 +15,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 #include "query/frontend/ast/ast.hpp"
@@ -43,6 +44,11 @@ enum class Truth : int8_t { False = 0, True = 1, Null = 2, Refused = 3 };
 /// that has been deleted, all of which already exist on the evaluator, so a
 /// program asks rather than repeats it. What the program saves is the value
 /// built around the answer, not the work of finding it.
+/// How far inside a stored value a compiled read will reach. A path this long
+/// is already unusual, and the limit lets a read name its steps on the stack
+/// rather than allocating for every row.
+inline constexpr size_t kMaxPathDepth = 4;
+
 class RecordReader {
  public:
   RecordReader() = default;
@@ -57,13 +63,18 @@ class RecordReader {
   /// The property is named by its place in the query's table of them, which is
   /// all a read needs: an instruction that carried the name too would be half
   /// a string wide, and every row walks every instruction.
-  virtual storage::PropertyValue ReadProperty(TypedValue const &record, int64_t property_ix) = 0;
+  virtual storage::PropertyValue ReadProperty(TypedValue const &record, int32_t property_ix) = 0;
 
   /// Reads an integer property without a value being built around it. Nothing
   /// when the property is missing, which makes a comparison against it null;
   /// `refused` when it is there and is not an integer, which is a guess the
   /// program got wrong.
-  virtual std::optional<int64_t> ReadIntProperty(TypedValue const &record, int64_t property_ix, bool &refused) = 0;
+  ///
+  /// A path of more than one reaches inside a stored map, naming each step by
+  /// its place in the query's table of properties. Every step but the last has
+  /// to be a map for the read to mean what `a.b.c` means.
+  virtual std::optional<int64_t> ReadIntProperty(TypedValue const &record, std::span<int32_t const> property_ixs,
+                                                 bool &refused) = 0;
 
   /// Nothing when the record is null, which makes the test null. Throws what
   /// the ordinary evaluator throws when the record is not a node.
@@ -173,7 +184,11 @@ class TypedProgram {
     int32_t a;
     int32_t b;
     int64_t literal;
-    int64_t property_ix;
+    /// Where this instruction's property path sits in `paths_`, and how many
+    /// steps it has. Holding the path out of line keeps an instruction one
+    /// width whether it names a property or reaches inside one.
+    int32_t path_at;
+    int32_t path_len;
     LabelsTest *labels{nullptr};
     Expression *delegated{nullptr};
   };
@@ -195,6 +210,11 @@ class TypedProgram {
     std::array<Answer, 64> tris;
   };
 
+  /// The steps from a record to the value an instruction reads.
+  std::span<int32_t const> PathOf(Instr const &in) const {
+    return {paths_.data() + in.path_at, static_cast<size_t>(in.path_len)};
+  }
+
   bool Execute(Frame const &frame, RecordReader *reader, Parameters const *parameters, Slots &slots) const;
 
   /// The instructions that come up rarely, kept out of the loop that runs the
@@ -203,6 +223,9 @@ class TypedProgram {
   bool RareOp(Instr const &in, Frame const &frame, RecordReader *reader, Slots &slots) const;
 
   std::vector<Instr> code_;
+  /// Every instruction's property path, laid end to end. An instruction names
+  /// its own by where it starts and how long it is.
+  std::vector<int32_t> paths_;
   Shape shape_{Shape::Predicate};
   size_t int_slots_{0};
   size_t tri_slots_{0};

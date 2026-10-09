@@ -322,7 +322,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
  public:
   /// Lets a compiled program read a property without repeating what reading one
   /// involves: the view, the permission check, and a record that is gone.
-  storage::PropertyValue ReadProperty(TypedValue const &record, int64_t property_ix) override {
+  storage::PropertyValue ReadProperty(TypedValue const &record, int32_t property_ix) override {
     RequireAccessor("Reading a property");
     if (record.IsVertex()) return GetPropertyById(record.ValueVertex(), ctx_->properties[property_ix]);
     if (record.IsEdge()) return GetPropertyById(record.ValueEdge(), ctx_->properties[property_ix]);
@@ -738,16 +738,26 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
     return Truth::Refused;
   }
 
-  std::optional<int64_t> ReadIntProperty(TypedValue const &record, int64_t property_ix, bool &refused) override {
+  std::optional<int64_t> ReadIntProperty(TypedValue const &record, std::span<int32_t const> property_ixs,
+                                         bool &refused) override {
     refused = false;
+    if (property_ixs.empty() || property_ixs.size() > kMaxPathDepth) {
+      refused = true;
+      return std::nullopt;
+    }
     RequireAccessor("Reading a property");
-    auto const id = ctx_->properties[property_ix];
+    std::array<storage::PropertyId, kMaxPathDepth> path;
+    for (size_t step = 0; step != property_ixs.size(); ++step) {
+      path[step] = ctx_->properties[property_ixs[step]];
+    }
+    auto const walked = std::span{path}.first(property_ixs.size());
     // Reading the stored bytes directly bypasses nothing else, so the
-    // permission the boxed read would have applied has to be applied here.
-    if (record.IsVertex() && IsPropertyAllowed(record.ValueVertex(), id)) {
+    // permission the boxed read would have applied has to be applied here. It
+    // governs the record's own property, which is where the path starts; what
+    // a value holds inside itself carries no permission of its own.
+    if (record.IsVertex() && IsPropertyAllowed(record.ValueVertex(), walked.front())) {
       int64_t value = 0;
-      std::array<storage::PropertyId, 1> const path{id};
-      switch (record.ValueVertex().impl_.ReadIntProperty(path, view_, value)) {
+      switch (record.ValueVertex().impl_.ReadIntProperty(walked, view_, value)) {
         case storage::VertexAccessor::IntRead::Ok:
           return value;
         case storage::VertexAccessor::IntRead::Null:
@@ -760,14 +770,30 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
       }
     }
     // Whatever the quick read would not answer is answered the ordinary way,
-    // which is also where a record that cannot be read at all complains.
-    auto const boxed = ReadProperty(record, property_ix);
-    if (boxed.IsNull()) return std::nullopt;
-    if (!boxed.IsInt()) {
+    // which is also where a record that cannot be read at all complains. A
+    // record the transaction has itself changed always lands here, so the
+    // ordinary way has to reach inside a value too.
+    auto const boxed = ReadProperty(record, property_ixs.front());
+    auto const *value = &boxed;
+    for (auto const inner : walked.subspan(1)) {
+      if (value->IsNull()) return std::nullopt;
+      // Reaching inside anything else is what the evaluator complains about,
+      // in words that depend on what it found.
+      if (!value->IsMap()) {
+        refused = true;
+        return std::nullopt;
+      }
+      auto const &map = value->ValueMap();
+      auto const found = map.find(inner);
+      if (found == map.end()) return std::nullopt;
+      value = &found->second;
+    }
+    if (value->IsNull()) return std::nullopt;
+    if (!value->IsInt()) {
       refused = true;
       return std::nullopt;
     }
-    return boxed.ValueInt();
+    return value->ValueInt();
   }
 
   std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) override {
