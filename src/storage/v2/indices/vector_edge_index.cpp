@@ -481,31 +481,55 @@ VectorEdgeIndex::VectorSearchEdgeResults VectorEdgeIndex::SearchEdges(std::strin
 bool VectorEdgeIndex::HasIndexOnProperty(PropertyId property) const { return AnyIndexOnProperty(*index_, property); }
 
 void VectorEdgeIndex::DropEntries(Edge *edge, PropertyId property) {
-  for (const auto &[index_id, _] : GetIndicesByProperty(property)) {
-    RemoveEdgeFromIndex(edge, index_id);
+  try {
+    for (const auto &[index_id, _] : GetIndicesByProperty(property)) {
+      try {
+        RemoveEdgeFromIndex(edge, index_id);
+      } catch (...) {
+        LogUndoRepairFailure();
+      }
+    }
+  } catch (...) {
+    LogUndoRepairFailure();
   }
   EraseEndpointsIfUnreferenced(edge);
 }
 
 void VectorEdgeIndex::RestoreOnSetProperty(Vertex *from_vertex, Edge *edge, PropertyId property,
                                            const PropertyValue &before,
-                                           std::optional<std::pair<EdgeTypeId, Vertex *>> link) {
+                                           std::optional<std::pair<EdgeTypeId, Vertex *>> link) noexcept {
   if (!HasIndexOnProperty(property)) return;
   // A non-tag value is in no index, so no endpoints are needed; every index on the property is cleared, not only
   // those matching the edge type, in case a forward write left an entry the filter no longer admits.
   if (!before.IsVectorIndexId()) {
-    DropEntries(edge, property);
+    UndoNoThrow([&] { DropEntries(edge, property); }, [] {});
     return;
   }
-  if (!link) {
-    // The link is gone (e.g. the edge was deleted and its deltas hold no type): fall back to the recorded one.
-    auto lock = std::shared_lock{edge_endpoints_mutex_};
-    const auto it = edge_endpoints_.find(edge);
-    // Nothing recorded to restore against: skipped, as the deferred pass did.
-    if (it == edge_endpoints_.end()) return;
-    link = std::pair{it->second.edge_type, it->second.to_vertex};
-  }
-  UpdateOnSetProperty(from_vertex, link->second, edge, link->first, property, before);
+  UndoNoThrow(
+      [&] {
+        if (!link) {
+          // The link is gone (e.g. the edge was deleted and its deltas hold no type): fall back to the recorded one.
+          auto lock = std::shared_lock{edge_endpoints_mutex_};
+          const auto it = edge_endpoints_.find(edge);
+          if (it == edge_endpoints_.end())
+            throw VectorSearchException("No endpoints recorded for the edge to restore.");
+          link = std::pair{it->second.edge_type, it->second.to_vertex};
+        }
+        UpdateOnSetProperty(from_vertex, link->second, edge, link->first, property, before);
+      },
+      [&] {
+        // Last resort: the edge keeps its values as a plain, unindexed list.
+        const auto &vector = before.ValueVectorIndexList();
+        edge->properties.SetProperty(property, PropertyValue(std::vector<double>(vector.begin(), vector.end())));
+        for (auto index_id : before.ValueVectorIndexIds()) {
+          try {
+            RemoveEdgeFromIndex(edge, index_id);
+          } catch (...) {
+            LogUndoRepairFailure();
+          }
+        }
+        EraseEndpointsIfUnreferenced(edge);
+      });
 }
 
 bool VectorEdgeIndex::Empty() const { return index_->empty(); }

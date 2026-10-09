@@ -280,10 +280,10 @@ class VectorIndex {
 
   /// @brief Abort-path inverses of the three hooks above, run once per undone delta (newest first) under the vertex
   /// lock. `RestoreOnRemoveLabel` / `RestoreOnAddLabel` follow the label pop / push; `RestoreOnSetProperty` follows
-  /// the property store taking `before` back.
-  void RestoreOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder);
-  void RestoreOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder);
-  void RestoreOnSetProperty(PropertyId property, const PropertyValue &before, Vertex *vertex);
+  /// the property store taking `before` back. They never throw and leave no tag without a usearch entry.
+  void RestoreOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) noexcept;
+  void RestoreOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) noexcept;
+  void RestoreOnSetProperty(PropertyId property, const PropertyValue &before, Vertex *vertex) noexcept;
 
   /// @brief Updates all vector indices referenced by a VectorIndexId property.
   /// @param property The property that was modified.
@@ -361,8 +361,12 @@ class VectorIndex {
   bool HasIndexOnLabel(LabelId label) const;
   bool HasIndexOnProperty(PropertyId property) const;
 
-  /// Abort path: removes the vertex from every index on `property`.
+  /// Abort-path helpers. DropEntries removes the vertex from every index on `property`, each removal guarded on its
+  /// own. ReconcileEntry removes the vertex's entry in one index whose stored tag does not name it or whose label
+  /// filter no longer admits it, demoting the tag first. RepairLabelUndo reconciles every index `label` touches.
   void DropEntries(Vertex *vertex, PropertyId property);
+  void ReconcileEntry(Vertex *vertex, PropertyId property, uint64_t index_id);
+  void RepairLabelUndo(LabelId label, Vertex *vertex);
 
   /// @brief Removes a vertex from a vector index.
   /// @param vertex The vertex to remove.
