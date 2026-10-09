@@ -3153,10 +3153,11 @@ TEST_P(CypherMainVisitorTest, MatchKShortestReturn) {
   CheckRWType(query, kRead);
 }
 
-TEST_P(CypherMainVisitorTest, MatchKShortestWithFilterReturn) {
+// A lone lambda is the weight, as for the weighted and all-shortest expansions; no total is needed.
+TEST_P(CypherMainVisitorTest, MatchKShortestLoneLambdaIsWeight) {
   auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | e.prop = 42)]->() RETURN r"));
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | e.w)]->() RETURN r"));
   ASSERT_TRUE(query);
   auto *single_query = query->single_query_;
   ASSERT_EQ(single_query->clauses_.size(), 2U);
@@ -3165,20 +3166,21 @@ TEST_P(CypherMainVisitorTest, MatchKShortestWithFilterReturn) {
   auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_TRUE(shortest);
   EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
-  EXPECT_EQ(shortest->filter_lambda_.inner_edge->name_, "e");
-  EXPECT_TRUE(shortest->filter_lambda_.inner_edge->user_declared_);
-  EXPECT_EQ(shortest->filter_lambda_.inner_node->name_, "n");
-  EXPECT_TRUE(shortest->filter_lambda_.inner_node->user_declared_);
-  EXPECT_TRUE(shortest->filter_lambda_.expression);
-  EXPECT_FALSE(shortest->filter_lambda_.accumulated_path);
-  EXPECT_FALSE(shortest->weight_lambda_.expression);
+  EXPECT_FALSE(shortest->filter_lambda_.expression);
+  ASSERT_TRUE(shortest->weight_lambda_.expression);
+  EXPECT_EQ(shortest->weight_lambda_.inner_edge->name_, "e");
+  EXPECT_TRUE(shortest->weight_lambda_.inner_edge->user_declared_);
+  EXPECT_EQ(shortest->weight_lambda_.inner_node->name_, "n");
+  EXPECT_TRUE(shortest->weight_lambda_.inner_node->user_declared_);
+  ASSERT_TRUE(shortest->total_weight_);
+  EXPECT_FALSE(shortest->total_weight_->user_declared_);
   CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MatchKShortestWithLimitAndFilterReturn) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest 1..3 |2 (e, n | e.prop = 42)]->() RETURN r"));
+      ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest 1..3 |2 (e, n | 1) (e, n | e.prop = 42)]->() RETURN r"));
   ASSERT_TRUE(query);
   auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
   ASSERT_TRUE(match);
@@ -3191,8 +3193,7 @@ TEST_P(CypherMainVisitorTest, MatchKShortestWithLimitAndFilterReturn) {
   EXPECT_TRUE(shortest->filter_lambda_.expression);
 }
 
-// One lambda on its own stays the filter, as it always has. The total weight variable after it is
-// what promotes it to the weight lambda instead.
+// A named total weight variable after the weight lambda.
 TEST_P(CypherMainVisitorTest, MatchKShortestWithWeightLambdaReturn) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(
