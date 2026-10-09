@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <spdlog/spdlog.h>
+#include <algorithm>
 #include <mutex>
 #include <shared_mutex>
 
@@ -19,60 +20,64 @@
 
 namespace memgraph::utils {
 
-Settings::Settings(std::filesystem::path storage_path) {
-  std::lock_guard settings_guard{settings_lock_};
-  storage_.emplace(std::move(storage_path));
-}
+Settings::Settings(std::filesystem::path storage_path) : storage_(std::move(storage_path)) {}
 
-void Settings::RegisterSetting(std::string name, const std::string &default_value, OnChangeCallback callback,
-                               Validation validation) {
+void Settings::RegisterSetting(std::string name, const std::string &default_value, Persistence persistence,
+                               OnChangeCallback callback, Validation validation) {
   std::lock_guard settings_guard{settings_lock_};
-  if (!storage_) return;
   MG_ASSERT(
       validation(default_value).has_value(), "\"{}\"'s default value does not satisfy the validation condition.", name);
 
-  if (const auto maybe_value = storage_->Get(name); maybe_value) {
-    SPDLOG_INFO("The setting with name {} already exists!", name);
-  } else {
-    MG_ASSERT(storage_->Put(name, default_value), "Failed to register a setting");
-  }
-  {
-    const auto [_, inserted] = on_change_callbacks_.emplace(name, callback);
-    MG_ASSERT(inserted, "Settings storage is out of sync");
-  }
-  {
-    const auto [_, inserted] = validations_.emplace(std::move(name), validation);
-    MG_ASSERT(inserted, "Settings storage is out of sync");
+  auto [it, inserted] = settings_.try_emplace(name,
+                                              Entry{.value = default_value,
+                                                    .persistence = persistence,
+                                                    .on_change = std::move(callback),
+                                                    .validation = std::move(validation)});
+  MG_ASSERT(inserted, "Setting '{}' is already registered", name);
+
+  switch (persistence) {
+    case Persistence::kPersisted: {
+      if (const auto stored = storage_.Get(name); stored) {
+        it->second.value = *stored;
+      } else {
+        MG_ASSERT(storage_.Put(name, default_value), "Failed to register a setting");
+      }
+      break;
+    }
+    case Persistence::kRuntimeOnly: {
+      if (storage_.Get(name)) {
+        MG_ASSERT(storage_.Delete(name), "Failed to delete a stale setting");
+      }
+      break;
+    }
+    case Persistence::kDeprecatedRestore:
+      break;
   }
 }
 
 std::optional<std::string> Settings::GetValue(const std::string &setting_name) const {
   std::shared_lock settings_guard{settings_lock_};
-  if (!storage_) return std::nullopt;
-  auto maybe_value = storage_->Get(setting_name);
-  return maybe_value;
+  const auto it = settings_.find(setting_name);
+  if (it == settings_.end()) return std::nullopt;
+  return it->second.value;
 }
 
 bool Settings::SetValue(const std::string &setting_name, const std::string &new_value) {
   const auto settings_change_callback = std::invoke([&, this]() -> std::optional<OnChangeCallback> {
     std::lock_guard settings_guard{settings_lock_};
-    if (!storage_) return std::nullopt;
+    const auto it = settings_.find(setting_name);
+    if (it == settings_.end()) return std::nullopt;
 
-    if (const auto maybe_value = storage_->Get(setting_name); !maybe_value) {
-      return std::nullopt;
-    }
-
-    const auto val = validations_.find(setting_name);
-    MG_ASSERT(val != validations_.end(), "Settings storage is out of sync");
-    if (const auto msg = val->second(new_value); !msg.has_value()) {
+    auto &entry = it->second;
+    if (const auto msg = entry.validation(new_value); !msg.has_value()) {
       throw utils::BasicException("Cannot update setting '{}': {}", setting_name, msg.error());
     }
 
-    MG_ASSERT(storage_->Put(setting_name, new_value), "Failed to modify the setting");
-
-    const auto it = on_change_callbacks_.find(setting_name);
-    MG_ASSERT(it != on_change_callbacks_.end(), "Settings storage is out of sync");
-    return it->second;
+    if (entry.persistence == Persistence::kPersisted) {
+      MG_ASSERT(storage_.Put(setting_name, new_value), "Failed to modify the setting");
+    }
+    entry.value = new_value;
+    return entry.on_change;
   });
 
   if (!settings_change_callback) {
@@ -85,26 +90,44 @@ bool Settings::SetValue(const std::string &setting_name, const std::string &new_
 
 void Settings::SetValueForce(const std::string &setting_name, const std::string &new_value) {
   const std::lock_guard settings_guard{settings_lock_};
-  if (!storage_) return;
-  if (!storage_->Get(setting_name).has_value()) {
+  const auto it = settings_.find(setting_name);
+  if (it == settings_.end()) {
     spdlog::error("SetValueForce called for unregistered setting '{}'", setting_name);
     return;
   }
-  if (!storage_->Put(setting_name, new_value)) {
+  auto &entry = it->second;
+  if (entry.persistence == Persistence::kPersisted && !storage_.Put(setting_name, new_value)) {
     spdlog::error("Failed to force-set setting '{}'", setting_name);
+    return;
   }
+  entry.value = new_value;
 }
 
 std::vector<std::pair<std::string, std::string>> Settings::AllSettings() const {
   std::shared_lock settings_guard{settings_lock_};
-  if (!storage_) return {};
 
   std::vector<std::pair<std::string, std::string>> settings;
-  settings.reserve(storage_->Size());
-  for (const auto &[k, v] : *storage_) {
-    settings.emplace_back(k, v);
+  settings.reserve(settings_.size());
+  for (const auto &[name, entry] : settings_) {
+    settings.emplace_back(name, entry.value);
   }
-
+  std::ranges::sort(settings);
   return settings;
 }
+
+std::optional<std::string> Settings::StoredValue(const std::string &setting_name) const {
+  const std::shared_lock settings_guard{settings_lock_};
+  return storage_.Get(setting_name);
+}
+
+void Settings::DropStoredValue(const std::string &setting_name) {
+  const std::scoped_lock settings_guard{settings_lock_};
+  const auto it = settings_.find(setting_name);
+  MG_ASSERT(it != settings_.end() && it->second.persistence != Persistence::kPersisted,
+            "Only a non-persisted setting can drop its stored value");
+  if (!storage_.Delete(setting_name)) {
+    spdlog::error("Failed to delete the stored value of setting '{}'", setting_name);
+  }
+}
+
 }  // namespace memgraph::utils
