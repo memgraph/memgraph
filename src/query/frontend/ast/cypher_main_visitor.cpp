@@ -3233,12 +3233,34 @@ bool AreEquivalent(Expression *lhs, Expression *rhs, std::vector<NamedExpression
          });
 }
 
+// The storage owns every node the parser built, including the ones a replacement stopped the tree from reaching.
+// Those keep the identifiers they were built with, which symbol generation only ever reaches through the tree, so
+// anything reading the storage rather than walking it would meet an identifier carrying no symbol.
+void DropDetached(AstStorage &storage, std::vector<Expression *> const &roots) {
+  if (roots.empty()) return;
+  auto doomed = std::vector<Tree const *>{};
+  auto collect = [&doomed](auto const &self, Expression *expr) -> void {
+    if (!expr) return;
+    doomed.push_back(expr);
+    // A subtree is only ever replaced once it has matched, so every kind in it is one of the kinds named here. A
+    // kind that under-reports its children strands the rest, where the identifier with no symbol is still caught.
+    for (auto *child : MatchableChildren(expr).value_or(std::vector<Expression **>{})) self(self, *child);
+  };
+  for (auto *root : roots) collect(collect, root);
+  std::ranges::sort(doomed);
+  std::erase_if(storage.storage_, [&doomed](auto const &node) {
+    return std::ranges::binary_search(doomed, static_cast<Tree const *>(node.get()));
+  });
+}
+
 void ReferToProjectedItems(Expression *&expr, std::vector<NamedExpression *> const &items,
-                           ParameterNames const &parameter_names, AstStorage &storage) {
+                           ParameterNames const &parameter_names, AstStorage &storage,
+                           std::vector<Expression *> &detached) {
   if (!expr) return;
   auto const item = std::ranges::find_if(
       items, [&](auto *item) { return AreEquivalent(item->expression_, expr, items, parameter_names); });
   if (item != items.end()) {
+    detached.push_back(expr);
     expr = storage.Create<Identifier>((*item)->name_);
     return;
   }
@@ -3246,7 +3268,7 @@ void ReferToProjectedItems(Expression *&expr, std::vector<NamedExpression *> con
   // arguments would only detach a subtree that nothing goes on to read.
   if (utils::IsSubtype(*expr, Aggregation::kType)) return;
   for (auto *child : MatchableChildren(expr).value_or(std::vector<Expression **>{})) {
-    ReferToProjectedItems(*child, items, parameter_names, storage);
+    ReferToProjectedItems(*child, items, parameter_names, storage, detached);
   }
 }
 
@@ -3254,10 +3276,12 @@ void ReferToProjectedItems(Expression *&expr, std::vector<NamedExpression *> con
 // projected item's expression is replaced with a reference to that item.
 void ReferToProjectedItems(ReturnBody &body, Where *where, ParameterNames const &parameter_names, AstStorage &storage) {
   if ((body.order_by.empty() && !where) || !ProjectsAggregation(body)) return;
+  auto detached = std::vector<Expression *>{};
   for (auto &sort_item : body.order_by) {
-    ReferToProjectedItems(sort_item.expression, body.named_expressions, parameter_names, storage);
+    ReferToProjectedItems(sort_item.expression, body.named_expressions, parameter_names, storage, detached);
   }
-  if (where) ReferToProjectedItems(where->expression_, body.named_expressions, parameter_names, storage);
+  if (where) ReferToProjectedItems(where->expression_, body.named_expressions, parameter_names, storage, detached);
+  DropDetached(storage, detached);
 }
 }  // namespace
 
