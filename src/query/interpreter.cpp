@@ -3013,35 +3013,68 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
 #endif
 
 namespace {
+auto VectorIndexConfigInt(std::string_view option, TypedValue const &value) -> int64_t {
+  if (!value.IsInt()) {
+    throw QueryRuntimeException(fmt::format("Vector index '{}' must be an integer, got {}.", option, value.type()));
+  }
+  return value.ValueInt();
+}
+
+auto VectorIndexConfigString(std::string_view option, TypedValue const &value) -> std::string_view {
+  if (!value.IsString()) {
+    throw QueryRuntimeException(fmt::format("Vector index '{}' must be a string, got {}.", option, value.type()));
+  }
+  return value.ValueString();
+}
+
 auto VectorIndexConfigFromTypedMap(std::map<std::string, TypedValue, std::less<>> const &transformed_map)
     -> storage::VectorIndexConfigMap {
   if (transformed_map.empty()) {
-    throw std::invalid_argument(
+    throw QueryRuntimeException(
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
   auto metric_kind_it = transformed_map.find(kMetric);
-  auto metric_kind = storage::MetricFromName(
-      metric_kind_it != transformed_map.end() ? metric_kind_it->second.ValueString() : kDefaultMetric);
+  auto metric_kind = storage::MetricFromName(metric_kind_it != transformed_map.end()
+                                                 ? VectorIndexConfigString(kMetric, metric_kind_it->second)
+                                                 : kDefaultMetric);
   auto dimension = transformed_map.find(kDimension);
   if (dimension == transformed_map.end()) {
-    throw std::invalid_argument("Vector index spec must have a 'dimension' field.");
+    throw QueryRuntimeException("Vector index spec must have a 'dimension' field.");
   }
-  auto dimension_value = static_cast<std::uint16_t>(dimension->second.ValueInt());
+  auto const dimension_raw = VectorIndexConfigInt(kDimension, dimension->second);
+  if (dimension_raw < 1 || std::cmp_greater(dimension_raw, std::numeric_limits<std::uint16_t>::max())) {
+    throw QueryRuntimeException(fmt::format("Vector index 'dimension' must be an integer between 1 and {}, got {}.",
+                                            std::numeric_limits<std::uint16_t>::max(),
+                                            dimension_raw));
+  }
+  auto dimension_value = static_cast<std::uint16_t>(dimension_raw);
 
   auto capacity = transformed_map.find(kCapacity);
   if (capacity == transformed_map.end()) {
-    throw std::invalid_argument("Vector index spec must have a 'capacity' field.");
+    throw QueryRuntimeException("Vector index spec must have a 'capacity' field.");
   }
-  auto capacity_value = static_cast<std::size_t>(capacity->second.ValueInt());
+  auto const capacity_raw = VectorIndexConfigInt(kCapacity, capacity->second);
+  if (capacity_raw < 1) {
+    throw QueryRuntimeException(
+        fmt::format("Vector index 'capacity' must be a positive integer, got {}.", capacity_raw));
+  }
+  auto capacity_value = static_cast<std::size_t>(capacity_raw);
 
   auto resize_coefficient_it = transformed_map.find(kResizeCoefficient);
-  auto resize_coefficient =
-      resize_coefficient_it != transformed_map.end() && resize_coefficient_it->second.ValueInt() > 0
-          ? static_cast<std::uint16_t>(resize_coefficient_it->second.ValueInt())
-          : kDefaultResizeCoefficient;
+  auto resize_coefficient = kDefaultResizeCoefficient;
+  if (resize_coefficient_it != transformed_map.end()) {
+    auto const resize_coefficient_raw = VectorIndexConfigInt(kResizeCoefficient, resize_coefficient_it->second);
+    if (std::cmp_greater(resize_coefficient_raw, std::numeric_limits<std::uint16_t>::max())) {
+      throw QueryRuntimeException(fmt::format("Vector index 'resize_coefficient' must not exceed {}, got {}.",
+                                              std::numeric_limits<std::uint16_t>::max(),
+                                              resize_coefficient_raw));
+    }
+    if (resize_coefficient_raw > 0) resize_coefficient = static_cast<std::uint16_t>(resize_coefficient_raw);
+  }
   auto scalar_kind_it = transformed_map.find(kScalarKind);
-  auto scalar_kind = storage::ScalarFromName(
-      scalar_kind_it != transformed_map.end() ? scalar_kind_it->second.ValueString() : storage::kDefaultScalarKind);
+  auto scalar_kind = storage::ScalarFromName(scalar_kind_it != transformed_map.end()
+                                                 ? VectorIndexConfigString(kScalarKind, scalar_kind_it->second)
+                                                 : storage::kDefaultScalarKind);
   return storage::VectorIndexConfigMap{.metric = metric_kind,
                                        .dimension = dimension_value,
                                        .capacity = capacity_value,
@@ -3053,7 +3086,7 @@ auto VectorIndexConfigFromTypedMap(std::map<std::string, TypedValue, std::less<>
 auto ParseVectorIndexConfigMap(std::unordered_map<query::Expression *, query::Expression *> const &config_map,
                                ExpressionVisitor<TypedValue> &evaluator) -> storage::VectorIndexConfigMap {
   if (config_map.empty()) {
-    throw std::invalid_argument(
+    throw QueryRuntimeException(
         "Vector index config map is empty. Please provide mandatory fields: dimension and capacity.");
   }
   auto transformed_map = rv::all(config_map) | rv::transform([&evaluator](const auto &pair) {
