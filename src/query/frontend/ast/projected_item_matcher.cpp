@@ -12,6 +12,7 @@
 #include "query/frontend/ast/projected_item_matcher.hpp"
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <ranges>
 #include <vector>
@@ -102,101 +103,177 @@ bool SameKeys(MapElements const &lhs, MapElements const &rhs) {
          std::ranges::all_of(lhs, [&](auto const &entry) { return rhs.contains(entry.first); });
 }
 
-// The child slots of the expression kinds that can match a projected item. Any other kind never matches.
-std::optional<std::vector<Expression **>> MatchableChildren(Expression *expr) {
-  auto addresses = [](std::vector<Expression *> &exprs) {
-    return exprs | std::views::transform([](auto &child) { return &child; }) | std::ranges::to<std::vector>();
-  };
-  // An aggregation is matchable, and is the case the whole rewrite exists for: ORDER BY count(n) repeats a projected
-  // count(n). It is named ahead of BinaryOperator, which it derives from and would otherwise be matched as.
-  if (auto *agg = utils::Downcast<Aggregation>(expr)) return std::vector{&agg->expression1_, &agg->expression2_};
-  if (auto *op = utils::Downcast<BinaryOperator>(expr)) return std::vector{&op->expression1_, &op->expression2_};
-  if (auto *op = utils::Downcast<UnaryOperator>(expr)) return std::vector{&op->expression_};
-  if (auto *lookup = utils::Downcast<PropertyLookup>(expr)) return std::vector{&lookup->expression_};
-  if (auto *test = utils::Downcast<LabelsTest>(expr)) return std::vector{&test->expression_};
-  if (auto *op = utils::Downcast<IfOperator>(expr)) {
-    return std::vector{&op->condition_, &op->then_expression_, &op->else_expression_};
-  }
-  if (auto *op = utils::Downcast<ListSlicingOperator>(expr)) {
-    return std::vector{&op->list_, &op->lower_bound_, &op->upper_bound_};
-  }
-  if (auto *match = utils::Downcast<RegexMatch>(expr)) return std::vector{&match->string_expr_, &match->regex_};
-  if (auto *lookup = utils::Downcast<AllPropertiesLookup>(expr)) return std::vector{&lookup->expression_};
-  if (auto *map = utils::Downcast<MapLiteral>(expr)) return ValuesByKey(map->elements_);
-  if (auto *projection = utils::Downcast<MapProjectionLiteral>(expr)) {
-    auto children = ValuesByKey(projection->elements_);
-    children.push_back(&projection->map_variable_);
-    return children;
-  }
-  if (auto *function = utils::Downcast<Function>(expr)) return addresses(function->arguments_);
-  if (auto *coalesce = utils::Downcast<Coalesce>(expr)) return addresses(coalesce->expressions_);
-  if (auto *list = utils::Downcast<ListLiteral>(expr)) return addresses(list->elements_);
-  if (utils::IsSubtype(*expr, Identifier::kType) || utils::IsSubtype(*expr, PrimitiveLiteral::kType) ||
-      utils::IsSubtype(*expr, ParameterLookup::kType) || utils::IsSubtype(*expr, EnumValueAccess::kType)) {
-    return std::vector<Expression **>{};
-  }
-  return std::nullopt;
+// One expression kind's whole contribution to matching: the child slots to pair up, and how whatever state it holds
+// besides those children compares. A kind with no row matches nothing, which is what makes a kind nobody has
+// considered safe rather than silently wrong. Rows name concrete kinds rather than base classes, so an operator
+// added later loses a match it could have had instead of being matched while a field of its own differs.
+struct KindRules {
+  utils::TypeInfo const *kind;
+  std::vector<Expression **> (*children)(Expression &);
+  bool (*same_own_fields)(Expression &, Expression &, ParameterNames const &);
+};
+
+std::vector<Expression **> NoChildren(Expression & /*expr*/) { return {}; }
+
+std::vector<Expression **> BinaryChildren(Expression &expr) {
+  auto &op = static_cast<BinaryOperator &>(expr);
+  return {&op.expression1_, &op.expression2_};
 }
 
-// Compares two expressions by the state they hold other than their children. A literal the stripper replaced is a
-// ParameterLookup and matches by parameter name, which is distinct per literal, so two literals of different value
-// never match. A literal the stripper left in place matches by value.
-bool SameOwnFields(Expression &lhs, Expression &rhs, ParameterNames const &parameter_names) {
-  // Two kinds that differ hold no common state to compare. The check also stands behind the stateless list at the
-  // end, which reads the left side only.
-  if (lhs.GetTypeInfo() != rhs.GetTypeInfo()) return false;
+// Every unary operator, a property lookup, a label test and an all-properties lookup each read one expression, and
+// each names it the same.
+template <typename TKind>
+std::vector<Expression **> OneChild(Expression &expr) {
+  return {&static_cast<TKind &>(expr).expression_};
+}
 
-  if (auto *l = utils::Downcast<Aggregation>(&lhs), *r = utils::Downcast<Aggregation>(&rhs); l && r) {
-    return l->op_ == r->op_ && l->distinct_ == r->distinct_;
-  }
-  if (auto *l = utils::Downcast<Identifier>(&lhs), *r = utils::Downcast<Identifier>(&rhs); l && r) {
-    return l->name_ == r->name_;
-  }
-  if (auto *l = utils::Downcast<PrimitiveLiteral>(&lhs), *r = utils::Downcast<PrimitiveLiteral>(&rhs); l && r) {
-    return l->value_ == r->value_;
-  }
-  if (auto *l = utils::Downcast<PropertyLookup>(&lhs), *r = utils::Downcast<PropertyLookup>(&rhs); l && r) {
-    return l->property_path_ == r->property_path_;
-  }
-  if (auto *l = utils::Downcast<LabelsTest>(&lhs), *r = utils::Downcast<LabelsTest>(&rhs); l && r) {
-    if (auto const *lhs_cnf = l->Cnf(), *rhs_cnf = r->Cnf(); lhs_cnf && rhs_cnf) return *lhs_cnf == *rhs_cnf;
-    auto const *lhs_term = l->Term();
-    auto const *rhs_term = r->Term();
-    return lhs_term && rhs_term && SameLabelTerm(*lhs_term, *rhs_term);
-  }
-  if (auto *l = utils::Downcast<MapLiteral>(&lhs), *r = utils::Downcast<MapLiteral>(&rhs); l && r) {
-    return SameKeys(l->elements_, r->elements_);
-  }
-  if (auto *l = utils::Downcast<MapProjectionLiteral>(&lhs), *r = utils::Downcast<MapProjectionLiteral>(&rhs); l && r) {
-    return SameKeys(l->elements_, r->elements_);
-  }
-  if (auto *l = utils::Downcast<EnumValueAccess>(&lhs), *r = utils::Downcast<EnumValueAccess>(&rhs); l && r) {
-    return l->enum_name_ == r->enum_name_ && l->enum_value_ == r->enum_value_;
-  }
-  if (auto *l = utils::Downcast<Function>(&lhs), *r = utils::Downcast<Function>(&rhs); l && r) {
-    return l->function_name_ == r->function_name_ && IsFunctionPure(l->function_name_);
-  }
-  if (auto *l = utils::Downcast<ParameterLookup>(&lhs), *r = utils::Downcast<ParameterLookup>(&rhs); l && r) {
-    auto const lhs_name = parameter_names.find(l->token_position_);
-    auto const rhs_name = parameter_names.find(r->token_position_);
-    return lhs_name != parameter_names.end() && rhs_name != parameter_names.end() &&
-           lhs_name->second == rhs_name->second;
-  }
-  // The kinds whose whole state is their children, so two of the same kind match once their children do. Naming the
-  // concrete kinds rather than BinaryOperator and UnaryOperator is what keeps that true: a new operator derived from
-  // either is absent from here and loses a match, where a test against the base would match it while a field of its
-  // own differed.
-  static auto const kStateless =
-      std::array{&OrOperator::kType,        &XorOperator::kType,         &AndOperator::kType,
-                 &AdditionOperator::kType,  &SubtractionOperator::kType, &MultiplicationOperator::kType,
-                 &DivisionOperator::kType,  &ModOperator::kType,         &ExponentiationOperator::kType,
-                 &NotEqualOperator::kType,  &EqualOperator::kType,       &LessOperator::kType,
-                 &GreaterOperator::kType,   &LessEqualOperator::kType,   &GreaterEqualOperator::kType,
-                 &InListOperator::kType,    &SubscriptOperator::kType,   &NotOperator::kType,
-                 &UnaryPlusOperator::kType, &UnaryMinusOperator::kType,  &IsNullOperator::kType,
-                 &IfOperator::kType,        &ListSlicingOperator::kType, &Coalesce::kType,
-                 &ListLiteral::kType,       &RegexMatch::kType,          &AllPropertiesLookup::kType};
-  return std::ranges::any_of(kStateless, [&](auto const *kind) { return *kind == lhs.GetTypeInfo(); });
+template <typename TKind, auto TMember>
+std::vector<Expression **> ChildList(Expression &expr) {
+  auto &children = static_cast<TKind &>(expr).*TMember;
+  return children | std::views::transform([](auto &child) { return &child; }) | std::ranges::to<std::vector>();
+}
+
+std::vector<Expression **> IfChildren(Expression &expr) {
+  auto &op = static_cast<IfOperator &>(expr);
+  return {&op.condition_, &op.then_expression_, &op.else_expression_};
+}
+
+std::vector<Expression **> SliceChildren(Expression &expr) {
+  auto &op = static_cast<ListSlicingOperator &>(expr);
+  return {&op.list_, &op.lower_bound_, &op.upper_bound_};
+}
+
+std::vector<Expression **> RegexChildren(Expression &expr) {
+  auto &match = static_cast<RegexMatch &>(expr);
+  return {&match.string_expr_, &match.regex_};
+}
+
+std::vector<Expression **> MapChildren(Expression &expr) {
+  return ValuesByKey(static_cast<MapLiteral &>(expr).elements_);
+}
+
+std::vector<Expression **> MapProjectionChildren(Expression &expr) {
+  auto &projection = static_cast<MapProjectionLiteral &>(expr);
+  auto children = ValuesByKey(projection.elements_);
+  children.push_back(&projection.map_variable_);
+  return children;
+}
+
+// A kind whose whole state is its children matches whenever those children do.
+bool NoOwnFields(Expression & /*lhs*/, Expression & /*rhs*/, ParameterNames const & /*parameter_names*/) {
+  return true;
+}
+
+bool SameAggregation(Expression &lhs, Expression &rhs, ParameterNames const & /*parameter_names*/) {
+  auto &l = static_cast<Aggregation &>(lhs);
+  auto &r = static_cast<Aggregation &>(rhs);
+  return l.op_ == r.op_ && l.distinct_ == r.distinct_;
+}
+
+bool SameIdentifier(Expression &lhs, Expression &rhs, ParameterNames const & /*parameter_names*/) {
+  return static_cast<Identifier &>(lhs).name_ == static_cast<Identifier &>(rhs).name_;
+}
+
+// A literal the stripper left in place matches by value.
+bool SamePrimitiveLiteral(Expression &lhs, Expression &rhs, ParameterNames const & /*parameter_names*/) {
+  return static_cast<PrimitiveLiteral &>(lhs).value_ == static_cast<PrimitiveLiteral &>(rhs).value_;
+}
+
+bool SamePropertyLookup(Expression &lhs, Expression &rhs, ParameterNames const & /*parameter_names*/) {
+  return static_cast<PropertyLookup &>(lhs).property_path_ == static_cast<PropertyLookup &>(rhs).property_path_;
+}
+
+bool SameLabelsTest(Expression &lhs, Expression &rhs, ParameterNames const & /*parameter_names*/) {
+  auto &l = static_cast<LabelsTest &>(lhs);
+  auto &r = static_cast<LabelsTest &>(rhs);
+  if (auto const *lhs_cnf = l.Cnf(), *rhs_cnf = r.Cnf(); lhs_cnf && rhs_cnf) return *lhs_cnf == *rhs_cnf;
+  auto const *lhs_term = l.Term();
+  auto const *rhs_term = r.Term();
+  return lhs_term && rhs_term && SameLabelTerm(*lhs_term, *rhs_term);
+}
+
+template <typename TKind>
+bool SameMapKeys(Expression &lhs, Expression &rhs, ParameterNames const & /*parameter_names*/) {
+  return SameKeys(static_cast<TKind &>(lhs).elements_, static_cast<TKind &>(rhs).elements_);
+}
+
+bool SameEnumValueAccess(Expression &lhs, Expression &rhs, ParameterNames const & /*parameter_names*/) {
+  auto &l = static_cast<EnumValueAccess &>(lhs);
+  auto &r = static_cast<EnumValueAccess &>(rhs);
+  return l.enum_name_ == r.enum_name_ && l.enum_value_ == r.enum_value_;
+}
+
+bool SameFunction(Expression &lhs, Expression &rhs, ParameterNames const & /*parameter_names*/) {
+  auto &l = static_cast<Function &>(lhs);
+  auto &r = static_cast<Function &>(rhs);
+  return l.function_name_ == r.function_name_ && IsFunctionPure(l.function_name_);
+}
+
+// A literal the stripper replaced is a parameter, and matches by parameter name, which is distinct per literal, so
+// two literals of different value never match.
+bool SameParameterLookup(Expression &lhs, Expression &rhs, ParameterNames const &parameter_names) {
+  auto const lhs_name = parameter_names.find(static_cast<ParameterLookup &>(lhs).token_position_);
+  auto const rhs_name = parameter_names.find(static_cast<ParameterLookup &>(rhs).token_position_);
+  return lhs_name != parameter_names.end() && rhs_name != parameter_names.end() && lhs_name->second == rhs_name->second;
+}
+
+static auto const kRules = std::array{
+    // An aggregation is the case the whole rewrite exists for: ORDER BY count(n) repeats a projected count(n). It
+    // derives from BinaryOperator and takes the same two children, but the function it names is its own state.
+    KindRules{&Aggregation::kType, BinaryChildren, SameAggregation},
+
+    KindRules{&OrOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&XorOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&AndOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&AdditionOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&SubtractionOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&MultiplicationOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&DivisionOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&ModOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&ExponentiationOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&NotEqualOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&EqualOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&LessOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&GreaterOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&LessEqualOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&GreaterEqualOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&InListOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{&SubscriptOperator::kType, BinaryChildren, NoOwnFields},
+
+    KindRules{&NotOperator::kType, OneChild<UnaryOperator>, NoOwnFields},
+    KindRules{&UnaryPlusOperator::kType, OneChild<UnaryOperator>, NoOwnFields},
+    KindRules{&UnaryMinusOperator::kType, OneChild<UnaryOperator>, NoOwnFields},
+    KindRules{&IsNullOperator::kType, OneChild<UnaryOperator>, NoOwnFields},
+
+    KindRules{&PropertyLookup::kType, OneChild<PropertyLookup>, SamePropertyLookup},
+    KindRules{&LabelsTest::kType, OneChild<LabelsTest>, SameLabelsTest},
+    KindRules{&AllPropertiesLookup::kType, OneChild<AllPropertiesLookup>, NoOwnFields},
+    KindRules{&IfOperator::kType, IfChildren, NoOwnFields},
+    KindRules{&ListSlicingOperator::kType, SliceChildren, NoOwnFields},
+    KindRules{&RegexMatch::kType, RegexChildren, NoOwnFields},
+    KindRules{&MapLiteral::kType, MapChildren, SameMapKeys<MapLiteral>},
+    KindRules{&MapProjectionLiteral::kType, MapProjectionChildren, SameMapKeys<MapProjectionLiteral>},
+    KindRules{&Function::kType, ChildList<Function, &Function::arguments_>, SameFunction},
+    KindRules{&Coalesce::kType, ChildList<Coalesce, &Coalesce::expressions_>, NoOwnFields},
+    KindRules{&ListLiteral::kType, ChildList<ListLiteral, &ListLiteral::elements_>, NoOwnFields},
+
+    KindRules{&Identifier::kType, NoChildren, SameIdentifier},
+    KindRules{&PrimitiveLiteral::kType, NoChildren, SamePrimitiveLiteral},
+    KindRules{&ParameterLookup::kType, NoChildren, SameParameterLookup},
+    KindRules{&EnumValueAccess::kType, NoChildren, SameEnumValueAccess},
+};
+
+KindRules const *RulesFor(Expression const &expr) {
+  auto const &kind = expr.GetTypeInfo();
+  auto const row = std::ranges::find_if(kRules, [&kind](auto const &rules) { return *rules.kind == kind; });
+  return row == kRules.end() ? nullptr : &*row;
+}
+
+// The child slots of an expression the matcher knows, and none for one it does not, which is also what a kind with
+// no children of its own gives back.
+std::vector<Expression **> MatchableChildren(Expression &expr) {
+  auto const *rules = RulesFor(expr);
+  return rules ? rules->children(expr) : std::vector<Expression **>{};
 }
 
 // An identifier named like a projected item refers to that item, not to the variable the item was computed from.
@@ -208,13 +285,14 @@ bool IsShadowed(Expression *expr, std::vector<NamedExpression *> const &items) {
 bool AreEquivalent(Expression *lhs, Expression *rhs, std::vector<NamedExpression *> const &items,
                    ParameterNames const &parameter_names) {
   if (!lhs || !rhs) return lhs == rhs;
-  // SameOwnFields refuses two kinds that differ, so the children compared below belong to the one kind both have.
-  if (!SameOwnFields(*lhs, *rhs, parameter_names) || IsShadowed(lhs, items)) return false;
-  auto const lhs_children = MatchableChildren(lhs);
-  auto const rhs_children = MatchableChildren(rhs);
-  return lhs_children && rhs_children && std::ranges::equal(*lhs_children, *rhs_children, [&](auto *l, auto *r) {
-           return AreEquivalent(*l, *r, items, parameter_names);
-         });
+  // Two kinds that differ hold no common state, so neither side is read through the other. Past here both are the
+  // one kind the row describes, which is what lets every rule reach its fields by a cast.
+  if (lhs->GetTypeInfo() != rhs->GetTypeInfo()) return false;
+  auto const *rules = RulesFor(*lhs);
+  if (!rules || !rules->same_own_fields(*lhs, *rhs, parameter_names) || IsShadowed(lhs, items)) return false;
+  return std::ranges::equal(rules->children(*lhs), rules->children(*rhs), [&](auto *l, auto *r) {
+    return AreEquivalent(*l, *r, items, parameter_names);
+  });
 }
 
 // The storage owns every node the parser built, including the ones a replacement stopped the tree from reaching.
@@ -228,7 +306,7 @@ void DropDetached(AstStorage &storage, std::vector<Expression *> const &roots) {
     doomed.push_back(expr);
     // A subtree is only ever replaced once it has matched, so every kind in it is one of the kinds named here. A
     // kind that under-reports its children strands the rest, where the identifier with no symbol is still caught.
-    for (auto *child : MatchableChildren(expr).value_or(std::vector<Expression **>{})) self(self, *child);
+    for (auto *child : MatchableChildren(*expr)) self(self, *child);
   };
   for (auto *root : roots) collect(collect, root);
   std::ranges::sort(doomed);
@@ -251,7 +329,7 @@ void ReferToProjectedItems(Expression *&expr, std::vector<NamedExpression *> con
   // An aggregation that repeats no projected item is rejected once the symbols are generated, so rewriting within its
   // arguments would only detach a subtree that nothing goes on to read.
   if (utils::IsSubtype(*expr, Aggregation::kType)) return;
-  for (auto *child : MatchableChildren(expr).value_or(std::vector<Expression **>{})) {
+  for (auto *child : MatchableChildren(*expr)) {
     ReferToProjectedItems(*child, items, parameter_names, storage, detached);
   }
 }
