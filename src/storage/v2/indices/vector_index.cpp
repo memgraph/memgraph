@@ -317,11 +317,16 @@ void VectorIndex::ApplyAddLabel(LabelId label, Vertex *vertex, const IndexedProp
       } else {
         vector_property = ListToVector(old_property_value);
       }
+      ids.push_back(index_id);
+      const PropertyValue tag(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}});
       UpdateVectorIndex(item_ptr->mg_index, item_ptr->spec, vertex, vector_property);
 
-      ids.push_back(index_id);
-      vertex->properties.SetProperty(
-          property_id, PropertyValue(PropertyValue::VectorIndexIdData{.ids = std::move(ids), .vector = {}}));
+      // The entry is already in usearch, so a memory-limit refusal of this write would leave an entry abort cannot
+      // find. The write stays tracked; its size is bounded by this vertex's property buffer.
+      {
+        const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+        vertex->properties.SetProperty(property_id, tag);
+      }
     }
   }
 }
