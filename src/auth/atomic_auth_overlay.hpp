@@ -50,7 +50,8 @@ class AtomicAuthOverlay {
 
   bool DeleteMultiple(std::vector<std::string> const &keys);
 
-  /// Merging iterator over base + write-set for a given prefix.
+  /// Merging iterator over base + write-set for a given prefix. A scan's body must not write under the prefix it
+  /// scans: the check for keys a scan no longer finds runs when the scan ends, against the write-set as it is then.
   class iterator {
    public:
     using value_type = std::pair<std::string, std::string>;
@@ -84,9 +85,10 @@ class AtomicAuthOverlay {
     /// prefix's dependency if the scan reaches the end.
     std::set<std::string, std::less<>> seen_;
 
-    /// Base entries this scan walked past, with the values it saw. Held here rather than in the read set until the
-    /// scan reaches the end, because only then is it known to depend on them: a scan that stops early and is
-    /// narrowed to emptiness never read these values and must not conflict on them changing.
+    /// Base entries this scan walked past and the transaction has not written, with the values it saw. Held here
+    /// rather than in the read set until the scan reaches the end, because only then is it known to depend on them:
+    /// a scan that stops early and is narrowed to emptiness never read these values and must not conflict on them
+    /// changing.
     std::map<std::string, std::string, std::less<>> walked_;
   };
 
@@ -146,7 +148,8 @@ class AtomicAuthOverlay {
   ///
   /// Holds the first observation of each key, and every later one must agree with it: a read, a value a scan
   /// walked past, or an exhaustive scan not finding the key. A key this transaction wrote is not observed by its
-  /// scans, since they see the write instead.
+  /// scans, since they see the write instead. The same holds for a prefix: whether a scan finds it inhabited in
+  /// base must agree with the first scan of it (`ScanDependency::was_empty`).
   mutable std::map<std::string, std::optional<std::string>, std::less<>> read_set_;
 
   /// Set when an observation disagrees with the first one in `read_set_`: the transaction has acted on two states

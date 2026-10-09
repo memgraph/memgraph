@@ -153,7 +153,11 @@ AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const &overlay, std::str
     //
     // `was_empty` keeps the first scan's observation and is not refreshed here: a later scan widens what the
     // transaction depends on, and never replaces what an earlier one concluded.
-    if (!inserted) entry->second.kind = ScanDependency::Kind::kKeySet;
+    if (!inserted) {
+      entry->second.kind = ScanDependency::Kind::kKeySet;
+      // Whether the prefix is inhabited is an observation too, and must agree with the first scan's.
+      if ((base_it_ == base_end_) != entry->second.was_empty) overlay_->saw_two_values_ = true;
+    }
     write_it_ = overlay_->write_set_.lower_bound(prefix_);
     write_end_ = overlay_->write_set_.end();
     Advance();
@@ -188,7 +192,7 @@ void AtomicAuthOverlay::iterator::Advance() {
 
     if (have_base && have_write) {
       if (base_it_->first < write_it_->first) {
-        // Base entry not overridden; check it's not deleted in write-set
+        // Base entry the transaction may still have written: skip it if so
         seen_.insert(base_it_->first);
         auto ws = overlay_->write_set_.find(base_it_->first);
         if (ws == overlay_->write_set_.end()) {

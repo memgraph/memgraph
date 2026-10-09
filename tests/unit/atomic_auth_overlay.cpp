@@ -11,6 +11,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <map>
 #include <optional>
@@ -414,6 +415,22 @@ TEST_F(AtomicAuthOverlayTest, AKeyThatVanishesBetweenScansConflictsEvenWhenRecre
   EXPECT_FALSE(overlay.Flush()) << "the second scan acted on link:u being gone";
 }
 
+// Whether a prefix is inhabited is an observation too: a transaction that saw no users, then saw one, acted on
+// both answers and must not commit even though the prefix is empty again.
+TEST_F(AtomicAuthOverlayTest, APrefixSeenEmptyThenInhabitedConflictsEvenWhenEmptiedAgain) {
+  AtomicAuthOverlay overlay(*store_);
+  memgraph::auth::Repository repo{overlay};
+  EXPECT_EQ(CountUnder(overlay, "user:"), 0);
+
+  store_->Put("user:x", "x_data");
+  EXPECT_TRUE(repo.HasAnyUser());
+  overlay.Put("user:admin", "admin_data");
+
+  store_->Delete("user:x");
+
+  EXPECT_FALSE(overlay.Flush()) << "the transaction saw the prefix both empty and inhabited";
+}
+
 // A key the transaction wrote is not observed by its scans, so another session changing it and changing it back
 // conflicts with nothing the transaction saw.
 TEST_F(AtomicAuthOverlayTest, AScanDoesNotObserveAKeyTheTransactionWrote) {
@@ -458,9 +475,10 @@ TEST_F(AtomicAuthOverlayTest, ACommittedTransactionSawOnlyTheStateItCommitsAgain
     AtomicAuthOverlay overlay(*store_);
     std::set<std::string> written;
     std::vector<std::pair<std::string, std::optional<std::string>>> observed;
+    std::vector<bool> observed_inhabited;
     for (int step = 0; step < 10; ++step) {
       auto const &key = keys[pick(keys.size())];
-      switch (pick(5)) {
+      switch (pick(6)) {
         case 0:
           if (!written.contains(key)) observed.emplace_back(key, overlay.Get(key));
           break;
@@ -484,6 +502,13 @@ TEST_F(AtomicAuthOverlayTest, ACommittedTransactionSawOnlyTheStateItCommitsAgain
           overlay.Delete(key);
           written.insert(key);
           break;
+        case 4: {
+          // A scan that stops at the first key and depends only on whether the prefix is inhabited.
+          bool const inhabited = overlay.begin("p:") != overlay.end("p:");
+          overlay.ScanDependsOnEmptinessOnly("p:");
+          if (written.empty()) observed_inhabited.push_back(inhabited);
+          break;
+        }
         default:
           if (pick(2) != 0) {
             store_->Put(key, std::to_string(pick(2)));
@@ -495,7 +520,13 @@ TEST_F(AtomicAuthOverlayTest, ACommittedTransactionSawOnlyTheStateItCommitsAgain
 
     std::map<std::string, std::optional<std::string>> durable;
     for (auto const &key : keys) durable[key] = store_->Get(key);
+    bool const durably_inhabited =
+        std::ranges::any_of(keys, [&durable](auto const &key) { return durable[key].has_value(); });
     if (!overlay.Flush()) continue;
+    for (bool const inhabited : observed_inhabited) {
+      ASSERT_EQ(inhabited, durably_inhabited)
+          << "round " << round << ": committed after seeing p: " << (inhabited ? "inhabited" : "empty");
+    }
     for (auto const &[key, value] : observed) {
       ASSERT_EQ(value, durable[key]) << "round " << round << ": committed after observing " << key
                                      << " in a state durable storage no longer had";
