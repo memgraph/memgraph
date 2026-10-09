@@ -9,6 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <chrono>
+#include <future>
+#include <mutex>
+#include <utility>
+
 #include <gmock/gmock.h>
 #include <gtest/gtest-typed-test.h>
 #include <gtest/gtest.h>
@@ -5728,6 +5733,64 @@ TEST(IndexAbortLookup, AnAbortSeesEdgeIndexesCreatedAfterAnEarlierAbortBuiltTheL
     EXPECT_EQ(acc->ApproximateEdgeCount(acc->NameToProperty("q")), 0);
     acc->Abort();
   }
+}
+
+// A writer holding the source vertex's lock may be midway through changing its out_edges; an abort must not read
+// them until it can share that lock, or it misses the edge's link and leaves the aborted value indexed.
+TEST(EdgeIndexAbortTest, EdgePropertyAbortWaitsForSourceVertexLock) {
+  Config config{};
+  config.gc.type = Config::Gc::Type::NONE;
+  config.salient.items.properties_on_edges = true;
+  auto storage = std::make_unique<InMemoryStorage>(config);
+  auto const edge_type = storage->NameToEdgeType("E");
+  auto const prop = storage->NameToProperty("p");
+
+  auto from_gid = kInvalidGid;
+  auto edge_gid = kInvalidGid;
+  {
+    auto acc = storage->Access(WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    auto edge = acc->CreateEdge(&from, &to, edge_type);
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_NO_ERROR(edge->SetProperty(prop, PropertyValue{1}));
+    from_gid = from.Gid();
+    edge_gid = edge->Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = storage->ReadOnlyAccess();
+    ASSERT_NO_ERROR(acc->CreateIndex(edge_type, prop));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = storage->Access(WRITE);
+  auto edge = acc->FindEdge(edge_gid, View::OLD);
+  ASSERT_TRUE(edge.has_value());
+  ASSERT_NO_ERROR(edge->SetProperty(prop, PropertyValue{2}));
+  ASSERT_EQ(acc->ApproximateEdgeCount(edge_type, prop), 2);
+
+  auto from_vertex = acc->FindVertex(from_gid, View::OLD);
+  ASSERT_TRUE(from_vertex.has_value());
+  auto *from_ptr = from_vertex->vertex_;
+  {
+    // Stands in for a writer midway through changing the source vertex's out_edges.
+    auto writer = std::unique_lock{from_ptr->lock};
+    auto links = std::exchange(from_ptr->out_edges, {});
+    auto aborted = std::async(std::launch::async, [&] { acc->Abort(); });
+    EXPECT_EQ(aborted.wait_for(std::chrono::milliseconds(200)), std::future_status::timeout);
+    from_ptr->out_edges = std::move(links);
+    writer.unlock();
+    aborted.get();
+  }
+
+  auto reader = storage->Access(READ);
+  EXPECT_EQ(reader->ApproximateEdgeCount(edge_type, prop), 1);
+  auto values = std::vector<int64_t>{};
+  for (auto e : reader->Edges(edge_type, prop, View::OLD)) {
+    values.push_back(e.GetProperty(prop, View::OLD)->ValueInt());
+  }
+  EXPECT_THAT(values, UnorderedElementsAre(1));
 }
 
 // An index on `m.k` keys a vertex on the value nested at `k` within its `m` property. A vertex
