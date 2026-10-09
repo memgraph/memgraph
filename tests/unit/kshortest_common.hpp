@@ -12,10 +12,13 @@
 #pragma once
 
 #include <algorithm>
+#include <iterator>
 #include <limits>
 #include <map>
 #include <optional>
 #include <queue>
+#include <utility>
+#include <vector>
 
 #include "gtest/gtest.h"
 
@@ -392,6 +395,29 @@ std::vector<int> PathVertexIds(memgraph::query::DbAccessor *dba, const std::vect
   return ids;
 }
 
+// Every loopless path from `source` to `sink` of 1..`max_hops` arcs, as vertex ids. Each arc is one edge in one
+// direction, so two edges between the same pair give two paths.
+std::vector<std::vector<int>> LooplessPaths(const std::vector<std::pair<int, int>> &arcs, int source, int sink,
+                                            int max_hops) {
+  std::vector<std::vector<int>> paths;
+  std::vector<int> path{source};
+  auto extend = [&](this auto &self) -> void {
+    if (path.back() == sink) {
+      paths.push_back(path);
+      return;
+    }
+    if (std::cmp_greater_equal(path.size() - 1, max_hops)) return;
+    for (const auto &[from, to] : arcs) {
+      if (from != path.back() || std::ranges::contains(path, to)) continue;
+      path.push_back(to);
+      self();
+      path.pop_back();
+    }
+  };
+  if (source != sink) extend();
+  return paths;
+}
+
 // Given a list of k-shortest path results of form (from, to, path),
 // checks if all paths are valid and returns the path lengths.
 std::vector<int> CheckPathsAndExtractLengths(memgraph::query::DbAccessor *dba,
@@ -729,10 +755,9 @@ class Database {
                                                                      memgraph::auth::FineGrainedPermission::READ);
         user.fine_grained_access_handler().label_permissions().Deny({"0"}, memgraph::auth::kAllLabelPermissions);
 
+        // Label 5 is never granted either. An arc is readable when its head in path order is.
         edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
-        edges_in_result.erase(
-            std::remove_if(edges_in_result.begin(), edges_in_result.end(), [](const auto &e) { return e.second == 0; }),
-            edges_in_result.end());
+        std::erase_if(edges_in_result, [](const auto &e) { return e.second == 0 || e.second == 5; });
         break;
       case FineGrainedTestType::LABEL_3_DENIED:
         user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
@@ -747,10 +772,9 @@ class Database {
                                                                      memgraph::auth::FineGrainedPermission::READ);
         user.fine_grained_access_handler().label_permissions().Deny({"3"}, memgraph::auth::kAllLabelPermissions);
 
+        // Label 5 is never granted either. An arc is readable when its head in path order is.
         edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
-        edges_in_result.erase(
-            std::remove_if(edges_in_result.begin(), edges_in_result.end(), [](const auto &e) { return e.second == 3; }),
-            edges_in_result.end());
+        std::erase_if(edges_in_result, [](const auto &e) { return e.second == 3 || e.second == 5; });
         break;
     }
 
@@ -818,25 +842,28 @@ class Database {
                          std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol});
     };
 
-    // The reference run: access checks only. Everything below derives from it, so nothing has to
-    // model the checks - the endpoints are seeded unchecked, so a denied source or sink still yields.
+    // Access checks alone, as a sanity run. The endpoints are seeded unchecked, so a denied source or
+    // sink still yields.
     const auto baseline = run(false, -1);
     CheckPathsAndExtractLengths(&db_accessor, edges_in_result, baseline);
     if (fine_grained_test_type == FineGrainedTestType::ALL_DENIED) {
       EXPECT_EQ(baseline.size(), 0);
     } else {
-      // `CheckPathsAndExtractLengths` passes vacuously on zero rows, and on the label arms the
-      // assertions below degrade to a per-pair cap an empty result also satisfies.
+      // `CheckPathsAndExtractLengths` passes vacuously on zero rows.
       EXPECT_FALSE(baseline.empty());
     }
 
-    // The lambda binds the arc head at every position but index 0, the seeded source, so it rejects
-    // exactly the paths visiting the blocked vertex later. Sorted to compare as a multiset.
+    // The reference enumerates the readable arcs, independent of the cursor: an arc's verdict is a
+    // property of the arc, whichever search pass reaches it. Sorted to compare as a multiset.
     std::vector<std::vector<int>> expected_paths;
-    for (const auto &row : baseline) {
-      auto ids = PathVertexIds(&db_accessor, row);
-      if (blocked_vertex_id && std::find(ids.begin() + 1, ids.end(), *blocked_vertex_id) != ids.end()) continue;
-      expected_paths.push_back(std::move(ids));
+    for (const auto &source : vertices) {
+      for (const auto &sink : vertices) {
+        std::ranges::move(LooplessPaths(edges_after_lambda,
+                                        GetProp(source, "id", &db_accessor).ValueInt(),
+                                        GetProp(sink, "id", &db_accessor).ValueInt(),
+                                        upper_bound == -1 ? kVertexCount : upper_bound),
+                          std::back_inserter(expected_paths));
+      }
     }
     std::ranges::sort(expected_paths);
 
@@ -850,27 +877,13 @@ class Database {
     std::map<std::pair<int, int>, size_t> actual_per_pair;
     for (const auto &path : actual_paths) ++actual_per_pair[{path.front(), path.back()}];
 
-    // Deriving from the reference run holds only while an arc's verdict is a property of the arc. It
-    // is not when a *vertex* is denied: the check tests the endpoint away from the vertex being
-    // expanded, so it is the arc's head on one pass and its tail on the other, and the search stops
-    // as soon as one frontier empties. Denying an edge type is symmetric and stays predictable.
-    const bool verdict_depends_on_search_direction = fine_grained_test_type == FineGrainedTestType::LABEL_0_DENIED ||
-                                                     fine_grained_test_type == FineGrainedTestType::LABEL_3_DENIED;
-
-    if (verdict_depends_on_search_direction) {
-      if (limit != -1) {
-        for (const auto &[pair, count] : actual_per_pair) {
-          SCOPED_TRACE(fmt::format("source = {}, sink = {}", pair.first, pair.second));
-          EXPECT_LE(count, static_cast<size_t>(limit));
-        }
-      }
-    } else if (limit == -1) {
-      // Without a limit the two runs must agree path for path, which is what pins over-blocking - a
-      // subset check like `CheckPathsAndExtractLengths` cannot see a dropped path.
+    if (limit == -1) {
+      // Without a limit the run must match the reference path for path, which is what pins
+      // over-blocking - a subset check like `CheckPathsAndExtractLengths` cannot see a dropped path.
       EXPECT_EQ(actual_paths, expected_paths);
     } else {
       // With a limit, which of several equally long paths a pair keeps is undetermined, so check only
-      // the cap, the total, and that every path also came out of the unlimited run.
+      // the cap, the total, and that every path is in the reference.
       std::map<std::pair<int, int>, size_t> expected_per_pair;
       for (const auto &path : expected_paths) ++expected_per_pair[{path.front(), path.back()}];
 
@@ -887,7 +900,7 @@ class Database {
       }
       for (const auto &path : actual_paths) {
         EXPECT_TRUE(std::ranges::binary_search(expected_paths, path))
-            << "Returned a path the unlimited run did not: " << memgraph::utils::JoinVector(path, "->");
+            << "Returned a path the reference does not have: " << memgraph::utils::JoinVector(path, "->");
       }
     }
 
@@ -962,12 +975,10 @@ class Database {
     db_accessor.Abort();
   }
 
-  // The memo must not merge the two halves of the bidirectional search. Denied vertex 4 is the
-  // target: the source side checks `To` = 4 and denies, the target side binds the same vertex but
-  // checks `From` = 2 and allows, so a pass-blind memo replays the `false` and loses the path.
-  // Relies on endpoints being seeded unchecked (pre-existing, shared with `*BFS`); if that is ever
-  // fixed this returns zero rows and needs redesigning, not relaxing.
-  void KShortestTestMemoDistinguishesSearchDirections(Database *db) {
+  // Both search passes check an arc's head in path order. Denied vertex 4 is a target: the target-side
+  // pass expands from it and must refuse arc (2)->(4) as the source side does, and vertex 1 is reachable
+  // only through 4. Sink 3, reached by (2)->(5)->(3), shows the denial is not blanket.
+  void KShortestTestDeniedHeadBlocksArcOnBothPasses(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor db_accessor(storage_dba.get());
     memgraph::query::ExecutionContext context{.db_accessor = &db_accessor, .metric_handles = &TestMetricHandles()};
@@ -991,8 +1002,7 @@ class Database {
 
     std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator = nullptr;
     input_operator = YieldVertices(&db_accessor, {vertices[2]}, source_symbol, input_operator);
-    // Vertex 1 sits behind the denied vertex 4, so this also proves the denial is in effect.
-    input_operator = YieldVertices(&db_accessor, {vertices[4], vertices[1]}, sink_symbol, input_operator);
+    input_operator = YieldVertices(&db_accessor, {vertices[4], vertices[1], vertices[3]}, sink_symbol, input_operator);
 
     input_operator = db->MakeKShortestOperator(
         source_symbol,
@@ -1013,11 +1023,8 @@ class Database {
     auto results = PullResults(
         input_operator.get(), &context, std::vector<memgraph::query::Symbol>{source_symbol, sink_symbol, edges_symbol});
 
-    ASSERT_FALSE(results.empty());
-    // The one-hop (2)-[:b]->(4) must come out first.
-    EXPECT_EQ(results[0][2].ValueList().size(), 1);
-    // Nothing may reach vertex 1, which is only reachable through the denied vertex 4.
-    for (const auto &row : results) EXPECT_EQ(row[1].ValueVertex(), vertices[4]);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(PathVertexIds(&db_accessor, results[0]), (std::vector<int>{2, 5, 3}));
   }
 #endif
 
