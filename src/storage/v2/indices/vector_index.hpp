@@ -309,6 +309,11 @@ class VectorIndex {
   /// @param vertex The vertex on which the property was modified.
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
 
+  /// @brief Grows the full indices a converted value targets, while the memory tracker can still refuse it.
+  /// Call before the write's AtomicMemoryBlock, with no vertex locked.
+  /// @throws utils::OutOfMemoryException if the growth is refused; nothing is mutated then.
+  void EnsureHeadroom(const PropertyValue &converted, Vertex *vertex) const;
+
   /// @brief Retrieves the vector of a vertex as a list of float values.
   /// @param vertex The vertex to retrieve the vector from.
   /// @param index_name The name of the index to retrieve the vector from.

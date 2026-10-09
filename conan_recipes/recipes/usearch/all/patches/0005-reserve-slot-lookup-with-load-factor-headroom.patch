@@ -1,0 +1,45 @@
+--- a/include/usearch/index_dense.hpp
++++ b/include/usearch/index_dense.hpp
+@@ -918,9 +918,14 @@
+         // The slot lookup system will generally prefer power-of-two sizes.
+         if (config_.enable_key_lookups) {
+             unique_lock_t lock(slot_lookup_mutex_);
+-            if (!slot_lookup_.try_reserve(limits.members))
++            // Size `members` as the lookup alone would, but give the lookup twice as many slots: `add` then stays
++            // below its 2/3 load factor and never has to grow it. `members` never shrinks.
++            std::size_t members = typed_->capacity();
++            if (limits.members * 3u > members * 2u)
++                members = decltype(slot_lookup_)::slots_for(limits.members);
++            if (members && !slot_lookup_.try_reserve(members + 1))
+                 return false;
+-            limits.members = slot_lookup_.capacity();
++            limits.members = members;
+         }
+ 
+         // Once the `slot_lookup_` grows, let's use its capacity as the new
+--- a/include/usearch/index_plugins.hpp
++++ b/include/usearch/index_plugins.hpp
+@@ -2527,6 +2527,11 @@
+         return slots_per_bucket() * sizeof(element_t) + sizeof(bucket_header_t);
+     }
+ 
++    /// Slot count `try_reserve(capacity)` allocates when it has to grow.
++    static std::size_t slots_for(std::size_t capacity) noexcept {
++        return divide_round_up<slots_per_bucket()>(ceil2((capacity * 3ul) / 2ul)) * slots_per_bucket();
++    }
++
+   private:
+     struct bucket_header_t {
+         std::uint64_t populated{};
+@@ -2679,9 +2684,8 @@
+             return true;
+ 
+         // Calculate new sizes
+-        std::size_t new_slots = ceil2((capacity * 3ul) / 2ul);
+-        std::size_t new_buckets = divide_round_up<slots_per_bucket()>(new_slots);
+-        new_slots = new_buckets * slots_per_bucket(); // This must be a power of two!
++        std::size_t new_slots = slots_for(capacity); // This must be a power of two!
++        std::size_t new_buckets = new_slots / slots_per_bucket();
+         std::size_t new_bytes = new_buckets * bytes_per_bucket();
+ 
+         // Allocate new memory

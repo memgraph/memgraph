@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <algorithm>
+#include <bit>
 #include <concepts>
 #include <optional>
 #include "flags/bolt.hpp"
@@ -50,6 +52,7 @@ using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch:
 struct synchronized_mg_vector_index_t {
   mg_vector_index_t index;
   utils::ResourceLock mutex{};
+  utils::MemoryTracker *memory_tracker{&utils::vector_index_memory_tracker};
 
   explicit synchronized_mg_vector_index_t(mg_vector_index_t &&idx) : index(std::move(idx)) {}
 };
@@ -386,21 +389,86 @@ inline void CheckGraphMemoryForIndexDrop(std::string_view index_name, std::size_
   }
 }
 
-/// @brief Rejects capacities beyond the 40-bit slot-id range that usearch can address.
-/// @throws VectorSearchException if capacity exceeds the 40-bit slot-id range.
-inline void CheckVectorIndexReserve(std::string_view index_name, std::size_t capacity) {
-  // uint40_t::max() is usearch's free-slot sentinel.
-  constexpr std::size_t kMaxCapacity = (std::size_t{1} << 40U) - 1;
-  if (capacity > kMaxCapacity) {
-    throw VectorSearchException(
-        "Vector index '{}' capacity {} exceeds the maximum of {}.", index_name, capacity, kMaxCapacity);
-  }
-}
-
 /// @brief Returns the maximum number of concurrent threads for vector index operations.
 inline std::size_t GetVectorIndexThreadCount() {
   return std::max(static_cast<std::size_t>(FLAGS_bolt_num_workers),
                   static_cast<std::size_t>(FLAGS_storage_recovery_thread_count));
+}
+
+// usearch addresses members with 40-bit slot ids and reserves 2^40-1 as the free sentinel, so members must stay <=
+// 2^39.
+inline constexpr std::size_t kMaxVectorIndexSlots = std::size_t{1} << 39U;
+
+/// @brief The capacity() a fresh index reports after reserving `capacity` members: the slot count of usearch's key
+/// lookup (flat_hash_multi_set_gt::try_reserve).
+constexpr std::size_t ReservedSlots(std::size_t capacity) {
+  return std::max<std::size_t>(64, std::bit_ceil(capacity * 3 / 2));
+}
+
+// Largest requested capacity whose resulting capacity() (ReservedSlots) still fits the member limit.
+inline constexpr std::size_t kMaxVectorIndexCapacity = kMaxVectorIndexSlots * 2 / 3;
+static_assert(ReservedSlots(kMaxVectorIndexCapacity) <= kMaxVectorIndexSlots &&
+              ReservedSlots(kMaxVectorIndexCapacity + 1) > kMaxVectorIndexSlots);
+
+/// @brief Rejects a capacity beyond the 40-bit slot-id range.
+/// @throws VectorSearchException if `capacity` exceeds kMaxVectorIndexCapacity.
+inline void CheckVectorIndexReserve(std::string_view index_name, std::size_t capacity) {
+  if (capacity > kMaxVectorIndexCapacity) {
+    throw VectorSearchException(
+        "Vector index '{}' capacity {} exceeds the maximum of {}.", index_name, capacity, kMaxVectorIndexCapacity);
+  }
+}
+
+/// @brief Reserves `capacity` members, letting the memory tracker refuse the key lookup allocation.
+/// The enabler is scoped to try_reserve because the key lookup's operator new is the only refusable allocation there
+/// (patch 0004 lets it throw); the other reserve buffers use aligned_allocator_gt/malloc and are tracked but never
+/// refused.
+/// @param spec_capacity If set, receives index.capacity() after the reserve.
+/// @throws VectorSearchException on a failed reserve or capacity out of range; utils::OutOfMemoryException on a
+/// refused one.
+template <typename Index>
+void ReserveOrThrow(Index &index, std::string_view index_name, std::size_t capacity,
+                    std::size_t *spec_capacity = nullptr) {
+  CheckVectorIndexReserve(index_name, capacity);
+  {
+    const utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+    if (!index.try_reserve(unum::usearch::index_limits_t(capacity, GetVectorIndexThreadCount()))) {
+      throw VectorSearchException("Failed to reserve memory for vector index '{}'.", index_name);
+    }
+  }
+  if (spec_capacity) *spec_capacity = index.capacity();
+}
+
+/// @brief The capacity a full index grows to. Where the memory tracker cannot refuse the reserve (an
+/// OutOfMemoryExceptionBlocker is active), growth is capped at 1/8 so a large resize coefficient cannot overshoot.
+inline std::size_t NextVectorIndexCapacity(std::size_t current_capacity, std::uint16_t resize_coefficient) {
+  auto grown = static_cast<std::size_t>(resize_coefficient) * current_capacity;
+  if (utils::MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked()) {
+    grown = std::min(grown, current_capacity + std::max<std::size_t>(1, current_capacity / 8));
+  }
+  return std::min(std::max(grown, current_capacity + 1), kMaxVectorIndexCapacity);
+}
+
+/// @brief Grows a full index ahead of a write, where the memory tracker can still refuse the growth.
+/// Called before the write's AtomicMemoryBlock (whose blocker defeats the refusal) and with no entity locked, so a
+/// refusal leaves everything unmutated. Does nothing when blocked, or when `key` is already a member (an update reuses
+/// its slot).
+/// @throws utils::OutOfMemoryException if the growth is refused.
+template <typename SyncIndex, typename Spec, typename Key>
+void EnsureVectorIndexHeadroom(SyncIndex &mg_index, Spec &spec, const Key &key) {
+  if (utils::MemoryTracker::OutOfMemoryExceptionBlocker::IsBlocked()) return;
+  {
+    auto guard = utils::SharedResourceLockGuard(mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+    if (mg_index.index.size() < mg_index.index.capacity()) return;
+  }
+  auto guard = std::lock_guard{mg_index.mutex};
+  const auto current_capacity = mg_index.index.capacity();
+  if (mg_index.index.size() < current_capacity || mg_index.index.contains(key)) return;
+  if (current_capacity >= kMaxVectorIndexCapacity) return;  // UpdateVectorIndex reports the max-capacity error
+  ReserveOrThrow(mg_index.index,
+                 spec.index_name,
+                 NextVectorIndexCapacity(current_capacity, spec.resize_coefficient),
+                 &spec.capacity);
 }
 
 /// @brief Updates an entry in the vector index: removes existing entry if present, then adds new vector.
@@ -426,6 +494,7 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
     // Setting empty vector on Abort
     auto guard = std::lock_guard{mg_index.mutex};
     if (mg_index.index.contains(key)) {  // check again freshly if index contains key
+      [[maybe_unused]] const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
       mg_index.index.remove(key);
     }
     return;
@@ -435,6 +504,10 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
     throw VectorSearchException(
         "Vector index property must have the same number of dimensions as specified in the index.");
   }
+
+  // Checked before mutating so a refusal leaves index and property consistent; an add may overshoot the limit by one
+  // node.
+  mg_index.memory_tracker->DoCheck();
 
   auto thread_id_for_adding = thread_id.value_or(std::remove_reference_t<decltype(mg_index.index)>::any_thread());
 
@@ -454,6 +527,7 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
   // In either case, we need unique lock for removing and for resizing
   auto guard = std::lock_guard{mg_index.mutex};
   if (mg_index.index.contains(key)) {  // check again freshly if index contains key
+    [[maybe_unused]] const utils::MemoryTracker::OutOfMemoryExceptionBlocker blocker;
     mg_index.index.remove(key);
   }
 
@@ -467,13 +541,15 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
   }
 
   // Try to add with resizing
-  const auto new_size = static_cast<std::size_t>(spec.resize_coefficient * mg_index.index.capacity());
-  CheckVectorIndexReserve(spec.index_name, new_size);
-  const unum::usearch::index_limits_t new_limits(new_size, GetVectorIndexThreadCount());
-  if (!mg_index.index.try_reserve(new_limits)) {
-    throw VectorSearchException("Failed to resize vector index.");
+  const auto current_capacity = mg_index.index.capacity();
+  if (current_capacity >= kMaxVectorIndexCapacity) {
+    throw VectorSearchException(
+        "Vector index '{}' is at its maximum capacity of {}.", spec.index_name, current_capacity);
   }
-  spec.capacity = mg_index.index.capacity();
+  ReserveOrThrow(mg_index.index,
+                 spec.index_name,
+                 NextVectorIndexCapacity(current_capacity, spec.resize_coefficient),
+                 &spec.capacity);
 
   auto result = mg_index.index.add(key, vector.data(), thread_id_for_adding);
   if (!result.error) {

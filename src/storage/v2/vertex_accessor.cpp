@@ -529,6 +529,7 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
     for (auto &[property_id, property_value] : properties) {
       if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, property_id, property_value)) {
         property_value = std::move(*converted);
+        storage_->indices_.vector_index_.EnsureHeadroom(property_value, vertex_);
       }
     }
   }
@@ -598,6 +599,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     r::for_each(properties, [&](auto &pair) {
       if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, pair.first, pair.second)) {
         pair.second = std::move(*converted);
+        storage_->indices_.vector_index_.EnsureHeadroom(pair.second, vertex_);
       }
     });
   }
