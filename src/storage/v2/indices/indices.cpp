@@ -208,8 +208,7 @@ Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_i
                         .edge_type_ = active_indices.edge_type_->GetAbortProcessor(),
                         .edge_type_property_ = active_indices.edge_type_properties_->GetAbortProcessor(),
                         .edge_property_ = active_indices.edge_property_->GetAbortProcessor(),
-                        .vertex_property_ = active_indices.vertex_property_->GetAbortProcessor(),
-                        .vector_edge_ = vector_edge_index_.GetAbortProcessor()};
+                        .vertex_property_ = active_indices.vertex_property_->GetAbortProcessor()};
 }
 
 void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,
@@ -232,56 +231,52 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex 
   }
 }
 
-void Indices::AbortProcessor::CollectOnEdgePropertyChange(PropertyId property, PropertyValue const &old_value,
-                                                          Vertex *from_vertex, Edge *edge,
-                                                          delta_container const &deltas) {
-  if (!IsInterestingEdgeProperty(property)) return;
-
+auto Indices::AbortProcessor::FindEdgeLink(Vertex *from_vertex, Edge *edge, delta_container const &deltas)
+    -> std::optional<std::pair<EdgeTypeId, Vertex *>> {
   auto link = std::optional<std::pair<EdgeTypeId, Vertex *>>{};
   for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
     if (edge_ref.ptr != edge) continue;
     link = std::pair{edge_type, to_vertex};
     break;
   }
+  if (link.has_value()) return link;
 
   // The link is gone if the same transaction deleted the edge, so fall back to the deltas that
   // would restore it. Both the link it removed and the one it added name the type. These deltas
   // belong to the aborting transaction alone, unlike the source vertex's own chain, which another
   // transaction may be writing under a lock an abort does not hold.
-  if (!link.has_value()) {
-    // Scanning the deltas costs nothing but time, and indexing them costs an entry per edge the
-    // transaction linked, which for one miss in a large transaction is a lot of memory to find one
-    // edge. So scan while misses are few, and only pay for the index once enough of them have
-    // accumulated that scanning every time would be the greater cost.
-    if (!out_edge_links_.has_value() && misses_ < kMissesBeforeIndexing) {
-      ++misses_;
-      for (auto const &delta : deltas) {
-        if (delta.action != Delta::Action::ADD_OUT_EDGE && delta.action != Delta::Action::REMOVE_OUT_EDGE) continue;
-        if (delta.vertex_edge.edge.ptr != edge) continue;
-        link = std::pair{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get()};
-        break;
-      }
-    } else {
-      if (!out_edge_links_.has_value()) {
-        out_edge_links_.emplace();
-        for (auto const &delta : deltas) {
-          if (delta.action != Delta::Action::ADD_OUT_EDGE && delta.action != Delta::Action::REMOVE_OUT_EDGE) continue;
-          out_edge_links_->emplace_back(
-              delta.vertex_edge.edge.ptr, delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get());
-        }
-      }
-      for (auto const &[linked_edge, edge_type, to_vertex] : *out_edge_links_) {
-        if (linked_edge != edge) continue;
-        link = std::pair{edge_type, to_vertex};
-        break;
-      }
+  auto const scan = [&] {
+    for (auto const &delta : deltas) {
+      if (delta.action != Delta::Action::ADD_OUT_EDGE && delta.action != Delta::Action::REMOVE_OUT_EDGE) continue;
+      if (delta.vertex_edge.edge.ptr != edge) continue;
+      link = std::pair{delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get()};
+      break;
     }
-  }
-  if (!link.has_value()) return;
+  };
 
-  auto const [edge_type, to_vertex] = *link;
-  CollectOnPropertyChange(edge_type, property, from_vertex, to_vertex, edge);
-  vector_edge_.CollectOnPropertyChange(edge_type, property, old_value, from_vertex, to_vertex, edge);
+  // Scanning the deltas costs nothing but time, and indexing them costs an entry per edge the
+  // transaction linked, which for one miss in a large transaction is a lot of memory to find one
+  // edge. So scan while misses are few, and only pay for the index once enough of them have
+  // accumulated that scanning every time would be the greater cost.
+  if (!out_edge_links_.has_value() && misses_ < kMissesBeforeIndexing) {
+    ++misses_;
+    scan();
+    return link;
+  }
+  if (!out_edge_links_.has_value()) {
+    auto links = std::vector<std::tuple<Edge *, EdgeTypeId, Vertex *>>{};
+    for (auto const &delta : deltas) {
+      if (delta.action != Delta::Action::ADD_OUT_EDGE && delta.action != Delta::Action::REMOVE_OUT_EDGE) continue;
+      links.emplace_back(delta.vertex_edge.edge.ptr, delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get());
+    }
+    out_edge_links_ = std::move(links);
+  }
+  for (auto const &[linked_edge, edge_type, to_vertex] : *out_edge_links_) {
+    if (linked_edge != edge) continue;
+    link = std::pair{edge_type, to_vertex};
+    break;
+  }
+  return link;
 }
 
 void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex,
@@ -303,17 +298,15 @@ void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, Prop
 }
 
 bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) const {
-  return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property) ||
-         vector_edge_.IsInteresting(property);
+  return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property);
 }
 
-void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp) {
+void Indices::AbortProcessor::Process(ActiveIndices const &active_indices, uint64_t start_timestamp) {
   active_indices.label_->AbortEntries(label_.cleanup_collection_, start_timestamp);
   active_indices.label_properties_->AbortEntries(label_properties_.cleanup_collection, start_timestamp);
   active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, start_timestamp);
   active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
   active_indices.edge_property_->AbortEntries(edge_property_.cleanup_collection_, start_timestamp);
   active_indices.vertex_property_->AbortEntries(vertex_property_.cleanup_collection_, start_timestamp);
-  indices.vector_edge_index_.AbortEntries(vector_edge_.cleanup_collection);
 }
 }  // namespace memgraph::storage
