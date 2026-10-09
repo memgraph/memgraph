@@ -206,6 +206,9 @@ class PrometheusMetrics {
     /// Points this entry at `new_uuid`. The metric objects and the handles into them stay put.
     void Rebind(utils::UUID const &new_uuid);
 
+    /// Presents this entry under `new_name`. The metric objects and the handles into them stay put.
+    void Rename(std::string_view new_name);
+
    private:
     friend class PrometheusMetrics;
 
@@ -259,8 +262,8 @@ class PrometheusMetrics {
 
   nlohmann::json GetTelemetryCounters() const;
 
-  /// Collects every family for a scrape, substituting each per-database entry's current uuid for the
-  /// internal entry-id label. This is the only way out of the registry, because the entry-id label
+  /// Collects every family for a scrape, substituting each per-database entry's current name and uuid
+  /// for the internal entry-id label. This is the only way out of the registry, because the entry-id label
   /// keys the families internally and must never be exposed.
   std::vector<prometheus::MetricFamily> CollectForScrape();
 
@@ -271,10 +274,11 @@ class PrometheusMetrics {
     // Identifies the entry for its whole life, unlike the uuid and the name, either of which can
     // change while registrations are outstanding.
     uint64_t id;
-    // Used for every lookup, and substituted into the scrape output by CollectForScrape. The
-    // default database's uuid changes when the instance joins a cluster, and the metric objects
-    // must outlive that change, so it is presented at collection time rather than baked into the
-    // family key.
+    // Substituted into the scrape output by CollectForScrape. AddDatabase matches on both to share an
+    // entry, and UpdateGauges and GetDbMetricsInfo find the entry by uuid. The default database's uuid
+    // changes when the instance joins a cluster, and a tenant's name changes on rename. The metric
+    // objects must outlive both changes, so they are presented at collection time rather than baked
+    // into the family key.
     utils::UUID uuid;
     std::string db_name;
     DatabaseMetricHandles handles;
@@ -288,8 +292,10 @@ class PrometheusMetrics {
 
   void RebindRegistration(uint64_t entry_id, utils::UUID const &new_uuid);
 
+  void RenameRegistration(uint64_t entry_id, std::string_view new_name);
+
   // Caller must hold databases_.mutex.
-  DatabaseMetricHandles CreateHandles(std::string_view name, uint64_t entry_id);
+  DatabaseMetricHandles CreateHandles(uint64_t entry_id);
   void RemoveHandlesFromFamilies(DatabaseMetricHandles const &h);
   void RemoveEntryAt(std::list<DatabaseEntry>::iterator it);
   DatabaseMetricHandles AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name);

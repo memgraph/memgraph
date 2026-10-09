@@ -15,8 +15,10 @@
 #ifdef MG_ENTERPRISE
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <string_view>
 #include <system_error>
 #include <thread>
 
@@ -29,6 +31,7 @@
 #include "glue/auth_checker.hpp"
 #include "glue/auth_handler.hpp"
 #include "kvstore/kvstore.hpp"
+#include "metrics/prometheus_metrics.hpp"
 #include "query/config.hpp"
 #include "query/interpreter.hpp"
 #include "system/system.hpp"
@@ -1275,6 +1278,25 @@ TEST(DBMS_Handler, DroppingHusksDisambiguatedByUuidWhenSameNameDrainsTwice) {
       },
       30s))
       << "both DROPPING husks must disappear within 30 s after releasing their pins";
+}
+
+TEST(DBMS_Handler, RenameRelabelsDatabaseMetrics) {
+  auto &dbms = *TestEnvironment::get();
+  ASSERT_TRUE(dbms.New("metrics_before").has_value());
+  ASSERT_TRUE(dbms.Rename("metrics_before", "metrics_after").has_value());
+
+  auto const scraped = [families = memgraph::metrics::Metrics().CollectForScrape()](std::string_view db_name) {
+    return std::ranges::any_of(families, [&](auto const &family) {
+      return std::ranges::any_of(family.metric, [&](auto const &metric) {
+        return std::ranges::any_of(metric.label,
+                                   [&](auto const &l) { return l.name == "database" && l.value == db_name; });
+      });
+    });
+  };
+  EXPECT_TRUE(scraped("metrics_after"));
+  EXPECT_FALSE(scraped("metrics_before"));
+
+  ASSERT_TRUE(dbms.TryDelete("metrics_after").has_value());
 }
 
 int main(int argc, char *argv[]) {

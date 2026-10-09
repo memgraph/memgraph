@@ -17,6 +17,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/prometheus_metrics.hpp"
@@ -109,6 +110,8 @@ class Database {
   std::string name() const;
 
   utils::SafeString::ConstSafeWrapper name_view() const;
+
+  void Rename(std::string_view new_name);
 
   // Opt-in customization point utils::GatekeeperLabelFor<Database> detects via SFINAE (see
   // gatekeeper.hpp) so ~Gatekeeper's stall warning can name the tenant — looks unused otherwise.
