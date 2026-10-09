@@ -23,6 +23,7 @@
 #include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
+#include "memory/global_memory_control.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/property_path.hpp"
@@ -33,6 +34,7 @@
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/ddl_abort_helpers.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
 
@@ -2176,4 +2178,90 @@ TEST_F(VectorIndexAbortTest, AbortOfNonVectorRestoreDropsStaleEntryOfFilterMisma
     acc->Abort();
   }
   ExpectPlain(v, PropertyValue("abc"));
+}
+
+// The vertex's 3 MiB property buffer is exact-size, so growing the tag [A] -> [A,B] by 8 bytes reallocates it into a
+// fresh extent right after the usearch add. The hard limit would refuse that write unless it is blocked.
+TEST_F(VectorIndexTest, AddLabelTagWriteRefusedLeavesNoOrphanEntryAfterAbort) {
+#if USE_JEMALLOC
+  memgraph::memory::PurgeUnusedMemory();
+  memgraph::memory::SetHooks();
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto property = unique_acc->NameToProperty(test_property.data());
+    for (const auto *name : {"A", "B"}) {
+      ASSERT_TRUE(unique_acc
+                      ->CreateVectorIndex(
+                          {.index_name = std::string{"idx_"} + name,
+                           .label_filter = {.mode = VectorMatchMode::SINGLE, .ids = {unique_acc->NameToLabel(name)}},
+                           .property = property,
+                           .metric_kind = metric,
+                           .dimension = 2,
+                           .resize_coefficient = resize_coefficient,
+                           .capacity = 10,
+                           .scalar_kind = scalar_kind})
+                      .has_value());
+    }
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  const auto sizes = [&] {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    std::unordered_map<std::string, std::size_t> by_name;
+    for (const auto &info : acc->ListAllVectorIndices()) by_name[info.index_name] = info.size;
+    return by_name;
+  };
+
+  Gid gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("A")));
+    ASSERT_NO_ERROR(
+        vertex.SetProperty(acc->NameToProperty(test_property.data()),
+                           PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)})));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty("pad"), PropertyValue(std::string(3U << 20U, 'x'))));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  ASSERT_EQ(sizes().at("idx_A"), 1);
+  ASSERT_EQ(sizes().at("idx_B"), 0);
+
+  auto acc = this->storage->Access(memgraph::storage::WRITE);
+  auto vertex = acc->FindVertex(gid, View::OLD).value();
+  memgraph::memory::PurgeUnusedMemory();
+  const int64_t limit = memgraph::utils::graph_memory_tracker.Amount() + (1 << 20);
+  ASSERT_GT(limit, 0);
+  memgraph::utils::graph_memory_tracker.SetHardLimit(limit);
+  memgraph::utils::OnScopeExit reset_limit{[] { memgraph::utils::graph_memory_tracker.SetHardLimit(0); }};
+
+  bool refused = false;
+  try {
+    (void)vertex.AddLabel(acc->NameToLabel("B"));
+  } catch (const memgraph::utils::OutOfMemoryException &) {
+    refused = true;
+  }
+  const bool overshot = memgraph::utils::graph_memory_tracker.Amount() > limit;
+  memgraph::utils::graph_memory_tracker.SetHardLimit(0);
+  EXPECT_FALSE(refused) << "the tag write after the usearch add was refused";
+  EXPECT_TRUE(overshot) << "the 3 MiB tag-write reallocation never crossed the limit, so the test does not exercise it";
+  EXPECT_EQ(sizes().at("idx_B"), 1);
+
+  acc->Abort();
+
+  const auto after = sizes();
+  EXPECT_EQ(after.at("idx_B"), 0) << "orphan usearch key left behind by the refused tag write";
+  EXPECT_EQ(after.at("idx_A"), 1);
+  auto read = this->storage->Access(memgraph::storage::READ);
+  auto v = read->FindVertex(gid, View::OLD).value();
+  const auto value = v.GetProperty(read->NameToProperty(test_property.data()), View::OLD).value();
+  ASSERT_TRUE(value.IsVectorIndexId());
+  EXPECT_EQ(value.ValueVectorIndexIds(),
+            (memgraph::utils::small_vector<uint64_t>{this->storage->name_id_mapper_->NameToId("idx_A")}));
+  EXPECT_EQ(value.ValueVectorIndexList(), (memgraph::utils::small_vector<float>{1.0F, 2.0F}));
+  EXPECT_TRUE(v.HasLabel(read->NameToLabel("A"), View::OLD).value());
+  EXPECT_FALSE(v.HasLabel(read->NameToLabel("B"), View::OLD).value());
+  EXPECT_TRUE(read->VectorIndexSearchOnNodes("idx_B", 1, {1.0F, 2.0F}).empty());
+#else
+  GTEST_SKIP() << "requires jemalloc";
+#endif
 }
