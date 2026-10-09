@@ -178,11 +178,22 @@ class AstStorage {
  private:
   friend class Tree;
 
-  /// What `Tree::Clone` dispatches through.
+  /// What `Tree::Clone` dispatches through. It is both where a clone starts and the step it
+  /// recurses through, so it asks whether one is already running rather than being told. Asking
+  /// here rather than inside the scope keeps the record in the frame that owns it, instead of one
+  /// per node down the recursion.
   template <typename T>
     requires std::derived_from<T, Tree>
   T *Clone(T const *node) {
+    if (cloning_.record != nullptr) return MakeOnce(node);
     CloneScope const one_clone{*this};
+    return MakeOnce(node);
+  }
+
+  /// Makes `node`, unless the running clone has made it already. Needs a record in place.
+  template <typename T>
+    requires std::derived_from<T, Tree>
+  T *MakeOnce(T const *node) {
     if (auto *made = cloning_.record->Find(node)) return static_cast<T *>(made);
     auto *copy = node->DoClone(this);
     cloning_.record->Remember(node, copy);
