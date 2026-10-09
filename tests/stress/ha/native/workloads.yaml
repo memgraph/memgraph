@@ -65,3 +65,6 @@ workloads:
 
   - config: ../workloads/high_concurrency_driver_test/workload.yaml
     enabled: true
+
+  - config: ../workloads/dropping_databases/workload.yaml
+    enabled: true
