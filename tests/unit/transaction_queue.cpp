@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 #include "gmock/gmock.h"
 
+#include "auth_query_handler_fixture.hpp"
 #include "dbms/constants.hpp"
 #include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
@@ -187,6 +188,26 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowTransactionStatusCommitting) {
                                                                   std::memory_order_release);
 }
 
+// An auth committer claims the status before flushing, so a terminate that landed first stops the flush, and
+// nothing the transaction buffered reaches the store.
+TYPED_TEST(TransactionQueueSimpleTest, ATerminatedAuthTransactionDoesNotCommit) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->running_interpreter.Interpret("BEGIN");
+  this->running_interpreter.Interpret("CREATE USER alice");
+  std::string const tx_id = std::to_string(this->running_interpreter.interpreter.GetTransactionId().value());
+
+  auto stream = this->main_interpreter.Interpret("TERMINATE TRANSACTIONS \"" + tx_id + "\"");
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_TRUE(stream.GetResults()[0][1].ValueBool());
+
+  EXPECT_THAT([&] { this->running_interpreter.Interpret("COMMIT"); },
+              testing::ThrowsMessage<memgraph::utils::BasicException>(
+                  testing::HasSubstr("requested to stop from other session")));
+  EXPECT_FALSE(auth.auth.ReadLock()->GetUser("alice").has_value());
+}
+
 TYPED_TEST(TransactionQueueSimpleTest, ShowTransactionStatusAborting) {
   // Start a transaction on the running interpreter
   this->running_interpreter.Interpret("BEGIN");
@@ -245,6 +266,9 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateCommittingTransactionNotFound) {
   EXPECT_EQ(terminate_stream.GetResults()[0][0].ValueString(), tx_id);
   // The transaction should NOT be killed — it's already committing
   EXPECT_FALSE(terminate_stream.GetResults()[0][1].ValueBool());
+  EXPECT_EQ(this->running_interpreter.interpreter.transaction_status_.load(std::memory_order_acquire),
+            memgraph::query::TransactionStatus::STARTED_COMMITTING)
+      << "terminate changed the status out from under the committer";
 
   // Restore to IDLE
   this->running_interpreter.interpreter.transaction_status_.store(memgraph::query::TransactionStatus::IDLE,

@@ -18,6 +18,8 @@
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
+#include "auth/repository.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "nlohmann/json.hpp"
@@ -1283,7 +1285,8 @@ TEST(AuthModule, UserProfiles) {
   }
 
   memgraph::kvstore::KVStore kvstore{temp_dir};
-  memgraph::auth::UserProfiles user_profiles{kvstore};
+  memgraph::auth::Repository repository{kvstore};
+  memgraph::auth::UserProfiles user_profiles{repository};
 
   // Test profile creation
   ASSERT_TRUE(user_profiles.Create("profile", {}));
@@ -1343,7 +1346,11 @@ TEST(AuthModule, UserProfiles) {
   ASSERT_EQ(*profile_for_user, "profile");
 
   // Test removing username
-  ASSERT_TRUE(user_profiles.RemoveUsername("profile", "user1"));
+  ASSERT_EQ(user_profiles.RemoveUsername("profile", "user1"), memgraph::auth::UserProfiles::MembershipResult::kChanged);
+  // Removing it again, and removing from a profile that is not there, both report absence rather than failure.
+  ASSERT_EQ(user_profiles.RemoveUsername("profile", "user1"), memgraph::auth::UserProfiles::MembershipResult::kAbsent);
+  ASSERT_EQ(user_profiles.RemoveUsername("no_such_profile", "user2"),
+            memgraph::auth::UserProfiles::MembershipResult::kAbsent);
   usernames = user_profiles.GetUsernames("profile");
   ASSERT_EQ(usernames.size(), 1);
   ASSERT_TRUE(usernames.find("user2") != usernames.end());
@@ -1356,7 +1363,7 @@ TEST(AuthModule, UserProfiles) {
   ASSERT_EQ(profile->limits.size(), 1);
 
   // Test profile deletion
-  ASSERT_TRUE(user_profiles.Drop("profile"));
+  ASSERT_EQ(user_profiles.Drop("profile"), memgraph::auth::UserProfiles::DropResult::kDropped);
   profile = user_profiles.Get("profile");
   ASSERT_FALSE(profile.has_value());
 

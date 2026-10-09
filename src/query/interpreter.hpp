@@ -20,6 +20,7 @@
 #include <optional>
 #include <utility>
 
+#include "auth/auth_layer.hpp"
 #include "dbms/database.hpp"
 #include "dbms/database_protector.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -307,8 +308,6 @@ struct CurrentDB {
   // Releases db_acc_ only if held, marked for deletion, and no storage-side accessor is live.
   // Those accessors hold raw Storage references without a pin of their own, so dropping the last
   // gatekeeper pin under them would let a deferred teardown free the Storage (same ordering as ResetDB).
-  // E.g. a nested BEGIN inside an open explicit transaction reaches here before it throws; the pin is
-  // then released by the next ResetInterpreter after the transaction ends, or by ResetDB.
   // is_marked_for_deletion() reads an atomic_bool (no GKInternals::mutex_), so it is safe to call
   // under db_acc_mutex_; the swapped-out Accessor is destructed after the lock is released.
   // Returns true iff a marked-for-deletion database was released.
@@ -440,6 +439,10 @@ class Interpreter final {
   std::atomic<std::shared_ptr<QueryUserOrRole>> foreign_user_view_{};
   std::atomic<std::shared_ptr<const SessionInfo>> foreign_session_view_{};
   bool in_explicit_transaction_{false};
+  // Fixed by the first statement of an explicit transaction. An auth transaction releases the storage accessor that
+  // BEGIN opened, so the two modes cannot be mixed: a data query afterwards would have no accessor to run against.
+  enum class TxMode : uint8_t { Data, Auth };
+  std::optional<TxMode> tx_mode_{};
   CurrentDB current_db_;
 
   bool expect_rollback_{false};
@@ -655,6 +658,17 @@ class Interpreter final {
   }
 
   std::optional<memgraph::system::Transaction> system_transaction_{};
+
+  // An explicit auth transaction's buffered state, live from the first auth statement until COMMIT or ROLLBACK.
+  // Created on the first auth statement, not at BEGIN, because a transaction is only known to be an auth one once
+  // its first statement has been classified.
+  std::optional<memgraph::auth::AuthTransaction> auth_transaction_{};
+
+  memgraph::auth::AuthTransaction *auth_transaction_ptr() { return auth_transaction_ ? &*auth_transaction_ : nullptr; }
+
+  void EnsureAuthTransaction() {
+    if (!auth_transaction_) auth_transaction_.emplace();
+  }
 
   memgraph::system::Transaction *system_transaction_ptr() {
     return system_transaction_ ? &*system_transaction_ : nullptr;

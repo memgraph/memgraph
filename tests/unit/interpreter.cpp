@@ -18,6 +18,7 @@
 #include <sstream>
 #include <thread>
 
+#include "auth_query_handler_fixture.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "disk_test_utils.hpp"
@@ -153,6 +154,71 @@ class InterpreterTest : public ::testing::Test {
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
 TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
+
+// A rejected nested BEGIN must leave the open transaction as it was. An auth transaction buffers its writes in the
+// interpreter, so clearing the interpreter on the way to the rejection would lose them and let COMMIT succeed.
+TYPED_TEST(InterpreterTest, NestedBeginKeepsAnOpenAuthTransaction) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  EXPECT_THROW(this->default_interpreter.Interpret("BEGIN"), memgraph::query::ExplicitTransactionUsageException);
+  this->default_interpreter.Interpret("COMMIT");
+
+  EXPECT_TRUE(auth.auth.ReadLock()->GetUser("alice").has_value());
+}
+
+// A statement refused for mixing auth and data fails the transaction like any other error, so COMMIT cannot land
+// the statements before it.
+TYPED_TEST(InterpreterTest, MixingAuthThenDataFailsTheTransaction) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  EXPECT_THROW(this->default_interpreter.Interpret("MATCH (n) RETURN n"), memgraph::query::MixedAuthAndDataTxException);
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::ExplicitTransactionUsageException);
+
+  EXPECT_FALSE(auth.auth.ReadLock()->GetUser("alice").has_value());
+}
+
+// A failed auth COMMIT leaves the transaction open until ROLLBACK, as a failed statement does: still active, still
+// listed, and refusing a second COMMIT.
+TYPED_TEST(InterpreterTest, AFailedAuthCommitLeavesTheTransactionOpenUntilRollback) {
+  // Licensed, so the commit has replication actions and takes the system transaction it must then give back.
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  ASSERT_TRUE(auth.auth.Lock()->AddUser("alice").has_value());
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::TransactionSerializationException);
+
+  EXPECT_EQ(this->default_interpreter.interpreter.transaction_status_.load(),
+            memgraph::query::TransactionStatus::ACTIVE);
+  EXPECT_TRUE(this->default_interpreter.interpreter.GetTransactionId().has_value());
+  EXPECT_EQ(this->default_interpreter.interpreter.system_transaction_ptr(), nullptr)
+      << "a failed commit kept the system mutex";
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::ExplicitTransactionUsageException);
+
+  this->default_interpreter.Interpret("ROLLBACK");
+  EXPECT_EQ(this->default_interpreter.interpreter.transaction_status_.load(), memgraph::query::TransactionStatus::IDLE);
+}
+
+TYPED_TEST(InterpreterTest, MixingDataThenAuthFailsTheTransaction) {
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE (:Node)");
+  EXPECT_THROW(this->default_interpreter.Interpret("CREATE USER alice"), memgraph::query::MixedAuthAndDataTxException);
+  EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::ExplicitTransactionUsageException);
+  this->default_interpreter.Interpret("ROLLBACK");
+
+  EXPECT_EQ(this->Interpret("MATCH (n) RETURN count(n)").GetResults()[0][0].ValueInt(), 0);
+}
 
 // Lab's connection-check / probe queries are constant RETURNs and take the accessor-free fast
 // path; presence of "graph_free" in the summary marks that no storage transaction was opened.

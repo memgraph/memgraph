@@ -1,0 +1,268 @@
+// Copyright 2026 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include "auth/atomic_auth_overlay.hpp"
+
+#include <algorithm>
+#include <utility>
+
+#include "auth/exceptions.hpp"
+
+namespace memgraph::auth {
+
+AtomicAuthOverlay::AtomicAuthOverlay(kvstore::KVStore &base) : base_(base) {}
+
+std::optional<std::string> AtomicAuthOverlay::Get(std::string_view key) const {
+  if (auto it = write_set_.find(key); it != write_set_.end()) {
+    return it->second;  // nullopt if tombstone
+  }
+
+  auto it = read_set_.find(key);
+  if (it == read_set_.end()) it = read_set_.emplace(std::string(key), base_.Get(key)).first;
+  return it->second;
+}
+
+void AtomicAuthOverlay::ScanDependsOnEmptinessOnly(std::string const &prefix) const {
+  auto it = scanned_prefixes_.find(prefix);
+  // An exhaustive scan of this prefix has already committed the transaction to its whole key set, and a scan that
+  // stopped at the first key cannot take that back.
+  if (it != scanned_prefixes_.end() && !it->second.exhausted) {
+    it->second.kind = ScanDependency::Kind::kEmptiness;
+  }
+}
+
+void AtomicAuthOverlay::AdoptWalked(std::string_view prefix,
+                                    std::map<std::string, std::string, std::less<>> const &walked) const {
+  for (auto const &[key, value] : walked) Observe(key, value);
+  for (auto it = read_set_.lower_bound(prefix); it != read_set_.end() && it->first.starts_with(prefix); ++it) {
+    if (it->second && !walked.contains(it->first) && !write_set_.contains(it->first)) saw_two_values_ = true;
+  }
+}
+
+void AtomicAuthOverlay::Observe(std::string const &key, std::optional<std::string> const &value) const {
+  auto const [it, inserted] = read_set_.emplace(key, value);
+  if (!inserted && it->second != value) saw_two_values_ = true;
+}
+
+void AtomicAuthOverlay::Put(std::string_view key, std::string_view value) {
+  // Record in read-set if not already there (for conflict detection on existing keys)
+  if (!read_set_.contains(key)) read_set_.emplace(std::string(key), base_.Get(key));
+  write_set_.insert_or_assign(std::string(key), std::string(value));
+}
+
+void AtomicAuthOverlay::Delete(std::string_view key) {
+  if (!read_set_.contains(key)) read_set_.emplace(std::string(key), base_.Get(key));
+  write_set_.insert_or_assign(std::string(key), std::nullopt);  // tombstone
+}
+
+void AtomicAuthOverlay::PutAndDeleteMultiple(std::map<std::string, std::string> const &puts,
+                                             std::vector<std::string> const &deletes) {
+  for (auto const &[key, value] : puts) {
+    Put(key, value);
+  }
+  for (auto const &key : deletes) {
+    Delete(key);
+  }
+}
+
+bool AtomicAuthOverlay::PutMultiple(std::map<std::string, std::string> const &items) {
+  for (auto const &[key, value] : items) {
+    Put(key, value);
+  }
+  return true;
+}
+
+bool AtomicAuthOverlay::DeleteMultiple(std::vector<std::string> const &keys) {
+  for (auto const &key : keys) {
+    Delete(key);
+  }
+  return true;
+}
+
+bool AtomicAuthOverlay::Flush() {
+  if (saw_two_values_) return false;
+
+  // Validate read-set against current base state
+  for (auto const &[key, snapshot_val] : read_set_) {
+    auto current_val = base_.Get(key);
+    if (current_val != snapshot_val) {
+      return false;
+    }
+  }
+
+  // Each scanned prefix is held to what its scans concluded: whether it was empty, and for a scan that saw every
+  // key, that no key has appeared since. Keys a scan did see are in the read-set already, which covers their
+  // modification and removal.
+  for (auto const &[prefix, dependency] : scanned_prefixes_) {
+    auto it = base_.begin(prefix);
+    auto const e = base_.end(prefix);
+    // Every scan of the prefix concluded at least whether anything was there, so that flipping invalidates it. A
+    // scan that stopped early concluded nothing more.
+    if ((it == e) != dependency.was_empty) return false;
+    if (dependency.kind == ScanDependency::Kind::kEmptiness) continue;
+    // A key-set scan that never reached the end recorded no key set to hold the transaction to. No caller leaves
+    // one behind, since a scan that throws fails its statement and COMMIT then refuses; this refusal holds even if
+    // that ever changes.
+    if (!dependency.exhausted) return false;
+    for (; it != e; ++it) {
+      if (!dependency.seen.contains(it->first)) return false;
+    }
+  }
+
+  // Build puts and deletes for atomic KVStore write
+  std::map<std::string, std::string> puts;
+  std::vector<std::string> deletes;
+
+  for (auto const &[key, val] : write_set_) {
+    if (val.has_value()) {
+      puts.emplace(key, *val);
+    } else {
+      deletes.emplace_back(key);
+    }
+  }
+
+  if (!puts.empty() || !deletes.empty()) {
+    // A failed write is not a conflict: running the transaction again cannot fix the store.
+    if (!base_.PutAndDeleteMultiple(puts, deletes)) throw AuthException("Couldn't save auth data!");
+  }
+
+  return true;
+}
+
+// --- Iterator ---
+
+AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const &overlay, std::string prefix, bool at_end)
+    : overlay_(&overlay),
+      prefix_(std::move(prefix)),
+      base_it_(overlay.base_.begin(prefix_)),
+      base_end_(overlay.base_.end(prefix_)),
+      at_end_(at_end) {
+  if (!at_end_) {
+    // Emptiness is read from base before any Advance, since Advance consumes the first entry. A scan is assumed to
+    // depend on the whole key set; a caller that stopped early narrows it afterwards.
+    //
+    // Reading base alone is conservative: a scan that stops on this transaction's own write over an empty base still
+    // depends on base staying empty, so a concurrent first key there fails the commit, which is safe to retry.
+    auto [entry, inserted] = overlay_->scanned_prefixes_.try_emplace(
+        prefix_, ScanDependency{.kind = ScanDependency::Kind::kKeySet, .was_empty = base_it_ == base_end_});
+    // A fresh scan starts out depending on the key set, whatever an earlier short-circuiting one settled for. Only
+    // the caller that stops early narrows it again, so the strictest scan of a prefix is what survives.
+    //
+    // `was_empty` keeps the first scan's observation and is not refreshed here: a later scan widens what the
+    // transaction depends on, and never replaces what an earlier one concluded.
+    if (!inserted) {
+      entry->second.kind = ScanDependency::Kind::kKeySet;
+      // Whether the prefix is inhabited is an observation too, and must agree with the first scan's.
+      if ((base_it_ == base_end_) != entry->second.was_empty) overlay_->saw_two_values_ = true;
+    }
+    write_it_ = overlay_->write_set_.lower_bound(prefix_);
+    write_end_ = overlay_->write_set_.end();
+    own_delete_under_prefix_ = std::any_of(write_it_, write_end_, [this](auto const &entry) {
+      return entry.first.starts_with(prefix_) && !entry.second.has_value();
+    });
+    Advance();
+  }
+}
+
+void AtomicAuthOverlay::iterator::Advance() {
+  current_.reset();
+
+  while (!current_.has_value()) {
+    bool const have_base = (base_it_ != base_end_);
+    bool const have_write = (write_it_ != write_end_ && write_it_->first.starts_with(prefix_));
+
+    if (!have_base && !have_write) {
+      at_end_ = true;
+      // Reaching the end means this scan saw every key under the prefix, whoever drove it. That fixes the
+      // transaction's dependency at the whole key set, and records the set as this scan saw it: a later
+      // short-circuiting scan of the same prefix walks past whatever has appeared since, and must not be able to
+      // pass those off as keys this scan covered.
+      if (auto d = overlay_->scanned_prefixes_.find(prefix_); d != overlay_->scanned_prefixes_.end()) {
+        // The first exhaustive scan fixes the key set the transaction is held to. A key a later scan finds beyond
+        // it is a concurrent change this is meant to catch, and a key it no longer finds is caught by the read set.
+        if (!d->second.exhausted) d->second.seen = std::exchange(seen_, {});
+        d->second.exhausted = true;
+        d->second.kind = ScanDependency::Kind::kKeySet;
+        // Reaching the end is what makes the values read, so this is where they join the read set. A scan that
+        // stopped early never gets here and leaves them behind, except those it observed as it yielded them.
+        overlay_->AdoptWalked(prefix_, walked_);
+      }
+      return;
+    }
+
+    if (have_base && have_write) {
+      if (base_it_->first < write_it_->first) {
+        // Base entry the transaction may still have written: skip it if so
+        seen_.insert(base_it_->first);
+        auto ws = overlay_->write_set_.find(base_it_->first);
+        if (ws == overlay_->write_set_.end()) {
+          walked_.emplace(base_it_->first, base_it_->second);
+          if (own_delete_under_prefix_) overlay_->Observe(base_it_->first, base_it_->second);
+          current_ = *base_it_;
+        }
+        ++base_it_;
+      } else if (base_it_->first > write_it_->first) {
+        // Write-set entry with no base counterpart
+        if (write_it_->second.has_value()) {
+          current_ = std::make_pair(write_it_->first, *write_it_->second);
+          seen_.insert(write_it_->first);
+        }
+        ++write_it_;
+      } else {
+        // Same key: write-set wins, so the base value is not observed
+        seen_.insert(base_it_->first);
+        if (write_it_->second.has_value()) {
+          current_ = std::make_pair(write_it_->first, *write_it_->second);
+        }
+        ++base_it_;
+        ++write_it_;
+      }
+    } else if (have_base) {
+      seen_.insert(base_it_->first);
+      auto ws = overlay_->write_set_.find(base_it_->first);
+      if (ws == overlay_->write_set_.end()) {
+        walked_.emplace(base_it_->first, base_it_->second);
+        if (own_delete_under_prefix_) overlay_->Observe(base_it_->first, base_it_->second);
+        current_ = *base_it_;
+      }
+      ++base_it_;
+    } else {
+      if (write_it_->second.has_value()) {
+        current_ = std::make_pair(write_it_->first, *write_it_->second);
+        seen_.insert(write_it_->first);
+      }
+      ++write_it_;
+    }
+  }
+}
+
+AtomicAuthOverlay::iterator &AtomicAuthOverlay::iterator::operator++() {
+  Advance();
+  return *this;
+}
+
+bool AtomicAuthOverlay::iterator::operator==(iterator const &other) const {
+  if (at_end_ && other.at_end_) return prefix_ == other.prefix_;
+  if (at_end_ != other.at_end_) return false;
+  return current_ == other.current_;
+}
+
+bool AtomicAuthOverlay::iterator::operator!=(iterator const &other) const { return !(*this == other); }
+
+AtomicAuthOverlay::iterator::reference AtomicAuthOverlay::iterator::operator*() const { return *current_; }
+
+AtomicAuthOverlay::iterator::pointer AtomicAuthOverlay::iterator::operator->() const { return &*current_; }
+
+AtomicAuthOverlay::iterator AtomicAuthOverlay::begin(std::string const &prefix) const { return {*this, prefix, false}; }
+
+AtomicAuthOverlay::iterator AtomicAuthOverlay::end(std::string const &prefix) const { return {*this, prefix, true}; }
+
+}  // namespace memgraph::auth

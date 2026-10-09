@@ -348,6 +348,20 @@ class UserModificationInMulticommandTxException : public MulticommandTxException
   SPECIALIZE_GET_EXCEPTION_NAME(UserModificationInMulticommandTxException)
 };
 
+class TenantProfileInMulticommandTxException : public MulticommandTxException {
+ public:
+  TenantProfileInMulticommandTxException() : MulticommandTxException("Managing tenant profiles") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(TenantProfileInMulticommandTxException)
+};
+
+class MixedAuthAndDataTxException : public QueryException {
+ public:
+  MixedAuthAndDataTxException()
+      : QueryException(
+            "An explicit transaction cannot mix auth queries with data queries. Run them in separate transactions.") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(MixedAuthAndDataTxException)
+};
+
 class InvalidArgumentsException : public QueryException {
  public:
   InvalidArgumentsException(const std::string &argument_name, const std::string &message)
