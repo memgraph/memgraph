@@ -97,6 +97,34 @@ TEST_F(TypedProgramTest, APropertyComparisonCompilesAndAnswers) {
   EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::True);
 }
 
+// A query that runs without a storage accessor never has the name to id
+// mapping built, so a program that reads a property has nothing to index. It
+// has to complain the way the evaluator does rather than read off the end.
+TEST_F(TypedProgramTest, APropertyReadWithoutAnAccessorComplains) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  auto vertex = dba.InsertVertex();
+  ASSERT_TRUE(vertex.SetProperty(dba.NameToProperty("age"), memgraph::storage::PropertyValue(int64_t{30})).has_value());
+  dba.AdvanceCommand();
+  Set(0, TypedValue(vertex));
+
+  auto *lookup = storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("age"));
+  auto *expr = storage_.Create<memgraph::query::GreaterOperator>(
+      lookup, storage_.Create<memgraph::query::PrimitiveLiteral>(int64_t{20}));
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value());
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = nullptr;
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  EXPECT_THROW(program->Run(frame_, &evaluator), memgraph::query::QueryRuntimeException);
+}
+
 // The planner folds the label a pattern names into the filter expression, so a
 // filter over a labelled node is a conjunction with a label test in it. Without
 // this the label test refuses the whole conjunction, which is almost every

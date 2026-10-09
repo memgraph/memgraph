@@ -323,6 +323,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
   /// Lets a compiled program read a property without repeating what reading one
   /// involves: the view, the permission check, and a record that is gone.
   storage::PropertyValue ReadProperty(TypedValue const &record, int64_t property_ix) override {
+    RequireAccessor("Reading a property");
     if (record.IsVertex()) return GetPropertyById(record.ValueVertex(), ctx_->properties[property_ix]);
     if (record.IsEdge()) return GetPropertyById(record.ValueEdge(), ctx_->properties[property_ix]);
     return storage::PropertyValue{};
@@ -739,6 +740,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
 
   std::optional<int64_t> ReadIntProperty(TypedValue const &record, int64_t property_ix, bool &refused) override {
     refused = false;
+    RequireAccessor("Reading a property");
     auto const id = ctx_->properties[property_ix];
     if (record.IsVertex()) {
       int64_t value = 0;
@@ -1245,6 +1247,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
 
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
+    // Without an accessor the name to id mapping was never built, so the index
+    // has to wait until the accessor has been required.
+    RequireAccessor("Reading a property");
     return GetPropertyById(record_accessor, ctx_->properties[prop.ix]);
   }
 
