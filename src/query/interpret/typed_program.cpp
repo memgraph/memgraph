@@ -256,6 +256,9 @@ class TypedProgramBuilder {
   std::optional<Operand> Comparison(Expression *expression, TypedProgram::Op op) {
     auto *binary = static_cast<BinaryOperator *>(expression);
     auto const kind = NamesATime(binary->expression1_) || NamesATime(binary->expression2_) ? Kind::Time : Kind::Number;
+    if (kind != Kind::Time) {
+      if (auto const fused = FusedComparison(binary->expression1_, binary->expression2_, op)) return fused;
+    }
     auto const lhs = Build(binary->expression1_, kind);
     if (!lhs || lhs->is_tri) return Refuse(expression);
     auto const rhs = Build(binary->expression2_, kind);
@@ -561,6 +564,14 @@ op_PropCmpParam: {
     }
     return false;
   }
+  // The property is read before the other side is looked at, because that is
+  // the order the evaluator works in and reading it is what can throw. Settling
+  // the comparison from the other side first would answer where the evaluator
+  // would have complained.
+  bool refused = false;
+  auto const value = reader->ReadIntProperty(record, PathOf(*step), refused);
+  if (refused) return false;
+
   int64_t other = step->literal;
   if (step->op == Op::PropCmpParam) {
     if (parameters == nullptr) return false;
@@ -573,9 +584,6 @@ op_PropCmpParam: {
     if (!bound->IsInt()) return false;
     other = bound->ValueInt();
   }
-  bool refused = false;
-  auto const value = reader->ReadIntProperty(record, PathOf(*step), refused);
-  if (refused) return false;
   if (!value) {
     tris[step->dst] = Answer::Null;
     MG_NEXT();
