@@ -342,7 +342,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
         triggering_user_(context.triggering_user.get())
 #ifdef MG_ENTERPRISE
         ,
-        auth_checker_(context.auth_checker)
+        auth_checker_(context.auth_checker),
+        // Whether any property is restricted at all is settled for the whole
+        // query, and asking costs a call through the checker. A filter asks
+        // once per property per row, so it is asked here instead.
+        property_reads_unrestricted_(PropertyReadsUnrestricted(context.auth_checker))
 #endif
   {
   }
@@ -1263,8 +1267,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
   }
 
 #ifdef MG_ENTERPRISE
+  /// A query that restricts no property is answered from a flag settled when
+  /// the evaluator was built, rather than by asking the checker for every
+  /// property of every row. Working out which labels a record carries only
+  /// happens where something is restricted.
   bool IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const;
   bool IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const;
+  /// Out of line because the checker is only named here, and this is asked once
+  /// per evaluator rather than per row.
+  static bool PropertyReadsUnrestricted(FineGrainedAuthChecker const *auth_checker);
 #else
   template <typename T>
     requires std::same_as<T, VertexAccessor> || std::same_as<T, EdgeAccessor>
@@ -1417,6 +1428,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
   const QueryUserOrRole *triggering_user_;
 #ifdef MG_ENTERPRISE
   FineGrainedAuthChecker const *auth_checker_{nullptr};
+  bool property_reads_unrestricted_{true};
 #endif
 };  // namespace memgraph::query
 

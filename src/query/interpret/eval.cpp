@@ -567,11 +567,17 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 }
 
 #ifdef MG_ENTERPRISE
+bool ExpressionEvaluator::PropertyReadsUnrestricted(FineGrainedAuthChecker const *auth_checker) {
+  return auth_checker == nullptr || !auth_checker->HasPropertyRestrictions();
+}
+
 bool ExpressionEvaluator::IsPropertyAllowed(VertexAccessor const &accessor, storage::PropertyId prop) const {
+  if (property_reads_unrestricted_) return true;
   return PropertyReadAllowed(auth_checker_, accessor, view_, prop);
 }
 
 bool ExpressionEvaluator::IsPropertyAllowed(EdgeAccessor const &accessor, storage::PropertyId prop) const {
+  if (property_reads_unrestricted_) return true;
   return PropertyReadAllowed(auth_checker_, accessor, prop);
 }
 #endif
