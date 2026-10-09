@@ -18,6 +18,7 @@
 #include <range/v3/all.hpp>
 #include <ranges>
 #include <string>
+#include <string_view>
 #include <tuple>
 #include <type_traits>
 #include <unordered_map>
@@ -2103,7 +2104,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure && !parsing_subquery_body_) {
+  if (!has_update && !subquery_has_update && !has_return && !is_standalone_call_procedure && !subquery_fold_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -4227,6 +4228,12 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   return static_cast<Expression *>(subquery);
 }
 
+namespace {
+[[noreturn]] void ThrowFoldClauseRefused(std::string_view construct) {
+  throw SyntaxException("Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.", construct);
+}
+}  // namespace
+
 Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyContext *ctx,
                                                  SubqueryExpression::Fold fold) {
   auto const construct = SubqueryExpression::FoldName(fold);
@@ -4248,15 +4255,15 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
     auto *cypher_query = storage_->Create<CypherQuery>();
     cypher_query->single_query_ = single_query;
     subquery->content_ = cypher_query;
-  } else if (ctx->cypherQuery()) {
-    // Curly-brace subquery form: { cypherQuery }
-    auto old_flag = parsing_subquery_body_;
+  } else if (ctx->cypherQuery() || ctx->conditionalQuery()) {
+    // Curly-brace subquery form: { cypherQuery } or { WHEN ... THEN ... }
+    auto const old_fold = std::exchange(subquery_fold_, fold);
     // The body's clauses are its own, so the enclosing WITH's "everything must be aliased" rule does not reach them.
-    auto old_in_with = std::exchange(in_with_, false);
-    parsing_subquery_body_ = true;
-    auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    auto const old_in_with = std::exchange(in_with_, false);
+    auto *cypher_query = ctx->conditionalQuery() ? BuildConditionalQuery(ctx->conditionalQuery()).query
+                                                 : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     in_with_ = old_in_with;
-    parsing_subquery_body_ = old_flag;
+    subquery_fold_ = old_fold;
     subquery->content_ = cypher_query;
 
     // Per branch, because a UNION's further branches are each their own SingleQuery and a clause forbidden in
@@ -4270,8 +4277,7 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
         if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Unwind::kType) ||
               utils::IsSubtype(type, Where::kType) || utils::IsSubtype(type, With::kType) ||
               utils::IsSubtype(type, Return::kType))) {
-          throw SyntaxException("Only MATCH, UNWIND, WHERE, WITH, and RETURN clauses are allowed in {} subqueries.",
-                                construct);
+          ThrowFoldClauseRefused(construct);
         }
       }
       // The list fold collects one column per branch row, and `RETURN *` names an unknown number. Caught here so
@@ -4284,10 +4290,19 @@ Expression *CypherMainVisitor::BuildSubqueryFold(MemgraphCypher::SubqueryBodyCon
         throw SyntaxException("{} subquery must end with a RETURN of exactly one column.", construct);
       }
     };
-    validate_branch(cypher_query->single_query_);
-    for (const auto *cypher_union : cypher_query->cypher_unions_) {
-      validate_branch(cypher_union->single_query_);
-    }
+    // A WHEN body is checked per branch, a nested WHEN's included.
+    auto validate_query = [&](this auto const &self, const CypherQuery *query) -> void {
+      const auto &clauses = query->single_query_->clauses_;
+      if (const auto *branches = clauses.size() == 1 ? utils::Downcast<ConditionalBranches>(clauses[0]) : nullptr) {
+        for (const auto &branch : branches->branches_) self(branch.body);
+        return;
+      }
+      validate_branch(query->single_query_);
+      for (const auto *cypher_union : query->cypher_unions_) {
+        validate_branch(cypher_union->single_query_);
+      }
+    };
+    validate_query(cypher_query);
 
     if (cypher_query->memory_limit_ != nullptr) {
       throw SyntaxException("{} subqueries cannot have a query memory limit.", construct);
@@ -4711,6 +4726,8 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
 
   MG_ASSERT(ctx->cypherQuery() || ctx->conditionalQuery(), "Expected query inside subquery clause");
 
+  // Refused before its body is parsed, so the body's own checks cannot report first.
+  if (subquery_fold_) ThrowFoldClauseRefused(SubqueryExpression::FoldName(*subquery_fold_));
   if (ctx->cypherQuery() && ctx->cypherQuery()->queryMemoryLimit()) {
     throw SyntaxException("Memory limit cannot be set on subqueries!");
   }
@@ -4747,7 +4764,7 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   }
 
   call_subquery->cypher_query_ = ctx->conditionalQuery()
-                                     ? VisitConditionalQuery(ctx->conditionalQuery()).query
+                                     ? BuildConditionalQuery(ctx->conditionalQuery()).query
                                      : std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
 
   PreQueryDirectives pre_query_directives;
@@ -4767,13 +4784,18 @@ antlrcpp::Any CypherMainVisitor::visitCallSubquery(MemgraphCypher::CallSubqueryC
   return call_subquery;
 }
 
-CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
+CypherMainVisitor::ConditionalQuery CypherMainVisitor::BuildConditionalQuery(
     MemgraphCypher::ConditionalQueryContext *ctx) {
   auto *branches = storage_->Create<ConditionalBranches>();
   auto *single_query = storage_->Create<SingleQuery>();
   std::optional<ConditionalKind> kind;
   auto const add_branch = [&](Where *predicate, MemgraphCypher::ConditionalBodyContext *body_ctx) {
-    auto const body = VisitConditionalBody(body_ctx);
+    auto const body = BuildConditionalBody(body_ctx);
+    // A RETURN-less branch passes its input row through: nothing to fold.
+    if (subquery_fold_ && body.kind != ConditionalKind::kReturns) {
+      throw SyntaxException("Every WHEN branch of {} must end with RETURN.",
+                            SubqueryExpression::FoldName(*subquery_fold_));
+    }
     if (kind && *kind != body.kind) {
       throw SemanticException(
           "All WHEN branches must return rows, update the graph, or be a standalone procedure call.");
@@ -4795,9 +4817,9 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalQuery(
   return {.query = cypher_query, .kind = *kind};
 }
 
-CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalBody(
+CypherMainVisitor::ConditionalQuery CypherMainVisitor::BuildConditionalBody(
     MemgraphCypher::ConditionalBodyContext *ctx) {
-  if (ctx->conditionalQuery()) return VisitConditionalQuery(ctx->conditionalQuery());
+  if (ctx->conditionalQuery()) return BuildConditionalQuery(ctx->conditionalQuery());
   auto *cypher_query = std::invoke([&] {
     if (ctx->cypherQuery()) {
       if (ctx->cypherQuery()->queryMemoryLimit()) {
@@ -4812,8 +4834,8 @@ CypherMainVisitor::ConditionalQuery CypherMainVisitor::VisitConditionalBody(
     query->single_query_ = std::any_cast<SingleQuery *>(ctx->singleQuery()->accept(this));
     return query;
   });
-  // `visitSingleQuery` already put RETURN last, and rejected a RETURN-less body that neither updates nor is a lone
-  // call.
+  // `visitSingleQuery` already put RETURN last and, outside a fold body, rejected a RETURN-less body that neither
+  // updates nor is a lone call. In a fold body, `add_branch` rejects it.
   auto const *last = cypher_query->single_query_->clauses_.back();
   if (utils::IsSubtype(*last, Return::kType)) return {.query = cypher_query, .kind = ConditionalKind::kReturns};
   const auto *call = utils::Downcast<const CallProcedure>(last);

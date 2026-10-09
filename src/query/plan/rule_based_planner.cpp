@@ -1200,7 +1200,11 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
   if (with.where_) {
     with.where_->expression_ = SplitLabelsTests(with.where_->expression_, storage);
   }
-  const ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &subquery_ctx, with.where_);
+  // The Accumulate advances the command, so View::OLD already shows the writes before this WITH, and View::NEW would
+  // also show the writes after it.
+  SubqueryContext body_subquery_ctx = subquery_ctx;
+  if (accumulate) body_subquery_ctx.write_occurred = false;
+  const ReturnBodyContext body(with.body_, symbol_table, bound_symbols, storage, &body_subquery_ctx, with.where_);
   auto last_op = GenReturnBody(std::move(input_op), advance_command, body, accumulate, commit_frequency);
 
   // In EXISTS subqueries, we need to preserve outer scope variables

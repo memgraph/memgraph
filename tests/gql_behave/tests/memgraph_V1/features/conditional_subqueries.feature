@@ -11,6 +11,7 @@
 
 Feature: Conditional subqueries
     CALL (...) { WHEN p THEN body [WHEN ...] [ELSE body] } runs the first branch whose predicate holds.
+    The same branches may form the body of EXISTS { }, COUNT { } and COLLECT { }.
 
     Scenario: Each row takes the first branch whose predicate holds
         Given an empty graph
@@ -640,6 +641,159 @@ Feature: Conditional subqueries
             | EXISTS { MATCH (x:C) }        |
             | COUNT { MATCH (x:C) } = 1     |
 
+    Scenario: A read-only predicate sees a write earlier in the same query
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            MATCH (b)
+            SET b.x = 5
+            CALL (b) { WHEN b.x = 5 THEN RETURN 'seen' AS r ELSE RETURN 'none' AS r }
+            RETURN r
+            """
+        Then the result should be:
+            | r      |
+            | 'seen' |
+
+    Scenario: A predicate in a nested CALL sees a write before the outer CALL
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            MATCH (b)
+            SET b.x = 5
+            CALL (b) { CALL (b) { WHEN b.x = 5 THEN RETURN 'seen' AS r ELSE RETURN 'none' AS r } RETURN r }
+            RETURN r
+            """
+        Then the result should be:
+            | r      |
+            | 'seen' |
+
+    Scenario: A read-only predicate in a CALL body sees what the body wrote for earlier rows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            MATCH (b)
+            CALL (b, i) {
+              CALL (b) { WHEN b.x = 0 THEN RETURN 1 AS q ELSE RETURN 0 AS q }
+              SET b.x = i
+              RETURN q AS r
+            }
+            RETURN i, r
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | r |
+            | 1 | 1 |
+            | 2 | 0 |
+
+    Scenario: A subquery in a predicate sees what an earlier row's branch wrote
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            MATCH (b)
+            CALL (b, i) { WHEN EXISTS { WHEN b.x = 0 THEN RETURN 1 AS q } THEN SET b.x = i RETURN 1 AS r ELSE RETURN 0 AS r }
+            RETURN i, r
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | r |
+            | 1 | 1 |
+            | 2 | 0 |
+
+    Scenario: A subquery in a predicate scans what an earlier row's branch created
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [0, 1] AS i
+            CALL (i) { WHEN EXISTS { MATCH (m:New) } THEN RETURN 1 AS r ELSE CREATE (:New) RETURN 0 AS r }
+            RETURN i, r
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | r |
+            | 0 | 0 |
+            | 1 | 1 |
+
+    Scenario Outline: A subquery in a predicate does not scan what a later clause created for earlier rows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({id: 1})
+            """
+        When executing query:
+            """
+            MATCH (b {id: 1})
+            <before>
+            UNWIND [0, 1] AS i
+            CALL (b, i) { WHEN EXISTS { MATCH (m:New) } THEN RETURN 1 AS r ELSE RETURN 0 AS r }
+            CREATE (:New)
+            RETURN i, r
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | r |
+            | 0 | 0 |
+            | 1 | 0 |
+
+        Examples:
+            | before             |
+            | WITH b             |
+            | SET b.y = 1 WITH b |
+
+    Scenario Outline: A subquery in a predicate of a writing CALL does not scan a later clause's writes under a periodic commit
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({id: 1})
+            """
+        When executing query:
+            """
+            <query>
+            """
+        Then the result should be, in order:
+            | i | r |
+            | 0 | 0 |
+            | 1 | 0 |
+
+        Examples:
+            | query                                                                                                                                                                                                              |
+            | USING PERIODIC COMMIT 10 MATCH (b {id: 1}) UNWIND [0, 1] AS i CALL (b, i) { WHEN EXISTS { MATCH (m:New) } THEN RETURN 1 AS r ELSE CREATE (:Y) RETURN 0 AS r } CREATE (:New) RETURN i, r ORDER BY i                    |
+            | MATCH (b {id: 1}) CALL (b) { UNWIND [0, 1] AS i CALL (b, i) { WHEN EXISTS { MATCH (m:New) } THEN RETURN 1 AS r ELSE CREATE (:Y) RETURN 0 AS r } CREATE (:New) RETURN i, r } IN TRANSACTIONS OF 10 ROWS RETURN i, r ORDER BY i |
+
+    Scenario: A subquery in a predicate sees a write earlier in the same query
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            MATCH (b)
+            SET b.x = 5
+            CALL (b) { WHEN EXISTS { WHEN b.x = 5 THEN RETURN 1 AS q } THEN SET b.y = 1 RETURN 'seen' AS r ELSE RETURN 'none' AS r }
+            RETURN r
+            """
+        Then the result should be:
+            | r      |
+            | 'seen' |
+
     Scenario: A branch seeks a label-property index on an imported value
         Given an empty graph
         And with new index :L(p)
@@ -713,3 +867,225 @@ Feature: Conditional subqueries
             | i | c  |
             | 1 | 2  |
             | 2 | -1 |
+
+    Scenario: EXISTS is true when the taken branch returns a row, and its branches see the outer variables
+        Given an empty graph
+        And having executed
+            """
+            CREATE (alice:Person {name: 'Alice', age: 65}), (bob:Person {name: 'Bob', age: 25}),
+                   (charlie:Person {name: 'Charlie', age: 61}), (daniel:Person {name: 'Daniel', age: 39}),
+                   (eskil:Person {name: 'Eskil', age: 39}),
+                   (bob)-[:WORKS_FOR]->(alice), (alice)-[:WORKS_FOR]->(daniel), (charlie)-[:WORKS_FOR]->(daniel),
+                   (bob)-[:LOVES]->(eskil), (charlie)-[:LOVES]->(alice)
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            WHERE EXISTS {
+              WHEN n.age > 40 THEN { RETURN n.name AS x }
+              ELSE { MATCH (n)-[:LOVES]->(x:Person) RETURN x }
+            }
+            RETURN n.name AS name
+            ORDER BY name
+            """
+        Then the result should be, in order:
+            | name      |
+            | 'Alice'   |
+            | 'Bob'     |
+            | 'Charlie' |
+
+    Scenario: COUNT and COLLECT fold the rows of the taken branch, which may hold a nested WHEN or a UNION
+        Given an empty graph
+        And having executed
+            """
+            CREATE (alice:Person {name: 'Alice', age: 65}), (bob:Person {name: 'Bob', age: 25}),
+                   (charlie:Person {name: 'Charlie', age: 61}), (daniel:Person {name: 'Daniel', age: 39}),
+                   (eskil:Person {name: 'Eskil', age: 39}),
+                   (bob)-[:WORKS_FOR]->(alice), (alice)-[:WORKS_FOR]->(daniel), (charlie)-[:WORKS_FOR]->(daniel),
+                   (bob)-[:LOVES]->(eskil), (charlie)-[:LOVES]->(alice)
+            """
+        When executing query:
+            """
+            MATCH (n:Person)
+            RETURN n.name AS name,
+                   COUNT { WHEN n.age > 40 THEN MATCH (n)-[:WORKS_FOR]-(m) RETURN m ELSE RETURN 1 AS m } AS c,
+                   COLLECT { WHEN n.age > 40 THEN MATCH (n)-[:WORKS_FOR]-(m) RETURN m.name AS m ELSE RETURN 'young' AS m } AS l,
+                   COLLECT {
+                     WHEN n.age > 40 THEN {
+                       WHEN n.age > 62 THEN MATCH (n)-[:WORKS_FOR]-(m) RETURN m.name AS m
+                       ELSE RETURN 'sixties' AS m
+                     }
+                     ELSE RETURN 'young' AS m
+                   } AS nested,
+                   COUNT {
+                     WHEN n.age < 40 THEN { MATCH (n)-[:LOVES]->(m) RETURN m UNION MATCH (n)-[:WORKS_FOR]->(m) RETURN m }
+                   } AS k
+            ORDER BY name
+            """
+        Then the result should be (ignoring element order for lists):
+            | name      | c | l                 | nested            | k |
+            | 'Alice'   | 2 | ['Bob', 'Daniel'] | ['Bob', 'Daniel'] | 0 |
+            | 'Bob'     | 1 | ['young']         | ['young']         | 2 |
+            | 'Charlie' | 1 | ['Daniel']        | ['sixties']       | 0 |
+            | 'Daniel'  | 1 | ['young']         | ['young']         | 0 |
+            | 'Eskil'   | 1 | ['young']         | ['young']         | 0 |
+
+    Scenario: A bare EXISTS or COUNT body may name its path when
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:A)-[:R]->(:B)
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN labels(n)[0] AS l, EXISTS { when = (n)-->() } AS e, COUNT { when = (n)-->() } AS c ORDER BY l
+            """
+        Then the result should be, in order:
+            | l   | e     | c |
+            | 'A' | true  | 1 |
+            | 'B' | false | 0 |
+
+    Scenario Outline: A fold's predicate does not see a write later in the same query, as a WHERE does not
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 1, c: 0}), ({x: 0, c: 0})
+            """
+        When executing query:
+            """
+            UNWIND [0, 1] AS i
+            MATCH (b)
+            WHERE <predicate>
+            SET b.x = 1, b.c = b.c + 1
+            RETURN b.c AS c
+            """
+        Then the result should be:
+            | c |
+            | 1 |
+            | 1 |
+
+        Examples:
+            | predicate                                                  |
+            | EXISTS { WHEN b.x = i THEN RETURN 1 AS r }                 |
+            | COUNT { WHEN b.x = i THEN RETURN 1 AS r } > 0              |
+            | size(COLLECT { WHEN b.x = i THEN RETURN 1 AS r }) > 0      |
+
+    Scenario: A fold's predicate after a WITH does not see a write later in the same query
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 1, c: 0}), ({x: 0, c: 0})
+            """
+        When executing query:
+            """
+            UNWIND [0, 1] AS i
+            MATCH (b)
+            SET b.y = 1
+            WITH b, i WHERE EXISTS { WHEN b.x = i THEN RETURN 1 AS r }
+            SET b.x = 1, b.c = b.c + 1
+            RETURN b.c AS c
+            """
+        Then the result should be:
+            | c |
+            | 1 |
+            | 1 |
+
+    Scenario: A fold's predicate in a CALL body does not see a write later in that body
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 1, c: 0}), ({x: 0, c: 0})
+            """
+        When executing query:
+            """
+            CALL () {
+              UNWIND [0, 1] AS i
+              MATCH (b)
+              WHERE EXISTS { WHEN b.x = i THEN RETURN 1 AS r }
+              SET b.x = 1, b.c = b.c + 1
+              RETURN b.c AS c
+            }
+            RETURN c
+            """
+        Then the result should be:
+            | c |
+            | 1 |
+            | 1 |
+
+    Scenario: A fold's predicate sees a write earlier in the same query
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({x: 0})
+            """
+        When executing query:
+            """
+            MATCH (b)
+            SET b.x = 5
+            RETURN EXISTS { WHEN b.x = 5 THEN RETURN 1 AS r } AS e
+            """
+        Then the result should be:
+            | e    |
+            | true |
+
+    Scenario: With no matching branch and no ELSE, the folds give false, 0 and an empty list
+        Given an empty graph
+        When executing query:
+            """
+            UNWIND [1, 2] AS i
+            RETURN i,
+                   EXISTS { WHEN i = 1 THEN RETURN i AS x } AS e,
+                   COUNT { WHEN i = 1 THEN RETURN i AS x } AS c,
+                   COLLECT { WHEN i = 1 THEN RETURN i AS x } AS l
+            ORDER BY i
+            """
+        Then the result should be, in order:
+            | i | e     | c | l   |
+            | 1 | true  | 1 | [1] |
+            | 2 | false | 0 | []  |
+
+    Scenario: A later subquery predicate in a WHEN inside a COUNT body is not evaluated
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:A {k: 1}), (:A {k: 3})
+            """
+        And parameters are:
+            | z | 0 |
+        When executing query:
+            """
+            MATCH (a:A)
+            RETURN a.k AS k, COUNT { WHEN a.k > 0 THEN RETURN 1 AS q WHEN COUNT { UNWIND [1 / $z] AS u RETURN u } > 0 THEN RETURN 2 AS q } AS c
+            ORDER BY k
+            """
+        Then the result should be, in order:
+            | k | c |
+            | 1 | 1 |
+            | 3 | 1 |
+
+    Scenario: A branch of an expression body seeks a label-property index by an outer value
+        Given an empty graph
+        And with new index :Person(name)
+        And having executed
+            """
+            CREATE (alice:Person {name: 'Alice', age: 65}), (bob:Person {name: 'Bob', age: 25}),
+                   (charlie:Person {name: 'Charlie', age: 61}), (daniel:Person {name: 'Daniel', age: 39}),
+                   (eskil:Person {name: 'Eskil', age: 39}),
+                   (bob)-[:WORKS_FOR]->(alice), (alice)-[:WORKS_FOR]->(daniel), (charlie)-[:WORKS_FOR]->(daniel),
+                   (bob)-[:LOVES]->(eskil), (charlie)-[:LOVES]->(alice)
+            """
+        When executing query:
+            """
+            UNWIND ['Alice', 'Bob', 'Zed'] AS who
+            RETURN who,
+                   COLLECT {
+                     WHEN who = 'Alice' THEN MATCH (p:Person {name: who})-[:WORKS_FOR]->(m) RETURN m.name AS v
+                     WHEN who = 'Bob' THEN MATCH (p:Person) WHERE p.name = who RETURN p.age AS v
+                   } AS c
+            ORDER BY who
+            """
+        Then the result should be, in order:
+            | who     | c          |
+            | 'Alice' | ['Daniel'] |
+            | 'Bob'   | [25]       |
+            | 'Zed'   | []         |

@@ -3103,7 +3103,8 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
 
   Conditional() = default;
   /// Only the last branch may be an ELSE.
-  Conditional(std::shared_ptr<LogicalOperator> input, std::vector<Branch> branches, std::vector<Symbol> output_symbols);
+  Conditional(std::shared_ptr<LogicalOperator> input, std::vector<Branch> branches, std::vector<Symbol> output_symbols,
+              storage::View predicate_view = storage::View::OLD);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *, metrics::DatabaseMetricHandles &) const override;
@@ -3125,6 +3126,7 @@ class Conditional : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
   std::vector<Branch> branches_;
   std::vector<Symbol> output_symbols_;
+  storage::View predicate_view_{storage::View::OLD};
 
  private:
   class ConditionalCursor : public Cursor {

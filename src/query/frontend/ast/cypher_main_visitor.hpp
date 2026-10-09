@@ -18,12 +18,13 @@
 #pragma pop_macro("EOF")  // bring EOF back
 
 #include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/query/subquery_expression.hpp"  // BuildSubqueryFold names SubqueryExpression::Fold
+#include "query/frontend/ast/query/subquery_expression.hpp"  // SubqueryExpression::Fold
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <unordered_set>
 #include <utility>
@@ -1335,8 +1336,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   };
 
   /// `WHEN ... THEN ... ELSE ...` as a query holding one ConditionalBranches clause.
-  ConditionalQuery VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx);
-  ConditionalQuery VisitConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx);
+  ConditionalQuery BuildConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx);
+  ConditionalQuery BuildConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx);
 
   /**
    * @return MultiDatabaseQuery*
@@ -1563,8 +1564,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // We use this variable in visitReturnItem to check if we are in with or
   // return.
   bool in_with_ = false;
-  // Flag to indicate if we are parsing an EXISTS subquery
-  bool parsing_subquery_body_ = false;
+  // The fold whose brace body is being parsed, if any.
+  std::optional<SubqueryExpression::Fold> subquery_fold_;
   Parameters *parameters_;
 
   QueryInfo query_info_;
