@@ -1496,6 +1496,22 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
       switch (prev.type) {
         case PreviousPtr::Type::EDGE: {
           auto *edge = prev.edge;
+          auto &vector_edge_index = storage_->indices_.vector_edge_index_;
+
+          // The link lives in the source vertex's out_edges, guarded by its lock, which ranks before the edge's, so it
+          // is resolved before taking the edge lock; this transaction's own deltas on the edge cannot change meanwhile.
+          auto link = std::optional<std::pair<EdgeTypeId, Vertex *>>{};
+          for (Delta const *d = &delta;
+               d != nullptr && d->commit_info->timestamp.load(std::memory_order_acquire) == transaction_.transaction_id;
+               d = d->next.load(std::memory_order_acquire)) {
+            if (d->action != Delta::Action::SET_PROPERTY) continue;
+            auto const key = d->property.key;
+            if (index_abort_processor.IsInterestingEdgeProperty(key) || vector_edge_index.HasIndexOnProperty(key)) {
+              link = index_abort_processor.FindEdgeLink(d->property.out_vertex, edge, transaction_.deltas);
+              break;
+            }
+          }
+
           auto guard = std::lock_guard{edge->lock};
           Delta *current = edge->delta();
           while (current != nullptr &&
@@ -1507,13 +1523,7 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
                 auto prop_id = current->property.key;
                 auto *from_vertex = current->property.out_vertex;
 
-                // One link lookup serves both the non-vector collectors and the vector restore.
-                auto &vector_edge_index = storage_->indices_.vector_edge_index_;
                 auto const non_vector_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
-                auto link = std::optional<std::pair<EdgeTypeId, Vertex *>>{};
-                if (non_vector_interesting || vector_edge_index.HasIndexOnProperty(prop_id)) {
-                  link = index_abort_processor.FindEdgeLink(from_vertex, edge, transaction_.deltas);
-                }
                 if (non_vector_interesting && link) {
                   index_abort_processor.CollectOnPropertyChange(link->first, prop_id, from_vertex, link->second, edge);
                 }

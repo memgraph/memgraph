@@ -11,6 +11,8 @@
 
 #include "storage/v2/indices/indices.hpp"
 
+#include <shared_mutex>
+
 #include "storage/v2/delta_container.hpp"
 #include "storage/v2/disk/edge_property_index.hpp"
 #include "storage/v2/disk/edge_type_index.hpp"
@@ -234,10 +236,13 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex 
 auto Indices::AbortProcessor::FindEdgeLink(Vertex *from_vertex, Edge *edge, delta_container const &deltas) noexcept
     -> std::optional<std::pair<EdgeTypeId, Vertex *>> {
   auto link = std::optional<std::pair<EdgeTypeId, Vertex *>>{};
-  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-    if (edge_ref.ptr != edge) continue;
-    link = std::pair{edge_type, to_vertex};
-    break;
+  {
+    auto guard = std::shared_lock{from_vertex->lock};
+    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+      if (edge_ref.ptr != edge) continue;
+      link = std::pair{edge_type, to_vertex};
+      break;
+    }
   }
   if (link.has_value()) return link;
 
