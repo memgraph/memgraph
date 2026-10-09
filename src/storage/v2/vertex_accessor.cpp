@@ -440,13 +440,6 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
-  // Use converted value for vector index when applicable; otherwise use the input as-is.
-  std::optional<PropertyValue> converted;
-  if (!storage_->indices_.vector_index_.Empty()) {
-    converted = TryConvertToVectorIndexProperty(storage_, vertex_, property, value);
-  }
-  const auto &new_value = converted.value_or(value);
-
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
@@ -454,6 +447,14 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (vertex_->deleted()) return std::unexpected{Error::DELETED_OBJECT};
+
+  // Use converted value for vector index when applicable; otherwise use the input as-is. Labels select the indices
+  // and may change concurrently until the vertex lock is held.
+  std::optional<PropertyValue> converted;
+  if (!storage_->indices_.vector_index_.Empty()) {
+    converted = TryConvertToVectorIndexProperty(storage_, vertex_, property, value);
+  }
+  const auto &new_value = converted ? *converted : value;
 
   PropertyValue old_value;
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
@@ -525,14 +526,6 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
-  if (!storage_->indices_.vector_index_.Empty()) {
-    for (auto &[property_id, property_value] : properties) {
-      if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, property_id, property_value)) {
-        property_value = std::move(*converted);
-      }
-    }
-  }
-
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
@@ -540,6 +533,15 @@ Result<bool> VertexAccessor::InitProperties(std::map<storage::PropertyId, storag
   if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (vertex_->deleted()) return std::unexpected{Error::DELETED_OBJECT};
+
+  // Under the vertex lock: the labels pick the vector indices (see SetProperty).
+  if (!storage_->indices_.vector_index_.Empty()) {
+    for (auto &[property_id, property_value] : properties) {
+      if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, property_id, property_value)) {
+        property_value = std::move(*converted);
+      }
+    }
+  }
   bool result{false};
   utils::AtomicMemoryBlock(
       [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
@@ -593,15 +595,6 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
 
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
-  // If there is a vector index, we might need to convert list type properties to vector index property value types.
-  if (!storage_->indices_.vector_index_.Empty()) {
-    r::for_each(properties, [&](auto &pair) {
-      if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, pair.first, pair.second)) {
-        pair.second = std::move(*converted);
-      }
-    });
-  }
-
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
@@ -609,6 +602,16 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (vertex_->deleted()) return std::unexpected{Error::DELETED_OBJECT};
+
+  // If there is a vector index, we might need to convert list type properties to vector index property value types.
+  // Under the vertex lock: the labels pick the vector indices (see SetProperty).
+  if (!storage_->indices_.vector_index_.Empty()) {
+    r::for_each(properties, [&](auto &pair) {
+      if (auto converted = TryConvertToVectorIndexProperty(storage_, vertex_, pair.first, pair.second)) {
+        pair.second = std::move(*converted);
+      }
+    });
+  }
 
   const bool skip_duplicate_update = storage_->config_.salient.items.delta_on_identical_property_update;
   using ReturnType = decltype(vertex_->properties.UpdateProperties(properties));
