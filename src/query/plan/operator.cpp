@@ -5251,6 +5251,9 @@ bool Filter::FilterCursor::Pull(Frame &frame, ExecutionContext &context) {
           continue;
         case TypedProgram::Answer::Refused:
           ++deopt_rows_;
+          // Nothing it has been shown fits the guess it was built on, so it is
+          // put down rather than walked for every row still to come.
+          if (deopt_rows_ == kTrialRows && compiled_rows_ == 0) program_.reset();
           break;
       }
     }

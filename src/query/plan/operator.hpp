@@ -1270,11 +1270,20 @@ class Filter : public memgraph::query::plan::LogicalOperator {
     /// cover, which leaves every row to the evaluator. Built here rather than
     /// on the operator because a cursor belongs to one execution, so it is
     /// never read while another execution writes it.
-    const std::optional<TypedProgram> program_;
+    /// Dropped once the rows have shown that the guess it rests on is wrong for
+    /// this data, after which every row is evaluated the ordinary way.
+    std::optional<TypedProgram> program_;
     /// Counted here and reported once, so that a workload the compiler cannot
     /// take is visible without charging every row for saying so.
     uint64_t compiled_rows_{0};
     uint64_t deopt_rows_{0};
+
+    /// How many rows a program gets to prove itself on. A program whose guess
+    /// is wrong for the data refuses every row, and the row is then evaluated
+    /// twice: once by the program, which gets nowhere, and once by the
+    /// evaluator. Reading a property of a type the program cannot hold is not
+    /// rare, so what it costs is capped rather than paid per row forever.
+    static constexpr uint64_t kTrialRows = 64;
   };
 };
 

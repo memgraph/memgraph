@@ -439,6 +439,51 @@ TYPED_TEST(QueryPlan, AFilterHandsBackTheRowsItCannotTake) {
   EXPECT_EQ(after.compiled - before.compiled, 2);
 }
 
+// A guess that is wrong for every row costs each of them twice, once for the
+// program that gets nowhere and once for the evaluator that answers. The
+// program is put down once enough rows have shown that, and the answer is the
+// same before and after.
+TYPED_TEST(QueryPlan, AFilterStopsRunningAProgramNoRowFits) {
+  auto storage_dba = this->db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba(storage_dba.get());
+
+  memgraph::storage::LabelId const label = dba.NameToLabel("Label");
+  auto const property = PROPERTY_PAIR(dba, "Property");
+  // Every row holds a double, which is not what a compiled comparison holds,
+  // so no row can be taken however many are offered.
+  constexpr int64_t kRows = 500;
+  for (int64_t at = 0; at != kRows; ++at) {
+    auto vertex = dba.InsertVertex();
+    ASSERT_TRUE(vertex.AddLabel(label).has_value());
+    ASSERT_TRUE(vertex.SetProperty(property.second, memgraph::storage::PropertyValue(static_cast<double>(at) + 0.5))
+                    .has_value());
+  }
+  dba.AdvanceCommand();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  std::vector<memgraph::query::LabelIx> labels;
+  labels.emplace_back(this->storage.GetLabelIx(dba.LabelToName(label)));
+  // Compared against a parameter, because a query that is cached has its
+  // literals taken out and the type of what was written is no longer there to
+  // be seen when the program is built.
+  auto *filter_expr = AND(this->storage.template Create<LabelsTest>(n.node_->identifier_, labels),
+                          GREATER(PROPERTY_LOOKUP(dba, n.node_->identifier_, property), PARAMETER_LOOKUP(1)));
+  auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
+  auto context = MakeContext(this->storage, symbol_table, &dba);
+  context.evaluation_context.parameters.Add(1, memgraph::storage::ExternalPropertyValue(10.0));
+
+  auto const before = Filter::GetRowCounts();
+  auto const matched = PullAll(*filter, &context);
+  auto const after = Filter::GetRowCounts();
+
+  // What the evaluator would have answered. The row holding `at + 0.5` is
+  // above ten from the eleventh row on.
+  EXPECT_EQ(matched, kRows - 10);
+  EXPECT_EQ(after.compiled - before.compiled, 0) << "no row fits the guess";
+  EXPECT_LT(after.deopt - before.deopt, kRows) << "the program was still being run on the last row";
+}
+
 TYPED_TEST(QueryPlan, NodeFilterLabelsAndProperties) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba(storage_dba.get());
