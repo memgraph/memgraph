@@ -581,6 +581,10 @@ int main(int argc, char **argv) {
                      .release_sent_snapshot_page_cache = FLAGS_storage_release_sent_snapshot_page_cache,
                      .allow_parallel_snapshot_creation = FLAGS_storage_parallel_snapshot_creation,
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
+      // EXPERIMENTAL (commit-lock-narrowing): CLI-only, immutable during execution. Runtime-only, never
+      // persisted, so durable data is identical regardless of this flag (flip across restart is safe).
+      .experimental_commit_lock_narrowing =
+          memgraph::flags::AreExperimentsEnabled(memgraph::flags::Experiments::COMMIT_LOCK_NARROWING),
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
                .label_index_directory = FLAGS_data_directory + "/rocksdb_label_index",
