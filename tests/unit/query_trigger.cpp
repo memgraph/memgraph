@@ -11,12 +11,18 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <atomic>
 #include <cmath>
 #include <filesystem>
 #include <limits>
+#include <memory>
+#include <utility>
 
 #include <fmt/format.h>
+#include "dbms/database.hpp"
+#include "dbms/database_protector.hpp"
 #include "disk_test_utils.hpp"
+#include "license/license.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/db_accessor.hpp"
@@ -30,6 +36,9 @@
 #include "storage/v2/property_value.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/gatekeeper.hpp"
+#include "utils/memory.hpp"
+#include "utils/on_scope_exit.hpp"
 
 namespace {
 const std::unordered_set<memgraph::query::TriggerEventType> kAllEventTypes{
@@ -1805,3 +1814,112 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   ASSERT_EQ(triggers.size(), 1);
   ASSERT_EQ(triggers.front().owner, owner);
 }
+
+#ifdef MG_ENTERPRISE
+namespace {
+class CloneableUser final : public memgraph::query::QueryUserOrRole {
+ public:
+  CloneableUser() : memgraph::query::QueryUserOrRole{"owner", {}} {}
+
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> & /*privileges*/,
+                    std::optional<std::string_view> /*db_name*/,
+                    memgraph::query::UserPolicy * /*policy*/) const override {
+    return true;
+  }
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override {
+    return std::make_shared<CloneableUser>(*this);
+  }
+
+  std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
+
+  bool CanImpersonate(const std::string & /*target*/, memgraph::query::UserPolicy * /*policy*/,
+                      std::optional<std::string_view> /*db_name*/) const override {
+    return true;
+  }
+
+  std::string GetDefaultDB() const override { return std::string{memgraph::dbms::kDefaultDB}; }
+};
+
+class PrincipalRecordingAuthChecker final : public memgraph::query::AuthChecker {
+ public:
+  std::shared_ptr<memgraph::query::QueryUserOrRole> GenQueryUser(
+      const std::optional<std::string> & /*username*/, const std::vector<std::string> & /*roles*/) const override {
+    return nullptr;
+  }
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> GenEmptyUser() const override { return nullptr; }
+
+  std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
+      const memgraph::query::QueryUserOrRole &user,
+      const memgraph::query::DbAccessor * /*db_accessor*/) const override {
+    seen.push_back(&user);
+    return std::make_unique<memgraph::query::AllowEverythingFineGrainedAuthChecker>();
+  }
+
+  mutable std::vector<const memgraph::query::QueryUserOrRole *> seen;
+};
+}  // namespace
+
+// A DEFINER trigger is executed by many BEFORE COMMIT transactions; each execution must run as its own copy of the
+// creator, since a shared creator would let concurrent up-to-date refreshes race.
+TEST(TriggerDefiner, EachExecutionGetsOwnCreatorCopy) {
+  memgraph::license::global_license_checker.EnableTesting();
+
+  const auto data_directory = std::filesystem::temp_directory_path() / "MG_test_unit_query_trigger_definer_copy";
+  std::filesystem::remove_all(data_directory);
+  const memgraph::utils::OnScopeExit cleanup{[&] {
+    memgraph::license::global_license_checker.DisableTesting();
+    std::filesystem::remove_all(data_directory);
+  }};
+  memgraph::storage::Config config;
+  config.durability.storage_directory = data_directory;
+  config.disk.main_storage_directory = data_directory / "disk";
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
+  auto db_acc_opt = db_gk.access();
+  ASSERT_TRUE(db_acc_opt);
+  memgraph::dbms::DatabaseAccess db_acc = std::move(db_acc_opt.value());
+
+  PrincipalRecordingAuthChecker auth_checker;
+  memgraph::query::AstCache ast_cache{10};
+
+  const std::unique_ptr<memgraph::storage::Storage::Accessor> accessor = db_acc->Access();
+  memgraph::query::DbAccessor dba{accessor.get()};
+  const memgraph::query::Trigger trigger{"definer_trigger",
+                                         "RETURN 1",
+                                         {},
+                                         memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                         &ast_cache,
+                                         &dba,
+                                         memgraph::query::InterpreterConfig::Query{},
+                                         std::make_shared<CloneableUser>(),
+                                         memgraph::dbms::kDefaultDB,
+                                         memgraph::query::TriggerPrivilegeContext::DEFINER,
+                                         nullptr};
+
+  memgraph::query::TriggerContextCollector collector{{memgraph::query::TriggerEventType::VERTEX_CREATE}};
+  collector.RegisterCreatedObject(dba.InsertVertex());
+  dba.AdvanceCommand();
+  const auto context = std::move(collector).TransformToTriggerContext();
+
+  std::atomic<bool> is_shutting_down{false};
+  std::atomic<memgraph::query::TransactionStatus> transaction_status{memgraph::query::TransactionStatus::ACTIVE};
+  for (int i = 0; i < 2; ++i) {
+    trigger.Execute(&dba,
+                    db_acc,
+                    memgraph::utils::NewDeleteResource(),
+                    0.0,
+                    &is_shutting_down,
+                    &transaction_status,
+                    context,
+                    true,
+                    nullptr,
+                    &auth_checker);
+  }
+
+  const auto &seen = auth_checker.seen;
+  ASSERT_EQ(seen.size(), 2);
+  EXPECT_NE(seen[0], trigger.Creator().get());
+  EXPECT_NE(seen[1], trigger.Creator().get());
+}
+#endif

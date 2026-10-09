@@ -79,14 +79,15 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
 
-  DbInfo db_info = std::invoke([&] {
-    auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
-      if constexpr (REQUIRE_LOCK) {
-        return system.GenTransactionGuard();
-      }
-      return std::nullopt;
-    });
+  // Held until the stream is built so a later system tx cannot send its deltas before the recovery request.
+  auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
+    if constexpr (REQUIRE_LOCK) {
+      return system.GenTransactionGuard();
+    }
+    return std::nullopt;
+  });
 
+  DbInfo db_info = std::invoke([&] {
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
       dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
@@ -106,6 +107,20 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
   try {
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();
+#ifdef MG_ENTERPRISE
+    auth::Auth::Config auth_config;
+    std::vector<auth::User> auth_users;
+    std::vector<auth::Role> auth_roles;
+    std::vector<auth::UserProfiles::Profile> auth_profiles;
+    if (is_enterprise) {
+      auth.WithReadLock([&](const auto &locked_auth) {
+        auth_config = locked_auth.GetConfig();
+        auth_users = locked_auth.AllUsers();
+        auth_roles = locked_auth.AllRoles();
+        auth_profiles = locked_auth.AllProfiles();
+      });
+    }
+#endif
     auto stream = std::invoke([&]() {
 #ifdef MG_ENTERPRISE
       if (!is_enterprise) {
@@ -118,17 +133,15 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                             std::vector<auth::UserProfiles::Profile>{},
                                                             params_snapshot);
       }
-      return auth.WithLock([&](auto &locked_auth) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
-                                                            db_info.last_committed_timestamp,
-                                                            std::move(db_info.configs),
-                                                            locked_auth.GetConfig(),
-                                                            locked_auth.AllUsers(),
-                                                            locked_auth.AllRoles(),
-                                                            locked_auth.AllProfiles(),
-                                                            params_snapshot,
-                                                            std::move(db_info.cold_databases));
-      });
+      return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
+                                                          db_info.last_committed_timestamp,
+                                                          std::move(db_info.configs),
+                                                          std::move(auth_config),
+                                                          std::move(auth_users),
+                                                          std::move(auth_roles),
+                                                          std::move(auth_profiles),
+                                                          params_snapshot,
+                                                          std::move(db_info.cold_databases));
 #else
       return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid,
                                                           db_info.last_committed_timestamp,
@@ -140,6 +153,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
                                                           params_snapshot);
 #endif
     });
+    guard.reset();
     auto const response = stream.SendAndWait();
     if (response.result == SystemRecoveryRes::Result::FAILURE) {
       // System recovery failed; do not record confirmations so the reset is re-advertised on the next

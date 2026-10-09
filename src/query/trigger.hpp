@@ -76,8 +76,14 @@ struct Trigger {
     std::vector<IdentifierInfo> identifiers;
   };
 
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, std::string_view db_name,
-                                       std::shared_ptr<QueryUserOrRole> triggering_user) const;
+  struct PlanResult {
+    std::shared_ptr<TriggerPlan> plan;
+    // DEFINER: private clone of the creator taken under plan_lock_; INVOKER: the caller's own principal.
+    std::shared_ptr<QueryUserOrRole> effective_principal;
+  };
+
+  PlanResult GetPlan(DbAccessor *db_accessor, std::string_view db_name,
+                     std::shared_ptr<QueryUserOrRole> triggering_user) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;

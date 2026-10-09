@@ -412,6 +412,9 @@ std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgor
   }
   return {};
 }
+
+constexpr std::array kUserDefinedHashAlgos{
+    PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE};
 }  // namespace
 
 // NOTE: Deliberately no pbkdf2-sha256 branch. A user-supplied hash carries no
@@ -420,14 +423,18 @@ std::optional<std::string_view> UsesAlgo(std::string_view str, PasswordHashAlgor
 // verify a far weaker hash as though it were strong. Set a pbkdf2 password
 // through the plaintext path instead.
 std::optional<HashedPassword> UserDefinedHash(std::string_view password) {
-  for (auto const algo :
-       {PasswordHashAlgorithm::BCRYPT, PasswordHashAlgorithm::SHA256, PasswordHashAlgorithm::SHA256_MULTIPLE}) {
+  for (auto const algo : kUserDefinedHashAlgos) {
     if (const auto hash = UsesAlgo(password, algo)) {
       EnsureFipsApproved(algo);
       return HashedPassword{algo, std::string{*hash}};
     }
   }
   return {};
+}
+
+bool IsUserDefinedHashFormat(std::string_view password) {
+  return std::ranges::any_of(kUserDefinedHashAlgos,
+                             [password](auto const algo) { return UsesAlgo(password, algo).has_value(); });
 }
 
 // The `--password-encryption-algorithm` flag is the single source of truth. It is

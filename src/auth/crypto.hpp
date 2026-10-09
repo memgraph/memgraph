@@ -110,4 +110,7 @@ struct HashedPassword {
 HashedPassword HashPassword(const std::string &password, std::optional<PasswordHashAlgorithm> override_algo = {});
 
 std::optional<HashedPassword> UserDefinedHash(std::string_view password);
+
+/// Format check only: true if password is a pre-hashed literal; FIPS is enforced by UserDefinedHash.
+bool IsUserDefinedHashFormat(std::string_view password);
 }  // namespace memgraph::auth

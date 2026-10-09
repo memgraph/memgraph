@@ -11,6 +11,7 @@
 
 #include "glue/auth_handler.hpp"
 #include <algorithm>
+#include <exception>
 #include <range/v3/all.hpp>
 
 #include <optional>
@@ -504,6 +505,27 @@ auto convert_limit_value(const memgraph::auth::UserProfiles::Profile &profile) {
   return query_profile;
 }
 #endif
+
+// Hashes without any auth lock; a hashing error is rethrown by Take() only where the hash is used.
+class DeferredPasswordHash {
+ public:
+  explicit DeferredPasswordHash(const std::optional<std::string> &password) {
+    try {
+      hash_ = memgraph::auth::Auth::ComputePasswordHash(password);
+    } catch (...) {
+      error_ = std::current_exception();
+    }
+  }
+
+  std::optional<memgraph::auth::HashedPassword> Take() {
+    if (error_) std::rethrow_exception(error_);
+    return std::move(hash_);
+  }
+
+ private:
+  std::optional<memgraph::auth::HashedPassword> hash_;
+  std::exception_ptr error_;
+};
 }  // namespace
 
 namespace memgraph::glue {
@@ -514,10 +536,15 @@ query::CreateUserResult AuthQueryHandler::CreateUser(const std::string &username
                                                      const std::optional<std::string> &password,
                                                      system::Transaction *system_tx) {
   try {
+    DeferredPasswordHash pending{password};
+
     auto locked_auth = auth_->Lock();
     const auto first_user = !locked_auth->HasUsers();
+    locked_auth->ValidateName(username);
+    if (locked_auth->GetUser(username)) return {.created = false, .first_user = false};
+    locked_auth->ValidatePassword(password);
 
-    auto new_user = locked_auth->AddUser(username, password, system_tx);
+    auto new_user = locked_auth->AddUserWithHash(username, pending.Take(), system_tx);
     if (first_user && new_user) {
 #ifdef MG_ENTERPRISE
       bool const builtin_roles_created = locked_auth->CreateBuiltinRoles(system_tx);
@@ -549,12 +576,14 @@ bool AuthQueryHandler::DropUser(const std::string &username, system::Transaction
 void AuthQueryHandler::SetPassword(const std::string &username, const std::optional<std::string> &password,
                                    system::Transaction *system_tx) {
   try {
+    DeferredPasswordHash pending{password};
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    locked_auth->UpdatePassword(*user, password);
+    locked_auth->ValidatePassword(password);
+    user->SetPasswordHash(pending.Take());
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -564,17 +593,34 @@ void AuthQueryHandler::SetPassword(const std::string &username, const std::optio
 void AuthQueryHandler::ChangePassword(const std::string &username, const std::optional<std::string> &oldPassword,
                                       const std::optional<std::string> &newPassword, system::Transaction *system_tx) {
   try {
+    // bcrypt runs without the auth lock; if the stored hash changed meanwhile, the old password is re-verified under
+    // the lock.
+    std::optional<auth::User> user_snap;
+    {
+      auto r = auth_->ReadLock();
+      user_snap = r->GetUser(username);
+      if (!user_snap) {
+        throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
+      }
+    }
+    if (!user_snap->CheckPasswordExplicit(*oldPassword)) {
+      throw memgraph::query::QueryRuntimeException("Old password is not correct.");
+    }
+    DeferredPasswordHash pending{newPassword};
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    if (user->CheckPasswordExplicit(*oldPassword)) {
-      locked_auth->UpdatePassword(*user, newPassword);
-      locked_auth->SaveUser(*user, system_tx);
-    } else {
-      throw memgraph::query::QueryRuntimeException("Old password is not correct.");
+    if (user->password_hash() != user_snap->password_hash()) {
+      // Rare: hash upgraded concurrently (e.g. legacy→salted); re-verify before rejecting.
+      if (!user->CheckPasswordExplicit(*oldPassword)) {
+        throw memgraph::query::QueryRuntimeException("Old password is not correct.");
+      }
     }
+    locked_auth->ValidatePassword(newPassword);
+    user->SetPasswordHash(pending.Take());
+    locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -776,10 +822,10 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernames() {
   try {
     auto locked_auth = auth_->ReadLock();
     std::vector<memgraph::query::TypedValue> usernames;
-    const auto &users = locked_auth->AllUsers();
+    const auto &users = locked_auth->AllUsernames();
     usernames.reserve(users.size());
     for (const auto &user : users) {
-      usernames.emplace_back(user.username());
+      usernames.emplace_back(user);
     }
     return usernames;
   } catch (const memgraph::auth::AuthException &e) {
@@ -1587,7 +1633,7 @@ void AuthQueryHandler::DropProfile(const std::string &profile_name, system::Tran
 }
 
 query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view profile_name) {
-  auto locked_auth = auth_->Lock();
+  auto locked_auth = auth_->ReadLock();
   auto profile = locked_auth->GetProfile(profile_name);
   if (!profile) {
     throw query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
@@ -1604,7 +1650,7 @@ query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view 
 
 std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQueryHandler::AllProfiles() {
   std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> res;
-  auto locked_auth = auth_->Lock();
+  auto locked_auth = auth_->ReadLock();
   for (const auto &profile : locked_auth->AllProfiles()) {
     // Fill missing/unlimited limits
     for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
@@ -1640,13 +1686,13 @@ void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, system::Tr
 }
 
 std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string &user_or_role) {
-  auto locked_auth = auth_->Lock();
+  auto locked_auth = auth_->ReadLock();
   return locked_auth->GetProfileForUsername(user_or_role);
 }
 
 std::vector<std::string> AuthQueryHandler::GetUsernamesForProfile(const std::string &profile_name) {
   try {
-    auto locked_auth = auth_->Lock();
+    auto locked_auth = auth_->ReadLock();
     auto usernames_set = locked_auth->GetUsernamesForProfile(profile_name);
     return {usernames_set.begin(), usernames_set.end()};
   } catch (const memgraph::auth::AuthException &e) {
