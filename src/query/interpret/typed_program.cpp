@@ -15,9 +15,12 @@
 #include "query/interpret/frame.hpp"
 
 #include <algorithm>
+#include <bit>
+#include <compare>
 #include <limits>
 
 #include "utils/typeinfo.hpp"
+#include "value_order/numbers.hpp"
 
 namespace memgraph::query {
 
@@ -64,10 +67,17 @@ class TypedProgramBuilder {
     switch (expression->GetTypeInfo().id) {
       case utils::TypeId::AST_PRIMITIVE_LITERAL: {
         auto const &value = static_cast<PrimitiveLiteral *>(expression)->value_;
-        if (!value.IsInt()) return refuse();
-        auto const slot = NextInt();
-        Emit(TypedProgram::Op::ConstInt, slot, 0, 0, value.ValueInt());
-        return Operand{.is_tri = false, .slot = slot};
+        if (value.IsInt()) {
+          auto const slot = NextInt();
+          Emit(TypedProgram::Op::ConstInt, slot, 0, 0, value.ValueInt());
+          return Operand{.is_tri = false, .slot = slot};
+        }
+        if (value.IsDouble()) {
+          auto const slot = NextInt();
+          Emit(TypedProgram::Op::ConstDouble, slot, 0, 0, std::bit_cast<int64_t>(value.ValueDouble()));
+          return Operand{.is_tri = false, .slot = slot};
+        }
+        return refuse();
       }
       case utils::TypeId::AST_IDENTIFIER: {
         auto const position = static_cast<Identifier *>(expression)->symbol_pos_;
@@ -412,6 +422,87 @@ std::optional<TypedProgram> TypedProgram::Compile(Expression *expression, Expres
   return program;
 }
 
+/// How one slot stands against another, for the six comparisons a program has.
+///
+/// This follows what the evaluator's relations do and must keep following it:
+/// a pair of unlike types has no order, so the four ordered comparisons answer
+/// null for it, while equality answers false and inequality true. Two numbers
+/// of unlike width are the one pair that is placed, and placing them is not a
+/// cast: a double outside the integers, and an integer too wide to be carried
+/// by one, are each decided without one. That is why the arithmetic is taken
+/// from where the store and the evaluator both take it rather than written
+/// again here.
+///
+/// A NaN stands against nothing, itself included, which the comparisons below
+/// give for free.
+Truth TypedProgram::CompareSlots(Op op, SlotKind left_kind, int64_t left, SlotKind right_kind, int64_t right) {
+  auto const answer = [](bool held) { return held ? Truth::True : Truth::False; };
+
+  if (left_kind == SlotKind::Int && right_kind == SlotKind::Int) {
+    switch (op) {
+      case Op::EqInt:
+        return answer(left == right);
+      case Op::NeInt:
+        return answer(left != right);
+      case Op::LtInt:
+        return answer(left < right);
+      case Op::GtInt:
+        return answer(left > right);
+      case Op::LeInt:
+        return answer(left <= right);
+      default:
+        return answer(left >= right);
+    }
+  }
+
+  if (left_kind == SlotKind::Double && right_kind == SlotKind::Double) {
+    auto const x = std::bit_cast<double>(left);
+    auto const y = std::bit_cast<double>(right);
+    switch (op) {
+      case Op::EqInt:
+        return answer(x == y);
+      case Op::NeInt:
+        return answer(x != y);
+      case Op::LtInt:
+        return answer(x < y);
+      case Op::GtInt:
+        return answer(x > y);
+      case Op::LeInt:
+        return answer(x <= y);
+      default:
+        return answer(x >= y);
+    }
+  }
+
+  if ((left_kind == SlotKind::Int && right_kind == SlotKind::Double) ||
+      (left_kind == SlotKind::Double && right_kind == SlotKind::Int)) {
+    auto const placed =
+        left_kind == SlotKind::Int
+            ? value_order::PlaceIntegerAgainstDouble(left, std::bit_cast<double>(right))
+            : value_order::ReversedOrder(value_order::PlaceIntegerAgainstDouble(right, std::bit_cast<double>(left)));
+    switch (op) {
+      case Op::EqInt:
+        return answer(std::is_eq(placed));
+      case Op::NeInt:
+        return answer(!std::is_eq(placed));
+      case Op::LtInt:
+        return answer(std::is_lt(placed));
+      case Op::GtInt:
+        return answer(std::is_gt(placed));
+      case Op::LeInt:
+        return answer(std::is_lteq(placed));
+      default:
+        return answer(std::is_gteq(placed));
+    }
+  }
+
+  // Unlike types. Equality says they are not the same thing; nothing orders
+  // them.
+  if (op == Op::EqInt) return Truth::False;
+  if (op == Op::NeInt) return Truth::True;
+  return Truth::Null;
+}
+
 bool TypedProgram::Execute(Frame const &frame, ExpressionEvaluator *reader, Parameters const *parameters,
                            Slots &slots) const {
   // Small enough to sit on the stack for the expressions this covers; a bigger
@@ -423,29 +514,39 @@ bool TypedProgram::Execute(Frame const &frame, ExpressionEvaluator *reader, Para
   auto &kinds = slots.kinds;
   auto &tris = slots.tris;
 
-  // Which way a comparison went, for the instruction that does one whole.
-  auto const Compare = [](Op op, int64_t x, int64_t y) {
-    switch (op) {
-      case Op::EqInt:
-        return x == y;
-      case Op::NeInt:
-        return x != y;
-      case Op::LtInt:
-        return x < y;
-      case Op::GtInt:
-        return x > y;
-      case Op::LeInt:
-        return x <= y;
-      default:
-        return x >= y;
-    }
-  };
-
   // A comparison of which either side is missing is null rather than false.
-  auto compare = [&](int32_t a, int32_t b, auto decide) {
-    return (kinds[a] == SlotKind::Unknown || kinds[b] == SlotKind::Unknown)
-               ? Answer::Null
-               : (decide(ints[a], ints[b]) ? Answer::True : Answer::False);
+  //
+  // Two integers are what almost every comparison is, and deciding them here
+  // keeps the loop every row walks from calling out for them. Everything else
+  // the relation settles.
+  auto compare = [&](Op op, int32_t a, int32_t b) {
+    if (kinds[a] == SlotKind::Unknown || kinds[b] == SlotKind::Unknown) return Answer::Null;
+    if (kinds[a] == SlotKind::Int && kinds[b] == SlotKind::Int) [[likely]] {
+      auto const x = ints[a];
+      auto const y = ints[b];
+      bool held = false;
+      switch (op) {
+        case Op::EqInt:
+          held = x == y;
+          break;
+        case Op::NeInt:
+          held = x != y;
+          break;
+        case Op::LtInt:
+          held = x < y;
+          break;
+        case Op::GtInt:
+          held = x > y;
+          break;
+        case Op::LeInt:
+          held = x <= y;
+          break;
+        default:
+          held = x >= y;
+      }
+      return held ? Answer::True : Answer::False;
+    }
+    return CompareSlots(op, kinds[a], ints[a], kinds[b], ints[b]);
   };
 
   // Walked by pointer rather than by index. The body calls out through the
@@ -458,11 +559,11 @@ bool TypedProgram::Execute(Frame const &frame, ExpressionEvaluator *reader, Para
   // code rather than back to a loop that works out where to go. The address of
   // a label is a GNU extension, which both compilers this is built with have.
   static void *const kDispatch[] = {
-      &&op_TestLabels, &&op_LoadInt,  &&op_LoadPropInt,  &&op_LoadParamInt,   &&op_LoadTime,      &&op_LoadPropTime,
-      &&op_EvalTime,   &&op_ConstInt, &&op_PropCmpConst, &&op_PropCmpParam,   &&op_AddInt,        &&op_SubInt,
-      &&op_MulInt,     &&op_DivInt,   &&op_EqInt,        &&op_NeInt,          &&op_LtInt,         &&op_GtInt,
-      &&op_LeInt,      &&op_GeInt,    &&op_AndTri,       &&op_OrTri,          &&op_NotTri,        &&op_IsNullInt,
-      &&op_IsNullTri,  &&op_CopyTri,  &&op_EvalTri,      &&op_JumpIfFalseTri, &&op_JumpIfTrueTri,
+      &&op_TestLabels, &&op_LoadInt,   &&op_LoadPropInt, &&op_LoadParamInt, &&op_LoadTime,       &&op_LoadPropTime,
+      &&op_EvalTime,   &&op_ConstInt,  &&op_ConstDouble, &&op_PropCmpConst, &&op_PropCmpParam,   &&op_AddInt,
+      &&op_SubInt,     &&op_MulInt,    &&op_DivInt,      &&op_EqInt,        &&op_NeInt,          &&op_LtInt,
+      &&op_GtInt,      &&op_LeInt,     &&op_GeInt,       &&op_AndTri,       &&op_OrTri,          &&op_NotTri,
+      &&op_IsNullInt,  &&op_IsNullTri, &&op_CopyTri,     &&op_EvalTri,      &&op_JumpIfFalseTri, &&op_JumpIfTrueTri,
   };
 #define MG_NEXT()                                    \
   do {                                               \
@@ -478,11 +579,18 @@ op_ConstInt:
   ints[step->dst] = step->literal;
   kinds[step->dst] = SlotKind::Int;
   MG_NEXT();
+op_ConstDouble:
+  ints[step->dst] = step->literal;
+  kinds[step->dst] = SlotKind::Double;
+  MG_NEXT();
 op_LoadInt: {
   auto const &value = frame.elems()[step->a];
   if (value.IsInt()) {
     ints[step->dst] = value.UnsafeValueInt();
     kinds[step->dst] = SlotKind::Int;
+  } else if (value.IsDouble()) {
+    ints[step->dst] = std::bit_cast<int64_t>(value.UnsafeValueDouble());
+    kinds[step->dst] = SlotKind::Double;
   } else if (value.IsNull()) {
     kinds[step->dst] = SlotKind::Unknown;
   } else {
@@ -497,7 +605,10 @@ op_LoadParamInt: {
   // decides what an unbound parameter means.
   auto const *value = parameters->FindAtTokenPosition(step->a);
   if (value == nullptr) return false;
-  if (value->IsInt()) {
+  if (value->IsDouble()) {
+    ints[step->dst] = std::bit_cast<int64_t>(value->ValueDouble());
+    kinds[step->dst] = SlotKind::Double;
+  } else if (value->IsInt()) {
     ints[step->dst] = value->ValueInt();
     kinds[step->dst] = SlotKind::Int;
   } else if (value->IsNull()) {
@@ -520,14 +631,13 @@ op_LoadPropInt: {
     return false;
   }
   bool refused = false;
-  auto const value = reader->ReadIntProperty(record, PathOf(*step), refused);
+  auto const value = reader->ReadScalarProperty(record, PathOf(*step), refused, step->seen);
+  // Written only when it changes: a property keeps its type, and the store
+  // would otherwise be made for every row of every scan.
+  if (step->seen != value.kind) step->seen = value.kind;
   if (refused) return false;
-  if (value) {
-    ints[step->dst] = *value;
-    kinds[step->dst] = SlotKind::Int;
-  } else {
-    kinds[step->dst] = SlotKind::Unknown;
-  }
+  ints[step->dst] = value.bits;
+  kinds[step->dst] = value.kind;
   MG_NEXT();
 }
 op_TestLabels: {
@@ -548,6 +658,7 @@ op_IsNullTri:
 op_AddInt:
 op_SubInt:
 op_MulInt: {
+  if (kinds[step->a] == SlotKind::Double || kinds[step->b] == SlotKind::Double) return false;
   kinds[step->dst] =
       (kinds[step->a] == SlotKind::Int && kinds[step->b] == SlotKind::Int) ? SlotKind::Int : SlotKind::Unknown;
   if (kinds[step->dst] != SlotKind::Unknown) {
@@ -573,10 +684,13 @@ op_PropCmpParam: {
   // the comparison from the other side first would answer where the evaluator
   // would have complained.
   bool refused = false;
-  auto const value = reader->ReadIntProperty(record, PathOf(*step), refused);
+  auto const value = reader->ReadScalarProperty(record, PathOf(*step), refused, step->seen);
+  // Written only when it changes: a property keeps its type, and the store
+  // would otherwise be made for every row of every scan.
+  if (step->seen != value.kind) step->seen = value.kind;
   if (refused) return false;
 
-  int64_t other = step->literal;
+  Scalar other{.kind = SlotKind::Int, .bits = step->literal};
   if (step->op == Op::PropCmpParam) {
     if (parameters == nullptr) return false;
     auto const *bound = parameters->FindAtTokenPosition(static_cast<int>(step->literal));
@@ -585,33 +699,65 @@ op_PropCmpParam: {
       tris[step->dst] = Answer::Null;
       MG_NEXT();
     }
-    if (!bound->IsInt()) return false;
-    other = bound->ValueInt();
+    if (bound->IsInt()) {
+      other = {.kind = SlotKind::Int, .bits = bound->ValueInt()};
+    } else if (bound->IsDouble()) {
+      other = {.kind = SlotKind::Double, .bits = std::bit_cast<int64_t>(bound->ValueDouble())};
+    } else {
+      return false;
+    }
   }
-  if (!value) {
+  if (value.kind == SlotKind::Unknown) {
     tris[step->dst] = Answer::Null;
     MG_NEXT();
   }
-  tris[step->dst] = Compare(static_cast<Op>(step->b), *value, other) ? Answer::True : Answer::False;
+  auto const fused_op = static_cast<Op>(step->b);
+  if (value.kind == SlotKind::Int && other.kind == SlotKind::Int) [[likely]] {
+    auto const x = value.bits;
+    auto const y = other.bits;
+    bool held = false;
+    switch (fused_op) {
+      case Op::EqInt:
+        held = x == y;
+        break;
+      case Op::NeInt:
+        held = x != y;
+        break;
+      case Op::LtInt:
+        held = x < y;
+        break;
+      case Op::GtInt:
+        held = x > y;
+        break;
+      case Op::LeInt:
+        held = x <= y;
+        break;
+      default:
+        held = x >= y;
+    }
+    tris[step->dst] = held ? Answer::True : Answer::False;
+    MG_NEXT();
+  }
+  tris[step->dst] = CompareSlots(fused_op, value.kind, value.bits, other.kind, other.bits);
   MG_NEXT();
 }
 op_EqInt:
-  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x == y; });
+  tris[step->dst] = compare(step->op, step->a, step->b);
   MG_NEXT();
 op_NeInt:
-  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x != y; });
+  tris[step->dst] = compare(step->op, step->a, step->b);
   MG_NEXT();
 op_LtInt:
-  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x < y; });
+  tris[step->dst] = compare(step->op, step->a, step->b);
   MG_NEXT();
 op_GtInt:
-  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x > y; });
+  tris[step->dst] = compare(step->op, step->a, step->b);
   MG_NEXT();
 op_LeInt:
-  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x <= y; });
+  tris[step->dst] = compare(step->op, step->a, step->b);
   MG_NEXT();
 op_GeInt:
-  tris[step->dst] = compare(step->a, step->b, [](int64_t x, int64_t y) { return x >= y; });
+  tris[step->dst] = compare(step->op, step->a, step->b);
   MG_NEXT();
 op_AndTri: {
   // False beats null, which is what makes this three-valued rather than
@@ -711,6 +857,7 @@ finished:
       return true;
     }
     case Op::DivInt: {
+      if (kinds[in.a] == SlotKind::Double || kinds[in.b] == SlotKind::Double) return false;
       kinds[in.dst] =
           (kinds[in.a] == SlotKind::Int && kinds[in.b] == SlotKind::Int) ? SlotKind::Int : SlotKind::Unknown;
       if (kinds[in.dst] != SlotKind::Unknown) {
@@ -749,10 +896,16 @@ bool TypedProgram::RunInto(Frame const &frame, TypedValue &out, ExpressionEvalua
   if (shape_ == Shape::Integer) {
     // A missing operand leaves no integer, and null is a value a caller can
     // perfectly well take.
-    if (slots.kinds[result_] == SlotKind::Unknown) {
-      out = TypedValue();
-    } else {
-      out = TypedValue(slots.ints[result_]);
+    switch (slots.kinds[result_]) {
+      case SlotKind::Unknown:
+        out = TypedValue();
+        break;
+      case SlotKind::Int:
+        out = TypedValue(slots.ints[result_]);
+        break;
+      case SlotKind::Double:
+        out = TypedValue(std::bit_cast<double>(slots.ints[result_]));
+        break;
     }
     return true;
   }

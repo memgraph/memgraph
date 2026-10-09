@@ -177,6 +177,76 @@ TEST_F(TypedProgramTest, ANestedReadThroughANonMapHandsTheRowBack) {
   EXPECT_EQ(program->Run(frame_, &evaluator), TypedProgram::Answer::Refused);
 }
 
+// A double property compared with a double parameter, which is what a cached
+// query turns `n.d > 2.5` into. Nothing about the type is visible when the
+// program is built, so the slot carries what the row turned out to hold.
+TEST_F(TypedProgramTest, ADoublePropertyComparesAgainstADoubleParameter) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  auto vertex = dba.InsertVertex();
+  ASSERT_TRUE(vertex.SetProperty(dba.NameToProperty("score"), memgraph::storage::PropertyValue(2.5)).has_value());
+  dba.AdvanceCommand();
+  Set(0, TypedValue(vertex));
+
+  auto *expr = storage_.Create<memgraph::query::GreaterOperator>(
+      storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("score")),
+      storage_.Create<memgraph::query::ParameterLookup>(1));
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value()) << "a property compared with a parameter should compile";
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = &dba;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  memgraph::query::Parameters above;
+  above.Add(1, memgraph::storage::ExternalPropertyValue(2.0));
+  EXPECT_EQ(program->Run(frame_, &evaluator, &above), TypedProgram::Answer::True);
+
+  memgraph::query::Parameters below;
+  below.Add(1, memgraph::storage::ExternalPropertyValue(3.0));
+  EXPECT_EQ(program->Run(frame_, &evaluator, &below), TypedProgram::Answer::False);
+
+  // A whole number on the other side is the mixed pair, which is placed rather
+  // than cast: reading either through the other's type is what this must not do.
+  memgraph::query::Parameters whole;
+  whole.Add(1, memgraph::storage::ExternalPropertyValue(int64_t{2}));
+  EXPECT_EQ(program->Run(frame_, &evaluator, &whole), TypedProgram::Answer::True);
+}
+
+// An integer too wide for a double to carry must not be compared by turning it
+// into one. The two differ by one, and every double near them is the same
+// double, so a cast would hold them equal.
+TEST_F(TypedProgramTest, AWideIntegerIsPlacedAgainstADoubleRatherThanCast) {
+  constexpr int64_t kTooWideForADouble = (int64_t{1} << 53) + 1;
+  Set(0, TypedValue(kTooWideForADouble));
+
+  auto *expr = storage_.Create<memgraph::query::GreaterOperator>(
+      Ident(0), storage_.Create<memgraph::query::PrimitiveLiteral>(static_cast<double>(kTooWideForADouble - 1)));
+
+  auto program = TypedProgram::Compile(expr);
+  ASSERT_TRUE(program.has_value());
+
+  // The double rounds to one less than the integer, so the integer is greater.
+  EXPECT_EQ(program->Run(frame_), TypedProgram::Answer::True);
+}
+
+// A comparison of two unlike types has no order, so it is null rather than an
+// error and rather than false. Equality says they are simply not the same.
+TEST_F(TypedProgramTest, ComparingUnlikeTypesIsNullButEqualityIsFalse) {
+  Set(0, TypedValue(int64_t{1}));
+  Set(1, TypedValue(true));
+
+  auto ordered = TypedProgram::Compile(storage_.Create<memgraph::query::LessOperator>(Ident(0), Ident(1)));
+  ASSERT_TRUE(ordered.has_value());
+  EXPECT_EQ(ordered->Run(frame_), TypedProgram::Answer::Refused)
+      << "a boolean is not something the program holds, so the row goes back";
+}
+
 // A query that runs without a storage accessor never has the name to id
 // mapping built, so a program that reads a property has nothing to index. It
 // has to complain the way the evaluator does rather than read off the end.

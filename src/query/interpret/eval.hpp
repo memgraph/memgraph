@@ -13,6 +13,7 @@
 #pragma once
 
 #include <algorithm>
+#include <bit>
 #include <concepts>
 #include <cstddef>
 #include <limits>
@@ -742,12 +743,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return Truth::Refused;
   }
 
-  std::optional<int64_t> ReadIntProperty(TypedValue const &record, std::span<int32_t const> property_ixs,
-                                         bool &refused) {
+  Scalar ReadScalarProperty(TypedValue const &record, std::span<int32_t const> property_ixs, bool &refused,
+                            SlotKind hint = SlotKind::Unknown) {
     refused = false;
     if (property_ixs.empty() || property_ixs.size() > kMaxPathDepth) {
       refused = true;
-      return std::nullopt;
+      return {};
     }
     RequireAccessor("Reading a property");
     std::array<storage::PropertyId, kMaxPathDepth> path;
@@ -759,16 +760,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     // permission the boxed read would have applied has to be applied here. It
     // governs the record's own property, which is where the path starts; what
     // a value holds inside itself carries no permission of its own.
-    if (record.IsVertex() && IsPropertyAllowed(record.ValueVertex(), walked.front())) {
+    if (hint != SlotKind::Double && record.IsVertex() && IsPropertyAllowed(record.ValueVertex(), walked.front())) {
       int64_t value = 0;
       switch (record.ValueVertex().impl_.ReadIntProperty(walked, view_, value)) {
         case storage::VertexAccessor::IntRead::Ok:
-          return value;
+          return {.kind = SlotKind::Int, .bits = value};
         case storage::VertexAccessor::IntRead::Null:
-          return std::nullopt;
+          return {};
         case storage::VertexAccessor::IntRead::NotAnInt:
-          refused = true;
-          return std::nullopt;
+          // Something is there and it is not an integer. What it is takes the
+          // ordinary read to say, which is the one below.
+          break;
         case storage::VertexAccessor::IntRead::HasDeltas:
           break;
       }
@@ -780,24 +782,23 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto const boxed = ReadProperty(record, property_ixs.front());
     auto const *value = &boxed;
     for (auto const inner : walked.subspan(1)) {
-      if (value->IsNull()) return std::nullopt;
+      if (value->IsNull()) return {};
       // Reaching inside anything else is what the evaluator complains about,
       // in words that depend on what it found.
       if (!value->IsMap()) {
         refused = true;
-        return std::nullopt;
+        return {};
       }
       auto const &map = value->ValueMap();
       auto const found = map.find(inner);
-      if (found == map.end()) return std::nullopt;
+      if (found == map.end()) return {};
       value = &found->second;
     }
-    if (value->IsNull()) return std::nullopt;
-    if (!value->IsInt()) {
-      refused = true;
-      return std::nullopt;
-    }
-    return value->ValueInt();
+    if (value->IsNull()) return {};
+    if (value->IsInt()) return {.kind = SlotKind::Int, .bits = value->ValueInt()};
+    if (value->IsDouble()) return {.kind = SlotKind::Double, .bits = std::bit_cast<int64_t>(value->ValueDouble())};
+    refused = true;
+    return {};
   }
 
   std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) {

@@ -32,6 +32,20 @@ class ExpressionEvaluator;
 /// cannot act on, so it hands the row back.
 enum class Truth : int8_t { False = 0, True = 1, Null = 2, Refused = 3 };
 
+/// What a working slot is holding. The value itself is kept as eight bytes
+/// whatever it is, so the kind is what says how to read them and what two slots
+/// may be compared as. A double is held as its bits.
+///
+/// `Unknown` is a slot that holds nothing, which is what a missing property
+/// leaves, and makes a comparison against it null.
+enum class SlotKind : uint8_t { Unknown, Int, Double };
+
+/// A value taken out of a record without a TypedValue built around it.
+struct Scalar {
+  SlotKind kind{SlotKind::Unknown};
+  int64_t bits{0};
+};
+
 /// One expression compiled to work on values that are not boxed. Which type
 /// each operand will hold is guessed when the program is built and checked
 /// every time it is run, so a wrong guess costs a refusal rather than a wrong
@@ -99,6 +113,7 @@ class TypedProgram {
     LoadPropTime,
     EvalTime,
     ConstInt,  // from the expression itself, so never in doubt
+    ConstDouble,
     // A property compared with something the query names. This is what almost
     // every filter is, and running it as one instruction keeps the loop that
     // walks a program from being most of the cost of a short one.
@@ -144,19 +159,20 @@ class TypedProgram {
     int32_t path_len;
     LabelsTest *labels{nullptr};
     Expression *delegated{nullptr};
+    /// What this instruction's property turned out to hold last time, which
+    /// says which read to try first. Reading an integer where it lies is the
+    /// cheap way to get one and the wasted way to find anything else, since the
+    /// record is then walked a second time to say what is really there.
+    ///
+    /// Only an opening guess: whatever the read answers is the answer, so a
+    /// property whose type varies costs a walk rather than a wrong result. A
+    /// cursor builds its own program, so nothing else is writing this.
+    mutable SlotKind seen{SlotKind::Unknown};
   };
 
   /// Whether the program's result is an answer or an integer. Which one a
   /// caller wants is settled when it compiles, not when it runs.
   enum class Shape : uint8_t { Predicate, Integer };
-
-  /// What a working slot is holding. The value itself is kept as eight bytes
-  /// whatever it is, so the kind is what says how to read them, and what two
-  /// slots may be compared as.
-  ///
-  /// `Unknown` is a slot that holds nothing, which is what a missing property
-  /// leaves, and makes a comparison against it null.
-  enum class SlotKind : uint8_t { Unknown, Int };
 
   /// Runs the code and leaves the slots behind for whichever result is wanted.
   /// Only what says whether a slot holds anything starts out cleared: every
@@ -175,6 +191,12 @@ class TypedProgram {
   std::span<int32_t const> PathOf(Instr const &in) const {
     return {paths_.data() + in.path_at, static_cast<size_t>(in.path_len)};
   }
+
+  /// How one slot stands against another, for the six comparisons a program
+  /// has. Follows the relations the evaluator reads, which a program answering
+  /// differently would be wrong against.
+  [[gnu::noinline]] static Truth CompareSlots(Op op, SlotKind left_kind, int64_t left, SlotKind right_kind,
+                                              int64_t right);
 
   bool Execute(Frame const &frame, ExpressionEvaluator *reader, Parameters const *parameters, Slots &slots) const;
 

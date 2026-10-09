@@ -449,14 +449,13 @@ TYPED_TEST(QueryPlan, AFilterStopsRunningAProgramNoRowFits) {
 
   memgraph::storage::LabelId const label = dba.NameToLabel("Label");
   auto const property = PROPERTY_PAIR(dba, "Property");
-  // Every row holds a double, which is not what a compiled comparison holds,
-  // so no row can be taken however many are offered.
+  // Every row holds a string, which is not something a compiled comparison can
+  // hold, so no row can be taken however many are offered.
   constexpr int64_t kRows = 500;
   for (int64_t at = 0; at != kRows; ++at) {
     auto vertex = dba.InsertVertex();
     ASSERT_TRUE(vertex.AddLabel(label).has_value());
-    ASSERT_TRUE(vertex.SetProperty(property.second, memgraph::storage::PropertyValue(static_cast<double>(at) + 0.5))
-                    .has_value());
+    ASSERT_TRUE(vertex.SetProperty(property.second, memgraph::storage::PropertyValue(std::to_string(at))).has_value());
   }
   dba.AdvanceCommand();
 
@@ -471,15 +470,19 @@ TYPED_TEST(QueryPlan, AFilterStopsRunningAProgramNoRowFits) {
                           GREATER(PROPERTY_LOOKUP(dba, n.node_->identifier_, property), PARAMETER_LOOKUP(1)));
   auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
   auto context = MakeContext(this->storage, symbol_table, &dba);
-  context.evaluation_context.parameters.Add(1, memgraph::storage::ExternalPropertyValue(10.0));
+  context.evaluation_context.parameters.Add(1, memgraph::storage::ExternalPropertyValue(std::string{"10"}));
 
   auto const before = Filter::GetRowCounts();
   auto const matched = PullAll(*filter, &context);
   auto const after = Filter::GetRowCounts();
 
-  // What the evaluator would have answered. The row holding `at + 0.5` is
-  // above ten from the eleventh row on.
-  EXPECT_EQ(matched, kRows - 10);
+  // What the evaluator would have answered, which is every row whose decimal
+  // spelling sorts after "10".
+  int64_t expected = 0;
+  for (int64_t at = 0; at != kRows; ++at) {
+    if (std::to_string(at) > std::string{"10"}) ++expected;
+  }
+  EXPECT_EQ(matched, expected);
   EXPECT_EQ(after.compiled - before.compiled, 0) << "no row fits the guess";
   EXPECT_LT(after.deopt - before.deopt, kRows) << "the program was still being run on the last row";
 }
