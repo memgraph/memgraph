@@ -101,6 +101,7 @@ struct Indices {
     /// already taken the link out, and the deltas that would put it back are the only remaining
     /// record. Callers therefore hand the deltas over rather than the type, because a caller that
     /// had to find the type itself would silently do nothing in exactly that case.
+    /// Takes the source vertex's lock shared, so the caller must not hold the edge's lock (vertices rank before edges).
     auto FindEdgeLink(Vertex *from_vertex, Edge *edge, delta_container const &deltas) noexcept
         -> std::optional<std::pair<EdgeTypeId, Vertex *>>;
 
