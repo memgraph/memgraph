@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <set>
@@ -195,7 +196,21 @@ class AuthLayer {
     // to both as it goes, so putting it behind the overlay would let a failed flush leave the cache holding a
     // change the store never took. Profiles are not transactional on the main either, which is why a profile
     // write is refused inside a transaction there -- so a batch carrying one always carries only that one, and
-    // there is nothing for it to be atomic across.
+    // there is nothing for it to be atomic across. That holds only while the main keeps to it, so a batch that
+    // breaks it is refused here rather than half applied.
+    auto const carries_profile = [](replication::AuthOp const &op) {
+      if (auto const *update = std::get_if<replication::AuthUpdateOp>(&op)) return update->profile.has_value();
+      auto const *drop = std::get_if<replication::AuthDropOp>(&op);
+      return drop && drop->type == replication::AuthDataType::PROFILE;
+    };
+    auto const carries_record = [](replication::AuthOp const &op) {
+      auto const *update = std::get_if<replication::AuthUpdateOp>(&op);
+      return update && (update->user || update->role);
+    };
+    if (std::ranges::any_of(ops, carries_profile) && (ops.size() > 1 || carries_record(ops.front()))) {
+      spdlog::warn("Refusing an auth batch of {} operation(s) that mixes a profile with other records", ops.size());
+      return false;
+    }
     try {
       {
         auto locked = auth_->Lock();

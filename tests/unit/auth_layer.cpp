@@ -255,11 +255,25 @@ TEST_F(AuthLayerTest, ABatchToleratesADropThatNamesNothing) {
 // failure.
 TEST_F(AuthLayerTest, ABatchToleratesAProfileDropThatNamesNothing) {
   std::vector<memgraph::replication::AuthOp> ops;
-  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}});
   ops.emplace_back(memgraph::replication::AuthDropOp{memgraph::replication::AuthDataType::PROFILE, "no_such_profile"});
 
   EXPECT_TRUE(layer_->ApplyBatch(ops));
-  EXPECT_TRUE(layer_->Lock()->HasUser("alice")) << "the rest of the batch must still apply";
+}
+
+// Profiles apply outside the overlay, so a batch is all-or-none only while a profile travels alone. A batch that
+// mixes one with other records, in one operation or several, is refused before anything is applied.
+TEST_F(AuthLayerTest, ABatchMixingAProfileWithOtherRecordsIsRefused) {
+  std::vector<memgraph::replication::AuthOp> ops;
+  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}});
+  ops.emplace_back(memgraph::replication::AuthDropOp{memgraph::replication::AuthDataType::PROFILE, "no_such_profile"});
+  EXPECT_FALSE(layer_->ApplyBatch(ops));
+  EXPECT_FALSE(layer_->Lock()->HasUser("alice")) << "a refused batch must not apply its other records";
+
+  memgraph::replication::AuthUpdateOp both{memgraph::auth::User{"bob"}};
+  both.profile.emplace();
+  both.profile->name = "limited";
+  EXPECT_FALSE(layer_->ApplyBatch({both}));
+  EXPECT_FALSE(layer_->Lock()->HasUser("bob"));
 }
 
 // The point of batching: an operation that throws part-way leaves the store exactly as it was, so a replica
