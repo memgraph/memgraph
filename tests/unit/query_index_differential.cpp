@@ -528,6 +528,48 @@ TEST_F(IndexDifferentialTest, EveryIndexAScanCanStandInForRefusesThePairASortRef
   }
 }
 
+TEST_F(IndexDifferentialTest, AWalkRefusesOnlyThePairsTheSortWouldHaveBeenAsked) {
+  // The refusal is asked of the rows the walk produces, and the sort it stands
+  // in for would have been asked of the rows that reached it. Anything between
+  // the two that drops a row makes those two sets different, and a pair the
+  // walk reaches may be one the sort never saw.
+  //
+  // A global index walks every vertex carrying the property, whatever its
+  // label, so a label test above it is exactly such a drop: the maps never
+  // reach the sort, and the query answers rather than refusing.
+  Run("MATCH (n) DETACH DELETE n;");
+  Run("CREATE (:N {p: 2}), (:N {p: 1});");
+  Run("CREATE (:M {p: {a: 1}}), (:M {p: {a: 2}});");
+
+  auto const query = std::string{"MATCH (n:N) WHERE n.p IS NOT NULL RETURN n.p AS v ORDER BY n.p;"};
+  auto const without_index = Answer(query);
+
+  Run("CREATE GLOBAL INDEX ON :(p);");
+  auto const with_index = Answer(query);
+  Run("DROP GLOBAL INDEX ON :(p);");
+
+  EXPECT_EQ(without_index, (std::vector<std::string>{"1", "2"})) << "the column the sort read holds two integers";
+  EXPECT_EQ(with_index, without_index) << "a global index refused a pair the label test keeps from the sort";
+}
+
+TEST_F(IndexDifferentialTest, AFilterAboveAWalkKeepsThePairsItDropsFromTheRefusal) {
+  // The same question of the label index, where the filter that drops the rows
+  // is one the scan could not absorb. Only the integer reaches the sort, which
+  // places a single row and compares nothing, so the query answers.
+  Run("MATCH (n) DETACH DELETE n;");
+  Run("CREATE (:O {k: 1, p: 1}), (:O {k: 2, p: {a: 1}}), (:O {k: 3, p: {a: 2}});");
+
+  auto const query = std::string{"MATCH (n:O) WHERE n.p IS NOT NULL AND n.k = 1 RETURN n.p AS v ORDER BY n.p;"};
+  auto const without_index = Answer(query);
+
+  Run("CREATE INDEX ON :O(p);");
+  auto const with_index = Answer(query);
+  Run("DROP INDEX ON :O(p);");
+
+  EXPECT_EQ(without_index, (std::vector<std::string>{"1"})) << "one row reaches the sort";
+  EXPECT_EQ(with_index, without_index) << "an index refused a pair the filter keeps from the sort";
+}
+
 TEST_F(IndexDifferentialTest, AnIndexWalksTheTemporalKindsInTheOrderASortReadsThem) {
   // One stored type carries four of the date and time kinds and tells them apart
   // before anything else, so a column of all four is walked kind by kind. A sort

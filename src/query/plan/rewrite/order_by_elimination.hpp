@@ -64,6 +64,10 @@ class OrderByEliminator {
     bool well_formed{false};
     bool order_preserving_path{true};  // set false if walk from first scan to OrderBy fails
 
+    /// Whether the rows a scan walks are the rows the sort would have been
+    /// asked about, which is what lets a walk refuse in the sort's place.
+    bool every_row_reaches_the_sort{true};
+
     [[nodiscard]] bool has_pending_entries() const {
       return std::ranges::any_of(entries, [](const auto &e) { return !e.has_path(); });
     }
@@ -231,6 +235,12 @@ class OrderByEliminator {
         ctx.order_preserving_path = false;
         break;
       }
+      // Only what this walk can settle now. A row-dropping operator is left to
+      // the pass over the finished plan, since the filter a scan is about to
+      // absorb still sits here and would withdraw the refusal from the queries
+      // it is for. An operator with more than one input is not absorbed, and
+      // that pass cannot see past it, so it is settled here instead.
+      if (!(*it)->HasSingleInput()) ctx.every_row_reaches_the_sort = false;
     }
   }
 
@@ -334,6 +344,8 @@ class OrderByEliminator {
   /// the sort refuses the pairs the sort would have refused.
   static void TellScansTheyStandInForTheSort(const OrderByInfo &ctx,
                                              const std::vector<std::vector<std::size_t>> &sort_columns) {
+    if (!ctx.every_row_reaches_the_sort) return;
+
     for (size_t i = 0; i != sort_columns.size(); ++i) {
       std::visit(
           [&](auto *s) {
@@ -388,5 +400,50 @@ class OrderByEliminator {
     return entry_idx == ctx.entries.size();
   }
 };
+
+/// Does every row handed to this operator reach the one above it, carrying the
+/// value a sort would have read?
+///
+/// Narrower than keeping the order, and asked for a different reason. An
+/// operator may drop a row and leave the rest in order, which is enough to drop
+/// the sort and not enough to refuse in its place: a pair the walk beneath
+/// reaches would be one the sort was never asked about. A mutation is excluded
+/// for the other half of the question, since it can rewrite the very value the
+/// walk compared.
+inline bool EveryRowIsHandedOn(const utils::TypeInfo &type_info) {
+  return type_info == ConstructNamedPath::kType || type_info == Produce::kType || type_info == Accumulate::kType ||
+         type_info == SetLabels::kType || type_info == RemoveLabels::kType;
+}
+
+/// Leaves a walk refusing in a sort's place only where every row it hands up
+/// reaches that place.
+///
+/// Read from the finished plan rather than while it is being rewritten. At
+/// rewrite time the filter a scan is about to absorb still sits above it, and
+/// reading the plan then would withdraw the refusal from exactly the queries it
+/// exists for.
+inline std::unique_ptr<LogicalOperator> KeepTheRefusalWhereNothingDropsARow(std::unique_ptr<LogicalOperator> root) {
+  auto a_row_may_be_dropped = false;
+
+  for (auto *op = root.get(); op != nullptr;) {
+    if (a_row_may_be_dropped) {
+      if (auto *scan = dynamic_cast<ScanAllByLabelProperties *>(op)) {
+        scan->sort_columns_.clear();
+      } else if (auto *vertex_scan = dynamic_cast<ScanAllByVertexProperty *>(op)) {
+        vertex_scan->stands_in_for_a_sort_ = false;
+      } else if (auto *edge_type_scan = dynamic_cast<ScanAllByEdgeTypeProperty *>(op)) {
+        edge_type_scan->stands_in_for_a_sort_ = false;
+      } else if (auto *edge_scan = dynamic_cast<ScanAllByEdgeProperty *>(op)) {
+        edge_scan->stands_in_for_a_sort_ = false;
+      }
+    }
+
+    if (!EveryRowIsHandedOn(op->GetTypeInfo())) a_row_may_be_dropped = true;
+    if (!op->HasSingleInput()) break;
+    op = op->input().get();
+  }
+
+  return root;
+}
 
 }  // namespace memgraph::query::plan
