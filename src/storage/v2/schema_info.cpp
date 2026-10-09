@@ -92,10 +92,11 @@ enum State { NO_CHANGE, THIS_TX, ANOTHER_TX };
 
 // A delta is in the base snapshot when its stamp is below `snapshot_bound`, so `>= snapshot_bound` means another
 // transaction wrote it. The comparison is exact at the boundary either way: narrowing makes the bound snapshot_ts + 1,
-// and otherwise it is a start timestamp, which no commit stamp ever equals. `commit_timestamp` is tested for equality
-// against a delta's own timestamp, so it must come from the same sequence the delta carries: the local commit stamp. A
-// durable timestamp is the main's on a replica, and passing one here leaves a transaction unable to recognise its own
-// writes.
+// and otherwise it is a start timestamp, which no commit stamp ever equals.
+//
+// `commit_timestamp` is tested for equality against a delta's own timestamp, so it must come from the same sequence
+// the delta carries: the local commit stamp. A durable timestamp is the main's on a replica, and passing one here
+// leaves a transaction unable to recognise its own writes.
 inline State GetState(const Delta *delta, uint64_t snapshot_bound, uint64_t commit_timestamp,
                       bool traverse_chain = false) {
   // This tx is running, so no deltas means there are no changes made after the tx started

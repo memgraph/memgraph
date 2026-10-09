@@ -248,8 +248,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     return;
   }
 
-  // Under commit-lock-narrowing ldt advances at publish, in a fresh engine_lock_ hold after the post-mint release;
-  // take commit_mutex_ first (before engine_lock_) to order against an in-flight commit.
+  // ldt advances at publish, which a committer reaches under commit_mutex_, so the engine lock below
+  // is not on its own enough to read a current value.
   auto commit_serializer = static_cast<InMemoryStorage *>(main_storage)->LockCommitMutexIfNarrowing();
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
@@ -956,8 +956,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                main_uuid = main_uuid_,
                &main_db_name,
                repl_mode = client_.mode_](RecoveryCurrentWal const &current_wal) {
-                // Under commit-lock-narrowing the committer holds commit_mutex_ (not engine_lock_) across its WAL
-                // append; take it (before engine_lock_) to keep the WAL stable while reading seq and toggling flushing.
+                // Keeps the WAL stable while reading seq and toggling flushing.
                 auto commit_serializer = main_mem_storage->LockCommitMutexIfNarrowing();
                 std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
                 if (main_mem_storage->wal_file_ &&
@@ -1046,8 +1045,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   // could check that the replica state isn't replicating, this recovery sets the
   // replica state to ready. When the next txn starts, we are in state ready without
   // actually sending data to replica
-  // Under commit-lock-narrowing ldt advances at publish, in a fresh engine_lock_ hold after the post-mint release;
-  // take commit_mutex_ first (before engine_lock_) to order against an in-flight commit.
+  // ldt advances at publish, which a committer reaches under commit_mutex_, so the engine lock below
+  // is not on its own enough to read a current value.
   auto commit_serializer = main_mem_storage->LockCommitMutexIfNarrowing();
   auto lock = std::lock_guard{main_storage->engine_lock_};
   const auto last_durable_timestamp =

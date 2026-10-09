@@ -1111,8 +1111,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // There are probably others. We not to check all of them and figure out if they are allowed and what are
   // they even doing here...
 
-  // Write transaction to WAL while holding the engine lock (under commit-lock narrowing it is released
-  // first and commit_mutex_ provides the ordering) to make sure
+  // Write transaction to WAL under whichever lock is serialising committers here, so
   // that committed transactions are sorted by the commit timestamp in the
   // WAL files. We supply the new commit timestamp to the function so that
   // it knows what will be the final commit timestamp. The WAL must be
@@ -1431,8 +1430,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
-  // Advance the SI snapshot boundary so the next batch sees this one.
-  // With the experiment OFF, snapshot_ts equals start_timestamp and is inert to the read path.
+  // So the next batch sees what this one committed. With the experiment OFF snapshot_ts equals
+  // start_timestamp, so this is inert to the read path.
   transaction_.snapshot_ts = new_transaction.snapshot_ts;
   transaction_.commit_info.reset();
   // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
@@ -4798,9 +4797,8 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
   // When creating a snapshot, we first lock the snapshot, then create the accessor, so no need for the snapshot lock
   // GC could be running without the main lock, so lock it
   // Engine lock is needed because of PrepareForNewEpoch
-  // This runs straight off a query with no exclusive hold on main_lock_, so a commit can be in flight. Under
-  // commit-lock-narrowing that commit appends to wal_file_ holding commit_mutex_ alone, and the reset below
-  // would free the file under it, so take commit_mutex_ first.
+  // Runs straight off a query with no exclusive hold on main_lock_, so a commit can be appending to
+  // wal_file_ and the reset below would free the file under it.
   auto commit_serializer = LockCommitMutexIfNarrowing();
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};

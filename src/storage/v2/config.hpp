@@ -123,9 +123,9 @@ struct Config {
     friend bool operator==(const Durability &lrh, const Durability &rhs) = default;
   } durability;
 
-  // EXPERIMENTAL, per-instance, RUNTIME-ONLY. Enables the commit-lock-narrowing
-  // MVCC path. MUST NOT be persisted or placed in SalientConfig:
-  // durable data must be identical regardless of this flag (flip across restart is safe).
+  // Selects the commit-lock-narrowing MVCC path. Startup-only and per-instance, so members of one
+  // cluster may disagree about it. Must stay out of SalientConfig: durable output must not depend on
+  // it, which is what lets an instance restart with the flag flipped and still recover what it wrote.
   bool experimental_commit_lock_narrowing{false};
 
   struct Transaction {

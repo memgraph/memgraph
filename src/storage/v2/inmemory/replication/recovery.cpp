@@ -86,11 +86,10 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   std::optional<uint64_t> current_wal_from_timestamp;
   uint64_t last_durable_timestamp{kTimestampInitialId};
 
-  // EXPERIMENTAL (commit-lock-narrowing): the committer holds commit_mutex_, not engine_lock_, across its WAL append;
-  // take it (before engine_lock_) to keep the current WAL stable.
+  // Both locks together are what keeps the current WAL file from changing underneath: the engine lock
+  // is no longer enough on its own, because a committer appends under commit_mutex_ alone.
   auto commit_serializer = main_storage->LockCommitMutexIfNarrowing();
-  std::unique_lock transaction_guard(
-      main_storage->engine_lock_);  // Hold the main_storage lock so the current wal file cannot be changed
+  std::unique_lock transaction_guard(main_storage->engine_lock_);
 
   (void)locker_acc.AddPath(main_storage->recovery_.wal_directory_);  // Protect all WALs from being deleted
   // Read in finalized WAL files (excluding the current/active WAL)

@@ -93,7 +93,7 @@ std::unique_ptr<InMemoryStorage> MakeStorageManualGc(bool flag_on) {
 }
 
 // Synchronous GC pass with an EMPTY guard: readers stay open across the pass and hold main_lock_
-// SHARED, so an adopted UNIQUE hold (as in storage_v2_gc.cpp) would deadlock.
+// SHARED, so passing an adopted UNIQUE hold here would deadlock.
 void RunGc(InMemoryStorage &s) { s.FreeMemory({}, false); }
 
 // Overwrites "p" of `gid` in a fresh WRITE accessor and commits, appending a delta-chain version.
