@@ -386,31 +386,14 @@ inline void CheckGraphMemoryForIndexDrop(std::string_view index_name, std::size_
   }
 }
 
-/// @brief Guards usearch try_reserve (noexcept, zero-fills its key lookup): too large a reserve aborts or OOM-kills.
-/// @throws VectorSearchException beyond the 40-bit slot-id range; utils::OutOfMemoryException beyond the memory limit.
+/// @brief Rejects capacities beyond the 40-bit slot-id range that usearch can address.
+/// @throws VectorSearchException if capacity exceeds the 40-bit slot-id range.
 inline void CheckVectorIndexReserve(std::string_view index_name, std::size_t capacity) {
   // uint40_t::max() is usearch's free-slot sentinel.
   constexpr std::size_t kMaxCapacity = (std::size_t{1} << 40U) - 1;
   if (capacity > kMaxCapacity) {
     throw VectorSearchException(
         "Vector index '{}' capacity {} exceeds the maximum of {}.", index_name, capacity, kMaxCapacity);
-  }
-  const auto total_limit = utils::total_memory_tracker.HardLimit();
-  if (total_limit <= 0) return;
-  // Lower bound of what try_reserve allocates per member: node and vector pointers plus key lookup slots.
-  constexpr std::size_t kMinBytesPerMember = 3 * sizeof(void *);
-  const auto estimated_cost = static_cast<int64_t>(capacity * kMinBytesPerMember);
-  const auto current_usage = utils::total_memory_tracker.Amount();
-  if (current_usage + estimated_cost > total_limit) {
-    throw utils::OutOfMemoryException(
-        fmt::format("Reserving capacity {} for vector index '{}' would require at least {} of memory, "
-                    "but only {} is available (current usage: {}, limit: {}).",
-                    capacity,
-                    index_name,
-                    utils::GetReadableSize(estimated_cost),
-                    utils::GetReadableSize(std::max(total_limit - current_usage, int64_t{0})),
-                    utils::GetReadableSize(current_usage),
-                    utils::GetReadableSize(total_limit)));
   }
 }
 

@@ -49,7 +49,6 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
-#include "utils/memory_tracker.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/synchronized.hpp"
 
@@ -3255,34 +3254,14 @@ TYPED_TEST(InterpreterTest, VectorIndexHugeCapacityIsRejectedWithoutCreatingInde
     }
   };
 
-  auto &tracker = memgraph::utils::total_memory_tracker;
-  auto const prev_limit = tracker.HardLimit();
-  memgraph::utils::OnScopeExit restore_limit{[&] { tracker.SetHardLimit(prev_limit); }};
-  constexpr int64_t kMiB = int64_t{1} << 20;
-
   for (const std::string create :
        {"CREATE VECTOR INDEX huge ON :H(v) WITH CONFIG ", "CREATE VECTOR EDGE INDEX huge ON :HR(v) WITH CONFIG "}) {
-    tracker.SetHardLimit(prev_limit);
     expect_throws(create + R"({"dimension": 2, "capacity": 4611686018427387904})",
                   "exceeds the maximum of 1099511627775");
-
-    // 10M members need >= 240MB, over the limit, yet stay harmless should the check regress.
-    tracker.SetHardLimit(tracker.Amount() + 64 * kMiB);
-    expect_throws(create + R"({"dimension": 2, "capacity": 10000000})", "would require at least");
   }
-  tracker.SetHardLimit(prev_limit);
-
-  this->Interpret(
-      R"(CREATE VECTOR INDEX grow ON :G(v) WITH CONFIG {"dimension": 2, "capacity": 10, "resize_coefficient": 65535})");
-  tracker.SetHardLimit(tracker.Amount() + 16 * kMiB);
-  expect_throws("UNWIND range(1, 200) AS i CREATE (:G {v: [1.0, 2.0]})", "would require at least");
-  tracker.SetHardLimit(prev_limit);
-
-  auto const info = this->Interpret("SHOW VECTOR INDEX INFO").GetResults();
-  ASSERT_EQ(info.size(), 1U);
-  EXPECT_EQ(info[0][0].ValueString(), "grow");
+  EXPECT_EQ(this->Interpret("SHOW VECTOR INDEX INFO").GetResults().size(), 0U);
 
   this->Interpret(R"(CREATE VECTOR INDEX ok ON :K(v) WITH CONFIG {"dimension": 2, "capacity": 10})");
   this->Interpret("CREATE (:K {v: [1.0, 2.0]})");
-  EXPECT_EQ(this->Interpret("SHOW VECTOR INDEX INFO").GetResults().size(), 2U);
+  EXPECT_EQ(this->Interpret("SHOW VECTOR INDEX INFO").GetResults().size(), 1U);
 }
