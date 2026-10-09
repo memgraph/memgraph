@@ -14508,7 +14508,7 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
 
     // Write TTL info if configured
     if (storage->ttl_.Enabled() && storage->ttl_.Config()) {
-      snapshot.WriteBool(storage->ttl_.Running() && !storage->ttl_.Paused());
+      snapshot.WriteBool(storage->ttl_.Wanted());
       const auto &info = storage->ttl_.Config();
 
       // Write period
