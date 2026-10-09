@@ -25,6 +25,7 @@
 namespace memgraph::query {
 
 class Frame;
+class ExpressionEvaluator;
 
 /// Three-valued, because a null operand makes a predicate null, with a fourth
 /// state for a value that is no truth value at all. The fourth is what a caller
@@ -39,58 +40,10 @@ enum class Truth : int8_t { False = 0, True = 1, Null = 2, Refused = 3 };
 /// A program is built once for a plan and read by every execution of it, so it
 /// holds nothing that changes while it runs. The working values live on the
 /// frame, which belongs to one execution.
-/// What a typed program needs beyond the frame: what a vertex or an edge says.
-/// Answering involves a view, a permission check, and the handling of a record
-/// that has been deleted, all of which already exist on the evaluator, so a
-/// program asks rather than repeats it. What the program saves is the value
-/// built around the answer, not the work of finding it.
 /// How far inside a stored value a compiled read will reach. A path this long
 /// is already unusual, and the limit lets a read name its steps on the stack
 /// rather than allocating for every row.
 inline constexpr size_t kMaxPathDepth = 4;
-
-class RecordReader {
- public:
-  RecordReader() = default;
-  RecordReader(RecordReader const &) = default;
-  RecordReader(RecordReader &&) = default;
-  RecordReader &operator=(RecordReader const &) = default;
-  RecordReader &operator=(RecordReader &&) = default;
-  virtual ~RecordReader() = default;
-
-  /// Null when the record has no such property, or when it may not be read.
-  /// Throws what the ordinary evaluator throws for a record that is gone.
-  /// The property is named by its place in the query's table of them, which is
-  /// all a read needs: an instruction that carried the name too would be half
-  /// a string wide, and every row walks every instruction.
-  virtual storage::PropertyValue ReadProperty(TypedValue const &record, int32_t property_ix) = 0;
-
-  /// Reads an integer property without a value being built around it. Nothing
-  /// when the property is missing, which makes a comparison against it null;
-  /// `refused` when it is there and is not an integer, which is a guess the
-  /// program got wrong.
-  ///
-  /// A path of more than one reaches inside a stored map, naming each step by
-  /// its place in the query's table of properties. Every step but the last has
-  /// to be a map for the read to mean what `a.b.c` means.
-  virtual std::optional<int64_t> ReadIntProperty(TypedValue const &record, std::span<int32_t const> property_ixs,
-                                                 bool &refused) = 0;
-
-  /// Nothing when the record is null, which makes the test null. Throws what
-  /// the ordinary evaluator throws when the record is not a node.
-  virtual std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) = 0;
-
-  /// Evaluates an expression a program does not cover and reads it as a truth
-  /// value. Refused when it is no truth value, which the evaluator would have
-  /// complained about in words the caller still has to produce.
-  virtual Truth EvaluateTruth(Expression &expression) = 0;
-
-  /// Evaluates an expression a program does not cover and reads it as a local
-  /// date time, in the microseconds its ordering is defined on. Nothing when it
-  /// is null or is no local date time at all; the caller tells those apart by
-  /// asking first whether the expression was null.
-  virtual std::optional<int64_t> EvaluateLocalDateTime(Expression &expression, bool &was_null) = 0;
-};
 
 class TypedProgram {
  public:
@@ -113,12 +66,12 @@ class TypedProgram {
   /// guess settled on.
   /// `source` and `parameters` may be null when no instruction needs them; a
   /// program that reads one without it refuses the row rather than guessing.
-  Answer Run(Frame const &frame, RecordReader *reader = nullptr, Parameters const *parameters = nullptr) const;
+  Answer Run(Frame const &frame, ExpressionEvaluator *reader = nullptr, Parameters const *parameters = nullptr) const;
 
   /// Writes what the program computes into `out`. False means a guard refused,
   /// and `out` is left as it was, so the caller evaluates the expression the
   /// ordinary way. A missing operand is written as null rather than refused.
-  bool RunInto(Frame const &frame, TypedValue &out, RecordReader *reader = nullptr,
+  bool RunInto(Frame const &frame, TypedValue &out, ExpressionEvaluator *reader = nullptr,
                Parameters const *parameters = nullptr) const;
 
   /// How many of the instructions hand an expression back to the evaluator.
@@ -215,12 +168,12 @@ class TypedProgram {
     return {paths_.data() + in.path_at, static_cast<size_t>(in.path_len)};
   }
 
-  bool Execute(Frame const &frame, RecordReader *reader, Parameters const *parameters, Slots &slots) const;
+  bool Execute(Frame const &frame, ExpressionEvaluator *reader, Parameters const *parameters, Slots &slots) const;
 
   /// The instructions that come up rarely, kept out of the loop that runs the
   /// common ones. Every row walks the loop, so what sits in it is what decides
   /// how much of the instruction cache the loop needs.
-  bool RareOp(Instr const &in, Frame const &frame, RecordReader *reader, Slots &slots) const;
+  bool RareOp(Instr const &in, Frame const &frame, ExpressionEvaluator *reader, Slots &slots) const;
 
   std::vector<Instr> code_;
   /// Every instruction's property path, laid end to end. An instruction names

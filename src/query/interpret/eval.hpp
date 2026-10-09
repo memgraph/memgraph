@@ -318,11 +318,11 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
   DbAccessor *dba_;
 };
 
-class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordReader {
+class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   /// Lets a compiled program read a property without repeating what reading one
   /// involves: the view, the permission check, and a record that is gone.
-  storage::PropertyValue ReadProperty(TypedValue const &record, int32_t property_ix) override {
+  storage::PropertyValue ReadProperty(TypedValue const &record, int32_t property_ix) {
     RequireAccessor("Reading a property");
     if (record.IsVertex()) return GetPropertyById(record.ValueVertex(), ctx_->properties[property_ix]);
     if (record.IsEdge()) return GetPropertyById(record.ValueEdge(), ctx_->properties[property_ix]);
@@ -724,7 +724,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
     return true;
   }
 
-  std::optional<int64_t> EvaluateLocalDateTime(Expression &expression, bool &was_null) override {
+  std::optional<int64_t> EvaluateLocalDateTime(Expression &expression, bool &was_null) {
     auto const value = expression.Accept(*this);
     was_null = value.IsNull();
     if (!value.IsLocalDateTime()) return std::nullopt;
@@ -733,7 +733,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
     return value.ValueLocalDateTime().SysMicrosecondsSinceEpoch();
   }
 
-  Truth EvaluateTruth(Expression &expression) override {
+  Truth EvaluateTruth(Expression &expression) {
     auto const value = expression.Accept(*this);
     if (value.IsNull()) return Truth::Null;
     if (value.IsBool()) return value.ValueBool() ? Truth::True : Truth::False;
@@ -743,7 +743,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
   }
 
   std::optional<int64_t> ReadIntProperty(TypedValue const &record, std::span<int32_t const> property_ixs,
-                                         bool &refused) override {
+                                         bool &refused) {
     refused = false;
     if (property_ixs.empty() || property_ixs.size() > kMaxPathDepth) {
       refused = true;
@@ -800,7 +800,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
     return value->ValueInt();
   }
 
-  std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) override {
+  std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) {
     if (record.IsNull()) return std::nullopt;
     if (record.IsVertex()) return LabelsMatch(record.ValueVertex(), test);
     ThrowNotANode(test, record.type());

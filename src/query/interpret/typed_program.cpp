@@ -11,6 +11,7 @@
 
 #include "query/interpret/typed_program.hpp"
 
+#include "query/interpret/eval.hpp"
 #include "query/interpret/frame.hpp"
 
 #include <algorithm>
@@ -411,7 +412,8 @@ std::optional<TypedProgram> TypedProgram::Compile(Expression *expression, Expres
   return program;
 }
 
-bool TypedProgram::Execute(Frame const &frame, RecordReader *reader, Parameters const *parameters, Slots &slots) const {
+bool TypedProgram::Execute(Frame const &frame, ExpressionEvaluator *reader, Parameters const *parameters,
+                           Slots &slots) const {
   // Small enough to sit on the stack for the expressions this covers; a bigger
   // one would take these from the frame alongside the other working values.
   constexpr size_t kMaxSlots = 64;
@@ -646,7 +648,7 @@ finished:
   return true;
 }
 
-[[gnu::noinline]] bool TypedProgram::RareOp(Instr const &in, Frame const &frame, RecordReader *reader,
+[[gnu::noinline]] bool TypedProgram::RareOp(Instr const &in, Frame const &frame, ExpressionEvaluator *reader,
                                             Slots &slots) const {
   auto &ints = slots.ints;
   auto &int_known = slots.int_known;
@@ -730,13 +732,14 @@ finished:
   return true;
 }
 
-TypedProgram::Answer TypedProgram::Run(Frame const &frame, RecordReader *reader, Parameters const *parameters) const {
+TypedProgram::Answer TypedProgram::Run(Frame const &frame, ExpressionEvaluator *reader,
+                                       Parameters const *parameters) const {
   Slots slots;
   if (!Execute(frame, reader, parameters, slots)) return Answer::Refused;
   return slots.tris[result_];
 }
 
-bool TypedProgram::RunInto(Frame const &frame, TypedValue &out, RecordReader *reader,
+bool TypedProgram::RunInto(Frame const &frame, TypedValue &out, ExpressionEvaluator *reader,
                            Parameters const *parameters) const {
   Slots slots;
   if (!Execute(frame, reader, parameters, slots)) return false;

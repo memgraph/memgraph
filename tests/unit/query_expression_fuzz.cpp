@@ -309,7 +309,8 @@ struct CompiledOutcome {
 };
 
 CompiledOutcome RunCompiled(memgraph::query::TypedProgram const &program, memgraph::query::Frame const &frame,
-                            memgraph::query::RecordReader *reader, memgraph::query::Parameters const *parameters) {
+                            memgraph::query::ExpressionEvaluator *reader,
+                            memgraph::query::Parameters const *parameters) {
   using Answer = memgraph::query::TypedProgram::Answer;
   try {
     auto const answer = program.Run(frame, reader, parameters);
