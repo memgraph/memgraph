@@ -263,17 +263,35 @@ TEST_F(AuthLayerTest, ABatchToleratesAProfileDropThatNamesNothing) {
 // Profiles apply outside the overlay, so a batch is all-or-none only while a profile travels alone. A batch that
 // mixes one with other records, in one operation or several, is refused before anything is applied.
 TEST_F(AuthLayerTest, ABatchMixingAProfileWithOtherRecordsIsRefused) {
-  std::vector<memgraph::replication::AuthOp> ops;
-  ops.emplace_back(memgraph::replication::AuthUpdateOp{memgraph::auth::User{"alice"}});
-  ops.emplace_back(memgraph::replication::AuthDropOp{memgraph::replication::AuthDataType::PROFILE, "no_such_profile"});
-  EXPECT_FALSE(layer_->ApplyBatch(ops));
-  EXPECT_FALSE(layer_->Lock()->HasUser("alice")) << "a refused batch must not apply its other records";
+  using memgraph::replication::AuthDataType;
+  using memgraph::replication::AuthDropOp;
+  using memgraph::replication::AuthUpdateOp;
+  auto const profile = [](std::string name) {
+    memgraph::auth::UserProfiles::Profile p;
+    p.name = std::move(name);
+    return p;
+  };
+  ASSERT_TRUE(layer_->Lock()->CreateProfile("existing", {}));
 
-  memgraph::replication::AuthUpdateOp both{memgraph::auth::User{"bob"}};
-  both.profile.emplace();
-  both.profile->name = "limited";
-  EXPECT_FALSE(layer_->ApplyBatch({both}));
-  EXPECT_FALSE(layer_->Lock()->HasUser("bob"));
+  // A profile first, so it would be applied before the user if the batch got that far.
+  EXPECT_FALSE(layer_->ApplyBatch({AuthUpdateOp{profile("limited")}, AuthUpdateOp{memgraph::auth::User{"alice"}}}));
+  EXPECT_FALSE(
+      layer_->ApplyBatch({AuthDropOp{AuthDataType::PROFILE, "existing"}, AuthUpdateOp{memgraph::auth::User{"alice"}}}));
+
+  // A single operation carrying a profile and a role, or a profile and a user.
+  AuthUpdateOp role_and_profile{memgraph::auth::Role{"analyst"}};
+  role_and_profile.profile = profile("limited");
+  EXPECT_FALSE(layer_->ApplyBatch({role_and_profile}));
+  AuthUpdateOp user_and_profile{memgraph::auth::User{"bob"}};
+  user_and_profile.profile = profile("limited");
+  EXPECT_FALSE(layer_->ApplyBatch({user_and_profile}));
+
+  auto locked = layer_->Lock();
+  EXPECT_FALSE(locked->GetProfile("limited")) << "a refused batch must not apply its profile";
+  EXPECT_TRUE(locked->GetProfile("existing")) << "a refused batch must not apply its profile drop";
+  EXPECT_FALSE(locked->HasUser("alice")) << "a refused batch must not apply its other records";
+  EXPECT_FALSE(locked->HasUser("bob"));
+  EXPECT_FALSE(locked->HasRole("analyst"));
 }
 
 // The point of batching: an operation that throws part-way leaves the store exactly as it was, so a replica
