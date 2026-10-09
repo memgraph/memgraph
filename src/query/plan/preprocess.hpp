@@ -607,6 +607,8 @@ struct SubqueryMatching : Matching {
   std::optional<Symbol> symbol;
   /// For @c SubqueryKind::kSubquery, the body's own query parts.
   std::shared_ptr<QueryParts> subquery;
+  /// Copied from @c SubqueryExpression::element_symbols_.
+  std::unordered_set<Symbol> element_symbols;
 };
 
 inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }
