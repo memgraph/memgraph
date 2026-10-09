@@ -709,18 +709,16 @@ VertexAccessor::IntRead VertexAccessor::ReadIntProperty(std::span<PropertyId con
                                                         int64_t &out) const {
   VertexReadLock read_lock{vertex_};
   PropertyStore::IntRead found{};
-  Delta *delta = nullptr;
-  bool deleted = false;
   {
     auto const guard = read_lock.AcquireLock();
-    deleted = vertex_->deleted();
-    delta = vertex_->delta();
+    // A vertex nobody has changed says all there is to say about itself. One
+    // that has been changed needs its deltas applied, and applying them means
+    // building the value this exists to avoid, so the caller is sent the
+    // ordinary way. Asking first keeps the walk off a record whose answer would
+    // only be thrown away, which is every record a writing query has touched.
+    if (vertex_->delta() != nullptr || vertex_->deleted()) return IntRead::HasDeltas;
     found = vertex_->properties.ReadInt(path, out);
   }
-  // A vertex nobody has changed says all there is to say about itself. One that
-  // has been changed needs its deltas applied, and applying them means building
-  // the value this exists to avoid, so the caller is sent the ordinary way.
-  if (delta != nullptr || deleted) return IntRead::HasDeltas;
   if (view == View::NEW && transaction_->isolation_level == IsolationLevel::READ_UNCOMMITTED) {
     return IntRead::HasDeltas;
   }
