@@ -214,6 +214,35 @@ INSTANTIATE_TEST_SUITE_P(
                                      FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
                                      FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
 
+// A constant weight takes the hop-count search, which must agree with the weighted one under every arm.
+class ConstantFineGrainedKShortestTestInMemory : public ::testing::TestWithParam<FineGrainedTestType> {
+ public:
+  using StorageType = memgraph::storage::InMemoryStorage;
+
+  static void SetUpTestCase() {
+    memgraph::license::global_license_checker.EnableTesting();
+    db_ = std::make_unique<VertexDb<StorageType>>();
+  }
+
+  static void TearDownTestCase() { db_ = nullptr; }
+
+ protected:
+  static std::unique_ptr<VertexDb<StorageType>> db_;
+};
+
+std::unique_ptr<VertexDb<ConstantFineGrainedKShortestTestInMemory::StorageType>>
+    ConstantFineGrainedKShortestTestInMemory::db_{nullptr};
+
+TEST_P(ConstantFineGrainedKShortestTestInMemory, MatchesWeighted) {
+  this->db_->KShortestConstantMatchesWeighted(db_.get(), GetParam());
+}
+
+INSTANTIATE_TEST_SUITE_P(ConstantFineGrained, ConstantFineGrainedKShortestTestInMemory,
+                         testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
+                                         FineGrainedTestType::EDGE_TYPE_A_DENIED,
+                                         FineGrainedTestType::EDGE_TYPE_B_DENIED, FineGrainedTestType::LABEL_0_DENIED,
+                                         FineGrainedTestType::LABEL_3_DENIED));
+
 TEST_F(FineGrainedKShortestTestInMemory, DeniedHeadBlocksArcOnBothPasses) {
   db_->KShortestTestDeniedHeadBlocksArcOnBothPasses(db_.get());
 }

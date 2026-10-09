@@ -36,6 +36,7 @@
 #include "storage/v2/storage.hpp"
 #include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
+#include "utils/temporal.hpp"
 
 #include "formatters.hpp"
 
@@ -1291,6 +1292,288 @@ class Database {
         ADD_FAILURE() << "expected an error";
       } catch (const memgraph::query::QueryRuntimeException &e) {
         EXPECT_EQ(std::string(e.what()), expected);
+      }
+    }
+  }
+
+  // --- constant weight -----------------------------------------------------------------------------
+
+  // A weight lambda over symbols nothing reads, so its body is all that matters.
+  memgraph::query::plan::ExpansionLambda MakeConstantWeightLambda(memgraph::query::ExecutionContext &context,
+                                                                  memgraph::query::Expression *constant) {
+    return memgraph::query::plan::ExpansionLambda{context.symbol_table.CreateSymbol("weight_edge", true),
+                                                  context.symbol_table.CreateSymbol("weight_node", true),
+                                                  constant};
+  }
+
+  // A source with one out-edge into a target that 1000 other vertices also point at, at `|1`. The
+  // hop-count search finds the one-hop path from the source side; the weighted search builds its
+  // reverse tree from the target first and fetches every in-edge.
+  void KShortestConstantWeightRunsHopCursor(Database *db, bool as_parameter) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    constexpr int kFeeders = 1000;
+    std::vector<std::tuple<int, int, std::string>> graph_edges{{0, 1, "a"}};
+    for (int v = 2; v < kFeeders + 2; ++v) graph_edges.emplace_back(v, 1, "a");
+    auto [vertices, edges] = db->BuildGraph(&dba, std::vector<int>(kFeeders + 2, 0), graph_edges);
+    dba.AdvanceCommand();
+
+    // The server parses every non-null literal into a parameter, so that is the shape that matters.
+    memgraph::query::Expression *constant = LITERAL(1);
+    if (as_parameter) {
+      constant = PARAMETER_LOOKUP(0);
+      context.evaluation_context.parameters.Add(0, memgraph::storage::ExternalPropertyValue(int64_t{1}));
+    }
+    auto run = RunWeighted(db,
+                           dba,
+                           context,
+                           {vertices[0]},
+                           {vertices[1]},
+                           memgraph::query::EdgeAtom::Direction::OUT,
+                           {},
+                           -1,
+                           -1,
+                           1,
+                           MakeConstantWeightLambda(context, constant));
+    ASSERT_EQ(run.rows.size(), 1U);
+    EXPECT_EQ(run.rows[0][3].ValueInt(), 1);
+    EXPECT_LT(run.hops, 100) << "a constant weight must take the hop-count search";
+    dba.Abort();
+  }
+
+  // The constant is validated at the first edge a row may take, as the weighted search validates its
+  // weight: a row with nothing to take is empty rather than an error.
+  void KShortestConstantWeightValidatedAtFirstEdge(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    dba.AdvanceCommand();
+    const auto out = memgraph::query::EdgeAtom::Direction::OUT;
+    const std::string hint{memgraph::query::EdgeAtom::kKShortestWeightFirstHint};
+
+    // Vertex 3 has no out-edges.
+    EXPECT_TRUE(RunWeighted(db,
+                            dba,
+                            context,
+                            {vertices[3]},
+                            {vertices[0]},
+                            out,
+                            {},
+                            -1,
+                            -1,
+                            -1,
+                            MakeConstantWeightLambda(context, LITERAL(true)))
+                    .rows.empty());
+    // The filter rejects every edge.
+    EXPECT_TRUE(RunWeighted(db,
+                            dba,
+                            context,
+                            {vertices[0]},
+                            {vertices[3]},
+                            out,
+                            {},
+                            -1,
+                            -1,
+                            -1,
+                            MakeConstantWeightLambda(context, LITERAL(-1)),
+                            LITERAL(false))
+                    .rows.empty());
+
+    const std::vector<std::pair<memgraph::query::Expression *, std::string>> refused{
+        {LITERAL(true), hint}, {LITERAL(-1), "Weight must be non-negative, got -1."}};
+    for (const auto &[constant, expected] : refused) {
+      SCOPED_TRACE(expected);
+      try {
+        RunWeighted(db,
+                    dba,
+                    context,
+                    {vertices[0]},
+                    {vertices[3]},
+                    out,
+                    {},
+                    -1,
+                    -1,
+                    -1,
+                    MakeConstantWeightLambda(context, constant));
+        ADD_FAILURE() << "expected an error";
+      } catch (const memgraph::query::QueryRuntimeException &e) {
+        EXPECT_EQ(std::string(e.what()), expected);
+      }
+    }
+    dba.Abort();
+  }
+
+  // `(e, n | $c)` takes the hop-count search and `(e, n | e.one)`, with `one = c` on every edge, the
+  // weighted one. On random graphs, under every access arm, bound and filter, both must serve the
+  // same paths per hop class - a cut by `|k` may pick different paths inside the last class it
+  // reaches, so that class is compared by count - and every total must be `c` once per hop.
+  // One constant as an edge property, as a query parameter, and as the value a total compares to.
+  struct ConstantWeight {
+    memgraph::storage::PropertyValue property;
+    memgraph::storage::ExternalPropertyValue parameter;
+    memgraph::query::TypedValue value;
+  };
+
+  void KShortestConstantMatchesWeighted(Database *db, std::optional<FineGrainedTestType> arm) {
+    const memgraph::storage::TemporalData duration(memgraph::storage::TemporalType::Duration, 3);
+    const std::vector<ConstantWeight> constants{{memgraph::storage::PropertyValue(int64_t{2}),
+                                                 memgraph::storage::ExternalPropertyValue(int64_t{2}),
+                                                 memgraph::query::TypedValue(int64_t{2})},
+                                                {memgraph::storage::PropertyValue(0.1),
+                                                 memgraph::storage::ExternalPropertyValue(0.1),
+                                                 memgraph::query::TypedValue(0.1)},
+                                                {memgraph::storage::PropertyValue(duration),
+                                                 memgraph::storage::ExternalPropertyValue(duration),
+                                                 memgraph::query::TypedValue(memgraph::utils::Duration(3))}};
+    using Direction = memgraph::query::EdgeAtom::Direction;
+    for (int seed = 1; seed <= 4; ++seed) {
+      std::mt19937 rng(seed);
+      constexpr int kVertices = 7;
+      std::vector<std::tuple<int, int, std::string>> graph_edges;
+      std::vector<bool> keep;
+      for (int u = 0; u < kVertices; ++u) {
+        for (int v = 0; v < kVertices; ++v) {
+          if (u == v || rng() % 100 >= 35) continue;
+          graph_edges.emplace_back(u, v, rng() % 2 == 0 ? "a" : "b");
+          keep.push_back(rng() % 5 != 0);
+        }
+      }
+      for (size_t ci = 0; ci < constants.size(); ++ci) {
+        const auto &c = constants[ci];
+        for (auto direction : {Direction::OUT, Direction::IN, Direction::BOTH}) {
+          for (auto [lower, upper] : {std::pair{-1, -1}, std::pair{2, -1}, std::pair{-1, 3}, std::pair{2, 3}}) {
+            for (int limit : {-1, 2, 5}) {
+              for (bool filtered : {false, true}) {
+                SCOPED_TRACE(fmt::format("seed {} constant {} direction {} bounds {}..{} limit {} filtered {}",
+                                         seed,
+                                         ci,
+                                         static_cast<int>(direction),
+                                         lower,
+                                         upper,
+                                         limit,
+                                         filtered));
+                CompareConstantWithWeighted(
+                    db, arm, graph_edges, keep, kVertices, c, direction, lower, upper, limit, filtered);
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  void CompareConstantWithWeighted(Database *db, std::optional<FineGrainedTestType> arm,
+                                   const std::vector<std::tuple<int, int, std::string>> &graph_edges,
+                                   const std::vector<bool> &keep, int vertex_count, const ConstantWeight &c,
+                                   memgraph::query::EdgeAtom::Direction direction, int lower, int upper, int limit,
+                                   bool filtered) {
+    // Per (source, sink): hop count -> the paths served at it, and every total checked on the way.
+    using Served = std::map<std::pair<int, int>, std::map<size_t, std::vector<std::vector<int>>>>;
+    auto run = [&](bool constant) {
+      auto storage_dba = db->Access();
+      memgraph::query::DbAccessor dba(storage_dba.get());
+      memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+      auto [vertices, edges] = db->BuildGraph(&dba, std::vector<int>(vertex_count, 0), graph_edges);
+      for (size_t i = 0; i < edges.size(); ++i) {
+        MG_ASSERT(edges[i].SetProperty(dba.NameToProperty("one"), c.property).has_value());
+        MG_ASSERT(edges[i]
+                      .SetProperty(dba.NameToProperty("keep"), memgraph::storage::PropertyValue(bool{keep[i]}))
+                      .has_value());
+      }
+      dba.AdvanceCommand();
+
+      std::vector<std::string> edge_types{"a", "b"};
+#ifdef MG_ENTERPRISE
+      memgraph::auth::User user{"test"};
+      std::optional<memgraph::glue::FineGrainedAuthChecker> auth_checker;
+      if (arm) {
+        ApplyFineGrainedArm(user, *arm, direction, edge_types);
+        // Both lambdas read properties, and no property rules at all would read every one as null.
+        user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+        user.property_access_handler().edge_type_properties().GrantGlobal("*",
+                                                                          memgraph::auth::kAllPropertyPermissionTypes);
+        auth_checker.emplace(user, &dba);
+        context.auth_checker = &*auth_checker;
+      }
+#else
+      (void)arm;
+#endif
+      std::vector<memgraph::storage::EdgeTypeId> storage_edge_types;
+      for (const auto &t : edge_types) storage_edge_types.push_back(dba.NameToEdgeType(t));
+
+      memgraph::query::Expression *weight = nullptr;
+      if (constant) {
+        weight = PARAMETER_LOOKUP(0);
+        context.evaluation_context.parameters.Add(0, c.parameter);
+      }
+      auto weight_lambda = MakeWeightLambda(dba, context);
+      if (constant)
+        weight_lambda.expression = weight;
+      else {
+        auto *inner_edge = IDENT("weight_edge")->MapTo(weight_lambda.inner_edge_symbol);
+        weight_lambda.expression = PROPERTY_LOOKUP(dba, inner_edge, PROPERTY_PAIR(dba, "one"));
+      }
+      std::optional<memgraph::query::plan::ExpansionLambda> filter_lambda;
+      if (filtered) {
+        auto filter_edge_sym = context.symbol_table.CreateSymbol("filter_edge", true);
+        auto *filter_edge = IDENT("filter_edge")->MapTo(filter_edge_sym);
+        filter_lambda =
+            memgraph::query::plan::ExpansionLambda{filter_edge_sym,
+                                                   context.symbol_table.CreateSymbol("filter_node", true),
+                                                   PROPERTY_LOOKUP(dba, filter_edge, PROPERTY_PAIR(dba, "keep"))};
+      }
+
+      auto result = RunWeighted(db,
+                                dba,
+                                context,
+                                vertices,
+                                vertices,
+                                direction,
+                                storage_edge_types,
+                                lower,
+                                upper,
+                                limit,
+                                weight_lambda,
+                                nullptr,
+                                nullptr,
+                                filter_lambda);
+      Served served;
+      for (const auto &row : result.rows) {
+        auto ids = PathVertexIds(&dba, row);
+        const auto hops = row[2].ValueList().size();
+        auto expected_total = c.value;
+        for (size_t i = 1; i < hops; ++i) expected_total = expected_total + c.value;
+        if (expected_total.IsDouble()) {
+          EXPECT_NEAR(row[3].ValueDouble(), expected_total.ValueDouble(), 1e-12);
+        } else {
+          EXPECT_TRUE((row[3] == expected_total).ValueBool())
+              << "path " << memgraph::utils::JoinVector(ids, "->") << " total is not c once per hop";
+        }
+        served[{ids.front(), ids.back()}][hops].push_back(std::move(ids));
+      }
+      dba.Abort();
+      return served;
+    };
+
+    auto constant_served = run(true);
+    auto weighted_served = run(false);
+    ASSERT_EQ(constant_served.size(), weighted_served.size());
+    for (auto &[pair, by_hops] : weighted_served) {
+      SCOPED_TRACE(fmt::format("source {} sink {}", pair.first, pair.second));
+      auto &other = constant_served[pair];
+      ASSERT_EQ(other.size(), by_hops.size());
+      const auto last = by_hops.empty() ? 0 : by_hops.rbegin()->first;
+      for (auto &[hops, paths] : by_hops) {
+        auto &other_paths = other[hops];
+        if (limit != -1 && hops == last) {
+          EXPECT_EQ(other_paths.size(), paths.size());
+          continue;
+        }
+        std::ranges::sort(paths);
+        std::ranges::sort(other_paths);
+        EXPECT_EQ(other_paths, paths) << "hop class " << hops;
       }
     }
   }

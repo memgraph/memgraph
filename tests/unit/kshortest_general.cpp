@@ -281,6 +281,22 @@ TEST_F(WeightedKShortestCasesInMemory, WeightErrors) { db_->KShortestWeightedTes
 
 TEST_F(WeightedKShortestCasesInMemory, WeightErrorTexts) { db_->KShortestWeightedTestWeightErrorTexts(db_.get()); }
 
+TEST_F(WeightedKShortestCasesInMemory, ConstantLiteralWeightRunsHopCursor) {
+  db_->KShortestConstantWeightRunsHopCursor(db_.get(), false);
+}
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantParameterWeightRunsHopCursor) {
+  db_->KShortestConstantWeightRunsHopCursor(db_.get(), true);
+}
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantWeightValidatedAtFirstEdge) {
+  db_->KShortestConstantWeightValidatedAtFirstEdge(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantMatchesWeightedWithoutAccessChecks) {
+  db_->KShortestConstantMatchesWeighted(db_.get(), std::nullopt);
+}
+
 TEST_F(WeightedKShortestCasesInMemory, FilterLambda) { db_->KShortestWeightedTestFilterLambda(db_.get()); }
 
 // The ladder drives deviation indices the 6-vertex fixture never reaches; under weights the root
