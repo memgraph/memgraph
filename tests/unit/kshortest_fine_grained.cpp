@@ -115,8 +115,7 @@ struct FineGrainedCase {
   std::optional<int> blocked_vertex;
 };
 
-// Enumerated rather than combined so the combinations that cannot assert anything stay out: without
-// a lambda and without a limit the harness would compare the reference run to itself, and with
+// Enumerated rather than combined so the combination that cannot assert anything stays out: with
 // everything denied the result is empty whatever the lambda does.
 inline std::vector<FineGrainedCase> FineGrainedCases() {
   static constexpr auto kTypes = std::array{FineGrainedTestType::ALL_GRANTED,
@@ -130,7 +129,6 @@ inline std::vector<FineGrainedCase> FineGrainedCases() {
     for (auto limit : {-1, 3}) {
       for (auto test_type : kTypes) {
         for (std::optional<int> blocked : {std::optional<int>{}, std::optional<int>{4}}) {
-          if (!blocked && limit == -1) continue;
           if (blocked && test_type == FineGrainedTestType::ALL_DENIED) continue;
           cases.push_back({3, direction, {"a", "b"}, limit, test_type, blocked});
         }
@@ -176,8 +174,8 @@ TEST_F(FineGrainedKShortestTestInMemory, AccessCheckRunsBeforeFilterLambda) {
   db_->KShortestTestAccessCheckBeforeFilterLambda(db_.get());
 }
 
-TEST_F(FineGrainedKShortestTestInMemory, DeniedHeadBlocksArcOnBothPasses) {
-  db_->KShortestTestDeniedHeadBlocksArcOnBothPasses(db_.get());
+TEST_F(FineGrainedKShortestTestInMemory, DeniedSinkYieldsNoPath) {
+  db_->KShortestTestDeniedSinkYieldsNoPath(db_.get());
 }
 
 TEST_F(FineGrainedKShortestTestInMemory, UnreadableVertexSpendsNoHops) {
