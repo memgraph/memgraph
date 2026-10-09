@@ -159,15 +159,9 @@ class DbmsHandler {
    */
   DbmsHandler(storage::Config config)
       : db_gatekeeper_{[&] {
-                         config.salient.name = kDefaultDB;
-                         return std::move(config);
-                       }(),
-                       [this]() -> storage::DatabaseProtectorPtr {
-                         if (auto db_acc = db_gatekeeper_.access()) {
-                           return std::make_unique<DatabaseProtector>(*db_acc);
-                         }
-                         return nullptr;
-                       }} {}
+          config.salient.name = kDefaultDB;
+          return std::move(config);
+        }()} {}
 #endif
 
 #ifdef MG_ENTERPRISE

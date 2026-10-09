@@ -92,5 +92,37 @@ def test_ttl_on_clean(connect):
     mg_sleep_and_assert(10, partial(get_n_edges, memgraph), 3)
 
 
+def test_ttl_after_rename(connect):
+    # Goal: to show that TTL keeps running on a renamed database
+    # 0/ Setup TTL on a new database
+    # 1/ Check that TTL is working
+    # 2/ Rename the database
+    # 3/ Check that TTL is still working
+
+    memgraph = connect.cursor()
+
+    # 0/
+    memgraph.execute("CREATE DATABASE clean")
+    memgraph.execute("USE DATABASE clean")
+    memgraph.execute('ENABLE TTL EVERY "1s"')
+
+    # 1/
+    memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
+    mg_sleep_and_assert(0, partial(get_n, memgraph))
+
+    # 2/
+    memgraph.execute("USE DATABASE memgraph")
+    memgraph.execute("RENAME DATABASE clean TO renamed")
+    memgraph.execute("USE DATABASE renamed")
+    assert_db(memgraph, "renamed")
+
+    # 3/
+    memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
+    mg_sleep_and_assert(0, partial(get_n, memgraph))
+
+    memgraph.execute("USE DATABASE memgraph")
+    memgraph.execute("DROP DATABASE renamed")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
