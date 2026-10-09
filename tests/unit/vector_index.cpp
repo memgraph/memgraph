@@ -11,16 +11,21 @@
 #include <gtest/gtest.h>
 #include <sys/types.h>
 #include <algorithm>
+#include <array>
 #include <filesystem>
+#include <map>
 #include <optional>
+#include <set>
 #include <string_view>
 #include <thread>
+#include <tuple>
 
 #include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -1734,4 +1739,441 @@ TEST_F(VectorIndexTest, AbortOfLabelToggleKeepsEmptyList) {
     }
     this->ExpectPlainEmptyList(vertex_gid, 0);
   }
+}
+
+namespace {
+PropertyValue FloatList(std::initializer_list<double> values) {
+  std::vector<PropertyValue> list;
+  for (const auto value : values) list.emplace_back(value);
+  return PropertyValue(std::move(list));
+}
+}  // namespace
+
+// Abort undoes vector index changes per delta under the vertex lock; these pin the stored value (tag vs plain list)
+// and the usearch membership/value after it.
+class VectorIndexAbortTest : public VectorIndexTest {
+ protected:
+  using Floats = memgraph::utils::small_vector<float>;
+
+  void ResetWithIndex() {
+    storage = std::make_unique<InMemoryStorage>();
+    CreateIndex(2, 10);
+  }
+
+  Gid CommitVertex(const std::vector<std::string_view> &labels, const std::optional<PropertyValue> &value) {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    for (const auto label : labels) MG_ASSERT(vertex.AddLabel(acc->NameToLabel(label)).has_value());   // NOLINT
+    if (value) MG_ASSERT(vertex.SetProperty(acc->NameToProperty(test_property), *value).has_value());  // NOLINT
+    const auto gid = vertex.Gid();
+    MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());  // NOLINT
+    return gid;
+  }
+
+  // Stored value is a tag carrying `expected`, and usearch holds exactly `expected_size` entries, the vertex among
+  // them at that value.
+  void ExpectIndexed(Gid gid, const Floats &expected, std::size_t expected_size = 1) {
+    auto acc = storage->Access(READ);
+    auto vertex = acc->FindVertex(gid, View::OLD).value();
+    const auto value = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD).value();
+    ASSERT_TRUE(value.IsVectorIndexId());
+    EXPECT_EQ(value.ValueVectorIndexList(), expected);
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, expected_size);
+    const auto hits = acc->VectorIndexSearchOnNodes(
+        test_index.data(), expected_size, std::vector<float>(expected.begin(), expected.end()));
+    const auto hit = std::ranges::find_if(hits, [&](const auto &h) { return std::get<0>(h).Gid() == gid; });
+    ASSERT_NE(hit, hits.end());
+    EXPECT_FLOAT_EQ(std::get<1>(*hit), 0.0);
+  }
+
+  // Stored value is `expected` as a plain value (not a tag) and usearch holds `expected_size` entries.
+  void ExpectPlain(Gid gid, const PropertyValue &expected, std::size_t expected_size = 0) {
+    auto acc = storage->Access(READ);
+    auto vertex = acc->FindVertex(gid, View::OLD).value();
+    const auto value = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD).value();
+    EXPECT_FALSE(value.IsVectorIndexId());
+    EXPECT_EQ(value, expected);
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, expected_size);
+  }
+};
+
+TEST_F(VectorIndexAbortTest, ConcurrentWriterBetweenVertexUndosKeepsItsEmbedding) {
+  for (const bool toggle_label : {false, true}) {
+    SCOPED_TRACE(toggle_label ? "SET emb; REMOVE n:L; SET n:L" : "SET emb");
+    ResetWithIndex();
+    const auto v = CommitVertex({test_label}, FloatList({1, 2}));
+    const auto w = CommitVertex({}, std::nullopt);
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    const auto label = acc->NameToLabel(test_label);
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), FloatList({3, 4})));
+    if (toggle_label) {
+      ASSERT_NO_ERROR(vertex.RemoveLabel(label));
+      ASSERT_NO_ERROR(vertex.AddLabel(label));
+    }
+    auto other = acc->FindVertex(w, View::OLD).value();
+    ASSERT_NO_ERROR(other.SetProperty(acc->NameToProperty("unrelated"), PropertyValue(1)));
+
+    // The callback fires before every delta in each of the edges and vertices passes. v's deltas come first, so the
+    // last call of the vertices pass is after v's undo and before w's.
+    const std::size_t deltas = toggle_label ? 4 : 2;
+    std::size_t calls = 0;
+    static_cast<InMemoryStorage::InMemoryAccessor *>(acc.get())->Abort([&] {
+      if (++calls != 2 * deltas) return;
+      auto writer = storage->Access(WRITE);
+      auto written = writer->FindVertex(v, View::OLD).value();
+      ASSERT_NO_ERROR(written.SetProperty(writer->NameToProperty(test_property), FloatList({5, 6})));
+      ASSERT_NO_ERROR(writer->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    });
+    ASSERT_EQ(calls, 2 * deltas);
+
+    ExpectIndexed(v, Floats{5.0F, 6.0F});
+  }
+}
+
+TEST_F(VectorIndexAbortTest, RemoveLabelOfNonVectorValueThenAbortRestoresLabelAndValue) {
+  CreateIndex(2, 10);
+  const auto v = CommitVertex({test_label}, PropertyValue("abc"));
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    ASSERT_NO_ERROR(vertex.RemoveLabel(acc->NameToLabel(test_label)));
+    acc->Abort();
+  }
+  ExpectPlain(v, PropertyValue("abc"));
+  auto acc = storage->Access(READ);
+  EXPECT_TRUE(acc->FindVertex(v, View::OLD)->HasLabel(acc->NameToLabel(test_label), View::OLD).value());
+}
+
+TEST_F(VectorIndexAbortTest, SetOverIndexedVectorThenAbortRestoresIt) {
+  CreateIndex(2, 10);
+  const auto v = CommitVertex({test_label}, FloatList({1, 2}));
+  const std::vector<std::pair<std::string_view, PropertyValue>> writes{
+      {"empty list", PropertyValue(std::vector<PropertyValue>{})},
+      {"null", PropertyValue()},
+      {"string", PropertyValue("abc")},
+      {"other vector", FloatList({3, 4})},
+  };
+  for (const auto &[name, value] : writes) {
+    SCOPED_TRACE(name);
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), value));
+    acc->Abort();
+    ExpectIndexed(v, Floats{1.0F, 2.0F});
+  }
+}
+
+TEST_F(VectorIndexAbortTest, WrongDimensionSetThenAbortRestoresIndexedVector) {
+  CreateIndex(2, 10);
+  const auto v = CommitVertex({test_label}, FloatList({1, 2}));
+  auto acc = storage->Access(WRITE);
+  auto vertex = acc->FindVertex(v, View::OLD).value();
+  EXPECT_ANY_THROW(std::ignore = vertex.SetProperty(acc->NameToProperty(test_property), FloatList({1, 2, 3})));
+  acc->Abort();
+  ExpectIndexed(v, Floats{1.0F, 2.0F});
+}
+
+TEST_F(VectorIndexAbortTest, SetOverNonVectorStartThenAbortLeavesItUnindexed) {
+  CreateIndex(2, 10);
+  const std::vector<std::pair<std::string_view, std::optional<PropertyValue>>> starts{
+      {"string", PropertyValue("abc")},
+      {"empty list", PropertyValue(std::vector<PropertyValue>{})},
+      {"absent", std::nullopt},
+  };
+  for (const auto &[name, start] : starts) {
+    SCOPED_TRACE(name);
+    const auto v = CommitVertex({test_label}, start);
+    for (const bool toggle_label : {false, true}) {
+      SCOPED_TRACE(toggle_label ? "REMOVE n:L; SET emb; SET n:L" : "SET emb");
+      auto acc = storage->Access(WRITE);
+      auto vertex = acc->FindVertex(v, View::OLD).value();
+      const auto label = acc->NameToLabel(test_label);
+      if (toggle_label) ASSERT_NO_ERROR(vertex.RemoveLabel(label));
+      ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), FloatList({3, 4})));
+      if (toggle_label) ASSERT_NO_ERROR(vertex.AddLabel(label));
+      acc->Abort();
+      ExpectPlain(v, start.value_or(PropertyValue()));
+    }
+  }
+}
+
+TEST_F(VectorIndexAbortTest, AddLabelThenSetThenAbortLeavesPlainList) {
+  CreateIndex(2, 10);
+  const auto v = CommitVertex({}, FloatList({1, 2}));
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel(test_label)));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), FloatList({3, 4})));
+    acc->Abort();
+  }
+  ExpectPlain(v, FloatList({1, 2}));
+}
+
+TEST_F(VectorIndexAbortTest, OverlappingIndicesInterleavedWritesThenAbortRestoreBoth) {
+  storage = std::make_unique<InMemoryStorage>();
+  {
+    auto unique_acc = storage->UniqueAccess();
+    const auto property = unique_acc->NameToProperty(test_property);
+    for (const auto label : {"A", "B"}) {
+      ASSERT_TRUE(unique_acc
+                      ->CreateVectorIndex(
+                          {.index_name = std::string{"idx_"} + label,
+                           .label_filter = {.mode = VectorMatchMode::SINGLE, .ids = {unique_acc->NameToLabel(label)}},
+                           .property = property,
+                           .metric_kind = metric,
+                           .dimension = 2,
+                           .resize_coefficient = resize_coefficient,
+                           .capacity = 10,
+                           .scalar_kind = scalar_kind})
+                      .has_value());
+    }
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  const auto v = CommitVertex({"A", "B"}, FloatList({1, 2}));
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    const auto property = acc->NameToProperty(test_property);
+    const auto a = acc->NameToLabel("A");
+    const auto b = acc->NameToLabel("B");
+    ASSERT_NO_ERROR(vertex.RemoveLabel(a));
+    ASSERT_NO_ERROR(vertex.SetProperty(property, FloatList({3, 4})));
+    ASSERT_NO_ERROR(vertex.RemoveLabel(b));
+    ASSERT_NO_ERROR(vertex.AddLabel(a));
+    ASSERT_NO_ERROR(vertex.SetProperty(property, FloatList({5, 6})));
+    ASSERT_NO_ERROR(vertex.AddLabel(b));
+    acc->Abort();
+  }
+  auto acc = storage->Access(READ);
+  auto vertex = acc->FindVertex(v, View::OLD).value();
+  const auto value = vertex.GetProperty(acc->NameToProperty(test_property), View::OLD).value();
+  ASSERT_TRUE(value.IsVectorIndexId());
+  EXPECT_EQ(value.ValueVectorIndexList(), (Floats{1.0F, 2.0F}));
+  const auto ids = value.ValueVectorIndexIds();
+  EXPECT_EQ((std::set<uint64_t>(ids.begin(), ids.end())),
+            (std::set<uint64_t>{acc->GetNameIdMapper()->NameToId("idx_A"), acc->GetNameIdMapper()->NameToId("idx_B")}));
+  for (const auto &info : acc->ListAllVectorIndices()) EXPECT_EQ(info.size, 1U) << info.index_name;
+  for (const auto *index : {"idx_A", "idx_B"}) {
+    const auto hits = acc->VectorIndexSearchOnNodes(index, 1, {1.0F, 2.0F});
+    ASSERT_EQ(hits.size(), 1U) << index;
+    EXPECT_EQ(std::get<0>(hits[0]).Gid(), v) << index;
+    EXPECT_FLOAT_EQ(std::get<1>(hits[0]), 0.0) << index;
+  }
+}
+
+TEST_F(VectorIndexAbortTest, CreatedVertexWithLabelAndVectorLeavesIndexEmptyOnAbort) {
+  CreateIndex(2, 10);
+  for (const bool label_first : {true, false}) {
+    SCOPED_TRACE(label_first ? "label then vector" : "vector then label");
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->CreateVertex();
+    const auto label = acc->NameToLabel(test_label);
+    const auto property = acc->NameToProperty(test_property);
+    if (label_first) ASSERT_NO_ERROR(vertex.AddLabel(label));
+    ASSERT_NO_ERROR(vertex.SetProperty(property, FloatList({1, 2})));
+    if (!label_first) ASSERT_NO_ERROR(vertex.AddLabel(label));
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1U);
+    acc->Abort();
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 0U);
+  }
+}
+
+TEST_F(VectorIndexAbortTest, DeletedVertexThenAbortStaysIndexed) {
+  CreateIndex(2, 10);
+  const auto v = CommitVertex({test_label}, FloatList({1, 2}));
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    ASSERT_NO_ERROR(acc->DeleteVertex(&vertex));
+    acc->Abort();
+  }
+  ExpectIndexed(v, Floats{1.0F, 2.0F});
+}
+
+TEST_F(VectorIndexAbortTest, LabelPropertyAndVectorIndexOnSamePropertyStayConsistentAfterAbort) {
+  CreateIndex(2, 10);
+  {
+    auto acc = storage->UniqueAccess();
+    ASSERT_NO_ERROR(acc->CreateIndex(acc->NameToLabel(test_label), {PropertyPath{acc->NameToProperty(test_property)}}));
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  // Entries of an aborted write may linger in the label+property index until GC reclaims them, so assert what a
+  // reader sees through the index rather than its raw entries.
+  const auto visible_in_label_property_index = [&] {
+    auto acc = storage->Access(READ);
+    std::vector<Gid> gids;
+    for (auto vertex : acc->Vertices(acc->NameToLabel(test_label),
+                                     std::array{PropertyPath{acc->NameToProperty(test_property)}},
+                                     std::array{PropertyValueRange::IsNotNull()},
+                                     View::NEW)) {
+      gids.push_back(vertex.Gid());
+    }
+    return gids;
+  };
+
+  {
+    SCOPED_TRACE("unlabeled start: ADD n:L; SET emb; REMOVE n:L");
+    const auto v = CommitVertex({}, FloatList({1, 2}));
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    const auto label = acc->NameToLabel(test_label);
+    ASSERT_NO_ERROR(vertex.AddLabel(label));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), FloatList({3, 4})));
+    ASSERT_NO_ERROR(vertex.RemoveLabel(label));
+    acc->Abort();
+    ExpectPlain(v, FloatList({1, 2}));
+    EXPECT_TRUE(visible_in_label_property_index().empty());
+  }
+  {
+    SCOPED_TRACE("labeled start: REMOVE n:L; SET emb; ADD n:L");
+    const auto v = CommitVertex({test_label}, FloatList({1, 2}));
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    const auto label = acc->NameToLabel(test_label);
+    ASSERT_NO_ERROR(vertex.RemoveLabel(label));
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), FloatList({3, 4})));
+    ASSERT_NO_ERROR(vertex.AddLabel(label));
+    acc->Abort();
+    ExpectIndexed(v, Floats{1.0F, 2.0F});
+    EXPECT_EQ(visible_in_label_property_index(), std::vector<Gid>{v});
+  }
+}
+
+TEST_F(VectorIndexAbortTest, MultiLabelFilterAbortsRestoreMembership) {
+  for (const auto mode : {VectorMatchMode::ANY_OF, VectorMatchMode::ALL_OF}) {
+    const bool any_of = mode == VectorMatchMode::ANY_OF;
+    SCOPED_TRACE(any_of ? "ANY_OF" : "ALL_OF");
+    const auto reset_with_index = [&] {
+      storage = std::make_unique<InMemoryStorage>();
+      auto unique_acc = storage->UniqueAccess();
+      ASSERT_TRUE(
+          unique_acc
+              ->CreateVectorIndex(
+                  {.index_name = std::string{test_index},
+                   .label_filter = {.mode = mode, .ids = {unique_acc->NameToLabel("A"), unique_acc->NameToLabel("B")}},
+                   .property = unique_acc->NameToProperty(test_property),
+                   .metric_kind = metric,
+                   .dimension = 2,
+                   .resize_coefficient = resize_coefficient,
+                   .capacity = 10,
+                   .scalar_kind = scalar_kind})
+              .has_value());
+      ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+    };
+    enum class Op : uint8_t { ADD_A, ADD_B, REMOVE_A, REMOVE_B, SET };
+
+    struct Case {
+      std::vector<std::string_view> labels;
+      std::vector<Op> ops;
+    };
+
+    // Starting labels decide membership: ANY_OF admits {A}, ALL_OF needs {A, B}.
+    const std::vector<Case> cases{
+        {{"A", "B"}, {Op::REMOVE_A, Op::SET, Op::ADD_A, Op::REMOVE_B}},
+        {{"A", "B"}, {Op::REMOVE_A, Op::REMOVE_B, Op::SET, Op::ADD_B}},
+        {{"A"}, {Op::ADD_B, Op::SET, Op::REMOVE_A}},
+        {{"A"}, {Op::SET, Op::ADD_B, Op::REMOVE_A, Op::SET}},
+        {{}, {Op::ADD_A, Op::ADD_B, Op::SET, Op::REMOVE_A}},
+    };
+    for (const auto &c : cases) {
+      reset_with_index();
+      const bool indexed = any_of ? !c.labels.empty() : c.labels.size() == 2;
+      const auto v = CommitVertex(c.labels, FloatList({1, 2}));
+      {
+        auto acc = storage->Access(WRITE);
+        auto vertex = acc->FindVertex(v, View::OLD).value();
+        for (const auto op : c.ops) {
+          switch (op) {
+            case Op::ADD_A:
+              ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("A")));
+              break;
+            case Op::ADD_B:
+              ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel("B")));
+              break;
+            case Op::REMOVE_A:
+              ASSERT_NO_ERROR(vertex.RemoveLabel(acc->NameToLabel("A")));
+              break;
+            case Op::REMOVE_B:
+              ASSERT_NO_ERROR(vertex.RemoveLabel(acc->NameToLabel("B")));
+              break;
+            case Op::SET:
+              ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), FloatList({3, 4})));
+              break;
+          }
+        }
+        acc->Abort();
+      }
+      if (indexed) {
+        ExpectIndexed(v, Floats{1.0F, 2.0F});
+      } else {
+        ExpectPlain(v, FloatList({1, 2}));
+      }
+    }
+  }
+}
+
+TEST_F(VectorIndexAbortTest, MapStyleWritesAroundLabelToggleThenAbortRestoreEmbedding) {
+  CreateIndex(2, 10);
+  const auto v = CommitVertex({test_label}, FloatList({1, 2}));
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    const auto label = acc->NameToLabel(test_label);
+    const auto property = acc->NameToProperty(test_property);
+    ASSERT_NO_ERROR(vertex.RemoveLabel(label));
+    std::map<PropertyId, PropertyValue> first{{property, FloatList({7, 8})}};
+    std::map<PropertyId, PropertyValue> second{{property, FloatList({9, 9})}};
+    ASSERT_NO_ERROR(vertex.UpdateProperties(first));
+    ASSERT_NO_ERROR(vertex.AddLabel(label));
+    ASSERT_NO_ERROR(vertex.ClearProperties());
+    ASSERT_NO_ERROR(vertex.UpdateProperties(second));
+    acc->Abort();
+  }
+  ExpectIndexed(v, Floats{1.0F, 2.0F});
+}
+
+TEST_F(VectorIndexAbortTest, WrongDimensionSetWithLabelToggleThenAbortRestoresIndexedVector) {
+  CreateIndex(2, 10);
+  const auto v = CommitVertex({test_label}, FloatList({1, 2}));
+  for (const bool set_first : {true, false}) {
+    SCOPED_TRACE(set_first ? "failed SET; REMOVE n:L; SET n:L" : "REMOVE n:L; SET n:L; failed SET");
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    const auto label = acc->NameToLabel(test_label);
+    const auto property = acc->NameToProperty(test_property);
+    if (set_first) EXPECT_ANY_THROW(std::ignore = vertex.SetProperty(property, FloatList({1, 2, 3})));
+    ASSERT_NO_ERROR(vertex.RemoveLabel(label));
+    ASSERT_NO_ERROR(vertex.AddLabel(label));
+    if (!set_first) EXPECT_ANY_THROW(std::ignore = vertex.SetProperty(property, FloatList({1, 2, 3})));
+    acc->Abort();
+    ExpectIndexed(v, Floats{1.0F, 2.0F});
+  }
+}
+
+TEST_F(VectorIndexAbortTest, AbortOfNonVectorRestoreDropsStaleEntryOfFilterMismatchedIndex) {
+  // A forward write that read the labels before taking the vertex lock can leave a usearch entry for a vertex whose
+  // labels no longer match the index. Build that state directly: indexed, then labels and value rewritten with no
+  // hook and no delta.
+  CreateIndex(2, 10);
+  const auto v = CommitVertex({test_label}, FloatList({1, 2}));
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    vertex.vertex_->labels.clear();
+    vertex.vertex_->properties.SetProperty(acc->NameToProperty(test_property), PropertyValue("abc"));
+    acc->Abort();
+  }
+  {
+    auto acc = storage->Access(READ);
+    ASSERT_EQ(acc->ListAllVectorIndices()[0].size, 1U) << "stale entry was not set up";
+  }
+  {
+    auto acc = storage->Access(WRITE);
+    auto vertex = acc->FindVertex(v, View::OLD).value();
+    ASSERT_NO_ERROR(vertex.SetProperty(acc->NameToProperty(test_property), FloatList({3, 4})));
+    acc->Abort();
+  }
+  ExpectPlain(v, PropertyValue("abc"));
 }
