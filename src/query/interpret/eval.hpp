@@ -742,7 +742,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue>, public RecordR
     refused = false;
     RequireAccessor("Reading a property");
     auto const id = ctx_->properties[property_ix];
-    if (record.IsVertex()) {
+    // Reading the stored bytes directly bypasses nothing else, so the
+    // permission the boxed read would have applied has to be applied here.
+    if (record.IsVertex() && IsPropertyAllowed(record.ValueVertex(), id)) {
       int64_t value = 0;
       std::array<storage::PropertyId, 1> const path{id};
       switch (record.ValueVertex().impl_.ReadIntProperty(path, view_, value)) {
