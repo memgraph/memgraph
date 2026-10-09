@@ -467,22 +467,32 @@ TEST_F(AtomicAuthOverlayTest, ACommittedTransactionSawOnlyTheStateItCommitsAgain
   auto const pick = [&rng](size_t n) { return std::uniform_int_distribution<size_t>{0, n - 1}(rng); };
 
   for (int round = 0; round < 20000; ++round) {
+    std::string start;
     for (auto const &key : keys) {
       store_->Delete(key);
-      if (pick(2) != 0) store_->Put(key, std::to_string(pick(2)));
+      if (pick(2) != 0) {
+        store_->Put(key, std::to_string(pick(2)));
+        start += " " + key;
+      }
     }
 
     AtomicAuthOverlay overlay(*store_);
-    std::set<std::string> written;
+    // The transaction's own writes so far; its observations through them depend on nothing durable.
+    std::map<std::string, std::optional<std::string>> written;
     std::vector<std::pair<std::string, std::optional<std::string>>> observed;
-    std::vector<bool> observed_inhabited;
+    // An emptiness answer is taken over durable state as T's writes stood when it asked.
+    std::vector<std::pair<bool, std::map<std::string, std::optional<std::string>>>> observed_inhabited;
+    bool changed_concurrently = false;
+    std::string history = " base{" + start + " }:";
     for (int step = 0; step < 10; ++step) {
       auto const &key = keys[pick(keys.size())];
       switch (pick(6)) {
         case 0:
+          history += " get(" + key + ")";
           if (!written.contains(key)) observed.emplace_back(key, overlay.Get(key));
           break;
         case 1: {
+          history += " scan";
           std::set<std::string> found;
           for (auto it = overlay.begin("p:"), e = overlay.end("p:"); it != e; ++it) {
             auto const &[scanned, value] = *it;
@@ -495,24 +505,31 @@ TEST_F(AtomicAuthOverlayTest, ACommittedTransactionSawOnlyTheStateItCommitsAgain
           break;
         }
         case 2:
+          history += " put(" + key + ")";
           overlay.Put(key, "ours");
-          written.insert(key);
+          written[key] = "ours";
           break;
         case 3:
+          history += " del(" + key + ")";
           overlay.Delete(key);
-          written.insert(key);
+          written[key] = std::nullopt;
           break;
         case 4: {
           // A scan that stops at the first key and depends only on whether the prefix is inhabited.
           bool const inhabited = overlay.begin("p:") != overlay.end("p:");
+          history += inhabited ? " any=yes" : " any=no";
           overlay.ScanDependsOnEmptinessOnly("p:");
-          if (written.empty()) observed_inhabited.push_back(inhabited);
+          observed_inhabited.emplace_back(inhabited, written);
           break;
         }
         default:
+          changed_concurrently = true;
           if (pick(2) != 0) {
-            store_->Put(key, std::to_string(pick(2)));
+            auto const value = std::to_string(pick(2));
+            history += " S:put(" + key + "=" + value + ")";
+            store_->Put(key, value);
           } else {
+            history += " S:del(" + key + ")";
             store_->Delete(key);
           }
       }
@@ -520,18 +537,54 @@ TEST_F(AtomicAuthOverlayTest, ACommittedTransactionSawOnlyTheStateItCommitsAgain
 
     std::map<std::string, std::optional<std::string>> durable;
     for (auto const &key : keys) durable[key] = store_->Get(key);
-    bool const durably_inhabited =
-        std::ranges::any_of(keys, [&durable](auto const &key) { return durable[key].has_value(); });
-    if (!overlay.Flush()) continue;
-    for (bool const inhabited : observed_inhabited) {
-      ASSERT_EQ(inhabited, durably_inhabited)
-          << "round " << round << ": committed after seeing p: " << (inhabited ? "inhabited" : "empty");
+    if (!overlay.Flush()) {
+      ASSERT_TRUE(changed_concurrently) << "round " << round << ": refused with no concurrent change";
+      continue;
+    }
+    for (auto const &[inhabited, writes_then] : observed_inhabited) {
+      auto const inhabited_then = std::ranges::any_of(keys, [&](auto const &key) {
+        auto const own = writes_then.find(key);
+        return own != writes_then.end() ? own->second.has_value() : durable[key].has_value();
+      });
+      ASSERT_EQ(inhabited, inhabited_then)
+          << "round " << round << ": committed after seeing p: " << (inhabited ? "inhabited" : "empty") << ";"
+          << history;
     }
     for (auto const &[key, value] : observed) {
       ASSERT_EQ(value, durable[key]) << "round " << round << ": committed after observing " << key
-                                     << " in a state durable storage no longer had";
+                                     << " in a state durable storage no longer had;" << history;
     }
   }
+}
+
+// An emptiness check that steps over keys the transaction deleted answers through the first key left, so that key
+// is what it depends on: base staying inhabited by the deleted keys alone must not let the commit through.
+TEST_F(AtomicAuthOverlayTest, HasAnyAnsweredThroughOwnTombstoneConflictsWhenItsWitnessGoes) {
+  store_->Put("user:alice", "alice_data");
+  store_->Put("user:bob", "bob_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  memgraph::auth::Repository repo{overlay};
+  overlay.Delete("user:alice");
+  EXPECT_TRUE(repo.HasAnyUser());
+  overlay.Put("user:carol", "carol_data");
+
+  store_->Delete("user:bob");
+
+  EXPECT_FALSE(overlay.Flush()) << "the answer rested on bob, who is gone";
+}
+
+TEST_F(AtomicAuthOverlayTest, HasAnyAnsweredThroughOwnTombstoneCommitsWhileItsWitnessStays) {
+  store_->Put("user:alice", "alice_data");
+  store_->Put("user:bob", "bob_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  memgraph::auth::Repository repo{overlay};
+  overlay.Delete("user:alice");
+  EXPECT_TRUE(repo.HasAnyUser());
+  overlay.Put("user:carol", "carol_data");
+
+  EXPECT_TRUE(overlay.Flush());
 }
 
 // As WritingAKeyThatAppearedAfterAScanConflicts, but with the prefix already inhabited, so only the key-set check

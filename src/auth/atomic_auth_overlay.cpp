@@ -11,6 +11,7 @@
 
 #include "auth/atomic_auth_overlay.hpp"
 
+#include <algorithm>
 #include <utility>
 
 #include "auth/exceptions.hpp"
@@ -41,13 +42,15 @@ void AtomicAuthOverlay::ScanDependsOnEmptinessOnly(std::string const &prefix) co
 
 void AtomicAuthOverlay::AdoptWalked(std::string_view prefix,
                                     std::map<std::string, std::string, std::less<>> const &walked) const {
-  for (auto const &[key, value] : walked) {
-    auto const [it, inserted] = read_set_.emplace(key, value);
-    if (!inserted && it->second != value) saw_two_values_ = true;
-  }
+  for (auto const &[key, value] : walked) Observe(key, value);
   for (auto it = read_set_.lower_bound(prefix); it != read_set_.end() && it->first.starts_with(prefix); ++it) {
     if (it->second && !walked.contains(it->first) && !write_set_.contains(it->first)) saw_two_values_ = true;
   }
+}
+
+void AtomicAuthOverlay::Observe(std::string const &key, std::optional<std::string> const &value) const {
+  auto const [it, inserted] = read_set_.emplace(key, value);
+  if (!inserted && it->second != value) saw_two_values_ = true;
 }
 
 void AtomicAuthOverlay::Put(std::string_view key, std::string_view value) {
@@ -160,6 +163,9 @@ AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const &overlay, std::str
     }
     write_it_ = overlay_->write_set_.lower_bound(prefix_);
     write_end_ = overlay_->write_set_.end();
+    own_delete_under_prefix_ = std::any_of(write_it_, write_end_, [this](auto const &entry) {
+      return entry.first.starts_with(prefix_) && !entry.second.has_value();
+    });
     Advance();
   }
 }
@@ -197,6 +203,7 @@ void AtomicAuthOverlay::iterator::Advance() {
         auto ws = overlay_->write_set_.find(base_it_->first);
         if (ws == overlay_->write_set_.end()) {
           walked_.emplace(base_it_->first, base_it_->second);
+          if (own_delete_under_prefix_) overlay_->Observe(base_it_->first, base_it_->second);
           current_ = *base_it_;
         }
         ++base_it_;
@@ -221,6 +228,7 @@ void AtomicAuthOverlay::iterator::Advance() {
       auto ws = overlay_->write_set_.find(base_it_->first);
       if (ws == overlay_->write_set_.end()) {
         walked_.emplace(base_it_->first, base_it_->second);
+        if (own_delete_under_prefix_) overlay_->Observe(base_it_->first, base_it_->second);
         current_ = *base_it_;
       }
       ++base_it_;
