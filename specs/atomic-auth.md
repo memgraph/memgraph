@@ -132,8 +132,9 @@ coordinator, is refused inside a transaction exactly as it is outside one.
 transaction, so a session without one, such as on a coordinator, cannot open
 an auth transaction.
 
-Statements that are not auth statements are refused, including profile queries
-and the rest of Cypher. A profile query is a data query, so inside an auth
+Statements that are not auth statements are refused, including profile queries,
+system statements such as `SHOW TRANSACTIONS` and parameter and replication
+queries, and the rest of Cypher. A profile query is a data query, so inside an auth
 transaction it is refused by the rule in 3.1 above.
 
 Profiles are **not** transactional. A profile write, user or tenant, is refused
