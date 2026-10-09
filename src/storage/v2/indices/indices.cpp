@@ -231,7 +231,7 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex 
   }
 }
 
-auto Indices::AbortProcessor::FindEdgeLink(Vertex *from_vertex, Edge *edge, delta_container const &deltas)
+auto Indices::AbortProcessor::FindEdgeLink(Vertex *from_vertex, Edge *edge, delta_container const &deltas) noexcept
     -> std::optional<std::pair<EdgeTypeId, Vertex *>> {
   auto link = std::optional<std::pair<EdgeTypeId, Vertex *>>{};
   for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
@@ -263,13 +263,19 @@ auto Indices::AbortProcessor::FindEdgeLink(Vertex *from_vertex, Edge *edge, delt
     scan();
     return link;
   }
+  // Abort must not throw: if the index cannot be built, keep scanning.
   if (!out_edge_links_.has_value()) {
-    auto links = std::vector<std::tuple<Edge *, EdgeTypeId, Vertex *>>{};
-    for (auto const &delta : deltas) {
-      if (delta.action != Delta::Action::ADD_OUT_EDGE && delta.action != Delta::Action::REMOVE_OUT_EDGE) continue;
-      links.emplace_back(delta.vertex_edge.edge.ptr, delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get());
+    try {
+      auto links = std::vector<std::tuple<Edge *, EdgeTypeId, Vertex *>>{};
+      for (auto const &delta : deltas) {
+        if (delta.action != Delta::Action::ADD_OUT_EDGE && delta.action != Delta::Action::REMOVE_OUT_EDGE) continue;
+        links.emplace_back(delta.vertex_edge.edge.ptr, delta.vertex_edge.edge_type, delta.vertex_edge.vertex.Get());
+      }
+      out_edge_links_ = std::move(links);
+    } catch (...) {
+      scan();
+      return link;
     }
-    out_edge_links_ = std::move(links);
   }
   for (auto const &[linked_edge, edge_type, to_vertex] : *out_edge_links_) {
     if (linked_edge != edge) continue;

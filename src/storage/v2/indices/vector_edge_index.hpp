@@ -244,9 +244,9 @@ class VectorEdgeIndex {
 
   /// @brief Abort-path inverse of UpdateOnSetProperty: called once per undone SET_PROPERTY delta under the edge lock,
   /// after the property store took `before` back. `link` is the edge's type and target as found by the caller; when
-  /// absent the recorded endpoints are used.
+  /// absent the recorded endpoints are used. Never throws and leaves no tag without a usearch entry.
   void RestoreOnSetProperty(Vertex *from_vertex, Edge *edge, PropertyId property, const PropertyValue &before,
-                            std::optional<std::pair<EdgeTypeId, Vertex *>> link);
+                            std::optional<std::pair<EdgeTypeId, Vertex *>> link) noexcept;
 
   /// @brief Removes edges from the index by GID.
   /// Must be called before the edge is removed from the skip list (while the pointer is still valid).
@@ -285,7 +285,7 @@ class VectorEdgeIndex {
 
   void EraseEndpointsIfUnreferenced(Edge *edge);
 
-  /// Abort path: removes the edge from every index on `property`.
+  /// Abort path: removes the edge from every index on `property`, each removal guarded on its own.
   void DropEntries(Edge *edge, PropertyId property);
 
   utils::MemoryTracker *memory_tracker_{nullptr};

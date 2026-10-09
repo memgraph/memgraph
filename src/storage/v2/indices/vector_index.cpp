@@ -12,6 +12,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 
 #include <range/v3/all.hpp>
+#include "spdlog/spdlog.h"
 #include "storage/v2/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indexed_property_decoder.hpp"
@@ -594,6 +595,20 @@ std::vector<std::pair<uint64_t, VectorLabelFilter const *>> VectorIndex::GetIndi
   return result;
 }
 
+void LogUndoFailure(const char *what) noexcept {
+  try {
+    spdlog::error("Vector index undo on abort failed: {}", what);
+  } catch (...) {
+  }
+}
+
+void LogUndoRepairFailure() noexcept {
+  try {
+    spdlog::error("Vector index repair after a failed undo on abort failed.");
+  } catch (...) {
+  }
+}
+
 bool VectorIndex::HasIndexOnLabel(LabelId label) const {
   return r::any_of(*index_, [&](const auto &kv) { return kv.second->spec.label_filter.IsInteresting(label); });
 }
@@ -602,29 +617,77 @@ bool VectorIndex::HasIndexOnProperty(PropertyId property) const { return AnyInde
 
 void VectorIndex::DropEntries(Vertex *vertex, PropertyId property) {
   for (const auto &[index_id, _] : GetIndicesByProperty(property)) {
-    RemoveVertexFromIndex(vertex, index_id);
+    try {
+      RemoveVertexFromIndex(vertex, index_id);
+    } catch (...) {
+      LogUndoRepairFailure();
+    }
   }
 }
 
-void VectorIndex::RestoreOnAddLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
-  if (!HasIndexOnLabel(label)) return;
-  ApplyAddLabel(label, vertex, decoder, /*restore=*/true);
+void VectorIndex::ReconcileEntry(Vertex *vertex, PropertyId property, uint64_t index_id) {
+  auto &item_ptr = index_->at(index_id);
+  auto value = vertex->properties.GetProperty(property);
+  if (value.IsVectorIndexId() && std::ranges::contains(value.ValueVectorIndexIds(), index_id)) {
+    if (item_ptr->spec.label_filter.Matches(vertex->labels)) return;
+    // Tagged but no longer matching: strip the id first so no tag outlives the entry removed below.
+    auto &ids = value.ValueVectorIndexIds();
+    ids.erase(ranges::remove(ids, index_id), ids.end());
+    if (ids.empty()) {
+      std::vector<double> vector(item_ptr->mg_index.index.dimensions());
+      auto guard = utils::SharedResourceLockGuard(item_ptr->mg_index.mutex, utils::SharedResourceLockGuard::READ_ONLY);
+      value = item_ptr->mg_index.index.get(vertex, vector.data()) ? PropertyValue(std::move(vector)) : PropertyValue();
+    }
+    vertex->properties.SetProperty(property, value);
+  }
+  RemoveVertexFromIndex(vertex, index_id);
 }
 
-void VectorIndex::RestoreOnRemoveLabel(LabelId label, Vertex *vertex, const IndexedPropertyDecoder<Vertex> &decoder) {
-  if (!HasIndexOnLabel(label)) return;
-  UpdateOnRemoveLabel(label, vertex, decoder);
+void VectorIndex::RepairLabelUndo(LabelId label, Vertex *vertex) {
+  for (const auto &[property, index_id] : GetIndicesByLabel(label)) {
+    try {
+      ReconcileEntry(vertex, property, index_id);
+    } catch (...) {
+      LogUndoRepairFailure();
+    }
+  }
 }
 
-void VectorIndex::RestoreOnSetProperty(PropertyId property, const PropertyValue &before, Vertex *vertex) {
+void VectorIndex::RestoreOnAddLabel(LabelId label, Vertex *vertex,
+                                    const IndexedPropertyDecoder<Vertex> &decoder) noexcept {
+  if (!HasIndexOnLabel(label)) return;
+  UndoNoThrow([&] { ApplyAddLabel(label, vertex, decoder, /*restore=*/true); },
+              [&] { RepairLabelUndo(label, vertex); });
+}
+
+void VectorIndex::RestoreOnRemoveLabel(LabelId label, Vertex *vertex,
+                                       const IndexedPropertyDecoder<Vertex> &decoder) noexcept {
+  if (!HasIndexOnLabel(label)) return;
+  UndoNoThrow([&] { UpdateOnRemoveLabel(label, vertex, decoder); }, [&] { RepairLabelUndo(label, vertex); });
+}
+
+void VectorIndex::RestoreOnSetProperty(PropertyId property, const PropertyValue &before, Vertex *vertex) noexcept {
   if (!HasIndexOnProperty(property)) return;
   // A non-tag value is in no index. Every index on the property is cleared, not only those matching the current
   // labels: a forward write that raced a label change can leave an entry the filter no longer admits.
   if (!before.IsVectorIndexId()) {
-    DropEntries(vertex, property);
+    UndoNoThrow([&] { DropEntries(vertex, property); }, [] {});
     return;
   }
-  UpdateOnSetProperty(property, before, vertex);
+  UndoNoThrow([&] { UpdateOnSetProperty(property, before, vertex); },
+              [&] {
+                // Last resort: the vertex keeps its values as a plain, unindexed list.
+                const auto &vector = before.ValueVectorIndexList();
+                vertex->properties.SetProperty(property,
+                                               PropertyValue(std::vector<double>(vector.begin(), vector.end())));
+                for (auto index_id : before.ValueVectorIndexIds()) {
+                  try {
+                    RemoveVertexFromIndex(vertex, index_id);
+                  } catch (...) {
+                    LogUndoRepairFailure();
+                  }
+                }
+              });
 }
 
 // VectorIndexRecovery implementation

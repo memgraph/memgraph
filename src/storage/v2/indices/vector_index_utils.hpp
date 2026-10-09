@@ -472,10 +472,36 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
   throw VectorSearchException("Failed to add entry to vector index.");
 }
 
+/// Log sinks for UndoNoThrow, out of line so this widely included header does not pull in spdlog.
+void LogUndoFailure(const char *what) noexcept;
+void LogUndoRepairFailure() noexcept;
+
 /// Whether any item of an index container covers `property`. Allocation-free.
 template <typename Container>
 bool AnyIndexOnProperty(const Container &container, PropertyId property) {
   return std::ranges::any_of(container, [&](const auto &kv) { return kv.second->spec.property == property; });
+}
+
+/// Runs one undo step of a transaction abort, which must not throw. A failure is logged and `repair` then restores
+/// the invariant that no tag outlives its usearch entry; if the repair fails too the entity is left as it is.
+template <typename Undo, typename Repair>
+void UndoNoThrow(Undo &&undo, Repair &&repair) noexcept {
+  const utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+  auto const fail = [&](const char *what) noexcept {
+    LogUndoFailure(what);
+    try {
+      repair();
+    } catch (...) {
+      LogUndoRepairFailure();
+    }
+  };
+  try {
+    undo();
+  } catch (const std::exception &e) {
+    fail(e.what());
+  } catch (...) {
+    fail("unknown exception");
+  }
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.
