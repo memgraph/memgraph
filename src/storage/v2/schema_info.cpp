@@ -62,8 +62,9 @@ inline auto PropertyTypes_ActionMethod(std::map<PropertyId, ExtendedPropertyType
   });
 }
 
-// Apply deltas from other transactions
-inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, auto &&callback) {
+// `snapshot_bound` (Transaction::SchemaReconstructionBound) is the exclusive visibility boundary: deltas with
+// `ts < snapshot_bound` are in the base snapshot and stop the walk; later ones are rolled back by the callback.
+inline void ApplyDeltasForRead(const Delta *delta, uint64_t snapshot_bound, auto &&callback) {
   // Avoid work if no deltas
   if (!delta) return;
 
@@ -71,7 +72,7 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
     auto ts = delta->commit_info->timestamp.load(std::memory_order_acquire);
     bool const is_delta_non_sequential = IsDeltaNonSequential(*delta);
 
-    if (ts < start_timestamp) {
+    if (ts < snapshot_bound) {
       if (is_delta_non_sequential) {
         delta = delta->next.load(std::memory_order_acquire);
         continue;
@@ -89,10 +90,13 @@ inline void ApplyDeltasForRead(const Delta *delta, uint64_t start_timestamp, aut
 
 enum State { NO_CHANGE, THIS_TX, ANOTHER_TX };
 
-// `commit_timestamp` is tested for equality against a delta's own timestamp, so it must come from
-// the same sequence the delta carries: the local commit stamp. A durable timestamp is the main's on
-// a replica, and passing one here leaves a transaction unable to recognise its own writes.
-inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t commit_timestamp,
+// A delta is in the base snapshot when its stamp is below `snapshot_bound`, so `>= snapshot_bound` means another
+// transaction wrote it. The comparison is exact at the boundary either way: narrowing makes the bound snapshot_ts + 1,
+// and otherwise it is a start timestamp, which no commit stamp ever equals. `commit_timestamp` is tested for equality
+// against a delta's own timestamp, so it must come from the same sequence the delta carries: the local commit stamp. A
+// durable timestamp is the main's on a replica, and passing one here leaves a transaction unable to recognise its own
+// writes.
+inline State GetState(const Delta *delta, uint64_t snapshot_bound, uint64_t commit_timestamp,
                       bool traverse_chain = false) {
   // This tx is running, so no deltas means there are no changes made after the tx started
   if (delta == nullptr) return State::NO_CHANGE;
@@ -106,7 +110,7 @@ inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t com
   // transaction modified it, its delta will be at the head.
   if (!traverse_chain) {
     if (head_ts == commit_timestamp) return State::THIS_TX;
-    if (head_ts > start_timestamp) return State::ANOTHER_TX;
+    if (head_ts >= snapshot_bound) return State::ANOTHER_TX;
     return State::NO_CHANGE;
   }
 
@@ -120,13 +124,13 @@ inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t com
   for (const Delta *current = delta; current != nullptr; current = current->next.load(std::memory_order_acquire)) {
     const auto ts = current->commit_info->timestamp.load(std::memory_order_acquire);
 
-    if (ts < start_timestamp) break;
+    if (ts < snapshot_bound) break;
 
     if (ts == commit_timestamp) {
       found_this_tx = true;
     }
 
-    if (ts > start_timestamp && ts != commit_timestamp) {
+    if (ts >= snapshot_bound && ts != commit_timestamp) {
       found_another_tx = true;
       break;
     }
@@ -138,13 +142,13 @@ inline State GetState(const Delta *delta, uint64_t start_timestamp, uint64_t com
 }
 
 // Keep v locked as we could return a reference to labels
-inline const VertexKey *GetLabelsViewOld(const Vertex *v, uint64_t start_timestamp, auto &cache) {
+inline const VertexKey *GetLabelsViewOld(const Vertex *v, uint64_t snapshot_bound, auto &cache) {
   // Check if already cached
   auto v_cached = cache.find(v);
   if (v_cached != cache.end()) return &v_cached->second;
   // Apply deltas and cache values
   auto labels_copy = v->labels;
-  ApplyDeltasForRead(v->delta(), start_timestamp, [&labels_copy](const Delta &delta) {
+  ApplyDeltasForRead(v->delta(), snapshot_bound, [&labels_copy](const Delta &delta) {
     // clang-format off
     DeltaDispatch(delta, utils::ChainedOverloaded{
       Labels_ActionMethod(labels_copy)
@@ -156,12 +160,12 @@ inline const VertexKey *GetLabelsViewOld(const Vertex *v, uint64_t start_timesta
 }
 
 // Keep v locked as we could return a reference to labels
-inline std::pair<const VertexKey *, bool> GetLabels(const Vertex *v, uint64_t start_timestamp,
-                                                    uint64_t commit_timestamp, auto &cache) {
-  const auto state = GetState(v->delta(), start_timestamp, commit_timestamp);
+inline std::pair<const VertexKey *, bool> GetLabels(const Vertex *v, uint64_t snapshot_bound, uint64_t commit_timestamp,
+                                                    auto &cache) {
+  const auto state = GetState(v->delta(), snapshot_bound, commit_timestamp);
   const auto *labels = &v->labels;
   if (state == ANOTHER_TX) {
-    labels = GetLabelsViewOld(v, start_timestamp, cache);
+    labels = GetLabelsViewOld(v, snapshot_bound, cache);
   }
   return std::pair{labels, state != THIS_TX};
 }
@@ -173,10 +177,10 @@ struct Labels {
 };
 
 // Cache needs to be reference stable because we are using it as a key
-inline Labels GetLabels(const Vertex *from, const Vertex *to, uint64_t start_timestamp, uint64_t commit_timestamp,
+inline Labels GetLabels(const Vertex *from, const Vertex *to, uint64_t snapshot_bound, uint64_t commit_timestamp,
                         auto &cache) {
-  const auto from_res = GetLabels(from, start_timestamp, commit_timestamp, cache);
-  const auto to_res = GetLabels(to, start_timestamp, commit_timestamp, cache);
+  const auto from_res = GetLabels(from, snapshot_bound, commit_timestamp, cache);
+  const auto to_res = GetLabels(to, snapshot_bound, commit_timestamp, cache);
   return {from_res.first, to_res.first, from_res.second || to_res.second};
 }
 
@@ -186,12 +190,12 @@ struct LabelsDiff {
 };
 
 // Cache needs to be reference stable because we are using it as a key
-inline LabelsDiff GetLabelsDiff(const Vertex *v, State state, uint64_t timestamp, auto &cache, auto &post_cache) {
+inline LabelsDiff GetLabelsDiff(const Vertex *v, State state, uint64_t snapshot_bound, auto &cache, auto &post_cache) {
   // NO CHANGES
   if (state == NO_CHANGE) return {&v->labels, &v->labels};
 
   // Labels as seen at transaction start (cached)
-  auto pre_labels = GetLabelsViewOld(v, timestamp, cache);
+  auto pre_labels = GetLabelsViewOld(v, snapshot_bound, cache);
 
   // THIS TX
   if (state == THIS_TX) {
@@ -210,10 +214,10 @@ struct Properties {
   bool needs_pp{false};
 };
 
-inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edge *edge, uint64_t start_timestamp) {
+inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edge *edge, uint64_t snapshot_bound) {
   auto edge_props = edge->properties.ExtendedPropertyTypes();
   // Apply deltas
-  ApplyDeltasForRead(edge->delta(), start_timestamp, [&edge_props](const Delta &delta) {
+  ApplyDeltasForRead(edge->delta(), snapshot_bound, [&edge_props](const Delta &delta) {
     // clang-format off
     DeltaDispatch(delta, utils::ChainedOverloaded{
       PropertyTypes_ActionMethod(edge_props)
@@ -223,14 +227,14 @@ inline std::map<PropertyId, ExtendedPropertyType> GetPropertiesViewOld(const Edg
   return edge_props;
 }
 
-inline Properties GetProperties(const Edge *edge, uint64_t start_timestamp, uint64_t commit_timestamp) {
-  const auto state = GetState(edge->delta(), start_timestamp, commit_timestamp);
+inline Properties GetProperties(const Edge *edge, uint64_t snapshot_bound, uint64_t commit_timestamp) {
+  const auto state = GetState(edge->delta(), snapshot_bound, commit_timestamp);
   // TODO Should we cache this as well
   auto edge_props = edge->properties.ExtendedPropertyTypes();
 
   if (state == ANOTHER_TX) {
     // Apply deltas
-    ApplyDeltasForRead(edge->delta(), start_timestamp, [&edge_props](const Delta &delta) {
+    ApplyDeltasForRead(edge->delta(), snapshot_bound, [&edge_props](const Delta &delta) {
       // clang-format off
         DeltaDispatch(delta, utils::ChainedOverloaded{
           PropertyTypes_ActionMethod(edge_props)
@@ -248,13 +252,13 @@ struct PropertiesDiff {
 };
 
 // Cache needs to be reference stable because we are using it as a key
-inline PropertiesDiff GetPropertiesDiff(const Edge *edge, State state, uint64_t timestamp) {
+inline PropertiesDiff GetPropertiesDiff(const Edge *edge, State state, uint64_t snapshot_bound) {
   // NO CHANGES
   auto edge_props = edge->properties.ExtendedPropertyTypes();
   if (state == NO_CHANGE) return {edge_props, edge_props};
 
   // Properties as seen at transaction start
-  auto pre_props = GetPropertiesViewOld(edge, timestamp);
+  auto pre_props = GetPropertiesViewOld(edge, snapshot_bound);
 
   // THIS TX
   if (state == THIS_TX) {
@@ -286,7 +290,7 @@ TrackingInfo<utils::ConcurrentUnorderedMap> &SharedSchemaTracking::edge_lookup(c
 template <template <class...> class TContainer>
 template <template <class...> class TOtherContainer>
 void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherContainer> &diff,
-                                                    SchemaInfoPostProcess &post_process, uint64_t start_ts,
+                                                    SchemaInfoPostProcess &post_process, uint64_t snapshot_bound,
                                                     uint64_t commit_ts, bool property_on_edges) {
   // Update shared schema based on the diff
   for (const auto &[vertex_key, info] : diff.vertex_state_) {
@@ -304,14 +308,14 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
 
     // An edge can be added to post process by modifying the edge directly or one of the vertices
     // We need to check all 3 objects
-    const auto from_state = GetState(from->delta(), start_ts, commit_ts, true);
-    const auto to_state = GetState(to->delta(), start_ts, commit_ts, true);
+    const auto from_state = GetState(from->delta(), snapshot_bound, commit_ts, true);
+    const auto to_state = GetState(to->delta(), snapshot_bound, commit_ts, true);
 
     State edge_state{NO_CHANGE};
     std::shared_lock<decltype(edge_ref.ptr->lock)> edge_lock;
     if (property_on_edges) {
       edge_lock = std::shared_lock{edge_ref.ptr->lock};
-      edge_state = GetState(edge_ref.ptr->delta(), start_ts, commit_ts, true);
+      edge_state = GetState(edge_ref.ptr->delta(), snapshot_bound, commit_ts, true);
     }
 
     // Check if we need to process this edge
@@ -319,12 +323,12 @@ void SchemaTracking<TContainer>::ProcessTransaction(const SchemaTracking<TOtherC
       continue;  // All is as it should be
     }
 
-    auto from_l_diff = GetLabelsDiff(from, from_state, start_ts, post_process.vertex_cache, post_vertex_cache);
-    auto to_l_diff = GetLabelsDiff(to, to_state, start_ts, post_process.vertex_cache, post_vertex_cache);
+    auto from_l_diff = GetLabelsDiff(from, from_state, snapshot_bound, post_process.vertex_cache, post_vertex_cache);
+    auto to_l_diff = GetLabelsDiff(to, to_state, snapshot_bound, post_process.vertex_cache, post_vertex_cache);
 
     PropertiesDiff edge_prop_diff;
     if (property_on_edges) {
-      edge_prop_diff = GetPropertiesDiff(edge_ref.ptr, edge_state, start_ts);
+      edge_prop_diff = GetPropertiesDiff(edge_ref.ptr, edge_state, snapshot_bound);
     }
 
     // TODO Possible optimization: check if labels or props changed and skip some lookups/updates
@@ -787,9 +791,9 @@ void SchemaInfo::TransactionalEdgeModifyingAccessor::UpdateTransactionalEdges(
     auto edge_lock =
         properties_on_edges_ ? std::shared_lock{edge_ref.ptr->lock} : std::shared_lock<decltype(edge_ref.ptr->lock)>{};
 
-    auto other_labels = GetLabels(other_vertex, start_ts_, commit_ts_, post_process_->vertex_cache);
+    auto other_labels = GetLabels(other_vertex, snapshot_bound_, commit_ts_, post_process_->vertex_cache);
     Properties edge_props{};
-    if (properties_on_edges_) edge_props = GetProperties(edge_ref.ptr, start_ts_, commit_ts_);
+    if (properties_on_edges_) edge_props = GetProperties(edge_ref.ptr, snapshot_bound_, commit_ts_);
 
     tracking_->UpdateEdgeStats(edge_ref,
                                edge_type,
@@ -916,8 +920,8 @@ void SchemaInfo::VertexModifyingAccessor::DeleteEdge(Vertex *from, Vertex *to, E
   tracking_->DeleteEdge(edge_type, edge_ref, from, to, properties_on_edges_);
 
   if (post_process_) {
-    if (GetState(from->delta(), start_ts_, commit_ts_) == ANOTHER_TX ||
-        GetState(to->delta(), start_ts_, commit_ts_) == ANOTHER_TX) {
+    if (GetState(from->delta(), snapshot_bound_, commit_ts_) == ANOTHER_TX ||
+        GetState(to->delta(), snapshot_bound_, commit_ts_) == ANOTHER_TX) {
       post_process_->edges.insert({edge_ref, edge_type, from, to});
     } else {
       post_process_->edges.erase({edge_ref, edge_type, from, to});
@@ -951,7 +955,7 @@ void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId t
     // In case the from/to vertices are touched by this tx, we are safe, no need to post process (remove edge)
     // If one of the vertices has not been changes, we need to append this edge to the post-process list
     // We also need to get labels as they are seen by this tx
-    auto labels = GetLabels(from, to, start_ts_, commit_ts_, post_process_->vertex_cache);
+    auto labels = GetLabels(from, to, snapshot_bound_, commit_ts_, post_process_->vertex_cache);
     tracking_->SetProperty(type, *labels.from, *labels.to, property, now, before, properties_on_edges_);
     if (labels.needs_pp) {
       post_process_->edges.emplace(edge, type, from, to);
@@ -968,4 +972,4 @@ template struct memgraph::storage::SchemaTracking<std::unordered_map>;
 template struct memgraph::storage::SchemaTracking<memgraph::utils::ConcurrentUnorderedMap>;
 template void memgraph::storage::SchemaTracking<memgraph::utils::ConcurrentUnorderedMap>::ProcessTransaction(
     const memgraph::storage::SchemaTracking<std::unordered_map> &diff, SchemaInfoPostProcess &post_process,
-    uint64_t start_ts, uint64_t commit_ts, bool property_on_edges);
+    uint64_t snapshot_bound, uint64_t commit_ts, bool property_on_edges);

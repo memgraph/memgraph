@@ -3167,12 +3167,13 @@ void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool p
   if (config_.salient.items.enable_schema_info) {
     std::lock_guard<std::mutex> const lock{schema_queue_mutex_};
     if (!pending_schema_updates_.empty()) {
-      // Establish earliest start time
-      uint64_t min_queued_start_ts = std::numeric_limits<uint64_t>::max();
+      // snapshot_bound is the earliest reconstruction boundary still queued: each update walks
+      // version chains down to ts < snapshot_bound, so no delta at or above that point may be unlinked.
+      uint64_t min_queued_bound = std::numeric_limits<uint64_t>::max();
       for (const auto &[commit_ts, update_data] : pending_schema_updates_) {
-        min_queued_start_ts = std::min(min_queued_start_ts, update_data.start_ts);
+        min_queued_bound = std::min(min_queued_bound, update_data.snapshot_bound);
       }
-      oldest_active_start_timestamp = std::min(min_queued_start_ts, oldest_active_start_timestamp);
+      oldest_active_start_timestamp = std::min(min_queued_bound, oldest_active_start_timestamp);
     }
   }
 
