@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <concepts>
 #include <optional>
 #include "flags/bolt.hpp"
@@ -469,6 +470,12 @@ void UpdateVectorIndex(SyncIndex &mg_index, Spec &spec, const Key &key, const ut
   }
   result.error.release();
   throw VectorSearchException("Failed to add entry to vector index.");
+}
+
+/// Whether any item of an index container covers `property`. Allocation-free.
+template <typename Container>
+bool AnyIndexOnProperty(const Container &container, PropertyId property) {
+  return std::ranges::any_of(container, [&](const auto &kv) { return kv.second->spec.property == property; });
 }
 
 /// @brief Populates a vector index by iterating over vertices on a single thread.

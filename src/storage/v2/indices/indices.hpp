@@ -87,13 +87,11 @@ struct Indices {
     VertexPropertyIndex::AbortProcessor vertex_property_;
     // TODO: point? Nothing to abort, it gets built in Commit
     // TODO: text?
-    VectorIndex::AbortProcessor vector_;
     VectorEdgeIndex::AbortProcessor vector_edge_;
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, EdgeRef edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
-    void CollectOnLabelAddition(LabelId labelId, Vertex *vertex);
-    void CollectOnPropertyChange(PropertyId propId, const PropertyValue &old_value, Vertex *vertex);
+    void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                  Edge *edge);
 
@@ -109,8 +107,7 @@ struct Indices {
 
     bool IsInterestingEdgeProperty(PropertyId property) const;
 
-    void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp,
-                 NameIdMapper *name_id_mapper);
+    void Process(Indices &indices, ActiveIndices const &active_indices, uint64_t start_timestamp);
 
     /// Reached only for an edge whose link its source vertex no longer holds. The first few are
     /// answered by scanning the deltas; past that the scanning is what costs, so they are indexed.

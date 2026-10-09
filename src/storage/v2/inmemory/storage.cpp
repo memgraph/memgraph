@@ -41,6 +41,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indexed_property_decoder.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
 #include "storage/v2/indices/edge_type_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
@@ -1562,6 +1563,10 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
     auto process_vertex_deltas = [&](Vertex *vertex, Delta *start, bool delta_chunk_attached_to_vertex) {
       auto remove_in_edges = absl::flat_hash_set<EdgeRef>{};
       auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
+      // Vector index changes are undone per delta under this vertex lock, newest first, so each step is the exact
+      // inverse of the write that made it.
+      auto const decoder = IndexedPropertyDecoder<Vertex>{
+          .indices = &storage_->indices_, .name_id_mapper = mem_storage->name_id_mapper_.get(), .entity = vertex};
 
       Delta *current = start;
       while (current != nullptr &&
@@ -1576,6 +1581,7 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
             storage_->UpdateLabelCount(current->label.value, -1);
 
             index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
+            storage_->indices_.vector_index_.RestoreOnRemoveLabel(current->label.value, vertex, decoder);
             break;
           }
           case Delta::Action::ADD_LABEL: {
@@ -1584,7 +1590,7 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
             vertex->labels.push_back(current->label.value);
 
             storage_->UpdateLabelCount(current->label.value, 1);
-            index_abort_processor.CollectOnLabelAddition(current->label.value, vertex);
+            storage_->indices_.vector_index_.RestoreOnAddLabel(current->label.value, vertex, decoder);
             break;
           }
           case Delta::Action::SET_PROPERTY: {
@@ -1592,9 +1598,11 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
             // For property label index
             //  check if we care about the property, this will return all the labels and then get current property
             //  value
-            index_abort_processor.CollectOnPropertyChange(current->property.key, *current->property.value, vertex);
+            index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
             // Setting the correct value
             vertex->properties.SetProperty(current->property.key, *current->property.value);
+            storage_->indices_.vector_index_.RestoreOnSetProperty(
+                current->property.key, *current->property.value, vertex);
             break;
           }
           case Delta::Action::ADD_IN_EDGE: {
@@ -1765,10 +1773,7 @@ void InMemoryStorage::InMemoryAccessor::Abort(ProgressCallback const &on_progres
     /// this is because they point into vertices skip_list
 
     // Cleanup INDICES
-    index_abort_processor.Process(storage_->indices_,
-                                  *transaction_.active_indices_,
-                                  transaction_.start_timestamp,
-                                  mem_storage->name_id_mapper_.get());
+    index_abort_processor.Process(storage_->indices_, *transaction_.active_indices_, transaction_.start_timestamp);
     // Handed to CollectGarbage for the same reason as the edges below: a removal on this thread
     // races a sweep or scan holding no pin on `vertices_`.
     if (!my_deleted_vertices.empty()) {
