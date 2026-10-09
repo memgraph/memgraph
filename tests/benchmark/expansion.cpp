@@ -249,9 +249,10 @@ BENCHMARK_REGISTER_F(KShortestBenchFixture, KShortest)->RangeMultiplier(2)->Rang
 
 // The same search with an always-true lambda: the delta against `KShortest` is the predicate's cost.
 BENCHMARK_DEFINE_F(KShortestBenchFixture, KShortestFiltered)(benchmark::State &state) {
-  RunQuery(state,
-           "MATCH (s:Source), (t:Target) WITH s, t MATCH (s)-[*KSHORTEST |20 (r, n | n.id >= 0)]->(t) RETURN "
-           "count(*)");
+  RunQuery(
+      state,
+      "MATCH (s:Source), (t:Target) WITH s, t MATCH (s)-[*KSHORTEST |20 (r, n | 1) (r, n | n.id >= 0)]->(t) RETURN "
+      "count(*)");
 }
 
 BENCHMARK_REGISTER_F(KShortestBenchFixture, KShortestFiltered)
@@ -280,7 +281,7 @@ BENCHMARK_REGISTER_F(KShortestMultiRowBenchFixture, KShortestMultiRow)->Arg(2)->
 BENCHMARK_DEFINE_F(KShortestMultiRowBenchFixture, KShortestMultiRowFiltered)(benchmark::State &state) {
   RunQuery(state,
            "MATCH (s:Source), (t:Target) WHERE s.pair = t.pair WITH s, t "
-           "MATCH (s)-[*KSHORTEST (r, n | n.id >= 0)]->(t) RETURN count(*)");
+           "MATCH (s)-[*KSHORTEST (r, n | 1) (r, n | n.id >= 0)]->(t) RETURN count(*)");
 }
 
 BENCHMARK_REGISTER_F(KShortestMultiRowBenchFixture, KShortestMultiRowFiltered)

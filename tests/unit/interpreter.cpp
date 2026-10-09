@@ -30,6 +30,7 @@
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
+#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/interpreter.hpp"
 #include "query/interpreter_context.hpp"
@@ -1942,6 +1943,26 @@ TYPED_TEST(InterpreterTest, UniqueConstraintTest) {
   this->Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;");
   // Removing the same constraint twice should not throw any exception.
   this->Interpret("DROP CONSTRAINT ON (n:A) ASSERT n.a, n.b IS UNIQUE;");
+}
+
+// The cursor is chosen per execution, so a cached KSHORTEST plan still validates each run's constant weight.
+TYPED_TEST(InterpreterTest, KShortestConstantWeightValidatedPerExecution) {
+  this->Interpret("CREATE (:N {id: 'A'})-[:R]->(:N {id: 'D'})");
+  const std::string query =
+      "MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t MATCH p=(s)-[:R *KSHORTEST (e, n | $c)]->(t) RETURN count(p) "
+      "AS c";
+  auto stream = this->Interpret(query, {{"c", memgraph::storage::ExternalPropertyValue(int64_t{1})}});
+  ASSERT_EQ(stream.GetResults().size(), 1U);
+  EXPECT_EQ(stream.GetResults()[0][0].ValueInt(), 1);
+  auto cached_plans = [&] { return this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }); };
+  const auto plans_after_first_run = cached_plans();
+  try {
+    this->Interpret(query, {{"c", memgraph::storage::ExternalPropertyValue(true)}});
+    ADD_FAILURE() << "expected a boolean constant weight to be refused";
+  } catch (const memgraph::query::QueryRuntimeException &e) {
+    EXPECT_EQ(std::string(e.what()), memgraph::query::EdgeAtom::kKShortestWeightFirstHint);
+  }
+  EXPECT_EQ(cached_plans(), plans_after_first_run) << "the second run must reuse the cached plan";
 }
 
 TYPED_TEST(InterpreterTest, ExplainQuery) {
