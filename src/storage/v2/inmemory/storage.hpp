@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <atomic>
 #include <concepts>
 #include <cstdint>
+#include <deque>
 #include <list>
 #include <memory>
 #include <mutex>
@@ -476,14 +478,19 @@ class InMemoryStorage final : public Storage {
 
     // Flips the WAL commit-status flag from pending to committed, which only 2PC writes. Must run before
     // FinalizeWalFile seals the file, so the flag byte lands in the sealed segment. Seeks and flushes the
-    // shared WAL encoder, so it needs engine_lock_ as every other wal_file_ access does.
+    // shared WAL encoder, so the caller must hold whichever lock serialises wal_file_ access: engine_lock_,
+    // or commit_mutex_ when narrowing.
     void FinalizeWalCommitStatus();
 
     // Makes the transaction's writes visible. The caller must hold engine_lock_ for the whole body, and
     // passes its guard to say so: CheckForFastDiscardOfDeltas reads transaction_id_, which a BEGIN races.
+    // Under commit-lock-narrowing the caller must also hold commit_mutex_, so that commits publish in
+    // the order they minted.
     void PublishCommit(uint64_t durability_commit_timestamp, std::unique_lock<utils::SpinLock> const &engine_guard);
 
-    // Completes a commit, and is the second phase when the transaction runs two-phase commit.
+    // Completes a commit, and is the second phase when the transaction runs two-phase commit. A
+    // STRICT_SYNC main calls the three steps separately instead, to hold the publish back until the
+    // replicas have finalized.
     // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
     // independently of PrepareForCommitPhase.
     void FinalizeCommitPhase(uint64_t durability_commit_timestamp,
@@ -906,10 +913,26 @@ class InMemoryStorage final : public Storage {
 
   [[nodiscard]] uint64_t VertexStoreSize() const { return vertices_.size(); }
 
+  // Observability/testing: the read-snapshot watermark (highest fully-published commit ts;
+  // the value a SNAPSHOT_ISOLATION reader freezes as its snapshot_ts at BEGIN under the experiment).
+  [[nodiscard]] uint64_t LastCommittedMvccTimestamp() const {
+    return last_committed_mvcc_ts_.load(std::memory_order_acquire);
+  }
+
+  // Engaged only under commit-lock-narrowing. Lock order: see Storage::commit_mutex_ (before engine_lock_).
+  [[nodiscard]] std::optional<std::unique_lock<std::mutex>> LockCommitMutexIfNarrowing() const {
+    if (!config_.experimental_commit_lock_narrowing) return std::nullopt;
+    return std::unique_lock{commit_mutex_};
+  }
+
  private:
   /// @throw std::system_error
   /// @throw std::bad_alloc
   void CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic);
+
+  // Single-threaded recovery/Clear only: keeps the read-snapshot watermark (everything below
+  // timestamp_ is published) in step with timestamp_.
+  void SetTimestampQuiescent(uint64_t next_timestamp);
 
   // Objects leave storage only through these, and only from a collection pass. An index entry
   // holds a raw pointer that nothing keeps alive, so an object may be retired only once that same
@@ -1138,6 +1161,17 @@ class InMemoryStorage final : public Storage {
   std::atomic<bool> gc_full_scan_vertices_delete_ = false;
   std::atomic<bool> gc_full_scan_edges_delete_ = false;
 
+  // EXPERIMENTAL (commit-lock-narrowing). A commit C mints commit_ts and publishes at end_ts = timestamp_;
+  // commit_mutex_ serializes committers, so every id in (commit_ts, end_ts) began in that window (start above C,
+  // snapshot below it). Only windows with such a txn are recorded (FIFO, disjoint); GC holds its horizon at commit_ts
+  // while one is live. Guarded by engine_lock_ (Clear(): main_lock_ UNIQUE).
+  struct CommitWindow {
+    uint64_t commit_ts;
+    uint64_t end_ts;
+  };
+
+  std::deque<CommitWindow> commit_windows_;
+
   free_mem_fn free_memory_func_;
 
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
@@ -1166,8 +1200,8 @@ class InMemoryStorage final : public Storage {
   struct SchemaUpdateData {
     LocalSchemaTracking schema_diff;
     SchemaInfoPostProcess post_process;
-    // Exclusive bound for deferred delta reconstruction, captured at commit so ProcessTransaction
-    // rebuilds the pre-state the committing transaction saw.
+    // Exclusive bound for deferred delta reconstruction (Transaction::SchemaReconstructionBound), captured at
+    // commit so ProcessTransaction rebuilds the pre-state the committing transaction saw.
     uint64_t snapshot_bound;
     // The local mint, which is what identifies this transaction's own deltas. Not the durable
     // timestamp, for the reason GetState gives.

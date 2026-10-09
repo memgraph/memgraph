@@ -439,7 +439,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
-      timestamp_ = std::max(timestamp_, info->next_timestamp);
+      SetTimestampQuiescent(std::max(timestamp_, info->next_timestamp));
       CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
                                   .num_committed_txns_ = info->num_committed_txns};
       repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
@@ -1019,6 +1019,9 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   // while still holding engine lock and after durability + replication,
   // check if we can fast discard deltas (i.e. do not hand over to GC)
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  // Caller MUST hold engine_lock_ (unchecked: SpinLock has no owner API). The transaction_id_ check below
+  // is what excludes a reader that began in this commit's mint-to-publish window.
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
   if (no_older_transactions && no_newer_transactions) [[unlikely]] {
@@ -1058,6 +1061,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   MG_ASSERT(!transaction_.has_serialization_error, "Unable to commit due to serialization error.");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+  const bool narrowing = mem_storage->config_.experimental_commit_lock_narrowing;
 
   PublishIndexArming();
 
@@ -1087,6 +1091,11 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return std::unexpected{validation_result.error()};
   }
 
+  // Serialize committers across mint->publish: (1) mint order must equal watermark publish order;
+  // (2) UniqueConstraintsViolation() must not run while another committer sits between its mint and
+  // publish, since its unpublished writes are invisible to MVCC.
+  auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
+
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
@@ -1102,7 +1111,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // There are probably others. We not to check all of them and figure out if they are allowed and what are
   // they even doing here...
 
-  // Write transaction to WAL while holding the engine lock to make sure
+  // Write transaction to WAL while holding the engine lock (under commit-lock narrowing it is released
+  // first and commit_mutex_ provides the ordering) to make sure
   // that committed transactions are sorted by the commit timestamp in the
   // WAL files. We supply the new commit timestamp to the function so that
   // it knows what will be the final commit timestamp. The WAL must be
@@ -1117,9 +1127,26 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   DMG_ASSERT(!commit_args.replication_allowed() || durability_commit_timestamp == *commit_timestamp_,
              "on a main the durable commit timestamp must be the local one");
 
+  // Copied while engine_lock_ is still held, because a replica switches epoch under that lock alone
+  // and ReplicationEpoch::id() is a view into a string SetEpoch replaces. Reading it after the
+  // release below would race that switch and could hand the WAL a view of a freed buffer.
+  auto const epoch_id = std::string{mem_storage->repl_storage_state_.epoch_.id()};
+
+  // Release engine_lock so BEGIN need not wait on WAL + replication (commit_mutex_ still held).
+  if (narrowing) {
+    engine_guard.unlock();
+  }
+
+  // Publishing needs engine_lock_; narrowing released it above, so take it back (commit_mutex_ is still held).
+  auto const with_engine_lock = [&](auto &&publish) {
+    if (!engine_guard.owns_lock()) engine_guard.lock();
+    publish();
+    if (narrowing) engine_guard.unlock();
+  };
+
   // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
-  if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_.id())) {
-    FinalizeCommitPhase(durability_commit_timestamp, engine_guard);
+  if (!mem_storage->InitializeWalFile(epoch_id)) {
+    with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
     // No WAL file, hence no need to finalize it
     return {};
   }
@@ -1140,7 +1167,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If SYNC and ASYNC replica executes this, commit immediately while holding the engine lock
         if (!two_phase_commit) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp, engine_guard);
+          with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
         }
       });
   if (replica_write_was_applied) {
@@ -1155,7 +1182,7 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If there are no STRICT_SYNC replicas for the current txn
         if (!replicating_txn.ShouldRunTwoPC()) {
           // WAL file is already finalized
-          FinalizeCommitPhase(durability_commit_timestamp, engine_guard);
+          with_engine_lock([&] { FinalizeCommitPhase(durability_commit_timestamp, engine_guard); });
 
           auto failures = replicating_txn.CollectAllFailures();
           // update replicas' cached commit info to this txn's absolute committed-txn count
@@ -1170,30 +1197,53 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
         // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
         // cluster.
 
+        // Skip on failed prepare: the flag must stay false so WAL recovery rolls this transaction back.
+        // Queueing runs ahead of the flag for the reason FinalizeCommitPhase gives, and this arm calls
+        // the steps separately because its publish waits on the replicas.
         if (repl_prepare_phase_ok) {
-          // All replicas voted yes, hence they want to commit the current transaction
-          FinalizeCommitPhase(durability_commit_timestamp, engine_guard);
+          QueueSchemaUpdate(durability_commit_timestamp);
+          FinalizeWalCommitStatus();
         }
-        // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
-
+        // The WAL commit flag is durable and replicas may have committed: an exception below must still publish,
+        // otherwise ~InMemoryAccessor aborts a transaction the WAL considers committed.
+        bool published = false;
+        utils::OnScopeExit const publish_on_unwind{[&] {
+          if (!repl_prepare_phase_ok || published) return;
+          published = true;
+          try {
+            with_engine_lock([&] { PublishCommit(durability_commit_timestamp, engine_guard); });
+          } catch (...) {
+            spdlog::error("Failed to publish a transaction whose WAL commit flag was already written.");
+          }
+        }};
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
-        // Send to all replicas they can finalize a transaction
+        // MVCC publish is deferred until after this call: before STRICT_SYNC replicas ack, failover
+        // could still roll the commit back, so publishing earlier would expose a value that can vanish.
         replicating_txn.FinalizeTransaction(
             repl_prepare_phase_ok, mem_storage->uuid(), protector, durability_commit_timestamp);
 
         auto failures = replicating_txn.CollectAllFailures();
-        // update replicas' cached commit info only if the txn was actually committed
-        if (repl_prepare_phase_ok) {
-          replicating_txn.UpdateCommitTsInfo();
-        }
 
         if (!failures.empty()) {
-          // Release engine lock because we don't have to hold it anymore for abort
-          engine_guard.unlock();
+          // Reachable only with repl_prepare_phase_ok == false, since FinalizeTransaction's failures are
+          // deliberately not collected here. Claim the publish regardless: the abort below drops the commit
+          // timestamp, so a scope exit that published after it would dereference an empty optional and make
+          // visible a transaction that was just rolled back.
+          published = true;
+          if (engine_guard.owns_lock()) engine_guard.unlock();
           AbortAndResetCommitTs();
           return std::unexpected{ReplicationError{.failures = std::move(failures), .transaction_committed = false}};
+        }
+
+        if (repl_prepare_phase_ok) {
+          // Publish only after replicas finalize: with engine_lock_ released a BEGIN could otherwise see a commit
+          // a failover may roll back (safe pre-narrowing only because engine_lock_ was held throughout).
+          published = true;
+          with_engine_lock([&] { PublishCommit(durability_commit_timestamp, engine_guard); });
+          // After publish: main's commit_ts_info_ is bumped in PublishCommit; replica caches must not lead it.
+          replicating_txn.UpdateCommitTsInfo();
         }
 
         return {};
@@ -1232,8 +1282,28 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
   DMG_ASSERT(engine_guard.owns_lock() && engine_guard.mutex() == &mem_storage->engine_lock_,
              "PublishCommit requires engine_lock_ held");
 
+  if (mem_storage->config_.experimental_commit_lock_narrowing) {
+    // Before any visibility side effect, and exempt from the tracker's OOM throw: the WAL and the
+    // replicas are already done, so this must not be the thing that fails.
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker const oom_blocker;
+    auto &windows = mem_storage->commit_windows_;
+    if (mem_storage->timestamp_ > *commit_timestamp_ + 1) {
+      windows.push_back({.commit_ts = *commit_timestamp_, .end_ts = mem_storage->timestamp_});
+    }
+    if (!windows.empty()) {
+      auto const oldest_active = mem_storage->commit_log_->OldestActive();
+      while (!windows.empty() && windows.front().end_ts <= oldest_active) windows.pop_front();
+    }
+  }
+
   MG_ASSERT(transaction_.commit_info != nullptr, "Invalid database state!");
   transaction_.commit_info->timestamp.store(*commit_timestamp_, std::memory_order_release);
+  if (mem_storage->config_.experimental_commit_lock_narrowing) {
+    // Same engine_lock_ hold as the visibility store, so a later throw cannot leave the watermark behind.
+    MG_ASSERT(*commit_timestamp_ > mem_storage->last_committed_mvcc_ts_.load(std::memory_order_relaxed),
+              "watermark must strictly increase: commit mint order and publish order have diverged");
+    mem_storage->last_committed_mvcc_ts_.store(*commit_timestamp_, std::memory_order_release);
+  }
 
   // If the transaction had non-sequential deltas (or another transaction propagated
   // the flag to us), we should re-establish the `has_uncommitted_non_sequential_deltas`
@@ -1318,6 +1388,7 @@ void InMemoryStorage::InMemoryAccessor::PublishCommit(uint64_t const durability_
   if (!transaction_.text_edge_index_change_collector_.empty()) {
     transaction_.active_indices_->text_edge_->ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
+
   is_transaction_active_ = false;
 }
 
@@ -1360,6 +1431,9 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
   transaction_.start_timestamp = new_transaction.start_timestamp;
   transaction_.transaction_id = new_transaction.transaction_id;
+  // Advance the SI snapshot boundary so the next batch sees this one.
+  // With the experiment OFF, snapshot_ts equals start_timestamp and is inert to the read path.
+  transaction_.snapshot_ts = new_transaction.snapshot_ts;
   transaction_.commit_info.reset();
   // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
   // the next batch would have every later commit re-enter its vertices into constraints none of
@@ -1863,8 +1937,11 @@ void InMemoryStorage::ProcessPendingSchemaUpdates(uint64_t up_to_commit_ts) {
   }
 
   for (auto &update : to_process) {
-    schema_info_.ProcessTransaction(
-        update.schema_diff, update.post_process, update.start_ts, update.local_commit_ts, update.property_on_edges);
+    schema_info_.ProcessTransaction(update.schema_diff,
+                                    update.post_process,
+                                    update.snapshot_bound,
+                                    update.local_commit_ts,
+                                    update.property_on_edges);
   }
 }
 
@@ -2914,6 +2991,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   // `timestamp`) below.
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
+  uint64_t snapshot_ts = 0;
   CommitTsInfo commit_ts_info;
   std::optional<PointIndexContext> point_index_context;
   ActiveIndicesPtr active_indices;
@@ -2922,6 +3000,10 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
+    // Capture the SI snapshot boundary under the same engine_lock hold as the mint (consistent with
+    // start_timestamp). ON: frozen to last_committed_mvcc_ts_ (< start_timestamp). OFF: == start_timestamp.
+    snapshot_ts = config_.experimental_commit_lock_narrowing ? last_committed_mvcc_ts_.load(std::memory_order_acquire)
+                                                             : start_timestamp;
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
     // Needed by snapshot to sync the durable and logical ts. Load ldt and num_committed_txns from the same atomic
@@ -2935,18 +3017,22 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
   auto async_index_helper = AsyncIndexHelper{config_, *active_indices, start_timestamp};
 
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
-  return {transaction_id,
-          start_timestamp,
-          isolation_level,
-          storage_mode,
-          false,
-          *std::move(point_index_context),
-          std::move(active_indices),
-          std::move(active_constraints),
-          std::move(async_index_helper),
-          commit_ts_info.ldt_,
-          commit_ts_info.num_committed_txns_,
-          metric_handles_.unreleased_delta_objects};
+  auto transaction = Transaction{transaction_id,
+                                 start_timestamp,
+                                 isolation_level,
+                                 storage_mode,
+                                 false,
+                                 *std::move(point_index_context),
+                                 std::move(active_indices),
+                                 std::move(active_constraints),
+                                 std::move(async_index_helper),
+                                 commit_ts_info.ldt_,
+                                 commit_ts_info.num_committed_txns_,
+                                 metric_handles_.unreleased_delta_objects};
+  transaction.snapshot_ts = snapshot_ts;
+  transaction.commit_lock_narrowing =
+      config_.experimental_commit_lock_narrowing && isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+  return transaction;
 }
 
 void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
@@ -3000,6 +3086,7 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
       // rejected switch has no side effect, and under engine_lock_ because GetRecoverySteps holds that
       // lock specifically to read wal_file_. Lock order main_lock_ -> engine_lock_ is respected, since
       // the UNIQUE hold above is on main_lock_.
+      // Serialized against in-flight committers by main_lock_ UNIQUE (they hold it SHARED), not commit_mutex_.
       {
         std::unique_lock const engine_guard(engine_lock_);
         if (wal_file_) {
@@ -3085,6 +3172,14 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
     // lock would give the one hold two owners and release it twice.
     FreeMemory(unique_accessor->ReleaseGuard(), false);
   }
+}
+
+void InMemoryStorage::SetTimestampQuiescent(uint64_t const next_timestamp) {
+  timestamp_ = next_timestamp;
+  // 0 is never a live commit ts (the first BEGIN consumes it) and is recovery's always-visible stamp,
+  // so the clamp is exact.
+  last_committed_mvcc_ts_.store(next_timestamp > kTimestampInitialId ? next_timestamp - 1 : kTimestampInitialId,
+                                std::memory_order_release);
 }
 
 void InMemoryStorage::CollectGarbage(utils::ResourceLockGuard main_guard, bool periodic) {
@@ -4438,7 +4533,8 @@ auto InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       commit_args.replication_allowed() ? &commit_args.database_protector() : nullptr);
 
   // The WAL write runs inline: the commit thread would otherwise only sleep on the fused futures, and
-  // it still has the just-traversed deltas hot in cache. WAL commit order follows from engine_lock_.
+  // it still has the just-traversed deltas hot in cache. WAL commit order follows from whichever lock
+  // the caller serialised on, engine_lock_ or commit_mutex_ when narrowing.
   {
     durability::WalTxnDataPos positions;
     // Append txn start delta and remember the position in the WAL file in which this delta is saved.
@@ -4685,6 +4781,10 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
   // When creating a snapshot, we first lock the snapshot, then create the accessor, so no need for the snapshot lock
   // GC could be running without the main lock, so lock it
   // Engine lock is needed because of PrepareForNewEpoch
+  // This runs straight off a query with no exclusive hold on main_lock_, so a commit can be in flight. Under
+  // commit-lock-narrowing that commit appends to wal_file_ holding commit_mutex_ alone, and the reset below
+  // would free the file under it, so take commit_mutex_ first.
+  auto commit_serializer = LockCommitMutexIfNarrowing();
   auto gc_lock = std::unique_lock{gc_lock_};
   auto engine_lock = std::unique_lock{engine_lock_};
 
@@ -4714,7 +4814,7 @@ std::expected<void, InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Reco
     const auto &recovery_info = recovered_snapshot.recovery_info;
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
-    timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
+    SetTimestampQuiescent(std::max(timestamp_, recovery_info.next_timestamp));
     loaded_snapshot_uuid = recovered_snapshot.snapshot_info.uuid;
 
     auto const update_func = [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp,
@@ -4910,6 +5010,8 @@ void InMemoryStorage::FreeMemory(utils::ResourceLockGuard main_guard, bool perio
 uint64_t InMemoryStorage::GetCommitTimestamp() { return timestamp_++; }
 
 void InMemoryStorage::PrepareForNewEpoch() {
+  // Committer lock order: keeps this WAL reset from racing a committer's WAL append.
+  auto commit_serializer = LockCommitMutexIfNarrowing();
   std::unique_lock engine_guard{engine_lock_};
   if (wal_file_) {
     wal_file_->FinalizeWal();
@@ -5403,7 +5505,11 @@ void InMemoryStorage::Clear(std::function<void()> const &on_progress) {
   edge_id_.store(0, std::memory_order_release);
   edge_count_.store(0, std::memory_order_release);
 
-  timestamp_ = kTimestampInitialId;
+  SetTimestampQuiescent(kTimestampInitialId);
+  if (config_.experimental_commit_lock_narrowing) {
+    // Windows hold pre-rewind ids; recovery is single-threaded, so no concurrent GC or committer.
+    commit_windows_.clear();
+  }
   transaction_id_ = kTransactionInitialId;
 
   // Reset WALs
