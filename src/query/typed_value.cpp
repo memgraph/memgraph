@@ -1595,24 +1595,6 @@ TypedValue operator==(const TypedValue &a, const TypedValue &b) {
   [[clang::always_inline]] return relations::equality::Equal(a, b);
 }
 
-void EqualInto(TypedValue &out, const TypedValue &a, const TypedValue &b) {
-  // Both operands are read to completion before the destination is written, so
-  // the destination may be either of them.
-  if (a.IsInt() && b.IsInt()) {
-    out = a.UnsafeValueInt() == b.UnsafeValueInt();
-    return;
-  }
-  if (a.IsBool() && b.IsBool()) {
-    out = a.UnsafeValueBool() == b.UnsafeValueBool();
-    return;
-  }
-  if (a.IsString() && b.IsString()) {
-    out = a.UnsafeValueString() == b.UnsafeValueString();
-    return;
-  }
-  out = a == b;
-}
-
 TypedValue operator!(const TypedValue &a) {
   if (a.IsNull()) return TypedValue(a.alloc_);
   if (a.IsBool()) return TypedValue(!a.ValueBool(), a.alloc_);

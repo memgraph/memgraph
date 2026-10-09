@@ -60,23 +60,9 @@ class Frame {
   using allocator_type = utils::Allocator<TypedValue>;
 
   /// Create a Frame of given size backed by a utils::NewDeleteResource()
-  explicit Frame(int64_t size) : elems_(size, utils::NewDeleteResource()), eval_scratch_(utils::NewDeleteResource()) {
-    MG_ASSERT(size >= 0);
-  }
+  explicit Frame(int64_t size) : elems_(size, utils::NewDeleteResource()) { MG_ASSERT(size >= 0); }
 
-  Frame(int64_t size, allocator_type alloc) : elems_(size, alloc), eval_scratch_(alloc) { MG_ASSERT(size >= 0); }
-
-  /// Where evaluating an expression leaves a node's value. Each node owns one,
-  /// so the value's storage is reused from row to row rather than built and
-  /// torn down for every row. A frame belongs to one execution, so the slots
-  /// are not shared across threads.
-  ///
-  /// Grows on demand, which moves what it holds: a reference taken from here
-  /// must not be held across anything that could evaluate another node.
-  auto EvalSlot(uint32_t index) -> TypedValue & {
-    if (index >= eval_scratch_.size()) eval_scratch_.resize(index + 1);
-    return eval_scratch_[index];
-  }
+  Frame(int64_t size, allocator_type alloc) : elems_(size, alloc) { MG_ASSERT(size >= 0); }
 
   const TypedValue &operator[](const Symbol &symbol) const {
     DebugAssertInBounds(symbol);
@@ -107,7 +93,6 @@ class Frame {
   }
 
   utils::pmr::vector<TypedValue> elems_;
-  utils::pmr::vector<TypedValue> eval_scratch_;
 };
 
 template <typename Func>

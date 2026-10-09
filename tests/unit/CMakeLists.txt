@@ -364,21 +364,6 @@ add_unit_test(query_profile
     LINK_TARGETS mg-query
 )
 
-add_unit_test(query_eval_slots
-    SOURCES query_eval_slots.cpp
-    LINK_TARGETS mg-query
-)
-
-add_unit_test(query_eval_slot_liveness
-    SOURCES query_eval_slot_liveness.cpp
-    LINK_TARGETS mg-query
-)
-
-add_unit_test(query_typed_value_in_place
-    SOURCES query_typed_value_in_place.cpp
-    LINK_TARGETS mg-query typed_value_shapes
-)
-
 add_unit_test(query_typed_program_coverage
     SOURCES query_typed_program_coverage.cpp
     LINK_TARGETS mg-query disk_test_utils
