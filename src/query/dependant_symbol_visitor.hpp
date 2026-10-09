@@ -39,6 +39,8 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
   explicit DependantSymbolVisitor(std::set<Symbol::Position_t> &dependencies) : dependencies_(dependencies) {}
 
   void Visit(Identifier &identifier) override {
+    // Symbol generation reaches every identifier the tree holds, and the parser drops the subtrees it stops the tree
+    // from reaching, so one carrying no symbol means a reachable identifier was missed rather than an orphan left.
     MG_ASSERT(identifier.symbol_pos_ != -1);
     dependencies_.insert(identifier.symbol_pos_);
   }

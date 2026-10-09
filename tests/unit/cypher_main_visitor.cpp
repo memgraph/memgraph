@@ -530,6 +530,249 @@ TEST_P(CypherMainVisitorTest, ReturnOrderBy) {
   CheckRWType(query, kRead);
 }
 
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItem) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH (n) RETURN n.type, count( n.value ) ORDER BY COUNT(n.value), n.type"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  auto const &items = return_clause->body_.named_expressions;
+  auto const &order_by = return_clause->body_.order_by;
+  ASSERT_EQ(order_by.size(), 2U);
+  auto *count = dynamic_cast<Identifier *>(order_by[0].expression);
+  ASSERT_TRUE(count);
+  EXPECT_EQ(count->name_, items[1]->name_);
+  auto *type = dynamic_cast<Identifier *>(order_by[1].expression);
+  ASSERT_TRUE(type);
+  EXPECT_EQ(type->name_, items[0]->name_);
+}
+
+TEST_P(CypherMainVisitorTest, ReturnOrderByExpressionOfAggregatedItem) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN count(n) AS c ORDER BY -count(n)"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  auto *minus = dynamic_cast<UnaryMinusOperator *>(return_clause->body_.order_by[0].expression);
+  ASSERT_TRUE(minus);
+  auto *count = dynamic_cast<Identifier *>(minus->expression_);
+  ASSERT_TRUE(count);
+  EXPECT_EQ(count->name_, "c");
+}
+
+// Rewriting inside it would detach a subtree that nothing goes on to read.
+TEST_P(CypherMainVisitorTest, ReturnOrderByUnprojectedAggregationKeepsItsArgument) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH (n) RETURN n.value AS v, count(n.value) AS c ORDER BY sum(n.value)"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  auto *sum = dynamic_cast<Aggregation *>(return_clause->body_.order_by[0].expression);
+  ASSERT_TRUE(sum);
+  EXPECT_TRUE(dynamic_cast<PropertyLookup *>(sum->expression1_));
+}
+
+TEST_P(CypherMainVisitorTest, WithWhereAggregatedItem) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH (n) WITH n.type AS t, count(n) AS c WHERE count(n) > t RETURN t"));
+  ASSERT_TRUE(query);
+  auto *with = dynamic_cast<With *>(query->single_query_->clauses_[1]);
+  ASSERT_TRUE(with->where_);
+  auto *greater = dynamic_cast<GreaterOperator *>(with->where_->expression_);
+  ASSERT_TRUE(greater);
+  auto *count = dynamic_cast<Identifier *>(greater->expression1_);
+  ASSERT_TRUE(count);
+  EXPECT_EQ(count->name_, "c");
+}
+
+TEST_P(CypherMainVisitorTest, ReturnOrderByProjectedItemNeedsAggregation) {
+  auto &ast_generator = *GetParam();
+  for (auto const *text : {"MATCH (n) RETURN n.x AS x ORDER BY n.x",
+                           "MATCH (n) RETURN n.x AS x, EXISTS { MATCH (m) RETURN count(m) } AS e ORDER BY n.x"}) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    ASSERT_TRUE(query);
+    auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+    EXPECT_TRUE(dynamic_cast<PropertyLookup *>(return_clause->body_.order_by[0].expression)) << text;
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ReturnOrderByDifferentAggregatedItem) {
+  auto &ast_generator = *GetParam();
+  for (auto const *text : {"MATCH (n) RETURN count(DISTINCT n.x) AS c ORDER BY count(n.x)",
+                           "MATCH (n) RETURN toUpper(n.x) AS u, count(*) AS c ORDER BY toLower(n.x)",
+                           "MATCH (n) RETURN n:A AS a, count(*) AS c ORDER BY n:B",
+                           // Two kinds that differ hold no common state, so neither is read through the other. An
+                           // addition and a subtraction are both state-free and take the same children, which
+                           // nothing but the kinds themselves tells apart.
+                           "MATCH (n) RETURN n:A AS a, count(*) AS c ORDER BY n.A",
+                           "MATCH (n) RETURN n.x AS v, count(*) AS c ORDER BY [n.x]",
+                           "MATCH (n) RETURN n.x + n.y AS v, count(*) AS c ORDER BY n.x - n.y",
+                           "MATCH (n) RETURN n:!A AS a, count(*) AS c ORDER BY n:!B",
+                           "MATCH (n) RETURN n:!A AS a, count(*) AS c ORDER BY n:A"}) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    ASSERT_TRUE(query);
+    auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+    EXPECT_FALSE(dynamic_cast<Identifier *>(return_clause->body_.order_by[0].expression)) << text;
+  }
+}
+
+// A form that binds a variable holds the bound variable, the list it ranges over, and a body that reads the variable.
+// Comparing only some of those would call two different tests the same, so matching such a form at all requires
+// comparing the body under the binding, and until it does the form matches nothing.
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemBindingAVariable) {
+  auto &ast_generator = *GetParam();
+  auto const order_by = [&](auto const *text) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    return dynamic_cast<Return *>(query->single_query_->clauses_[1])->body_.order_by[0].expression;
+  };
+  for (auto const *text :
+       {"MATCH (n) RETURN all(x IN n.list WHERE x > n.a) AS v, count(*) AS c ORDER BY all(x IN n.list WHERE x > n.b)",
+        "MATCH (n) RETURN any(x IN n.list WHERE x > n.a) AS v, count(*) AS c ORDER BY any(x IN n.list WHERE x > n.b)",
+        "MATCH (n) RETURN [x IN n.list WHERE x > n.a] AS v, count(*) AS c ORDER BY [x IN n.list WHERE x > n.b]",
+        "MATCH (n) RETURN none(x IN n.list WHERE x > n.a) AS v, count(*) AS c ORDER BY none(x IN n.list WHERE x > "
+        "n.b)",
+        "MATCH (n) RETURN single(x IN n.list WHERE x > n.a) AS v, count(*) AS c ORDER BY single(x IN n.list WHERE x "
+        "> n.b)",
+        "MATCH (n) RETURN reduce(a = n.z, x IN n.list | a + n.p) AS v, count(*) AS c ORDER BY reduce(a = n.z, x IN "
+        "n.list | a + n.q)"}) {
+    EXPECT_FALSE(dynamic_cast<Identifier *>(order_by(text))) << text;
+  }
+
+  // The list a binding form ranges over is read outside the binding, so a projected item repeating it may not be
+  // substituted in: the name the item carries is the one the form goes on to bind.
+  auto *reduce = dynamic_cast<Reduce *>(
+      order_by("MATCH (n) RETURN n.list AS x, count(*) AS c ORDER BY reduce(a = 0, x IN n.list | a + x)"));
+  ASSERT_TRUE(reduce);
+  EXPECT_TRUE(dynamic_cast<PropertyLookup *>(reduce->list_));
+}
+
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedLabelsTest) {
+  auto &ast_generator = *GetParam();
+  for (auto const *text : {"MATCH (n) RETURN n:A:B AS a, count(*) AS c ORDER BY n:A:B",
+                           "MATCH (n) RETURN n:A|B AS a, count(*) AS c ORDER BY n:A|B",
+                           // A test the plain-label form cannot express is kept whole, and is matched whole.
+                           "MATCH (n) RETURN n:!A AS a, count(*) AS c ORDER BY n:!A",
+                           "MATCH (n) RETURN n:(A|B)&!C AS a, count(*) AS c ORDER BY n:(A|B)&!C",
+                           "MATCH (n) RETURN n:% AS a, count(*) AS c ORDER BY n:%"}) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    ASSERT_TRUE(query);
+    auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+    auto *item = dynamic_cast<Identifier *>(return_clause->body_.order_by[0].expression);
+    ASSERT_TRUE(item) << text;
+    EXPECT_EQ(item->name_, "a");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWithParameter) {
+  auto &ast_generator = *GetParam();
+  auto const order_by = [&](auto const *text) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    return dynamic_cast<Return *>(query->single_query_->clauses_[1])->body_.order_by[0].expression;
+  };
+  for (auto const *text : {"MATCH (n) RETURN n.x + $p AS v, count(*) AS c ORDER BY n.x + $p",
+                           "MATCH (n) RETURN n.x + $`p` AS v, count(*) AS c ORDER BY n.x + $p"}) {
+    auto *same = dynamic_cast<Identifier *>(order_by(text));
+    ASSERT_TRUE(same) << text;
+    EXPECT_EQ(same->name_, "v");
+  }
+  for (auto const *text : {"MATCH (n) RETURN n.x + $p AS v, count(*) AS c ORDER BY n.x + $q",
+                           "MATCH (n) RETURN n.x + $p AS v, count(*) AS c ORDER BY n.x + 1"}) {
+    EXPECT_FALSE(dynamic_cast<Identifier *>(order_by(text))) << text;
+  }
+}
+
+// A map holds its keys itself and its values as children, in no particular order, so matching it has to pair the two
+// sides up by key rather than by position.
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWithMap) {
+  auto &ast_generator = *GetParam();
+  auto const order_by = [&](auto const *text) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    return dynamic_cast<Return *>(query->single_query_->clauses_[1])->body_.order_by[0].expression;
+  };
+  for (auto const *text : {"MATCH (n) RETURN {t: n.type} AS k, count(*) AS c ORDER BY {t: n.type}",
+                           "MATCH (n) RETURN {a: n.x, b: n.y} AS k, count(*) AS c ORDER BY {b: n.y, a: n.x}",
+                           "MATCH (n) RETURN n {.type} AS k, count(*) AS c ORDER BY n {.type}",
+                           "MATCH (n) RETURN n {.*} AS k, count(*) AS c ORDER BY n {.*}"}) {
+    auto *same = dynamic_cast<Identifier *>(order_by(text));
+    ASSERT_TRUE(same) << text;
+    EXPECT_EQ(same->name_, "k") << text;
+  }
+  for (auto const *text : {"MATCH (n) RETURN {t: n.type} AS k, count(*) AS c ORDER BY {u: n.type}",
+                           "MATCH (n) RETURN {t: n.type} AS k, count(*) AS c ORDER BY {t: n.other}",
+                           "MATCH (n) RETURN {a: n.x} AS k, count(*) AS c ORDER BY {a: n.x, b: n.y}",
+                           "MATCH (n) RETURN n {.type} AS k, count(*) AS c ORDER BY n {.other}",
+                           "MATCH (m), (n) RETURN n {.type} AS k, count(*) AS c ORDER BY m {.type}"}) {
+    EXPECT_FALSE(dynamic_cast<Identifier *>(order_by(text))) << text;
+  }
+}
+
+// An enum value names no child, so the two names it holds are the whole of what distinguishes it.
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWithEnumValue) {
+  auto &ast_generator = *GetParam();
+  auto const order_by = [&](auto const *text) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    return dynamic_cast<Return *>(query->single_query_->clauses_[1])->body_.order_by[0].expression;
+  };
+  auto *same = dynamic_cast<Identifier *>(
+      order_by("MATCH (n) RETURN n.s = Status::OPEN AS v, count(*) AS c ORDER BY n.s = Status::OPEN"));
+  ASSERT_TRUE(same);
+  EXPECT_EQ(same->name_, "v");
+
+  for (auto const *text : {"MATCH (n) RETURN n.s = Status::OPEN AS v, count(*) AS c ORDER BY n.s = Status::SHUT",
+                           "MATCH (n) RETURN n.s = Status::OPEN AS v, count(*) AS c ORDER BY n.s = Other::OPEN"}) {
+    EXPECT_FALSE(dynamic_cast<Identifier *>(order_by(text))) << text;
+  }
+}
+
+// A kind whose only state is its children matches whenever its children do. The matcher has to name each such kind,
+// because a kind it does not name cannot match at all.
+TEST_P(CypherMainVisitorTest, ReturnOrderByAggregatedItemWhoseStateIsItsChildren) {
+  auto &ast_generator = *GetParam();
+  for (auto const *text :
+       {"MATCH (n) RETURN n.x + n.y AS v, count(*) AS c ORDER BY n.x + n.y",
+        "MATCH (n) RETURN -n.x AS v, count(*) AS c ORDER BY -n.x",
+        "MATCH (n) RETURN [n.x, n.y] AS v, count(*) AS c ORDER BY [n.x, n.y]",
+        "MATCH (n) RETURN coalesce(n.x, n.y) AS v, count(*) AS c ORDER BY coalesce(n.x, n.y)",
+        "MATCH (n) RETURN n.l[n.a..n.b] AS v, count(*) AS c ORDER BY n.l[n.a..n.b]",
+        "MATCH (n) RETURN CASE WHEN n.x THEN n.y ELSE n.z END AS v, count(*) AS c ORDER BY CASE WHEN n.x THEN n.y "
+        "ELSE n.z END",
+        "MATCH (n) RETURN n.x AND n.y AS v, count(*) AS c ORDER BY n.x AND n.y",
+        "MATCH (n) RETURN n.x OR n.y AS v, count(*) AS c ORDER BY n.x OR n.y",
+        "MATCH (n) RETURN n.x < n.y AS v, count(*) AS c ORDER BY n.x < n.y",
+        "MATCH (n) RETURN n.x = n.y AS v, count(*) AS c ORDER BY n.x = n.y",
+        "MATCH (n) RETURN n.x IN n.l AS v, count(*) AS c ORDER BY n.x IN n.l",
+        "MATCH (n) RETURN n.l[n.i] AS v, count(*) AS c ORDER BY n.l[n.i]",
+        "MATCH (n) RETURN n.x IS NULL AS v, count(*) AS c ORDER BY n.x IS NULL",
+        "MATCH (n) RETURN NOT n.x AS v, count(*) AS c ORDER BY NOT n.x",
+        "MATCH (n) RETURN n.name =~ n.pat AS v, count(*) AS c ORDER BY n.name =~ n.pat"}) {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(text));
+    ASSERT_TRUE(query) << text;
+    auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+    auto *same = dynamic_cast<Identifier *>(return_clause->body_.order_by[0].expression);
+    ASSERT_TRUE(same) << text;
+    EXPECT_EQ(same->name_, "v") << text;
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ReturnOrderByImpureAggregatedItem) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("MATCH (n) RETURN count(n) AS c, rand() AS r ORDER BY rand()"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  EXPECT_TRUE(dynamic_cast<Function *>(return_clause->body_.order_by[0].expression));
+}
+
+TEST_P(CypherMainVisitorTest, ReturnOrderByShadowedAggregatedItem) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) RETURN n.x AS n, count(*) AS c ORDER BY n.x"));
+  ASSERT_TRUE(query);
+  auto *return_clause = dynamic_cast<Return *>(query->single_query_->clauses_[1]);
+  EXPECT_TRUE(dynamic_cast<PropertyLookup *>(return_clause->body_.order_by[0].expression));
+}
+
 TEST_P(CypherMainVisitorTest, ReturnNamedIdentifier) {
   auto &ast_generator = *GetParam();
   auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN var AS var5"));
