@@ -151,6 +151,10 @@ workloads:
   - name: "Replicate periodic commit"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["replication/replicate_periodic_commit.py"]
+
+  - name: "Replicate with mixed commit-lock-narrowing"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["replication/replicate_mixed_narrowing.py"]
     <<: *template_simple_cluster
 
   - name: "Replicate periodic commit (light-edge)"
