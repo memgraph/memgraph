@@ -44,6 +44,7 @@ BOLT_PORT = 17691
 
 _ALICE = ("alice", "alice")
 _BOB = ("bob", "bob")
+_GINA = ("gina", "gina")
 
 # Multi-database (CREATE/USE DATABASE, GRANT DATABASE) is enterprise-gated.
 requires_enterprise = pytest.mark.skipif(
@@ -327,6 +328,143 @@ def test_logoff_refreshes_session_login_timestamp(test_name):
             f"bob's login_timestamp ({bob_login_ts!r}) must be strictly later than "
             f"alice's ({alice_login_ts!r}); LOGOFF+LOGON must refresh the timestamp."
         )
+    finally:
+        driver.close()
+
+
+# ---------------------------------------------------------------------------
+# Test 6-9: impersonation Configure — failure / revoke / sticky USE DATABASE on one live connection
+# ---------------------------------------------------------------------------
+
+
+def _admin(*statements: str) -> None:
+    conn = connect(host="127.0.0.1", port=BOLT_PORT, username="alice", password="alice")
+    cursor = conn.cursor()
+    for stmt in statements:
+        cursor.execute(stmt)
+    conn.close()
+
+
+_CREATE_GINA = "CREATE USER gina IDENTIFIED BY 'gina'"
+_RECONNECTED = "driver reconnected; test would not prove connection-state handling"
+
+
+def _driver_session_id(driver, timeout_s: float = 10.0) -> str:
+    """session_id of the pool-size-1 driver's only connection; polls because _admin() connections close
+    asynchronously."""
+    deadline = time.monotonic() + timeout_s
+    while True:
+        with driver.session() as s:
+            rows = list(s.run("SHOW SESSIONS"))
+        if len(rows) == 1:
+            return rows[0]["session_id"]
+        assert time.monotonic() < deadline, f"expected exactly the driver's session, got {rows}"
+        time.sleep(0.1)
+
+
+def _current_user(driver, **session_kwargs) -> str:
+    with driver.session(**session_kwargs) as s:
+        return s.run("SHOW CURRENT USER").single()["user"]
+
+
+@requires_enterprise
+def test_failed_db_access_does_not_leak_impersonated_user(test_name):
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _admin(
+        "CREATE DATABASE db2",
+        "GRANT DATABASE * TO alice",
+        "GRANT IMPERSONATE_USER bob TO alice",
+    )
+
+    # bob has no access to db2.
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_ALICE, max_connection_pool_size=1, encrypted=False)
+    try:
+        assert _current_user(driver) == "alice"
+        session_id = _driver_session_id(driver)
+        with pytest.raises(Exception, match="not authorized on the database"):
+            _current_user(driver, impersonated_user="bob", database="db2")
+        assert _current_user(driver) == "alice", "failed {imp_user: bob, db: db2} leaked bob into the next message"
+        assert _driver_session_id(driver) == session_id, _RECONNECTED
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_db_scoped_impersonation_grant_does_not_leak_user(test_name):
+    """IMPERSONATE_USER granted only via a db2-scoped role must not impersonate on the default database."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _admin(
+        "CREATE DATABASE db2",
+        "CREATE USER eve IDENTIFIED BY 'eve'",
+        "CREATE ROLE impdb2",
+        "GRANT IMPERSONATE_USER bob TO ROLE impdb2",
+        "GRANT DATABASE db2 TO ROLE impdb2",
+        "SET ROLE FOR eve TO impdb2 ON db2",
+    )
+    driver = GraphDatabase.driver(_bolt_uri(), auth=("eve", "eve"), max_connection_pool_size=1, encrypted=False)
+    try:
+        assert _current_user(driver) == "eve"
+        session_id = _driver_session_id(driver)
+        with pytest.raises(Exception, match="Failed to impersonate user"):
+            _current_user(driver, impersonated_user="bob")
+        with pytest.raises(Exception, match="not authorized on the database"):
+            _current_user(driver, impersonated_user="bob", database="db2")
+        with driver.session() as s:
+            assert s.run("SHOW CURRENT USER").single()["user"] == "eve", "db-scoped grant leaked bob onto memgraph"
+            assert s.run("SHOW DATABASE").single()["Current"] == "memgraph"
+        assert _driver_session_id(driver) == session_id, _RECONNECTED
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+@pytest.mark.parametrize("database", [None, "memgraph"], ids=["same_extra", "changed_extra"])
+def test_revoked_impersonation_rejected_on_live_connection(test_name, database):
+    """REVOKE IMPERSONATE_USER from another connection takes effect at the next imp_user message of an
+    already-impersonating connection, whether or not the message metadata changed.
+    The login (gina) is not a superadmin, so the revoke is not masked by implicit privileges."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _admin(_CREATE_GINA, "GRANT IMPERSONATE_USER bob TO gina")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_GINA, max_connection_pool_size=1, encrypted=False)
+    try:
+        session_id = _driver_session_id(driver)
+        assert _current_user(driver, impersonated_user="bob") == "bob"
+        _admin("REVOKE IMPERSONATE_USER FROM gina")
+
+        with pytest.raises(Exception, match="Failed to impersonate user"):
+            _current_user(driver, impersonated_user="bob", database=database)
+        assert _current_user(driver) == "gina"
+        assert _driver_session_id(driver) == session_id, _RECONNECTED
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_use_database_survives_auth_write_while_impersonating(test_name):
+    """An unrelated auth write re-validates the impersonation but must not reset a sticky USE DATABASE.
+
+    Only bob (not the login gina) can access db2, so the re-check must use the originally validated database."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _admin(
+        "CREATE DATABASE db2",
+        "GRANT DATABASE db2 TO bob",
+        _CREATE_GINA,
+        "GRANT IMPERSONATE_USER bob TO gina",
+    )
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_GINA, max_connection_pool_size=1, encrypted=False)
+    try:
+        session_id = _driver_session_id(driver)
+        with driver.session(impersonated_user="bob") as s:
+            s.run("USE DATABASE db2").consume()
+            assert s.run("SHOW DATABASE").single()["Current"] == "db2"
+
+            _admin("CREATE USER unrelated IDENTIFIED BY 'unrelated'")
+
+            assert s.run("SHOW DATABASE").single()["Current"] == "db2", "USE DATABASE lost after an auth write"
+            assert s.run("SHOW CURRENT USER").single()["user"] == "bob"
+        assert _driver_session_id(driver) == session_id, _RECONNECTED
     finally:
         driver.close()
 
