@@ -66,6 +66,7 @@
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
@@ -11344,6 +11345,15 @@ auto make_commit_arg(bool is_main, dbms::DatabaseAccess const &db_acc) {
   return storage::CommitArgs::make_replica_read();
 }
 
+void CountReplicationFailure(metrics::DatabaseMetricHandles *handles, bool const transaction_committed) {
+  auto const outcome = std::to_underlying(transaction_committed ? metrics::ReplicationFailureOutcome::COMMITTED
+                                                                : metrics::ReplicationFailureOutcome::ABORTED);
+  if (handles)
+    handles->replication_failures[outcome].Increment();
+  else
+    metrics::Metrics().global.replication_failures[outcome].Increment();
+}
+
 void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,
                             TriggerContext original_trigger_context, std::shared_ptr<QueryUserOrRole> triggering_user) {
   // Run the triggers
@@ -11386,9 +11396,10 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       const auto &error = maybe_commit_error.error();
 
       std::visit(
-          [&trigger, &db_accessor]<typename T>(T &&arg) {
+          [&trigger, &db_accessor, &db_acc]<typename T>(T &&arg) {
             using ErrorType = std::remove_cvref_t<T>;
             if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+              CountReplicationFailure(db_acc->metric_handles(), arg.transaction_committed);
               spdlog::warn("Trigger '{}' replication: {}", trigger.Name(), storage::FormatReplicationError(arg));
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
               const auto &constraint_violation = arg;
@@ -11723,6 +11734,8 @@ void Interpreter::Commit() {
   SPDLOG_DEBUG("Finished committing the transaction");
 
   if (replication_error_msg) {
+    CountReplicationFailure(current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr,
+                            replication_error_committed);
     if (!replication_error_committed) {
       // The transaction was rolled back everywhere (a STRICT_SYNC cluster aborts the 2PC transaction), so the
       // write did not happen and the client must be told with an error.

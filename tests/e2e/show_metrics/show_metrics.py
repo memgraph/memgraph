@@ -253,6 +253,8 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "FailedPrepare", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedPull", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedQuery", "type": "Transaction", "metric type": "Counter"},
+        {"name": "ReplicationFailuresAborted", "type": "Transaction", "metric type": "Counter"},
+        {"name": "ReplicationFailuresCommitted", "type": "Transaction", "metric type": "Counter"},
         {"name": "RolledBackTransactions", "type": "Transaction", "metric type": "Counter"},
         {"name": "SuccessfulQuery", "type": "Transaction", "metric type": "Counter"},
         {"name": "TransientErrors", "type": "Transaction", "metric type": "Counter"},

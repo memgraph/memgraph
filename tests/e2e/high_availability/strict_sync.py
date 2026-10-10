@@ -11,8 +11,10 @@
 
 
 import os
+import re
 import sys
 import time
+import urllib.request
 from functools import partial
 from multiprocessing import Pool
 
@@ -36,6 +38,9 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 file = "strict_sync"
+
+REPLICATION_FAILURES = re.compile(r"^memgraph_replication_failures_total\{(.*)\} (\S+)$", re.MULTILINE)
+LABEL = re.compile(r'(\w+)="([^"]*)"')
 
 
 @pytest.fixture(autouse=True)
@@ -87,6 +92,7 @@ def get_instances_description_no_setup(test_name: str):
                 "TRACE",
                 "--management-port",
                 "10013",
+                "--metrics-port=9093",
             ],
             "log_file": f"{get_logs_path(file, test_name)}/instance_3.log",
             "data_directory": f"{get_data_path(file, test_name)}/instance_3",
@@ -493,6 +499,29 @@ def test_after_commit_trigger_fires_for_committed_txn(test_name):
     mg_sleep_and_assert(0, partial(get_labeled_vertex_count, main_cursor, "Node"))
 
     mg_sleep_and_assert(1, partial(get_labeled_vertex_count, main_cursor, "Audit"))
+
+
+def replication_failures_on_main(outcome):
+    with urllib.request.urlopen("http://localhost:9093/metrics") as response:
+        body = response.read().decode("utf-8")
+    for labels, value in REPLICATION_FAILURES.findall(body):
+        found = dict(LABEL.findall(labels))
+        if found.get("outcome") == outcome and found.get("database") == "memgraph":
+            return float(value)
+    return None
+
+
+def test_aborted_strict_sync_commit_counts_as_aborted_failure(test_name):
+    inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+    instance3_cursor = connect(host="localhost", port=7689).cursor()
+    before = replication_failures_on_main("aborted")
+    assert before is not None
+
+    with pytest.raises(Exception):
+        execute_and_fetch_all(instance3_cursor, "CREATE (n:Node)")
+
+    assert replication_failures_on_main("aborted") == before + 1
 
 
 if __name__ == "__main__":

@@ -11,6 +11,10 @@
 
 #pragma once
 
+#include <array>
+#include <cstdint>
+#include <string_view>
+
 #include <prometheus/counter.h>
 #include <prometheus/gauge.h>
 #include <prometheus/histogram.h>
@@ -41,6 +45,20 @@ struct GaugeHandle {
     return gauge;
   }
 };
+
+// A value of a counter's label, and the name its counter has in SHOW METRICS INFO and the JSON endpoint.
+struct CounterLabelValue {
+  std::string_view label;
+  std::string_view info_name;
+};
+
+enum class ReplicationFailureOutcome : uint8_t { COMMITTED, ABORTED };
+
+// Indexed by ReplicationFailureOutcome.
+inline constexpr std::array<CounterLabelValue, 2> kReplicationFailureOutcomes{{
+    {.label = "committed", .info_name = "ReplicationFailuresCommitted"},
+    {.label = "aborted", .info_name = "ReplicationFailuresAborted"},
+}};
 
 struct CounterHandle {
   prometheus::Counter *counter{nullptr};
@@ -177,6 +195,8 @@ struct DatabaseMetricHandles {
   CounterHandle successful_query;
   CounterHandle write_write_conflicts;
   CounterHandle transient_errors;
+  // Indexed by ReplicationFailureOutcome.
+  std::array<CounterHandle, kReplicationFailureOutcomes.size()> replication_failures;
   GaugeHandle unreleased_delta_objects;
 
   // Query type
