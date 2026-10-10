@@ -133,6 +133,7 @@ EXPECTED_INSTANCES = [
     ("instance_3", "localhost:7687", "", "localhost:10013", "up", "main"),
 ]
 UUID_LABEL = re.compile(r'uuid="([^"]*)"')
+REPLICATION_ROLE = re.compile(r'^memgraph_replication_role\{role="(\w+)"\} (\S+)$', re.MULTILINE)
 
 
 def scrape_metrics(port: int = 9095):
@@ -161,6 +162,21 @@ def show_instances_count():
     match = re.search(r"^memgraph_show_instances_total (\S+)$", scrape_metrics(), re.MULTILINE)
     assert match, "memgraph_show_instances_total not in scrape"
     return float(match.group(1))
+
+
+def replication_roles(instances=INSTANCES):
+    """The replication role each data instance reports about itself."""
+    roles = {}
+    for instance in instances:
+        for role, value in REPLICATION_ROLE.findall(scrape_metrics(INSTANCE_METRICS_PORTS[instance])):
+            if float(value) == 1:
+                roles[instance] = role
+    return roles
+
+
+def gauge_value(instance, name):
+    match = re.search(rf"^{name} (\S+)$", scrape_metrics(INSTANCE_METRICS_PORTS[instance]), re.MULTILINE)
+    return float(match.group(1)) if match else None
 
 
 def test_instance_metrics_present(test_name):
@@ -207,6 +223,27 @@ def test_default_db_uuid_label_agrees_across_instances(test_name):
     # The entry id keys the families internally and must never reach a scrape.
     for port in INSTANCE_METRICS_PORTS.values():
         assert "mgentry" not in scrape_metrics(port)
+
+
+# Each data instance reports its own role, so the gauges follow a failover without asking the coordinator.
+def test_replication_role_follows_failover(test_name):
+    instances = get_memgraph_instances_description(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+    cursor = connect(host="localhost", port=7690).cursor()
+    mg_sleep_and_assert(EXPECTED_INSTANCES, partial(show_instances, cursor))
+    assert replication_roles() == {"instance_1": "replica", "instance_2": "replica", "instance_3": "main"}
+
+    interactive_mg_runner.kill(instances, "instance_3")
+    survivors = ["instance_1", "instance_2"]
+    mg_sleep_and_assert(["main", "replica"], lambda: sorted(replication_roles(survivors).values()))
+    new_main = next(instance for instance, role in replication_roles(survivors).items() if role == "main")
+
+    interactive_mg_runner.start(instances, "instance_3")
+    mg_sleep_and_assert(
+        ("up", "replica"), lambda: next(row[4:] for row in show_instances(cursor) if row[0] == "instance_3")
+    )
+    assert replication_roles(["instance_3"]) == {"instance_3": "replica"}
+    mg_sleep_and_assert(1.0, partial(gauge_value, new_main, "memgraph_main_writeable"))
 
 
 if __name__ == "__main__":

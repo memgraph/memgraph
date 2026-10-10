@@ -19,6 +19,7 @@
 #include <array>
 
 #include <ranges>
+#include <set>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -792,7 +793,33 @@ PrometheusMetrics::PrometheusMetrics()
       wal_throughput_family_{prometheus::BuildHistogram()
                                  .Name("memgraph_wal_throughput_bytes_per_second")
                                  .Help("Throughput of WAL files sent to each replica during recovery, in bytes/s")
-                                 .Register(registry_)}
+                                 .Register(registry_)},
+      replication_role_family_{prometheus::BuildGauge()
+                                   .Name("memgraph_replication_role")
+                                   .Help("1 for the instance's current replication role, 0 otherwise")
+                                   .Register(registry_)},
+      main_writeable_family_{prometheus::BuildGauge()
+                                 .Name("memgraph_main_writeable")
+                                 .Help("1 if the instance is a main that accepts writes, 0 otherwise")
+                                 .Register(registry_)},
+      registered_replicas_family_{prometheus::BuildGauge()
+                                      .Name("memgraph_registered_replicas")
+                                      .Help("Number of replicas registered on the main")
+                                      .Register(registry_)},
+      replica_state_family_{prometheus::BuildGauge()
+                                .Name("memgraph_replica_state")
+                                .Help("1 for the replica's current state on the database, as seen by the main, "
+                                      "0 otherwise")
+                                .Register(registry_)},
+      replica_txns_behind_family_{prometheus::BuildGauge()
+                                      .Name("memgraph_replica_txns_behind")
+                                      .Help("Number of committed transactions the replica is behind the main on "
+                                            "the database")
+                                      .Register(registry_)},
+      main_role_{replication_role_family_.Add({{"role", "main"}})},
+      replica_role_{replication_role_family_.Add({{"role", "replica"}})},
+      main_writeable_{main_writeable_family_.Add({})},
+      registered_replicas_{registered_replicas_family_.Add({})}
 #ifdef MG_ENTERPRISE
       ,
       instance_up_family_{prometheus::BuildGauge()
@@ -907,6 +934,10 @@ PrometheusMetrics::PrometheusMetrics()
 
 void PrometheusMetrics::SetStorageSnapshotResolver(StorageSnapshotResolver resolver) {
   storage_snapshot_resolver_ = std::move(resolver);
+}
+
+void PrometheusMetrics::SetReplicationHealthResolver(ReplicationHealthResolver resolver) {
+  replication_health_resolver_ = std::move(resolver);
 }
 
 #ifdef MG_ENTERPRISE
@@ -1308,6 +1339,10 @@ void PrometheusMetrics::UpdateGauges() {
 
   global.memory_res_bytes->Set(static_cast<double>(utils::GetMemoryRES()));
 
+  if (replication_health_resolver_) {
+    if (auto const health = replication_health_resolver_()) UpdateReplicationGauges(*health);
+  }
+
 #ifdef MG_ENTERPRISE
   std::vector<coordination::InstanceStatus> instances;
   if (instance_status_resolver_) instances = instance_status_resolver_();
@@ -1362,6 +1397,47 @@ void PrometheusMetrics::UpdateGauges() {
         ->Set(static_cast<double>(inst.last_succ_resp_ms) / 1000.0);
   }
 #endif
+}
+
+void PrometheusMetrics::UpdateReplicationGauges(ReplicationHealth const &health) {
+  main_role_.Set(health.is_main ? 1.0 : 0.0);
+  replica_role_.Set(health.is_main ? 0.0 : 1.0);
+  main_writeable_.Set(health.writeable ? 1.0 : 0.0);
+  registered_replicas_.Set(static_cast<double>(health.registered_replicas));
+
+  auto const reported =
+      health.replicas |
+      rv::transform([](auto const &replica) { return std::pair{replica.replica, replica.database}; }) |
+      r::to<std::set>();
+
+  std::scoped_lock const lock{replica_gauges_.mutex};
+  auto &entries = replica_gauges_.entries;
+  for (auto it = entries.begin(); it != entries.end();) {
+    if (reported.contains(it->first)) {
+      ++it;
+      continue;
+    }
+    for (auto *gauge : it->second.states) replica_state_family_.Remove(gauge);
+    replica_txns_behind_family_.Remove(it->second.txns_behind);
+    it = entries.erase(it);
+  }
+
+  for (auto const &replica : health.replicas) {
+    auto [it, inserted] = entries.try_emplace({replica.replica, replica.database});
+    auto &gauges = it->second;
+    if (inserted) {
+      prometheus::Labels const labels{{"mg_instance", replica.replica}, {"database", replica.database}};
+      gauges.txns_behind = &replica_txns_behind_family_.Add(labels);
+      gauges.states = replica.states | rv::keys | rv::transform([&](auto const state) {
+                        auto state_labels = labels;
+                        state_labels.emplace("state", state);
+                        return &replica_state_family_.Add(state_labels);
+                      }) |
+                      r::to<std::vector>();
+    }
+    for (auto const &[gauge, state] : rv::zip(gauges.states, replica.states)) gauge->Set(state.second ? 1.0 : 0.0);
+    gauges.txns_behind->Set(static_cast<double>(replica.txns_behind));
+  }
 }
 
 uint64_t PrometheusMetrics::UpdateAndGetPeakMemoryRes(uint64_t const current) const {

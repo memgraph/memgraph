@@ -930,6 +930,8 @@ int main(int argc, char **argv) {
 #else
     replication_handler.emplace(*repl_state, *dbms_handler, system, *parameters);
 #endif
+    memgraph::metrics::Metrics().SetReplicationHealthResolver(
+        [&replication_handler] { return replication_handler->GetReplicationHealth(); });
     db_acc.emplace(dbms_handler->Get());
   }
 
