@@ -30,7 +30,10 @@ bool SafeAuth::HasWebsocketPermission() const {
     bool success = true;
     std::visit(utils::Overloaded{[&](auth::User &user) {
                                    auto tmp = locked_auth->GetUser(user.username());
-                                   if (!tmp) success = false;
+                                   if (!tmp) {
+                                     success = false;
+                                     return;
+                                   }
                                    user = std::move(*tmp);
                                  },
                                  [&](auth::Roles &roles) {

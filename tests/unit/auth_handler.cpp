@@ -27,6 +27,7 @@
 #include "frontend/ast/ast_visitor.hpp"
 #include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
+#include "glue/websocket_auth.hpp"
 #include "query/exceptions.hpp"
 #include "query/typed_value.hpp"
 #include "utils/file.hpp"
@@ -3615,3 +3616,35 @@ TEST_F(AuthQueryHandlerFixture, ShowPrivilegesDeduplicatesUserAndRolePbacPermiss
             "GLOBAL PROPERTY PERMISSION GRANTED TO USER, GLOBAL PROPERTY PERMISSION GRANTED TO ROLE");
 }
 #endif
+
+namespace {
+memgraph::auth::User MakeWebsocketUser(const std::string &name) {
+  memgraph::auth::User user{name};
+  user.UpdatePassword("pw");
+  user.permissions().Grant(memgraph::auth::Permission::WEBSOCKET);
+#ifdef MG_ENTERPRISE
+  user.db_access().GrantAll();
+#endif
+  return user;
+}
+}  // namespace
+
+TEST_F(AuthQueryHandlerFixture, SafeAuthWebsocketPermissionRefreshesExistingUser) {
+  auto user = MakeWebsocketUser(user_name);
+  auth.value()->SaveUser(user);
+  memgraph::glue::SafeAuth sa{&*auth};
+  ASSERT_TRUE(sa.Authenticate(user_name, "pw"));
+  ASSERT_TRUE(sa.HasWebsocketPermission());
+  auth.value()->SaveUser(user);  // bumps the auth epoch
+  EXPECT_TRUE(sa.HasWebsocketPermission());
+}
+
+// A dropped user must not be dereferenced as an empty optional (GetUser returns nullopt).
+TEST_F(AuthQueryHandlerFixture, SafeAuthWebsocketPermissionDroppedUser) {
+  auto user = MakeWebsocketUser(user_name);
+  auth.value()->SaveUser(user);
+  memgraph::glue::SafeAuth sa{&*auth};
+  ASSERT_TRUE(sa.Authenticate(user_name, "pw"));
+  ASSERT_TRUE(auth.value()->RemoveUser(user_name));
+  EXPECT_FALSE(sa.HasWebsocketPermission());
+}
