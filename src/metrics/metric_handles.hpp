@@ -75,6 +75,23 @@ struct HistogramHandle {
   }
 };
 
+// Replication metrics of one replica, as seen by the main. Labelled by the replica's mg_instance name.
+struct ReplicaMetricHandles {
+  HistogramHandle start_txn_replication_seconds;
+  HistogramHandle finalize_txn_replication_seconds;
+  HistogramHandle replica_stream_seconds;
+  HistogramHandle prepare_commit_rpc_seconds;
+  HistogramHandle heartbeat_rpc_seconds;
+  HistogramHandle snapshot_rpc_seconds;
+  HistogramHandle current_wal_rpc_seconds;
+  HistogramHandle wal_files_rpc_seconds;
+  HistogramHandle frequent_heartbeat_rpc_seconds;
+  HistogramHandle system_recovery_rpc_seconds;
+  CounterHandle replica_recovery_success;
+  CounterHandle replica_recovery_fail;
+  CounterHandle replica_recovery_skip;
+};
+
 struct DatabaseMetricHandles {
   // Storage
   GaugeHandle vertex_count;

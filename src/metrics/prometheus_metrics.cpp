@@ -852,9 +852,6 @@ PrometheusMetrics::PrometheusMetrics()
   global.demote_instance = &demote_instance_family_.Add(no_labels);
   global.unregister_repl_instance = &unregister_repl_instance_family_.Add(no_labels);
   global.remove_coord_instance = &remove_coord_instance_family_.Add(no_labels);
-  global.replica_recovery_success = &replica_recovery_success_family_.Add(no_labels);
-  global.replica_recovery_fail = &replica_recovery_fail_family_.Add(no_labels);
-  global.replica_recovery_skip = &replica_recovery_skip_family_.Add(no_labels);
   global.state_check_rpc_success = &state_check_rpc_success_family_.Add(no_labels);
   global.state_check_rpc_fail = &state_check_rpc_fail_family_.Add(no_labels);
   global.unregister_replica_rpc_success = &unregister_replica_rpc_success_family_.Add(no_labels);
@@ -877,10 +874,7 @@ PrometheusMetrics::PrometheusMetrics()
   global.choose_most_up_to_date_instance_seconds =
       &choose_most_up_to_date_instance_family_.Add(no_labels, kLatencyBuckets);
   global.socket_connect_seconds = &socket_connect_family_.Add(no_labels, kLatencyBuckets);
-  global.replica_stream_seconds = &replica_stream_family_.Add(no_labels, kLatencyBuckets);
   global.data_failover_seconds = &data_failover_family_.Add(no_labels, kLatencyBuckets);
-  global.start_txn_replication_seconds = &start_txn_replication_family_.Add(no_labels, kLatencyBuckets);
-  global.finalize_txn_replication_seconds = &finalize_txn_replication_family_.Add(no_labels, kLatencyBuckets);
   global.promote_to_main_rpc_seconds = &promote_to_main_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.demote_main_to_replica_rpc_seconds =
       &demote_main_to_replica_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
@@ -890,13 +884,6 @@ PrometheusMetrics::PrometheusMetrics()
   global.state_check_rpc_seconds = &state_check_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.get_database_histories_rpc_seconds =
       &get_database_histories_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
-  global.heartbeat_rpc_seconds = &heartbeat_rpc_family_.Add(no_labels, kLatencyBuckets);
-  global.prepare_commit_rpc_seconds = &prepare_commit_rpc_family_.Add(no_labels, kLatencyBuckets);
-  global.snapshot_rpc_seconds = &snapshot_rpc_family_.Add(no_labels, kLatencyBuckets);
-  global.current_wal_rpc_seconds = &current_wal_rpc_family_.Add(no_labels, kLatencyBuckets);
-  global.wal_files_rpc_seconds = &wal_files_rpc_family_.Add(no_labels, kLatencyBuckets);
-  global.frequent_heartbeat_rpc_seconds = &frequent_heartbeat_rpc_family_.Add(no_labels, kLatencyBuckets);
-  global.system_recovery_rpc_seconds = &system_recovery_rpc_family_.Add(no_labels, kLatencyBuckets);
   global.update_data_instance_config_rpc_seconds =
       &update_data_instance_config_rpc_histogram_family_.Add(no_labels, kLatencyBuckets);
   global.get_histories_seconds = &get_histories_family_.Add(no_labels, kLatencyBuckets);
@@ -1084,6 +1071,109 @@ void PrometheusMetrics::Registration::Release() noexcept {
   if (registry_ == nullptr) return;
   std::exchange(registry_, nullptr)->ReleaseRegistration(entry_id_);
   handles_ = {};
+}
+
+PrometheusMetrics::ReplicaRegistration::~ReplicaRegistration() { Release(); }
+
+PrometheusMetrics::ReplicaRegistration::ReplicaRegistration(ReplicaRegistration &&other) noexcept
+    : registry_(std::exchange(other.registry_, nullptr)),
+      instance_name_(std::move(other.instance_name_)),
+      handles_(std::exchange(other.handles_, ReplicaMetricHandles{})) {}
+
+auto PrometheusMetrics::ReplicaRegistration::operator=(ReplicaRegistration &&other) noexcept -> ReplicaRegistration & {
+  if (this == &other) return *this;
+  Release();
+  registry_ = std::exchange(other.registry_, nullptr);
+  instance_name_ = std::move(other.instance_name_);
+  handles_ = std::exchange(other.handles_, ReplicaMetricHandles{});
+  return *this;
+}
+
+void PrometheusMetrics::ReplicaRegistration::Release() noexcept {
+  if (registry_ == nullptr) return;
+  std::exchange(registry_, nullptr)->ReleaseReplica(instance_name_);
+  handles_ = {};
+}
+
+auto PrometheusMetrics::AddReplica(std::string_view instance_name) -> ReplicaRegistration {
+  std::scoped_lock const lock{replicas_.mutex};
+  auto [it, inserted] = replicas_.entries.try_emplace(std::string{instance_name});
+  if (!inserted) {
+    ++it->second.registrations;
+    return ReplicaRegistration{this, it->first, it->second.handles};
+  }
+  prometheus::Labels const labels{{"mg_instance", std::string{instance_name}}};
+  it->second.handles = ReplicaMetricHandles{
+      .start_txn_replication_seconds = {&start_txn_replication_family_.Add(labels, kLatencyBuckets)},
+      .finalize_txn_replication_seconds = {&finalize_txn_replication_family_.Add(labels, kLatencyBuckets)},
+      .replica_stream_seconds = {&replica_stream_family_.Add(labels, kLatencyBuckets)},
+      .prepare_commit_rpc_seconds = {&prepare_commit_rpc_family_.Add(labels, kLatencyBuckets)},
+      .heartbeat_rpc_seconds = {&heartbeat_rpc_family_.Add(labels, kLatencyBuckets)},
+      .snapshot_rpc_seconds = {&snapshot_rpc_family_.Add(labels, kLatencyBuckets)},
+      .current_wal_rpc_seconds = {&current_wal_rpc_family_.Add(labels, kLatencyBuckets)},
+      .wal_files_rpc_seconds = {&wal_files_rpc_family_.Add(labels, kLatencyBuckets)},
+      .frequent_heartbeat_rpc_seconds = {&frequent_heartbeat_rpc_family_.Add(labels, kLatencyBuckets)},
+      .system_recovery_rpc_seconds = {&system_recovery_rpc_family_.Add(labels, kLatencyBuckets)},
+      .replica_recovery_success = {&replica_recovery_success_family_.Add(labels)},
+      .replica_recovery_fail = {&replica_recovery_fail_family_.Add(labels)},
+      .replica_recovery_skip = {&replica_recovery_skip_family_.Add(labels)},
+  };
+  return ReplicaRegistration{this, it->first, it->second.handles};
+}
+
+void PrometheusMetrics::ReleaseReplica(std::string const &instance_name) {
+  std::scoped_lock const lock{replicas_.mutex};
+  auto const it = replicas_.entries.find(instance_name);
+  DMG_ASSERT(it != replicas_.entries.end(), "Releasing replica {} that holds no registration", instance_name);
+  if (--it->second.registrations > 0) return;
+
+  auto const &h = it->second.handles;
+  for (auto const member : {&ReplicaMetricHandles::replica_recovery_success,
+                            &ReplicaMetricHandles::replica_recovery_fail,
+                            &ReplicaMetricHandles::replica_recovery_skip}) {
+    auto const released = static_cast<int64_t>((h.*member).Value());
+    if (auto total =
+            r::find(replicas_.released_recoveries, member, &decltype(replicas_.released_recoveries)::value_type::first);
+        total != replicas_.released_recoveries.end()) {
+      total->second += released;
+    } else {
+      replicas_.released_recoveries.emplace_back(member, released);
+    }
+  }
+  start_txn_replication_family_.Remove(h.start_txn_replication_seconds.get());
+  finalize_txn_replication_family_.Remove(h.finalize_txn_replication_seconds.get());
+  replica_stream_family_.Remove(h.replica_stream_seconds.get());
+  prepare_commit_rpc_family_.Remove(h.prepare_commit_rpc_seconds.get());
+  heartbeat_rpc_family_.Remove(h.heartbeat_rpc_seconds.get());
+  snapshot_rpc_family_.Remove(h.snapshot_rpc_seconds.get());
+  current_wal_rpc_family_.Remove(h.current_wal_rpc_seconds.get());
+  wal_files_rpc_family_.Remove(h.wal_files_rpc_seconds.get());
+  frequent_heartbeat_rpc_family_.Remove(h.frequent_heartbeat_rpc_seconds.get());
+  system_recovery_rpc_family_.Remove(h.system_recovery_rpc_seconds.get());
+  replica_recovery_success_family_.Remove(h.replica_recovery_success.get());
+  replica_recovery_fail_family_.Remove(h.replica_recovery_fail.get());
+  replica_recovery_skip_family_.Remove(h.replica_recovery_skip.get());
+  replicas_.entries.erase(it);
+}
+
+auto PrometheusMetrics::ReplicaHistograms(HistogramHandle ReplicaMetricHandles::*member) const
+    -> std::vector<prometheus::ClientMetric::Histogram> {
+  std::scoped_lock const lock{replicas_.mutex};
+  return replicas_.entries | rv::values |
+         rv::transform([member](auto const &entry) { return (entry.handles.*member).Collect().histogram; }) |
+         r::to<std::vector>();
+}
+
+int64_t PrometheusMetrics::ReplicaRecoveries(CounterHandle ReplicaMetricHandles::*member) const {
+  std::scoped_lock const lock{replicas_.mutex};
+  auto const live = r::fold_left(replicas_.entries | rv::values | rv::transform([member](auto const &entry) {
+                                   return static_cast<int64_t>((entry.handles.*member).Value());
+                                 }),
+                                 int64_t{0},
+                                 std::plus{});
+  auto const released =
+      r::find(replicas_.released_recoveries, member, &decltype(replicas_.released_recoveries)::value_type::first);
+  return live + (released == replicas_.released_recoveries.end() ? 0 : released->second);
 }
 
 void PrometheusMetrics::Registration::Rebind(utils::UUID const &new_uuid) {
@@ -2154,15 +2244,15 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   out.push_back({"ReplicaRecoverySuccess",
                  "HighAvailability",
                  "Counter",
-                 static_cast<int64_t>(global.replica_recovery_success->Value())});
+                 ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_success)});
   out.push_back({"ReplicaRecoveryFail",
                  "HighAvailability",
                  "Counter",
-                 static_cast<int64_t>(global.replica_recovery_fail->Value())});
+                 ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_fail)});
   out.push_back({"ReplicaRecoverySkip",
                  "HighAvailability",
                  "Counter",
-                 static_cast<int64_t>(global.replica_recovery_skip->Value())});
+                 ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_skip)});
   out.push_back({"StateCheckRpcSuccess",
                  "HighAvailability",
                  "Counter",
@@ -2232,11 +2322,17 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(
       out, "ChooseMostUpToDateInstance", "HighAvailability", *global.choose_most_up_to_date_instance_seconds);
   AppendHistogramPercentiles(out, "SocketConnect", "HighAvailability", *global.socket_connect_seconds);
-  AppendHistogramPercentiles(out, "ReplicaStream", "HighAvailability", *global.replica_stream_seconds);
+  AppendMergedHistogramPercentiles(
+      out, "ReplicaStream", "HighAvailability", ReplicaHistograms(&ReplicaMetricHandles::replica_stream_seconds));
   AppendHistogramPercentiles(out, "DataFailover", "HighAvailability", *global.data_failover_seconds);
-  AppendHistogramPercentiles(out, "StartTxnReplication", "HighAvailability", *global.start_txn_replication_seconds);
-  AppendHistogramPercentiles(
-      out, "FinalizeTxnReplication", "HighAvailability", *global.finalize_txn_replication_seconds);
+  AppendMergedHistogramPercentiles(out,
+                                   "StartTxnReplication",
+                                   "HighAvailability",
+                                   ReplicaHistograms(&ReplicaMetricHandles::start_txn_replication_seconds));
+  AppendMergedHistogramPercentiles(out,
+                                   "FinalizeTxnReplication",
+                                   "HighAvailability",
+                                   ReplicaHistograms(&ReplicaMetricHandles::finalize_txn_replication_seconds));
   AppendHistogramPercentiles(out, "PromoteToMainRpc", "HighAvailability", *global.promote_to_main_rpc_seconds);
   AppendHistogramPercentiles(
       out, "DemoteMainToReplicaRpc", "HighAvailability", *global.demote_main_to_replica_rpc_seconds);
@@ -2246,13 +2342,26 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfo() const {
   AppendHistogramPercentiles(out, "StateCheckRpc", "HighAvailability", *global.state_check_rpc_seconds);
   AppendHistogramPercentiles(
       out, "GetDatabaseHistoriesRpc", "HighAvailability", *global.get_database_histories_rpc_seconds);
-  AppendHistogramPercentiles(out, "HeartbeatRpc", "HighAvailability", *global.heartbeat_rpc_seconds);
-  AppendHistogramPercentiles(out, "PrepareCommitRpc", "HighAvailability", *global.prepare_commit_rpc_seconds);
-  AppendHistogramPercentiles(out, "SnapshotRpc", "HighAvailability", *global.snapshot_rpc_seconds);
-  AppendHistogramPercentiles(out, "CurrentWalRpc", "HighAvailability", *global.current_wal_rpc_seconds);
-  AppendHistogramPercentiles(out, "WalFilesRpc", "HighAvailability", *global.wal_files_rpc_seconds);
-  AppendHistogramPercentiles(out, "FrequentHeartbeatRpc", "HighAvailability", *global.frequent_heartbeat_rpc_seconds);
-  AppendHistogramPercentiles(out, "SystemRecoveryRpc", "HighAvailability", *global.system_recovery_rpc_seconds);
+  AppendMergedHistogramPercentiles(
+      out, "HeartbeatRpc", "HighAvailability", ReplicaHistograms(&ReplicaMetricHandles::heartbeat_rpc_seconds));
+  AppendMergedHistogramPercentiles(out,
+                                   "PrepareCommitRpc",
+                                   "HighAvailability",
+                                   ReplicaHistograms(&ReplicaMetricHandles::prepare_commit_rpc_seconds));
+  AppendMergedHistogramPercentiles(
+      out, "SnapshotRpc", "HighAvailability", ReplicaHistograms(&ReplicaMetricHandles::snapshot_rpc_seconds));
+  AppendMergedHistogramPercentiles(
+      out, "CurrentWalRpc", "HighAvailability", ReplicaHistograms(&ReplicaMetricHandles::current_wal_rpc_seconds));
+  AppendMergedHistogramPercentiles(
+      out, "WalFilesRpc", "HighAvailability", ReplicaHistograms(&ReplicaMetricHandles::wal_files_rpc_seconds));
+  AppendMergedHistogramPercentiles(out,
+                                   "FrequentHeartbeatRpc",
+                                   "HighAvailability",
+                                   ReplicaHistograms(&ReplicaMetricHandles::frequent_heartbeat_rpc_seconds));
+  AppendMergedHistogramPercentiles(out,
+                                   "SystemRecoveryRpc",
+                                   "HighAvailability",
+                                   ReplicaHistograms(&ReplicaMetricHandles::system_recovery_rpc_seconds));
   AppendHistogramPercentiles(
       out, "UpdateDataInstanceConfigRpc", "HighAvailability", *global.update_data_instance_config_rpc_seconds);
   AppendHistogramPercentiles(out, "GetHistories", "HighAvailability", *global.get_histories_seconds);
@@ -2562,9 +2671,9 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"DemoteInstance", static_cast<int64_t>(global.demote_instance->Value())},
     {"UnregisterReplInstance", static_cast<int64_t>(global.unregister_repl_instance->Value())},
     {"RemoveCoordInstance", static_cast<int64_t>(global.remove_coord_instance->Value())},
-    {"ReplicaRecoverySuccess", static_cast<int64_t>(global.replica_recovery_success->Value())},
-    {"ReplicaRecoveryFail", static_cast<int64_t>(global.replica_recovery_fail->Value())},
-    {"ReplicaRecoverySkip", static_cast<int64_t>(global.replica_recovery_skip->Value())},
+    {"ReplicaRecoverySuccess", ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_success)},
+    {"ReplicaRecoveryFail", ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_fail)},
+    {"ReplicaRecoverySkip", ReplicaRecoveries(&ReplicaMetricHandles::replica_recovery_skip)},
     {"StateCheckRpcSuccess", static_cast<int64_t>(global.state_check_rpc_success->Value())},
     {"StateCheckRpcFail", static_cast<int64_t>(global.state_check_rpc_fail->Value())},
     {"UnregisterReplicaRpcSuccess", static_cast<int64_t>(global.unregister_replica_rpc_success->Value())},

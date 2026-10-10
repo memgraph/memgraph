@@ -85,7 +85,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // stream should be destroyed so that RPC lock is released before taking engine lock
   std::optional<replication::HeartbeatRes> const maybe_heartbeat_res =
       std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
-        metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.heartbeat_rpc_seconds};
+        metrics::ScopedHistogramTimer const timer{client_.metrics_.handles().heartbeat_rpc_seconds.get()};
 
         // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
         // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
@@ -443,7 +443,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     SetMaybeBehind();
     return std::unexpected{StartTxnReplicationError{ReplicaNotInSyncErr{}}};
   }
-  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.start_txn_replication_seconds};
+  metrics::ScopedHistogramTimer const timer{client_.metrics_.handles().start_txn_replication_seconds.get()};
   auto locked_state = replica_state_.Lock();
   spdlog::trace(
       "Starting transaction replication for replica {} in state {}", client_.name_, StateToString(*locked_state));
@@ -475,7 +475,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     }
     case READY: {
       try {
-        metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.replica_stream_seconds};
+        metrics::ScopedHistogramTimer const timer{client_.metrics_.handles().replica_stream_seconds.get()};
         std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
 
         // Try to obtain RPC stream for ASYNC replica. It is OK to fail.
@@ -555,7 +555,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
-  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.finalize_txn_replication_seconds};
+  metrics::ScopedHistogramTimer const timer{client_.metrics_.handles().finalize_txn_replication_seconds.get()};
   auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
     spdlog::trace("Finalizing 1st phase on replica {} in state {}", client_.name_, StateToString(state));
 
@@ -586,7 +586,7 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
 
   MG_ASSERT(replica_stream, "Missing stream for transaction deltas for replica {}", client_.name_);
   try {
-    auto response = replica_stream->Finalize();
+    auto response = replica_stream->Finalize(client_.metrics_.handles().prepare_commit_rpc_seconds);
     // NOLINTNEXTLINE
     return replica_state_.WithLock(
         [response](auto &state) mutable -> std::expected<void, io::network::ClientCommunicationError> {
@@ -631,7 +631,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
   // valid during a single transaction replication (if the assumption
   // that this and other transaction replication functions can only be
   // called from a one thread stands)
-  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.finalize_txn_replication_seconds};
+  metrics::ScopedHistogramTimer const timer{client_.metrics_.handles().finalize_txn_replication_seconds.get()};
 
   // Tenant is being dropped: retire the RPC connection (framing correctness — ~StreamHandler releases
   // the lock but does NOT close the socket; the next RPC would reuse a stream the replica is still
@@ -688,7 +688,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
     MG_ASSERT(replica_stream_obj, "Missing stream for transaction deltas for replica {}", client_.name_);
     try {
       const memory::DbArenaScope db_arena_scope{arena_pool};
-      auto response = replica_stream_obj->Finalize();
+      auto response = replica_stream_obj->Finalize(client_.metrics_.handles().prepare_commit_rpc_seconds);
       // NOLINTNEXTLINE
       return replica_state_.WithLock(
           [this, response, &replica_stream_obj, durability_commit_timestamp, commit_num_committed_txns, is_async](
@@ -784,7 +784,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
     spdlog::info("Replica {} is not in RECOVERY state anymore for db {}, ending the recovery task.",
                  client_.name_,
                  main_db_name);
-    metrics::Metrics().global.replica_recovery_skip->Increment();
+    client_.metrics_.handles().replica_recovery_skip.Increment();
     return;
   }
 
@@ -848,6 +848,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     main_mem_storage->config_.durability.root_data_directory,
                     repl_mode,
                     client_.name_,
+                    client_.metrics_.handles(),
                     main_mem_storage->config_.durability.release_sent_snapshot_page_cache
                         ? utils::PageCachePolicy::kDrop
                         : utils::PageCachePolicy::kKeep,
@@ -910,6 +911,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     main_mem_storage->config_.durability.root_data_directory,
                     repl_mode,
                     client_.name_,
+                    client_.metrics_.handles(),
                     utils::PageCachePolicy::kKeep,
                     wals.size(),
                     main_uuid,
@@ -968,6 +970,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                       main_mem_storage->config_.durability.root_data_directory,
                       repl_mode,
                       client_.name_,
+                      client_.metrics_.handles(),
                       utils::PageCachePolicy::kKeep,
                       main_uuid,
                       main_mem_storage->uuid(),
@@ -1015,7 +1018,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
       atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
-      metrics::Metrics().global.replica_recovery_fail->Increment();
+      client_.metrics_.handles().replica_recovery_fail.Increment();
       return;
     }
     // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recover completely
@@ -1026,14 +1029,14 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
       };
       atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
-      metrics::Metrics().global.replica_recovery_fail->Increment();
+      client_.metrics_.handles().replica_recovery_fail.Increment();
       return;
     }
   }
 
   // Success here means that the recovery finished. Doesn't matter if there are some commits which happened during
   // the recovery, the important thing here is that it finished.
-  metrics::Metrics().global.replica_recovery_success->Increment();
+  client_.metrics_.handles().replica_recovery_success.Increment();
 
   // Protect the exit from the recovery. Otherwise, FinalizeTransactionReplication()
   // could check that the replica state isn't replicating, this recovery sets the
@@ -1103,8 +1106,8 @@ void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) 
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-replication::PrepareCommitRes ReplicaStream::Finalize() {
-  metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.prepare_commit_rpc_seconds};
+replication::PrepareCommitRes ReplicaStream::Finalize(metrics::HistogramHandle const &latency) {
+  metrics::ScopedHistogramTimer const timer{latency.histogram};
   return stream_.SendAndWaitProgress();
 }
 }  // namespace memgraph::storage
