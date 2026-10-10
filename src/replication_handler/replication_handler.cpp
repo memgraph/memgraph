@@ -347,6 +347,10 @@ auto ReplicationHandler::TryRegisterReplica(const ReplicationClientConfig &confi
 
 auto ReplicationHandler::RegisterReplica(const ReplicationClientConfig &config)
     -> std::expected<void, query::RegisterReplicaError> {
+  // Serialise with in-flight system txns (CREATE/RESUME DATABASE): their commit adds a storage client per registered
+  // replica, so registering in between would duplicate it. Lock order matches the interpreter: system txn first.
+  auto system_txn = system_.TryCreateTransaction();
+  if (!system_txn) return std::unexpected(query::RegisterReplicaError::NO_ACCESS);
   try {
     auto locked_repl_state = repl_state_.TryLock();
     return RegisterReplica_<false>(locked_repl_state, config);
