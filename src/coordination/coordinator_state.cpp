@@ -124,6 +124,12 @@ auto CoordinatorState::ShowInstance() const -> InstanceStatus {
   return std::get<CoordinatorInstance>(data_).ShowInstance();
 }
 
+auto CoordinatorState::GetRaftStatus() const -> RaftStatus {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Can't get Raft status on data_, as variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetRaftStatus();
+}
+
 auto CoordinatorState::ShowInstances() const -> std::optional<std::vector<InstanceStatus>> {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Can't call show instances on data_, as variant holds wrong alternative");

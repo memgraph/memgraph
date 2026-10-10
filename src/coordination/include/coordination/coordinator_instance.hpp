@@ -27,6 +27,7 @@
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
+#include "coordination/raft_status.hpp"
 #include "coordination/replication_instance_client.hpp"
 #include "coordination/replication_instance_connector.hpp"
 #include "utils/resource_lock.hpp"
@@ -79,6 +80,7 @@ class CoordinatorInstance {
 
   // nullopt if the leader couldn't be reached.
   auto ShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
+  auto GetRaftStatus() const -> RaftStatus;
 
   auto ShowInstancesAsLeader() const -> std::optional<std::vector<InstanceStatus>>;
 
