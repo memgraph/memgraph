@@ -668,6 +668,8 @@ class Interpreter final {
   plan::v2::QueryPlannerContext &query_planner_context() { return query_planner_context_; }
 
  private:
+  void CountAbortedQuery(utils::BasicException const &e);
+
   void MaybeEmitFailedQueryLog(std::string_view query, std::string_view error) const {
     // TLS guard absent => no bolt message is in flight (worker/GC/NuRaft thread); never emit.
     if (memgraph::logging::ScopedSessionLog::Current() == nullptr) return;
@@ -943,6 +945,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
       metrics::Metrics().global.failed_query->Increment();
       metrics::Metrics().global.failed_pull->Increment();
     }
+    CountAbortedQuery(e);
     // PeriodicCommitException means the storage layer already aborted the transaction internally.
     // Null the accessor first so AbortCommand does not call Abort() a second time.
     if (dynamic_cast<const PeriodicCommitException *>(&e)) {
