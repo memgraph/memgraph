@@ -159,6 +159,17 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
   }
 }
 
+// Main database of the principal, or nullopt if unset or no longer accessible (connect without a db).
+std::optional<std::string> ResolveDefaultDB(memgraph::query::QueryUserOrRole const &user_or_role) {
+  try {
+    auto db_name = user_or_role.GetDefaultDB();
+    if (db_name.empty()) return std::nullopt;
+    return db_name;
+  } catch (memgraph::auth::AuthException const &) {
+    return std::nullopt;
+  }
+}
+
 std::shared_ptr<memgraph::utils::UserResources> ResourceAtLogin(
     const memgraph::query::QueryUserOrRole &user_or_role, memgraph::utils::ResourceMonitoring *resource_monitoring) {
   // Setup user-related resource monitoring
@@ -193,13 +204,7 @@ namespace memgraph::glue {
 #ifdef MG_ENTERPRISE
 std::optional<std::string> SessionHL::GetDefaultDB() const {
   if (interpreter_.user_or_role_) {
-    try {
-      const auto &db_name = interpreter_.user_or_role_->GetDefaultDB();
-      return db_name.empty() ? std::nullopt : std::make_optional(db_name);
-    } catch (auth::AuthException &) {
-      // Support non-db connection
-      return std::nullopt;
-    }
+    return ResolveDefaultDB(*interpreter_.user_or_role_);
   }
   return std::string{memgraph::dbms::kDefaultDB};
 }
@@ -292,12 +297,9 @@ void SessionHL::TryDefaultDB() {
     // Community has to connect to the default database
     interpreter_.SetCurrentDB();
 #endif
-  } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
-    // The default database is known but currently suspended (cold). This is a
-    // permanent client-visible condition — retrying will not help — so surface
-    // it as a ClientError rather than letting it propagate as a bare
-    // BasicException (which the Bolt handler would mis-classify as transient).
-    throw memgraph::communication::bolt::ClientError(e.what());
+  } catch (const memgraph::dbms::UnknownDatabaseException &) {
+    // The default database is unusable (renamed or force-dropped while still granted, or suspended): connect without db
+    interpreter_.ResetDB();
   }
 }
 
@@ -807,7 +809,9 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
       throw memgraph::communication::bolt::ClientError("Malformed config input.");
     }
     const auto auth_user = session_->auth_->ReadLock()->GetUser(info.ValueString());
-    if (!auth_user) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
+    if (!auth_user) {
+      throw memgraph::communication::bolt::ClientError("Trying to impersonate a user that doesn't exist.");
+    }
     user = AuthChecker::GenQueryUser(session_->auth_, *auth_user);
   }
 
@@ -825,9 +829,15 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // Step 3: Determine final target database
   if (!defined_db) {
     if (user) {
-      defined_db = user->GetDefaultDB();
+      defined_db = ResolveDefaultDB(*user);
+      if (!defined_db) {
+        throw memgraph::communication::bolt::ClientError(
+            "Failed to impersonate user '{}': the user has no accessible main database. Specify the database "
+            "explicitly.",
+            user->username().value_or("----"));
+      }
     } else if (session_->session_user_or_role_) {
-      defined_db = session_->session_user_or_role_->GetDefaultDB();
+      defined_db = ResolveDefaultDB(*session_->session_user_or_role_);
     } else {
       defined_db = std::string{memgraph::dbms::kDefaultDB};
     }
@@ -855,14 +865,15 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
     MultiDatabaseAuth(session_->interpreter_.user_or_role_.get(), *defined_db);
     try {
       session_->interpreter_.SetCurrentDB(*defined_db, db_explicit_);
-    } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
-      // The explicitly-requested database is known but currently suspended
-      // (cold). Retrying will not help — surface as ClientError so the driver
-      // does not treat this as a transient failure.
-      throw memgraph::communication::bolt::ClientError(e.what());
+    } catch (const memgraph::dbms::UnknownDatabaseException &e) {
+      // A db the client named (or an impersonation target) is a client error; an unusable implicit default is not.
+      if (db_explicit_ || user) throw memgraph::communication::bolt::ClientError(e.what());
+      defined_db.reset();  // implicit default no longer exists: connect without db
     }
-  } else {  // Non-db connection
+  }
+  if (!defined_db) {
     session_->interpreter_.ResetDB();
+    session_->interpreter_.current_db_.in_explicit_db_ = false;  // ResetDB leaves the pin; only Configure owns it
   }
 
   // Update the previous run_time_info for next comparison

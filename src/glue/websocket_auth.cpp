@@ -56,8 +56,8 @@ bool SafeAuth::HasWebsocketPermission() const {
   // Check permissions
   if (user_or_role_) {
     return std::visit(utils::Overloaded{[&](auto &user_or_role) {
-                        // Main could be deleted, so we will connect without a db; this is only used by websocket on
-                        // connect, so not critical (we will not be able to access any db)
+                        // GetMain() throws if the main database is no longer accessible; the websocket login is then
+                        // refused.
                         const auto &db_name =
 #ifdef MG_ENTERPRISE
                             user_or_role.GetMain();

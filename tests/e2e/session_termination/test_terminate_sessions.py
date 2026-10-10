@@ -693,23 +693,15 @@ def test_dbless_session_terminated_via_default_db_fallback(request):
     control_uuid = get_session_uuid_by_username(superadmin_cursor, "nodb_control")
 
     def assert_victim_is_dbless():
-        """Dblessness proven by the error the session raises: holding no database, every query fails
-        while resolving one instead of executing.
+        """Dblessness proven by the error the session raises: holding no database, a db-bound query
+        fails at execution with "Database required for query execution".
         """
-        with pytest.raises(mgclient.DatabaseError, match="No access to the set default database"):
+        with pytest.raises(mgclient.DatabaseError, match="Database required for query execution"):
             execute_and_fetch_all(victim_cursor, "RETURN 1")
 
     def assert_victim_still_registered():
-        """The victim's liveness probe, necessarily observed from outside the session itself.
-
-        common.py's assert_connection_alive cannot serve here: it runs RETURN 1, and this session
-        cannot execute *any* query. Every Bolt RUN re-enters SessionHL::Configure ->
-        RuntimeConfig::Configure (src/glue/SessionHL.cpp), whose "Step 3: Determine final target
-        database" re-resolves the user's default database through session_user_or_role_->
-        GetDefaultDB() with no try/catch -- and for a REVOKE DATABASE * user that is
-        Databases::GetMain throwing AuthException. Only login's TryDefaultDB catches it, so the
-        connection is registered and wedged at once. Liveness is therefore read off SHOW ACTIVE USERS
-        INFO on another connection: the uuid is still listed, i.e. the session was not torn down.
+        """Liveness probe from outside the session: assert_connection_alive's RETURN 1 fails for a
+        db-less session either way, so read SHOW ACTIVE USERS INFO on another connection instead.
         """
         rows = execute_and_fetch_all(superadmin_cursor, "SHOW ACTIVE USERS INFO")
         assert any(row[1] == victim_uuid for row in rows), f"session {victim_uuid} is no longer registered"
@@ -724,10 +716,8 @@ def test_dbless_session_terminated_via_default_db_fallback(request):
     # sits in no tenant, because the check falls back to authorizing against "memgraph".
     results = execute_and_fetch_all(admin_cursor, f"TERMINATE SESSIONS '{victim_uuid}'")
     assert results == [(victim_uuid, True)]
-    # wait_until_terminated can't be used on victim_cursor: its RETURN 1 already raises before
-    # termination too (assert_victim_is_dbless), so that probe can't tell "killed" from "was always
-    # wedged". Liveness is read the same way assert_victim_still_registered reads it -- off SHOW
-    # ACTIVE USERS INFO on a different connection -- polled until the uuid disappears.
+    # wait_until_terminated can't be used: victim_cursor's RETURN 1 already fails before termination
+    # (assert_victim_is_dbless), so poll SHOW ACTIVE USERS INFO on another connection instead.
     wait_until(
         lambda: not any(
             row[1] == victim_uuid for row in execute_and_fetch_all(superadmin_cursor, "SHOW ACTIVE USERS INFO")
@@ -817,9 +807,9 @@ def test_dbless_session_refused_when_caller_lacks_default_db_access(request):
 
     victim_uuid = get_session_uuid_by_username(superadmin_cursor, "nodb_victim2")
 
-    # Same dbless proof as the fallback test: the session can run no query at all, so it can only
-    # be failing to resolve its (nonexistent) default database.
-    with pytest.raises(mgclient.DatabaseError, match="No access to the set default database"):
+    # Same dbless proof as the fallback test: the session holds no database, so a db-bound query
+    # fails at execution with "Database required for query execution".
+    with pytest.raises(mgclient.DatabaseError, match="Database required for query execution"):
         execute_and_fetch_all(victim_cursor, "RETURN 1")
 
     # The refusal: scoped_only_admin holds TRANSACTION_MANAGEMENT, but not on "memgraph", and the
