@@ -217,55 +217,65 @@ bool SameParameterLookup(Expression &lhs, Expression &rhs, ParameterNames const 
   return lhs_name != parameter_names.end() && rhs_name != parameter_names.end() && lhs_name->second == rhs_name->second;
 }
 
-static auto const kRules = std::array{
+auto const kRules = std::array{
     // An aggregation is the case the whole rewrite exists for: ORDER BY count(n) repeats a projected count(n). It
     // derives from BinaryOperator and takes the same two children, but the function it names is its own state.
-    KindRules{&Aggregation::kType, BinaryChildren, SameAggregation},
+    KindRules{.kind = &Aggregation::kType, .children = BinaryChildren, .same_own_fields = SameAggregation},
 
-    KindRules{&OrOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&XorOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&AndOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&AdditionOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&SubtractionOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&MultiplicationOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&DivisionOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&ModOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&ExponentiationOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&NotEqualOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&EqualOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&LessOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&GreaterOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&LessEqualOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&GreaterEqualOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&InListOperator::kType, BinaryChildren, NoOwnFields},
-    KindRules{&SubscriptOperator::kType, BinaryChildren, NoOwnFields},
+    KindRules{.kind = &OrOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &XorOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &AndOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &AdditionOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &SubtractionOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &MultiplicationOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &DivisionOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &ModOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &ExponentiationOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &NotEqualOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &EqualOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &LessOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &GreaterOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &LessEqualOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &GreaterEqualOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &InListOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &SubscriptOperator::kType, .children = BinaryChildren, .same_own_fields = NoOwnFields},
 
-    KindRules{&NotOperator::kType, OneChild<UnaryOperator>, NoOwnFields},
-    KindRules{&UnaryPlusOperator::kType, OneChild<UnaryOperator>, NoOwnFields},
-    KindRules{&UnaryMinusOperator::kType, OneChild<UnaryOperator>, NoOwnFields},
-    KindRules{&IsNullOperator::kType, OneChild<UnaryOperator>, NoOwnFields},
+    KindRules{.kind = &NotOperator::kType, .children = OneChild<UnaryOperator>, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &UnaryPlusOperator::kType, .children = OneChild<UnaryOperator>, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &UnaryMinusOperator::kType, .children = OneChild<UnaryOperator>, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &IsNullOperator::kType, .children = OneChild<UnaryOperator>, .same_own_fields = NoOwnFields},
 
-    KindRules{&PropertyLookup::kType, OneChild<PropertyLookup>, SamePropertyLookup},
-    KindRules{&LabelsTest::kType, OneChild<LabelsTest>, SameLabelsTest},
-    KindRules{&AllPropertiesLookup::kType, OneChild<AllPropertiesLookup>, NoOwnFields},
-    KindRules{&IfOperator::kType, IfChildren, NoOwnFields},
-    KindRules{&ListSlicingOperator::kType, SliceChildren, NoOwnFields},
-    KindRules{&RegexMatch::kType, RegexChildren, NoOwnFields},
-    KindRules{&MapLiteral::kType, MapChildren, SameMapKeys<MapLiteral>},
-    KindRules{&MapProjectionLiteral::kType, MapProjectionChildren, SameMapKeys<MapProjectionLiteral>},
-    KindRules{&Function::kType, ChildList<Function, &Function::arguments_>, SameFunction},
-    KindRules{&Coalesce::kType, ChildList<Coalesce, &Coalesce::expressions_>, NoOwnFields},
-    KindRules{&ListLiteral::kType, ChildList<ListLiteral, &ListLiteral::elements_>, NoOwnFields},
+    KindRules{
+        .kind = &PropertyLookup::kType, .children = OneChild<PropertyLookup>, .same_own_fields = SamePropertyLookup},
+    KindRules{.kind = &LabelsTest::kType, .children = OneChild<LabelsTest>, .same_own_fields = SameLabelsTest},
+    KindRules{
+        .kind = &AllPropertiesLookup::kType, .children = OneChild<AllPropertiesLookup>, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &IfOperator::kType, .children = IfChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &ListSlicingOperator::kType, .children = SliceChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &RegexMatch::kType, .children = RegexChildren, .same_own_fields = NoOwnFields},
+    KindRules{.kind = &MapLiteral::kType, .children = MapChildren, .same_own_fields = SameMapKeys<MapLiteral>},
+    KindRules{.kind = &MapProjectionLiteral::kType,
+              .children = MapProjectionChildren,
+              .same_own_fields = SameMapKeys<MapProjectionLiteral>},
+    KindRules{.kind = &Function::kType,
+              .children = ChildList<Function, &Function::arguments_>,
+              .same_own_fields = SameFunction},
+    KindRules{.kind = &Coalesce::kType,
+              .children = ChildList<Coalesce, &Coalesce::expressions_>,
+              .same_own_fields = NoOwnFields},
+    KindRules{.kind = &ListLiteral::kType,
+              .children = ChildList<ListLiteral, &ListLiteral::elements_>,
+              .same_own_fields = NoOwnFields},
 
-    KindRules{&Identifier::kType, NoChildren, SameIdentifier},
-    KindRules{&PrimitiveLiteral::kType, NoChildren, SamePrimitiveLiteral},
-    KindRules{&ParameterLookup::kType, NoChildren, SameParameterLookup},
-    KindRules{&EnumValueAccess::kType, NoChildren, SameEnumValueAccess},
+    KindRules{.kind = &Identifier::kType, .children = NoChildren, .same_own_fields = SameIdentifier},
+    KindRules{.kind = &PrimitiveLiteral::kType, .children = NoChildren, .same_own_fields = SamePrimitiveLiteral},
+    KindRules{.kind = &ParameterLookup::kType, .children = NoChildren, .same_own_fields = SameParameterLookup},
+    KindRules{.kind = &EnumValueAccess::kType, .children = NoChildren, .same_own_fields = SameEnumValueAccess},
 };
 
 KindRules const *RulesFor(Expression const &expr) {
   auto const &kind = expr.GetTypeInfo();
-  auto const row = std::ranges::find_if(kRules, [&kind](auto const &rules) { return *rules.kind == kind; });
+  auto const *const row = std::ranges::find_if(kRules, [&kind](auto const &rules) { return *rules.kind == kind; });
   return row == kRules.end() ? nullptr : &*row;
 }
 
