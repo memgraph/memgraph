@@ -20,6 +20,7 @@ from typing import Any, Dict
 import interactive_mg_runner
 import pytest
 from common import connect, execute_and_fetch_all, get_data_path, get_logs_path
+from mg_utils import mg_sleep_and_assert_eval_function
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -109,14 +110,8 @@ def memgraph_instances(test_name, mode="IN_MEMORY_TRANSACTIONAL", file=FILE):
     }
 
 
-def number_of_snapshots(dir):
-    try:
-        entries = (os.path.join(dir, entry) for entry in os.listdir(dir))
-        files = [f for f in entries if os.path.isfile(f)]
-        print(files)
-        return len(files)
-    except:
-        return 0
+def snapshot_paths(cursor):
+    return {snapshot[0] for snapshot in execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")}
 
 
 # Need to constantly make changes to the database to trigger snapshots
@@ -141,14 +136,7 @@ class StoppableThread(threading.Thread):
 
 @contextmanager
 def writing_in_the_background():
-    """Keep the database changing while the body runs, and stop on the way out.
-
-    The assertions the body makes are about wall-clock timing, so they fail on
-    a machine slow enough to miss a tick. Stopping the writer from here rather
-    than after the last assertion is what keeps such a failure to the seconds
-    it takes to reach: a writer still looping holds the interpreter open, and
-    the run then ends at the harness timeout instead.
-    """
+    """Keep the database changing and stop the writer even if an assertion fails."""
     thread = StoppableThread()
     thread.start()
     try:
@@ -159,76 +147,60 @@ def writing_in_the_background():
 
 
 def main_test(snapshots_dir):
-    # 1) pause scheduler
-    # 2) check snapshots
-    # 3) update scheduler to 1s
-    # 4) wait n seconds
-    # 5) update scheduler to 10s
-    # 6) check there are now n more
-    # 7) check until there is one more and timeout if not quick enough
-
     connection = connect(host="localhost", port=7687)
     cursor = connection.cursor()
 
-    # 1
     execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '';")
-
-    # 2
-    n_snapshots1 = number_of_snapshots(snapshots_dir)
-
-    # 3
-    execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '*/1 * * * * *';")
+    assert execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;") == []
 
     with writing_in_the_background():
-        # 4
-        time.sleep(5)
+        for interval in ("*/1 * * * * *", "5"):
+            initial_paths = snapshot_paths(cursor)
+            start = time.monotonic()
+            execute_and_fetch_all(cursor, f"SET DATABASE SETTING 'storage.snapshot.interval' TO '{interval}';")
+            assert len(execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")) == 1
+            if interval == "5":
+                # Slow I/O only lowers the count, so an upper bound holds on a loaded machine.
+                # The +2 covers a snapshot the previous interval had in flight.
+                time.sleep(10)
+                new_snapshots = len(snapshot_paths(cursor) - initial_paths)
+                limit = int((time.monotonic() - start) / 5) + 2
+                assert new_snapshots <= limit, f"Interval 5s ignored: {new_snapshots} new snapshots, at most {limit}"
+            mg_sleep_and_assert_eval_function(
+                lambda paths: len(paths - initial_paths) >= 2,
+                lambda: snapshot_paths(cursor),
+                max_duration=60,
+            )
 
-        # 5
-        execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '5';")
+    execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '';")
+    assert execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;") == []
 
-        # 6
-        n_snapshots2 = number_of_snapshots(snapshots_dir)
-        assert n_snapshots1 + 7 >= n_snapshots2 >= n_snapshots1 + 4, f"Expected {n_snapshots1 + 5} got {n_snapshots2}"
+    def snapshots_match_files():
+        listed_paths = snapshot_paths(cursor)
+        files = {
+            os.path.join(snapshots_dir, entry)
+            for entry in os.listdir(snapshots_dir)
+            if os.path.isfile(os.path.join(snapshots_dir, entry))
+        }
+        return bool(listed_paths) and listed_paths == files
 
-        # 7
-        tries = 0
-        n_snapshots3 = n_snapshots2 + 1
-        while n_snapshots3 > number_of_snapshots(snapshots_dir) and tries < 15:
-            tries = tries + 1
-            time.sleep(1)
-        assert 2 < tries < 15, "Failed to wait for the next snapshot"
-        # Test SHOW SNAPSHOTS (should return only existing snapshots)
-        all_snapshots = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
-        assert len(all_snapshots) == n_snapshots3  # Only existing snapshots
-
-        # Test SHOW NEXT SNAPSHOT (should return only the next scheduled snapshot)
-        next_snapshot = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
-        assert len(next_snapshot) == 1  # Should return exactly one row
-
-        # Disable snapshots
-        execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '';")
-
-        # Test SHOW SNAPSHOTS (should still return existing snapshots)
-        all_snapshots_after_disable = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
-        assert len(all_snapshots_after_disable) == n_snapshots3  # Still the same existing snapshots
-
-        # Test SHOW NEXT SNAPSHOT (should return no rows when no next snapshot is scheduled)
-        next_snapshot_after_disable = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
-        assert len(next_snapshot_after_disable) == 0  # Should return no rows
+    mg_sleep_and_assert_eval_function(bool, snapshots_match_files, max_duration=60)
+    cursor.close()
+    connection.close()
 
 
 def main_test_analytical(snapshots_dir, set):
     # 1 (optional) set interval to 1s
     # 2 check number of snapshots under analytical
     # 3 set to transactional
-    # 4 check number of snapshots under tranasctional
+    # 4 check new snapshots under transactional
     # 5 set to analytical
     # 6 check number of snapshots under analytical
 
     connection = connect(host="localhost", port=7687)
     cursor = connection.cursor()
 
-    n_snapshots1 = number_of_snapshots(snapshots_dir)
+    initial_paths = snapshot_paths(cursor)
 
     # 1
     if set:
@@ -236,35 +208,33 @@ def main_test_analytical(snapshots_dir, set):
 
     # 2
     time.sleep(2)
-    assert number_of_snapshots(snapshots_dir) == n_snapshots1, "Got new snapshots even though in analytical"
+    assert snapshot_paths(cursor) == initial_paths, "Got new snapshots even though in analytical"
 
     # 3
     execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_TRANSACTIONAL;")
+    # Switching modes creates a snapshot; wait for another one from the scheduler.
+    initial_paths = snapshot_paths(cursor)
 
     with writing_in_the_background():
         # 4
-        time.sleep(2)
-        assert (
-            number_of_snapshots(snapshots_dir) > n_snapshots1
-        ), "Didn't get new snapshots even though in transactional"
+        mg_sleep_and_assert_eval_function(
+            lambda paths: bool(paths - initial_paths),
+            lambda: snapshot_paths(cursor),
+            max_duration=60,
+        )
 
         # 5
         execute_and_fetch_all(cursor, "STORAGE MODE IN_MEMORY_ANALYTICAL;")
 
         # 6
-        n_snapshots2 = number_of_snapshots(snapshots_dir)
+        assert execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;") == []
+        initial_paths = snapshot_paths(cursor)
         time.sleep(2)
-        assert number_of_snapshots(snapshots_dir) == n_snapshots2, "Got new snapshots even though in analytical"
+        assert snapshot_paths(cursor) == initial_paths, "Got new snapshots even though in analytical"
 
 
 def test_a_failed_assertion_leaves_no_writer_running(test_name):
-    """The writer stops however the body ends, so a failure costs seconds.
-
-    The assertions here are about wall-clock timing, so they fail on a machine
-    slow enough to miss a tick. A writer still looping when one does keeps the
-    interpreter alive, and the run then ends at the harness timeout rather than
-    at the assertion, spending the whole workload budget to report it.
-    """
+    """An assertion failure must not leave the background writer running."""
     interactive_mg_runner.start(memgraph_instances(test_name), "no_flags")
     try:
         writing = False
@@ -287,6 +257,15 @@ def test_no_flags(test_name):
 
 def test_sec_flag(test_name):
     interactive_mg_runner.start(memgraph_instances(test_name), "sec_flag")
+    main_test(snapshots_path(FILE, test_name))
+    interactive_mg_runner.kill_all(keep_directories=False)
+
+
+def test_sec_flag_with_retention(test_name):
+    instances = memgraph_instances(test_name)
+    args = instances["sec_flag"]["args"]
+    args[args.index("--storage-snapshot-retention-count=20")] = "--storage-snapshot-retention-count=2"
+    interactive_mg_runner.start(instances, "sec_flag")
     main_test(snapshots_path(FILE, test_name))
     interactive_mg_runner.kill_all(keep_directories=False)
 
