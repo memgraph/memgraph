@@ -237,14 +237,83 @@ TEST_F(TypedProgramTest, AWideIntegerIsPlacedAgainstADoubleRatherThanCast) {
 
 // A comparison of two unlike types has no order, so it is null rather than an
 // error and rather than false. Equality says they are simply not the same.
+TEST_F(TypedProgramTest, ABooleanPropertyComparesAgainstABooleanParameter) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  auto vertex = dba.InsertVertex();
+  ASSERT_TRUE(vertex.SetProperty(dba.NameToProperty("active"), memgraph::storage::PropertyValue(true)).has_value());
+  dba.AdvanceCommand();
+  Set(0, TypedValue(vertex));
+
+  auto *equal = storage_.Create<memgraph::query::EqualOperator>(
+      storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("active")),
+      storage_.Create<memgraph::query::ParameterLookup>(1));
+  // Placed as well as equated, and false sorts below true.
+  auto *greater = storage_.Create<memgraph::query::GreaterOperator>(
+      storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("active")),
+      storage_.Create<memgraph::query::ParameterLookup>(1));
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = &dba;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  auto equality = TypedProgram::Compile(equal);
+  ASSERT_TRUE(equality.has_value()) << "a boolean property compared with a parameter should compile";
+
+  memgraph::query::Parameters same;
+  same.Add(1, memgraph::storage::ExternalPropertyValue(true));
+  EXPECT_EQ(equality->Run(frame_, &evaluator, &same), TypedProgram::Answer::True);
+
+  memgraph::query::Parameters other;
+  other.Add(1, memgraph::storage::ExternalPropertyValue(false));
+  EXPECT_EQ(equality->Run(frame_, &evaluator, &other), TypedProgram::Answer::False);
+
+  auto ordering = TypedProgram::Compile(greater);
+  ASSERT_TRUE(ordering.has_value());
+  EXPECT_EQ(ordering->Run(frame_, &evaluator, &other), TypedProgram::Answer::True);
+  EXPECT_EQ(ordering->Run(frame_, &evaluator, &same), TypedProgram::Answer::False);
+}
+
+// A boolean occupies a slot the same way an integer does, so arithmetic has to
+// say it is not one. Reading its bits as a number would answer where the
+// evaluator raises.
+TEST_F(TypedProgramTest, ABooleanOperandIsNotArithmetic) {
+  Set(0, TypedValue(true));
+
+  auto *expr = storage_.Create<memgraph::query::AdditionOperator>(
+      Ident(0), storage_.Create<memgraph::query::PrimitiveLiteral>(int64_t{4}));
+
+  auto program = TypedProgram::CompileValue(expr);
+  ASSERT_TRUE(program.has_value());
+
+  TypedValue untouched{int64_t{99}};
+  EXPECT_FALSE(program->RunInto(frame_, untouched)) << "a boolean operand must hand the row back, not add as one";
+  EXPECT_EQ(untouched.ValueInt(), 99);
+}
+
 TEST_F(TypedProgramTest, ComparingUnlikeTypesIsNullButEqualityIsFalse) {
   Set(0, TypedValue(int64_t{1}));
   Set(1, TypedValue(true));
+  Set(2, TypedValue("word"));
 
   auto ordered = TypedProgram::Compile(storage_.Create<memgraph::query::LessOperator>(Ident(0), Ident(1)));
   ASSERT_TRUE(ordered.has_value());
-  EXPECT_EQ(ordered->Run(frame_), TypedProgram::Answer::Refused)
-      << "a boolean is not something the program holds, so the row goes back";
+  EXPECT_EQ(ordered->Run(frame_), TypedProgram::Answer::Null) << "nothing orders a number against a boolean";
+
+  auto equal = TypedProgram::Compile(storage_.Create<memgraph::query::EqualOperator>(Ident(0), Ident(1)));
+  ASSERT_TRUE(equal.has_value());
+  EXPECT_EQ(equal->Run(frame_), TypedProgram::Answer::False)
+      << "equality of unlike types says they are not the same thing";
+
+  // A type no slot can hold is a different matter from an unlike pair: there is
+  // no answer to give, so the row goes back.
+  auto unheld = TypedProgram::Compile(storage_.Create<memgraph::query::LessOperator>(Ident(0), Ident(2)));
+  ASSERT_TRUE(unheld.has_value());
+  EXPECT_EQ(unheld->Run(frame_), TypedProgram::Answer::Refused);
 }
 
 // A query that runs without a storage accessor never has the name to id

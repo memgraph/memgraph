@@ -38,7 +38,7 @@ enum class Truth : int8_t { False = 0, True = 1, Null = 2, Refused = 3 };
 ///
 /// `Unknown` is a slot that holds nothing, which is what a missing property
 /// leaves, and makes a comparison against it null.
-enum class SlotKind : uint8_t { Unknown, Int, Double };
+enum class SlotKind : uint8_t { Unknown, Int, Double, Bool };
 
 /// A value taken out of a record without a TypedValue built around it.
 struct Scalar {
@@ -114,6 +114,7 @@ class TypedProgram {
     EvalTime,
     ConstInt,  // from the expression itself, so never in doubt
     ConstDouble,
+    ConstBool,
     // A property compared with something the query names. This is what almost
     // every filter is, and running it as one instruction keeps the loop that
     // walks a program from being most of the cost of a short one.

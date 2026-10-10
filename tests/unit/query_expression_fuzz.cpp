@@ -388,9 +388,16 @@ TEST_F(ExpressionFuzz, TheCompiledProgramMatchesAcceptOnIntegers) {
     auto writer = frame_.GetFrameWriter(nullptr, memgraph::utils::NewDeleteResource());
     for (size_t i = 0; i < operands_.size(); ++i) {
       memgraph::query::Symbol const symbol{"v" + std::to_string(i), static_cast<int>(i), false};
-      // Every fourth one null, so the three-valued cases come up too.
+      // Every fourth one null, so the three-valued cases come up too, and every
+      // fifth a boolean, so a slot holding one is compared and added to.
       writer.Modify(symbol, [&](TypedValue &slot) {
-        slot = (i % 4 == 3) ? TypedValue() : TypedValue(static_cast<int64_t>(i) - 4);
+        if (i % 4 == 3) {
+          slot = TypedValue();
+        } else if (i % 5 == 4) {
+          slot = TypedValue(i % 2 == 0);
+        } else {
+          slot = TypedValue(static_cast<int64_t>(i) - 4);
+        }
       });
     }
   }

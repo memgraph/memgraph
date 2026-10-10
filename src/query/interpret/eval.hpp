@@ -760,7 +760,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     // permission the boxed read would have applied has to be applied here. It
     // governs the record's own property, which is where the path starts; what
     // a value holds inside itself carries no permission of its own.
-    if (hint != SlotKind::Double && record.IsVertex() && IsPropertyAllowed(record.ValueVertex(), walked.front())) {
+    auto const worth_reading_in_place = hint == SlotKind::Unknown || hint == SlotKind::Int;
+    if (worth_reading_in_place && record.IsVertex() && IsPropertyAllowed(record.ValueVertex(), walked.front())) {
       int64_t value = 0;
       switch (record.ValueVertex().impl_.ReadIntProperty(walked, view_, value)) {
         case storage::VertexAccessor::IntRead::Ok:
@@ -797,6 +798,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (value->IsNull()) return {};
     if (value->IsInt()) return {.kind = SlotKind::Int, .bits = value->ValueInt()};
     if (value->IsDouble()) return {.kind = SlotKind::Double, .bits = std::bit_cast<int64_t>(value->ValueDouble())};
+    if (value->IsBool()) return {.kind = SlotKind::Bool, .bits = value->ValueBool() ? 1 : 0};
     refused = true;
     return {};
   }

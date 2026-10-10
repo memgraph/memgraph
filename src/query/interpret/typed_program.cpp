@@ -55,6 +55,11 @@ bool NamesATime(Expression *expression) {
   return static_cast<Function *>(expression)->function_name_ == "LOCALDATETIME";
 }
 
+/// Arithmetic is over integers. A slot with nothing in it stands for null,
+/// which arithmetic answers with null, so it is let through; every other kind
+/// is one the evaluator decides about.
+constexpr bool ArithmeticAccepts(SlotKind kind) { return kind == SlotKind::Int || kind == SlotKind::Unknown; }
+
 }  // namespace
 
 /// Walks the expression once, handing out working slots and emitting the
@@ -75,6 +80,11 @@ class TypedProgramBuilder {
         if (value.IsDouble()) {
           auto const slot = NextInt();
           Emit(TypedProgram::Op::ConstDouble, slot, 0, 0, std::bit_cast<int64_t>(value.ValueDouble()));
+          return Operand{.is_tri = false, .slot = slot};
+        }
+        if (value.IsBool()) {
+          auto const slot = NextInt();
+          Emit(TypedProgram::Op::ConstBool, slot, 0, 0, value.ValueBool() ? 1 : 0);
           return Operand{.is_tri = false, .slot = slot};
         }
         return refuse();
@@ -438,7 +448,10 @@ std::optional<TypedProgram> TypedProgram::Compile(Expression *expression, Expres
 Truth TypedProgram::CompareSlots(Op op, SlotKind left_kind, int64_t left, SlotKind right_kind, int64_t right) {
   auto const answer = [](bool held) { return held ? Truth::True : Truth::False; };
 
-  if (left_kind == SlotKind::Int && right_kind == SlotKind::Int) {
+  // A boolean is held as nought or one, and false placed below true is what
+  // comparing those two numbers already says.
+  auto const both = [&](SlotKind kind) { return left_kind == kind && right_kind == kind; };
+  if (both(SlotKind::Int) || both(SlotKind::Bool)) {
     switch (op) {
       case Op::EqInt:
         return answer(left == right);
@@ -455,7 +468,7 @@ Truth TypedProgram::CompareSlots(Op op, SlotKind left_kind, int64_t left, SlotKi
     }
   }
 
-  if (left_kind == SlotKind::Double && right_kind == SlotKind::Double) {
+  if (both(SlotKind::Double)) {
     auto const x = std::bit_cast<double>(left);
     auto const y = std::bit_cast<double>(right);
     switch (op) {
@@ -559,11 +572,12 @@ bool TypedProgram::Execute(Frame const &frame, ExpressionEvaluator *reader, Para
   // code rather than back to a loop that works out where to go. The address of
   // a label is a GNU extension, which both compilers this is built with have.
   static void *const kDispatch[] = {
-      &&op_TestLabels, &&op_LoadInt,   &&op_LoadPropInt, &&op_LoadParamInt, &&op_LoadTime,       &&op_LoadPropTime,
-      &&op_EvalTime,   &&op_ConstInt,  &&op_ConstDouble, &&op_PropCmpConst, &&op_PropCmpParam,   &&op_AddInt,
-      &&op_SubInt,     &&op_MulInt,    &&op_DivInt,      &&op_EqInt,        &&op_NeInt,          &&op_LtInt,
-      &&op_GtInt,      &&op_LeInt,     &&op_GeInt,       &&op_AndTri,       &&op_OrTri,          &&op_NotTri,
-      &&op_IsNullInt,  &&op_IsNullTri, &&op_CopyTri,     &&op_EvalTri,      &&op_JumpIfFalseTri, &&op_JumpIfTrueTri,
+      &&op_TestLabels,    &&op_LoadInt,   &&op_LoadPropInt, &&op_LoadParamInt, &&op_LoadTime,     &&op_LoadPropTime,
+      &&op_EvalTime,      &&op_ConstInt,  &&op_ConstDouble, &&op_ConstBool,    &&op_PropCmpConst, &&op_PropCmpParam,
+      &&op_AddInt,        &&op_SubInt,    &&op_MulInt,      &&op_DivInt,       &&op_EqInt,        &&op_NeInt,
+      &&op_LtInt,         &&op_GtInt,     &&op_LeInt,       &&op_GeInt,        &&op_AndTri,       &&op_OrTri,
+      &&op_NotTri,        &&op_IsNullInt, &&op_IsNullTri,   &&op_CopyTri,      &&op_EvalTri,      &&op_JumpIfFalseTri,
+      &&op_JumpIfTrueTri,
   };
 #define MG_NEXT()                                    \
   do {                                               \
@@ -583,6 +597,10 @@ op_ConstDouble:
   ints[step->dst] = step->literal;
   kinds[step->dst] = SlotKind::Double;
   MG_NEXT();
+op_ConstBool:
+  ints[step->dst] = step->literal;
+  kinds[step->dst] = SlotKind::Bool;
+  MG_NEXT();
 op_LoadInt: {
   auto const &value = frame.elems()[step->a];
   if (value.IsInt()) {
@@ -591,6 +609,9 @@ op_LoadInt: {
   } else if (value.IsDouble()) {
     ints[step->dst] = std::bit_cast<int64_t>(value.UnsafeValueDouble());
     kinds[step->dst] = SlotKind::Double;
+  } else if (value.IsBool()) {
+    ints[step->dst] = value.UnsafeValueBool() ? 1 : 0;
+    kinds[step->dst] = SlotKind::Bool;
   } else if (value.IsNull()) {
     kinds[step->dst] = SlotKind::Unknown;
   } else {
@@ -611,6 +632,9 @@ op_LoadParamInt: {
   } else if (value->IsInt()) {
     ints[step->dst] = value->ValueInt();
     kinds[step->dst] = SlotKind::Int;
+  } else if (value->IsBool()) {
+    ints[step->dst] = value->ValueBool() ? 1 : 0;
+    kinds[step->dst] = SlotKind::Bool;
   } else if (value->IsNull()) {
     kinds[step->dst] = SlotKind::Unknown;
   } else {
@@ -658,7 +682,7 @@ op_IsNullTri:
 op_AddInt:
 op_SubInt:
 op_MulInt: {
-  if (kinds[step->a] == SlotKind::Double || kinds[step->b] == SlotKind::Double) return false;
+  if (!ArithmeticAccepts(kinds[step->a]) || !ArithmeticAccepts(kinds[step->b])) return false;
   kinds[step->dst] =
       (kinds[step->a] == SlotKind::Int && kinds[step->b] == SlotKind::Int) ? SlotKind::Int : SlotKind::Unknown;
   if (kinds[step->dst] != SlotKind::Unknown) {
@@ -703,6 +727,8 @@ op_PropCmpParam: {
       other = {.kind = SlotKind::Int, .bits = bound->ValueInt()};
     } else if (bound->IsDouble()) {
       other = {.kind = SlotKind::Double, .bits = std::bit_cast<int64_t>(bound->ValueDouble())};
+    } else if (bound->IsBool()) {
+      other = {.kind = SlotKind::Bool, .bits = bound->ValueBool() ? 1 : 0};
     } else {
       return false;
     }
@@ -857,7 +883,7 @@ finished:
       return true;
     }
     case Op::DivInt: {
-      if (kinds[in.a] == SlotKind::Double || kinds[in.b] == SlotKind::Double) return false;
+      if (!ArithmeticAccepts(kinds[in.a]) || !ArithmeticAccepts(kinds[in.b])) return false;
       kinds[in.dst] =
           (kinds[in.a] == SlotKind::Int && kinds[in.b] == SlotKind::Int) ? SlotKind::Int : SlotKind::Unknown;
       if (kinds[in.dst] != SlotKind::Unknown) {
@@ -905,6 +931,9 @@ bool TypedProgram::RunInto(Frame const &frame, TypedValue &out, ExpressionEvalua
         break;
       case SlotKind::Double:
         out = TypedValue(std::bit_cast<double>(slots.ints[result_]));
+        break;
+      case SlotKind::Bool:
+        out = TypedValue(slots.ints[result_] != 0);
         break;
     }
     return true;
