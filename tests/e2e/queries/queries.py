@@ -428,5 +428,39 @@ def test_a_hash_join_over_a_nan_keeps_no_row_however_the_join_is_planned(memgrap
     assert count(joined) == 1
 
 
+def test_a_large_integer_keeps_no_row_against_the_double_it_rounds_to(memgraph):
+    """An integer past two to the fifty-third and the double its neighbor rounds
+    to are not the same value, so an equality reading the integer at the double's
+    width holds a row no query returns. The filter and the index have to answer
+    the pair alike."""
+    memgraph.execute("MATCH (n) DETACH DELETE n;")
+    memgraph.execute(
+        "CREATE (:BIG {uid: 'above', big: 9007199254740993}), "
+        "( :BIG {uid: 'at', big: 9007199254740992}), "
+        "( :BIG {uid: 'below', big: 9007199254740991}), "
+        "( :BIG {uid: 'negative', big: -9007199254740993});"
+    )
+
+    def uids(query):
+        return sorted(row["u"] for row in memgraph.execute_and_fetch(query))
+
+    sought = "MATCH (n:BIG) WHERE {} RETURN n.uid AS u;"
+
+    assert uids(sought.format("n.big = 9007199254740992.0")) == ["at"]
+    assert uids(sought.format("n.big = 9007199254740992")) == ["at"]
+    assert uids(sought.format("n.big = 9007199254740993")) == ["above"]
+    assert uids(sought.format("n.big = 9007199254740991.0")) == ["below"]
+    assert uids(sought.format("n.big = -9007199254740992.0")) == []
+    assert uids(sought.format("n.big = -9007199254740993")) == ["negative"]
+    assert uids(sought.format("n.big < 9007199254740992.0")) == ["below", "negative"]
+    assert uids(sought.format("n.big > 9007199254740992.0")) == ["above"]
+
+    memgraph.execute("CREATE INDEX ON :BIG(big);")
+
+    assert uids(sought.format("n.big = 9007199254740992.0")) == ["at"]
+    assert uids(sought.format("n.big = 9007199254740993")) == ["above"]
+    assert uids(sought.format("n.big = -9007199254740992.0")) == []
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
