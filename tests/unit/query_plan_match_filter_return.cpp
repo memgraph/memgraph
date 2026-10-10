@@ -449,13 +449,15 @@ TYPED_TEST(QueryPlan, AFilterStopsRunningAProgramNoRowFits) {
 
   memgraph::storage::LabelId const label = dba.NameToLabel("Label");
   auto const property = PROPERTY_PAIR(dba, "Property");
-  // Every row holds a string, which is not something a compiled comparison can
+  // Every row holds a list, which is not something a compiled comparison can
   // hold, so no row can be taken however many are offered.
   constexpr int64_t kRows = 500;
   for (int64_t at = 0; at != kRows; ++at) {
     auto vertex = dba.InsertVertex();
     ASSERT_TRUE(vertex.AddLabel(label).has_value());
-    ASSERT_TRUE(vertex.SetProperty(property.second, memgraph::storage::PropertyValue(std::to_string(at))).has_value());
+    std::vector<memgraph::storage::PropertyValue> held;
+    held.emplace_back(at);
+    ASSERT_TRUE(vertex.SetProperty(property.second, memgraph::storage::PropertyValue(std::move(held))).has_value());
   }
   dba.AdvanceCommand();
 
@@ -470,17 +472,19 @@ TYPED_TEST(QueryPlan, AFilterStopsRunningAProgramNoRowFits) {
                           GREATER(PROPERTY_LOOKUP(dba, n.node_->identifier_, property), PARAMETER_LOOKUP(1)));
   auto filter = std::make_shared<Filter>(n.op_, std::vector<std::shared_ptr<LogicalOperator>>{}, filter_expr);
   auto context = MakeContext(this->storage, symbol_table, &dba);
-  context.evaluation_context.parameters.Add(1, memgraph::storage::ExternalPropertyValue(std::string{"10"}));
+  std::vector<memgraph::storage::ExternalPropertyValue> against;
+  against.emplace_back(int64_t{10});
+  context.evaluation_context.parameters.Add(1, memgraph::storage::ExternalPropertyValue(std::move(against)));
 
   auto const before = Filter::GetRowCounts();
   auto const matched = PullAll(*filter, &context);
   auto const after = Filter::GetRowCounts();
 
-  // What the evaluator would have answered, which is every row whose decimal
-  // spelling sorts after "10".
+  // What the evaluator would have answered, which is every row whose one
+  // element sorts after ten.
   int64_t expected = 0;
   for (int64_t at = 0; at != kRows; ++at) {
-    if (std::to_string(at) > std::string{"10"}) ++expected;
+    if (at > 10) ++expected;
   }
   EXPECT_EQ(matched, expected);
   EXPECT_EQ(after.compiled - before.compiled, 0) << "no row fits the guess";

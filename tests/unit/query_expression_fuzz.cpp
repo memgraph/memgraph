@@ -371,9 +371,15 @@ TEST_F(ExpressionFuzz, TheCompiledProgramMatchesAcceptOrRefuses) {
     ++compiled;
 
     auto const boxed = Attempt([&] { return expr->Accept(evaluator); });
-    auto const typed = RunCompiled(*program, frame_, &evaluator, &parameters_);
-    if (!typed.refused) ++answered;
-    EXPECT_TRUE(CompiledAgrees(typed, boxed)) << "seed " << seed << ", expression " << i << ": " << Describe(expr);
+    // Twice over, because an instruction remembers what its property held and
+    // reads the second row by it. Nothing about the record changes between the
+    // two, so both have to give the evaluator's answer.
+    for (int pass = 0; pass != 2; ++pass) {
+      auto const typed = RunCompiled(*program, frame_, &evaluator, &parameters_);
+      if (!typed.refused) ++answered;
+      EXPECT_TRUE(CompiledAgrees(typed, boxed))
+          << "seed " << seed << ", expression " << i << ", pass " << pass << ": " << Describe(expr);
+    }
   }
   std::cerr << "compiled " << compiled << " of 4000, answered " << answered << "\n";
 }
@@ -410,9 +416,12 @@ TEST_F(ExpressionFuzz, TheCompiledProgramMatchesAcceptOnIntegers) {
     if (!program) continue;
 
     auto const boxed = Attempt([&] { return expr->Accept(evaluator); });
-    auto const typed = RunCompiled(*program, frame_, &evaluator, &parameters_);
-    if (!typed.refused) ++answered;
-    EXPECT_TRUE(CompiledAgrees(typed, boxed)) << "seed " << seed << ", expression " << i << ": " << Describe(expr);
+    for (int pass = 0; pass != 2; ++pass) {
+      auto const typed = RunCompiled(*program, frame_, &evaluator, &parameters_);
+      if (!typed.refused) ++answered;
+      EXPECT_TRUE(CompiledAgrees(typed, boxed))
+          << "seed " << seed << ", expression " << i << ", pass " << pass << ": " << Describe(expr);
+    }
   }
   std::cerr << "answered " << answered << " of 4000 on an integer frame\n";
   EXPECT_GT(answered, 0) << "nothing ran, so nothing was really compared";

@@ -295,6 +295,58 @@ TEST_F(TypedProgramTest, ABooleanOperandIsNotArithmetic) {
   EXPECT_EQ(untouched.ValueInt(), 99);
 }
 
+TEST_F(TypedProgramTest, AStringPropertyComparesAgainstAStringParameter) {
+  std::unique_ptr<memgraph::storage::Storage> db =
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{});
+  auto accessor = db->Access(memgraph::storage::WRITE);
+  memgraph::query::DbAccessor dba{accessor.get()};
+
+  auto vertex = dba.InsertVertex();
+  ASSERT_TRUE(vertex.SetProperty(dba.NameToProperty("name"), memgraph::storage::PropertyValue(std::string{"bravo"}))
+                  .has_value());
+  dba.AdvanceCommand();
+  Set(0, TypedValue(vertex));
+
+  auto *equal = storage_.Create<memgraph::query::EqualOperator>(
+      storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("name")),
+      storage_.Create<memgraph::query::ParameterLookup>(1));
+  auto *less = storage_.Create<memgraph::query::LessOperator>(
+      storage_.Create<memgraph::query::PropertyLookup>(Ident(0), storage_.GetPropertyIx("name")),
+      storage_.Create<memgraph::query::ParameterLookup>(1));
+
+  memgraph::query::ExecutionContext context;
+  context.db_accessor = &dba;
+  context.evaluation_context.properties = memgraph::query::NamesToProperties(storage_.properties_, &dba);
+  memgraph::query::ExpressionEvaluator evaluator{&frame_, context, memgraph::storage::View::OLD};
+
+  memgraph::query::Parameters same;
+  same.Add(1, memgraph::storage::ExternalPropertyValue(std::string{"bravo"}));
+  memgraph::query::Parameters later;
+  later.Add(1, memgraph::storage::ExternalPropertyValue(std::string{"charlie"}));
+
+  auto equality = TypedProgram::Compile(equal);
+  ASSERT_TRUE(equality.has_value());
+
+  // Nothing says what a property holds until a row has been read, so the first
+  // one goes back. What it found is what the next row is read as.
+  EXPECT_EQ(equality->Run(frame_, &evaluator, &same), TypedProgram::Answer::Refused);
+  EXPECT_EQ(equality->Run(frame_, &evaluator, &same), TypedProgram::Answer::True);
+  EXPECT_EQ(equality->Run(frame_, &evaluator, &later), TypedProgram::Answer::False);
+
+  auto ordering = TypedProgram::Compile(less);
+  ASSERT_TRUE(ordering.has_value());
+  EXPECT_EQ(ordering->Run(frame_, &evaluator, &later), TypedProgram::Answer::Refused);
+  EXPECT_EQ(ordering->Run(frame_, &evaluator, &later), TypedProgram::Answer::True);
+  EXPECT_EQ(ordering->Run(frame_, &evaluator, &same), TypedProgram::Answer::False);
+
+  // A parameter of another type is an unlike pair, which has an answer rather
+  // than being handed back.
+  memgraph::query::Parameters number;
+  number.Add(1, memgraph::storage::ExternalPropertyValue(int64_t{3}));
+  EXPECT_EQ(equality->Run(frame_, &evaluator, &number), TypedProgram::Answer::False);
+  EXPECT_EQ(ordering->Run(frame_, &evaluator, &number), TypedProgram::Answer::Null);
+}
+
 TEST_F(TypedProgramTest, ComparingUnlikeTypesIsNullButEqualityIsFalse) {
   Set(0, TypedValue(int64_t{1}));
   Set(1, TypedValue(true));

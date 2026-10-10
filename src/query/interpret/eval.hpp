@@ -799,8 +799,28 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (value->IsInt()) return {.kind = SlotKind::Int, .bits = value->ValueInt()};
     if (value->IsDouble()) return {.kind = SlotKind::Double, .bits = std::bit_cast<int64_t>(value->ValueDouble())};
     if (value->IsBool()) return {.kind = SlotKind::Bool, .bits = value->ValueBool() ? 1 : 0};
+    // No slot holds a string, so this row goes back. Saying what was there is
+    // still worth doing: an instruction that knows asks the way that can
+    // answer, rather than this way again.
+    if (value->IsString()) {
+      refused = true;
+      return {.kind = SlotKind::String};
+    }
     refused = true;
     return {};
+  }
+
+  /// Hands what a property holds to `fn` as a string, without copying it out
+  /// of the value the read already built. A property holding anything else is
+  /// left to the evaluator, which is also the one that says what reaching
+  /// inside a nested value means.
+  template <typename Fn>
+  Truth WithStringProperty(TypedValue const &record, std::span<int32_t const> property_ixs, Fn &&fn) {
+    if (property_ixs.size() != 1) return Truth::Refused;
+    auto const boxed = ReadProperty(record, property_ixs.front());
+    if (boxed.IsNull()) return Truth::Null;
+    if (!boxed.IsString()) return Truth::Refused;
+    return fn(std::string_view{boxed.ValueString()});
   }
 
   std::optional<bool> TestLabels(TypedValue const &record, LabelsTest &test) {

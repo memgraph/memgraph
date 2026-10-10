@@ -509,11 +509,51 @@ Truth TypedProgram::CompareSlots(Op op, SlotKind left_kind, int64_t left, SlotKi
     }
   }
 
-  // Unlike types. Equality says they are not the same thing; nothing orders
-  // them.
+  return CompareUnlike(op);
+}
+
+Truth TypedProgram::CompareUnlike(Op op) {
   if (op == Op::EqInt) return Truth::False;
   if (op == Op::NeInt) return Truth::True;
   return Truth::Null;
+}
+
+Truth TypedProgram::CompareStringProperty(Instr const &in, ExpressionEvaluator *reader, TypedValue const &record,
+                                          Parameters const *parameters) const {
+  auto const op = static_cast<Op>(in.b);
+  // The property is read before the other side is looked at, so an expression
+  // that would have complained about the record still does.
+  return reader->WithStringProperty(record, PathOf(in), [&](std::string_view held) -> Truth {
+    std::string_view other;
+    if (in.op == Op::PropCmpParam) {
+      if (parameters == nullptr) return Truth::Refused;
+      auto const *bound = parameters->FindAtTokenPosition(static_cast<int>(in.literal));
+      if (bound == nullptr) return Truth::Refused;
+      if (bound->IsNull()) return Truth::Null;
+      if (!bound->IsString()) return CompareUnlike(op);
+      other = bound->ValueString();
+    } else {
+      // A literal the compiler took is a number, which is not a string.
+      return CompareUnlike(op);
+    }
+
+    auto const answer = [](bool held_true) { return held_true ? Truth::True : Truth::False; };
+    auto const placed = held <=> other;
+    switch (op) {
+      case Op::EqInt:
+        return answer(std::is_eq(placed));
+      case Op::NeInt:
+        return answer(!std::is_eq(placed));
+      case Op::LtInt:
+        return answer(std::is_lt(placed));
+      case Op::GtInt:
+        return answer(std::is_gt(placed));
+      case Op::LeInt:
+        return answer(std::is_lteq(placed));
+      default:
+        return answer(std::is_gteq(placed));
+    }
+  });
 }
 
 bool TypedProgram::Execute(Frame const &frame, ExpressionEvaluator *reader, Parameters const *parameters,
@@ -702,6 +742,15 @@ op_PropCmpParam: {
       MG_NEXT();
     }
     return false;
+  }
+  if (step->seen == SlotKind::String) [[unlikely]] {
+    auto const answer = CompareStringProperty(*step, reader, record, parameters);
+    if (answer != Answer::Refused) {
+      tris[step->dst] = answer;
+      MG_NEXT();
+    }
+    // What was there last time is a guess, and this row is not holding one. The
+    // ordinary read below answers it and settles what to expect next time.
   }
   // The property is read before the other side is looked at, because that is
   // the order the evaluator works in and reading it is what can throw. Settling
@@ -935,6 +984,9 @@ bool TypedProgram::RunInto(Frame const &frame, TypedValue &out, ExpressionEvalua
       case SlotKind::Bool:
         out = TypedValue(slots.ints[result_] != 0);
         break;
+      case SlotKind::String:
+        // No slot holds one, so a kind saying otherwise is not an answer.
+        return false;
     }
     return true;
   }

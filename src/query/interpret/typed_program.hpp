@@ -38,7 +38,10 @@ enum class Truth : int8_t { False = 0, True = 1, Null = 2, Refused = 3 };
 ///
 /// `Unknown` is a slot that holds nothing, which is what a missing property
 /// leaves, and makes a comparison against it null.
-enum class SlotKind : uint8_t { Unknown, Int, Double, Bool };
+/// What a working slot holds. A string never lives in one, since a slot is a
+/// machine word; the kind records what a property turned out to hold so the
+/// instruction that reads it can ask the right way next time.
+enum class SlotKind : uint8_t { Unknown, Int, Double, Bool, String };
 
 /// A value taken out of a record without a TypedValue built around it.
 struct Scalar {
@@ -198,6 +201,15 @@ class TypedProgram {
   /// differently would be wrong against.
   [[gnu::noinline]] static Truth CompareSlots(Op op, SlotKind left_kind, int64_t left, SlotKind right_kind,
                                               int64_t right);
+
+  /// Where two values of unlike type stand. Nothing orders them, and equality
+  /// says they are not the same thing.
+  static Truth CompareUnlike(Op op);
+
+  /// A property holding a string against what the query names, kept out of the
+  /// loop since a slot cannot hold one and the comparison is its own shape.
+  [[gnu::noinline]] Truth CompareStringProperty(Instr const &in, ExpressionEvaluator *reader, TypedValue const &record,
+                                                Parameters const *parameters) const;
 
   bool Execute(Frame const &frame, ExpressionEvaluator *reader, Parameters const *parameters, Slots &slots) const;
 
