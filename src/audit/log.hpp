@@ -30,6 +30,7 @@ class Log {
     std::string query;
     memgraph::communication::bolt::map_t params;
     std::string db;
+    std::optional<std::string> login_username;
   };
 
  public:
@@ -48,8 +49,10 @@ class Log {
   bool Start();
 
   /// Adds an entry to the audit log. Thread-safe.
+  /// `login_username` is set only when the query runs under impersonation; it adds a 7th column.
   void Record(const std::string &address, const std::string &username, const std::string &query,
-              const memgraph::communication::bolt::map_t &params, const std::string &db);
+              const memgraph::communication::bolt::map_t &params, const std::string &db,
+              const std::optional<std::string> &login_username = std::nullopt);
 
   /// Reopens the log file. Used for log file rotation. Thread-safe.
   bool ReopenLog();
