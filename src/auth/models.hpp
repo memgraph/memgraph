@@ -573,6 +573,12 @@ class Databases final {
   void Revoke(const std::string &db);
 
   /**
+   * @brief Called when database is renamed. The new name is granted iff the old one was;
+   * a deny on either name is kept (deny wins). The main database follows the rename.
+   */
+  void Rename(const std::string &old_name, const std::string &new_name);
+
+  /**
    * @brief Set allow_all_ to true and clears grants and denied sets.
    */
   void GrantAll();
@@ -981,6 +987,7 @@ class User final {
   void AddMultiTenantRole(Role role, const std::string &db_name);
   void RemoveMultiTenantRole(const std::string &rolename, const std::string &db_name);
   void ClearMultiTenantRoles(const std::string &db_name);
+  void RenameDatabase(const std::string &old_name, const std::string &new_name);
 #endif
 
   // Fine grained access control

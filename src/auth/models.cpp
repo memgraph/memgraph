@@ -1147,6 +1147,14 @@ void Databases::Revoke(const std::string &db) {
   }
 }
 
+void Databases::Rename(const std::string &old_name, const std::string &new_name) {
+  const bool granted = grants_dbs_.erase(old_name) != 0;
+  grants_dbs_.erase(new_name);
+  if (granted) grants_dbs_.insert(new_name);
+  if (denies_dbs_.erase(old_name) != 0) denies_dbs_.insert(new_name);
+  if (main_db_ == old_name) main_db_ = new_name;
+}
+
 void Databases::GrantAll() {
   allow_all_ = true;
   grants_dbs_.clear();
@@ -1366,6 +1374,28 @@ void User::ClearMultiTenantRoles(const std::string &db_name) {
     }
     db_role_map_.erase(it);
   }
+}
+
+void User::RenameDatabase(const std::string &old_name, const std::string &new_name) {
+  database_access_.Rename(old_name, new_name);
+
+  if (auto node = db_role_map_.extract(old_name)) {
+    for (const auto &rolename : node.mapped()) {
+      auto &dbs = role_db_map_[rolename];
+      dbs.erase(old_name);
+      dbs.insert(new_name);
+    }
+    db_role_map_[new_name].merge(node.mapped());
+  }
+
+  // Role copies held by the user must grant the new name, otherwise AddMultiTenantRole(copy, new_name) on the
+  // replica (slk Load -> AttachRolesToUser) throws.
+  Roles renamed;
+  for (auto role : roles_.GetRoles()) {
+    role.db_access().Rename(old_name, new_name);
+    renamed.AddRole(role);
+  }
+  roles_ = std::move(renamed);
 }
 #endif
 

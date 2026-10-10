@@ -21,9 +21,11 @@
 #include "auth/crypto.hpp"
 #include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
+#include "auth/rpc.hpp"
 #include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
+#include "slk/streams.hpp"
 #include "utils/file.hpp"
 #include "utils/fips.hpp"
 
@@ -3424,6 +3426,130 @@ TEST_F(AuthWithStorage, MultiTenantRoleManagement) {
     // Trying to add a role that doesn't have access to the database should throw
     ASSERT_THROW(updated_user->AddMultiTenantRole(*role1, "db3"), AuthException);
   }
+}
+
+TEST_F(AuthWithStorage, RenameDatabaseMovesDatabaseAccess) {
+  ASSERT_TRUE(auth->AddUser("granted"));
+  ASSERT_TRUE(auth->AddUser("denied"));
+  ASSERT_TRUE(auth->AddUser("phantom"));
+  ASSERT_TRUE(auth->AddRole("r_granted"));
+  ASSERT_TRUE(auth->AddRole("r_denied"));
+
+  auto granted = auth->GetUser("granted");
+  granted->db_access().Grant("old");
+  ASSERT_TRUE(granted->db_access().SetMain("old"));
+  auth->SaveUser(*granted);
+
+  auto denied = auth->GetUser("denied");
+  denied->db_access().GrantAll();
+  denied->db_access().Deny("old");
+  auth->SaveUser(*denied);
+
+  auto phantom = auth->GetUser("phantom");
+  phantom->db_access().Grant("new");
+  auth->SaveUser(*phantom);
+
+  auto r_granted = auth->GetRole("r_granted");
+  r_granted->db_access().Grant("old");
+  auth->SaveRole(*r_granted);
+
+  auto r_denied = auth->GetRole("r_denied");
+  r_denied->db_access().GrantAll();
+  r_denied->db_access().Deny("old");
+  auth->SaveRole(*r_denied);
+
+  auth->RenameDatabase("old", "new");
+
+  granted = auth->GetUser("granted");
+  EXPECT_TRUE(granted->db_access().GetGrants().contains("new"));
+  EXPECT_FALSE(granted->db_access().GetGrants().contains("old"));
+  EXPECT_EQ(granted->db_access().GetMain(), "new");
+
+  denied = auth->GetUser("denied");
+  EXPECT_TRUE(denied->db_access().GetAllowAll());
+  EXPECT_FALSE(denied->db_access().Denies("old"));
+  EXPECT_TRUE(denied->db_access().Denies("new"));
+
+  phantom = auth->GetUser("phantom");
+  EXPECT_FALSE(phantom->db_access().Contains("new"));
+
+  r_granted = auth->GetRole("r_granted");
+  EXPECT_TRUE(r_granted->db_access().GetGrants().contains("new"));
+  EXPECT_FALSE(r_granted->db_access().GetGrants().contains("old"));
+
+  r_denied = auth->GetRole("r_denied");
+  EXPECT_TRUE(r_denied->db_access().Denies("new"));
+  EXPECT_FALSE(r_denied->db_access().Denies("old"));
+}
+
+TEST_F(AuthWithStorage, RenameDatabaseMovesMultiTenantRoles) {
+  ASSERT_TRUE(auth->AddRole("r"));
+  auto role = auth->GetRole("r");
+  role->db_access().Grant("old");
+  role->db_access().Grant("other");
+  auth->SaveRole(*role);
+
+  ASSERT_TRUE(auth->AddUser("u"));
+  auto user = auth->GetUser("u");
+  user->AddMultiTenantRole(*role, "old");
+  user->AddMultiTenantRole(*role, "other");
+  auth->SaveUser(*user);
+
+  auth->RenameDatabase("old", "new");
+
+  auto names = [](const std::unordered_set<Role> &roles) {
+    std::set<std::string> out;
+    for (const auto &r : roles) out.insert(r.rolename());
+    return out;
+  };
+  const std::set<std::string> just_r{"r"};
+
+  user = auth->GetUser("u");
+  ASSERT_TRUE(user);
+  EXPECT_EQ(names(user->GetMultiTenantRoles("new")), just_r);
+  EXPECT_EQ(names(user->GetMultiTenantRoles("other")), just_r);
+  EXPECT_TRUE(user->GetMultiTenantRoles("old").empty());
+
+  role = auth->GetRole("r");
+  EXPECT_TRUE(role->db_access().GetGrants().contains("new"));
+  EXPECT_FALSE(role->db_access().GetGrants().contains("old"));
+
+  // CREATE DATABASE old must not inherit anything from the renamed database.
+  EXPECT_FALSE(user->db_access().Contains("old"));
+  EXPECT_FALSE(role->HasAccess("old"));
+}
+
+TEST_F(AuthWithStorage, RenameDatabaseUserSurvivesReplicationPayload) {
+  ASSERT_TRUE(auth->AddRole("r"));
+  auto role = auth->GetRole("r");
+  role->db_access().Grant("old");
+  role->db_access().Grant("other");
+  auth->SaveRole(*role);
+
+  ASSERT_TRUE(auth->AddUser("u"));
+  auto user = auth->GetUser("u");
+  user->AddMultiTenantRole(*role, "old");
+  user->AddMultiTenantRole(*role, "other");
+  auth->SaveUser(*user);
+
+  user = auth->GetUser("u");
+  user->RenameDatabase("old", "new");
+
+  std::vector<uint8_t> buf;
+  memgraph::slk::Builder builder(
+      [&buf](const uint8_t *data, size_t size, bool) { buf.insert(buf.end(), data, data + size); });
+  memgraph::slk::Save(*user, &builder);
+  builder.Finalize();
+
+  memgraph::slk::Reader reader(buf.data(), buf.size());
+  User loaded;
+  ASSERT_NO_THROW(memgraph::slk::Load(&loaded, &reader));
+
+  ASSERT_EQ(loaded.GetMultiTenantRoles("new").size(), 1);
+  EXPECT_EQ(loaded.GetMultiTenantRoles("new").begin()->rolename(), "r");
+  ASSERT_EQ(loaded.GetMultiTenantRoles("other").size(), 1);
+  EXPECT_EQ(loaded.GetMultiTenantRoles("other").begin()->rolename(), "r");
+  EXPECT_TRUE(loaded.GetMultiTenantRoles("old").empty());
 }
 
 TEST_F(AuthWithStorage, MultiTenantRoleClearRole) {

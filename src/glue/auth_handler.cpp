@@ -713,6 +713,15 @@ void AuthQueryHandler::DeleteDatabase(std::string_view db_name, system::Transact
   }
 }
 
+void AuthQueryHandler::RenameDatabase(std::string_view old_name, std::string_view new_name,
+                                      system::Transaction *system_tx) {
+  try {
+    auth_->Lock()->RenameDatabase(std::string(old_name), std::string(new_name), system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
 std::optional<std::string> AuthQueryHandler::GetMainDatabase(const std::string &user_or_role,
                                                              auth::UserOrRoleType type) {
   try {

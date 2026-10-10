@@ -107,6 +107,10 @@ class AuthQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DeleteDatabase(std::string_view db, system::Transaction *system_tx) = 0;
 
+  /// Rename database in all users and roles
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void RenameDatabase(std::string_view old_name, std::string_view new_name, system::Transaction *system_tx) = 0;
+
   /// Get the main database for a user or role
   /// @return Optional database access if user/role exists and has a main database set
   /// @throw QueryRuntimeException if an error ocurred.

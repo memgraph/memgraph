@@ -1533,6 +1533,38 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
   }
 }
 
+void Auth::RenameDatabase(const std::string &old_name, const std::string &new_name, system::Transaction *system_tx) {
+  // Users first: LinkUser only links a per-db role while the stored role still grants that db.
+  for (auto it = storage_.begin(kUserPrefix); it != storage_.end(kUserPrefix); ++it) {
+    try {
+      User user = auth::User::Deserialize(ParseAndMigrateJson(it->second));
+      LinkUser(user);
+      user.RenameDatabase(old_name, new_name);
+      SaveUser(user, system_tx);
+    } catch (AuthException &e) {
+      spdlog::warn("Couldn't rename database '{}' to '{}' for user stored as '{}': {}",
+                   old_name,
+                   new_name,
+                   it->first.substr(kUserPrefix.size()),
+                   e.what());
+    }
+  }
+  for (auto it = storage_.begin(kRolePrefix); it != storage_.end(kRolePrefix); ++it) {
+    try {
+      auto role = memgraph::auth::Role::Deserialize(ParseAndMigrateJson(it->second));
+      role.db_access().Rename(old_name, new_name);
+      LinkRole(role);
+      SaveRole(role, system_tx);
+    } catch (AuthException &e) {
+      spdlog::warn("Couldn't rename database '{}' to '{}' for role stored as '{}': {}",
+                   old_name,
+                   new_name,
+                   it->first.substr(kRolePrefix.size()),
+                   e.what());
+    }
+  }
+}
+
 Auth::Result Auth::SetMainDatabase(std::string_view db, const std::string &name, UserOrRoleType type,
                                    system::Transaction *system_tx) {
   return DispatchUserOrRole(
