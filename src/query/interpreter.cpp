@@ -7412,76 +7412,109 @@ auto StartTimeAndElapsedMs(std::chrono::system_clock::time_point start,
   return {std::move(start_tv), elapsed_ms};
 }
 
-template <typename Func>
-auto ShowTransactions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
-                      Func &&privilege_checker, const std::vector<TransactionQueueQuery::StatusFilter> &status_filter)
+// Rows are built under `interpreters`; the privilege check runs after it is released (it takes the auth lock).
+auto ShowTransactions(InterpreterSet &interpreters, QueryUserOrRole *user_or_role,
+                      PrivilegeChecker const &privilege_checker,
+                      const std::vector<TransactionQueueQuery::StatusFilter> &status_filter)
     -> std::vector<std::vector<TypedValue>> {
-  std::vector<std::vector<TypedValue>> results;
-  results.reserve(interpreters.size());
-  for (Interpreter *interpreter : interpreters) {
-    const auto verifier = interpreter->TryAcquireForVerification();
-    if (!verifier) {
-      continue;
-    }
-    std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
-    if (!transaction_id.has_value()) continue;
-    // Foreign thread: user_or_role_ is owning-thread state; a raw read here races SetUser/ResetUser.
-    // foreign_user_view_ is the published snapshot, loaded once and used for both the identity gate and
-    // the username column so the two cannot disagree.
-    auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
-    // Route through foreign_db_view(): this is a foreign thread. The verifier CAS above does NOT order
-    // against SetCurrentDB (the Pull path never consults transaction_status_), so an unlocked db_acc_ read
-    // could tear against a concurrent USE DATABASE. foreign_db_view() takes db_acc_mutex_ and returns the
-    // same name string CurrentDB::name() would ("" when the session holds no database).
-    auto db_name = interpreter->current_db_.foreign_db_view().name;
-    if (!SameUser(user_snapshot, user_or_role) && !privilege_checker(user_or_role, db_name)) continue;
-    auto const runtime_status = verifier->status();
-    if (!status_filter.empty()) {
-      auto const sf = ToStatusFilter(runtime_status);
-      if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
-    }
-    const auto &typed_queries = interpreter->GetQueries();
-    results.push_back({TypedValue((user_snapshot && user_snapshot->username()) ? *user_snapshot->username() : ""),
-                       TypedValue(std::to_string(transaction_id.value())),
-                       TypedValue(typed_queries),
-                       TypedValue(std::string_view{TransactionStatusToString(runtime_status)})});
-    // metadata_ is safe to read - we hold CAS protection (status is VERIFYING,
-    // cleanup paths spin-wait before modifying fields)
-    std::map<std::string, TypedValue> metadata_tv;
-    if (interpreter->metadata_) {
-      for (const auto &md : *(interpreter->metadata_)) {
-        metadata_tv.emplace(md.first, TypedValue(md.second));
+  struct Candidate {
+    std::vector<TypedValue> row;
+    std::string db_name;
+    bool same_user;
+  };
+
+  std::vector<Candidate> candidates;
+  interpreters.WithLock([&](auto const &all) {
+    candidates.reserve(all.size());
+    for (Interpreter *interpreter : all) {
+      const auto verifier = interpreter->TryAcquireForVerification();
+      if (!verifier) {
+        continue;
       }
+      std::optional<uint64_t> transaction_id = interpreter->GetTransactionId();
+      if (!transaction_id.has_value()) continue;
+      // Foreign thread: user_or_role_ is owning-thread state; a raw read here races SetUser/ResetUser.
+      // foreign_user_view_ is the published snapshot, loaded once and used for both the identity gate and
+      // the username column so the two cannot disagree.
+      auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
+      // Route through foreign_db_view(): this is a foreign thread. The verifier CAS above does NOT order
+      // against SetCurrentDB (the Pull path never consults transaction_status_), so an unlocked db_acc_ read
+      // could tear against a concurrent USE DATABASE. foreign_db_view() takes db_acc_mutex_ and returns the
+      // same name string CurrentDB::name() would ("" when the session holds no database).
+      auto db_name = interpreter->current_db_.foreign_db_view().name;
+      auto const same_user = SameUser(user_snapshot, user_or_role);
+      auto const runtime_status = verifier->status();
+      if (!status_filter.empty()) {
+        auto const sf = ToStatusFilter(runtime_status);
+        if (!sf || !std::ranges::contains(status_filter, *sf)) continue;
+      }
+      const auto &typed_queries = interpreter->GetQueries();
+      std::vector<TypedValue> row;
+      row.reserve(8);
+      row.emplace_back((user_snapshot && user_snapshot->username()) ? *user_snapshot->username() : "");
+      row.emplace_back(std::to_string(transaction_id.value()));
+      row.emplace_back(typed_queries);
+      row.emplace_back(std::string_view{TransactionStatusToString(runtime_status)});
+      // metadata_ is safe to read - we hold CAS protection (status is VERIFYING,
+      // cleanup paths spin-wait before modifying fields)
+      std::map<std::string, TypedValue> metadata_tv;
+      if (interpreter->metadata_) {
+        for (const auto &md : *(interpreter->metadata_)) {
+          metadata_tv.emplace(md.first, TypedValue(md.second));
+        }
+      }
+      row.emplace_back(metadata_tv);
+      auto [start_tv, elapsed_ms] =
+          StartTimeAndElapsedMs(interpreter->transaction_start_time_, interpreter->transaction_start_steady_);
+      row.emplace_back(std::move(start_tv));
+      row.emplace_back(elapsed_ms);
+      row.emplace_back(db_name);
+      candidates.push_back({std::move(row), std::move(db_name), same_user});
     }
-    results.back().emplace_back(metadata_tv);
-    auto [start_tv, elapsed_ms] =
-        StartTimeAndElapsedMs(interpreter->transaction_start_time_, interpreter->transaction_start_steady_);
-    results.back().emplace_back(std::move(start_tv));
-    results.back().emplace_back(elapsed_ms);
-    results.back().emplace_back(std::move(db_name));
+  });
+
+  PrivilegeByDb privilege_by_db{user_or_role, privilege_checker};
+  std::vector<std::vector<TypedValue>> results;
+  results.reserve(candidates.size());
+  for (auto &candidate : candidates) {
+    if (candidate.same_user || privilege_by_db(candidate.db_name)) results.push_back(std::move(candidate.row));
   }
   return results;
 }
 
-template <typename Func>
-auto ShowSessions(const std::unordered_set<Interpreter *> &interpreters, QueryUserOrRole *user_or_role,
-                  Func &&privilege_checker) -> std::vector<std::vector<TypedValue>> {
-  std::vector<std::vector<TypedValue>> results;
-  results.reserve(interpreters.size());
-  for (const Interpreter *interpreter : interpreters) {
-    auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
-    if (!session_snapshot) continue;  // null snapshot: session is pre-login (mid-handshake) or logged off — skip
-    auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
-    // Empty db means the session holds no database (db-less); db_for_check falls back to kDefaultDB for the
-    // privilege check only — the display value remains empty to reflect the true session state.
-    auto db = interpreter->current_db_.foreign_db_view().name;
-    auto db_for_check = db.empty() ? std::string{dbms::kDefaultDB} : db;
-    if (SameUser(user_snapshot, user_or_role) || privilege_checker(user_or_role, db_for_check)) {
-      results.push_back({TypedValue(session_snapshot->uuid),
-                         TypedValue(session_snapshot->username),
-                         TypedValue(db),
-                         TypedValue(session_snapshot->login_timestamp)});
+auto ShowSessions(InterpreterSet &interpreters, QueryUserOrRole *user_or_role,
+                  PrivilegeChecker const &privilege_checker) -> std::vector<std::vector<TypedValue>> {
+  struct Candidate {
+    std::vector<TypedValue> row;
+    std::string db_for_check;
+    bool same_user;
+  };
+
+  std::vector<Candidate> candidates;
+  interpreters.WithLock([&](auto const &all) {
+    candidates.reserve(all.size());
+    for (const Interpreter *interpreter : all) {
+      auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
+      if (!session_snapshot) continue;  // null snapshot: session is pre-login (mid-handshake) or logged off — skip
+      auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
+      // Empty db means the session holds no database (db-less); db_for_check falls back to kDefaultDB for the
+      // privilege check only — the display value remains empty to reflect the true session state.
+      auto db = interpreter->current_db_.foreign_db_view().name;
+      auto db_for_check = db.empty() ? std::string{dbms::kDefaultDB} : db;
+      candidates.push_back({{TypedValue(session_snapshot->uuid),
+                             TypedValue(session_snapshot->username),
+                             TypedValue(db),
+                             TypedValue(session_snapshot->login_timestamp)},
+                            std::move(db_for_check),
+                            SameUser(user_snapshot, user_or_role)});
     }
+  });
+
+  PrivilegeByDb privilege_by_db{user_or_role, privilege_checker};
+  std::vector<std::vector<TypedValue>> results;
+  results.reserve(candidates.size());
+  for (auto &candidate : candidates) {
+    if (candidate.same_user || privilege_by_db(candidate.db_for_check)) results.push_back(std::move(candidate.row));
   }
   return results;
 }
@@ -7570,11 +7603,6 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
   Callback callback;
   switch (transaction_query->action_) {
     case TransactionQueueQuery::Action::SHOW_TRANSACTIONS: {
-      auto show_transactions = [user_or_role = std::move(user_or_role),
-                                privilege_checker = std::move(privilege_checker),
-                                status_filter = transaction_query->status_filter_](const auto &interpreters) {
-        return ShowTransactions(interpreters, user_or_role.get(), privilege_checker, status_filter);
-      };
       callback.header = {
           "username", "transaction_id", "query", "status", "metadata", "start_time", "elapsed_ms", "database"};
       // Background-task rows are always "running"; skip them when a status filter
@@ -7582,8 +7610,13 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       const bool include_background_tasks =
           transaction_query->status_filter_.empty() ||
           std::ranges::contains(transaction_query->status_filter_, TransactionQueueQuery::StatusFilter::RUNNING);
-      callback.fn = [interpreter_context, show_transactions = std::move(show_transactions), include_background_tasks] {
-        auto results = interpreter_context->interpreters.WithLock(show_transactions);
+      callback.fn = [interpreter_context,
+                     user_or_role = std::move(user_or_role),
+                     privilege_checker = std::move(privilege_checker),
+                     status_filter = transaction_query->status_filter_,
+                     include_background_tasks] {
+        auto results =
+            ShowTransactions(interpreter_context->interpreters, user_or_role.get(), privilege_checker, status_filter);
         if (include_background_tasks && interpreter_context->dbms_handler) {
           interpreter_context->dbms_handler->ForEach([&results](auto db_acc) {
             auto *storage = db_acc->storage();
@@ -7621,11 +7654,9 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
         callback.fn = [interpreter_context,
                        self,
                        user_or_role = std::move(user_or_role),
-                       privilege_checker = std::move(privilege_checker)]() mutable {
-          return interpreter_context->interpreters.WithLock([&](auto &interpreters) mutable {
-            return InterpreterContext::TerminateAllTransactions(
-                interpreters, self, user_or_role.get(), std::move(privilege_checker));
-          });
+                       privilege_checker = std::move(privilege_checker)] {
+          return InterpreterContext::TerminateAllTransactions(
+              interpreter_context->interpreters, self, user_or_role.get(), privilege_checker);
         };
         break;
       }
@@ -7636,10 +7667,10 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                      maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids),
                      user_or_role = std::move(user_or_role),
                      privilege_checker = std::move(privilege_checker)]() mutable {
-        return interpreter_context->interpreters.WithLock([&](auto &interpreters) mutable {
-          return interpreter_context->TerminateTransactions(
-              interpreters, std::move(maybe_kill_transaction_ids), user_or_role.get(), std::move(privilege_checker));
-        });
+        return InterpreterContext::TerminateTransactions(interpreter_context->interpreters,
+                                                         std::move(maybe_kill_transaction_ids),
+                                                         user_or_role.get(),
+                                                         privilege_checker);
       };
       break;
     }
@@ -7703,12 +7734,10 @@ Callback HandleSessionQuery(SessionQuery *session_query, std::shared_ptr<QueryUs
                      user_or_role = std::move(user_or_role),
                      privilege_checker = std::move(privilege_checker),
                      caller_session_uuid = std::move(caller_session_uuid)]() mutable {
-        auto result = interpreter_context->interpreters.WithLock([&](auto &interpreters) {
-          return InterpreterContext::TerminateSessions(
-              interpreters, session_ids, user_or_role.get(), privilege_checker, caller_session_uuid);
-        });
+        auto result = InterpreterContext::TerminateSessions(
+            interpreter_context->interpreters, session_ids, user_or_role.get(), privilege_checker, caller_session_uuid);
         // Closing a connection runs that session's destructor chain, which re-enters
-        // InterpreterContext::interpreters -- so it must happen only after the lock above is released.
+        // InterpreterContext::interpreters, so it must run with that lock not held.
         for (auto const &uuid : result.to_close) {
           if (auto session = communication::v2::SessionRegistry::Instance().Find(uuid)) {
             session->RequestTermination();
@@ -7719,13 +7748,11 @@ Callback HandleSessionQuery(SessionQuery *session_query, std::shared_ptr<QueryUs
       break;
     }
     case SessionQuery::Action::SHOW: {
-      auto show_sessions = [user_or_role = std::move(user_or_role),
-                            privilege_checker = std::move(privilege_checker)](const auto &interpreters) {
-        return ShowSessions(interpreters, user_or_role.get(), privilege_checker);
-      };
       callback.header = {"session_id", "username", "database", "login_timestamp"};
-      callback.fn = [interpreter_context, show_sessions = std::move(show_sessions)] {
-        return interpreter_context->interpreters.WithLock(show_sessions);
+      callback.fn = [interpreter_context,
+                     user_or_role = std::move(user_or_role),
+                     privilege_checker = std::move(privilege_checker)] {
+        return ShowSessions(interpreter_context->interpreters, user_or_role.get(), privilege_checker);
       };
       break;
     }
@@ -8834,20 +8861,19 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   // Try to terminate all interpreters using the database
                   // Best effort approach, if it fails, user will continue using the db until they commit/abort
                   // Get access to the interpreter context to notify all active interpreters
-                  interpreter_context->interpreters.WithLock(
-                      [db_name, interpreter_context, interpreter](auto &interpreters) {
-                        auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-                          return user_or_role &&
-                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
-                                                            db_name,
-                                                            &query::up_to_date_policy);
-                        };
-                        interpreter_context->TerminateTransactions(
-                            interpreters,
-                            InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
-                            interpreter->user_or_role_.get(),
-                            privilege_checker);
-                      });
+                  auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+                    return user_or_role &&
+                           user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
+                                                      db_name,
+                                                      &query::up_to_date_policy);
+                  };
+                  auto kill_list = interpreter_context->interpreters.WithLock([&](auto &interpreters) {
+                    return InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name);
+                  });
+                  InterpreterContext::TerminateTransactions(interpreter_context->interpreters,
+                                                            std::move(kill_list),
+                                                            interpreter->user_or_role_.get(),
+                                                            privilege_checker);
                 }
               } else {
                 success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
