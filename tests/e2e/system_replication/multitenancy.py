@@ -1097,6 +1097,90 @@ def test_multitenancy_replication_restart_main(connection, test_name):
     assert get_number_of_edges_func(cursor_replica, "B")() == 0
 
 
+def _wait_system_ts(cursor):
+    # Block until every replica reports a ready system status, then return the max system ts
+    def all_ready():
+        rows = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+        return bool(rows) and all(row[3]["status"] == "ready" for row in rows)
+
+    mg_sleep_and_assert(True, all_ready)
+    return max(row[3]["ts"] for row in execute_and_fetch_all(cursor, "SHOW REPLICAS;"))
+
+
+def test_promoted_replica_system_timestamp_does_not_regress(connection, test_name):
+    # Goal: a promoted replica continues the system timestamp from where the old MAIN left off
+    # 0/ Setup replication, MAIN creates 3 databases
+    # 1/ Promote replica_1 and register replica_2 under it
+    # 2/ CREATE DATABASE on new MAIN advances ts and reaches replica_2
+
+    # 0/
+    instances = get_instances_with_recovery(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+    setup_replication(connection)
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    for db in ("A", "B", "C"):
+        execute_and_fetch_all(main_cursor, f"CREATE DATABASE {db};")
+    old_ts = _wait_system_ts(main_cursor)
+    assert old_ts >= 3
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "DROP REPLICA replica_1;")
+    execute_and_fetch_all(main_cursor, "DROP REPLICA replica_2;")
+    new_main_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    execute_and_fetch_all(new_main_cursor, "SET REPLICATION ROLE TO MAIN;")
+    execute_and_fetch_all(
+        new_main_cursor, f"REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
+    )
+    interactive_mg_runner.kill(instances, "main", keep_directories=False)
+
+    # 2/
+    execute_and_fetch_all(new_main_cursor, "CREATE DATABASE D;")
+    assert _wait_system_ts(new_main_cursor) > old_ts
+    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
+    mg_sleep_and_assert(
+        True, lambda: "D" in {row[0] for row in execute_and_fetch_all(replica_2_cursor, "SHOW DATABASES;")}
+    )
+
+
+def test_restarted_replica_keeps_system_timestamp(connection, test_name):
+    # Goal: a replica restart does not lose the system timestamp it had replicated
+    # 0/ Setup replication, MAIN creates 3 databases
+    # 1/ Kill MAIN and restart replica_1, then promote it
+    # 2/ New MAIN ts equals the old one
+    # 3/ CREATE DATABASE on new MAIN advances ts and reaches replica_2
+
+    # 0/
+    instances = get_instances_with_recovery(test_name)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+    setup_replication(connection)
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    for db in ("A", "B", "C"):
+        execute_and_fetch_all(main_cursor, f"CREATE DATABASE {db};")
+    old_ts = _wait_system_ts(main_cursor)
+    assert old_ts >= 3
+
+    # 1/
+    interactive_mg_runner.kill(instances, "main", keep_directories=False)
+    interactive_mg_runner.kill(instances, "replica_1")
+    interactive_mg_runner.start(instances, "replica_1")
+    new_main_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    execute_and_fetch_all(new_main_cursor, "SET REPLICATION ROLE TO MAIN;")
+    execute_and_fetch_all(
+        new_main_cursor, f"REGISTER REPLICA replica_2 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';"
+    )
+
+    # 2/
+    assert _wait_system_ts(new_main_cursor) == old_ts
+
+    # 3/
+    execute_and_fetch_all(new_main_cursor, "CREATE DATABASE D;")
+    assert _wait_system_ts(new_main_cursor) > old_ts
+    replica_2_cursor = connection(BOLT_PORTS["replica_2"], "replica_2").cursor()
+    mg_sleep_and_assert(
+        True, lambda: "D" in {row[0] for row in execute_and_fetch_all(replica_2_cursor, "SHOW DATABASES;")}
+    )
+
+
 def test_automatic_databases_drop_multitenancy_replication(connection, test_name):
     # Goal: show that drop database can be replicated
     # 0/ Setup replication

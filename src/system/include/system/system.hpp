@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <algorithm>
+#include <atomic>
+
 #include "system/state.hpp"
 #include "system/transaction.hpp"
 
@@ -34,8 +37,16 @@ struct System {
     if (!system_unique.try_lock_for(try_time)) {
       return std::nullopt;
     }
+    // A replica advances the LCTS but not this counter; resync once after promotion.
+    if (resync_timestamp_.exchange(false, std::memory_order_acquire)) {
+      timestamp_ = std::max(timestamp_, state_.LastCommittedSystemTimestamp());
+    }
     return Transaction{state_, std::move(system_unique), ++timestamp_};
   }
+
+  // Call on promotion to MAIN, once replica handlers can no longer advance the LCTS;
+  // the next transaction lifts the counter to it.
+  void ResyncTimestampOnNextTransaction() { resync_timestamp_.store(true, std::memory_order_release); }
 
   // TODO: this and LastCommittedSystemTimestamp maybe not needed
   auto GenTransactionGuard() -> TransactionGuard { return TransactionGuard{std::unique_lock{mtx_}}; }
@@ -48,6 +59,7 @@ struct System {
   State state_;
   std::timed_mutex mtx_{};
   std::uint64_t timestamp_{0};
+  std::atomic_bool resync_timestamp_{false};
 };
 
 }  // namespace memgraph::system

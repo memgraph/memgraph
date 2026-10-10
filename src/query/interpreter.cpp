@@ -11519,7 +11519,7 @@ void Interpreter::Commit() {
     };
 
     auto const replica_commit = [&](replication::RoleReplicaData &) {
-      return system_transaction_->Commit(memgraph::system::DoNothing{});
+      return system_transaction_->Commit(memgraph::system::DoLocal{});
     };
 
     auto const commit_method = utils::Overloaded{main_commit, replica_commit};
