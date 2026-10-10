@@ -996,6 +996,12 @@ TYPED_TEST(InterpreterTest, AccessorFreePathExcludesPrivilegedProcedures) {
   EXPECT_EQ(stream.GetSummary().count("graph_free"), 0U);
 }
 
+TYPED_TEST(InterpreterTest, SubqueryReturnItemHeaderEndsAtClosingBrace) {
+  auto stream = this->Interpret("CALL () { UNWIND [1] AS n RETURN n } RETURN *");
+  ASSERT_EQ(stream.GetHeader().size(), 1U);
+  EXPECT_EQ(stream.GetHeader()[0], "n");
+}
+
 TYPED_TEST(InterpreterTest, MultiplePulls) {
   {
     auto [stream, qid] = this->Prepare("UNWIND [1,2,3,4,5] as n RETURN n");
