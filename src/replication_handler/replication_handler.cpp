@@ -243,7 +243,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
 
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       // Pause TTL
-      db_acc->ttl().Pause();
+      db_acc->ttl().Suspend();
     });
 
     return SetReplicationRoleReplica_<true>(locked_repl_state, config, maybe_main_uuid);
@@ -325,7 +325,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     // STEP 5) Resume TTL
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
       auto &ttl = db_acc->ttl();
-      ttl.Resume();
+      ttl.ResumeIfWanted();
     });
 
     return true;

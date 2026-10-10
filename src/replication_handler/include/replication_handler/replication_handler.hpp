@@ -454,7 +454,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // Pause TTL
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto &ttl = db_acc->ttl();
-      ttl.Pause();
+      ttl.Suspend();
     });
 
     // TODO Handle error (restore to main?)

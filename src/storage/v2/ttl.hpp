@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <functional>
 #include <optional>
@@ -208,21 +209,50 @@ class TTL final {
    */
   void Disable() {
     enabled_ = false;
+    wanted_ = false;
     info_ = {};
     ttl_.Stop();
   }
 
   /**
-   * @brief TTL's background job should be paused in case instance becomes a REPLICA.
-   *
+   * @brief Whether TTL has been asked to run (ENABLE TTL) rather than stopped. This is what durability
+   *        records; it survives demotion and shutdown, which only pause the background job.
    */
-  void Pause() { ttl_.Pause(); }
+  bool Wanted() const { return wanted_; }
+
+  void SetWanted(bool wanted) { wanted_ = wanted; }
 
   /**
-   * @brief Use Resume() to restart once MAIN.
+   * @brief Stop the background job and record that TTL should stay stopped (STOP TTL).
    *
    */
-  void Resume() { ttl_.Resume(); }
+  void Pause() {
+    wanted_ = false;
+    ttl_.Pause();
+  }
+
+  /**
+   * @brief Run the background job and record that TTL should run (ENABLE TTL).
+   *
+   */
+  void Resume() {
+    wanted_ = true;
+    ttl_.Resume();
+  }
+
+  /**
+   * @brief Pause the background job while this instance is a REPLICA, keeping whether TTL should run.
+   *
+   */
+  void Suspend() { ttl_.Pause(); }
+
+  /**
+   * @brief Restart the background job once MAIN, if TTL should run.
+   *
+   */
+  void ResumeIfWanted() {
+    if (wanted_) ttl_.Resume();
+  }
 
   /**
    * @brief Set the function to check if this is a main instance
@@ -232,9 +262,10 @@ class TTL final {
   void SetUserCheck(std::function<bool()> check_fn) { user_check_.Update(std::move(check_fn)); }
 
  private:
-  utils::Scheduler ttl_;  //!< background thread
-  TtlInfo info_{};        //!< configuration
-  bool enabled_{false};   //!< feature enabler
+  utils::Scheduler ttl_;             //!< background thread
+  TtlInfo info_{};                   //!< configuration
+  bool enabled_{false};              //!< feature enabler
+  std::atomic<bool> wanted_{false};  //!< asked to run rather than stopped
   Storage *storage_ptr_{};
   metrics::CounterHandle deleted_nodes_{};
   metrics::CounterHandle deleted_edges_{};
@@ -309,6 +340,14 @@ class TTL final {
   void Pause() {}
 
   void Resume() {}
+
+  bool Wanted() const { return false; }
+
+  void SetWanted(bool) {}
+
+  void Suspend() {}
+
+  void ResumeIfWanted() {}
 
   bool Enabled() const { return false; }
 
