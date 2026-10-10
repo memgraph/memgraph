@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -33,6 +34,7 @@
 #include "parameters/parameters.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/config.hpp"
+#include "replication/replication_client.hpp"
 #include "replication/state.hpp"
 #include "replication_handler/replication_handler.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -712,6 +714,37 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
     ASSERT_FALSE(v);
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
+}
+
+TEST_F(ReplicationTest, UnregisterReplicaUnderSystemTransactionDoesNotDeadlockWithRecovery) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  replica.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+
+  // DROP REPLICA unregisters while its query holds the system transaction
+  auto system_txn = main.system_.TryCreateTransaction();
+  ASSERT_TRUE(system_txn);
+  std::get<memgraph::replication::RoleMainData>(main.repl_state.Lock()->ReplicationData())
+      .registered_replicas_.front()
+      .state_.WithLock([](auto &state) { state = memgraph::replication::ReplicationClient::State::BEHIND; });
+  // Let the replica checker start recovering the client while the system transaction is held
+  std::this_thread::sleep_for(std::chrono::seconds{2});
+
+  auto unregister = std::async(std::launch::async, [&] { return main.repl_handler.UnregisterReplica(replicas[0]); });
+  auto const finished = unregister.wait_for(std::chrono::seconds{5}) == std::future_status::ready;
+  system_txn.reset();
+  ASSERT_TRUE(finished);
+  ASSERT_EQ(unregister.get(), UnregisterReplicaResult::SUCCESS);
 }
 
 TEST_F(ReplicationTest, RecoveryProcess) {
