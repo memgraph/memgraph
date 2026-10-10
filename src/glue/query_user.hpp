@@ -45,9 +45,12 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
 
  private:
   friend class AuthChecker;
+  void RefreshPrincipal(const auth::Auth &auth) const;
+
   auth::SynchedAuth *auth_;
   mutable std::optional<auth::User> user_{};
   mutable std::optional<auth::Roles> roles_{};
+  mutable bool dropped_{false};
   mutable auth::Auth::Epoch auth_epoch_{auth::Auth::kStartEpoch};
 };
 
