@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <future>
 #include <memory>
 #include <optional>
 #include <thread>
@@ -2243,6 +2244,59 @@ TEST_F(ReplicationTest, ReplicationWithNonSequentialDeltas) {
 
     ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
   }
+}
+
+// DROP REPLICA holds the system transaction while it joins the replica checker. A BEHIND checker
+// must not block on that same system lock, or the join never returns.
+TEST_F(ReplicationTest, UnregisterReplicaDoesNotDeadlockWithBehindReplicaChecker) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica(repl_conf);
+
+  replica.repl_handler.TrySetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
+  ASSERT_TRUE(main.repl_handler
+                  .TryRegisterReplica(ReplicationClientConfig{
+                      .name = replicas[0],
+                      .mode = ReplicationMode::SYNC,
+                      .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                  })
+                  .has_value());
+
+  using State = memgraph::replication::ReplicationClient::State;
+  auto client_state = [&] {
+    auto locked_repl_state = main.repl_state.ReadLock();
+    auto const &clients =
+        std::get<memgraph::replication::RoleMainData>(locked_repl_state->ReplicationData()).registered_replicas_;
+    return *clients.front().state_.ReadLock();
+  };
+  auto set_behind = [&] {
+    auto locked_repl_state = main.repl_state.Lock();
+    auto &clients =
+        std::get<memgraph::replication::RoleMainData>(locked_repl_state->ReplicationData()).registered_replicas_;
+    clients.front().state_.WithLock([](auto &state) { state = State::BEHIND; });
+  };
+
+  auto system_txn = main.system_.TryCreateTransaction();
+  ASSERT_TRUE(system_txn.has_value());
+
+  // The checker flips BEHIND -> RECOVERY right before it takes the system lock we hold.
+  set_behind();
+  auto const seen_recovery = [&] {
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds{10};
+    while (std::chrono::steady_clock::now() < deadline) {
+      if (client_state() == State::RECOVERY) return true;
+      std::this_thread::sleep_for(std::chrono::milliseconds{1});
+    }
+    return false;
+  }();
+  ASSERT_TRUE(seen_recovery);
+
+  auto unregister = std::async(std::launch::async, [&] { return main.repl_handler.UnregisterReplica(replicas[0]); });
+  auto const status = unregister.wait_for(std::chrono::seconds{10});
+  // Release the system lock either way so a hung checker can finish and the test fails instead of hanging.
+  system_txn.reset();
+  ASSERT_EQ(status, std::future_status::ready) << "UnregisterReplica deadlocked with the replica checker";
+  EXPECT_EQ(unregister.get(), UnregisterReplicaResult::SUCCESS);
 }
 
 TEST_F(ReplicationTest, GetTelemetryJson) {

@@ -79,14 +79,18 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
 
   const auto is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
 
-  DbInfo db_info = std::invoke([&] {
-    auto guard = std::invoke([&]() -> std::optional<system::TransactionGuard> {
-      if constexpr (REQUIRE_LOCK) {
-        return system.GenTransactionGuard();
-      }
-      return std::nullopt;
-    });
+  auto guard = std::optional<system::TransactionGuard>{};
+  if constexpr (REQUIRE_LOCK) {
+    // DROP REPLICA and SET REPLICATION ROLE TO REPLICA join this thread while holding the lock, so never block on it
+    guard = system.TryGenTransactionGuard();
+    if (!guard) {
+      spdlog::debug("System lock busy, retrying system recovery of replica {} on the next check", client.name_);
+      client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+      return;
+    }
+  }
 
+  DbInfo db_info = std::invoke([&] {
     if (is_enterprise) {
       auto configs = std::vector<storage::SalientConfig>{};
       dbms_handler.ForEach([&configs](dbms::DatabaseAccess acc) { configs.emplace_back(acc->config().salient); });
@@ -103,6 +107,7 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     // No license -> send only default config
     return DbInfo{{dbms_handler.Get()->config().salient}, system.LastCommittedSystemTimestamp(), {}};
   });
+  guard.reset();
   try {
     metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.system_recovery_rpc_seconds};
     auto const params_snapshot = parameters.GetSnapshotForRecovery();

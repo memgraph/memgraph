@@ -13,6 +13,8 @@
 #include <unistd.h>
 #include <chrono>
 #include <filesystem>
+#include <future>
+#include <optional>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -25,6 +27,7 @@
 #include "memory/db_arena.hpp"
 #include "query/auth_checker.hpp"
 #include "query/interpreter_context.hpp"
+#include "replication/state.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
@@ -712,6 +715,47 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
       << "Failed to observe TTL deletion after re-enabling user check";
 
   // Cleanup
+  ttl->Disable();
+  db_acc->StopAllBackgroundTasks();
+  std::filesystem::remove_all(config.durability.storage_directory);
+}
+
+TEST(TTLUserCheckTest, ShutdownNotBlockedByReplicationStateWriter) {
+  memgraph::storage::Config config{};
+  config.durability.storage_directory =
+      std::filesystem::temp_directory_path() / ("ttl_shutdown_repl_writer_test-" + ProcessId());
+  std::filesystem::remove_all(config.durability.storage_directory);
+
+  memgraph::utils::Gatekeeper<memgraph::dbms::Database> db_gk{config};
+  auto db_acc_opt = db_gk.access();
+  ASSERT_TRUE(db_acc_opt) << "Failed to access db";
+  auto &db_acc = *db_acc_opt;
+
+  const memgraph::memory::DbArenaScope arena_scope{&db_acc->Arena()};
+
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      std::optional<std::filesystem::path>{std::nullopt}};
+
+  auto *ttl = &db_acc->ttl();
+  ttl->Enable();
+  ttl->Configure(false);
+  ttl->SetInterval(std::chrono::milliseconds(100));
+  ttl->SetUserCheck([&repl_state] { return memgraph::replication::TryIsMainWriteable(repl_state); });
+
+  // Simulates a writer (e.g. UnregisterReplica) holding repl_state while joining background threads
+  std::optional locked{repl_state.Lock()};
+
+  ttl->Resume();
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  auto fut = std::async(std::launch::async, [ttl] { ttl->Shutdown(); });
+  const auto status = fut.wait_for(std::chrono::seconds(5));
+
+  locked.reset();
+  fut.get();
+
+  EXPECT_EQ(status, std::future_status::ready) << "TTL shutdown blocked on a held replication-state write lock";
+
   ttl->Disable();
   db_acc->StopAllBackgroundTasks();
   std::filesystem::remove_all(config.durability.storage_directory);

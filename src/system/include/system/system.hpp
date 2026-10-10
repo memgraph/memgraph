@@ -11,6 +11,9 @@
 
 #pragma once
 
+#include <chrono>
+#include <optional>
+
 #include "system/state.hpp"
 #include "system/transaction.hpp"
 
@@ -37,8 +40,14 @@ struct System {
     return Transaction{state_, std::move(system_unique), ++timestamp_};
   }
 
-  // TODO: this and LastCommittedSystemTimestamp maybe not needed
-  auto GenTransactionGuard() -> TransactionGuard { return TransactionGuard{std::unique_lock{mtx_}}; }
+  auto TryGenTransactionGuard(std::chrono::microseconds try_time = std::chrono::milliseconds{100})
+      -> std::optional<TransactionGuard> {
+    auto system_unique = std::unique_lock{mtx_, std::defer_lock};
+    if (!system_unique.try_lock_for(try_time)) {
+      return std::nullopt;
+    }
+    return TransactionGuard{std::move(system_unique)};
+  }
 
   auto LastCommittedSystemTimestamp() const -> uint64_t { return state_.LastCommittedSystemTimestamp(); }
 
