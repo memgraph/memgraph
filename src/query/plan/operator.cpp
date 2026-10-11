@@ -4767,7 +4767,7 @@ class KShortestPathsCursor : public Cursor {
   /// an arc, and the memo needs no pass in its key.
   std::optional<TypedValue> WeightedVerdict(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame,
                                             ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    const ExpansionKey key{.edge = edge.Gid(), .node = head.Gid()};
+    const ExpansionKey key{.edge = edge.Gid(), .head = head.Gid()};
     if (const auto it = expansion_memo_.find(key); it != expansion_memo_.end()) return it->second;
 
     std::optional<TypedValue> verdict;
