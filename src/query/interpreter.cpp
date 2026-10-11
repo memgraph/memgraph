@@ -11386,7 +11386,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       const auto &error = maybe_commit_error.error();
 
       std::visit(
-          [&trigger, &db_accessor]<typename T>(T &&arg) {
+          [&trigger, &db_accessor, metric_handles = db_acc->metric_handles()]<typename T>(T &&arg) {
             using ErrorType = std::remove_cvref_t<T>;
             if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
               spdlog::warn("Trigger '{}' replication: {}", trigger.Name(), storage::FormatReplicationError(arg));
@@ -11394,6 +11394,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
               const auto &constraint_violation = arg;
               switch (constraint_violation.type) {
                 case storage::ConstraintViolation::Type::EXISTENCE: {
+                  metric_handles->existence_constraint_violations.Increment();
                   const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
                   MG_ASSERT(constraint_violation.properties.size() == 1U);
                   const auto &property_name = db_accessor.PropertyToName(*constraint_violation.properties.begin());
@@ -11404,6 +11405,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                   break;
                 }
                 case storage::ConstraintViolation::Type::UNIQUE: {
+                  metric_handles->unique_constraint_violations.Increment();
                   const auto &label_name = db_accessor.LabelToName(constraint_violation.label);
                   std::stringstream property_names_stream;
                   utils::PrintIterable(
@@ -11642,7 +11644,8 @@ void Interpreter::Commit() {
     std::visit(
         [&execution_db_accessor = current_db_.execution_db_accessor_,
          &replication_error_msg,
-         &replication_error_committed]<typename T>(const T &arg) {
+         &replication_error_committed,
+         metric_handles]<typename T>(const T &arg) {
           using ErrorType = std::remove_cvref_t<T>;
           if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
             replication_error_msg = storage::FormatReplicationError(arg);
@@ -11652,12 +11655,14 @@ void Interpreter::Commit() {
             auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
             switch (constraint_violation.type) {
               case storage::ConstraintViolation::Type::EXISTENCE: {
+                metric_handles->existence_constraint_violations.Increment();
                 MG_ASSERT(constraint_violation.properties.size() == 1U);
                 auto &property_name = execution_db_accessor->PropertyToName(*constraint_violation.properties.begin());
                 throw QueryException(
                     "Unable to commit due to existence constraint violation on :{}({})", label_name, property_name);
               }
               case storage::ConstraintViolation::Type::UNIQUE: {
+                metric_handles->unique_constraint_violations.Increment();
                 std::stringstream property_names_stream;
                 utils::PrintIterable(property_names_stream,
                                      constraint_violation.properties,
