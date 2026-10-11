@@ -3275,7 +3275,18 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestBooleanShapedLoneLambd
                                    "(e, n | NOT e.hidden)",
                                    "(e, n | n.name STARTS WITH 'a')",
                                    "(e, n | e.w IS NOT NULL)",
-                                   "(e, n | n.id IN ['A'])"};
+                                   "(e, n | n.id IN ['A'])",
+                                   "(e, n | e.a OR n.b)",
+                                   "(e, n | e.a XOR n.b)",
+                                   "(e, n | e.w = 1)",
+                                   "(e, n | e.w < 1)",
+                                   "(e, n | e.w > 1)",
+                                   "(e, n | e.w <= 1)",
+                                   "(e, n | e.w >= 1)",
+                                   "(e, n | e.w IS NULL)",
+                                   "(e, n | n.name =~ 'a.*')",
+                                   "(e, n | n.name ENDS WITH 'a')",
+                                   "(e, n | n.name CONTAINS 'a')"};
   if (!cached) lambdas.emplace_back("(e, n | true)");
   for (const auto &lambda : lambdas) {
     SCOPED_TRACE(lambda);
@@ -3300,12 +3311,20 @@ TEST_P(CypherMainVisitorTest, KShortestNumericWeightLambdaParses) {
   }
 }
 
-// The weighted shortest path expansion has no such form either; before, the extra argument only
-// surfaced as an unbound variable.
+// The weighted and all shortest path expansions have no such form either; before, the extra
+// argument only surfaced as an unbound variable.
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestWeightLambdaWithAccumulatedPath) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *wShortest (e, n, p | e.w) total]->() RETURN r"),
-               SemanticException);
+  for (const auto *type : {"wShortest", "allShortest"}) {
+    SCOPED_TRACE(type);
+    try {
+      ast_generator.ParseQuery(fmt::format("MATCH ()-[r:type1 *{} (e, n, p | e.w) total]->() RETURN r", type));
+      ADD_FAILURE() << "Expected the accumulated path to be rejected in a weight lambda";
+    } catch (const SemanticException &e) {
+      EXPECT_EQ(std::string(e.what()),
+                "The lambda for calculating weights cannot take the accumulated path or the accumulated weight.");
+    }
+  }
 }
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestFilterLambdaWithAccumulatedPath) {
@@ -3314,14 +3333,20 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestFilterLambdaWithAccumu
     ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | e.w) total (f, m, p | size(p) > 0)]->() RETURN r");
     FAIL() << "Expected the accumulated path to be rejected for KSHORTEST";
   } catch (const SemanticException &e) {
-    EXPECT_THAT(e.what(), HasSubstr("accumulated path"));
+    EXPECT_EQ(std::string(e.what()), "KSHORTEST expansion does not support the accumulated path in a filter lambda.");
   }
 }
 
 // Only the three weighted expansions take a total weight variable.
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnTotalWeightWithBfs) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *bfs (e, n | true) total]->() RETURN r"), SemanticException);
+  try {
+    ast_generator.ParseQuery("MATCH ()-[r:type1 *bfs (e, n | true) total]->() RETURN r");
+    FAIL() << "Expected the total weight to be rejected for BFS";
+  } catch (const SemanticException &e) {
+    EXPECT_EQ(std::string(e.what()),
+              "Variable for total weight is allowed only with weighted, all shortest and K shortest path expansion.");
+  }
 }
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnDepthFirstWithTwoLambdas) {
@@ -3338,7 +3363,10 @@ TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathReturn) {
         "c:type3)]->(:type2) RETURN pth");
     FAIL() << "Expected the accumulated path to be rejected for KSHORTEST";
   } catch (const SemanticException &e) {
-    EXPECT_THAT(e.what(), HasSubstr("accumulated path"));
+    EXPECT_EQ(std::string(e.what()),
+              fmt::format("The lambda for calculating weights cannot take the accumulated path or the accumulated "
+                          "weight. {}",
+                          kKShortestWeightFirstHint));
   }
 }
 

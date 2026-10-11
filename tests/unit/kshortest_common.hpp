@@ -21,6 +21,9 @@
 #include <optional>
 #include <queue>
 #include <random>
+#include <ranges>
+#include <set>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -211,8 +214,9 @@ struct WeightedPath {
 // Every simple path from source to target, in the `(total weight, hop count)` order the weighted
 // expansion promises. Brute force over the edge list, so it shares nothing with Yen's or with the
 // operator's own search; the vertex sequence breaks remaining ties only to make this a stable set.
-inline std::vector<WeightedPath> WeightedSimplePaths(const std::vector<std::pair<int, int>> &edges, int source,
-                                                     int target) {
+inline std::vector<WeightedPath> WeightedSimplePaths(
+    const std::vector<std::pair<int, int>> &edges, int source, int target,
+    const std::function<int64_t(int, int)> &weight_of = EdgeWeightFor) {
   std::vector<WeightedPath> out;
   std::queue<WeightedPath> q;
   q.push(WeightedPath{{source}, 0});
@@ -230,7 +234,7 @@ inline std::vector<WeightedPath> WeightedSimplePaths(const std::vector<std::pair
       if (std::ranges::contains(path.vertices, to)) continue;
       auto next = path;
       next.vertices.push_back(to);
-      next.weight += EdgeWeightFor(from, to);
+      next.weight += weight_of(from, to);
       q.push(std::move(next));
     }
   }
@@ -1022,9 +1026,19 @@ class Database {
         }
 
         if (limit != -1) {
-          // Which of several equally ranked paths a capped pair keeps is undetermined, so only the
-          // cap is checked here; the uncapped runs are what pin the set.
-          EXPECT_EQ(rows.size(), std::min(expected.size(), static_cast<size_t>(limit)));
+          // Which of several equally ranked paths a capped pair keeps is undetermined, so the served
+          // prefix is compared as a multiset of (weight, hops) classes, and each path must be the oracle's.
+          std::vector<std::pair<int64_t, size_t>> expected_classes;
+          for (const auto &path : expected | std::views::take(limit)) {
+            expected_classes.emplace_back(path.weight, path.hops());
+          }
+          auto served_classes = order;
+          std::ranges::sort(served_classes);
+          EXPECT_EQ(served_classes, expected_classes);
+          for (const auto &[weight, ids] : rows) {
+            EXPECT_TRUE(std::ranges::any_of(expected, [&](const WeightedPath &p) { return p.vertices == ids; }))
+                << "served a path the oracle does not have: " << memgraph::utils::JoinVector(ids, "->");
+          }
           continue;
         }
 
@@ -1187,6 +1201,85 @@ class Database {
                            MakeWeightLambda(dba, context));
     EXPECT_TRUE(run.rows.empty());
     EXPECT_EQ(run.hops, 0) << "nothing reaches the target, so nothing should have been expanded";
+    dba.Abort();
+  }
+
+  // A cycle of zero-weight arcs on the way to the target: going round it costs nothing, so cost alone
+  // never rules out a looping path. Every pair against the oracle.
+  void KShortestWeightedTestZeroWeightCycle(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    const std::vector<std::tuple<int, int, std::string>> graph_edges{
+        {0, 1, "a"}, {1, 2, "a"}, {2, 1, "a"}, {0, 2, "a"}, {1, 3, "a"}, {2, 3, "a"}};
+    const std::map<std::pair<int, int>, int64_t> weight_of{
+        {{0, 1}, 0}, {{1, 2}, 0}, {{2, 1}, 0}, {{0, 2}, 0}, {{1, 3}, 1}, {{2, 3}, 1}};
+    std::map<std::pair<int, int>, PV> weights;
+    for (const auto &[arc, weight] : weight_of) weights.emplace(arc, PV(weight));
+
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, std::vector<int>(4, 0), graph_edges);
+    SetEdgeWeights(dba, edges, graph_edges, weights);
+    dba.AdvanceCommand();
+
+    const auto out = memgraph::query::EdgeAtom::Direction::OUT;
+    // No pair has more than 4 simple paths; the limit bounds a cursor that would loop instead.
+    constexpr int kLimit = 10;
+    auto run =
+        RunWeighted(db, dba, context, vertices, vertices, out, {}, -1, -1, kLimit, MakeWeightLambda(dba, context));
+
+    const auto edge_list = GetEdgeList(graph_edges, out, {});
+    std::map<std::pair<int, int>, std::vector<std::pair<int64_t, std::vector<int>>>> actual;
+    for (const auto &row : run.rows) {
+      auto ids = PathVertexIds(&dba, row);
+      EXPECT_EQ(std::set<int>(ids.begin(), ids.end()).size(), ids.size())
+          << "served a path that repeats a vertex: " << memgraph::utils::JoinVector(ids, "->");
+      actual[{ids.front(), ids.back()}].emplace_back(row[3].ValueInt(), std::move(ids));
+    }
+    for (int source_id = 0; source_id < 4; ++source_id) {
+      for (int sink_id = 0; sink_id < 4; ++sink_id) {
+        if (source_id == sink_id) continue;
+        SCOPED_TRACE(fmt::format("source = {}, sink = {}", source_id, sink_id));
+        std::vector<std::pair<int64_t, std::vector<int>>> expected;
+        for (auto &path : WeightedSimplePaths(
+                 edge_list, source_id, sink_id, [&](int from, int to) { return weight_of.at({from, to}); })) {
+          expected.emplace_back(path.weight, std::move(path.vertices));
+        }
+        auto &served = actual[{source_id, sink_id}];
+        std::ranges::sort(expected);
+        std::ranges::sort(served);
+        EXPECT_EQ(served, expected);
+      }
+    }
+    dba.Abort();
+  }
+
+  // The weighted search applies the filter lambda through the same check as the hop-count one, so a
+  // non-boolean verdict is the same error.
+  void KShortestWeightedTestNonBooleanFilterThrows(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    SetEdgeWeights(dba, edges, DetourEdges(), DetourIntWeights());
+    dba.AdvanceCommand();
+    try {
+      RunWeighted(db,
+                  dba,
+                  context,
+                  {vertices[0]},
+                  {vertices[3]},
+                  memgraph::query::EdgeAtom::Direction::OUT,
+                  {},
+                  -1,
+                  -1,
+                  -1,
+                  MakeWeightLambda(dba, context),
+                  LITERAL(42));
+      ADD_FAILURE() << "expected an error";
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_EQ(std::string(e.what()), "Expansion condition must evaluate to boolean or null");
+    }
     dba.Abort();
   }
 
