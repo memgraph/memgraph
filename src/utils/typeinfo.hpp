@@ -107,6 +107,7 @@ enum class TypeId : uint64_t {
   AGGREGATE_PARALLEL,
   PARALLEL_MERGE,
   ORDERBY_PARALLEL,
+  CONDITIONAL,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
@@ -381,6 +382,7 @@ enum class TypeId : uint64_t {
   REP_RESUME_DATABASE_REQ,
   REP_RESUME_DATABASE_RES,
   AST_SESSION_QUERY,
+  AST_CONDITIONAL_BRANCHES,
 
   // Symbol
   SYMBOL = 4000,

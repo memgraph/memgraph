@@ -290,10 +290,12 @@ TEST_F(TwoPCCommitCacheDatabaseTest, DestroyingUnrelatedDatabaseLeavesOtherTenan
   TmpDirManager tmp_dir_b{"MG_test_unit_two_pc_commit_cache_kept_b"};
 
   auto db_a = std::make_unique<memgraph::dbms::Database>(MakeDatabaseConfig(tmp_dir_a.Path()));
-  const memgraph::memory::DbArenaScope arena_scope_a{&db_a->Arena()};
   auto const uuid_a = db_a->uuid();
 
+  // Scope A's arena per block: DbArenaScope (jemalloc Debug) asserts if a different pool is
+  // entered while another is active, and db_b's ctor/dtor open a scope for B's arena.
   {
+    const memgraph::memory::DbArenaScope arena_scope_a{&db_a->Arena()};
     auto *inmemory_storage_a = static_cast<InMemoryStorage *>(db_a->storage());
     auto accessor_a = TakeReplicationAccessor(inmemory_storage_a);
     accessor_a->GetCommitTimestamp().emplace(kCommitTs);
@@ -308,6 +310,7 @@ TEST_F(TwoPCCommitCacheDatabaseTest, DestroyingUnrelatedDatabaseLeavesOtherTenan
   }
 
   // A's entry must have survived db_b's destruction.
+  const memgraph::memory::DbArenaScope arena_scope_a{&db_a->Arena()};
   auto still_a = TwoPCCommitCache::TakeForTenant(uuid_a);
   ASSERT_NE(still_a, nullptr);
 }

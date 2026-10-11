@@ -325,6 +325,10 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(RollUpApply & /*unused*/) override { return true; }
 
+  bool PreVisit(Conditional & /*unused*/) override { return true; }
+
+  bool PostVisit(Conditional & /*unused*/) override { return true; }
+
   bool PreVisit(PeriodicCommit & /*unused*/) override { return true; }
 
   bool PostVisit(PeriodicCommit & /*unused*/) override { return true; }

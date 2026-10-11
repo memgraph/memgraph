@@ -583,8 +583,11 @@ static void Foreach(benchmark::State &state) {
   auto list_sym = symbol_table.CreateSymbol("list", false);
   auto *list_expr = ast.Create<memgraph::query::Identifier>("list")->MapTo(list_sym);
   auto out_sym = symbol_table.CreateSymbol("out", false);
-  auto create_node =
-      std::make_shared<memgraph::query::plan::CreateNode>(nullptr, memgraph::query::plan::NodeCreationInfo{});
+  // CreateNode writes the new vertex to its symbol's frame slot, so it needs a real symbol: a default Symbol has
+  // position -1 and would write before the start of the frame.
+  auto node_sym = symbol_table.CreateSymbol("n", false);
+  auto create_node = std::make_shared<memgraph::query::plan::CreateNode>(
+      nullptr, memgraph::query::plan::NodeCreationInfo{node_sym, {}, memgraph::query::plan::PropertiesMapList{}});
   auto foreach = std::make_shared<memgraph::query::plan::Foreach>(nullptr, std::move(create_node), list_expr, out_sym);
 
   auto storage_dba = db->Access(memgraph::storage::WRITE);

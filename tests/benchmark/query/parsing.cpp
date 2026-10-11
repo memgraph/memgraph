@@ -9,8 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// What the frontend costs for one query, which is what a cache miss pays. Measured in two parts: the ANTLR
-// parse alone, and the parse plus the walk that builds the AST.
+// What the frontend costs for one query, which is what a cache miss pays. Measured in parts: the ANTLR parse
+// alone, the parse plus the walk that builds the AST, the copy that gives a caller an AST of its own, and the
+// stripping that runs ahead of all of them.
 //
 // The shapes below isolate the label-expression grammar, which parses a disjunction with a non-greedy loop
 // over '|'. What that costs depends on the parser's prediction strategy, so read these against the strategy
@@ -64,6 +65,11 @@ const Shape kShapes[] = {
     // above pay once, these pay on every execution.
     {"param_label",            "MATCH (n:$p) RETURN n",      true},
     {"param_label_mixed",      "MATCH (n:A&!$p|C) RETURN n", true},
+    // A body big enough to say whether the cost of copying an AST keeps pace with the cost of building it.
+    {"param_label_long",
+     "MATCH (n:$p)-[e]->(m) WHERE n.a > n.b AND m.c IN n.list "
+     "WITH n, m, n.a + n.b AS s, count(*) AS c ORDER BY n.a + n.b, m.c "
+     "RETURN n.a, n.b, m.c, s, c ORDER BY s", true},
 };
 // clang-format on
 
@@ -100,6 +106,24 @@ void ParseAndBuildAst(benchmark::State &state, std::string query, bool names_a_p
   state.SetItemsProcessed(state.iterations());
 }
 
+/// Copying the built AST into a fresh storage, which is what a query the cache holds pays on every execution to
+/// hand the caller its own copy. A query the cache never holds pays ParseAndBuildAst every execution instead.
+void CloneAst(benchmark::State &state, std::string query, bool names_a_parameter) {
+  memgraph::query::frontend::ParsingContext context;
+  context.is_query_cached = false;
+  memgraph::query::AstStorage storage;
+  auto parameters = names_a_parameter ? LabelParameters() : memgraph::query::Parameters{};
+  memgraph::query::frontend::opencypher::Parser parser(query);
+  memgraph::query::frontend::CypherMainVisitor visitor(context, &storage, &parameters);
+  visitor.visit(parser.tree());
+  auto *parsed = visitor.query();
+  for (auto _ : state) {
+    memgraph::query::AstStorage copy;
+    benchmark::DoNotOptimize(parsed->Clone(&copy));
+  }
+  state.SetItemsProcessed(state.iterations());
+}
+
 /// Stripping runs before either, on every execution, and is what the cache key is built from.
 void Strip(benchmark::State &state, std::string query) {
   for (auto _ : state) {
@@ -116,6 +140,9 @@ int main(int argc, char **argv) {
         ->Unit(benchmark::kMicrosecond);
     benchmark::RegisterBenchmark(
         (std::string{"ParseAndBuildAst/"} + shape.name).c_str(), ParseAndBuildAst, shape.query, shape.names_a_parameter)
+        ->Unit(benchmark::kMicrosecond);
+    benchmark::RegisterBenchmark(
+        (std::string{"CloneAst/"} + shape.name).c_str(), CloneAst, shape.query, shape.names_a_parameter)
         ->Unit(benchmark::kMicrosecond);
     benchmark::RegisterBenchmark((std::string{"Strip/"} + shape.name).c_str(), Strip, shape.query)
         ->Unit(benchmark::kMicrosecond);

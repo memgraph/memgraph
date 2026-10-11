@@ -19,6 +19,7 @@
 #include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
+#include "storage/v2/exceptions.hpp"
 #include "storage/v2/indices/active_indices_updater.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -637,22 +638,62 @@ TEST_F(VectorIndexTest, CreateIndexWithWrongDimensionRollsBack) {
   PropertyValue good_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
   PropertyValue bad_vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0), PropertyValue(3.0)});
   Gid good_vertex_gid;
+  Gid bad_vertex_gid;
   {
     auto acc = this->storage->Access(memgraph::storage::WRITE);
     auto v1 = this->CreateVertex(acc.get(), test_property, good_vec, test_label);
     good_vertex_gid = v1.Gid();
-    [[maybe_unused]] auto v2 = this->CreateVertex(acc.get(), test_property, bad_vec, test_label);
+    auto v2 = this->CreateVertex(acc.get(), test_property, bad_vec, test_label);
+    bad_vertex_gid = v2.Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
-  EXPECT_THROW(this->CreateIndex(2, 10), std::exception);
+  auto read_property = [&](Gid gid) {
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    return acc->FindVertex(gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD).value();
+  };
+  EXPECT_THROW(this->CreateIndex(2, 10), VectorSearchException);
   {
     auto acc = this->storage->Access(memgraph::storage::READ);
     EXPECT_EQ(acc->ListAllVectorIndices().size(), 0);
-    auto v1 = acc->FindVertex(good_vertex_gid, View::OLD).value();
-    auto prop = v1.GetProperty(acc->NameToProperty(test_property), View::OLD);
-    EXPECT_TRUE(prop->IsDoubleList());
-    EXPECT_EQ(prop->ValueDoubleList().size(), 2);
   }
+  EXPECT_EQ(read_property(good_vertex_gid), good_vec);
+  EXPECT_EQ(read_property(bad_vertex_gid), bad_vec);
+}
+
+TEST_F(VectorIndexTest, FailedCreateIndexKeepsOtherIndexTagOnly) {
+  static constexpr std::string_view other_label = "other_label";
+  PropertyValue vec(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(2.0)});
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex = this->CreateVertex(acc.get(), test_property, vec, test_label);
+    ASSERT_NO_ERROR(vertex.AddLabel(acc->NameToLabel(other_label)));
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  this->CreateIndex(2, 10);
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    const auto spec = VectorIndexSpec{.index_name = "other_index",
+                                      .label_filter = VectorLabelFilter{.mode = VectorMatchMode::SINGLE,
+                                                                        .ids = {unique_acc->NameToLabel(other_label)}},
+                                      .property = unique_acc->NameToProperty(test_property),
+                                      .metric_kind = metric,
+                                      .dimension = 3,
+                                      .resize_coefficient = resize_coefficient,
+                                      .capacity = 10,
+                                      .scalar_kind = scalar_kind};
+    EXPECT_THROW(static_cast<void>(unique_acc->CreateVectorIndex(spec)), VectorSearchException);
+  }
+  // a dangling "other_index" id would survive this drop and make the property unreadable
+  {
+    auto unique_acc = this->storage->UniqueAccess();
+    ASSERT_TRUE(unique_acc->DropVectorIndex(test_index).has_value());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  auto acc = this->storage->Access(memgraph::storage::READ);
+  EXPECT_EQ(acc->FindVertex(vertex_gid, View::OLD)->GetProperty(acc->NameToProperty(test_property), View::OLD).value(),
+            vec);
 }
 
 TEST_F(VectorIndexTest, CreateIndexConvertsPropertiesToVectorIndexId) {
@@ -1494,4 +1535,56 @@ TEST_F(VectorIndexRecoveryTest, RecoverAllVectorIndicesLeavesEmptyListUntouched)
   EXPECT_FALSE(stored.IsVectorIndexId());
   EXPECT_TRUE(stored.IsAnyList());
   EXPECT_EQ(stored.ListSize(), 0u);
+}
+
+TEST_F(VectorIndexTest, AbortMapStyleWriteRestoresEmbedding) {
+  // ClearProperties / UpdateProperties back SET n = {...}, SET n = {} and SET n += {...}; their undo before-image
+  // must carry the floats, which live only in usearch.
+  this->CreateIndex(3, 10);
+  const std::vector<float> original{1.0F, 2.0F, 3.0F};
+  Gid vertex_gid;
+  {
+    auto acc = this->storage->Access(memgraph::storage::WRITE);
+    auto vertex =
+        this->CreateVertex(acc.get(),
+                           test_property,
+                           MakeVectorIndexProperty(acc.get(), memgraph::utils::small_vector<float>{1.0F, 2.0F, 3.0F}),
+                           test_label);
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto const expect_original = [&](Storage::Accessor *acc) {
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    auto value = vertex->GetProperty(acc->NameToProperty(test_property), View::OLD);
+    ASSERT_TRUE(value.has_value());
+    ASSERT_TRUE(value->IsVectorIndexId());
+    EXPECT_TRUE(std::ranges::equal(value->ValueVectorIndexList(), original));
+  };
+
+  enum class Write : uint8_t { REPLACE, CLEAR, UPDATE };
+  for (auto const write : {Write::REPLACE, Write::CLEAR, Write::UPDATE}) {
+    SCOPED_TRACE(static_cast<int>(write));
+    {
+      auto acc = this->storage->Access(memgraph::storage::WRITE);
+      auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+      std::map<PropertyId, PropertyValue> new_properties{
+          {acc->NameToProperty(test_property),
+           PropertyValue(std::vector<PropertyValue>{PropertyValue(7.0), PropertyValue(7.0), PropertyValue(7.0)})}};
+      if (write != Write::UPDATE) ASSERT_NO_ERROR(vertex.ClearProperties());
+      if (write != Write::CLEAR) ASSERT_NO_ERROR(vertex.UpdateProperties(new_properties));
+      {
+        auto reader = this->storage->Access(memgraph::storage::READ);
+        expect_original(reader.get());
+      }
+      acc->Abort();
+    }
+    auto acc = this->storage->Access(memgraph::storage::READ);
+    expect_original(acc.get());
+    EXPECT_EQ(acc->ListAllVectorIndices()[0].size, 1);
+    const auto result = acc->VectorIndexSearchOnNodes(test_index.data(), 1, original);
+    ASSERT_EQ(result.size(), 1);
+    EXPECT_EQ(std::get<0>(result[0]).Gid(), vertex_gid);
+  }
 }

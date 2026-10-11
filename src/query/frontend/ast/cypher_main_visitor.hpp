@@ -23,7 +23,9 @@
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 
+#include <cstdint>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <utility>
 
@@ -1325,6 +1327,18 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitCallSubquery(MemgraphCypher::CallSubqueryContext *ctx) override;
 
+  /// What a WHEN body yields. All branches of one conditional must agree.
+  enum class ConditionalKind : uint8_t { kReturns, kUpdates, kStandaloneCall };
+
+  struct ConditionalQuery {
+    CypherQuery *query;
+    ConditionalKind kind;
+  };
+
+  /// `WHEN ... THEN ... ELSE ...` as a query holding one ConditionalBranches clause.
+  ConditionalQuery VisitConditionalQuery(MemgraphCypher::ConditionalQueryContext *ctx);
+  ConditionalQuery VisitConditionalBody(MemgraphCypher::ConditionalBodyContext *ctx);
+
   /**
    * @return MultiDatabaseQuery*
    */
@@ -1553,6 +1567,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // Flag to indicate if we are parsing an EXISTS subquery
   bool parsing_subquery_body_ = false;
   Parameters *parameters_;
+  // Token positions of `$name` parameters, mapped to their unescaped names. Stripped literals are not in here.
+  std::unordered_map<int32_t, std::string> parameter_names_;
 
   QueryInfo query_info_;
 };

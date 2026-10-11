@@ -1116,6 +1116,8 @@ Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filt
 
 std::unordered_set<Symbol> GetSubqueryBoundSymbols(const std::vector<SingleQueryPart> &single_query_parts,
                                                    SymbolTable &symbol_table, AstStorage &storage) {
+  // Unreachable: only a WHEN body has no query parts, and the parser keeps WHEN out of the legacy `CALL { ... }`.
+  if (single_query_parts.empty()) ThrowPlannerBug("A CALL subquery without query parts has no WITH to import through.");
   const auto &query = single_query_parts[0];
 
   if (!query.matching.expansions.empty() || query.remaining_clauses.empty()) {

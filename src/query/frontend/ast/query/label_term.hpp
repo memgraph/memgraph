@@ -93,6 +93,8 @@ struct LabelTerm {
 struct LabelCnf {
   std::vector<LabelIx> labels;
   std::vector<std::vector<LabelIx>> or_labels;
+
+  bool operator==(LabelCnf const &) const = default;
 };
 
 }  // namespace memgraph::query

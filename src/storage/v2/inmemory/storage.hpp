@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <list>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <ranges>
 #include <string_view>
@@ -470,11 +471,23 @@ class InMemoryStorage final : public Storage {
     // O(deltas), and on a replica that runs inside an RPC handler whose peer is timing it.
     void AbortAndResetCommitTs(ProgressCallback const &on_progress = {});
 
-    // Represents the 2nd phase of the 2PC protocol
-    // NOTE: Needs to be called while holding the engine lock
+    // Queues this transaction's schema diff for deferred processing. Allocates, so it can throw.
+    void QueueSchemaUpdate(uint64_t durability_commit_timestamp);
+
+    // Flips the WAL commit-status flag from pending to committed, which only 2PC writes. Must run before
+    // FinalizeWalFile seals the file, so the flag byte lands in the sealed segment. Seeks and flushes the
+    // shared WAL encoder, so it needs engine_lock_ as every other wal_file_ access does.
+    void FinalizeWalCommitStatus();
+
+    // Makes the transaction's writes visible. The caller must hold engine_lock_ for the whole body, and
+    // passes its guard to say so: CheckForFastDiscardOfDeltas reads transaction_id_, which a BEGIN races.
+    void PublishCommit(uint64_t durability_commit_timestamp, std::unique_lock<utils::SpinLock> const &engine_guard);
+
+    // Completes a commit, and is the second phase when the transaction runs two-phase commit.
     // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
     // independently of PrepareForCommitPhase.
-    void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
+    void FinalizeCommitPhase(uint64_t durability_commit_timestamp,
+                             std::unique_lock<utils::SpinLock> const &engine_guard);
 
     /// @throw std::bad_alloc
     void Abort() override;

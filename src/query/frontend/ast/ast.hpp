@@ -4215,6 +4215,51 @@ class CallSubquery : public memgraph::query::Clause {
   friend class AstStorage;
 };
 
+/// `WHEN p THEN body [WHEN ...]* [ELSE body]`.
+/// Always the sole clause of its `SingleQuery`: the grammar guarantees it and `CollectQueryParts` relies on it.
+class ConditionalBranches : public memgraph::query::Clause {
+ public:
+  static const utils::TypeInfo kType;
+
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  ConditionalBranches() = default;
+
+  bool Accept(HierarchicalTreeVisitor &visitor) override {
+    if (visitor.PreVisit(*this)) {
+      for (auto &[predicate, body] : branches_) {
+        if (predicate) predicate->Accept(visitor);
+        body->Accept(visitor);
+      }
+    }
+    return visitor.PostVisit(*this);
+  }
+
+  struct Branch {
+    /// A `Where`, so every WHERE rule applies to WHEN; give WHEN its own node if the rules ever differ. Null for ELSE.
+    memgraph::query::Where *predicate;
+    memgraph::query::CypherQuery *body;
+  };
+
+  std::vector<Branch> branches_;
+  /// Set by the symbol generator: one symbol per RETURN column, empty when no branch has a RETURN.
+  /// A column named after an import is the import's own symbol.
+  std::vector<Symbol> output_symbols_;
+
+  ConditionalBranches *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ConditionalBranches>();
+    for (const auto &[predicate, body] : branches_) {
+      object->branches_.push_back(
+          {.predicate = predicate ? predicate->Clone(storage) : nullptr, .body = body->Clone(storage)});
+    }
+    object->output_symbols_ = output_symbols_;
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 class MultiDatabaseQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

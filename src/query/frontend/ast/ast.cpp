@@ -412,6 +412,9 @@ constexpr utils::TypeInfo query::SubqueryExpression::kType{.id = utils::TypeId::
 constexpr utils::TypeInfo query::CallSubquery::kType{
     .id = utils::TypeId::AST_CALL_SUBQUERY, .name = "CallSubquery", .superclass = &query::Clause::kType};
 
+constexpr utils::TypeInfo query::ConditionalBranches::kType{
+    .id = utils::TypeId::AST_CONDITIONAL_BRANCHES, .name = "ConditionalBranches", .superclass = &query::Clause::kType};
+
 constexpr utils::TypeInfo query::MultiDatabaseQuery::kType{
     .id = utils::TypeId::AST_MULTI_DATABASE_QUERY, .name = "MultiDatabaseQuery", .superclass = &query::Query::kType};
 

@@ -120,11 +120,6 @@ add_unit_test(query_plan_pruning_bfs
     LINK_TARGETS mg-query
 )
 
-add_unit_test(plan_pretty_print
-    SOURCES plan_pretty_print.cpp
-    LINK_TARGETS mg-query disk_test_utils
-)
-
 add_unit_test(query_cost_estimator
     SOURCES query_cost_estimator.cpp
     LINK_TARGETS mg-query

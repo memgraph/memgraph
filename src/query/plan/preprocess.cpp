@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <ranges>
 #include <stack>
@@ -1172,17 +1173,22 @@ void AddMatching(const std::vector<Pattern *> &patterns, Where *where, SymbolTab
   }
 }
 
-void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage, Matching &matching) {
-  AddMatching(match.patterns_, match.where_, symbol_table, storage, matching);
-
-  // If there are any pattern filters, we add those as well
-  for (auto &filter : matching.filters) {
+namespace {
+/// Attaches to each filter the subqueries and pattern comprehensions its expression holds.
+void CollectSubqueryMatchings(Filters &filters, SymbolTable &symbol_table, AstStorage &storage) {
+  for (auto &filter : filters) {
     SubqueryMatchingCollector collector(symbol_table, storage);
     filter.expression->Accept(collector);
     filter.subquery_matchings = collector.getSubqueryMatchings();
     filter.pattern_comprehension_matchings = collector.getPatternComprehensionMatchings();
   }
 }
+
+void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &storage, Matching &matching) {
+  AddMatching(match.patterns_, match.where_, symbol_table, storage, matching);
+  CollectSubqueryMatchings(matching.filters, symbol_table, storage);
+}
+}  // namespace
 
 // SubqueryMatchingCollector implementation
 SubqueryMatchingCollector::SubqueryMatchingCollector(SymbolTable &symbol_table, AstStorage &storage)
@@ -1401,12 +1407,54 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
   return query_parts;
 }
 
-QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery) {
+namespace {
+
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery,
+                             Expression *commit_frequency);
+
+/// One UNION leg; a WHEN body becomes its `ConditionalQueryParts`.
+QueryPart CollectQueryPart(SymbolTable &symbol_table, AstStorage &storage, SingleQuery *single_query, Tree *combinator,
+                           bool is_subquery, Expression *commit_frequency) {
+  auto *branches =
+      single_query->clauses_.size() == 1 ? utils::Downcast<ConditionalBranches>(single_query->clauses_[0]) : nullptr;
+  if (!branches) {
+    return QueryPart{.single_query_parts = CollectSingleQueryParts(symbol_table, storage, single_query),
+                     .query_combinator = combinator};
+  }
+
+  auto conditional = std::make_shared<ConditionalQueryParts>();
+  conditional->output_symbols = branches->output_symbols_;
+  for (auto [predicate, body] : branches->branches_) {
+    auto &branch = conditional->branches.emplace_back();
+    if (predicate) {
+      branch.predicate = predicate->expression_;
+      branch.predicate_filters.CollectWhereFilter(*predicate, symbol_table, storage);
+      CollectSubqueryMatchings(branch.predicate_filters, symbol_table, storage);
+    }
+    branch.body = CollectQueryParts(symbol_table, storage, body, is_subquery, commit_frequency);
+  }
+  return QueryPart{.query_combinator = combinator, .conditional = std::move(conditional)};
+}
+
+/// Whether a UNION leg writes: a write clause, a writing CALL body, or a writing WHEN branch.
+bool PartWrites(const QueryPart &part) {
+  auto const single_part_writes = [](const SingleQueryPart &single_part) {
+    return std::ranges::any_of(single_part.remaining_clauses, [](const Clause *c) { return IsWritingClause(*c); }) ||
+           std::ranges::any_of(single_part.subqueries, [](const auto &subquery) { return subquery->writes; });
+  };
+  return std::ranges::any_of(part.single_query_parts, single_part_writes) ||
+         (part.conditional &&
+          std::ranges::any_of(part.conditional->branches, [](const auto &branch) { return branch.body.writes; }));
+}
+
+/// A conditional branch has no directives of its own and inherits the enclosing `IN TRANSACTIONS` frequency.
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery,
+                             Expression *commit_frequency) {
   std::vector<QueryPart> query_parts;
 
   auto *single_query = query->single_query_;
   MG_ASSERT(single_query, "Expected at least a single query");
-  query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query)});
+  query_parts.push_back(CollectQueryPart(symbol_table, storage, single_query, nullptr, is_subquery, commit_frequency));
 
   bool distinct = false;
   for (auto *cypher_union : query->cypher_unions_) {
@@ -1416,20 +1464,22 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
 
     auto *single_query = cypher_union->single_query_;
     MG_ASSERT(single_query, "Expected UNION to have a query");
-    query_parts.push_back(QueryPart{CollectSingleQueryParts(symbol_table, storage, single_query), cypher_union});
+    query_parts.push_back(
+        CollectQueryPart(symbol_table, storage, single_query, cypher_union, is_subquery, commit_frequency));
   }
 
-  bool const writes = std::ranges::any_of(query_parts, [](const QueryPart &part) {
-    return std::ranges::any_of(part.single_query_parts, [](const SingleQueryPart &single_part) {
-      return std::ranges::any_of(single_part.remaining_clauses, [](const Clause *c) { return IsWritingClause(*c); }) ||
-             std::ranges::any_of(single_part.subqueries, [](const auto &subquery) { return subquery->writes; });
-    });
-  });
+  bool const writes = std::ranges::any_of(query_parts, PartWrites);
   return QueryParts{.query_parts = query_parts,
                     .distinct = distinct,
-                    .commit_frequency = query->pre_query_directives_.commit_frequency_,
+                    .commit_frequency = commit_frequency,
                     .is_subquery = is_subquery,
                     .writes = writes};
+}
+
+}  // namespace
+
+QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, CypherQuery *query, bool is_subquery) {
+  return CollectQueryParts(symbol_table, storage, query, is_subquery, query->pre_query_directives_.commit_frequency_);
 }
 
 // TODO: Think about converting all filtering expression into CNF to improve

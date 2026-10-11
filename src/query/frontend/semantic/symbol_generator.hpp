@@ -58,6 +58,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(CallProcedure &) override;
   bool PreVisit(CallSubquery & /*unused*/) override;
   bool PostVisit(CallSubquery & /*unused*/) override;
+  bool PreVisit(ConditionalBranches &) override;
   bool PreVisit(LoadCsv &) override;
   bool PostVisit(LoadCsv &) override;
   bool PreVisit(LoadParquet &) override;

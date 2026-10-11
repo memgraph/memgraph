@@ -140,6 +140,18 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
     return true;
   }
 
+  // Opaque like RollUpApply: a parallel scan in a correlated branch reads the imports as Null.
+  bool PreVisit(Conditional &op) override {
+    prev_ops_.push_back(&op);
+    op.input()->Accept(*this);
+    return false;
+  }
+
+  bool PostVisit(Conditional &) override {
+    prev_ops_.pop_back();
+    return true;
+  }
+
   // Single threaded Aggregate (potentially parallelizable)
   bool PreVisit(Aggregate &op) override {
     // Special case for DISTINCT operator - we don't support parallelizing DISTINCT operators
@@ -652,6 +664,14 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
   static constexpr auto conflicting_types =
       std::array{Aggregate::kType, AggregateParallel::kType, OrderBy::kType, OrderByParallel::kType};
 
+  bool ConditionalConflicts(const Conditional &op) {
+    return std::ranges::any_of(op.branches_, [this](const auto &branch) {
+      return ConflictingOperators(branch.plan.get()) ||
+             std::ranges::any_of(branch.pattern_filters,
+                                 [this](const auto &fold) { return ConflictingOperators(fold.get()); });
+    });
+  }
+
   bool ConflictingOperators(LogicalOperator *start) {
     if (!start) {
       return false;
@@ -682,6 +702,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
               return true;
             }
           }
+        } else if (auto *conditional_op = dynamic_cast<Conditional *>(current)) {
+          if (ConditionalConflicts(*conditional_op)) return true;
         }
         // Continue down the main input branch
         current = current->input().get();
@@ -910,6 +932,8 @@ class ParallelRewriter final : public HierarchicalLogicalOperatorVisitor {
             }
           }
           if (has_conflict) break;
+        } else if (auto *conditional_op = dynamic_cast<Conditional *>(current)) {
+          if (ConditionalConflicts(*conditional_op)) break;
         }
         // We still go down the main branch
         current = current->input().get();

@@ -15,6 +15,7 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest-death-test.h>
 #include <gtest/gtest.h>
+#include <sys/prctl.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -3326,8 +3327,13 @@ TEST_P(DurabilityTest, WalDeathResilience) {
 #if defined(__SANITIZE_THREAD__) || __has_feature(thread_sanitizer)
   GTEST_SKIP() << "fork() with TSAN is not supported when other threads are running";
 #endif
+  pid_t const parent_pid = getpid();
   pid_t pid = fork();
   if (pid == 0) {
+    // Arm the parent-death signal, then check the parent has not already gone: it would have sent
+    // that signal before we armed it, and nothing else stops the unbounded loop below.
+    MG_ASSERT(prctl(PR_SET_PDEATHSIG, SIGKILL) == 0, "Couldn't arm the parent-death signal!");
+    if (getppid() != parent_pid) std::_Exit(1);
     // Create WALs.
     {
       memgraph::storage::Config config{
@@ -3343,8 +3349,8 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       };
       memgraph::dbms::Database db{config};
       const memgraph::memory::DbArenaScope arena_scope{&db.Arena()};
-      // Create one million vertices.
-      for (uint64_t i = 0; i < 1'000'000; ++i) {
+      // Commit until the parent kills us, so the kill never races a clean exit.
+      for (;;) {
         auto acc = db.Access(memgraph::storage::WRITE);
         acc->CreateVertex();
         MG_ASSERT(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value(),
@@ -3359,7 +3365,8 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
     std::this_thread::sleep_for(std::chrono::seconds(1));
-    int status;
+    // The assertions below read this even on the paths where no waitpid fills it.
+    int status = 0;
     EXPECT_EQ(waitpid(pid, &status, WNOHANG), 0);
     EXPECT_EQ(kill(pid, SIGKILL), 0);
     EXPECT_EQ(waitpid(pid, &status, 0), pid);

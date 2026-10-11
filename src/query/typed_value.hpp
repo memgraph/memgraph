@@ -498,53 +498,63 @@ class TypedValue {
 
   Type type() const { return type_; }
 
-#define DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(type_param, type_enum, field) \
-  /** Gets the value of type field. Throws if value is not field*/             \
-  type_param &Value##type_enum();                                              \
-  /** Gets the value of type field. Throws if value is not field*/             \
-  type_param Value##type_enum() const;                                         \
-  /** Checks if it's the value is of the given type */                         \
-  bool Is##type_enum() const;                                                  \
-  /** Get the value of the type field. Unchecked */                            \
+// These stay in the header: the check is one comparison, and a call to reach it
+// costs more. ThrowTypeMismatch holds the formatting, which is far larger.
+#define VALUE_AND_TYPE_GETTERS_PRIMITIVE(type_param, type_enum, field) \
+  type_param &Value##type_enum() {                                     \
+    if (type_ != Type::type_enum) [[unlikely]]                         \
+      ThrowTypeMismatch(Type::type_enum);                              \
+    return field;                                                      \
+  }                                                                    \
+  type_param Value##type_enum() const {                                \
+    if (type_ != Type::type_enum) [[unlikely]]                         \
+      ThrowTypeMismatch(Type::type_enum);                              \
+    return field;                                                      \
+  }                                                                    \
+  bool Is##type_enum() const { return type_ == Type::type_enum; }      \
   type_param UnsafeValue##type_enum() const { return field; }
 
-#define DECLARE_VALUE_AND_TYPE_GETTERS(type_param, type_enum, field) \
-  /** Gets the value of type field. Throws if value is not field*/   \
-  type_param &Value##type_enum();                                    \
-  /** Gets the value of type field. Throws if value is not field*/   \
-  const type_param &Value##type_enum() const;                        \
-  /** Checks if it's the value is of the given type */               \
-  bool Is##type_enum() const;                                        \
-  /** Get the value of the type field. Unchecked */                  \
+#define VALUE_AND_TYPE_GETTERS(type_param, type_enum, field)      \
+  type_param &Value##type_enum() {                                \
+    if (type_ != Type::type_enum) [[unlikely]]                    \
+      ThrowTypeMismatch(Type::type_enum);                         \
+    return field;                                                 \
+  }                                                               \
+  const type_param &Value##type_enum() const {                    \
+    if (type_ != Type::type_enum) [[unlikely]]                    \
+      ThrowTypeMismatch(Type::type_enum);                         \
+    return field;                                                 \
+  }                                                               \
+  bool Is##type_enum() const { return type_ == Type::type_enum; } \
   type_param const &UnsafeValue##type_enum() const { return field; }
 
-  DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(TString, String, string_v)
+  VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
+  VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
+  VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
+  VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
-  DECLARE_VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, *virtual_edge_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, *virtual_node_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
+  VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
+  VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
+  VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
+  VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
+  VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, *virtual_edge_v)
+  VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, *virtual_node_v)
+  VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, enum_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, point_2d_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
-  DECLARE_VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
+  VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
+  VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
+  VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
+  VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
+  VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
+  VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, enum_v)
+  VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, point_2d_v)
+  VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
+  VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
+  VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
+  VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
 
-#undef DECLARE_VALUE_AND_TYPE_GETTERS
-#undef DECLARE_VALUE_AND_TYPE_GETTERS_PRIMITIVE
+#undef VALUE_AND_TYPE_GETTERS
+#undef VALUE_AND_TYPE_GETTERS_PRIMITIVE
 
   bool ContainsDeleted() const;
 
@@ -723,6 +733,9 @@ class TypedValue {
   friend auto GetCRS(TypedValue const &tv) -> std::optional<storage::CoordinateReferenceSystem>;
 
  private:
+  /** Out of line so the getters inline without the message formatting. */
+  [[noreturn]] void ThrowTypeMismatch(Type expected) const;
+
   [[no_unique_address]] allocator_type alloc_{};
 
   // storage for the value of the property

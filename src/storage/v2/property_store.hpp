@@ -171,6 +171,11 @@ class PropertyStore {
   std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
       std::map<storage::PropertyId, storage::PropertyValue> &properties);
 
+  /// Same as above, but old values are decoded with `decoder` before the store is modified.
+  template <typename T>
+  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> UpdateProperties(
+      std::map<storage::PropertyId, storage::PropertyValue> &properties, const IndexedPropertyDecoder<T> &decoder);
+
   /// Remove all properties and return `true` if any removal took place.
   /// `false` is returned if there were no properties to remove. The time
   /// complexity of this function is O(1).
@@ -189,6 +194,10 @@ class PropertyStore {
  private:
   template <typename TContainer>
   bool DoInitProperties(const TContainer &properties);
+
+  template <typename TDecoder>
+  std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>> DoUpdateProperties(
+      std::map<PropertyId, PropertyValue> &properties, const TDecoder &decoder);
 
   template <typename Func>
   auto WithReader(Func &&func) const;

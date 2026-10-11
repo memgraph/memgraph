@@ -1967,6 +1967,32 @@ TYPED_TEST(InterpreterTest, ExplainQuery) {
   EXPECT_EQ(this->AstCacheSize(), 2U);
 }
 
+// A cached plan whose index lives only inside a WHEN branch is dropped with the index.
+TYPED_TEST(InterpreterTest, ConditionalBranchIndexDropInvalidatesCachedPlan) {
+  this->Interpret("CREATE INDEX ON :L;");
+  this->Interpret("CREATE (:L {k: 1}), (:L {k: 2});");
+  auto const query =
+      "UNWIND [1, 2] AS i CALL (i) { WHEN i = 1 THEN MATCH (n:L) RETURN count(n) AS c ELSE RETURN 0 AS c } "
+      "RETURN i, c ORDER BY i;";
+  auto const explain_has_label_scan = [&] {
+    auto stream = this->Interpret(std::string("EXPLAIN ") + query);
+    return std::ranges::any_of(stream.GetResults(), [](const auto &row) {
+      return row.front().ValueString().find("ScanAllByLabel") != std::string::npos;
+    });
+  };
+  auto const rows = [&] {
+    std::vector<std::pair<int64_t, int64_t>> out;
+    for (const auto &row : this->Interpret(query).GetResults()) out.emplace_back(row[0].ValueInt(), row[1].ValueInt());
+    return out;
+  };
+  auto const expected = std::vector<std::pair<int64_t, int64_t>>{{1, 2}, {2, 0}};
+  EXPECT_EQ(rows(), expected);
+  EXPECT_TRUE(explain_has_label_scan());
+  this->Interpret("DROP INDEX ON :L;");
+  EXPECT_EQ(rows(), expected);
+  EXPECT_FALSE(explain_has_label_scan());
+}
+
 TYPED_TEST(InterpreterTest, ExplainQueryMultiplePulls) {
   EXPECT_EQ(this->db->plan_cache()->WithLock([&](auto &cache) { return cache.size(); }), 0U);
   EXPECT_EQ(this->AstCacheSize(), 0U);
@@ -3145,6 +3171,57 @@ TYPED_TEST(InterpreterTest, OptionalCallSubquery) {
         "MATCH (n:P) OPTIONAL CALL (n) { MATCH (n)-[:R]->(m) RETURN * } RETURN n.id AS nid, m.id AS mid");
     EXPECT_EQ(pairs(stream), (std::vector<Row>{{1, 2}, {1, 3}, {2, std::nullopt}, {3, std::nullopt}}));
   }
+}
+
+// A query the AST cache never holds is handed out as the parser built it. Where ORDER BY repeated a projected item,
+// the parser left the replaced subtree in the AST storage with its identifiers unresolved, so whatever reads the
+// storage rather than walking the tree meets an identifier that symbol generation never reached.
+TYPED_TEST(InterpreterTest, UncacheableQueryDetachingAnInListTest) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  this->Interpret("CREATE (:Node {x: 1, list: [1, 2]}), (:Node {x: 3, list: [1, 2]}), (:Node {x: 3, list: [1, 2]})");
+
+  auto stream = this->Interpret("MATCH (n:$label) RETURN n.x IN n.list AS found, COUNT(*) AS c ORDER BY n.x IN n.list",
+                                {{"label", EPV(std::string("Node"))}});
+
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_FALSE(stream.GetResults()[0][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_TRUE(stream.GetResults()[1][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+}
+
+// A list named by an identifier is keyed for caching on the symbol that holds it, so reading the key at all requires
+// the identifier to have one. A detached subtree keeps whatever identifiers it was built with, and those were never
+// reached by symbol generation.
+TYPED_TEST(InterpreterTest, UncacheableQueryDetachingAnInListOverAnIdentifier) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  this->Interpret("CREATE (:Node {x: 1}), (:Node {x: 3}), (:Node {x: 3})");
+
+  auto stream = this->Interpret(
+      "MATCH (n:$label) UNWIND [[1, 2]] AS lst RETURN n.x IN lst AS found, COUNT(*) AS c ORDER BY n.x IN lst",
+      {{"label", EPV(std::string("Node"))}});
+
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_FALSE(stream.GetResults()[0][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_TRUE(stream.GetResults()[1][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
+}
+
+// A regex is keyed for caching the same way a list is, so detaching one reaches the same key.
+TYPED_TEST(InterpreterTest, UncacheableQueryDetachingARegexMatchOverAnIdentifier) {
+  using EPV = memgraph::storage::ExternalPropertyValue;
+  this->Interpret("CREATE (:Node {name: 'aa'}), (:Node {name: 'bb'}), (:Node {name: 'bb'})");
+
+  auto stream = this->Interpret(
+      "MATCH (n:$label) UNWIND ['a.*'] AS pat RETURN n.name =~ pat AS m, COUNT(*) AS c ORDER BY n.name =~ pat",
+      {{"label", EPV(std::string("Node"))}});
+
+  ASSERT_EQ(stream.GetResults().size(), 2U);
+  EXPECT_FALSE(stream.GetResults()[0][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[0][1].ValueInt(), 2);
+  EXPECT_TRUE(stream.GetResults()[1][0].ValueBool());
+  EXPECT_EQ(stream.GetResults()[1][1].ValueInt(), 1);
 }
 
 TEST(AstCacheBounded, EvictsBeyondMaxSize) {

@@ -16,10 +16,13 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 
 #include <algorithm>
+#include <map>
 #include <optional>
 #include <ranges>
+#include <string>
 #include <unordered_set>
 #include <variant>
+#include <vector>
 
 #include "exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -344,6 +347,97 @@ bool SymbolGenerator::PostVisit(CallSubquery & /*call_sub*/) {
   }
 
   return true;
+}
+
+namespace {
+
+/// The columns a body's RETURN writes. `all` also holds every import, which each RETURN re-injects; `*` writes none.
+std::unordered_set<std::string> WrittenColumns(const CypherQuery &query, const std::unordered_set<std::string> &all,
+                                               const std::map<std::string, Symbol> &imports) {
+  const auto *last = query.single_query_->clauses_.back();
+  if (const auto *nested = utils::Downcast<const ConditionalBranches>(last)) {
+    return WrittenColumns(*nested->branches_.front().body, all, imports);
+  }
+  const auto *ret = utils::Downcast<const Return>(last);
+  if (!ret) return all;
+  if (ret->body_.all_identifiers) {
+    return all | std::views::filter([&](const auto &name) { return !imports.contains(name); }) |
+           std::ranges::to<std::unordered_set<std::string>>();
+  }
+  return ret->body_.named_expressions | std::views::transform([](const auto *expr) { return expr->name_; }) |
+         std::ranges::to<std::unordered_set<std::string>>();
+}
+
+}  // namespace
+
+bool SymbolGenerator::PreVisit(ConditionalBranches &branches) {
+  // A trigger that is not cacheable analyses the same AST again on every firing.
+  branches.output_symbols_.clear();
+  // The predicates, and each branch, get a scope of their own above the CALL body's, which holds the imports, so
+  // nothing they bind reaches the CALL body, and no branch sees another's variables, as no UNION part does.
+  // Scopes are re-read by index: a body can push scopes and reallocate the stack.
+  auto const call_scope = scopes_.size() - 1;
+  auto const push_imports_scope = [&] {
+    auto const &outer = scopes_[call_scope];
+    scopes_.push_back(Scope{.in_subquery_body = outer.in_subquery_body,
+                            .in_call_subquery = outer.in_call_subquery,
+                            .symbols = outer.call_subquery_imports,
+                            .call_subquery_imports = outer.call_subquery_imports,
+                            .call_subquery_base = outer.call_subquery_base});
+  };
+
+  // Each predicate is a `Where`, so it gets the WHERE rules.
+  push_imports_scope();
+  for (auto const &branch : branches.branches_) {
+    if (branch.predicate) branch.predicate->Accept(*this);
+  }
+  scopes_.pop_back();
+
+  // The parser checked that all branches agree on whether they return rows.
+  std::unordered_set<std::string> first_names;
+  std::unordered_set<std::string> first_written;
+  bool has_return = false;
+  // Only a single branch reads its own column symbols.
+  std::map<std::string, Symbol> single_branch_symbols;
+  for (auto *body : branches.branches_ | std::views::transform(&ConditionalBranches::Branch::body)) {
+    push_imports_scope();
+    body->Accept(*this);
+    auto &branch = scopes_.back();
+    auto written = WrittenColumns(*body, branch.curr_return_names, scopes_[call_scope].call_subquery_imports);
+    if (body == branches.branches_.front().body) {
+      first_names = std::move(branch.curr_return_names);
+      first_written = std::move(written);
+      has_return = branch.has_return;
+    } else if (written.size() != first_written.size()) {
+      throw SemanticException("All WHEN branches must return the same number of columns.");
+    } else if (written != first_written) {
+      throw SemanticException("All WHEN branches must have the same column names.");
+    }
+    if (branches.branches_.size() == 1) single_branch_symbols = std::move(branch.symbols);
+    scopes_.pop_back();
+  }
+
+  auto &scope = scopes_.back();
+  scope.has_return = has_return;
+  if (!scope.has_return) return false;
+  // The columns a branch writes, not every import its RETURN puts back in scope; a `RETURN *` that sees only the
+  // imports returns them. Sorted, so the order does not depend on the hash set's.
+  auto const &written = first_written.empty() ? first_names : first_written;
+  auto columns = std::vector<std::string>(written.begin(), written.end());
+  std::ranges::sort(columns);
+  scope.curr_return_names = std::move(first_names);
+  for (const auto &name : columns) {
+    // A column named after an import is the import: the caller keeps its own value, as after a plain `CALL`.
+    if (auto const import = scope.call_subquery_imports.find(name); import != scope.call_subquery_imports.end()) {
+      branches.output_symbols_.push_back(import->second);
+      continue;
+    }
+    // One branch needs no union. Several share a user symbol per column, so a later `*` sees it.
+    auto const symbol = branches.branches_.size() == 1 ? single_branch_symbols.at(name) : CreateSymbol(name, true);
+    scope.symbols[name] = symbol;
+    branches.output_symbols_.push_back(symbol);
+  }
+  return false;
 }
 
 bool SymbolGenerator::PreVisit(LoadCsv &load_csv) { return false; }

@@ -15,9 +15,15 @@
 #include <algorithm>
 #include <cstdint>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <ranges>
+#include <string>
+#include <unordered_map>
+#include <unordered_set>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include "flags/run_time_configurable.hpp"
 #include "query/plan/operator.hpp"
@@ -662,6 +668,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
         }
       }
 
+      if (query_part.conditional) {
+        input_op = PlanConditional(std::move(input_op), *query_part.conditional, initial_bound_symbols);
+      }
+
       // An EXISTS branch must keep emitting its rows for the fold to read, so it never gets the EmptyResult wrapper.
       if (!context.in_subquery_body && input_op && impl::ProducesNoColumns(*input_op, *context.symbol_table)) {
         if (has_periodic_commit && is_root_query) {
@@ -685,6 +695,48 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
  private:
+  /// Plans each branch's body and predicate folds from @p bound_symbols alone, and binds the output symbols.
+  std::unique_ptr<LogicalOperator> PlanConditional(std::unique_ptr<LogicalOperator> input,
+                                                   const ConditionalQueryParts &conditional,
+                                                   std::unordered_set<Symbol> bound_symbols) {
+    const SymbolTable &symbol_table = *context_->symbol_table;
+    AstStorage &storage = *context_->ast_storage;
+    std::unordered_map<std::string, Symbol> output_by_name;
+    for (const auto &sym : conditional.output_symbols) output_by_name.emplace(sym.name(), sym);
+
+    std::vector<Conditional::Branch> branches;
+    branches.reserve(conditional.branches.size());
+    for (const auto &parts : conditional.branches) {
+      auto &branch = branches.emplace_back();
+      context_->bound_symbols = bound_symbols;
+      branch.plan = Plan(parts.body);
+      for (const auto &branch_sym : branch.plan->OutputSymbols(symbol_table)) {
+        auto it = output_by_name.find(branch_sym.name());
+        if (it == output_by_name.end()) continue;
+        // The symbol generator made an import-named column the import's own symbol, so the caller keeps its value;
+        // a single branch's column is the branch's own symbol.
+        if (bound_symbols.contains(it->second) || it->second == branch_sym) continue;
+        branch.columns.push_back({.from = branch_sym, .to = it->second});
+      }
+
+      for (const auto &filter : parts.predicate_filters) {
+        bool const has_fold = !filter.subquery_matchings.empty() || !filter.pattern_comprehension_matchings.empty();
+        if (has_fold && !impl::HasBoundFilterSymbols(bound_symbols, filter)) {
+          impl::ThrowPlannerBug("A WHEN predicate reads a symbol the conditional does not bind.");
+        }
+      }
+      auto fold_bound_symbols = bound_symbols;
+      branch.predicate = parts.predicate;
+      branch.pattern_filters =
+          ExtractPatternFilters(parts.predicate_filters, symbol_table, storage, fold_bound_symbols);
+    }
+
+    auto root = std::make_unique<Conditional>(std::move(input), std::move(branches), conditional.output_symbols);
+    bound_symbols.insert(conditional.output_symbols.begin(), conditional.output_symbols.end());
+    context_->bound_symbols = std::move(bound_symbols);
+    return root;
+  }
+
   /// @brief Recursively plans a pattern comprehension including any nested pattern comprehensions.
   /// For nested pattern comprehensions (e.g., [()--() | [()--() | 1]]), the inner pattern
   /// comprehension is planned first and wrapped with RollUpApply before the outer one's Produce.
@@ -1863,7 +1915,8 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
     return last_op;
   }
 
-  std::vector<std::shared_ptr<LogicalOperator>> ExtractPatternFilters(Filters &filters, const SymbolTable &symbol_table,
+  std::vector<std::shared_ptr<LogicalOperator>> ExtractPatternFilters(const Filters &filters,
+                                                                      const SymbolTable &symbol_table,
                                                                       AstStorage &storage,
                                                                       std::unordered_set<Symbol> &bound_symbols) {
     std::vector<std::shared_ptr<LogicalOperator>> operators;

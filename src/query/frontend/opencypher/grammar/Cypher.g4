@@ -80,6 +80,12 @@ cypherUnion : ( UNION ALL singleQuery )
             | ( UNION singleQuery )
             ;
 
+conditionalQuery : conditionalBranch+ ( ELSE conditionalBody )? ;
+
+conditionalBranch : WHEN expression THEN conditionalBody ;
+
+conditionalBody : '{' ( conditionalQuery | cypherQuery ) '}' | singleQuery ;
+
 clause : cypherMatch
        | unwind
        | merge

@@ -440,6 +440,71 @@ TEST_F(QueryCostEstimator, Union) {
   EXPECT_COST(CostParam::kUnion * (no_vertices + no_vertices));
 }
 
+TEST_F(QueryCostEstimator, Conditional) {
+  // MATCH (n) CALL (n) { WHEN true THEN MATCH (b), (c) RETURN b WHEN true THEN MATCH (a) RETURN a }, then a Filter:
+  // taking a branch costs the predicates up to it plus its body; the costliest case and the widest body multiply the
+  // input's, as in an Apply. The widest body comes first, so neither the last body nor a sum stands in for it.
+  auto no_vertices = 4;
+  AddVertices(no_vertices, 0, 0);
+  std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  std::shared_ptr<LogicalOperator> wide =
+      std::make_shared<ScanAll>(std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol()), NextSymbol());
+  std::shared_ptr<LogicalOperator> narrow = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  auto conditional =
+      std::make_shared<Conditional>(input,
+                                    std::vector<Conditional::Branch>{{.predicate = Literal(true), .plan = wide},
+                                                                     {.predicate = Literal(true), .plan = narrow}},
+                                    std::vector<Symbol>{NextSymbol()});
+  MakeOp<Filter>(conditional, std::vector<std::shared_ptr<LogicalOperator>>{}, Literal(true));
+  // The wide body's first scan costs 4 rows, its second 4 * 4; the narrow branch also pays the first predicate.
+  auto const wide_cost = CostParam::kFilter + (no_vertices + no_vertices * no_vertices) * CostParam::kScanAll;
+  auto const narrow_cost = 2 * CostParam::kFilter + no_vertices * CostParam::kScanAll;
+  auto const wide_cardinality = no_vertices * no_vertices;
+  EXPECT_COST(no_vertices * CostParam::kScanAll +
+              no_vertices * (wide_cost + CostParam::kConditionalTieBreak * (wide_cost + narrow_cost)) +
+              no_vertices * wide_cardinality * CostParam::kFilter);
+}
+
+TEST_F(QueryCostEstimator, ConditionalLateBranchPaysForEarlierPredicates) {
+  // MATCH (n) CALL (n) { WHEN true THEN MATCH (a) RETURN a WHEN EXISTS { MATCH (b), (c) } THEN RETURN 1 AS a }:
+  // the first branch has the costlier body, the second the costlier predicate, so neither summing every predicate and
+  // body nor leaving out the predicates before a branch gives the costliest case.
+  auto no_vertices = 4;
+  AddVertices(no_vertices, 0, 0);
+  std::shared_ptr<LogicalOperator> input = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  std::shared_ptr<LogicalOperator> scan_body = std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol());
+  std::shared_ptr<LogicalOperator> fold =
+      std::make_shared<ScanAll>(std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol()), NextSymbol());
+  MakeOp<Conditional>(input,
+                      std::vector<Conditional::Branch>{
+                          {.predicate = Literal(true), .plan = scan_body},
+                          {.predicate = Literal(true), .pattern_filters = {fold}, .plan = std::make_shared<Once>()}},
+                      std::vector<Symbol>{NextSymbol()});
+  auto const fold_cost = (no_vertices + no_vertices * no_vertices) * CostParam::kScanAll;
+  auto const scan_branch_cost = CostParam::kFilter + no_vertices * CostParam::kScanAll;
+  auto const fold_branch_cost = CostParam::kFilter + fold_cost;
+  EXPECT_COST(no_vertices * CostParam::kScanAll +
+              no_vertices *
+                  (fold_branch_cost + CostParam::kConditionalTieBreak * (scan_branch_cost + fold_branch_cost)));
+}
+
+TEST_F(QueryCostEstimator, ConditionalCheaperOtherBranchBreaksATie) {
+  // WHEN true THEN MATCH (a), (b) RETURN a ELSE <body>: two plans with the same costliest branch differ only in the
+  // other one, as plan variants do, and the cheaper must win.
+  AddVertices(4, 0, 0);
+  auto const cost_with_else = [&](std::shared_ptr<LogicalOperator> else_body) {
+    std::shared_ptr<LogicalOperator> costliest =
+        std::make_shared<ScanAll>(std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol()), NextSymbol());
+    MakeOp<Conditional>(std::make_shared<Once>(),
+                        std::vector<Conditional::Branch>{{.predicate = Literal(true), .plan = costliest},
+                                                         {.plan = std::move(else_body)}},
+                        std::vector<Symbol>{NextSymbol()});
+    return Cost();
+  };
+  EXPECT_LT(cost_with_else(std::make_shared<Once>()),
+            cost_with_else(std::make_shared<ScanAll>(std::make_shared<Once>(), NextSymbol())));
+}
+
 // Helper for testing an operations cost and cardinality.
 // Only for operations that first increment cost, then modify cardinality.
 // Intentially a macro (instead of function) for better test feedback.

@@ -11,13 +11,18 @@
 
 #pragma once
 
+#include <algorithm>
 #include <forward_list>
+#include <memory>
+#include <type_traits>
+#include <vector>
 
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/metric_handles.hpp"
 #include "storage/v2/delta.hpp"
 #include "utils/allocator/page_aligned.hpp"
 #include "utils/allocator/page_slab_memory_resource.hpp"
+#include "utils/logging.hpp"
 #include "utils/static_vector.hpp"
 
 namespace memgraph::storage {
@@ -247,6 +252,7 @@ struct delta_container {
   delta_container(delta_container &&other) noexcept
       : memory_resource_{std::move(other.memory_resource_)},
         deltas_{std::move(other.deltas_)},
+        heap_backed_values_{std::move(other.heap_backed_values_)},
         size_{std::exchange(other.size_, 0)},
         gauge_{other.gauge_} {}
 
@@ -256,12 +262,16 @@ struct delta_container {
     using std::swap;
     std::swap(memory_resource_, other.memory_resource_);
     std::swap(deltas_, other.deltas_);
+    std::swap(heap_backed_values_, other.heap_backed_values_);
     std::swap(size_, other.size_);
     std::swap(gauge_, other.gauge_);
     return *this;
   }
 
-  ~delta_container() { gauge_.Decrement(static_cast<double>(size_)); }
+  ~delta_container() {
+    DestroyHeapBackedValues();
+    gauge_.Decrement(static_cast<double>(size_));
+  }
 
   auto begin() { return Flatten(deltas_).begin(); }
 
@@ -285,7 +295,19 @@ struct delta_container {
         if (!memory_resource_) [[unlikely]] {
           memory_resource_ = MakeDbArenaPageSlabResource();
         }
+        // Reserve before constructing so registering the before-image below cannot throw once the delta exists.
+        const bool heap_backed = HoldsVectorIndexId(args...);
+        if (heap_backed && heap_backed_values_.size() == heap_backed_values_.capacity()) {
+          heap_backed_values_.reserve(std::max<std::size_t>(8, 2 * heap_backed_values_.capacity()));
+        }
         auto &delta = deltas_.front().emplace_back(std::forward<Args>(args)..., memory_resource_.get());
+        DMG_ASSERT(
+            heap_backed == (delta.action == Delta::Action::SET_PROPERTY && delta.property.value->IsVectorIndexId()),
+            "Before-image registration and delta construction disagree on whether the before-image needs "
+            "destroying");
+        if (heap_backed) {
+          heap_backed_values_.push_back(delta.property.value);
+        }
         ++size_;
         gauge_.Increment();
         return delta;
@@ -306,6 +328,7 @@ struct delta_container {
   }
 
   void clear() {
+    DestroyHeapBackedValues();
     deltas_.clear();
     memory_resource_.reset();
     gauge_.Decrement(static_cast<double>(size_));
@@ -317,10 +340,29 @@ struct delta_container {
   auto size() const -> std::size_t { return size_; }
 
  private:
+  // Delta is trivially destructible and the slab only frees arena pages, so a VectorIndexId before-image's
+  // small_vectors (std::allocator, spilled to the heap) would leak without an explicit destroy.
+  template <typename... Args>
+  static bool HoldsVectorIndexId(Args const &...args) {
+    return (... || [](auto const &arg) {
+      if constexpr (std::is_same_v<std::remove_cvref_t<decltype(arg)>, PropertyValue>) {
+        return arg.IsVectorIndexId();
+      } else {
+        return false;
+      }
+    }(args));
+  }
+
+  void DestroyHeapBackedValues() noexcept {
+    for (auto *value : heap_backed_values_) std::destroy_at(value);
+    heap_backed_values_.clear();
+  }
+
   // The container itself is TLS-backed: allocations follow the DB arena pinned
   // on the current thread at the time emplace() needs to materialize a slab.
   std::unique_ptr<utils::PageSlabMemoryResource> memory_resource_{};
   PageAlignedList<delta_slab> deltas_{};
+  std::vector<pmr::PropertyValue *> heap_backed_values_{};
   std::size_t size_{};
   metrics::GaugeHandle gauge_{};
 };

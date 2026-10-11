@@ -40,7 +40,7 @@ namespace memgraph::metrics {
 namespace {
 
 // Label that keys a per-database family entry. Internal: CollectForScrape replaces it with the
-// entry's current uuid, so it must never reach a scrape.
+// entry's current name and uuid, so it must never reach a scrape.
 constexpr auto kEntryLabel = "mgentry";
 
 bool IsLegacyCoordinatorDeltaMetric(std::string_view name) {
@@ -356,6 +356,10 @@ PrometheusMetrics::PrometheusMetrics()
                                          .Name("memgraph_roll_up_apply_operator_total")
                                          .Help("Number of times RollUpApply operator was used")
                                          .Register(registry_)},
+      conditional_operator_family_{prometheus::BuildCounter()
+                                       .Name("memgraph_conditional_operator_total")
+                                       .Help("Number of times Conditional operator was used")
+                                       .Register(registry_)},
       periodic_commit_operator_family_{prometheus::BuildCounter()
                                            .Name("memgraph_periodic_commit_operator_total")
                                            .Help("Number of times PeriodicCommit operator was used")
@@ -936,11 +940,11 @@ PrometheusMetrics::Registration PrometheusMetrics::AddDatabase(utils::UUID const
 }
 
 // Unsafe variants assume the caller already holds databases_.mutex.
-DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, uint64_t entry_id) {
-  // Keyed on the entry id, not the uuid: a family entry's label set is its map key and so is fixed for
-  // the entry's life, whereas the default database's uuid changes on cluster join. CollectForScrape
-  // substitutes the current uuid, so the scrape output is unchanged.
-  prometheus::Labels const labels{{"database", std::string(name)}, {kEntryLabel, std::to_string(entry_id)}};
+DatabaseMetricHandles PrometheusMetrics::CreateHandles(uint64_t entry_id) {
+  // Keyed on the entry id alone: a family entry's label set is its map key and so is fixed for the
+  // entry's life, whereas a database's name and uuid can both change. CollectForScrape substitutes the
+  // current ones.
+  prometheus::Labels const labels{{kEntryLabel, std::to_string(entry_id)}};
   return DatabaseMetricHandles{
       .vertex_count = {&vertex_count_family_.Add(labels)},
       .edge_count = {&edge_count_family_.Add(labels)},
@@ -996,6 +1000,7 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, ui
       .indexed_join_operator = {&indexed_join_operator_family_.Add(labels)},
       .hash_join_operator = {&hash_join_operator_family_.Add(labels)},
       .roll_up_apply_operator = {&roll_up_apply_operator_family_.Add(labels)},
+      .conditional_operator = {&conditional_operator_family_.Add(labels)},
       .periodic_commit_operator = {&periodic_commit_operator_family_.Add(labels)},
       .periodic_subquery_operator = {&periodic_subquery_operator_family_.Add(labels)},
       .set_nested_property_operator = {&set_nested_property_operator_family_.Add(labels)},
@@ -1046,7 +1051,7 @@ DatabaseMetricHandles PrometheusMetrics::CreateHandles(std::string_view name, ui
 
 DatabaseMetricHandles PrometheusMetrics::AddDatabaseUnsafe(utils::UUID const &uuid, std::string_view name) {
   auto const entry_id = databases_.next_entry_id++;
-  auto handles = CreateHandles(name, entry_id);
+  auto handles = CreateHandles(entry_id);
   databases_.entries.push_back({
       .id = entry_id,
       .uuid = uuid,
@@ -1094,6 +1099,18 @@ void PrometheusMetrics::RebindRegistration(uint64_t entry_id, utils::UUID const 
     default_db_uuid_ = new_uuid;
   }
   it->uuid = new_uuid;
+}
+
+void PrometheusMetrics::Registration::Rename(std::string_view new_name) {
+  if (registry_ == nullptr) return;
+  registry_->RenameRegistration(entry_id_, new_name);
+}
+
+void PrometheusMetrics::RenameRegistration(uint64_t entry_id, std::string_view new_name) {
+  std::scoped_lock const lock{databases_.mutex};
+  auto it = r::find_if(databases_.entries, [entry_id](auto const &e) { return e.id == entry_id; });
+  if (it == databases_.entries.end()) return;
+  it->db_name = new_name;
 }
 
 void PrometheusMetrics::ReleaseRegistration(uint64_t entry_id) {
@@ -1159,6 +1176,7 @@ void PrometheusMetrics::RemoveHandlesFromFamilies(DatabaseMetricHandles const &h
   indexed_join_operator_family_.Remove(h.indexed_join_operator.get());
   hash_join_operator_family_.Remove(h.hash_join_operator.get());
   roll_up_apply_operator_family_.Remove(h.roll_up_apply_operator.get());
+  conditional_operator_family_.Remove(h.conditional_operator.get());
   periodic_commit_operator_family_.Remove(h.periodic_commit_operator.get());
   periodic_subquery_operator_family_.Remove(h.periodic_subquery_operator.get());
   set_nested_property_operator_family_.Remove(h.set_nested_property_operator.get());
@@ -1228,28 +1246,33 @@ DatabaseMetricHandles PrometheusMetrics::RebindDefaultDatabaseUUID(utils::UUID c
 }
 
 std::vector<prometheus::MetricFamily> PrometheusMetrics::CollectForScrape() {
-  std::unordered_map<std::string, std::string> uuid_by_entry;
+  struct Presented {
+    std::string name;
+    std::string uuid;
+  };
+
+  std::unordered_map<std::string, Presented> by_entry;
   {
     std::shared_lock const lock{databases_.mutex};
     for (auto const &entry : databases_.entries) {
-      uuid_by_entry.emplace(std::to_string(entry.id), std::string(entry.uuid));
+      by_entry.emplace(std::to_string(entry.id), Presented{.name = entry.db_name, .uuid = std::string(entry.uuid)});
     }
   }
   auto families = registry_.Collect();
   for (auto &family : families) {
     // A series whose entry is missing from the snapshot, such as one registered after it, has no
-    // uuid to present. Drop the whole metric: blanking the label would collapse two such series onto
-    // one label set, and a scrape carrying a duplicate label set is rejected in its entirety.
+    // name or uuid to present. Drop the whole metric: blanking the labels would collapse two such
+    // series onto one label set, and a scrape carrying a duplicate label set is rejected in its entirety.
     std::erase_if(family.metric, [&](auto const &metric) {
       auto const label = r::find(metric.label, kEntryLabel, &prometheus::ClientMetric::Label::name);
-      return label != metric.label.end() && !uuid_by_entry.contains(label->value);
+      return label != metric.label.end() && !by_entry.contains(label->value);
     });
     for (auto &metric : family.metric) {
-      for (auto &label : metric.label) {
-        if (label.name != kEntryLabel) continue;
-        label.name = "uuid";
-        label.value = uuid_by_entry.at(label.value);
-      }
+      auto const label = r::find(metric.label, kEntryLabel, &prometheus::ClientMetric::Label::name);
+      if (label == metric.label.end()) continue;
+      auto const &[name, uuid] = by_entry.at(label->value);
+      *label = {.name = "uuid", .value = uuid};
+      metric.label.insert(label, {.name = "database", .value = name});
     }
   }
   return families;
@@ -1585,6 +1608,10 @@ std::expected<std::vector<MetricInfo>, std::string> PrometheusMetrics::GetDbMetr
   out.push_back({"IndexedJoinOperator", "Operator", "Counter", static_cast<int64_t>(h.indexed_join_operator.Value())});
   out.push_back({"HashJoinOperator", "Operator", "Counter", static_cast<int64_t>(h.hash_join_operator.Value())});
   out.push_back({"RollUpApplyOperator", "Operator", "Counter", static_cast<int64_t>(h.roll_up_apply_operator.Value())});
+  out.push_back({.name = "ConditionalOperator",
+                 .type = "Operator",
+                 .metric_type = "Counter",
+                 .value = static_cast<int64_t>(h.conditional_operator.Value())});
   out.push_back(
       {"PeriodicCommitOperator", "Operator", "Counter", static_cast<int64_t>(h.periodic_commit_operator.Value())});
   out.push_back(
@@ -1746,6 +1773,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   int64_t total_indexed_join_operator = 0;
   int64_t total_hash_join_operator = 0;
   int64_t total_roll_up_apply_operator = 0;
+  int64_t total_conditional_operator = 0;
   int64_t total_periodic_commit_operator = 0;
   int64_t total_periodic_subquery_operator = 0;
   int64_t total_set_nested_property_operator = 0;
@@ -1842,6 +1870,7 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
       total_indexed_join_operator += static_cast<int64_t>(h.indexed_join_operator.Value());
       total_hash_join_operator += static_cast<int64_t>(h.hash_join_operator.Value());
       total_roll_up_apply_operator += static_cast<int64_t>(h.roll_up_apply_operator.Value());
+      total_conditional_operator += static_cast<int64_t>(h.conditional_operator.Value());
       total_periodic_commit_operator += static_cast<int64_t>(h.periodic_commit_operator.Value());
       total_periodic_subquery_operator += static_cast<int64_t>(h.periodic_subquery_operator.Value());
       total_set_nested_property_operator += static_cast<int64_t>(h.set_nested_property_operator.Value());
@@ -1941,6 +1970,10 @@ std::vector<MetricInfo> PrometheusMetrics::GetGlobalMetricsInfoForJson() {
   out.push_back({"IndexedJoinOperator", "Operator", "Counter", total_indexed_join_operator});
   out.push_back({"HashJoinOperator", "Operator", "Counter", total_hash_join_operator});
   out.push_back({"RollUpApplyOperator", "Operator", "Counter", total_roll_up_apply_operator});
+  out.push_back({.name = "ConditionalOperator",
+                 .type = "Operator",
+                 .metric_type = "Counter",
+                 .value = total_conditional_operator});
   out.push_back({"PeriodicCommitOperator", "Operator", "Counter", total_periodic_commit_operator});
   out.push_back({"PeriodicSubqueryOperator", "Operator", "Counter", total_periodic_subquery_operator});
   out.push_back({"SetNestedPropertyOperator", "Operator", "Counter", total_set_nested_property_operator});
@@ -2284,6 +2317,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
   int64_t indexed_join_op = 0;
   int64_t hash_join_op = 0;
   int64_t roll_up_op = 0;
+  int64_t conditional_op = 0;
   int64_t periodic_commit_op = 0;
   int64_t periodic_subquery_op = 0;
   int64_t set_nested_prop_op = 0;
@@ -2378,6 +2412,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
       indexed_join_op += static_cast<int64_t>(h.indexed_join_operator.Value());
       hash_join_op += static_cast<int64_t>(h.hash_join_operator.Value());
       roll_up_op += static_cast<int64_t>(h.roll_up_apply_operator.Value());
+      conditional_op += static_cast<int64_t>(h.conditional_operator.Value());
       periodic_commit_op += static_cast<int64_t>(h.periodic_commit_operator.Value());
       periodic_subquery_op += static_cast<int64_t>(h.periodic_subquery_operator.Value());
       set_nested_prop_op += static_cast<int64_t>(h.set_nested_property_operator.Value());
@@ -2474,6 +2509,7 @@ nlohmann::json PrometheusMetrics::GetTelemetryCounters() const {
     {"IndexedJoinOperator", indexed_join_op},
     {"HashJoinOperator", hash_join_op},
     {"RollUpApplyOperator", roll_up_op},
+    {"ConditionalOperator", conditional_op},
     {"PeriodicCommitOperator", periodic_commit_op},
     {"PeriodicSubqueryOperator", periodic_subquery_op},
     {"SetNestedPropertyOperator", set_nested_prop_op},

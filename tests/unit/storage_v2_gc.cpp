@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include <atomic>
+#include <filesystem>
 #include <optional>
 #include <set>
 #include <string_view>
@@ -251,6 +252,118 @@ TEST(StorageV2Gc, Indices) {
     }
     EXPECT_EQ(gids.size(), 1000);
   }
+}
+
+// Gives each test its own storage directory and removes it either side of the run, so a WAL left
+// by one test is never recovered into the next.
+class StorageV2GcDurable : public ::testing::Test {
+ protected:
+  void SetUp() override { Clear(); }
+
+  void TearDown() override { Clear(); }
+
+  void Clear() const {
+    if (std::filesystem::exists(storage_directory)) std::filesystem::remove_all(storage_directory);
+  }
+
+  std::filesystem::path storage_directory{
+      std::filesystem::temp_directory_path() /
+      ("MG_test_unit_storage_v2_gc_" + std::string(::testing::UnitTest::GetInstance()->current_test_info()->name()))};
+};
+
+// A two-phase-commit prepare mints a commit timestamp and publishes it only when the finalize
+// arrives. An accessor destroyed in between must mark that timestamp finished: while it counts as
+// active, commit_log_->OldestActive() cannot move past it, and from then on every version in the
+// database is retained no matter how many collection passes run.
+TEST_F(StorageV2GcDurable, DestroyedPreparedAccessorReleasesItsCommitTimestamp) {
+  // A WAL is what sends the commit down the two-phase path. Without one the commit publishes
+  // inline, and the state this test is about never arises.
+  memgraph::storage::Config config{};
+  config.durability.storage_directory = storage_directory;
+  config.durability.recover_on_startup = false;
+  config.durability.snapshot_wal_mode =
+      memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
+  config.gc.type = memgraph::storage::Config::Gc::Type::PERIODIC;
+  config.gc.interval = std::chrono::hours(1);
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(config);
+
+  memgraph::storage::Gid victim{};
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    victim = acc->CreateVertex().Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // The abort this accessor's destructor runs returns the vertex it writes, so the one deleted
+  // below is all the collector has left to reclaim.
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::storage::CommitArgs::make_replica_write(
+                                               /*desired_commit_timestamp=*/1, /*two_phase_commit=*/true, [] {}))
+                    .has_value());
+  }
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(victim, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(acc->DeleteVertex(&*vertex).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // More passes than reclaiming one vertex needs, because the point is that no number of them
+  // helps while the horizon is held down.
+  for (int i = 0; i < 4; ++i) storage->FreeMemory(UniqueGuard(storage->main_lock_), false);
+
+  EXPECT_EQ(storage->VertexStoreSize(), 0U)
+      << "the deleted vertex never left storage, so the prepared accessor's commit timestamp is "
+         "still holding the collection horizon down";
+}
+
+// A commit that throws after it has published leaves its deltas linked into the version chains,
+// because the undo in Abort only touches deltas still stamped with the transaction id. Their
+// storage is handed to the graveyard all the same, so the commit timestamp has to stay unfinished:
+// finishing it lets the horizon pass, and a collection pass then frees storage the chains still
+// name. Asserted on the delta gauge rather than by reading the vertex back, because reading freed
+// deltas is undefined and a build without a sanitizer returns the old bytes and passes.
+TEST_F(StorageV2GcMetricsTest, PublishedCommitThatThrowsRetainsItsDeltas) {
+  auto const prop = storage->NameToProperty("p");
+
+  memgraph::storage::Gid gid{};
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->CreateVertex();
+    gid = vertex.Gid();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  // An older reader denies the committing transaction below the fast-discard path, so its deltas
+  // reach the graveyard rather than being freed inline.
+  auto reader = storage->Access(memgraph::storage::READ);
+
+  {
+    auto acc = storage->Access(memgraph::storage::WRITE);
+    auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(vertex.has_value());
+    ASSERT_TRUE(vertex->SetProperty(prop, memgraph::storage::PropertyValue(2)).has_value());
+    // Runs inside the commit, after the store that makes the write visible.
+    acc->GetTransaction()->commit_callbacks_.Add(
+        [](uint64_t) { throw memgraph::utils::BasicException("commit callback failed"); });
+    EXPECT_THROW(
+        { [[maybe_unused]] auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()); },
+        memgraph::utils::BasicException);
+  }
+  reader.reset();
+
+  // Not the exclusive overload the other tests here use: an exclusive hold means no transaction can
+  // be running, so the collector clears the graveyard outright and never consults the horizon, which
+  // is the thing under test.
+  for (int i = 0; i < 4; ++i) storage->FreeMemory();
+
+  EXPECT_GT(handles().unreleased_delta_objects.Value(), 0)
+      << "every delta was released, so the published transaction's commit timestamp was marked "
+         "finished and the collector freed storage the version chains still point at";
 }
 
 TEST_F(StorageV2GcMetricsTest, NonSequentialDeltasWithCommittedContributorsAreGarbagedCollected) {
