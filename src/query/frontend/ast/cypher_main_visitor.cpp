@@ -1343,6 +1343,13 @@ antlrcpp::Any CypherMainVisitor::visitLoadJsonl(MemgraphCypher::LoadJsonlContext
   return load_jsonl;
 }
 
+antlrcpp::Any CypherMainVisitor::visitResetQueryPlanCacheQuery(
+    MemgraphCypher::ResetQueryPlanCacheQueryContext * /*ctx*/) {
+  auto *reset_query = storage_->Create<ResetQueryPlanCacheQuery>();
+  query_ = reset_query;
+  return reset_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitFreeMemoryQuery(MemgraphCypher::FreeMemoryQueryContext *ctx) {
   auto *free_memory_query = storage_->Create<FreeMemoryQuery>();
   query_ = free_memory_query;
