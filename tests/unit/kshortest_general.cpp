@@ -205,9 +205,30 @@ TEST_F(GeneralKShortestTestInMemory, InterleavedRootsMatchOracle) {
 // --- weighted ---------------------------------------------------------------------------------
 
 // The weighted matrix over the default fixture: every pair, every direction, every edge-type filter,
-// with and without a length bound. Compared path for path against a brute-force enumeration.
-class WeightedKShortestTestInMemory
-    : public ::testing::TestWithParam<std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>>> {
+// with and without a length bound. Compared path for path against a brute-force enumeration, or
+// class for class under a `|k`.
+using WeightedMatrixParam = std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, int>;
+
+// Runs one matrix cell; without a type filter or a limit the fixture's weighted order must depart
+// from the hop-count one.
+template <typename TDb>
+void RunWeightedMatrixCell(TDb *db, const WeightedMatrixParam &param) {
+  auto const [lower_bound, upper_bound, direction, edge_types, limit] = param;
+  const auto hop_inversions = db->KShortestWeightedTest(db, lower_bound, upper_bound, direction, edge_types, limit);
+  if (edge_types.empty() && limit == -1) EXPECT_GT(hop_inversions, 0U);
+}
+
+const auto kWeightedDirections =
+    testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH);
+const auto kWeightedMatrix = testing::Combine(
+    testing::Values(-1, 2), testing::Values(3, -1), kWeightedDirections,
+    testing::Values(std::vector<std::string>{}, std::vector<std::string>{"a"}, std::vector<std::string>{"b"}),
+    testing::Values(-1));
+// `|k` with and without a lower bound, which skips paths before the limit counts them.
+const auto kWeightedLimitMatrix = testing::Combine(testing::Values(-1, 2), testing::Values(-1), kWeightedDirections,
+                                                   testing::Values(std::vector<std::string>{}), testing::Values(1, 3));
+
+class WeightedKShortestTestInMemory : public ::testing::TestWithParam<WeightedMatrixParam> {
  public:
   using StorageType = memgraph::storage::InMemoryStorage;
 
@@ -219,22 +240,12 @@ class WeightedKShortestTestInMemory
   static std::unique_ptr<VertexDb<StorageType>> db_;
 };
 
-TEST_P(WeightedKShortestTestInMemory, All) {
-  auto const [lower_bound, upper_bound, direction, edge_types] = GetParam();
-  const auto hop_inversions =
-      this->db_->KShortestWeightedTest(db_.get(), lower_bound, upper_bound, direction, edge_types);
-  // Without a type filter the fixture's weighted order departs from the hop-count one.
-  if (edge_types.empty()) EXPECT_GT(hop_inversions, 0U);
-}
+TEST_P(WeightedKShortestTestInMemory, All) { RunWeightedMatrixCell(db_.get(), GetParam()); }
 
 std::unique_ptr<VertexDb<WeightedKShortestTestInMemory::StorageType>> WeightedKShortestTestInMemory::db_{nullptr};
 
-INSTANTIATE_TEST_SUITE_P(Weighted, WeightedKShortestTestInMemory,
-                         testing::Combine(testing::Values(-1, 2), testing::Values(3, -1),
-                                          testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN,
-                                                          EdgeAtom::Direction::BOTH),
-                                          testing::Values(std::vector<std::string>{}, std::vector<std::string>{"a"},
-                                                          std::vector<std::string>{"b"})));
+INSTANTIATE_TEST_SUITE_P(Weighted, WeightedKShortestTestInMemory, kWeightedMatrix);
+INSTANTIATE_TEST_SUITE_P(WeightedLimit, WeightedKShortestTestInMemory, kWeightedLimitMatrix);
 
 class WeightedKShortestCasesInMemory : public ::testing::Test {
  public:
@@ -260,6 +271,12 @@ TEST_F(WeightedKShortestCasesInMemory, MixedNumericWeights) {
 
 TEST_F(WeightedKShortestCasesInMemory, LowerBoundKeepsDeviations) {
   db_->KShortestWeightedTestLowerBoundKeepsDeviations(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, ZeroWeightCycle) { db_->KShortestWeightedTestZeroWeightCycle(db_.get()); }
+
+TEST_F(WeightedKShortestCasesInMemory, NonBooleanFilterThrows) {
+  db_->KShortestWeightedTestNonBooleanFilterThrows(db_.get());
 }
 
 TEST_F(WeightedKShortestCasesInMemory, UnreachableTargetDoesNotSearch) {
@@ -414,3 +431,22 @@ TEST_F(GeneralKShortestTestOnDisk, KShortestWithLimit) {
 TEST_F(GeneralKShortestTestOnDisk, KShortestWithFilterLambda) {
   db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, FilterLambdaType::USE_CTX);
 }
+
+class WeightedKShortestTestOnDisk : public ::testing::TestWithParam<WeightedMatrixParam> {
+ public:
+  using StorageType = memgraph::storage::DiskStorage;
+
+  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
+
+  static void TearDownTestCase() { db_ = nullptr; }
+
+ protected:
+  static std::unique_ptr<VertexDb<StorageType>> db_;
+};
+
+std::unique_ptr<VertexDb<WeightedKShortestTestOnDisk::StorageType>> WeightedKShortestTestOnDisk::db_{nullptr};
+
+TEST_P(WeightedKShortestTestOnDisk, All) { RunWeightedMatrixCell(db_.get(), GetParam()); }
+
+INSTANTIATE_TEST_SUITE_P(Weighted, WeightedKShortestTestOnDisk, kWeightedMatrix);
+INSTANTIATE_TEST_SUITE_P(WeightedLimit, WeightedKShortestTestOnDisk, kWeightedLimitMatrix);
