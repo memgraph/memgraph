@@ -4098,12 +4098,6 @@ struct KShortestWeightCost {
 
 }  // namespace
 
-bool &KShortestWeightedHeuristicEnabled() {
-  // Read once per `Pull`, never written outside tests.
-  static bool enabled = true;
-  return enabled;
-}
-
 // K-Shortest Paths Cursor using lazy-evaluated Yen's algorithm
 template <class Cost>
 class KShortestPathsCursor : public Cursor {
@@ -4147,7 +4141,6 @@ class KShortestPathsCursor : public Cursor {
     // memoises, because a memo entry is also where an arc's weight is kept.
     memoize_expansion_ =
         Cost::kWeighted || self_.filter_lambda_.expression != nullptr || FineGrainedChecksActive(context);
-    use_heuristic_ = KShortestWeightedHeuristicEnabled();
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
@@ -4364,7 +4357,6 @@ class KShortestPathsCursor : public Cursor {
   // checked outside the memo.
   utils::pmr::unordered_map<ExpansionKey, typename Cost::Verdict, ExpansionKeyHash> expansion_memo_;
   bool memoize_expansion_{false};
-  bool use_heuristic_{true};
 
   // Bidirectional search state
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
@@ -4419,11 +4411,9 @@ class KShortestPathsCursor : public Cursor {
     ResetState();
 
     if constexpr (Cost::kWeighted) {
-      if (use_heuristic_) {
-        BuildReverseTree(target, frame, evaluator, context);
-        // Nothing reaches the target from here, so neither the seed search nor any spur can.
-        if (!reverse_dist_.contains(source)) return false;
-      }
+      BuildReverseTree(target, frame, evaluator, context);
+      // Nothing reaches the target from here, so neither the seed search nor any spur can.
+      if (!reverse_dist_.contains(source)) return false;
     }
 
     // Seeds Yen's with the shortest path; the rest are deviations from it.
@@ -4795,10 +4785,8 @@ class KShortestPathsCursor : public Cursor {
     return std::move(verdict).value_or(TypedValue());
   }
 
-  /// `h(vertex)`, or null - the additive identity - when the reverse tree is off, which degrades the
-  /// spur search to a plain Dijkstra over the unpruned graph.
+  /// `h(vertex)`, or null - the additive identity - for a vertex outside the reverse tree.
   TypedValue Heuristic(const VertexAccessor &vertex) const {
-    if (!use_heuristic_) return {};
     const auto it = reverse_dist_.find(vertex);
     return it == reverse_dist_.end() ? TypedValue() : it->second;
   }
@@ -4893,14 +4881,14 @@ class KShortestPathsCursor : public Cursor {
       if (blocked_edges_.contains(edge.Gid()) || blocked_vertices_.contains(next.Gid())) return;
       const auto heuristic = reverse_dist_.find(next);
       // The reverse tree holds every vertex that can still reach the target, so a miss is a dead end.
-      if (use_heuristic_ && heuristic == reverse_dist_.end()) return;
+      if (heuristic == reverse_dist_.end()) return;
       const auto weight = WeightedVerdict(edge, next, frame, evaluator, context);
       if (!weight) return;
 
       const int64_t depth = from.depth + 1;
       auto cost = AddCost(from.cost, *weight);
       if (IsDominated(next, depth, cost)) return;
-      auto priority = use_heuristic_ ? AddCost(cost, heuristic->second) : cost;
+      auto priority = AddCost(cost, heuristic->second);
       weighted_pq_.push(WeightedQueueEntry{.priority = std::move(priority),
                                            .cost = std::move(cost),
                                            .depth = depth,
@@ -4926,7 +4914,7 @@ class KShortestPathsCursor : public Cursor {
     auto *memory = evaluator.GetMemoryResource();
     if (source == target) return PathInfo(memory);
     // Absent from the reverse tree means no walk from here reaches the target at all.
-    if (use_heuristic_ && !reverse_dist_.contains(source)) return PathInfo(memory);
+    if (!reverse_dist_.contains(source)) return PathInfo(memory);
 
     ClearWeightedSearchState();
     weighted_pq_.push(WeightedQueueEntry{.priority = Heuristic(source),
