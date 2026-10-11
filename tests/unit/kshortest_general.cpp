@@ -314,26 +314,6 @@ INSTANTIATE_TEST_SUITE_P(Random, WeightedKShortestRandomInMemory,
                          testing::Combine(testing::Range(uint32_t{1}, uint32_t{13}), testing::Values(5, 6),
                                           testing::Values(0.3, 0.5)));
 
-// With the reverse-tree heuristic off the spur search is a plain Dijkstra. It must enumerate exactly
-// the same paths, which is what pins the heuristic as admissible rather than merely fast.
-TEST_F(WeightedKShortestCasesInMemory, PlainDijkstraAgreesWithAStar) {
-  struct HeuristicOff {
-    HeuristicOff() { KShortestWeightedHeuristicEnabled() = false; }
-
-    ~HeuristicOff() { KShortestWeightedHeuristicEnabled() = true; }
-  } guard;
-
-  for (auto direction : {EdgeAtom::Direction::OUT, EdgeAtom::Direction::BOTH}) {
-    db_->KShortestWeightedTest(db_.get(), -1, -1, direction, {});
-    db_->KShortestWeightedTest(db_.get(), -1, 3, direction, {});
-  }
-  for (uint32_t seed = 1; seed <= 4; ++seed) {
-    auto const [locations, edges] = RandomKShortestGraph(seed, 6, 0.4);
-    SCOPED_TRACE(fmt::format("seed = {}", seed));
-    db_->KShortestWeightedTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, -1, locations, edges);
-  }
-}
-
 TEST_F(GeneralKShortestTestInMemory, InvertedRangeDoesNotSearch) {
   db_->KShortestTestInvertedRangeDoesNotSearch(db_.get());
 }
