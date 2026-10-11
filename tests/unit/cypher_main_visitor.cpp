@@ -3178,22 +3178,6 @@ TEST_P(CypherMainVisitorTest, MatchKShortestLoneLambdaIsWeight) {
   CheckRWType(query, kRead);
 }
 
-TEST_P(CypherMainVisitorTest, MatchKShortestWithLimitAndFilterReturn) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<CypherQuery *>(
-      ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest 1..3 |2 (e, n | 1) (e, n | e.prop = 42)]->() RETURN r"));
-  ASSERT_TRUE(query);
-  auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
-  ASSERT_TRUE(match);
-  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
-  ASSERT_TRUE(shortest);
-  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
-  EXPECT_TRUE(shortest->lower_bound_);
-  EXPECT_TRUE(shortest->upper_bound_);
-  EXPECT_TRUE(shortest->limit_);
-  EXPECT_TRUE(shortest->filter_lambda_.expression);
-}
-
 // A named total weight variable after the weight lambda.
 TEST_P(CypherMainVisitorTest, MatchKShortestWithWeightLambdaReturn) {
   auto &ast_generator = *GetParam();

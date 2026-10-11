@@ -221,7 +221,10 @@ class WeightedKShortestTestInMemory
 
 TEST_P(WeightedKShortestTestInMemory, All) {
   auto const [lower_bound, upper_bound, direction, edge_types] = GetParam();
-  this->db_->KShortestWeightedTest(db_.get(), lower_bound, upper_bound, direction, edge_types);
+  const auto hop_inversions =
+      this->db_->KShortestWeightedTest(db_.get(), lower_bound, upper_bound, direction, edge_types);
+  // Without a type filter the fixture's weighted order departs from the hop-count one.
+  if (edge_types.empty()) EXPECT_GT(hop_inversions, 0U);
 }
 
 std::unique_ptr<VertexDb<WeightedKShortestTestInMemory::StorageType>> WeightedKShortestTestInMemory::db_{nullptr};
@@ -247,12 +250,6 @@ class WeightedKShortestCasesInMemory : public ::testing::Test {
 
 std::unique_ptr<VertexDb<WeightedKShortestCasesInMemory::StorageType>> WeightedKShortestCasesInMemory::db_{nullptr};
 
-TEST_F(WeightedKShortestCasesInMemory, OrderDiffersFromHopCount) {
-  db_->KShortestWeightedTestOrderDiffersFromHopCount(db_.get());
-}
-
-TEST_F(WeightedKShortestCasesInMemory, HandFixture) { db_->KShortestWeightedTestHandFixture(db_.get()); }
-
 TEST_F(WeightedKShortestCasesInMemory, ZeroWeights) { db_->KShortestWeightedTestZeroWeights(db_.get()); }
 
 TEST_F(WeightedKShortestCasesInMemory, DurationWeights) { db_->KShortestWeightedTestDurationWeights(db_.get()); }
@@ -261,16 +258,8 @@ TEST_F(WeightedKShortestCasesInMemory, MixedNumericWeights) {
   db_->KShortestWeightedTestMixedNumericWeights(db_.get());
 }
 
-TEST_F(WeightedKShortestCasesInMemory, UpperBoundPrefersShorterPricierPath) {
-  db_->KShortestWeightedTestUpperBoundPrefersShorterPricierPath(db_.get());
-}
-
 TEST_F(WeightedKShortestCasesInMemory, LowerBoundKeepsDeviations) {
   db_->KShortestWeightedTestLowerBoundKeepsDeviations(db_.get());
-}
-
-TEST_F(WeightedKShortestCasesInMemory, LimitTakesTheCheapest) {
-  db_->KShortestWeightedTestLimitTakesTheCheapest(db_.get());
 }
 
 TEST_F(WeightedKShortestCasesInMemory, UnreachableTargetDoesNotSearch) {

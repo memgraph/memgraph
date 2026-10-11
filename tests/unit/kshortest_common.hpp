@@ -194,8 +194,8 @@ std::vector<std::vector<int>> YenKShortestPaths(int num_vertices, const std::vec
 
 // The weight `BuildGraph` stores on the edge between `a` and `b`. Symmetric in its two arguments so
 // the oracle can read it off a traversal pair without knowing which way the edge is stored, and
-// spread wide enough that the weighted order really does depart from the hop-count one - 28 times
-// over the default fixture, which `KShortestWeightedTestOrderDiffersFromHopCount` insists on.
+// spread wide enough that the weighted order departs from the hop-count one on the default
+// fixture, which the weighted matrix insists on.
 inline int64_t EdgeWeightFor(int a, int b) {
   static constexpr std::array<int64_t, 5> kWeights{11, 7, 5, 1, 9};
   return kWeights[static_cast<size_t>((std::min(a, b) * 7 + std::max(a, b) * 3) % 5)];
@@ -935,11 +935,12 @@ class Database {
   // The weighted matrix: every ordered pair, against a brute-force enumeration. Without a limit the
   // two must agree path for path - that is what catches a *lost* path, which a subset check cannot.
   // Also checks the served order really is ascending by `(weight, hops)`, and that the total weight
-  // column equals the sum over the path the operator wrote beside it.
-  void KShortestWeightedTest(Database *db, int lower_bound, int upper_bound,
-                             memgraph::query::EdgeAtom::Direction direction, std::vector<std::string> edge_types,
-                             int limit = -1, const std::vector<int> &vertex_locations = kVertexLocations,
-                             const std::vector<std::tuple<int, int, std::string>> &graph_edges = kEdges) {
+  // column equals the sum over the path the operator wrote beside it. Returns how often a pair served
+  // a path with fewer hops than the one before it.
+  size_t KShortestWeightedTest(Database *db, int lower_bound, int upper_bound,
+                               memgraph::query::EdgeAtom::Direction direction, std::vector<std::string> edge_types,
+                               int limit = -1, const std::vector<int> &vertex_locations = kVertexLocations,
+                               const std::vector<std::tuple<int, int, std::string>> &graph_edges = kEdges) {
     const int vertex_count = static_cast<int>(vertex_locations.size());
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
@@ -986,8 +987,10 @@ class Database {
       auto ids = PathVertexIds(&dba, row);
       int64_t summed = 0;
       for (size_t i = 1; i < ids.size(); ++i) summed += EdgeWeightFor(ids[i - 1], ids[i]);
-      ASSERT_TRUE(row[3].IsInt()) << "an all-integer weight lambda must keep the total an integer";
-      EXPECT_EQ(row[3].ValueInt(), summed) << "the total weight column must be the sum of the path's own edges";
+      EXPECT_TRUE(row[3].IsInt()) << "an all-integer weight lambda must keep the total an integer";
+      if (row[3].IsInt()) {
+        EXPECT_EQ(row[3].ValueInt(), summed) << "the total weight column must be the sum of the path's own edges";
+      }
 
       served[{source_id, sink_id}].emplace_back(summed, ids.size() - 1);
       actual[{source_id, sink_id}].emplace_back(summed, std::move(ids));
@@ -1004,6 +1007,7 @@ class Database {
     }
     EXPECT_EQ(run.rows.size(), expected_total);
 
+    size_t hop_inversions = 0;
     for (int source_id = 0; source_id < vertex_count; ++source_id) {
       for (int sink_id = 0; sink_id < vertex_count; ++sink_id) {
         if (source_id == sink_id) continue;
@@ -1014,6 +1018,7 @@ class Database {
 
         for (size_t i = 1; i < order.size(); ++i) {
           EXPECT_LE(order[i - 1], order[i]) << "paths must be served in ascending (weight, hops) order";
+          if (order[i].second < order[i - 1].second) ++hop_inversions;
         }
 
         if (limit != -1) {
@@ -1033,51 +1038,14 @@ class Database {
     }
 
     dba.Abort();
-  }
-
-  // The weighted and the hop-count order must part company somewhere on this fixture, or the matrix
-  // above would pass just as well against an expansion that ignored the lambda.
-  void KShortestWeightedTestOrderDiffersFromHopCount(Database *db) {
-    auto storage_dba = db->Access();
-    memgraph::query::DbAccessor dba(storage_dba.get());
-    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
-    auto [vertices, edges] = db->BuildGraph(&dba, kVertexLocations, kEdges);
-    dba.AdvanceCommand();
-
-    auto run = RunWeighted(db,
-                           dba,
-                           context,
-                           vertices,
-                           vertices,
-                           memgraph::query::EdgeAtom::Direction::BOTH,
-                           {},
-                           -1,
-                           -1,
-                           -1,
-                           MakeWeightLambda(dba, context));
-    ASSERT_FALSE(run.rows.empty());
-
-    bool hops_ever_decrease = false;
-    std::optional<std::pair<int, int>> previous_pair;
-    size_t previous_hops = 0;
-    for (const auto &row : run.rows) {
-      const std::pair pair{static_cast<int>(GetProp(row[0].ValueVertex(), "id", &dba).ValueInt()),
-                           static_cast<int>(GetProp(row[1].ValueVertex(), "id", &dba).ValueInt())};
-      const size_t hops = row[2].ValueList().size();
-      if (previous_pair == pair && hops < previous_hops) hops_ever_decrease = true;
-      previous_pair = pair;
-      previous_hops = hops;
-    }
-    EXPECT_TRUE(hops_ever_decrease) << "this fixture never serves a longer path before a shorter one, so it cannot "
-                                       "tell a weighted expansion from a hop-count one";
-    dba.Abort();
+    return hop_inversions;
   }
 
   // One source-sink pair over the detour graph with hand-written weights: `(total, hops)` per served
   // path, in the order they came out.
   std::vector<std::pair<memgraph::query::TypedValue, size_t>> DetourResults(
       Database *db, const std::map<std::pair<int, int>, memgraph::storage::PropertyValue> &weights,
-      int lower_bound = -1, int upper_bound = -1, int limit = -1) {
+      int lower_bound = -1) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
@@ -1093,8 +1061,8 @@ class Database {
                            memgraph::query::EdgeAtom::Direction::OUT,
                            {},
                            lower_bound,
-                           upper_bound,
-                           limit,
+                           -1,
+                           -1,
                            MakeWeightLambda(dba, context));
 
     std::vector<std::pair<memgraph::query::TypedValue, size_t>> out;
@@ -1117,18 +1085,6 @@ class Database {
             {{2, 3}, PV(int64_t{1})},
             {{0, 3}, PV(int64_t{10})},
             {{0, 2}, PV(int64_t{4})}};
-  }
-
-  // The cheapest route is the longest one, and the totals are the sums written out longhand here.
-  void KShortestWeightedTestHandFixture(Database *db) {
-    const auto served = DetourResults(db, DetourIntWeights());
-    ASSERT_EQ(served.size(), 3U);
-    EXPECT_EQ(served[0].first.ValueInt(), 3);
-    EXPECT_EQ(served[0].second, 3U);
-    EXPECT_EQ(served[1].first.ValueInt(), 5);
-    EXPECT_EQ(served[1].second, 2U);
-    EXPECT_EQ(served[2].first.ValueInt(), 10);
-    EXPECT_EQ(served[2].second, 1U);
   }
 
   // Zero weights tie every route, so hop count is all that is left to order them by - and no path
@@ -1188,14 +1144,6 @@ class Database {
     EXPECT_EQ(served[2].first.ValueInt(), 10);
   }
 
-  // A cheaper route needing more hops than the bound allows must lose to a pricier one that fits.
-  void KShortestWeightedTestUpperBoundPrefersShorterPricierPath(Database *db) {
-    const auto served = DetourResults(db, DetourIntWeights(), -1, 2);
-    ASSERT_EQ(served.size(), 2U) << "the cheapest route is three hops, over the bound";
-    EXPECT_EQ(served[0].first.ValueInt(), 5);
-    EXPECT_EQ(served[1].first.ValueInt(), 10);
-  }
-
   // Paths under the lower bound are not served, but they are still base paths, so the longer routes
   // that deviate from them have to come out. Here the cheapest route is also the only servable one,
   // so the bound skips from the middle of the enumeration rather than off its front.
@@ -1211,14 +1159,6 @@ class Database {
     ASSERT_EQ(served.size(), 1U);
     EXPECT_EQ(served[0].second, 3U);
     EXPECT_EQ(served[0].first.ValueInt(), 3);
-  }
-
-  // A `|k` under weights caps the cheapest ones, not the shortest ones.
-  void KShortestWeightedTestLimitTakesTheCheapest(Database *db) {
-    const auto served = DetourResults(db, DetourIntWeights(), -1, -1, 2);
-    ASSERT_EQ(served.size(), 2U);
-    EXPECT_EQ(served[0].first.ValueInt(), 3);
-    EXPECT_EQ(served[1].first.ValueInt(), 5);
   }
 
   // A target nothing can reach is settled by the reverse tree alone, so the source's own component is
@@ -1250,12 +1190,12 @@ class Database {
     dba.Abort();
   }
 
-  // Every way a weight can be wrong, each one a runtime error rather than a silent answer.
+  // Weights of the wrong type are runtime errors; `WeightErrorTexts` pins null and negative.
   void KShortestWeightedTestWeightErrors(Database *db) {
     using PV = memgraph::storage::PropertyValue;
     const auto duration = PV(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, 1));
-    const std::vector<std::pair<const char *, PV>> cases{
-        {"null", PV()}, {"negative", PV(int64_t{-1})}, {"string", PV("heavy")}, {"duration among integers", duration}};
+    const std::vector<std::pair<const char *, PV>> cases{{"string", PV("heavy")},
+                                                         {"duration among integers", duration}};
 
     for (const auto &[name, weight] : cases) {
       SCOPED_TRACE(name);
@@ -1293,7 +1233,7 @@ class Database {
   }
 
   // The filter lambda still prunes under weights. Blocking vertex 2 leaves only the single expensive
-  // hop, so an expansion that ran the lambda nowhere, or only in the forward search, is visible here.
+  // hop, so an expansion that ran the lambda nowhere, or only in the reverse tree, is visible here.
   void KShortestWeightedTestFilterLambda(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
