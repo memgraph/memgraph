@@ -80,6 +80,17 @@ struct String {
   }
 };
 
+// Short enough to sit in the string's own buffer, the shape above never reaches the allocator, so
+// what it measures is the handling around a copy rather than the copy. This one is past that
+// boundary, where allocating is most of what copying a string costs. The two answer differently
+// about any change to how values are handled, so a claim about strings needs both.
+struct StringThatAllocates {
+  static Pair Make() {
+    auto const prefix = std::string(63, 'x');
+    return {TypedValue{prefix + "3", Mem()}, TypedValue{prefix + "4", Mem()}};
+  }
+};
+
 struct Date {
   static Pair Make() {
     using memgraph::utils::Date;
@@ -317,12 +328,13 @@ void SortStringColumn(benchmark::State &state) {
 // The label comes from the same token that selects the shape, so the two cannot disagree.
 #define SHAPE(bench, shape) BENCHMARK_TEMPLATE(bench, shape)->Name(#bench "/" #shape)->Unit(benchmark::kNanosecond)
 
-#define FOR_EACH_TYPE(bench) \
-  SHAPE(bench, Int);         \
-  SHAPE(bench, Double);      \
-  SHAPE(bench, Bool);        \
-  SHAPE(bench, Date);        \
-  SHAPE(bench, String);      \
+#define FOR_EACH_TYPE(bench)         \
+  SHAPE(bench, Int);                 \
+  SHAPE(bench, Double);              \
+  SHAPE(bench, Bool);                \
+  SHAPE(bench, Date);                \
+  SHAPE(bench, String);              \
+  SHAPE(bench, StringThatAllocates); \
   SHAPE(bench, List);
 
 FOR_EACH_TYPE(CopyConstruct)
