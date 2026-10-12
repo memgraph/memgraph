@@ -27,6 +27,7 @@
 #include "gtest/gtest.h"
 #include "interpreter_faker.hpp"
 #include "license/license.hpp"
+#include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/exceptions.hpp"
@@ -3263,4 +3264,85 @@ TEST(AstCacheConcurrency, CorrectUnderEvictionContention) {
   }
   EXPECT_EQ(failures.load(), 0);
   EXPECT_LE(cache.WithLock([](auto &c) { return c.size(); }), 1U);
+}
+
+// Server-side parameters are evaluated by PrimitiveLiteralExpressionEvaluator, so they exercise it directly.
+class ParameterQueryTest : public InterpreterTest<memgraph::storage::InMemoryStorage> {
+ protected:
+  ParameterQueryTest() { interpreter_context.parameters = &server_parameters; }
+
+  memgraph::parameters::Parameters server_parameters{data_directory / "parameters"};
+
+  std::optional<std::string> GetParameter(std::string_view name) const {
+    return server_parameters.GetParameter(name, memgraph::parameters::kGlobalScope);
+  }
+};
+
+TEST_F(ParameterQueryTest, SignedNumbersInMapAndListLiteralValues) {
+  Interpret("SET GLOBAL PARAMETER p = {a: -1, b: -2.5, c: +3}");
+  EXPECT_EQ(GetParameter("p"), R"({"a":-1,"b":-2.5,"c":3})");
+
+  // The query stripper folds a sign at the start of a list element into the number literal,
+  // so the parentheses are what route -1 through the unary operator.
+  Interpret("SET GLOBAL PARAMETER q = [(-1)]");
+  EXPECT_EQ(GetParameter("q"), "[-1]");
+}
+
+TEST_F(ParameterQueryTest, UnarySignAcceptedForms) {
+  constexpr std::pair<std::string_view, std::string_view> kCases[] = {
+      {"{a: --1}", R"({"a":1})"},
+      {"{a: - -1}", R"({"a":1})"},
+      {"{a: -(-1)}", R"({"a":1})"},
+      {"{a: +-1}", R"({"a":-1})"},
+      {"{a: -null}", R"({"a":null})"},
+      {"{a: -9223372036854775807}", R"({"a":-9223372036854775807})"},
+      {"{a: {b: [(-1), +2, {c: -3}]}}", R"({"a":{"b":[-1,2,{"c":-3}]}})"},
+  };
+  for (auto const &[value, expected] : kCases) {
+    SCOPED_TRACE(value);
+    Interpret("SET GLOBAL PARAMETER p = " + std::string(value));
+    EXPECT_EQ(GetParameter("p"), expected);
+  }
+}
+
+TEST_F(ParameterQueryTest, UnarySignOnQueryParameter) {
+  Interpret("SET GLOBAL PARAMETER p = {a: -$x}", {{"x", memgraph::storage::ExternalPropertyValue(5)}});
+  EXPECT_EQ(GetParameter("p"), R"({"a":-5})");
+
+  EXPECT_THROW(Interpret("SET GLOBAL PARAMETER r = {a: -$x}",
+                         {{"x", memgraph::storage::ExternalPropertyValue(std::string("s"))}}),
+               memgraph::query::QueryRuntimeException);
+  EXPECT_EQ(GetParameter("r"), std::nullopt);
+}
+
+TEST_F(ParameterQueryTest, MalformedSignIsSyntaxError) {
+  for (std::string_view const query :
+       {"SET GLOBAL PARAMETER p = -1", "SET GLOBAL PARAMETER p = {a: 1-}", "SET GLOBAL PARAMETER p = {a: -}"}) {
+    SCOPED_TRACE(query);
+    EXPECT_THROW(Interpret(std::string(query)), memgraph::query::SyntaxException);
+    EXPECT_EQ(GetParameter("p"), std::nullopt);
+  }
+}
+
+TEST_F(ParameterQueryTest, UnsupportedExpressionInLiteralValueIsRejected) {
+  for (std::string_view const value : {"{a: -'s'}",
+                                       "{a: +'s'}",
+                                       "{a: -true}",
+                                       "{a: -[1]}",
+                                       "{a: -{b: 1}}",
+                                       "{a: -a}",
+                                       "{a: +a}",
+                                       "{a: -(1+1)}",
+                                       "{a: -n.x}",
+                                       "{a: 1 - 1}",
+                                       "{a: 1+1}"}) {
+    SCOPED_TRACE(value);
+    EXPECT_THROW(Interpret("SET GLOBAL PARAMETER p = " + std::string(value)), memgraph::query::QueryRuntimeException);
+    EXPECT_EQ(GetParameter("p"), std::nullopt);
+  }
+}
+
+TEST_F(ParameterQueryTest, MinInt64LiteralExceedsRange) {
+  EXPECT_THROW(Interpret("SET GLOBAL PARAMETER p = {a: -9223372036854775808}"), memgraph::query::SemanticException);
+  EXPECT_EQ(GetParameter("p"), std::nullopt);
 }
