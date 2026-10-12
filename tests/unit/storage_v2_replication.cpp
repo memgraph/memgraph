@@ -45,6 +45,7 @@
 #include "storage/v2/view.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/storage_test_utils.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/exceptions.hpp"
 
 using testing::IsEmpty;
@@ -1695,6 +1696,81 @@ TEST_F(ReplicationTest, RecoveryStepsAfterPeriodicSnapshot) {
       return std::holds_alternative<memgraph::storage::RecoverySnapshot>(step);
     })) << "the WAL chain reproduces everything, so shipping the snapshot is pure waste";
   }
+}
+
+// PrepareForNewEpoch finalizes the open WAL, records the old epoch in history and switches to the new epoch, which
+// tags the next WAL.
+TEST_F(ReplicationTest, PrepareForNewEpochSwitchesEpochWithTheWalReset) {
+  MinMemgraph main(main_conf);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+  auto &repl_state = in_mem->repl_storage_state_;
+
+  auto const create_vertex_and_commit = [&] {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+
+  auto const old_epoch = std::string{repl_state.epoch_.id()};
+  create_vertex_and_commit();
+  auto const old_epoch_ldt = repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+
+  memgraph::replication::ReplicationEpoch const new_epoch;
+  ASSERT_NE(new_epoch.id(), old_epoch);
+  main.db.storage()->PrepareForNewEpoch(new_epoch);
+
+  EXPECT_EQ(repl_state.epoch_.id(), new_epoch.id());
+  ASSERT_FALSE(repl_state.history.empty());
+  EXPECT_EQ(repl_state.history.back(), std::make_pair(old_epoch, old_epoch_ldt));
+
+  create_vertex_and_commit();
+  // Closes the WAL opened by the commit above so GetWalFiles lists it
+  main.db.storage()->PrepareForNewEpoch(memgraph::replication::ReplicationEpoch{});
+
+  auto const wal_dir = in_mem->config_.durability.storage_directory / memgraph::storage::durability::kWalDirectory;
+  auto const wals = memgraph::storage::durability::GetWalFiles(wal_dir, std::string{in_mem->uuid()});
+  ASSERT_TRUE(wals.has_value());
+  ASSERT_EQ(wals->size(), 2U);
+  EXPECT_EQ(wals->front().epoch_id, old_epoch);
+  EXPECT_EQ(wals->front().to_timestamp, old_epoch_ldt);
+  EXPECT_EQ(wals->back().epoch_id, new_epoch.id());
+}
+
+// A former REPLICA's ldt_ can be ahead of its MVCC timestamp_; PrepareForNewEpoch must lift timestamp_ above it so
+// post-promotion commits do not land below the last durable timestamp.
+TEST_F(ReplicationTest, PrepareForNewEpochRaisesTimestampAboveLdt) {
+  MinMemgraph main(main_conf);
+  auto *in_mem = static_cast<InMemoryStorage *>(main.db.storage());
+  auto &repl_state = in_mem->repl_storage_state_;
+
+  auto const create_vertex_and_commit = [&] {
+    const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+    auto acc = in_mem->Access(memgraph::storage::WRITE);
+    acc->CreateVertex();
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  };
+
+  create_vertex_and_commit();
+
+  uint64_t ahead_ldt{};
+  {
+    auto const guard = std::lock_guard{in_mem->engine_lock_};
+    ahead_ldt = in_mem->timestamp_ + 1000;
+  }
+  atomic_struct_update<memgraph::storage::CommitTsInfo>(
+      repl_state.commit_ts_info_, [ahead_ldt](memgraph::storage::CommitTsInfo const &cur) {
+        return memgraph::storage::CommitTsInfo{.ldt_ = ahead_ldt, .num_committed_txns_ = cur.num_committed_txns_};
+      });
+
+  main.db.storage()->PrepareForNewEpoch(memgraph::replication::ReplicationEpoch{});
+  {
+    auto const guard = std::lock_guard{in_mem->engine_lock_};
+    EXPECT_GT(in_mem->timestamp_, ahead_ldt);
+  }
+
+  create_vertex_and_commit();
+  EXPECT_GT(repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_, ahead_ldt);
 }
 
 // Analytical writes are never appended to the WAL, so a storage that replicates must not be allowed to
