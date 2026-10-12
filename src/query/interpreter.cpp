@@ -11632,8 +11632,11 @@ void Interpreter::Commit() {
       }
 #endif
       // The role is checked only when a statement is prepared, and an auth transaction holds no accessor for a
-      // demotion to wait on. Taken after the system transaction, in the order SET REPLICATION ROLE takes them, and
-      // released before the system transaction commits, which needs the write lock.
+      // demotion to wait on, so it is checked again here. The lock is taken after the system transaction, in the
+      // order SET REPLICATION ROLE takes them. A demotion takes it with TryLock, so it fails rather than waits
+      // while the check runs. The lock is released before the system transaction commits, which needs the write
+      // lock, so a demotion can still land between the two; the change is then durable here and not replicated,
+      // as it is for an autocommit system query.
       std::optional<decltype(interpreter_context_->repl_state->ReadLock())> locked_repl_state;
       if (!on_coordinator && auth_transaction_->HasWrites()) {
         locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
