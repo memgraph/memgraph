@@ -10,8 +10,8 @@
 # licenses/APL.txt.
 
 # CREATE SNAPSHOT on a full disk fails with an error instead of crashing the instance, and leaves no partial
-# snapshot or snapshot part behind. The full disk is simulated by no_space_preload.so, which fails writes to
-# snapshot files with ENOSPC while its trigger file exists.
+# snapshot or snapshot part behind. The full disk is simulated by tests/e2e/no_space_preload.so, which fails
+# writes to snapshot files with ENOSPC while its trigger file exists.
 
 import os
 import shutil
@@ -29,7 +29,7 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 FILE = "snapshot_no_space"
-PRELOAD_LIBRARY = os.path.join(interactive_mg_runner.SCRIPT_DIR, "no_space_preload.so")
+PRELOAD_LIBRARY = os.path.normpath(os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "no_space_preload.so"))
 
 
 @pytest.fixture(autouse=True)

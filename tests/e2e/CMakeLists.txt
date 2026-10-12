@@ -37,6 +37,15 @@ function(copy_e2e_files TARGET_PREFIX FILE_NAME)
         _copy_e2e_file_impl(${TARGET_PREFIX} ${CMAKE_CURRENT_SOURCE_DIR}/${FILE_NAME} ${FILE_NAME})
 endfunction()
 
+# LD_PRELOAD shim that simulates a full disk for snapshot files; see no_space_preload.c.
+add_library(memgraph__e2e__no_space_preload SHARED no_space_preload.c)
+set_target_properties(memgraph__e2e__no_space_preload PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME no_space_preload
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(memgraph__e2e__no_space_preload ${CMAKE_DL_LIBS})
+add_dependencies(memgraph__e2e memgraph__e2e__no_space_preload)
+
 add_subdirectory(fine_grained_access)
 add_subdirectory(server)
 add_subdirectory(replication)

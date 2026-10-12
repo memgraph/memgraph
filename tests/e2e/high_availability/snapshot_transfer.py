@@ -11,7 +11,9 @@
 
 # A replica that was down while the main kept writing and then took a snapshot is recovered by the main
 # sending it that snapshot over RPC: the snapshot removes the main's earlier WAL files, so WAL files alone
-# can no longer bring the replica up to date.
+# can no longer bring the replica up to date. The replica's disk is full for the first transfers (simulated by
+# tests/e2e/no_space_preload.so, which fails writes to snapshot files with ENOSPC while its trigger file
+# exists): the replica must survive them, and the main's retry must succeed once there is space again.
 
 import os
 import shutil
@@ -31,6 +33,7 @@ interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_r
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 file = "snapshot_transfer"
+PRELOAD_LIBRARY = os.path.normpath(os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "no_space_preload.so"))
 
 INITIAL_NODES = 1000
 WRITES_WHILE_REPLICA_DOWN = 20
@@ -119,7 +122,8 @@ def log_contains(log_file: str, *fragments: str):
         return any(all(fragment in line for fragment in fragments) for line in f)
 
 
-def test_replica_recovers_from_snapshot_sent_by_main(test_name):
+def test_replica_recovers_from_snapshot_sent_by_main(test_name, monkeypatch):
+    assert os.path.isfile(PRELOAD_LIBRARY), f"Missing {PRELOAD_LIBRARY}"
     instances = get_memgraph_instances_description(test_name)
     data_directory = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", get_data_path(file, test_name))
     shutil.rmtree(data_directory, ignore_errors=True)
@@ -149,8 +153,26 @@ def test_replica_recovers_from_snapshot_sent_by_main(test_name):
     snapshot_name = os.path.basename(snapshot_path)
     expected_nodes = INITIAL_NODES + WRITES_WHILE_REPLICA_DOWN * NODES_PER_WRITE
 
-    interactive_mg_runner.start(instances, "instance_1")
+    # The trigger lives outside the data directory, which the replica cleans on startup.
+    trigger = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", f"{file}_{test_name}_trigger")
+    open(trigger, "w").close()
+    monkeypatch.setenv("LD_PRELOAD", PRELOAD_LIBRARY)
+    monkeypatch.setenv("MG_TEST_NO_SPACE_TRIGGER", trigger)
+    try:
+        interactive_mg_runner.start(instances, "instance_1")
+        monkeypatch.delenv("LD_PRELOAD")
 
+        # Receiving the snapshot runs out of space: the transfer is dropped instead of crashing the replica.
+        mg_sleep_and_assert(
+            True,
+            partial(log_contains, instances["instance_1"]["log_file"], "Couldn't write received file", snapshot_name),
+        )
+        assert interactive_mg_runner.MEMGRAPH_INSTANCES["instance_1"].is_running()
+        assert vertex_count(connect(host="localhost", port=7688).cursor()) == INITIAL_NODES
+    finally:
+        os.remove(trigger)
+
+    # With space again, the main's next attempt delivers the snapshot.
     mg_sleep_and_assert(expected_nodes, partial(vertex_count, connect(host="localhost", port=7688).cursor()))
 
     # The data reached the replica through the snapshot, not through WAL files.
