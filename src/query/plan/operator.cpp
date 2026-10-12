@@ -4326,8 +4326,7 @@ class KShortestPathsCursor : public Cursor {
   std::optional<VertexAccessor> current_target_;
 
   // The inner search skips these. Blocked edges are rebuilt for every deviation; blocked vertices
-  // are the root walked so far, so they only accumulate down the base path. There are no weights:
-  // `PathComparator` orders by hop count.
+  // are the root walked so far, so they only accumulate down the base path.
   utils::pmr::unordered_set<storage::Gid> blocked_edges_;
   utils::pmr::unordered_set<storage::Gid> blocked_vertices_;
   // Raw storage adjacency, kept across input rows (unlike `expansion_memo_`) so Yen's repeated inner
@@ -4414,8 +4413,8 @@ class KShortestPathsCursor : public Cursor {
   std::priority_queue<WeightedQueueEntry, utils::pmr::vector<WeightedQueueEntry>, WeightedQueueComparator> weighted_pq_;
   utils::pmr::vector<SearchTreeNode> search_tree_;
 
-  /// Per vertex, the Pareto front of settled `(depth, cost)` pairs. Without a hop cap every depth
-  /// folds to 0 and this is a plain visited set.
+  /// Per vertex, the settled `(depth, cost)` pairs no other one dominates: a Pareto front under a hop
+  /// cap, a single pair without one.
   using DepthCosts = utils::pmr::vector<std::pair<int64_t, TypedValue>>;
   utils::pmr::unordered_map<VertexAccessor, DepthCosts, VertexAccessorHash> settled_;
 
@@ -4806,21 +4805,30 @@ class KShortestPathsCursor : public Cursor {
     return it == reverse_dist_.end() ? TypedValue() : it->second;
   }
 
-  /// A state no deeper and no cheaper than one already settled can only lead to worse paths, so it
-  /// is dropped. That is also what keeps every returned path simple: coming back to a vertex costs
-  /// at least as much - weights are non-negative - and always takes more hops.
+  /// Whether a state settled at `(settled_depth, settled_cost)` rules out `(depth, cost)` at the same
+  /// vertex. One no deeper and no cheaper always does. Under a hop cap that is all: a cheaper but
+  /// deeper state may run out of hops. Without one, a cheaper state rules out every dearer one.
+  bool Dominates(int64_t settled_depth, const TypedValue &settled_cost, int64_t depth, const TypedValue &cost) const {
+    if (CostLess(cost, settled_cost)) return false;
+    if (settled_depth <= depth) return true;
+    return upper_bound_ == std::numeric_limits<int64_t>::max() && CostLess(settled_cost, cost);
+  }
+
+  /// A dominated state can only lead to worse paths, so it is dropped. That is also what keeps every
+  /// returned path simple: coming back to a vertex costs at least as much - weights are non-negative -
+  /// and always takes more hops.
   bool IsDominated(const VertexAccessor &vertex, int64_t depth, const TypedValue &cost) const {
     const auto it = settled_.find(vertex);
     if (it == settled_.end()) return false;
-    return std::ranges::any_of(
-        it->second, [&](const auto &entry) { return entry.first <= depth && !CostLess(cost, entry.second); });
+    return std::ranges::any_of(it->second,
+                               [&](const auto &entry) { return Dominates(entry.first, entry.second, depth, cost); });
   }
 
   void RecordSettled(const VertexAccessor &vertex, int64_t depth, const TypedValue &cost) {
     // No resource argument: the map's own uses-allocator construction gives the front the arena.
     auto [it, _] = settled_.try_emplace(vertex);
     // Whatever this state dominates can go, so the front stays as short as the depths in play.
-    std::erase_if(it->second, [&](const auto &entry) { return entry.first >= depth && !CostLess(entry.second, cost); });
+    std::erase_if(it->second, [&](const auto &entry) { return Dominates(depth, cost, entry.first, entry.second); });
     it->second.emplace_back(depth, cost);
   }
 
