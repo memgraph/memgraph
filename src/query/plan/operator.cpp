@@ -4429,7 +4429,7 @@ class KShortestPathsCursor : public Cursor {
     }
 
     // Seeds Yen's with the shortest path; the rest are deviations from it.
-    auto shortest_path = ComputeShortestPath(source, target, upper_bound_, frame, evaluator, context);
+    auto shortest_path = ComputeShortestPath(source, target, upper_bound_, TypedValue(), frame, evaluator, context);
     if (!shortest_path.edges.empty()) {
       // Recorded before it is reachable as a base path: `ComputeNextShortestPath` walks
       // `shortest_paths_.back()` down the trie and asserts the walk cannot miss.
@@ -4527,9 +4527,16 @@ class KShortestPathsCursor : public Cursor {
   void GenerateCandidatesFromDeviation(const VertexAccessor &target, const PathInfo &base_path, size_t deviation_index,
                                        const VertexAccessor &deviation_vertex, const TypedValue &root_weight,
                                        Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    // The candidate's total is `deviation_index + spur_len`, so the spur gets what's left of it.
-    auto spur_path = ComputeShortestPath(
-        deviation_vertex, target, upper_bound_ - static_cast<int64_t>(deviation_index), frame, evaluator, context);
+    // The candidate's total is `deviation_index + spur_len`, so the spur gets what's left of it. Under weights
+    // it starts from the root's cost, so a candidate's total is its path's weights added left to right, the
+    // same sum whichever deviation produced it.
+    auto spur_path = ComputeShortestPath(deviation_vertex,
+                                         target,
+                                         upper_bound_ - static_cast<int64_t>(deviation_index),
+                                         root_weight,
+                                         frame,
+                                         evaluator,
+                                         context);
 
     if (spur_path.edges.empty()) return;
 
@@ -4540,9 +4547,7 @@ class KShortestPathsCursor : public Cursor {
                                 base_path.edges.begin() + static_cast<std::ptrdiff_t>(deviation_index));
     candidate_path.edges.insert(candidate_path.edges.end(), spur_path.edges.begin(), spur_path.edges.end());
     candidate_path.deviation_vertex_index = deviation_index;
-    if constexpr (Cost::kWeighted) {
-      candidate_path.cost.total = AddCost(root_weight, spur_path.cost.total);
-    }
+    if constexpr (Cost::kWeighted) candidate_path.cost.total = std::move(spur_path.cost.total);
 
     candidate_paths_.push_back(std::move(candidate_path));
     std::ranges::push_heap(candidate_paths_, PathComparator{});
@@ -4653,10 +4658,12 @@ class KShortestPathsCursor : public Cursor {
   }
 
   PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
-                               Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
+                               const TypedValue &start_cost, Frame &frame, ExpressionEvaluator &evaluator,
+                               ExecutionContext &context) {
     if constexpr (Cost::kWeighted) {
-      return ComputeShortestPathWeighted(source, target, upper_bound, frame, evaluator, context);
+      return ComputeShortestPathWeighted(source, target, upper_bound, start_cost, frame, evaluator, context);
     } else {
+      (void)start_cost;
       return ComputeShortestPathBfs(source, target, upper_bound, frame, evaluator, context);
     }
   }
@@ -4933,17 +4940,19 @@ class KShortestPathsCursor : public Cursor {
   /// Yen's spur search under weights: A* from `source`, over the graph minus `blocked_edges_` and
   /// `blocked_vertices_`, with the reverse tree as the heuristic. Blocking only raises true
   /// distances, so that heuristic stays admissible and consistent and the first pop of the target
-  /// is optimal. `upper_bound` is the hop budget this spur has left.
+  /// is optimal. `upper_bound` is the hop budget this spur has left, and `start_cost` the cost of the root it
+  /// extends, so the path it returns carries its full total.
   PathInfo ComputeShortestPathWeighted(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
-                                       Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
+                                       const TypedValue &start_cost, Frame &frame, ExpressionEvaluator &evaluator,
+                                       ExecutionContext &context) {
     auto *memory = evaluator.GetMemoryResource();
     if (source == target) return PathInfo(memory);
     // Absent from the reverse tree means no walk from here reaches the target at all.
     if (!reverse_dist_.contains(source)) return PathInfo(memory);
 
     ClearWeightedSearchState();
-    weighted_pq_.push(WeightedQueueEntry{.priority = Heuristic(source),
-                                         .cost = TypedValue(),
+    weighted_pq_.push(WeightedQueueEntry{.priority = AddCost(start_cost, Heuristic(source)),
+                                         .cost = start_cost,
                                          .depth = 0,
                                          .vertex = source,
                                          .in_edge = std::nullopt,
