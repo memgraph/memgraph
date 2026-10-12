@@ -4852,7 +4852,9 @@ class KShortestPathsCursor : public Cursor {
   /// One reverse Dijkstra from the target per input row, over the whole graph this row's filters
   /// leave - Yen's blocked sets are deliberately ignored. An arc `u -> v` of the forward search is
   /// walked here from `v`, and its weight and filter verdict are read in the forward sense, so the
-  /// tree agrees with the spur searches edge for edge.
+  /// tree agrees with the spur searches edge for edge. It weighs every arc that can reach the target,
+  /// so an invalid weight raises an error even on an arc no path from the source takes, unless the
+  /// filter lambda or an access check rules the arc out first.
   void BuildReverseTree(const VertexAccessor &target, Frame &frame, ExpressionEvaluator &evaluator,
                         ExecutionContext &context) {
     ClearWeightedSearchState();
