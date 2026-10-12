@@ -11514,6 +11514,129 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 }
 }  // namespace
 
+// An auth transaction buffered its writes and its replication actions instead of applying them per statement.
+// Flush it here, under a system transaction created only now, so the system mutex covers the flush rather than
+// the whole time the user held the transaction open.
+void Interpreter::CommitAuthTransaction() {
+  // Covers every exit of this block, a throw included. On a throw it also drops `system_transaction_`, which
+  // would otherwise hold the system mutex until the session next aborts, refusing every other session's
+  // system queries meanwhile.
+  //
+  // On the way out normally, the claim is never given back here. Letting go would put the status back to
+  // ACTIVE before the transaction is retired, and a terminate landing in between would report a kill for a
+  // transaction that has already committed, which is the false kill the claim exists to prevent. Whatever
+  // retires the transaction below, `clean_status` or `FinishAutocommitNothing`, starts from
+  // STARTED_COMMITTING instead.
+  //
+  // The status half is a no-op until the claim below lands, since only STARTED_COMMITTING is ours to give
+  // back.
+  utils::OnScopeExit const clear_auth_tx([this, entry_exceptions = std::uncaught_exceptions()]() {
+    auth_transaction_.reset();
+    // Deferring to whatever retires the transaction is only safe when the commit reaches it. An exception
+    // leaving this block skips both, and the claim would be stranded: nothing else gives it back,
+    // `TERMINATE TRANSACTIONS` cannot mark a status that is not ACTIVE, and `TERMINATE SESSIONS`
+    // (`InterpreterContext::TerminateSessions`) leaves STARTED_COMMITTING to the committing thread that has
+    // already gone. Unwinding therefore always releases here, to ACTIVE: a failed commit leaves the transaction
+    // open until ROLLBACK, as a failed statement does, so it stays listed and terminable. Abort() accepts it.
+    // The COMMIT handler marks that only for a BasicException, and the auth transaction is already gone, so
+    // a second COMMIT after any other exception would report success for nothing.
+    if (std::uncaught_exceptions() == entry_exceptions) return;
+    expect_rollback_ = true;
+    system_transaction_.reset();
+    auto expected = TransactionStatus::STARTED_COMMITTING;
+    while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::ACTIVE)) {
+      if (expected == TransactionStatus::VERIFYING) {
+        // A verifier holds the status and restores STARTED_COMMITTING when it is done reading.
+        expected = TransactionStatus::STARTED_COMMITTING;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        continue;
+      }
+      // A weak compare-exchange can fail spuriously, leaving `expected` at the value it hoped for.
+      if (expected == TransactionStatus::STARTED_COMMITTING) continue;
+      // Never claimed: the claim below threw before it landed. Nothing to give back.
+      break;
+    }
+  });
+
+  // Termination is cooperative: TERMINATE TRANSACTIONS only marks the status, and refusing to go ahead is the
+  // committer's job. The data path does this below; an auth transaction released its accessor and never gets
+  // there, so it has to refuse for itself, before the flush makes anything durable.
+  //
+  // Claiming the status, rather than only reading it, is what makes the refusal binding: a terminate
+  // arriving after this point fails its ACTIVE -> VERIFYING compare-exchange and reports that it killed
+  // nothing, instead of reporting a kill for a transaction that goes on to commit. VERIFYING means a
+  // terminator is mid-decision, so wait for the answer rather than reading past it: it resolves to
+  // TERMINATED or back to ACTIVE within one call.
+  auto claimed = TransactionStatus::ACTIVE;
+  while (!transaction_status_.compare_exchange_weak(claimed, TransactionStatus::STARTED_COMMITTING)) {
+    if (claimed == TransactionStatus::TERMINATED) {
+      throw memgraph::utils::BasicException(
+          "Aborting transaction commit because the transaction was requested to stop from other session. ");
+    }
+    claimed = TransactionStatus::ACTIVE;
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+  // A coordinator commits role changes through Raft and has no replication state for a system transaction to
+  // reach into, so it must not take one. Mirrors the suppression in Prepare. A coordinator has no database, so
+  // it cannot BEGIN and reach here; this guards against that changing.
+  bool const on_coordinator =
+#ifdef MG_ENTERPRISE
+      interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator();
+#else
+      false;
+#endif
+  // Only a transaction with something to replicate needs the system transaction, and taking one blocks every
+  // other system query for as long as it is held. A read-only auth transaction would otherwise be refused
+  // outright while another session held one, for a commit that publishes nothing.
+  //
+  // The list is also empty for every auth transaction in a community build, because the actions that would
+  // populate it are compiled out there along with the rest of the enterprise auth surface. That is correct
+  // rather than incidental: a community build has no auth delta to send.
+  // Failing here costs the user the whole transaction, not one statement: the throw leaves through
+  // AbortCommand, which sets `expect_rollback_`, and the buffered work goes with it. It is therefore reported
+  // as a serialization error, which a driver retries by running the transaction again, rather than as the
+  // concurrent-system-query error a single statement gets. `kSystemTxTryMS` is a fixed 100ms shared with the
+  // single-statement path above, and is usually shorter than the lock is held, because the holder keeps it
+  // across replication. A longer wait would need to stay interruptible, and to apply at both call sites.
+#ifdef MG_ENTERPRISE
+  bool const names_databases = !auth_transaction_->named_databases().empty();
+#else
+  bool const names_databases = false;
+#endif
+  if (!system_transaction_ && !on_coordinator && (!auth_transaction_->pending_actions().empty() || names_databases)) {
+    system_transaction_ =
+        interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
+    if (!system_transaction_) throw TransactionSerializationException();
+  }
+#ifdef MG_ENTERPRISE
+  // DROP DATABASE needs the system transaction held here, so a database that exists now still exists when the
+  // overlay flushes.
+  try {
+    for (auto const &db : auth_transaction_->named_databases()) interpreter_context_->dbms_handler->Get(db);
+  } catch (dbms::UnknownDatabaseException const &e) {
+    throw QueryRuntimeException(e.what());
+  }
+#endif
+  // The role is checked only when a statement is prepared, and an auth transaction holds no accessor for a
+  // demotion to wait on, so it is checked again here. The lock is taken after the system transaction, in the
+  // order SET REPLICATION ROLE takes them. A demotion takes it with TryLock, so it fails rather than waits
+  // while the check runs. The lock is released before the system transaction commits, which needs the write
+  // lock, so a demotion can still land between the two; the change is then durable here and not replicated,
+  // as it is for an autocommit system query.
+  std::optional<decltype(interpreter_context_->repl_state->ReadLock())> locked_repl_state;
+  if (!on_coordinator && auth_transaction_->HasWrites()) {
+    locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
+  }
+  bool const demoted = locked_repl_state && !(*locked_repl_state)->IsMain();
+  bool const committed =
+      !demoted && interpreter_context_->auth->CommitTransaction(*auth_transaction_, system_transaction_ptr());
+  locked_repl_state.reset();
+  if (!committed) {
+    if (demoted) throw QueryException("Cannot commit because instance is not main anymore.");
+    throw TransactionSerializationException();
+  }
+}
+
 void Interpreter::Commit() {
 #ifdef MG_ENTERPRISE
   if (user_resource_ && current_db_.db_transactional_accessor_) {
@@ -11536,129 +11659,7 @@ void Interpreter::Commit() {
   // We should document clearly that all results should be pulled to complete
   // a query.
   if (!current_db_.db_transactional_accessor_ || !current_db_.db_acc_) {
-    // An auth transaction buffered its writes and its replication actions instead of applying them per statement.
-    // Flush it here, under a system transaction created only now, so the system mutex covers the flush rather than
-    // the whole time the user held the transaction open.
-    if (auth_transaction_) {
-      // Covers every exit of this block, a throw included. On a throw it also drops `system_transaction_`, which
-      // would otherwise hold the system mutex until the session next aborts, refusing every other session's
-      // system queries meanwhile.
-      //
-      // On the way out normally, the claim is never given back here. Letting go would put the status back to
-      // ACTIVE before the transaction is retired, and a terminate landing in between would report a kill for a
-      // transaction that has already committed, which is the false kill the claim exists to prevent. Whatever
-      // retires the transaction below, `clean_status` or `FinishAutocommitNothing`, starts from
-      // STARTED_COMMITTING instead.
-      //
-      // The status half is a no-op until the claim below lands, since only STARTED_COMMITTING is ours to give
-      // back.
-      utils::OnScopeExit const clear_auth_tx([this, entry_exceptions = std::uncaught_exceptions()]() {
-        auth_transaction_.reset();
-        // Deferring to whatever retires the transaction is only safe when the commit reaches it. An exception
-        // leaving this block skips both, and the claim would be stranded: nothing else gives it back,
-        // `TERMINATE TRANSACTIONS` cannot mark a status that is not ACTIVE, and `TERMINATE SESSIONS`
-        // (`InterpreterContext::TerminateSessions`) leaves STARTED_COMMITTING to the committing thread that has
-        // already gone. Unwinding therefore always releases here, to ACTIVE: a failed commit leaves the transaction
-        // open until ROLLBACK, as a failed statement does, so it stays listed and terminable. Abort() accepts it.
-        // The COMMIT handler marks that only for a BasicException, and the auth transaction is already gone, so
-        // a second COMMIT after any other exception would report success for nothing.
-        if (std::uncaught_exceptions() == entry_exceptions) return;
-        expect_rollback_ = true;
-        system_transaction_.reset();
-        auto expected = TransactionStatus::STARTED_COMMITTING;
-        while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::ACTIVE)) {
-          if (expected == TransactionStatus::VERIFYING) {
-            // A verifier holds the status and restores STARTED_COMMITTING when it is done reading.
-            expected = TransactionStatus::STARTED_COMMITTING;
-            std::this_thread::sleep_for(std::chrono::milliseconds(1));
-            continue;
-          }
-          // A weak compare-exchange can fail spuriously, leaving `expected` at the value it hoped for.
-          if (expected == TransactionStatus::STARTED_COMMITTING) continue;
-          // Never claimed: the claim below threw before it landed. Nothing to give back.
-          break;
-        }
-      });
-
-      // Termination is cooperative: TERMINATE TRANSACTIONS only marks the status, and refusing to go ahead is the
-      // committer's job. The data path does this below; an auth transaction released its accessor and never gets
-      // there, so it has to refuse for itself, before the flush makes anything durable.
-      //
-      // Claiming the status, rather than only reading it, is what makes the refusal binding: a terminate
-      // arriving after this point fails its ACTIVE -> VERIFYING compare-exchange and reports that it killed
-      // nothing, instead of reporting a kill for a transaction that goes on to commit. VERIFYING means a
-      // terminator is mid-decision, so wait for the answer rather than reading past it: it resolves to
-      // TERMINATED or back to ACTIVE within one call.
-      auto claimed = TransactionStatus::ACTIVE;
-      while (!transaction_status_.compare_exchange_weak(claimed, TransactionStatus::STARTED_COMMITTING)) {
-        if (claimed == TransactionStatus::TERMINATED) {
-          throw memgraph::utils::BasicException(
-              "Aborting transaction commit because the transaction was requested to stop from other session. ");
-        }
-        claimed = TransactionStatus::ACTIVE;
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
-      }
-      // A coordinator commits role changes through Raft and has no replication state for a system transaction to
-      // reach into, so it must not take one. Mirrors the suppression in Prepare. A coordinator has no database, so
-      // it cannot BEGIN and reach here; this guards against that changing.
-      bool const on_coordinator =
-#ifdef MG_ENTERPRISE
-          interpreter_context_->coordinator_state_ && interpreter_context_->coordinator_state_->IsCoordinator();
-#else
-          false;
-#endif
-      // Only a transaction with something to replicate needs the system transaction, and taking one blocks every
-      // other system query for as long as it is held. A read-only auth transaction would otherwise be refused
-      // outright while another session held one, for a commit that publishes nothing.
-      //
-      // The list is also empty for every auth transaction in a community build, because the actions that would
-      // populate it are compiled out there along with the rest of the enterprise auth surface. That is correct
-      // rather than incidental: a community build has no auth delta to send.
-      // Failing here costs the user the whole transaction, not one statement: the throw leaves through
-      // AbortCommand, which sets `expect_rollback_`, and the buffered work goes with it. It is therefore reported
-      // as a serialization error, which a driver retries by running the transaction again, rather than as the
-      // concurrent-system-query error a single statement gets. `kSystemTxTryMS` is a fixed 100ms shared with the
-      // single-statement path above, and is usually shorter than the lock is held, because the holder keeps it
-      // across replication. A longer wait would need to stay interruptible, and to apply at both call sites.
-#ifdef MG_ENTERPRISE
-      bool const names_databases = !auth_transaction_->named_databases().empty();
-#else
-      bool const names_databases = false;
-#endif
-      if (!system_transaction_ && !on_coordinator &&
-          (!auth_transaction_->pending_actions().empty() || names_databases)) {
-        system_transaction_ =
-            interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
-        if (!system_transaction_) throw TransactionSerializationException();
-      }
-#ifdef MG_ENTERPRISE
-      // DROP DATABASE needs the system transaction held here, so a database that exists now still exists when the
-      // overlay flushes.
-      try {
-        for (auto const &db : auth_transaction_->named_databases()) interpreter_context_->dbms_handler->Get(db);
-      } catch (dbms::UnknownDatabaseException const &e) {
-        throw QueryRuntimeException(e.what());
-      }
-#endif
-      // The role is checked only when a statement is prepared, and an auth transaction holds no accessor for a
-      // demotion to wait on, so it is checked again here. The lock is taken after the system transaction, in the
-      // order SET REPLICATION ROLE takes them. A demotion takes it with TryLock, so it fails rather than waits
-      // while the check runs. The lock is released before the system transaction commits, which needs the write
-      // lock, so a demotion can still land between the two; the change is then durable here and not replicated,
-      // as it is for an autocommit system query.
-      std::optional<decltype(interpreter_context_->repl_state->ReadLock())> locked_repl_state;
-      if (!on_coordinator && auth_transaction_->HasWrites()) {
-        locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
-      }
-      bool const demoted = locked_repl_state && !(*locked_repl_state)->IsMain();
-      bool const committed =
-          !demoted && interpreter_context_->auth->CommitTransaction(*auth_transaction_, system_transaction_ptr());
-      locked_repl_state.reset();
-      if (!committed) {
-        if (demoted) throw QueryException("Cannot commit because instance is not main anymore.");
-        throw TransactionSerializationException();
-      }
-    }
+    if (auth_transaction_) CommitAuthTransaction();
 
     // No database nor db transaction; check for system transaction
     if (!system_transaction_) {

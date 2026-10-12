@@ -802,6 +802,7 @@ class Interpreter final {
 
   PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
   void Commit();
+  void CommitAuthTransaction();
   // Resets tx-tracking left ACTIVE by SetupInterpreterTransaction when NOTHING skips Commit()/Abort()'s cleanup.
   void FinishAutocommitNothing();
   void AdvanceCommand();
