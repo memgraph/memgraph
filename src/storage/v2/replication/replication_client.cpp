@@ -941,56 +941,61 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 // Keeps the WAL stable while reading seq and toggling flushing.
                 auto commit_serializer = main_mem_storage->LockCommitMutexIfNarrowing();
                 std::unique_lock transaction_guard(main_mem_storage->engine_lock_);
-                if (main_mem_storage->wal_file_ &&
-                    main_mem_storage->wal_file_->SequenceNumber() == current_wal.current_wal_seq_num) {
-                  utils::OnScopeExit const on_exit(
-                      [main_mem_storage]() { main_mem_storage->wal_file_->EnableFlushing(); });
-                  main_mem_storage->wal_file_->DisableFlushing();
-                  transaction_guard.unlock();
-                  commit_serializer.reset();
-                  spdlog::debug("Sending current wal file to {} for db {}.", client_.name_, main_db_name);
-
-                  auto const maybe_response = TransferDurabilityFiles<replication::CurrentWalRpc>(
-                      main_mem_storage->wal_file_->Path(),
-                      rpcClient,
-                      main_mem_storage->config_.durability.root_data_directory,
-                      repl_mode,
-                      client_.name_,
-                      utils::PageCachePolicy::kKeep,
-                      main_uuid,
-                      main_mem_storage->uuid(),
-                      do_reset);
-                  // Error happened on our side when trying to load current WAL file
-                  if (!maybe_response) {
-                    recovery_failed = true;
-                    return;
-                  }
-
-                  if (auto const &response = *maybe_response; response.current_commit_timestamp_.has_value()) {
-                    replica_last_commit_ts = *(response.current_commit_timestamp_);
-                    auto update_func =
-                        [operand = response.num_txns_committed_](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-                      return {.ldt_ = commit_ts_info.ldt_,
-                              .num_committed_txns_ = commit_ts_info.num_committed_txns_ + operand};
-                    };
-                    atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-                    spdlog::debug(
-                        "Successful reply to the current WAL received from {} for db {}. Current replica commit is {}. "
-                        "Number of committed txns increased by {}",
-                        client_.name_,
-                        main_db_name,
-                        replica_last_commit_ts,
-                        response.num_txns_committed_);
-                  } else {
-                    spdlog::debug(
-                        "Unsuccessful reply to WAL files received from {} for db {}. Current replica commit is {}",
-                        client_.name_,
-                        main_db_name,
-                        replica_last_commit_ts);
-                    recovery_failed = true;
-                  }
-                } else {
+                auto *const current_wal_file = main_mem_storage->wal_file_.get();
+                if (current_wal_file == nullptr ||
+                    current_wal_file->SequenceNumber() != current_wal.current_wal_seq_num) {
                   spdlog::debug("Cannot recover using current wal file {} for db {}.", client_.name_, main_db_name);
+                  return;
+                }
+                // Flushing is disabled while engine_lock_ is held and stays disabled for the whole transfer.
+                // Every path that finalizes or destroys the current WAL first takes the flush lock exclusively,
+                // so the WalFile and the path captured here outlive the transfer although engine_lock_ is
+                // released below. wal_file_ itself is not read again without the lock.
+                current_wal_file->DisableFlushing();
+                utils::OnScopeExit const on_exit([current_wal_file]() { current_wal_file->EnableFlushing(); });
+                auto const current_wal_path = current_wal_file->Path();
+                transaction_guard.unlock();
+                commit_serializer.reset();
+                spdlog::debug("Sending current wal file to {} for db {}.", client_.name_, main_db_name);
+
+                auto const maybe_response = TransferDurabilityFiles<replication::CurrentWalRpc>(
+                    current_wal_path,
+                    rpcClient,
+                    main_mem_storage->config_.durability.root_data_directory,
+                    repl_mode,
+                    client_.name_,
+                    utils::PageCachePolicy::kKeep,
+                    main_uuid,
+                    main_mem_storage->uuid(),
+                    do_reset);
+                // Error happened on our side when trying to load current WAL file
+                if (!maybe_response) {
+                  recovery_failed = true;
+                  return;
+                }
+
+                if (auto const &response = *maybe_response; response.current_commit_timestamp_.has_value()) {
+                  replica_last_commit_ts = *(response.current_commit_timestamp_);
+                  auto update_func =
+                      [operand = response.num_txns_committed_](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+                    return {.ldt_ = commit_ts_info.ldt_,
+                            .num_committed_txns_ = commit_ts_info.num_committed_txns_ + operand};
+                  };
+                  atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+                  spdlog::debug(
+                      "Successful reply to the current WAL received from {} for db {}. Current replica commit is {}. "
+                      "Number of committed txns increased by {}",
+                      client_.name_,
+                      main_db_name,
+                      replica_last_commit_ts,
+                      response.num_txns_committed_);
+                } else {
+                  spdlog::debug(
+                      "Unsuccessful reply to WAL files received from {} for db {}. Current replica commit is {}",
+                      client_.name_,
+                      main_db_name,
+                      replica_last_commit_ts);
+                  recovery_failed = true;
                 }
               },
               []<typename T>(T const &) { static_assert(utils::always_false<T>, "Missing type from variant visitor"); },
