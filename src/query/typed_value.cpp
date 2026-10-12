@@ -707,6 +707,12 @@ TypedValue::operator storage::ExternalPropertyValue() const {
 }
 
 void TypedValue::CopyComplexValue(TypedValue const &other) {
+  // Reaching here for a type that owns no allocation would be merely wasteful; being skipped for
+  // one that does would copy a pointer and later free it twice. The check sits in a member body
+  // because that is the first point the class is complete enough to evaluate it.
+  static_assert(HandlingAgreesWithDeclarationOrder(),
+                "the declaration order no longer groups the types the way the predicates read it");
+
   switch (other.type_) {
     case TypedValue::Type::Null:
     case TypedValue::Type::Bool:
