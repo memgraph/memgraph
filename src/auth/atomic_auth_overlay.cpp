@@ -12,6 +12,7 @@
 #include "auth/atomic_auth_overlay.hpp"
 
 #include <algorithm>
+#include <ranges>
 #include <utility>
 
 #include "auth/exceptions.hpp"
@@ -166,9 +167,10 @@ AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const &overlay, std::str
     }
     write_it_ = overlay_->write_set_.lower_bound(prefix_);
     write_end_ = overlay_->write_set_.end();
-    own_delete_under_prefix_ = std::any_of(write_it_, write_end_, [this](auto const &entry) {
-      return entry.first.starts_with(prefix_) && !entry.second.has_value();
-    });
+    own_delete_under_prefix_ = std::ranges::any_of(
+        std::ranges::subrange(write_it_, write_end_) |
+            std::views::take_while([this](auto const &entry) { return entry.first.starts_with(prefix_); }),
+        [](auto const &entry) { return !entry.second.has_value(); });
     Advance();
   }
 }
