@@ -24,6 +24,8 @@
 #include "utils/synchronized.hpp"
 #include "utils/uuid.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <concepts>
 #include <expected>
 #include <future>
@@ -259,6 +261,10 @@ class ReplicationStorageClient {
    */
   void LogRpcFailure() const;
 
+  // True when an ASYNC replica may start another recovery round: the configured interval has passed since the
+  // previous round ended, the interval is disabled, or no round has run yet.
+  bool AsyncRecoveryIntervalElapsed() const;
+
   // Retires the RPC connection for a tenant that is being dropped: resets the stream so ~StreamHandler
   // does not leave the socket mid-read, aborts the RPC client to close the socket (framing correctness),
   // and marks the replica MAYBE_BEHIND. Each call site still returns its own std::unexpected.
@@ -276,6 +282,9 @@ class ReplicationStorageClient {
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
   mutable std::atomic<CommitTsInfo> commit_ts_info_;
+  // When the last recovery round of this replica ended. ASYNC replicas are not recovered again before
+  // replication_async_recovery_interval_sec has passed since then.
+  mutable std::atomic<std::chrono::steady_clock::time_point> last_recovery_end_{};
   const utils::UUID main_uuid_;
 };
 

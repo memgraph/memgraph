@@ -223,6 +223,11 @@ startup_config_dict = {
         "",
         "Directory where modules with custom query procedures are stored. NOTE: Multiple comma-separated directories can be defined.",
     ),
+    "replication_async_recovery_interval_sec": (
+        "10",
+        "10",
+        "Minimum number of seconds between two recovery rounds of an ASYNC replica. Each round ships the durability files the replica is missing, so this bounds how often MAIN re-sends its current WAL under sustained writes. 0 recovers as soon as the replica is seen behind.",
+    ),
     "replication_replica_check_frequency_sec": (
         "1",
         "1",
