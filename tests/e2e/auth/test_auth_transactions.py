@@ -44,7 +44,7 @@ def cursor():
         pass
     for user in usernames(cur):
         try:
-            execute(cur, f"DROP USER {user}")
+            execute(cur, f"DROP USER `{user}`")
         except Exception:
             pass
 
@@ -301,6 +301,40 @@ def test_show_transactions_masks_a_password_in_an_open_auth_transaction(cursor):
 
     assert "CREATE USER x" in shown
     assert "hunter2" not in shown
+
+
+@pytest.mark.parametrize(
+    "user, statement",
+    [
+        ("`bob-1`", "SET PASSWORD FOR `bob-1` TO 'hunter2'"),
+        ("`bob.x`", "SET PASSWORD FOR `bob.x` TO 'hunter2'"),
+        ("bob", "SET PASSWORD FOR bob /*c*/ TO 'hunter2'"),
+        (None, "CREATE USER carol IDENTIFIED /*x*/ BY 'hunter2'"),
+        (None, "CREATE USER dave IDENTIFIED /*x*/ BY 'hun\\'ter2'"),
+    ],
+)
+def test_show_transactions_masks_a_password_the_masker_does_not_recognise(cursor, user, statement):
+    # The masker knows the usual spellings only; anything it misses must not reach the listing either.
+    watcher = transaction_watcher(cursor)
+    if user:
+        execute(cursor, f"CREATE USER {user}")
+
+    execute(cursor, "BEGIN")
+    execute(cursor, statement)
+    shown = str(execute(watcher, "SHOW TRANSACTIONS"))
+
+    assert "ter2" not in shown
+
+
+def test_show_transactions_keeps_a_recognised_statement_as_written(cursor):
+    watcher = transaction_watcher(cursor)
+    execute(cursor, "CREATE USER bob")
+
+    execute(cursor, "BEGIN")
+    execute(cursor, "SET PASSWORD FOR bob TO 'hunter2'")
+    shown = str(execute(watcher, "SHOW TRANSACTIONS"))
+
+    assert "SET PASSWORD FOR bob TO '****'" in shown
 
 
 def test_show_transactions_shows_a_data_statement_as_written(cursor):

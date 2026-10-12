@@ -10579,11 +10579,20 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   auto &parsed_query = parse_info.parsed_query;
 
   // SHOW TRANSACTIONS lists this text. Auth statements carry passwords, so theirs is masked; any other statement is
-  // shown as written, since the masker can misread ordinary text as a credential.
-  auto shown_query =
-      utils::Downcast<AuthQuery>(parsed_query.query)
-          ? logging::MaskSensitiveInformation(parsed_query.query_string).value_or(parsed_query.query_string)
-          : parsed_query.query_string;
+  // shown as written, since the masker can misread ordinary text as a credential. The masker matches the usual
+  // spellings only, and in an auth statement every string literal is a password, so one it left showing falls back
+  // to the stripped text, which replaces every literal.
+  auto shown_query = std::invoke([&]() -> std::string {
+    if (!utils::Downcast<AuthQuery>(parsed_query.query)) return parsed_query.query_string;
+    auto masked = logging::MaskSensitiveInformation(parsed_query.query_string);
+    bool const leaks = std::ranges::any_of(parsed_query.stripped_query.literals(), [&](auto const &literal) {
+      auto const &value = literal.second;
+      // A literal written with escapes reads differently in the text, so finding nothing to mask is a leak too.
+      return value.IsString() && (!masked || (!value.ValueString().empty() && masked->contains(value.ValueString())));
+    });
+    if (leaks) return parsed_query.stripped_query.stripped_query().str();
+    return masked ? *std::move(masked) : parsed_query.query_string;
+  });
 
   // All queries other than transaction control queries advance the command in
   // an explicit transaction block.
