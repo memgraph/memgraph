@@ -3311,19 +3311,13 @@ TEST_P(CypherMainVisitorTest, KShortestNumericWeightLambdaParses) {
   }
 }
 
-// The weighted and all shortest path expansions have no such form either; before, the extra
-// argument only surfaced as an unbound variable.
-TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestWeightLambdaWithAccumulatedPath) {
+// The weighted and all shortest path expansions keep accepting an extra argument the body does not read.
+TEST_P(CypherMainVisitorTest, WShortestWeightLambdaAcceptsUnreadAccumulatedPath) {
   auto &ast_generator = *GetParam();
   for (const auto *type : {"wShortest", "allShortest"}) {
     SCOPED_TRACE(type);
-    try {
-      ast_generator.ParseQuery(fmt::format("MATCH ()-[r:type1 *{} (e, n, p | e.w) total]->() RETURN r", type));
-      ADD_FAILURE() << "Expected the accumulated path to be rejected in a weight lambda";
-    } catch (const SemanticException &e) {
-      EXPECT_EQ(std::string(e.what()),
-                "The lambda for calculating weights cannot take the accumulated path or the accumulated weight.");
-    }
+    EXPECT_NO_THROW(
+        ast_generator.ParseQuery(fmt::format("MATCH ()-[r:type1 *{} (e, n, p | e.w) total]->() RETURN r", type)));
   }
 }
 

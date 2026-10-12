@@ -3697,17 +3697,14 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         anonymous_identifiers.push_back(&edge->total_weight_);
       }
     };
-    // No expansion evaluates the weight lambda against a path; it sees one edge and the node that
-    // edge reaches. Named here rather than left to the unbound-variable error the extra argument
-    // would otherwise raise.
+    // A v3.13 KSHORTEST filter `(e, n, p | ...)` now parses as the weight lambda, which sees one edge and
+    // the node it reaches, never a path. The weighted and all shortest path expansions keep accepting an
+    // extra argument the body does not read.
     auto reject_accumulators_in_weight_lambda = [&]() {
-      if (edge->weight_lambda_.accumulated_path) {
-        constexpr std::string_view kText =
-            "The lambda for calculating weights cannot take the accumulated path or the accumulated weight.";
-        if (edge->type_ == EdgeAtom::Type::KSHORTEST) {
-          throw SemanticException("{} {}", kText, EdgeAtom::kKShortestWeightFirstHint);
-        }
-        throw SemanticException("{}", kText);
+      if (edge->type_ == EdgeAtom::Type::KSHORTEST && edge->weight_lambda_.accumulated_path) {
+        throw SemanticException(
+            "The lambda for calculating weights cannot take the accumulated path or the accumulated weight. {}",
+            EdgeAtom::kKShortestWeightFirstHint);
       }
     };
     // A bidirectional search reusing inner searches has no one path leading to the tested edge, and
