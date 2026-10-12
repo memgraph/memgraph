@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <tuple>
 
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -76,7 +77,7 @@ void Encoder<FileType>::Close() {
 template <typename FileType>
 void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
   // Running out of space is remembered by the file and reported by Sync, Finalize or AppendFrom.
-  (void)file_.Write(data, size);
+  std::ignore = file_.Write(data, size);
   logical_position_ += size;
   logical_size_ = std::max(logical_size_, logical_position_);
   crc_acc.Update(data, size);

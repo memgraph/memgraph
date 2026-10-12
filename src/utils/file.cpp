@@ -25,6 +25,7 @@
 #include <mutex>
 #include <ranges>
 #include <thread>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -541,7 +542,7 @@ size_t OutputFile::GetPosition() { return SetPosition(Position::RELATIVE_TO_CURR
 
 size_t OutputFile::SetPosition(Position position, ssize_t offset) {
   // A failed flush is remembered and reported by the next Write or Sync.
-  (void)FlushBuffer();
+  std::ignore = FlushBuffer();
   return SeekFile(position, offset);
 }
 
@@ -638,7 +639,7 @@ void OutputFile::DropCachedPages() const { WarnIfPagesKept(utils::DropCachedPage
 
 void OutputFile::Close() noexcept {
   // Running out of space here is logged by the flush itself; nothing more can be done about it while closing.
-  (void)FlushBuffer();
+  std::ignore = FlushBuffer();
 
   int ret = 0;
   while (true) {
@@ -758,7 +759,7 @@ size_t OutputFile::GetSize() {
 void OutputFile::TryFlushing() {
   if (std::unique_lock guard(flush_lock_, std::try_to_lock); guard.owns_lock()) {
     // A failed flush is remembered and reported by the next Write or Sync.
-    (void)FlushBufferInternal();
+    std::ignore = FlushBufferInternal();
   }
 }
 
@@ -872,7 +873,7 @@ size_t NonConcurrentOutputFile::GetPosition() { return SetPosition(Position::REL
 
 size_t NonConcurrentOutputFile::SetPosition(Position position, ssize_t offset) {
   // A failed flush is remembered and reported by the next Write or Sync.
-  (void)FlushBuffer();
+  std::ignore = FlushBuffer();
   return SeekFile(position, offset);
 }
 
@@ -955,7 +956,7 @@ std::expected<void, FileWriteError> NonConcurrentOutputFile::Sync() {
 
 void NonConcurrentOutputFile::Close() noexcept {
   // Running out of space here is logged by the flush itself; nothing more can be done about it while closing.
-  (void)FlushBuffer();
+  std::ignore = FlushBuffer();
 
   int ret = 0;
   while (true) {
