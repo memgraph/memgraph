@@ -347,3 +347,22 @@ Feature: KSHORTEST weight lambda
         Then the result should be:
             | paths                                                                                                                      |
             | [[['E', 'A', 'C', 'B'], 12], [['E', 'A', 'C', 'B'], 13], [['E', 'F', 'D', 'C', 'B'], 13], [['E', 'F', 'D', 'C', 'B'], 14]] |
+
+    # Every 3-hop path weighs 0.3 + 0.1 + 0.5. Added left to right that is 0.9; added from the end it is
+    # 0.8999999999999999. Each path's total must be the left-to-right sum, whichever deviation found it.
+    Scenario: Weighted KSHORTEST totals are the same sum for the same weights
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:N {id: 0}), (b:N {id: 1}), (c:N {id: 2}), (t:N {id: 3}),
+                   (a)-[:R {w: 0.3}]->(b), (a)-[:R {w: 0.3}]->(b), (b)-[:R {w: 0.1}]->(c), (b)-[:R {w: 0.1}]->(c),
+                   (c)-[:R {w: 0.5}]->(t), (c)-[:R {w: 0.5}]->(t), (a)-[:R {w: 0.9}]->(t)
+            """
+        When executing query:
+            """
+            MATCH (a:N {id: 0}), (t:N {id: 3}) WITH a, t
+            MATCH p=(a)-[:R *KSHORTEST (e, n | e.w) total]->(t) RETURN collect(total) AS totals
+            """
+        Then the result should be:
+            | totals                                            |
+            | [0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9]     |
