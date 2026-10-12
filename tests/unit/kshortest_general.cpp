@@ -274,6 +274,22 @@ TEST_F(WeightedKShortestCasesInMemory, WeightErrorTexts) { db_->KShortestWeighte
 
 TEST_F(WeightedKShortestCasesInMemory, IntOverflow) { db_->KShortestWeightedTestIntOverflow(db_.get()); }
 
+TEST_F(WeightedKShortestCasesInMemory, ConstantLiteralWeightRunsHopCursor) {
+  db_->KShortestConstantWeightRunsHopCursor(db_.get(), false);
+}
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantParameterWeightRunsHopCursor) {
+  db_->KShortestConstantWeightRunsHopCursor(db_.get(), true);
+}
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantWeightValidatedAtFirstEdge) {
+  db_->KShortestConstantWeightValidatedAtFirstEdge(db_.get());
+}
+
+TEST_F(WeightedKShortestCasesInMemory, ConstantMatchesWeightedWithoutAccessChecks) {
+  db_->KShortestConstantMatchesWeighted(db_.get(), std::nullopt);
+}
+
 TEST_F(WeightedKShortestCasesInMemory, FilterLambda) { db_->KShortestWeightedTestFilterLambda(db_.get()); }
 
 TEST_F(WeightedKShortestCasesInMemory, UnusedArcWeightValidated) {
@@ -414,4 +430,9 @@ class WeightedKShortestTestOnDisk : public SharedDbTest<memgraph::storage::DiskS
 
 TEST_F(WeightedKShortestTestOnDisk, Both) {
   RunWeightedMatrixCell(db_.get(), WeightedMatrixParam{-1, -1, EdgeAtom::Direction::BOTH, {}, -1});
+}
+
+// The constant weight on the hop-count search against the weighted search, on disk storage.
+TEST_F(WeightedKShortestTestOnDisk, ConstantMatchesWeighted) {
+  db_->KShortestConstantMatchesWeighted(db_.get(), std::nullopt);
 }
