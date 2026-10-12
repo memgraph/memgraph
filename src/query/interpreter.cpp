@@ -11635,8 +11635,10 @@ void Interpreter::Commit() {
       // demotion to wait on. Taken after the system transaction, in the order SET REPLICATION ROLE takes them, and
       // released before the system transaction commits, which needs the write lock.
       std::optional<decltype(interpreter_context_->repl_state->ReadLock())> locked_repl_state;
-      if (!on_coordinator) locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
-      bool const demoted = locked_repl_state && !(*locked_repl_state)->IsMain() && auth_transaction_->HasWrites();
+      if (!on_coordinator && auth_transaction_->HasWrites()) {
+        locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
+      }
+      bool const demoted = locked_repl_state && !(*locked_repl_state)->IsMain();
       bool const committed =
           !demoted && interpreter_context_->auth->CommitTransaction(*auth_transaction_, system_transaction_ptr());
       locked_repl_state.reset();
