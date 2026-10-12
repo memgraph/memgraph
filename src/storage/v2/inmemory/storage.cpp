@@ -876,7 +876,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
     to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
+    if (to_result == WriteResult::NON_SEQUENTIAL) to_vertex->set_has_uncommitted_non_sequential_deltas(true);
   }
+  if (from_result == WriteResult::NON_SEQUENTIAL) from_vertex->set_has_uncommitted_non_sequential_deltas(true);
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
@@ -950,7 +952,9 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
     to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
+    if (to_result == WriteResult::NON_SEQUENTIAL) to_vertex->set_has_uncommitted_non_sequential_deltas(true);
   }
+  if (from_result == WriteResult::NON_SEQUENTIAL) from_vertex->set_has_uncommitted_non_sequential_deltas(true);
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);

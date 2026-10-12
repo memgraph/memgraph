@@ -148,6 +148,8 @@ enum class WriteResult : uint8_t { SUCCESS, NON_SEQUENTIAL, SERIALIZATION_ERROR 
 /// delta could be, but can also be prepended onto non-sequential deltas from
 /// other in-flight transactions, or to a CREATE_*_EDGE for an in-flight
 /// transaction provided that there are no uncommitted deltas other than CREATE_*_EDGE.
+/// It does not mark the object: on `NON_SEQUENTIAL`, the caller sets
+/// `has_uncommitted_non_sequential_deltas` once the write is certain to proceed.
 template <typename TObj>
 inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *object, Delta::Action action) {
   DMG_ASSERT(action == Delta::Action::ADD_IN_EDGE || action == Delta::Action::ADD_OUT_EDGE);
@@ -179,9 +181,6 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     // non-sequential delta.
     if (IsDeltaNonSequential(*object->delta())) {
       transaction->has_non_sequential_deltas = true;
-      if constexpr (requires { object->set_has_uncommitted_non_sequential_deltas(true); }) {
-        object->set_has_uncommitted_non_sequential_deltas(true);
-      }
       return WriteResult::NON_SEQUENTIAL;
     }
 
@@ -215,9 +214,6 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
     }
 
     transaction->has_non_sequential_deltas = true;
-    if constexpr (requires { object->set_has_uncommitted_non_sequential_deltas(true); }) {
-      object->set_has_uncommitted_non_sequential_deltas(true);
-    }
     return WriteResult::NON_SEQUENTIAL;
   }
 
@@ -226,9 +222,6 @@ inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *
   // then only another edge creation delta can be prepended.
   if (IsDeltaNonSequential(*object->delta())) {
     transaction->has_non_sequential_deltas = true;
-    if constexpr (requires { object->set_has_uncommitted_non_sequential_deltas(true); }) {
-      object->set_has_uncommitted_non_sequential_deltas(true);
-    }
     return WriteResult::NON_SEQUENTIAL;
   }
   // Head delta from same transaction is not non-sequential - allow any new delta
