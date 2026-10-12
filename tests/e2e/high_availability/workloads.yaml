@@ -35,6 +35,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/durability.py"]
 
+  - name: "Snapshot transfer to recovering replica"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/snapshot_transfer.py"]
+
   - name: "Broken replica self-heal"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/broken_replica_self_heal.py"]
