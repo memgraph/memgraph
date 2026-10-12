@@ -713,12 +713,14 @@ void TypedValue::CopyComplexValue(TypedValue const &other) {
   static_assert(HandlingAgreesWithDeclarationOrder(),
                 "the declaration order no longer groups the types the way the predicates read it");
 
+  // Only a type the constructor could not copy by assigning it arrives here, so the arms for the
+  // ones it handles inline never run. They stay so the switch names every type, which is what makes
+  // a type added to the enumeration a compile error here rather than a silently uncopied value.
   switch (other.type_) {
     case TypedValue::Type::Null:
     case TypedValue::Type::Bool:
     case Type::Int:
     case Type::Double:
-      // Copied inline by the constructor; never reached.
       return;
     case TypedValue::Type::String:
       alloc_trait::construct(alloc_, &string_v, other.string_v);
@@ -1489,8 +1491,10 @@ TypedValue &TypedValue::MoveAssignComplex(TypedValue &&other) {
 }
 
 void TypedValue::DestroyValue() {
+  // Only a type whose destructor has something to do arrives here, so the arms for the ones the
+  // destructor answers inline never run. They stay so the switch names every type, which is what
+  // makes a type added to the enumeration a compile error here rather than a leak.
   switch (type_) {
-      // Handled inline by the destructor; never reached.
     case Type::Null:
     case Type::Bool:
     case Type::Int:
