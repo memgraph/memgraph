@@ -300,10 +300,6 @@ class AuthLayer {
 
  private:
   [[nodiscard]] bool Commit(LockedAuth &locked, AuthTransaction &tx, system::Transaction *system_tx) {
-    if (tx.overlay_ && !tx.overlay_->Flush()) return false;
-    // A read-only transaction is still validated above, because what it read can still have been invalidated. It
-    // has nothing to publish though, so it must not spend the epoch: bumping it invalidates every cached copy of
-    // permissions that refreshes on the epoch, and nothing changed for them to re-read.
     auto const has_writes = tx.HasWrites();
     auto nothing_to_publish = tx.pending_actions_.empty();
 #ifdef MG_ENTERPRISE
@@ -311,11 +307,15 @@ class AuthLayer {
 #endif
     // Anything to publish or release comes from a write, so the epoch always moves with it. Publishing without
     // one would send replicas a change this instance never made durable, and leave permissions cached against the
-    // epoch unrefreshed, neither of which anything downstream detects.
+    // epoch unrefreshed, neither of which anything downstream detects. Checked before the flush, so a broken
+    // transaction stops the instance before anything is written or sent.
     MG_ASSERT(has_writes || nothing_to_publish,
-              "An auth transaction has something to publish but never wrote to the auth store. Replicas may "
-              "have received a change this instance did not keep. Compare the users, roles and profiles here "
-              "against every replica before resuming writes.");
+              "An auth transaction has something to publish but never wrote to the auth store. Nothing from it was "
+              "written or replicated.");
+    if (tx.overlay_ && !tx.overlay_->Flush()) return false;
+    // A read-only transaction is still validated above, because what it read can still have been invalidated. It
+    // has nothing to publish though, so it must not spend the epoch: bumping it invalidates every cached copy of
+    // permissions that refreshes on the epoch, and nothing changed for them to re-read.
     if (has_writes) locked->UpdateEpoch();
 #ifdef MG_ENTERPRISE
     // Skip a user the transaction recreated. Dropping a user does not remove it from its profile's username
