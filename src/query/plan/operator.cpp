@@ -4629,8 +4629,8 @@ class KShortestPathsCursor : public Cursor {
     return EdgeAndEndpointReadable(edge, head, context) && EvaluateFilterLambda(edge, head, frame, evaluator, context);
   }
 
-  /// A constant weight, read and checked at the first arc a row may take - where the weighted search
-  /// checks its weight - so a row that takes no arc never reads it.
+  /// A constant weight, read and checked at the first arc a row may take, so a row that takes no arc
+  /// never reads it.
   void EvaluateConstantWeight(ExpressionEvaluator &evaluator) {
     if constexpr (!Cost::kWeighted) {
       if (!self_.weight_lambda_ || constant_weight_) return;
@@ -5026,7 +5026,7 @@ class KShortestPathsCursor : public Cursor {
       if (constant_weight_ && self_.total_weight_ && self_.total_weight_->user_declared()) {
         // Added once per hop rather than multiplied: a Duration cannot be multiplied by an integer.
         TypedValue total(*constant_weight_, memory);
-        for (size_t hop = 1; hop < path.edges.size(); ++hop) total = total + *constant_weight_;
+        for (size_t hop = 1; hop < path.edges.size(); ++hop) total = AddServedCost(total, *constant_weight_);
         frame_writer.Write(*self_.total_weight_, std::move(total));
       }
     }
