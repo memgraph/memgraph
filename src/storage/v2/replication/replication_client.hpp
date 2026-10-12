@@ -212,7 +212,8 @@ class ReplicationStorageClient {
                                                 uint64_t durability_commit_timestamp) const
       -> std::expected<void, io::network::ClientCommunicationError>;
 
-  auto FinalizeTransactionReplication(std::optional<ReplicaStream> &&replica_stream) const
+  auto FinalizeTransactionReplication(DatabaseProtector const &protector,
+                                      std::optional<ReplicaStream> &&replica_stream) const
       -> std::expected<void, io::network::ClientCommunicationError>;
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool decision, utils::UUID const &storage_uuid,

@@ -124,8 +124,8 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
 }
 
 auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::optional<ReplicaStream> &replica_stream,
-                                     uint64_t const durability_commit_timestamp,
-                                     DatabaseProtector const & /*db_acc*/) const -> ShipResult {
+                                     uint64_t const durability_commit_timestamp, DatabaseProtector const &db_acc) const
+    -> ShipResult {
   raw_client->IfStreamingTransaction([&](auto &stream) { stream.AppendTransactionEnd(durability_commit_timestamp); },
                                      replica_stream);
   // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream.
@@ -146,7 +146,7 @@ auto TransactionReplication::ShipOne(ReplicationStorageClient *raw_client, std::
   // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
   // RPC stream gets destroyed => RPC lock released.
   if (!ShouldRunTwoPC()) {
-    return raw_client->FinalizeTransactionReplication(std::move(replica_stream));
+    return raw_client->FinalizeTransactionReplication(db_acc, std::move(replica_stream));
   }
   // SYNC replica cannot be part of 2PC; an ASYNC replica has no transaction stream.
   return {};
