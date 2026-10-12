@@ -18,6 +18,7 @@
 #include "auth/auth.hpp"
 #include "auth/auth_layer.hpp"
 #include "auth/rpc.hpp"
+#include "auth_test_utils.hpp"
 #include "license/license.hpp"
 #include "system/system.hpp"
 #include "system/transaction.hpp"
@@ -52,7 +53,7 @@ class AuthLayerTest : public ::testing::Test {
 
 TEST_F(AuthLayerTest, WritesOutsideATransactionAreImmediatelyDurable) {
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
   EXPECT_TRUE(layer_->Lock()->HasUser("alice"));
 }
@@ -60,7 +61,7 @@ TEST_F(AuthLayerTest, WritesOutsideATransactionAreImmediatelyDurable) {
 TEST_F(AuthLayerTest, TransactionalWritesAreInvisibleUntilCommit) {
   memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "alice").has_value());
   }
 
   // A separate, non-transactional read must not see the buffered user.
@@ -73,7 +74,7 @@ TEST_F(AuthLayerTest, TransactionalWritesAreInvisibleUntilCommit) {
 TEST_F(AuthLayerTest, TransactionSeesItsOwnWrites) {
   memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "alice").has_value());
   }
   EXPECT_TRUE(layer_->Lock(&tx)->HasUser("alice"));
 }
@@ -81,7 +82,7 @@ TEST_F(AuthLayerTest, TransactionSeesItsOwnWrites) {
 TEST_F(AuthLayerTest, AbandonedTransactionLeavesNothingBehind) {
   {
     memgraph::auth::AuthTransaction tx;
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "alice").has_value());
   }
   EXPECT_FALSE(layer_->Lock()->HasUser("alice"));
 }
@@ -89,12 +90,12 @@ TEST_F(AuthLayerTest, AbandonedTransactionLeavesNothingBehind) {
 TEST_F(AuthLayerTest, StorageIsRestoredAfterEachTransactionalCall) {
   memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "alice").has_value());
   }
 
   // Auth must be back on durable storage between calls, so an unrelated write lands on disk immediately.
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("bob").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "bob").has_value());
   }
   memgraph::auth::AuthTransaction other;
   EXPECT_TRUE(layer_->Lock(&other)->HasUser("bob")) << "a plain write went into the transaction's overlay";
@@ -105,7 +106,7 @@ TEST_F(AuthLayerTest, StorageIsRestoredAfterEachTransactionalCall) {
 
 TEST_F(AuthLayerTest, ConflictingCommitLeavesStorageUntouched) {
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
 
   memgraph::auth::AuthTransaction tx;
@@ -117,11 +118,11 @@ TEST_F(AuthLayerTest, ConflictingCommitLeavesStorageUntouched) {
     auto locked = layer_->Lock();
     auto user = locked->GetUser("alice");
     ASSERT_TRUE(user);
-    locked->UpdatePassword(*user, "changed");
+    user->UpdatePassword("changed");
     locked->SaveUser(*user);
   }
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "bob").has_value());
   }
 
   EXPECT_FALSE(layer_->Commit(tx, nullptr));
@@ -136,10 +137,10 @@ TEST_F(AuthLayerTest, TransactionalWritesDoNotMoveTheEpochUntilCommit) {
 
   memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "alice").has_value());
   }
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "bob").has_value());
   }
   EXPECT_TRUE(layer_->Lock()->UpToDate(seen));
 
@@ -151,19 +152,19 @@ TEST_F(AuthLayerTest, TransactionalWritesCollectActionsInsteadOfReplicatingImmed
   // Without a transaction there is nowhere to put the action and no system transaction to take it, so it is
   // dropped. Inside one it is held until COMMIT drains it.
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
 
   memgraph::auth::AuthTransaction tx;
   EXPECT_TRUE(tx.pending_actions().empty());
 
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "bob").has_value());
   }
   EXPECT_EQ(tx.pending_actions().size(), 1);
 
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("carol").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "carol").has_value());
   }
   EXPECT_EQ(tx.pending_actions().size(), 2);
 }
@@ -172,12 +173,12 @@ TEST_F(AuthLayerTest, TheSinkIsUnboundOutsideTheTransactionsOwnCalls) {
   // A write on another session while a transaction is open must not land in that transaction's list.
   memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "bob").has_value());
   }
   ASSERT_EQ(tx.pending_actions().size(), 1);
 
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
   EXPECT_EQ(tx.pending_actions().size(), 1);
 }
@@ -186,7 +187,7 @@ TEST_F(AuthLayerTest, DroppingAUserInATransactionHoldsItsResourcesUntilCommit) {
   // ResourceMonitoring is process-wide and has no rollback, so the release waits for the flush. GetUser creates on
   // miss, so presence is observed through the map's own reference rather than by looking the user up again.
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
   auto held = resources_.GetUser("alice");
   ASSERT_EQ(held.use_count(), 2);  // ours, and the map's
@@ -220,7 +221,7 @@ TEST_F(AuthLayerTest, ApplyingABatchWritesEveryOperation) {
 // have to be applied in the order the transaction made them or the record is lost.
 TEST_F(AuthLayerTest, ApplyingABatchKeepsOperationOrder) {
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
 
   std::vector<memgraph::replication::AuthOp> ops;
@@ -298,7 +299,7 @@ TEST_F(AuthLayerTest, ABatchMixingAProfileWithOtherRecordsIsRefused) {
 // never holds a prefix of a transaction. An operation that names no record is one the applier cannot honour.
 TEST_F(AuthLayerTest, AThrowingBatchLeavesTheStoreUntouched) {
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("existing").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "existing").has_value());
   }
 
   std::vector<memgraph::replication::AuthOp> ops;
@@ -314,7 +315,7 @@ TEST_F(AuthLayerTest, AThrowingBatchLeavesTheStoreUntouched) {
 
 TEST_F(AuthLayerTest, RecreatingADroppedUserKeepsItsResources) {
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
   auto held = resources_.GetUser("alice");
   ASSERT_EQ(held.use_count(), 2);
@@ -323,7 +324,7 @@ TEST_F(AuthLayerTest, RecreatingADroppedUserKeepsItsResources) {
   {
     auto locked = layer_->Lock(&tx);
     ASSERT_TRUE(locked->RemoveUser("alice"));
-    ASSERT_TRUE(locked->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*locked, "alice").has_value());
   }
 
   ASSERT_TRUE(layer_->Commit(tx, nullptr));
@@ -333,7 +334,7 @@ TEST_F(AuthLayerTest, RecreatingADroppedUserKeepsItsResources) {
 
 TEST_F(AuthLayerTest, AbandoningATransactionLeavesDroppedUsersResourcesIntact) {
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
   auto held = resources_.GetUser("alice");
   ASSERT_EQ(held.use_count(), 2);
@@ -371,10 +372,10 @@ TEST_F(AuthLayerTest, CommitBatchesCollectedOperationsIntoOneAction) {
 
   memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "alice").has_value());
   }
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "bob").has_value());
   }
   ASSERT_EQ(tx.pending_actions().size(), 2);
 
@@ -391,7 +392,7 @@ TEST_F(AuthLayerTest, CommitBatchesCollectedOperationsIntoOneAction) {
 
 TEST_F(AuthLayerTest, AConflictingCommitLeavesTheSystemTransactionEmpty) {
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
 
   memgraph::auth::AuthTransaction tx;
@@ -402,11 +403,11 @@ TEST_F(AuthLayerTest, AConflictingCommitLeavesTheSystemTransactionEmpty) {
     auto locked = layer_->Lock();
     auto user = locked->GetUser("alice");
     ASSERT_TRUE(user);
-    locked->UpdatePassword(*user, "changed");
+    user->UpdatePassword("changed");
     locked->SaveUser(*user);
   }
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("bob").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "bob").has_value());
   }
   ASSERT_FALSE(tx.pending_actions().empty());
 
@@ -428,7 +429,7 @@ TEST_F(AuthLayerTest, AReadGuardKeepsTheOverlayInstalled) {
   // through it, and every transactional read would silently miss the transaction's own writes.
   memgraph::auth::AuthTransaction tx;
   {
-    ASSERT_TRUE(layer_->Lock(&tx)->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "alice").has_value());
   }
   {
     auto reader = layer_->ReadLock(&tx);
@@ -443,7 +444,7 @@ TEST_F(AuthLayerTest, AListedUserSetIsInvalidatedByAConcurrentCreate) {
   // The transaction concluded something from the list it read, so a new user appearing under that prefix has to
   // conflict it.
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("bob").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "bob").has_value());
   }
 
   memgraph::auth::AuthTransaction tx;
@@ -454,14 +455,14 @@ TEST_F(AuthLayerTest, AListedUserSetIsInvalidatedByAConcurrentCreate) {
 
   // Another session, outside the transaction.
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
 
   {
     // HasUsers() is what CreateUser calls first, and it re-scans the same prefix.
     auto locked = layer_->Lock(&tx);
     ASSERT_TRUE(locked->HasUsers());
-    ASSERT_TRUE(locked->AddUser("carol").has_value());
+    ASSERT_TRUE(AddUser(*locked, "carol").has_value());
   }
 
   EXPECT_FALSE(layer_->Commit(tx, nullptr)) << "committed on a user list that had already changed";
@@ -472,7 +473,7 @@ TEST_F(AuthLayerTest, AReadOnlyTransactionDoesNotSpendTheEpoch) {
   // The epoch is what tells cached permissions that refresh on it they are stale. A transaction that only read has
   // published nothing for them to re-read, so moving it would force a refresh for no change.
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
 
   Auth::Epoch seen;
@@ -488,7 +489,7 @@ TEST_F(AuthLayerTest, AReadOnlyTransactionDoesNotSpendTheEpoch) {
   // A transaction that did write still moves it.
   memgraph::auth::AuthTransaction writer;
   {
-    ASSERT_TRUE(layer_->Lock(&writer)->AddUser("bob").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(&writer), "bob").has_value());
   }
   ASSERT_TRUE(layer_->Commit(writer, nullptr));
   EXPECT_FALSE(layer_->Lock()->UpToDate(seen));
@@ -498,7 +499,7 @@ TEST_F(AuthLayerTest, ARepeatedListingDoesNotAdoptAConcurrentCreate) {
   // Listing twice must not launder a user created in between into the set the transaction is held to. The first
   // exhaustive scan fixes what it depends on; a later one can only confirm a subset of it.
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("bob").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "bob").has_value());
   }
 
   memgraph::auth::AuthTransaction tx;
@@ -507,14 +508,14 @@ TEST_F(AuthLayerTest, ARepeatedListingDoesNotAdoptAConcurrentCreate) {
   }
 
   {
-    ASSERT_TRUE(layer_->Lock()->AddUser("alice").has_value());
+    ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
 
   {
     // The transaction lists again, now seeing alice, and then writes on the strength of what it has read.
     auto locked = layer_->Lock(&tx);
     ASSERT_EQ(locked->AllUsers().size(), 2);
-    ASSERT_TRUE(locked->AddUser("carol").has_value());
+    ASSERT_TRUE(AddUser(*locked, "carol").has_value());
   }
 
   EXPECT_FALSE(layer_->Commit(tx, nullptr)) << "committed on a user list that changed under it";

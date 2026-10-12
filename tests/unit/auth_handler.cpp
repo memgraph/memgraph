@@ -3727,18 +3727,18 @@ TEST_F(AuthQueryHandlerFixture, FipsLegacyHashLiteralReportsSameErrorsAsBeforeHa
   // FIPS status is process-global; reset it even when an assertion fails.
   memgraph::utils::OnScopeExit const reset_fips{[] { memgraph::utils::SetFipsStatus({}); }};
 
-  ASSERT_TRUE(auth_handler.CreateUser("alice", std::nullopt, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("alice", std::nullopt, nullptr, nullptr).created);
   memgraph::utils::SetFipsStatus({.enabled = true});
 
-  EXPECT_THAT(MessageOf([&] { auth_handler.CreateUser("in valid", literal, nullptr); }),
+  EXPECT_THAT(MessageOf([&] { auth_handler.CreateUser("in valid", literal, nullptr, nullptr); }),
               testing::HasSubstr("Invalid user name"));
 
-  EXPECT_FALSE(auth_handler.CreateUser("alice", literal, nullptr).created);
+  EXPECT_FALSE(auth_handler.CreateUser("alice", literal, nullptr, nullptr).created);
 
-  EXPECT_THAT(MessageOf([&] { auth_handler.SetPassword("nobody", literal, nullptr); }),
+  EXPECT_THAT(MessageOf([&] { auth_handler.SetPassword("nobody", literal, nullptr, nullptr); }),
               testing::HasSubstr("doesn't exist"));
 
-  EXPECT_THAT(MessageOf([&] { auth_handler.CreateUser("bob", literal, nullptr); }),
+  EXPECT_THAT(MessageOf([&] { auth_handler.CreateUser("bob", literal, nullptr, nullptr); }),
               testing::HasSubstr("not permitted in FIPS mode"));
 }
 
@@ -3756,15 +3756,15 @@ TEST_F(AuthQueryHandlerFixture, StrictPolicyErrorOrder) {
   };
   memgraph::glue::AuthQueryHandler strict_handler{&strict_auth};
   auto const old_password = std::string{"a-long-enough-password"};
-  ASSERT_TRUE(strict_handler.CreateUser("alice", old_password, nullptr).created);
+  ASSERT_TRUE(strict_handler.CreateUser("alice", old_password, nullptr, nullptr).created);
 
-  EXPECT_THAT(MessageOf([&] { strict_handler.SetPassword("nobody", std::nullopt, nullptr); }),
+  EXPECT_THAT(MessageOf([&] { strict_handler.SetPassword("nobody", std::nullopt, nullptr, nullptr); }),
               testing::HasSubstr("doesn't exist"));
 
-  EXPECT_EQ(MessageOf([&] { strict_handler.ChangePassword("alice", "wrong-old-password", "weak", nullptr); }),
+  EXPECT_EQ(MessageOf([&] { strict_handler.ChangePassword("alice", "wrong-old-password", "weak", nullptr, nullptr); }),
             "Old password is not correct.");
 
-  EXPECT_THAT(MessageOf([&] { strict_handler.ChangePassword("alice", old_password, "weak", nullptr); }),
+  EXPECT_THAT(MessageOf([&] { strict_handler.ChangePassword("alice", old_password, "weak", nullptr, nullptr); }),
               testing::HasSubstr("doesn't conform to the required strength"));
   // Nothing was saved: the old password still verifies.
   auto alice = strict_auth.ReadLock()->GetUser("alice");
@@ -3809,7 +3809,7 @@ TEST_F(AuthQueryHandlerFixture, ReadPathsDoNotTakeExclusiveAuthLock) {
 #endif
 
   // Bump the auth epoch so the subject's cached epoch is stale and IsAuthorized takes the refresh branch.
-  ASSERT_TRUE(auth_handler.CreateUser("epoch_bump", std::nullopt, nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("epoch_bump", std::nullopt, nullptr, nullptr).created);
   LockHolder holder{*auth, LockMode::kShared};
   auto authorized_fut = std::async(std::launch::async, [&] {
     return subject.IsAuthorized(
@@ -3837,10 +3837,10 @@ TEST_F(AuthQueryHandlerFixture, ReadPathsDoNotTakeExclusiveAuthLock) {
 // hashed by the time it releases and finish in far less than one hash.
 TEST_F(AuthQueryHandlerFixture, PasswordHashingOverlapsExclusiveLockHold) {
   using Clock = std::chrono::steady_clock;
-  ASSERT_TRUE(auth_handler.CreateUser("target", "password1", nullptr).created);
+  ASSERT_TRUE(auth_handler.CreateUser("target", "password1", nullptr, nullptr).created);
 
   auto const hash_start = Clock::now();
-  auth_handler.SetPassword("target", "password2", nullptr);
+  auth_handler.SetPassword("target", "password2", nullptr, nullptr);
   auto const hash_time = Clock::now() - hash_start;
 
   auto const hold = std::chrono::milliseconds(1000);
@@ -3848,8 +3848,9 @@ TEST_F(AuthQueryHandlerFixture, PasswordHashingOverlapsExclusiveLockHold) {
 
   LockHolder holder{*auth, LockMode::kExclusive};
   auto create_fut =
-      std::async(std::launch::async, [&] { return auth_handler.CreateUser("fresh", "password1", nullptr); });
-  auto set_fut = std::async(std::launch::async, [&] { auth_handler.SetPassword("target", "password3", nullptr); });
+      std::async(std::launch::async, [&] { return auth_handler.CreateUser("fresh", "password1", nullptr, nullptr); });
+  auto set_fut =
+      std::async(std::launch::async, [&] { auth_handler.SetPassword("target", "password3", nullptr, nullptr); });
   std::this_thread::sleep_for(hold);
 
   auto const release_time = Clock::now();

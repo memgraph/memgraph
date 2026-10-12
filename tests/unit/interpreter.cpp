@@ -19,6 +19,7 @@
 #include <thread>
 
 #include "auth_query_handler_fixture.hpp"
+#include "auth_test_utils.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "disk_test_utils.hpp"
@@ -194,7 +195,7 @@ TYPED_TEST(InterpreterTest, AFailedAuthCommitLeavesTheTransactionOpenUntilRollba
 
   this->default_interpreter.Interpret("BEGIN");
   this->default_interpreter.Interpret("CREATE USER alice");
-  ASSERT_TRUE(auth.auth.Lock()->AddUser("alice").has_value());
+  ASSERT_TRUE(AddUser(*auth.auth.Lock(), "alice").has_value());
   EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::TransactionSerializationException);
 
   EXPECT_EQ(this->default_interpreter.interpreter.transaction_status_.load(),
