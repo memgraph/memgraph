@@ -625,7 +625,8 @@ auto ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   }
 }
 
-auto ReplicationStorageClient::FinalizeTransactionReplication(std::optional<ReplicaStream> &&replica_stream) const
+auto ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector const &protector,
+                                                              std::optional<ReplicaStream> &&replica_stream) const
     -> std::expected<void, io::network::ClientCommunicationError> {
   // We can only check the state because it guarantees to be only
   // valid during a single transaction replication (if the assumption
@@ -674,6 +675,7 @@ auto ReplicationStorageClient::FinalizeTransactionReplication(std::optional<Repl
 
   auto *arena_pool = replica_stream->DbArenaPool();
   auto task = [this,
+               protector = protector.clone(),
                replica_stream_obj = std::move(replica_stream),
                arena_pool]() mutable -> std::expected<void, io::network::ClientCommunicationError> {
     // Tenant was sealed between AddTask and this task executing: retire the RPC connection (framing
