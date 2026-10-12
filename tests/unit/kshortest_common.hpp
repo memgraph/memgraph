@@ -437,6 +437,90 @@ void AppendEntities(const std::vector<memgraph::query::VertexAccessor> &vertices
   for (const auto &edge : edges) out.emplace_back(edge);
 }
 
+// The arcs an arm leaves readable: the edge type must be readable, and so must the arc's head in
+// path order - the vertex the access check reads whichever pass walks the arc. The label arms leave
+// vertex 5 ungranted as well as the one they are named for.
+inline std::vector<std::pair<int, int>> ReadableArcs(FineGrainedTestType fine_grained_test_type,
+                                                     memgraph::query::EdgeAtom::Direction direction) {
+  auto readable = [&](const std::vector<std::string> &types, const std::vector<int> &unreadable) {
+    auto arcs = GetEdgeList(kEdges, direction, types);
+    std::erase_if(arcs, [&](const auto &arc) { return std::ranges::contains(unreadable, arc.second); });
+    return arcs;
+  };
+  switch (fine_grained_test_type) {
+    case FineGrainedTestType::ALL_GRANTED:
+      return readable({"a", "b"}, {});
+    case FineGrainedTestType::ALL_DENIED:
+      return {};
+    case FineGrainedTestType::EDGE_TYPE_A_DENIED:
+      return readable({"b"}, {});
+    case FineGrainedTestType::EDGE_TYPE_B_DENIED:
+      return readable({"a"}, {});
+    case FineGrainedTestType::LABEL_0_DENIED:
+      return readable({"a", "b"}, {0, 5});
+    case FineGrainedTestType::LABEL_3_DENIED:
+      return readable({"a", "b"}, {3, 5});
+  }
+}
+
+#ifdef MG_ENTERPRISE
+// Applies one arm's grants and denials to `user` and answers with the arcs a reader is left with,
+// trimming `edge_types` where the arm denies one outright.
+inline std::vector<std::pair<int, int>> ApplyFineGrainedArm(memgraph::auth::User &user,
+                                                            FineGrainedTestType fine_grained_test_type,
+                                                            memgraph::query::EdgeAtom::Direction direction,
+                                                            std::vector<std::string> &edge_types) {
+  switch (fine_grained_test_type) {
+    case FineGrainedTestType::ALL_GRANTED:
+      user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
+          memgraph::auth::FineGrainedPermission::READ);
+      break;
+    case FineGrainedTestType::ALL_DENIED:
+      break;
+    case FineGrainedTestType::EDGE_TYPE_A_DENIED:
+      user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Grant({"b"},
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Deny({"a"}, memgraph::auth::kAllEdgeTypePermissions);
+
+      edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "a"), edge_types.end());
+      break;
+    case FineGrainedTestType::EDGE_TYPE_B_DENIED:
+      user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Grant({"a"},
+                                                                       memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().edge_type_permissions().Deny({"b"}, memgraph::auth::kAllEdgeTypePermissions);
+
+      edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "b"), edge_types.end());
+      break;
+    case FineGrainedTestType::LABEL_0_DENIED:
+      // Vertex 5 is not granted here either, so this arm denies two vertices.
+      user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
+          memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"1"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"2"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"3"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"4"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Deny({"0"}, memgraph::auth::kAllLabelPermissions);
+      break;
+    case FineGrainedTestType::LABEL_3_DENIED:
+      // As above: vertex 5 goes ungranted here too.
+      user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
+          memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"0"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"1"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"2"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Grant({"4"}, memgraph::auth::FineGrainedPermission::READ);
+      user.fine_grained_access_handler().label_permissions().Deny({"3"}, memgraph::auth::kAllLabelPermissions);
+      break;
+  }
+
+  return ReadableArcs(fine_grained_test_type, direction);
+}
+
+#endif
+
 // Common interface for single-node and distributed Memgraph.
 class Database {
  public:
@@ -709,69 +793,7 @@ class Database {
     db_accessor.AdvanceCommand();
 
     memgraph::auth::User user{"test"};
-    // The arcs the user may read: the edge and its head in path order must both be readable. The label arms
-    // never grant label 5 either.
-    std::vector<std::pair<int, int>> edges_in_result;
-    switch (fine_grained_test_type) {
-      case FineGrainedTestType::ALL_GRANTED:
-        user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
-            memgraph::auth::FineGrainedPermission::READ);
-        edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
-        break;
-      case FineGrainedTestType::ALL_DENIED:
-        break;
-      case FineGrainedTestType::EDGE_TYPE_A_DENIED:
-        user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Grant({"b"},
-                                                                         memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Deny({"a"}, memgraph::auth::kAllEdgeTypePermissions);
-
-        edges_in_result = GetEdgeList(kEdges, direction, {"b"});
-        edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "a"), edge_types.end());
-        break;
-      case FineGrainedTestType::EDGE_TYPE_B_DENIED:
-        user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Grant({"a"},
-                                                                         memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().edge_type_permissions().Deny({"b"}, memgraph::auth::kAllEdgeTypePermissions);
-
-        edges_in_result = GetEdgeList(kEdges, direction, {"a"});
-        edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "b"), edge_types.end());
-        break;
-      case FineGrainedTestType::LABEL_0_DENIED:
-        user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
-            memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"1"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"2"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"3"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"4"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Deny({"0"}, memgraph::auth::kAllLabelPermissions);
-
-        edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
-        std::erase_if(edges_in_result, [](const auto &e) { return e.second == 0 || e.second == 5; });
-        break;
-      case FineGrainedTestType::LABEL_3_DENIED:
-        user.fine_grained_access_handler().edge_type_permissions().GrantGlobal(
-            memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"0"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"1"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"2"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Grant({"4"},
-                                                                     memgraph::auth::FineGrainedPermission::READ);
-        user.fine_grained_access_handler().label_permissions().Deny({"3"}, memgraph::auth::kAllLabelPermissions);
-
-        edges_in_result = GetEdgeList(kEdges, direction, {"a", "b"});
-        std::erase_if(edges_in_result, [](const auto &e) { return e.second == 3 || e.second == 5; });
-        break;
-    }
+    const auto edges_in_result = ApplyFineGrainedArm(user, fine_grained_test_type, direction, edge_types);
 
     memgraph::glue::FineGrainedAuthChecker auth_checker{user, &db_accessor};
     context.auth_checker = &auth_checker;
