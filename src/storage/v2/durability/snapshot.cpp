@@ -26,6 +26,7 @@
 #include <ranges>
 #include <string>
 #include <thread>
+#include <tuple>
 
 #include <absl/container/flat_hash_map.h>
 #include "memory/db_arena_fwd.hpp"
@@ -772,7 +773,7 @@ bool OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const 
   // Write the new UUID.
   snapshot.WriteMarker(Marker::SECTION_METADATA);
   snapshot.WriteString(std::string{uuid});
-  snapshot.Sync();
+  std::ignore = snapshot.Sync();
   return true;
 }
 

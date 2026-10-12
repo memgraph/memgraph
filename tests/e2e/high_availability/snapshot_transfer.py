@@ -15,6 +15,7 @@
 # tests/e2e/no_space_preload.so, which fails writes to snapshot files with ENOSPC while its trigger file
 # exists): the replica must survive them, and the main's retry must succeed once there is space again.
 
+import glob
 import os
 import shutil
 import sys
@@ -118,8 +119,13 @@ def vertex_count(cursor):
 
 
 def log_contains(log_file: str, *fragments: str):
-    with open(os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", log_file)) as f:
-        return any(all(fragment in line for fragment in fragments) for line in f)
+    # The log is a daily file, so its name carries the date: instance_1.log is written as instance_1_<date>.log.
+    stem, _ = os.path.splitext(os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", log_file))
+    for path in glob.glob(f"{stem}*.log"):
+        with open(path) as f:
+            if any(all(fragment in line for fragment in fragments) for line in f):
+                return True
+    return False
 
 
 def test_replica_recovers_from_snapshot_sent_by_main(test_name, monkeypatch):

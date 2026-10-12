@@ -9,6 +9,7 @@
 #include "audit/log.hpp"
 
 #include <sstream>
+#include <tuple>
 
 #include <fmt/format.h>
 #include <nlohmann/json.hpp>
@@ -192,16 +193,16 @@ void Log::Flush() {
       params_json.push_back(nlohmann::json::object_t::value_type(k, BoltValueToJson(v)));
     }
 
-    log_.Write(fmt::format("{}.{:06d},{},{},{},{},{}\n",
-                           item->timestamp / 1'000'000,
-                           item->timestamp % 1'000'000,
-                           item->address,
-                           item->username,
-                           item->db,
-                           utils::Escape(item->query),
-                           utils::Escape(params_json.dump())));
+    std::ignore = log_.Write(fmt::format("{}.{:06d},{},{},{},{},{}\n",
+                                         item->timestamp / 1'000'000,
+                                         item->timestamp % 1'000'000,
+                                         item->address,
+                                         item->username,
+                                         item->db,
+                                         utils::Escape(item->query),
+                                         utils::Escape(params_json.dump())));
   }
-  log_.Sync();
+  std::ignore = log_.Sync();
 }
 
 }  // namespace memgraph::audit
