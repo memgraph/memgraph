@@ -67,8 +67,6 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
   paths_.emplace_back(path);
 
   spdlog::trace("Replica will be using file {} with size {}", path, file_size_);
-  // Received files are deleted with this handler when the transfer fails, so running out of space must not crash.
-  file_.ThrowOnNoSpace();
   if (!file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING)) {
     spdlog::error("Failed to open file {}. This is not a fatal failure, main will retry the sending of the file.",
                   path);
@@ -77,7 +75,9 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
 
   // First N bytes are file_name and file_size, therefore we don't read full size
   size_t const processed_bytes = req_reader.GetPos();
-  return processed_bytes + WriteToFile(data + processed_bytes, size - processed_bytes);
+  auto const written = WriteToFile(data + processed_bytes, size - processed_bytes);
+  if (!written) return std::nullopt;
+  return processed_bytes + *written;
 }
 
 bool FileReplicationHandler::ValidateFilename(std::optional<std::string> const &maybe_filename) {
@@ -108,7 +108,8 @@ bool FileReplicationHandler::ValidateFileSize(std::optional<uint64_t> const &may
   return true;
 }
 
-size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
+std::expected<size_t, utils::FileWriteError> FileReplicationHandler::WriteToFile(const uint8_t *data,
+                                                                                 size_t const size) {
   if (!file_.IsOpen()) {
     return 0;
   }
@@ -116,33 +117,33 @@ size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const siz
   size_t processed_bytes{0};
   auto to_write = std::min(size, file_size_ - written_);
 
-  try {
-    while (to_write > 0) {
-      const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
-      file_.Write(data + processed_bytes, chunk_size);
-      to_write -= chunk_size;
-      written_ += chunk_size;
-      processed_bytes += chunk_size;
-    }
+  auto const fail = [this](utils::FileWriteError const error) {
+    // The file being written is always the last one opened; the handle may already be closed.
+    spdlog::error("Couldn't write received file {}. The transfer is dropped and main will retry it.", paths_.back());
+    return std::unexpected{error};
+  };
 
-    if (written_ == file_size_) {
-      ResetCurrentFile();
-    }
-  } catch (utils::NoSpaceLeftException const &e) {
-    // Rethrown to drop the session; destroying this handler then removes every file received so far.
-    spdlog::error("{}. The transfer is dropped and main will retry it.", e.what());
-    throw;
+  while (to_write > 0) {
+    const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
+    if (auto res = file_.Write(data + processed_bytes, chunk_size); !res) return fail(res.error());
+    to_write -= chunk_size;
+    written_ += chunk_size;
+    processed_bytes += chunk_size;
+  }
+
+  if (written_ == file_size_) {
+    if (auto res = ResetCurrentFile(); !res) return fail(res.error());
   }
   return processed_bytes;
 }
 
-void FileReplicationHandler::ResetCurrentFile() {
-  if (file_.IsOpen()) {
-    file_.Sync();
-    file_.Close();
-    written_ = 0;
-    file_size_ = 0;
-  }
+std::expected<void, utils::FileWriteError> FileReplicationHandler::ResetCurrentFile() {
+  if (!file_.IsOpen()) return {};
+  auto synced = file_.Sync();
+  file_.Close();
+  written_ = 0;
+  file_size_ = 0;
+  return synced;
 }
 
 bool FileReplicationHandler::HasOpenedFile() const { return file_.IsOpen(); }

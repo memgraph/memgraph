@@ -411,7 +411,7 @@ OutputFile::OutputFile(OutputFile &&other) noexcept
     : fd_(other.fd_),
       buffer_position_(other.buffer_position_.load(std::memory_order_acquire)),
       written_since_last_sync_(other.written_since_last_sync_),
-      throw_on_no_space_(other.throw_on_no_space_),
+      on_no_space_(other.on_no_space_),
       write_failed_(other.write_failed_),
       buffer_(other.buffer_),
       path_(std::move(other.path_)) {
@@ -429,7 +429,7 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   path_ = std::move(other.path_);
   buffer_position_ = other.buffer_position_.load();
   buffer_ = other.buffer_;
-  throw_on_no_space_ = other.throw_on_no_space_;
+  on_no_space_ = other.on_no_space_;
   write_failed_ = other.write_failed_;
 
   other.fd_ = -1;
@@ -476,9 +476,10 @@ bool OutputFile::IsOpen() const { return fd_ != -1; }
 
 const std::filesystem::path &OutputFile::path() const { return path_; }
 
-void OutputFile::Write(const uint8_t *data, size_t size) {
+std::expected<void, FileWriteError> OutputFile::Write(const uint8_t *data, size_t size) {
   std::unique_lock flush_guard(flush_lock_);
   MG_ASSERT(IsOpen(), "Trying to write to an unopened file!");
+  if (write_failed_) return std::unexpected{FileWriteError::kNoSpace};
   auto const buffer_start = buffer_position_.load(std::memory_order_acquire);
 
   auto *write_ptr = buffer_.data() + buffer_start;
@@ -486,7 +487,7 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
   while (size > 0) {
     if (buffer_remaining == 0) {
       MG_ASSERT(IsOpen(), "Flushing an unopened file.");
-      FlushBufferInternal(kFileBufferSize);
+      if (auto flushed = FlushBufferInternal(kFileBufferSize); !flushed) return flushed;
       buffer_remaining = kFileBufferSize;
       write_ptr = buffer_.data();
     }
@@ -500,11 +501,16 @@ void OutputFile::Write(const uint8_t *data, size_t size) {
     written_since_last_sync_ += amount_to_write;
   }
   buffer_position_.store(write_ptr - buffer_.data(), std::memory_order_release);
+  return {};
 }
 
-void OutputFile::Write(const char *data, size_t size) { Write(reinterpret_cast<const uint8_t *>(data), size); }
+std::expected<void, FileWriteError> OutputFile::Write(const char *data, size_t size) {
+  return Write(reinterpret_cast<const uint8_t *>(data), size);
+}
 
-void OutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
+std::expected<void, FileWriteError> OutputFile::Write(const std::string_view data) {
+  return Write(data.data(), data.size());
+}
 
 size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
   int whence = 0;
@@ -533,7 +539,8 @@ size_t OutputFile::SeekFile(const Position position, const ssize_t offset) {
 size_t OutputFile::GetPosition() { return SetPosition(Position::RELATIVE_TO_CURRENT, 0); }
 
 size_t OutputFile::SetPosition(Position position, ssize_t offset) {
-  FlushBuffer();
+  // A failed flush is remembered and reported by the next Write or Sync.
+  (void)FlushBuffer();
   return SeekFile(position, offset);
 }
 
@@ -572,8 +579,8 @@ auto OutputFile::AcquireLockWithTimeout(uint32_t data_dir_lock_acquisition_timeo
   std::unreachable();
 }
 
-void OutputFile::Sync() {
-  FlushBuffer();
+std::expected<void, FileWriteError> OutputFile::Sync() {
+  if (auto flushed = FlushBuffer(); !flushed) return flushed;
 
   int ret = 0;
   while (true) {
@@ -588,10 +595,7 @@ void OutputFile::Sync() {
     }
   }
 
-  if (ret == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
-    write_failed_ = true;
-    throw NoSpaceLeftException("While trying to sync {}, an error occurred: {} ({})", path_, strerror(errno), errno);
-  }
+  if (ret == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) return ReportNoSpace("sync");
 
   // In this check we are extremely rigorous because any error except EINTR is
   // treated as a fatal error that will crash the database. The errors that will
@@ -626,19 +630,14 @@ void OutputFile::Sync() {
 
   // Reset the counter.
   written_since_last_sync_ = 0;
+  return {};
 }
 
 void OutputFile::DropCachedPages() const { WarnIfPagesKept(utils::DropCachedPages(fd_), path_); }
 
 void OutputFile::Close() noexcept {
-  // A file that already failed to write is about to be deleted, so its unwritten buffer is dropped.
-  if (!write_failed_) {
-    try {
-      FlushBuffer();
-    } catch (NoSpaceLeftException const &e) {
-      spdlog::error("{}", e.what());
-    }
-  }
+  // Running out of space here is logged by the flush itself; nothing more can be done about it while closing.
+  (void)FlushBuffer();
 
   int ret = 0;
   while (true) {
@@ -653,7 +652,7 @@ void OutputFile::Close() noexcept {
     }
   }
 
-  if (ret == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
+  if (ret == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) {
     spdlog::error("While trying to close {}, an error occurred: {} ({})", path_, strerror(errno), errno);
   } else {
     MG_ASSERT(ret == 0,
@@ -672,14 +671,15 @@ void OutputFile::Close() noexcept {
   path_ = "";
 }
 
-void OutputFile::FlushBuffer() {
+std::expected<void, FileWriteError> OutputFile::FlushBuffer() {
   MG_ASSERT(IsOpen(), "Flushing an unopened file.");
 
   std::unique_lock flush_guard(flush_lock_);
-  FlushBufferInternal();
+  return FlushBufferInternal();
 }
 
-void OutputFile::FlushBufferInternal(size_t to_write) {
+std::expected<void, FileWriteError> OutputFile::FlushBufferInternal(size_t to_write) {
+  if (write_failed_) return std::unexpected{FileWriteError::kNoSpace};
   // Doesn't update buffer_position_ to avoid using atomics
   auto *buffer = buffer_.data();
   while (to_write > 0) {
@@ -687,10 +687,8 @@ void OutputFile::FlushBufferInternal(size_t to_write) {
     if (written == -1 && errno == EINTR) {
       continue;
     }
-    if (written == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
-      write_failed_ = true;
-      throw NoSpaceLeftException(
-          "While trying to write to {} an error occurred: {} ({})", path_, strerror(errno), errno);
+    if (written == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) {
+      return ReportNoSpace("write to");
     }
 
     MG_ASSERT(written > 0,
@@ -706,16 +704,32 @@ void OutputFile::FlushBufferInternal(size_t to_write) {
     to_write -= written;
     buffer += written;
   }
+  return {};
 }
 
-void OutputFile::FlushBufferInternal() {
+std::expected<void, FileWriteError> OutputFile::FlushBufferInternal() {
   auto to_write = buffer_position_.load(std::memory_order_acquire);
   MG_ASSERT(to_write <= kFileBufferSize,
             "While trying to write to {} more file was written to the "
             "buffer than the buffer has space!",
             path_);
-  FlushBufferInternal(to_write);
+  if (auto flushed = FlushBufferInternal(to_write); !flushed) return flushed;
   buffer_position_.store(0, std::memory_order_release);
+  return {};
+}
+
+std::unexpected<FileWriteError> OutputFile::ReportNoSpace(std::string_view const operation) {
+  auto const error = errno;
+  spdlog::error(
+      "While trying to {} {} an error occurred: {} ({}). The file is incomplete and nothing more will be "
+      "written to it.",
+      operation,
+      path_,
+      strerror(error),
+      error);
+  write_failed_ = true;
+  buffer_position_.store(0, std::memory_order_release);
+  return std::unexpected{FileWriteError::kNoSpace};
 }
 
 void OutputFile::DisableFlushing() { flush_lock_.lock_shared(); }
@@ -742,7 +756,8 @@ size_t OutputFile::GetSize() {
 
 void OutputFile::TryFlushing() {
   if (std::unique_lock guard(flush_lock_, std::try_to_lock); guard.owns_lock()) {
-    FlushBufferInternal();
+    // A failed flush is remembered and reported by the next Write or Sync.
+    (void)FlushBufferInternal();
   }
 }
 
@@ -788,7 +803,8 @@ bool NonConcurrentOutputFile::IsOpen() const { return fd_ != -1; }
 
 const std::filesystem::path &NonConcurrentOutputFile::path() const { return path_; }
 
-void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
+std::expected<void, FileWriteError> NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
+  if (write_failed_) return std::unexpected{FileWriteError::kNoSpace};
   auto const buffer_start = buffer_position_;
 
   auto *write_ptr = buffer_.data() + buffer_start;
@@ -796,7 +812,7 @@ void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
   while (size > 0) {
     if (buffer_remaining == 0) {
       MG_ASSERT(IsOpen(), "Flushing an unopened file.");
-      FlushBufferInternal(kFileBufferSize);
+      if (auto flushed = FlushBufferInternal(kFileBufferSize); !flushed) return flushed;
       buffer_remaining = kFileBufferSize;
       write_ptr = buffer_.data();
     }
@@ -810,13 +826,16 @@ void NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
     written_since_last_sync_ += amount_to_write;
   }
   buffer_position_ = write_ptr - buffer_.data();
+  return {};
 }
 
-void NonConcurrentOutputFile::Write(const char *data, size_t size) {
-  Write(reinterpret_cast<const uint8_t *>(data), size);
+std::expected<void, FileWriteError> NonConcurrentOutputFile::Write(const char *data, size_t size) {
+  return Write(reinterpret_cast<const uint8_t *>(data), size);
 }
 
-void NonConcurrentOutputFile::Write(const std::string_view data) { Write(data.data(), data.size()); }
+std::expected<void, FileWriteError> NonConcurrentOutputFile::Write(const std::string_view data) {
+  return Write(data.data(), data.size());
+}
 
 size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t offset) {
   int whence = 0;
@@ -850,7 +869,8 @@ size_t NonConcurrentOutputFile::SeekFile(const Position position, const ssize_t 
 size_t NonConcurrentOutputFile::GetPosition() { return SetPosition(Position::RELATIVE_TO_CURRENT, 0); }
 
 size_t NonConcurrentOutputFile::SetPosition(Position position, ssize_t offset) {
-  FlushBuffer();
+  // A failed flush is remembered and reported by the next Write or Sync.
+  (void)FlushBuffer();
   return SeekFile(position, offset);
 }
 
@@ -877,8 +897,8 @@ bool NonConcurrentOutputFile::AcquireLock() {
   return ret != -1;
 }
 
-void NonConcurrentOutputFile::Sync() {
-  FlushBuffer();
+std::expected<void, FileWriteError> NonConcurrentOutputFile::Sync() {
+  if (auto flushed = FlushBuffer(); !flushed) return flushed;
 
   int ret = 0;
   while (true) {
@@ -893,10 +913,7 @@ void NonConcurrentOutputFile::Sync() {
     }
   }
 
-  if (ret == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
-    write_failed_ = true;
-    throw NoSpaceLeftException("While trying to sync {}, an error occurred: {} ({})", path_, strerror(errno), errno);
-  }
+  if (ret == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) return ReportNoSpace("sync");
 
   // In this check we are extremely rigorous because any error except EINTR is
   // treated as a fatal error that will crash the database. The errors that will
@@ -931,17 +948,12 @@ void NonConcurrentOutputFile::Sync() {
 
   // Reset the counter.
   written_since_last_sync_ = 0;
+  return {};
 }
 
 void NonConcurrentOutputFile::Close() noexcept {
-  // A file that already failed to write is about to be deleted, so its unwritten buffer is dropped.
-  if (!write_failed_) {
-    try {
-      FlushBuffer();
-    } catch (NoSpaceLeftException const &e) {
-      spdlog::error("{}", e.what());
-    }
-  }
+  // Running out of space here is logged by the flush itself; nothing more can be done about it while closing.
+  (void)FlushBuffer();
 
   int ret = 0;
   while (true) {
@@ -956,7 +968,7 @@ void NonConcurrentOutputFile::Close() noexcept {
     }
   }
 
-  if (ret == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
+  if (ret == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) {
     spdlog::error("While trying to close {}, an error occurred: {} ({})", path_, strerror(errno), errno);
   } else {
     MG_ASSERT(ret == 0,
@@ -975,13 +987,14 @@ void NonConcurrentOutputFile::Close() noexcept {
   path_ = "";
 }
 
-void NonConcurrentOutputFile::FlushBuffer() {
+std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBuffer() {
   MG_ASSERT(IsOpen(), "Flushing an unopened file.");
 
-  FlushBufferInternal();
+  return FlushBufferInternal();
 }
 
-void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
+std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
+  if (write_failed_) return std::unexpected{FileWriteError::kNoSpace};
   auto *buffer = buffer_.data();
   auto const flushed = to_write;
   while (to_write > 0) {
@@ -989,10 +1002,8 @@ void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
     if (written == -1 && errno == EINTR) {
       continue;
     }
-    if (written == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
-      write_failed_ = true;
-      throw NoSpaceLeftException(
-          "While trying to write to {} an error occurred: {} ({})", path_, strerror(errno), errno);
+    if (written == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) {
+      return ReportNoSpace("write to");
     }
 
     MG_ASSERT(written > 0,
@@ -1010,6 +1021,7 @@ void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
   }
 
   PaceWriteback(flushed);
+  return {};
 }
 
 void NonConcurrentOutputFile::EnableWritebackPacing(size_t window_bytes, PageCachePolicy completed_window) {
@@ -1032,8 +1044,9 @@ void NonConcurrentOutputFile::DropCachedPages() {
   RestartPacing(pacing_offset_);
 }
 
-std::optional<uint64_t> NonConcurrentOutputFile::AppendFrom(int src_fd, uint64_t size) {
-  FlushBuffer();  // whatever is buffered belongs in front of the copied bytes
+std::expected<uint64_t, FileWriteError> NonConcurrentOutputFile::AppendFrom(int src_fd, uint64_t size) {
+  // Whatever is buffered belongs in front of the copied bytes.
+  if (auto flushed = FlushBuffer(); !flushed) return std::unexpected{flushed.error()};
 
   uint64_t copied = 0;
   off_t src_offset = 0;
@@ -1045,12 +1058,8 @@ std::optional<uint64_t> NonConcurrentOutputFile::AppendFrom(int src_fd, uint64_t
     auto const sent = ::sendfile(fd_, src_fd, &src_offset, chunk);
     if (sent == -1) {
       if (errno == EINTR) continue;
-      if (throw_on_no_space_ && IsOutOfSpace(errno)) {
-        write_failed_ = true;
-        throw NoSpaceLeftException(
-            "While trying to append to {} an error occurred: {} ({})", path_, strerror(errno), errno);
-      }
-      return std::nullopt;
+      if (on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) return ReportNoSpace("append to");
+      return std::unexpected{FileWriteError::kOther};
     }
     if (sent == 0) break;  // the source ended early
     copied += static_cast<uint64_t>(sent);
@@ -1121,14 +1130,29 @@ void NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
   pacing_pending_start_ = pacing_offset_;
 }
 
-void NonConcurrentOutputFile::FlushBufferInternal() {
+std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBufferInternal() {
   auto to_write = buffer_position_;
   MG_ASSERT(to_write <= kFileBufferSize,
             "While trying to write to {} more file was written to the "
             "buffer than the buffer has space!",
             path_);
-  FlushBufferInternal(to_write);
+  if (auto flushed = FlushBufferInternal(to_write); !flushed) return flushed;
   buffer_position_ = 0;
+  return {};
+}
+
+std::unexpected<FileWriteError> NonConcurrentOutputFile::ReportNoSpace(std::string_view const operation) {
+  auto const error = errno;
+  spdlog::error(
+      "While trying to {} {} an error occurred: {} ({}). The file is incomplete and nothing more will be "
+      "written to it.",
+      operation,
+      path_,
+      strerror(error),
+      error);
+  write_failed_ = true;
+  buffer_position_ = 0;
+  return std::unexpected{FileWriteError::kNoSpace};
 }
 
 std::pair<const uint8_t *, size_t> NonConcurrentOutputFile::CurrentBuffer() const {

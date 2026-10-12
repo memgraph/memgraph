@@ -212,9 +212,9 @@ TEST_F(FileReplicationHandlerTest, NoSpaceLeftDropsTransferAndRemovesReceivedFil
   {
     FileReplicationHandler file_replication_handler;
     // The whole file arrives in this segment, so syncing it on completion hits the full disk.
-    EXPECT_THROW((void)file_replication_handler.OpenFile(buffer.data() + sizeof(SegmentSize),
-                                                         buffer.size() - sizeof(SegmentSize)),
-                 memgraph::utils::NoSpaceLeftException);
+    EXPECT_FALSE(
+        file_replication_handler.OpenFile(buffer.data() + sizeof(SegmentSize), buffer.size() - sizeof(SegmentSize))
+            .has_value());
   }
   EXPECT_FALSE(std::filesystem::is_symlink(received_path));
 }

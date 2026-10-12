@@ -1409,48 +1409,50 @@ class OutputFileNoSpaceTest : public ::testing::Test {
 using OutputFileTypes = ::testing::Types<memgraph::utils::OutputFile, memgraph::utils::NonConcurrentOutputFile>;
 TYPED_TEST_SUITE(OutputFileNoSpaceTest, OutputFileTypes);
 
-TYPED_TEST(OutputFileNoSpaceTest, WriteThrowsWhenOptedIn) {
-  TypeParam file;
-  file.ThrowOnNoSpace();
+TYPED_TEST(OutputFileNoSpaceTest, WriteReportsNoSpace) {
+  TypeParam file{memgraph::utils::OnNoSpace::kReportError};
   ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
-  EXPECT_THROW(file.Write(this->more_than_buffer_.data(), this->more_than_buffer_.size()),
-               memgraph::utils::NoSpaceLeftException);
+  auto const written = file.Write(this->more_than_buffer_.data(), this->more_than_buffer_.size());
+  ASSERT_FALSE(written.has_value());
+  EXPECT_EQ(written.error(), memgraph::utils::FileWriteError::kNoSpace);
+  // The failure sticks: later writes and syncs report it without touching the file.
+  EXPECT_FALSE(file.Write("more").has_value());
+  EXPECT_FALSE(file.Sync().has_value());
   file.Close();
   EXPECT_FALSE(file.IsOpen());
 }
 
-TYPED_TEST(OutputFileNoSpaceTest, SyncThrowsWhenOptedIn) {
-  TypeParam file;
-  file.ThrowOnNoSpace();
+TYPED_TEST(OutputFileNoSpaceTest, SyncReportsNoSpace) {
+  TypeParam file{memgraph::utils::OnNoSpace::kReportError};
   ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
-  file.Write("hello");
-  EXPECT_THROW(file.Sync(), memgraph::utils::NoSpaceLeftException);
+  ASSERT_TRUE(file.Write("hello").has_value());
+  auto const synced = file.Sync();
+  ASSERT_FALSE(synced.has_value());
+  EXPECT_EQ(synced.error(), memgraph::utils::FileWriteError::kNoSpace);
   file.Close();
   EXPECT_FALSE(file.IsOpen());
 }
 
-TYPED_TEST(OutputFileNoSpaceTest, CloseWithUnflushedDataDoesNotCrashWhenOptedIn) {
-  TypeParam file;
-  file.ThrowOnNoSpace();
+TYPED_TEST(OutputFileNoSpaceTest, CloseWithUnflushedDataDoesNotCrash) {
+  TypeParam file{memgraph::utils::OnNoSpace::kReportError};
   ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
-  file.Write("hello");
+  ASSERT_TRUE(file.Write("hello").has_value());
   file.Close();
   EXPECT_FALSE(file.IsOpen());
 }
 
 TYPED_TEST(OutputFileNoSpaceTest, HandleIsReusableAfterFailure) {
-  TypeParam file;
-  file.ThrowOnNoSpace();
+  TypeParam file{memgraph::utils::OnNoSpace::kReportError};
   ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
-  file.Write("lost");
-  EXPECT_THROW(file.Sync(), memgraph::utils::NoSpaceLeftException);
+  ASSERT_TRUE(file.Write("lost").has_value());
+  EXPECT_FALSE(file.Sync().has_value());
   file.Close();
 
   auto const path = fs::temp_directory_path() / "MG_test_unit_utils_file_no_space_reuse";
   auto const remove = memgraph::utils::OnScopeExit{[&path] { fs::remove(path); }};
   ASSERT_TRUE(file.Open(path, TypeParam::Mode::OVERWRITE_EXISTING));
-  file.Write("kept");
-  file.Sync();
+  ASSERT_TRUE(file.Write("kept").has_value());
+  ASSERT_TRUE(file.Sync().has_value());
   file.Close();
 
   std::ifstream in(path);
@@ -1464,7 +1466,7 @@ TYPED_TEST(OutputFileNoSpaceTest, WriteCrashesByDefault) {
       {
         TypeParam file;
         if (!file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING)) std::abort();
-        file.Write(this->more_than_buffer_.data(), this->more_than_buffer_.size());
+        (void)file.Write(this->more_than_buffer_.data(), this->more_than_buffer_.size());
       },
       "No space left on device");
 }

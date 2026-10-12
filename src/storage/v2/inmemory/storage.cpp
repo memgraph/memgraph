@@ -4578,7 +4578,7 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                &abort_snapshot_,
                                                &snapshot_progress_,
                                                trigger);
-  } catch (utils::NoSpaceLeftException const &e) {
+  } catch (durability::SnapshotNoSpaceLeft const &e) {
     // CreateSnapshot has already removed the partial snapshot and its parts.
     spdlog::error("{}", e.what());
     return std::unexpected{CreateSnapshotError::NoSpaceLeft};

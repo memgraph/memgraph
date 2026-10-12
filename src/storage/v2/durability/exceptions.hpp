@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,6 +19,13 @@ namespace memgraph::storage::durability {
 class RecoveryFailure : public utils::BasicException {
   using utils::BasicException::BasicException;
   SPECIALIZE_GET_EXCEPTION_NAME(RecoveryFailure)
+};
+
+/// The disk ran out of space or quota while writing a snapshot. The partial snapshot is removed.
+class SnapshotNoSpaceLeft : public utils::BasicException {
+ public:
+  using utils::BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(SnapshotNoSpaceLeft)
 };
 
 }  // namespace memgraph::storage::durability

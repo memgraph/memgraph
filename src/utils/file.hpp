@@ -23,6 +23,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <expected>
 #include <filesystem>
 #include <memory>
 #include <optional>
@@ -32,16 +33,20 @@
 #include <vector>
 
 #include "utils/crc_accumulator.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
 
-/// Thrown by an output file opted in with `ThrowOnNoSpace` when the device runs out of space or quota.
-class NoSpaceLeftException : public BasicException {
- public:
-  using BasicException::BasicException;
-  SPECIALIZE_GET_EXCEPTION_NAME(NoSpaceLeftException)
+/// What an output file does when its device runs out of space or quota.
+enum class OnNoSpace : uint8_t {
+  kCrash,        ///< Like on every other write error.
+  kReportError,  ///< For files that are deleted rather than trusted when writing them fails.
+};
+
+/// Why writing to an output file failed.
+enum class FileWriteError : uint8_t {
+  kNoSpace,  ///< Out of space or quota; only reported by files opened with `OnNoSpace::kReportError`.
+  kOther,    ///< Any other failure, with `errno` left for the caller; only reported by `AppendFrom`.
 };
 
 using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
@@ -248,6 +253,9 @@ class OutputFile {
   };
 
   OutputFile() = default;
+
+  explicit OutputFile(OnNoSpace on_no_space) noexcept : on_no_space_{on_no_space} {}
+
   ~OutputFile();
 
   OutputFile(const OutputFile &) = delete;
@@ -269,11 +277,11 @@ class OutputFile {
   /// path is empty.
   const std::filesystem::path &path() const;
 
-  /// Writes data to the currently opened file. On failure and misuse it crashes
-  /// the program.
-  void Write(const uint8_t *data, size_t size);
-  void Write(const char *data, size_t size);
-  void Write(std::string_view data);
+  /// Writes data to the currently opened file. Running out of space is reported per the
+  /// `OnNoSpace` policy; any other failure and misuse crash the program.
+  std::expected<void, FileWriteError> Write(const uint8_t *data, size_t size);
+  std::expected<void, FileWriteError> Write(const char *data, size_t size);
+  std::expected<void, FileWriteError> Write(std::string_view data);
 
   /// This method gets the current absolute position in the file. On failure and
   /// misuse it crashes the program.
@@ -298,9 +306,10 @@ class OutputFile {
   /// pays off for us to wait
   auto AcquireLockWithTimeout(uint32_t data_dir_lock_acquisition_timeout_sec, uint16_t sleep_time_ms = 250) -> bool;
 
-  /// Syncs currently pending data to the currently opened file. On failure
-  /// and misuse it crashes the program.
-  void Sync();
+  /// Syncs currently pending data to the currently opened file. Running out of space, now or in an
+  /// earlier write, is reported per the `OnNoSpace` policy; any other failure and misuse crash the
+  /// program.
+  std::expected<void, FileWriteError> Sync();
 
   /// See `utils::DropCachedPages`. A refusal is logged and otherwise passes.
   void DropCachedPages() const;
@@ -329,15 +338,12 @@ class OutputFile {
   /// Get the POSIX file handle
   auto fd() const { return fd_; }
 
-  /// For files that are deleted rather than trusted when writing them fails. Running out of space
-  /// or quota then throws `NoSpaceLeftException` instead of crashing, and the next `Close` drops
-  /// the unwritten buffer instead of flushing it. Every other error still crashes.
-  void ThrowOnNoSpace() { throw_on_no_space_ = true; }
-
  private:
-  void FlushBuffer();
-  void FlushBufferInternal();
-  void FlushBufferInternal(size_t to_write);
+  std::expected<void, FileWriteError> FlushBuffer();
+  std::expected<void, FileWriteError> FlushBufferInternal();
+  std::expected<void, FileWriteError> FlushBufferInternal(size_t to_write);
+  // Marks the file failed and drops its buffer. Call with `errno` still set by the failed call.
+  std::unexpected<FileWriteError> ReportNoSpace(std::string_view operation);
 
   // Runs without `flush_lock_`, unlike the flush path. Any per-file state touched by both would
   // race, which is why writeback pacing is offered on `NonConcurrentOutputFile` and not here.
@@ -350,7 +356,8 @@ class OutputFile {
   alignas(64) int fd_{-1};
   std::atomic<size_t> buffer_position_{0};
   size_t written_since_last_sync_{0};
-  bool throw_on_no_space_{false};
+  OnNoSpace on_no_space_{OnNoSpace::kCrash};
+  // Set once writing ran out of space; every later write and sync then fails without touching the file.
   bool write_failed_{false};
   std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
 
@@ -373,6 +380,9 @@ class NonConcurrentOutputFile {
   };
 
   NonConcurrentOutputFile() = default;
+
+  explicit NonConcurrentOutputFile(OnNoSpace on_no_space) noexcept : on_no_space_{on_no_space} {}
+
   ~NonConcurrentOutputFile();
 
   NonConcurrentOutputFile(const NonConcurrentOutputFile &) = delete;
@@ -395,11 +405,11 @@ class NonConcurrentOutputFile {
   /// path is empty.
   const std::filesystem::path &path() const;
 
-  /// Writes data to the currently opened file. On failure and misuse it crashes
-  /// the program.
-  void Write(const uint8_t *data, size_t size);
-  void Write(const char *data, size_t size);
-  void Write(std::string_view data);
+  /// Writes data to the currently opened file. Running out of space is reported per the
+  /// `OnNoSpace` policy; any other failure and misuse crash the program.
+  std::expected<void, FileWriteError> Write(const uint8_t *data, size_t size);
+  std::expected<void, FileWriteError> Write(const char *data, size_t size);
+  std::expected<void, FileWriteError> Write(std::string_view data);
 
   /// This method gets the current absolute position in the file. On failure and
   /// misuse it crashes the program.
@@ -418,9 +428,10 @@ class NonConcurrentOutputFile {
   /// program.
   bool AcquireLock();
 
-  /// Syncs currently pending data to the currently opened file. On failure
-  /// and misuse it crashes the program.
-  void Sync();
+  /// Syncs currently pending data to the currently opened file. Running out of space, now or in an
+  /// earlier write, is reported per the `OnNoSpace` policy; any other failure and misuse crash the
+  /// program.
+  std::expected<void, FileWriteError> Sync();
 
   /// Bound the dirty page cache this file is allowed to accumulate, in `window_bytes` at a time.
   ///
@@ -449,11 +460,11 @@ class NonConcurrentOutputFile {
   /// Appends up to `size` bytes from the start of `src_fd` to this file, copying within the kernel.
   ///
   /// Returns the number of bytes appended, which is short of `size` only if `src_fd` ends early,
-  /// or `nullopt` if the copy failed, with `errno` left for the caller to report against a path it
-  /// knows and this does not.
+  /// or the reason the copy failed. For `kOther`, `errno` is left for the caller to report against
+  /// a path it knows and this does not.
   ///
   /// Anything buffered is flushed first, so it lands in front of the copied bytes.
-  [[nodiscard]] std::optional<uint64_t> AppendFrom(int src_fd, uint64_t size);
+  [[nodiscard]] std::expected<uint64_t, FileWriteError> AppendFrom(int src_fd, uint64_t size);
 
   /// Where writeback pacing believes the file position is. Test-only: pacing is advisory
   /// throughout, so this is the only thing separating pacing that works from pacing that stopped.
@@ -473,13 +484,12 @@ class NonConcurrentOutputFile {
   /// Get the size of the file.
   size_t GetSize();
 
-  /// See `OutputFile::ThrowOnNoSpace`. Also covers `Sync` and `AppendFrom`.
-  void ThrowOnNoSpace() { throw_on_no_space_ = true; }
-
  private:
-  void FlushBuffer();
-  void FlushBufferInternal();
-  void FlushBufferInternal(size_t to_write);
+  std::expected<void, FileWriteError> FlushBuffer();
+  std::expected<void, FileWriteError> FlushBufferInternal();
+  std::expected<void, FileWriteError> FlushBufferInternal(size_t to_write);
+  // Marks the file failed and drops its buffer. Call with `errno` still set by the failed call.
+  std::unexpected<FileWriteError> ReportNoSpace(std::string_view operation);
 
   size_t SeekFile(Position position, ssize_t offset);
 
@@ -498,7 +508,8 @@ class NonConcurrentOutputFile {
   int fd_{-1};
   size_t buffer_position_{0};
   size_t written_since_last_sync_{0};
-  bool throw_on_no_space_{false};
+  OnNoSpace on_no_space_{OnNoSpace::kCrash};
+  // Set once writing ran out of space; every later write and sync then fails without touching the file.
   bool write_failed_{false};
 
   // Writeback pacing; see `EnableWritebackPacing`. A zero window means pacing is off, whether

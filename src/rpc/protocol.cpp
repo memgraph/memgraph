@@ -83,7 +83,9 @@ void RpcMessageDeliverer::Execute() {
     if (ret.status == slk::StreamStatus::FILE_DATA) {
       // When FILE_DATA status is received, we know that we should read from the stream start and that we consumed
       // whole input stream so we can clear it
-      file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
+      if (!file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size())) {
+        throw SessionException("Error happened while writing file in RpcMessageDeliverer!");
+      }
       input_stream_->Clear();
       return;
     }
@@ -97,7 +99,9 @@ void RpcMessageDeliverer::Execute() {
       } else {
         // If file replication handler is already active, and we received NEW_FILE status it means we should create new
         // file but before that, we should first finalize writing to the prior file
-        file_replication_handler_->WriteToFile(input_stream_->data(), ret.pos - sizeof(slk::SegmentSize));
+        if (!file_replication_handler_->WriteToFile(input_stream_->data(), ret.pos - sizeof(slk::SegmentSize))) {
+          throw SessionException("Error happened while writing file in RpcMessageDeliverer!");
+        }
       }
       // We processed them either when processing header and request of the 1st file or also if writing part of the old
       // file
@@ -132,7 +136,9 @@ void RpcMessageDeliverer::Execute() {
 
   // Writing last segment
   if (file_replication_handler_) {
-    file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
+    if (!file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size())) {
+      throw SessionException("Error happened while writing file in RpcMessageDeliverer!");
+    }
     MG_ASSERT(!file_replication_handler_->HasOpenedFile(), "File should be closed after completing the stream");
   }
 
