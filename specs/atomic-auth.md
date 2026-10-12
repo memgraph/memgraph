@@ -181,7 +181,10 @@ state that never existed. Retrying re-reads the set and succeeds.
 An open transaction holds no lock between statements. Conflict detection is
 optimistic and the loser finds out at `COMMIT`, which takes the system lock
 when it has changes to replicate; see section 6 for a commit refused because
-another session holds it.
+another session holds it. A statement can still wait while another session's
+system query replicates, because that query holds the replication state while
+it does, and every write statement, data or auth, reads the instance's role
+under it.
 
 A transaction that reads the same record twice, or asks twice whether any
 record of a kind exists, and gets two different answers fails at `COMMIT`, even
