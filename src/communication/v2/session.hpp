@@ -327,7 +327,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     // Runs on a worker thread. Plain TCP arms here under arm_lock_ (no strand hop); SSL/WebSocket
     // async_read_some are composed ops that must stay on their implicit strand, so they dispatch to strand_.
     if (std::holds_alternative<TCPSocket>(socket_)) {
-      ArmWait_();
+      ArmRead_(std::bind_front(&Session::OnRead, shared_from_this()));
       return;
     }
     boost::asio::dispatch(strand_,
