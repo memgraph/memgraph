@@ -11551,7 +11551,10 @@ void Interpreter::Commit() {
         // (`InterpreterContext::TerminateSessions`) leaves STARTED_COMMITTING to the committing thread that has
         // already gone. Unwinding therefore always releases here, to ACTIVE: a failed commit leaves the transaction
         // open until ROLLBACK, as a failed statement does, so it stays listed and terminable. Abort() accepts it.
+        // The COMMIT handler marks that only for a BasicException, and the auth transaction is already gone, so
+        // a second COMMIT after any other exception would report success for nothing.
         if (std::uncaught_exceptions() == entry_exceptions) return;
+        expect_rollback_ = true;
         system_transaction_.reset();
         auto expected = TransactionStatus::STARTED_COMMITTING;
         while (!transaction_status_.compare_exchange_weak(expected, TransactionStatus::ACTIVE)) {
