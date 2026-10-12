@@ -1923,6 +1923,43 @@ TYPED_TEST(InterpreterTest, UniqueConstraintViolationMetrics) {
   EXPECT_EQ(metrics.existence_constraint_violations.Value(), existence_initial);
 }
 
+TYPED_TEST(InterpreterTest, PeriodicCommitConstraintViolationMetrics) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Periodic commit is supported only by in-memory storage.";
+  }
+  this->Interpret("CREATE CONSTRAINT ON (n:Required) ASSERT EXISTS (n.a)");
+  this->Interpret("CREATE CONSTRAINT ON (n:Distinct) ASSERT n.a IS UNIQUE");
+  this->Interpret("CREATE (:Distinct {a:1})");
+  const auto &metrics = *this->db->metric_handles();
+  const auto existence_initial = metrics.existence_constraint_violations.Value();
+  const auto unique_initial = metrics.unique_constraint_violations.Value();
+
+  for (const auto *query : {"USING PERIODIC COMMIT 1 UNWIND [1] AS x CREATE (:Required)",
+                            "UNWIND [1] AS x CALL (x) { CREATE (:Required) } IN TRANSACTIONS OF 1 ROWS"}) {
+    SCOPED_TRACE(query);
+    const auto before = metrics.existence_constraint_violations.Value();
+    EXPECT_THROW(this->Interpret(query), memgraph::query::PeriodicCommitException);
+    EXPECT_EQ(metrics.existence_constraint_violations.Value(), before + 1);
+    EXPECT_EQ(metrics.unique_constraint_violations.Value(), unique_initial);
+    this->default_interpreter.Abort();
+  }
+  EXPECT_EQ(metrics.existence_constraint_violations.Value(), existence_initial + 2);
+
+  for (const auto *query : {"USING PERIODIC COMMIT 1 UNWIND [1] AS x CREATE (:Distinct {a:1})",
+                            "UNWIND [1] AS x CALL (x) { CREATE (:Distinct {a:1}) } IN TRANSACTIONS OF 1 ROWS"}) {
+    SCOPED_TRACE(query);
+    const auto before = metrics.unique_constraint_violations.Value();
+    EXPECT_THROW(this->Interpret(query), memgraph::query::PeriodicCommitException);
+    EXPECT_EQ(metrics.unique_constraint_violations.Value(), before + 1);
+    EXPECT_EQ(metrics.existence_constraint_violations.Value(), existence_initial + 2);
+    this->default_interpreter.Abort();
+  }
+  this->Interpret("USING PERIODIC COMMIT 1 UNWIND [2,3] AS x CREATE (:Distinct {a:x})");
+  this->Interpret("UNWIND [4,5] AS x CALL (x) { CREATE (:Required {a:x}) } IN TRANSACTIONS OF 1 ROWS");
+  EXPECT_EQ(metrics.existence_constraint_violations.Value(), existence_initial + 2);
+  EXPECT_EQ(metrics.unique_constraint_violations.Value(), unique_initial + 2);
+}
+
 TYPED_TEST(InterpreterTest, UniqueConstraintTest) {
   // Empty property list should result with syntax exception.
   ASSERT_THROW(this->Interpret("CREATE CONSTRAINT ON (n:A) ASSERT IS UNIQUE;"), memgraph::query::SyntaxException);
