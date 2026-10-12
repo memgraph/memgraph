@@ -1309,7 +1309,7 @@ class Database {
         {"null",
          PV(),
          "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
-         "weight, or filter the ones without one out. " +
+         "weight, or filter the ones without one out. If the lambda is a v3.13 filter: " +
              hint},
         {"negative", PV(int64_t{-1}), "Weight must be non-negative, got -1."},
         {"NaN", PV(std::nan("")), "The weight lambda of a KSHORTEST path expansion must not evaluate to NaN."}};
