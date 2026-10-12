@@ -11524,14 +11524,14 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 // Flush it here, under a system transaction created only now, so the system mutex covers the flush rather than
 // the whole time the user held the transaction open.
 void Interpreter::CommitAuthTransaction() {
-  // Covers every exit of this block, a throw included. On a throw it also drops `system_transaction_`, which
+  // Covers every exit of this function, a throw included. On a throw it also drops `system_transaction_`, which
   // would otherwise hold the system mutex until the session next aborts, refusing every other session's
   // system queries meanwhile.
   //
   // On the way out normally, the claim is never given back here. Letting go would put the status back to
   // ACTIVE before the transaction is retired, and a terminate landing in between would report a kill for a
-  // transaction that has already committed, which is the false kill the claim exists to prevent. Whatever
-  // retires the transaction below, `clean_status` or `FinishAutocommitNothing`, starts from
+  // transaction that has already committed, which is the false kill the claim exists to prevent. What retires
+  // the transaction after this returns, `clean_status` or `FinishAutocommitNothing` in `Commit()`, starts from
   // STARTED_COMMITTING instead.
   //
   // The status half is a no-op until the claim below lands, since only STARTED_COMMITTING is ours to give
@@ -11565,7 +11565,7 @@ void Interpreter::CommitAuthTransaction() {
   });
 
   // Termination is cooperative: TERMINATE TRANSACTIONS only marks the status, and refusing to go ahead is the
-  // committer's job. The data path does this below; an auth transaction released its accessor and never gets
+  // committer's job. The data path in `Commit()` does this; an auth transaction released its accessor and never gets
   // there, so it has to refuse for itself, before the flush makes anything durable.
   //
   // Claiming the status, rather than only reading it, is what makes the refusal binding: a terminate

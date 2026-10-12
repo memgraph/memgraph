@@ -69,7 +69,9 @@ concurrent change by another transaction to anything the transaction read or
 wrote fails the commit rather than overwriting it, and that check at `COMMIT`
 is what makes the outcome serializable. A statement that asks only whether any
 record exists, such as the check for a first user, depends only on that answer:
-records changing while some still exist do not fail the commit.
+records changing while some still exist do not fail the commit, unless the
+transaction itself removed one, when it depends on the record the check found
+(section 4).
 
 ---
 
@@ -177,8 +179,8 @@ session has since changed, so committing against it would mean acting on a
 state that never existed. Retrying re-reads the set and succeeds.
 
 An open transaction holds no lock between statements. Conflict detection is
-optimistic and the loser finds out at `COMMIT`, which takes the system lock to
-apply and replicate the changes; see section 6 for a commit refused because
+optimistic and the loser finds out at `COMMIT`, which takes the system lock
+when it has changes to replicate; see section 6 for a commit refused because
 another session holds it.
 
 A transaction that reads the same record twice, or asks twice whether any
