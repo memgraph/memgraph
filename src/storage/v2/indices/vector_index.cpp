@@ -37,6 +37,7 @@ void VectorIndex::PublishActiveIndices(ActiveIndicesUpdater const &updater) cons
 
 bool VectorIndex::CreateIndex(VectorIndexSpec &spec, utils::SkipListDb<Vertex>::Accessor &vertices, Indices *indices,
                               NameIdMapper *name_id_mapper, ProgressCallback const &on_progress) {
+  CheckVectorIndexReserve(spec.index_name, spec.capacity);
   try {
     const auto index_id = SetupIndex(spec, name_id_mapper);
     if (!index_id.has_value()) return false;
