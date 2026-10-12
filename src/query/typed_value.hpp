@@ -827,6 +827,60 @@ class TypedValue {
     return static_cast<unsigned>(type) <= static_cast<unsigned>(Type::Point3d);
   }
 
+  /// What handling a value of a type needs, said once by name rather than by where the type sits.
+  ///
+  /// The two predicates above answer from the declaration order, which is what makes each of them a
+  /// comparison. `HandlingAgreesWithDeclarationOrder` holds the two accounts against each other, so
+  /// that moving a type past one of the boundaries fails to compile rather than silently copying a
+  /// string by assigning it. Naming no default means a type added to the enumeration has to be
+  /// classified here before anything compiles.
+  enum class Handling { InlineCopyable, TrivialDestructorOnly, OwnsAnAllocation };
+
+  static constexpr Handling HandlingOf(Type type) {
+    switch (type) {
+      using enum Type;
+      case Null:
+      case Bool:
+      case Int:
+      case Double:
+      case Vertex:
+      case Edge:
+        return Handling::InlineCopyable;
+
+      case Date:
+      case LocalTime:
+      case LocalDateTime:
+      case ZonedDateTime:
+      case Duration:
+      case Enum:
+      case Point2d:
+      case Point3d:
+        return Handling::TrivialDestructorOnly;
+
+      case String:
+      case List:
+      case Map:
+      case Path:
+      case Graph:
+      case VirtualGraph:
+      case Function:
+      case VirtualEdge:
+      case VirtualNode:
+        return Handling::OwnsAnAllocation;
+    }
+  }
+
+  /// Whether the two predicates above agree with `HandlingOf` for every type. Asserted in the
+  /// implementation file: a constant expression cannot call these while the class is being defined.
+  static constexpr bool HandlingAgreesWithDeclarationOrder() {
+    for (auto i = 0U; i != kTypeCount; ++i) {
+      auto const type = static_cast<Type>(i);
+      if (IsInlineCopyable(type) != (HandlingOf(type) == Handling::InlineCopyable)) return false;
+      if (HasTrivialDestructor(type) != (HandlingOf(type) != Handling::OwnsAnAllocation)) return false;
+    }
+    return true;
+  }
+
   /// The rest of the destructor and of the copy constructor. Both assume `type_` is already the
   /// type being destroyed or copied, and neither is reached for a type handled inline above.
   void DestroyValue();
