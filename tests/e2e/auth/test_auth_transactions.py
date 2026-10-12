@@ -282,6 +282,21 @@ def test_a_database_dropped_before_commit_fails_the_commit(cursor, setup, statem
         execute(cursor, "DROP DATABASE d1")
 
 
+def test_a_password_changed_twice_in_one_transaction_checks_the_second_against_the_first(cursor):
+    execute(cursor, "CREATE USER eve IDENTIFIED BY 'p1'")
+    eve = mgclient.connect(host="localhost", port=7687, username="eve", password="p1")
+    eve.autocommit = True
+    eve_cursor = eve.cursor()
+
+    execute(eve_cursor, "BEGIN")
+    execute(eve_cursor, "SET PASSWORD TO 'p2' REPLACE 'p1'")
+    execute(eve_cursor, "SET PASSWORD TO 'p3' REPLACE 'p2'")
+    execute(eve_cursor, "COMMIT")
+    eve.close()
+
+    mgclient.connect(host="localhost", port=7687, username="eve", password="p3").close()
+
+
 def transaction_watcher(cursor):
     execute(cursor, "CREATE USER watcher IDENTIFIED BY 'watcherpw'")
     execute(cursor, "GRANT TRANSACTION_MANAGEMENT TO watcher")
