@@ -4485,7 +4485,7 @@ class KShortestPathsCursor : public Cursor {
   }
 
   /// This vertex's out-edges, fetched and cached on the first ask. Both searches go through here, so
-  /// the hop accounting and the `hops_limit` charge are paid exactly once per vertex per query.
+  /// the hop accounting and the `hops_limit` charge are paid once per vertex for this cursor.
   const CachedEdges &OutEdgesOf(const VertexAccessor &vertex, ExecutionContext &context) {
     if (const auto it = out_edges_.find(vertex); it != out_edges_.end()) return it->second;
     auto fetched =
