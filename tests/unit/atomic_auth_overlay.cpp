@@ -641,6 +641,23 @@ TEST_F(AtomicAuthOverlayTest, AScanThatSeesAReadKeyChangedConflictsEvenAfterItCh
   EXPECT_FALSE(overlay.Flush()) << "the scan acted on a value the earlier read never saw";
 }
 
+// Two transactions that read the same record and both write it: the one that flushes second read a value the
+// first has since replaced, so it must not overwrite it.
+TEST_F(AtomicAuthOverlayTest, TwoOverlaysWritingARecordBothReadConflict) {
+  store_->Put("user:bob", "original");
+
+  AtomicAuthOverlay first(*store_);
+  AtomicAuthOverlay second(*store_);
+  EXPECT_EQ(first.Get("user:bob").value(), "original");
+  EXPECT_EQ(second.Get("user:bob").value(), "original");
+  first.Put("user:bob", "first");
+  second.Put("user:bob", "second");
+
+  EXPECT_TRUE(first.Flush());
+  EXPECT_FALSE(second.Flush());
+  EXPECT_EQ(store_->Get("user:bob").value(), "first");
+}
+
 TEST_F(AtomicAuthOverlayTest, ScanDoesNotConflictWithOwnWrites) {
   store_->Put("user:alice", "alice_data");
 
