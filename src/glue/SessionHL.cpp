@@ -305,42 +305,41 @@ void SessionHL::TryDefaultDB() {
 std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(const std::string &username,
                                                                               const std::string &password) {
   interpreter_.ResetUser();
-  {
-    auto locked_auth = auth_->Lock();
-    if (locked_auth->AccessControlled()) {
-      auto const user_or_role = std::invoke([&]() -> std::optional<auth::UserOrRole> {
-        try {
-          return locked_auth->Authenticate(username, password);
-        } catch (const auth::AuthException &e) {
-          spdlog::warn("Couldn't authenticate user '{}': {}", username, e.what());
-          return std::nullopt;
-        }
-      });
-      if (!user_or_role) return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
-      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, user_or_role);
-      DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
-#ifdef MG_ENTERPRISE
-      // Setup user-related resource monitoring
-      user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
+  bool const access_controlled = auth_->ReadLock()->AccessControlled();
+  // Auth lock is not held past this point; bcrypt and module calls run outside the lock.
+  if (access_controlled) {
+    auto const user_or_role = std::invoke([&]() -> std::optional<auth::UserOrRole> {
       try {
-        interpreter_.SetUser(session_user_or_role_, user_resource_);
-      } catch (const auth::AuthException & /*unused*/) {
-        return std::unexpected{communication::bolt::AuthFailure::kResourceBound};
+        return auth::Authenticate(*auth_, username, password);
+      } catch (const auth::AuthException &e) {
+        spdlog::warn("Couldn't authenticate user '{}': {}", username, e.what());
+        return std::nullopt;
       }
-#else
-      interpreter_.SetUser(session_user_or_role_);
-#endif
-      interpreter_.SetSessionInfo(UUID(), interpreter_.user_or_role_->username().value_or(""), GetLoginTimestamp());
-    } else {
-      // No access control -> give empty user
-      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
+    });
+    if (!user_or_role) return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
+    session_user_or_role_ = AuthChecker::GenQueryUser(auth_, user_or_role);
+    DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
 #ifdef MG_ENTERPRISE
-      interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for userless */});
-#else
-      interpreter_.SetUser(session_user_or_role_);
-#endif
-      interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
+    // Setup user-related resource monitoring
+    user_resource_ = ResourceAtLogin(*session_user_or_role_, interpreter_context_->resource_monitoring);
+    try {
+      interpreter_.SetUser(session_user_or_role_, user_resource_);
+    } catch (const auth::AuthException & /*unused*/) {
+      return std::unexpected{communication::bolt::AuthFailure::kResourceBound};
     }
+#else
+    interpreter_.SetUser(session_user_or_role_);
+#endif
+    interpreter_.SetSessionInfo(UUID(), interpreter_.user_or_role_->username().value_or(""), GetLoginTimestamp());
+  } else {
+    // No access control -> give empty user
+    session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
+#ifdef MG_ENTERPRISE
+    interpreter_.SetUser(session_user_or_role_, {/* no resource limitation for userless */});
+#else
+    interpreter_.SetUser(session_user_or_role_);
+#endif
+    interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
   }
 
   TryDefaultDB();
@@ -351,9 +350,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
     const std::string &scheme, const std::string &identity_provider_response) {
   interpreter_.ResetUser();
 
-  auto locked_auth = auth_->Lock();
-
-  const auto user_or_role = locked_auth->SSOAuthenticate(scheme, identity_provider_response);
+  const auto user_or_role = auth::SSOAuthenticate(*auth_, scheme, identity_provider_response);
   if (!user_or_role) {
     return std::unexpected{communication::bolt::AuthFailure::kGeneric};  // Failed to authenticate
   }
@@ -408,8 +405,7 @@ std::expected<void, std::string_view> SessionHL::CoordinatorSSOAuthenticate(
 
   auto module_runner = [this](std::string const &sso_scheme,
                               std::string const &response) -> std::optional<auth::SSOIdentity> {
-    auto locked_auth = auth_->Lock();
-    return locked_auth->SSOGetIdentity(sso_scheme, response);
+    return auth::SSOGetIdentity(*auth_, sso_scheme, response);
   };
 
   CoordinatorSSOAuthenticator const authenticator{std::move(module_runner), std::move(role_mask_provider)};
