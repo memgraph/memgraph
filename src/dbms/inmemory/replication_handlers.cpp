@@ -712,29 +712,11 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   DMG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
   auto const &src_snapshot_file = active_files[0];
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
-  // A resent snapshot can replace one this replica already holds; only a new one is removed if it can't be loaded.
-  // If the check itself fails, the snapshot is treated as already held, so it is never removed on a guess.
-  std::error_code exists_ec;
-  bool const replaces_existing_snapshot = std::filesystem::exists(dst_snapshot_file, exists_ec) || exists_ec;
 
-  if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
-    spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
-    heartbeat.Stop();
-    rpc::SendFinalResponse(
-        storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
-    return;
-  }
-
-  spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
   {
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
       spdlog::error("Failed to acquire main lock in {}s", kWaitForMainLockTimeout.count());
-      // Nothing was loaded and main resends the whole snapshot, so keeping this copy would only fill the disk.
-      if (!replaces_existing_snapshot) {
-        spdlog::info("Removing received snapshot {} which wasn't loaded", dst_snapshot_file);
-        storage->file_retainer_.DeleteFile(dst_snapshot_file);
-      }
       heartbeat.Stop();
       rpc::SendFinalResponse(
           storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
@@ -743,6 +725,17 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     // Acquiring a contended lock is a completed step, so it counts. Recorded on success only -- recording while still
     // blocked would tell the peer we are advancing when we are not.
     record_progress();
+
+    // Moved only once the snapshot is about to be loaded; until then it stays in tmp/, where the request's
+    // FileReplicationHandler deletes it if this handler returns early.
+    if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
+      spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
+      heartbeat.Stop();
+      rpc::SendFinalResponse(
+          storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
+      return;
+    }
+    spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
 
     spdlog::info("Clearing database {} before recovering from snapshot.", storage->name());
 

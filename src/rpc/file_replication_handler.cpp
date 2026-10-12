@@ -25,9 +25,8 @@ FileReplicationHandler::~FileReplicationHandler() {
     // The file will be deleted so I don't care about syncing it before closing
     file_.Close();
   }
-  // Nobody should be using paths_ after the FileReplicationHandler gets destructed
-  // When snapshot is received, it is moved to data directory folder so we shouldn't delete snapshot files here
-  // All received WAL files should be deleted.
+  // Nobody should be using paths_ after the FileReplicationHandler gets destructed.
+  // A snapshot that was loaded has already been moved into the data directory; whatever is still here wasn't used.
   std::ranges::for_each(paths_ | std::views::filter([](auto const &path) {
                           std::error_code ec;
                           return std::filesystem::exists(path, ec);
