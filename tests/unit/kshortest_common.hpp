@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <iterator>
@@ -1310,7 +1311,8 @@ class Database {
          "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
          "weight, or filter the ones without one out. " +
              hint},
-        {"negative", PV(int64_t{-1}), "Weight must be non-negative, got -1."}};
+        {"negative", PV(int64_t{-1}), "Weight must be non-negative, got -1."},
+        {"NaN", PV(std::nan("")), "The weight lambda of a KSHORTEST path expansion must not evaluate to NaN."}};
 
     for (const auto &[name, weight, expected] : cases) {
       SCOPED_TRACE(name);
@@ -1322,6 +1324,20 @@ class Database {
       } catch (const memgraph::query::QueryRuntimeException &e) {
         EXPECT_EQ(std::string(e.what()), expected);
       }
+    }
+  }
+
+  // An Int total that would wrap is an error: wrapped negative, it would order a longer path first.
+  void KShortestWeightedTestIntOverflow(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    auto weights = DetourIntWeights();
+    weights[{0, 1}] = PV(std::numeric_limits<int64_t>::max());
+    weights[{1, 2}] = PV(int64_t{1});
+    try {
+      DetourResults(db, weights);
+      ADD_FAILURE() << "expected an error";
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_EQ(std::string(e.what()), "The total weight of a KSHORTEST path overflows a 64-bit integer.");
     }
   }
 

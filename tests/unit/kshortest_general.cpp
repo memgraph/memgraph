@@ -287,6 +287,8 @@ TEST_F(WeightedKShortestCasesInMemory, WeightErrors) { db_->KShortestWeightedTes
 
 TEST_F(WeightedKShortestCasesInMemory, WeightErrorTexts) { db_->KShortestWeightedTestWeightErrorTexts(db_.get()); }
 
+TEST_F(WeightedKShortestCasesInMemory, IntOverflow) { db_->KShortestWeightedTestIntOverflow(db_.get()); }
+
 TEST_F(WeightedKShortestCasesInMemory, FilterLambda) { db_->KShortestWeightedTestFilterLambda(db_.get()); }
 
 // The ladder drives deviation indices the 6-vertex fixture never reaches; under weights the root
