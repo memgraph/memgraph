@@ -67,6 +67,8 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
   paths_.emplace_back(path);
 
   spdlog::trace("Replica will be using file {} with size {}", path, file_size_);
+  // Received files are deleted with this handler when the transfer fails, so running out of space must not crash.
+  file_.ThrowOnNoSpace();
   if (!file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING)) {
     spdlog::error("Failed to open file {}. This is not a fatal failure, main will retry the sending of the file.",
                   path);
@@ -114,16 +116,22 @@ size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const siz
   size_t processed_bytes{0};
   auto to_write = std::min(size, file_size_ - written_);
 
-  while (to_write > 0) {
-    const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
-    file_.Write(data + processed_bytes, chunk_size);
-    to_write -= chunk_size;
-    written_ += chunk_size;
-    processed_bytes += chunk_size;
-  }
+  try {
+    while (to_write > 0) {
+      const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
+      file_.Write(data + processed_bytes, chunk_size);
+      to_write -= chunk_size;
+      written_ += chunk_size;
+      processed_bytes += chunk_size;
+    }
 
-  if (written_ == file_size_) {
-    ResetCurrentFile();
+    if (written_ == file_size_) {
+      ResetCurrentFile();
+    }
+  } catch (utils::NoSpaceLeftException const &e) {
+    // Rethrown to drop the session; destroying this handler then removes every file received so far.
+    spdlog::error("{}. The transfer is dropped and main will retry it.", e.what());
+    throw;
   }
   return processed_bytes;
 }

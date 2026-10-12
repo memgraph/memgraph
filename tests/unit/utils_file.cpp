@@ -1397,3 +1397,74 @@ TEST_F(FileCacheHintTest, ReadingAFileThenDroppingItEvictsIt) {
   ASSERT_TRUE(after.has_value());
   EXPECT_LT(*after, 0.05) << "dropping left " << (*after * 100) << "% resident, was " << (*before * 100) << "%";
 }
+
+// Every write to /dev/full fails with ENOSPC, which stands in for a full disk.
+template <typename TFile>
+class OutputFileNoSpaceTest : public ::testing::Test {
+ protected:
+  static constexpr auto kDevFull = "/dev/full";
+  std::vector<uint8_t> more_than_buffer_ = std::vector<uint8_t>(memgraph::utils::kFileBufferSize + 1, 'a');
+};
+
+using OutputFileTypes = ::testing::Types<memgraph::utils::OutputFile, memgraph::utils::NonConcurrentOutputFile>;
+TYPED_TEST_SUITE(OutputFileNoSpaceTest, OutputFileTypes);
+
+TYPED_TEST(OutputFileNoSpaceTest, WriteThrowsWhenOptedIn) {
+  TypeParam file;
+  file.ThrowOnNoSpace();
+  ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
+  EXPECT_THROW(file.Write(this->more_than_buffer_.data(), this->more_than_buffer_.size()),
+               memgraph::utils::NoSpaceLeftException);
+  file.Close();
+  EXPECT_FALSE(file.IsOpen());
+}
+
+TYPED_TEST(OutputFileNoSpaceTest, SyncThrowsWhenOptedIn) {
+  TypeParam file;
+  file.ThrowOnNoSpace();
+  ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
+  file.Write("hello");
+  EXPECT_THROW(file.Sync(), memgraph::utils::NoSpaceLeftException);
+  file.Close();
+  EXPECT_FALSE(file.IsOpen());
+}
+
+TYPED_TEST(OutputFileNoSpaceTest, CloseWithUnflushedDataDoesNotCrashWhenOptedIn) {
+  TypeParam file;
+  file.ThrowOnNoSpace();
+  ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
+  file.Write("hello");
+  file.Close();
+  EXPECT_FALSE(file.IsOpen());
+}
+
+TYPED_TEST(OutputFileNoSpaceTest, HandleIsReusableAfterFailure) {
+  TypeParam file;
+  file.ThrowOnNoSpace();
+  ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
+  file.Write("lost");
+  EXPECT_THROW(file.Sync(), memgraph::utils::NoSpaceLeftException);
+  file.Close();
+
+  auto const path = fs::temp_directory_path() / "MG_test_unit_utils_file_no_space_reuse";
+  auto const remove = memgraph::utils::OnScopeExit{[&path] { fs::remove(path); }};
+  ASSERT_TRUE(file.Open(path, TypeParam::Mode::OVERWRITE_EXISTING));
+  file.Write("kept");
+  file.Sync();
+  file.Close();
+
+  std::ifstream in(path);
+  std::string content;
+  std::getline(in, content);
+  EXPECT_EQ(content, "kept");
+}
+
+TYPED_TEST(OutputFileNoSpaceTest, WriteCrashesByDefault) {
+  ASSERT_DEATH(
+      {
+        TypeParam file;
+        if (!file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING)) std::abort();
+        file.Write(this->more_than_buffer_.data(), this->more_than_buffer_.size());
+      },
+      "No space left on device");
+}

@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -9,8 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
+#include "flags/general.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "slk/streams.hpp"
 #include "storage/v2/durability/marker.hpp"
@@ -184,4 +186,35 @@ TEST_F(FileReplicationHandlerTest, FileWithData) {
   ASSERT_EQ(active_files[0].filename(), file_name);
   ASSERT_FALSE(file_replication_handler.HasOpenedFile());
   ASSERT_EQ(file_replication_handler.GetRemainingBytesToWrite(), 0);
+}
+
+TEST_F(FileReplicationHandlerTest, NoSpaceLeftDropsTransferAndRemovesReceivedFile) {
+  gflags::FlagSaver const flag_saver;
+  FLAGS_data_directory = test_folder_.string();
+  // The received file lands on /dev/full, where every write fails with ENOSPC like on a full disk.
+  auto const save_dir = test_folder_ / "tmp" / "snapshots";
+  std::filesystem::create_directories(save_dir);
+  auto const received_path = save_dir / "received_snapshot";
+  std::filesystem::create_symlink("/dev/full", received_path);
+
+  std::vector<uint8_t> buffer;
+  Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
+  Encoder encoder{&builder};
+  encoder.WriteString("snapshots/received_snapshot");
+  constexpr auto file_size = 24UL;
+  encoder.WriteUint(file_size);
+  auto file_data = GetRandomData(file_size);
+  builder.Save(file_data.data(), file_data.size());
+  builder.FlushInternal(builder.GetPosition() + sizeof(SegmentSize), false);
+
+  {
+    FileReplicationHandler file_replication_handler;
+    // The whole file arrives in this segment, so syncing it on completion hits the full disk.
+    EXPECT_THROW((void)file_replication_handler.OpenFile(buffer.data() + sizeof(SegmentSize),
+                                                         buffer.size() - sizeof(SegmentSize)),
+                 memgraph::utils::NoSpaceLeftException);
+  }
+  EXPECT_FALSE(std::filesystem::is_symlink(received_path));
 }

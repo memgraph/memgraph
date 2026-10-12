@@ -399,6 +399,10 @@ bool InputFile::LoadBuffer() {
   return true;
 }
 
+namespace {
+bool IsOutOfSpace(int const error) { return error == ENOSPC || error == EDQUOT; }
+}  // namespace
+
 OutputFile::~OutputFile() {
   if (IsOpen()) Close();
 }
@@ -407,10 +411,13 @@ OutputFile::OutputFile(OutputFile &&other) noexcept
     : fd_(other.fd_),
       buffer_position_(other.buffer_position_.load(std::memory_order_acquire)),
       written_since_last_sync_(other.written_since_last_sync_),
+      throw_on_no_space_(other.throw_on_no_space_),
+      write_failed_(other.write_failed_),
       buffer_(other.buffer_),
       path_(std::move(other.path_)) {
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
+  other.write_failed_ = false;
   other.buffer_position_.store(0, std::memory_order_release);
 }
 
@@ -422,9 +429,12 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   path_ = std::move(other.path_);
   buffer_position_ = other.buffer_position_.load();
   buffer_ = other.buffer_;
+  throw_on_no_space_ = other.throw_on_no_space_;
+  write_failed_ = other.write_failed_;
 
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
+  other.write_failed_ = false;
   other.buffer_position_ = 0;
 
   return *this;
@@ -438,6 +448,7 @@ bool OutputFile::Open(const std::filesystem::path &path, Mode mode) {
             path_);
   path_ = path;
   written_since_last_sync_ = 0;
+  write_failed_ = false;
 
   int flags = O_WRONLY | O_CLOEXEC | O_CREAT;
   if (mode == Mode::APPEND_TO_EXISTING) flags |= O_APPEND;
@@ -577,6 +588,11 @@ void OutputFile::Sync() {
     }
   }
 
+  if (ret == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
+    write_failed_ = true;
+    throw NoSpaceLeftException("While trying to sync {}, an error occurred: {} ({})", path_, strerror(errno), errno);
+  }
+
   // In this check we are extremely rigorous because any error except EINTR is
   // treated as a fatal error that will crash the database. The errors that will
   // mainly occur are EIO which indicates an I/O error on the physical device
@@ -615,7 +631,14 @@ void OutputFile::Sync() {
 void OutputFile::DropCachedPages() const { WarnIfPagesKept(utils::DropCachedPages(fd_), path_); }
 
 void OutputFile::Close() noexcept {
-  FlushBuffer();
+  // A file that already failed to write is about to be deleted, so its unwritten buffer is dropped.
+  if (!write_failed_) {
+    try {
+      FlushBuffer();
+    } catch (NoSpaceLeftException const &e) {
+      spdlog::error("{}", e.what());
+    }
+  }
 
   int ret = 0;
   while (true) {
@@ -630,16 +653,22 @@ void OutputFile::Close() noexcept {
     }
   }
 
-  MG_ASSERT(ret == 0,
-            "While trying to close {}, an error occurred: {} ({}). Possibly {} "
-            "bytes from previous write calls were lost.",
-            path_,
-            strerror(errno),
-            errno,
-            written_since_last_sync_);
+  if (ret == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
+    spdlog::error("While trying to close {}, an error occurred: {} ({})", path_, strerror(errno), errno);
+  } else {
+    MG_ASSERT(ret == 0,
+              "While trying to close {}, an error occurred: {} ({}). Possibly {} "
+              "bytes from previous write calls were lost.",
+              path_,
+              strerror(errno),
+              errno,
+              written_since_last_sync_);
+  }
 
   fd_ = -1;
   written_since_last_sync_ = 0;
+  write_failed_ = false;
+  buffer_position_.store(0, std::memory_order_release);
   path_ = "";
 }
 
@@ -657,6 +686,11 @@ void OutputFile::FlushBufferInternal(size_t to_write) {
     auto written = write(fd_, buffer, to_write);
     if (written == -1 && errno == EINTR) {
       continue;
+    }
+    if (written == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
+      write_failed_ = true;
+      throw NoSpaceLeftException(
+          "While trying to write to {} an error occurred: {} ({})", path_, strerror(errno), errno);
     }
 
     MG_ASSERT(written > 0,
@@ -724,6 +758,7 @@ bool NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
             path_);
   path_ = path;
   written_since_last_sync_ = 0;
+  write_failed_ = false;
   RestartPacing(0);  // otherwise a reused handle carries the previous file's offset into this one
 
   int flags = O_WRONLY | O_CLOEXEC | O_CREAT;
@@ -858,6 +893,11 @@ void NonConcurrentOutputFile::Sync() {
     }
   }
 
+  if (ret == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
+    write_failed_ = true;
+    throw NoSpaceLeftException("While trying to sync {}, an error occurred: {} ({})", path_, strerror(errno), errno);
+  }
+
   // In this check we are extremely rigorous because any error except EINTR is
   // treated as a fatal error that will crash the database. The errors that will
   // mainly occur are EIO which indicates an I/O error on the physical device
@@ -894,7 +934,14 @@ void NonConcurrentOutputFile::Sync() {
 }
 
 void NonConcurrentOutputFile::Close() noexcept {
-  FlushBuffer();
+  // A file that already failed to write is about to be deleted, so its unwritten buffer is dropped.
+  if (!write_failed_) {
+    try {
+      FlushBuffer();
+    } catch (NoSpaceLeftException const &e) {
+      spdlog::error("{}", e.what());
+    }
+  }
 
   int ret = 0;
   while (true) {
@@ -909,16 +956,22 @@ void NonConcurrentOutputFile::Close() noexcept {
     }
   }
 
-  MG_ASSERT(ret == 0,
-            "While trying to close {}, an error occurred: {} ({}). Possibly {} "
-            "bytes from previous write calls were lost.",
-            path_,
-            strerror(errno),
-            errno,
-            written_since_last_sync_);
+  if (ret == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
+    spdlog::error("While trying to close {}, an error occurred: {} ({})", path_, strerror(errno), errno);
+  } else {
+    MG_ASSERT(ret == 0,
+              "While trying to close {}, an error occurred: {} ({}). Possibly {} "
+              "bytes from previous write calls were lost.",
+              path_,
+              strerror(errno),
+              errno,
+              written_since_last_sync_);
+  }
 
   fd_ = -1;
   written_since_last_sync_ = 0;
+  write_failed_ = false;
+  buffer_position_ = 0;
   path_ = "";
 }
 
@@ -935,6 +988,11 @@ void NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
     auto written = write(fd_, buffer, to_write);
     if (written == -1 && errno == EINTR) {
       continue;
+    }
+    if (written == -1 && throw_on_no_space_ && IsOutOfSpace(errno)) {
+      write_failed_ = true;
+      throw NoSpaceLeftException(
+          "While trying to write to {} an error occurred: {} ({})", path_, strerror(errno), errno);
     }
 
     MG_ASSERT(written > 0,
@@ -987,6 +1045,11 @@ std::optional<uint64_t> NonConcurrentOutputFile::AppendFrom(int src_fd, uint64_t
     auto const sent = ::sendfile(fd_, src_fd, &src_offset, chunk);
     if (sent == -1) {
       if (errno == EINTR) continue;
+      if (throw_on_no_space_ && IsOutOfSpace(errno)) {
+        write_failed_ = true;
+        throw NoSpaceLeftException(
+            "While trying to append to {} an error occurred: {} ({})", path_, strerror(errno), errno);
+      }
       return std::nullopt;
     }
     if (sent == 0) break;  // the source ended early

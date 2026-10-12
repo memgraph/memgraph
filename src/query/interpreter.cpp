@@ -6834,6 +6834,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
                        storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
           break;
         case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
+        case storage::InMemoryStorage::CreateSnapshotError::NoSpaceLeft:
           throw utils::BasicException("Failed to create snapshot. {}.",
                                       storage::InMemoryStorage::CreateSnapshotErrorToString(maybe_path.error()));
         case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:

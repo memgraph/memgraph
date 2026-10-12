@@ -92,6 +92,9 @@ class Encoder final : public BaseEncoder {
     file_.EnableWritebackPacing(window_bytes, completed_window);
   }
 
+  /// See OutputFile::ThrowOnNoSpace.
+  void ThrowOnNoSpace() { file_.ThrowOnNoSpace(); }
+
   /// Syncs and closes the file, disposing of its pages as `page_cache` says.
   void Finalize(utils::PageCachePolicy page_cache = utils::PageCachePolicy::kKeep);
 

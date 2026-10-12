@@ -32,9 +32,17 @@
 #include <vector>
 
 #include "utils/crc_accumulator.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::utils {
+
+/// Thrown by an output file opted in with `ThrowOnNoSpace` when the device runs out of space or quota.
+class NoSpaceLeftException : public BasicException {
+ public:
+  using BasicException::BasicException;
+  SPECIALIZE_GET_EXCEPTION_NAME(NoSpaceLeftException)
+};
 
 using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
 
@@ -321,6 +329,11 @@ class OutputFile {
   /// Get the POSIX file handle
   auto fd() const { return fd_; }
 
+  /// For files that are deleted rather than trusted when writing them fails. Running out of space
+  /// or quota then throws `NoSpaceLeftException` instead of crashing, and the next `Close` drops
+  /// the unwritten buffer instead of flushing it. Every other error still crashes.
+  void ThrowOnNoSpace() { throw_on_no_space_ = true; }
+
  private:
   void FlushBuffer();
   void FlushBufferInternal();
@@ -337,6 +350,8 @@ class OutputFile {
   alignas(64) int fd_{-1};
   std::atomic<size_t> buffer_position_{0};
   size_t written_since_last_sync_{0};
+  bool throw_on_no_space_{false};
+  bool write_failed_{false};
   std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
 
   // Path should be cold data
@@ -458,6 +473,9 @@ class NonConcurrentOutputFile {
   /// Get the size of the file.
   size_t GetSize();
 
+  /// See `OutputFile::ThrowOnNoSpace`. Also covers `Sync` and `AppendFrom`.
+  void ThrowOnNoSpace() { throw_on_no_space_ = true; }
+
  private:
   void FlushBuffer();
   void FlushBufferInternal();
@@ -480,6 +498,8 @@ class NonConcurrentOutputFile {
   int fd_{-1};
   size_t buffer_position_{0};
   size_t written_since_last_sync_{0};
+  bool throw_on_no_space_{false};
+  bool write_failed_{false};
 
   // Writeback pacing; see `EnableWritebackPacing`. A zero window means pacing is off, whether
   // because it was never enabled or because a `sync_file_range` failure turned it off.

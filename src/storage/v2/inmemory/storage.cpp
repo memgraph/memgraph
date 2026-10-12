@@ -4563,20 +4563,26 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
       return std::unexpected{CreateSnapshotError::NothingNewToWrite};
   }
 
-  // At the moment, the only way in which create snapshot can fail is if it got aborted
-  const auto snapshot_path = durability::CreateSnapshot(this,
-                                                        transaction,
-                                                        recovery_.snapshot_directory_,
-                                                        recovery_.wal_directory_,
-                                                        &vertices_,
-                                                        &edges_,
-                                                        storage_uuid,
-                                                        std::string{epoch.id()},
-                                                        std::move(epoch_history),
-                                                        &file_retainer_,
-                                                        &abort_snapshot_,
-                                                        &snapshot_progress_,
-                                                        trigger);
+  std::optional<std::filesystem::path> snapshot_path;
+  try {
+    snapshot_path = durability::CreateSnapshot(this,
+                                               transaction,
+                                               recovery_.snapshot_directory_,
+                                               recovery_.wal_directory_,
+                                               &vertices_,
+                                               &edges_,
+                                               storage_uuid,
+                                               std::string{epoch.id()},
+                                               std::move(epoch_history),
+                                               &file_retainer_,
+                                               &abort_snapshot_,
+                                               &snapshot_progress_,
+                                               trigger);
+  } catch (utils::NoSpaceLeftException const &e) {
+    // CreateSnapshot has already removed the partial snapshot and its parts.
+    spdlog::error("{}", e.what());
+    return std::unexpected{CreateSnapshotError::NoSpaceLeft};
+  }
   if (!snapshot_path) {
     return std::unexpected{CreateSnapshotError::AbortSnapshot};
   }
@@ -4980,6 +4986,9 @@ void InMemoryStorage::CreateSnapshotHandler(
           break;
         case CreateSnapshotError::AbortSnapshot:
           spdlog::warn("snapshot failed: {}", CreateSnapshotErrorToString(maybe_error.error()));
+          break;
+        case CreateSnapshotError::NoSpaceLeft:
+          spdlog::error("snapshot failed: {}", CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AlreadyRunning:
         case CreateSnapshotError::NothingNewToWrite:
