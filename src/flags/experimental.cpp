@@ -49,9 +49,11 @@ namespace memgraph::flags {
 
 auto const mapping = std::map{
     std::pair{"planner-v2"sv, Experiments::PLANNER_V2},
+    std::pair{"coroutine-cursors"sv, Experiments::COROUTINE_CURSORS},
 };
 auto const reverse_mapping = std::map{
     std::pair{Experiments::PLANNER_V2, "planner-v2"sv},
+    std::pair{Experiments::COROUTINE_CURSORS, "coroutine-cursors"sv},
 };
 auto const config_mapping = std::map<std::string_view, Experiments>{};
 
