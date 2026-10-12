@@ -4249,7 +4249,7 @@ class KShortestPathsCursor : public Cursor {
     utils::pmr::vector<EdgeAccessor> edges;
     size_t deviation_vertex_index;  // Index where this path deviates from parent
     // Empty under hop count, so the layout is the one this operator has always had.
-    [[no_unique_address]] typename Cost::Payload cost;
+    [[no_unique_address]] Cost::Payload cost;
 
     explicit PathInfo(utils::MemoryResource *mem) : edges(mem), deviation_vertex_index(0) {}
   };
@@ -4451,6 +4451,8 @@ class KShortestPathsCursor : public Cursor {
       uint64_t trie_node = 0;
       // The root prefix's cost, grown edge by edge as the walk passes them. A candidate costs this
       // plus its spur; under hop count it stays null and the hop count does the ordering.
+      // Assigned only in the weighted instantiation.
+      // NOLINTNEXTLINE(misc-const-correctness)
       TypedValue root_weight;
 
       for (size_t i = 0UZ; i < base_path.edges.size(); ++i) {
