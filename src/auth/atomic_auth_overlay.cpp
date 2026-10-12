@@ -108,9 +108,10 @@ bool AtomicAuthOverlay::Flush() {
     // scan that stopped early concluded nothing more.
     if ((it == e) != dependency.was_empty) return false;
     if (dependency.kind == ScanDependency::Kind::kEmptiness) continue;
-    // A key-set scan that never reached the end recorded no key set to hold the transaction to. No caller leaves
-    // one behind, since a scan that throws fails its statement and COMMIT then refuses; this refusal holds even if
-    // that ever changes.
+    // A key-set dependency whose prefix no scan walked to the end has no key set to hold the transaction to, so it
+    // refuses. The check is per prefix: once one scan has reached the end, a later scan of the prefix abandoned
+    // early passes here. What keeps an abandoned scan from committing is the interpreter: a scan that throws fails
+    // its statement, and COMMIT then refuses.
     if (!dependency.exhausted) return false;
     for (; it != e; ++it) {
       if (!dependency.seen.contains(it->first)) return false;
