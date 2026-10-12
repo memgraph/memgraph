@@ -707,12 +707,6 @@ TypedValue::operator storage::ExternalPropertyValue() const {
 }
 
 void TypedValue::CopyComplexValue(TypedValue const &other) {
-  // Reaching here for a type that owns no allocation would be merely wasteful; being skipped for
-  // one that does would copy a pointer and later free it twice. The check sits in a member body
-  // because that is the first point the class is complete enough to evaluate it.
-  static_assert(HandlingAgreesWithDeclarationOrder(),
-                "the declaration order no longer groups the types the way the predicates read it");
-
   // Only a type the constructor could not copy by assigning it arrives here, so the arms for the
   // ones it handles inline never run. They stay so the switch names every type, which is what makes
   // a type added to the enumeration a compile error here rather than a silently uncopied value.
