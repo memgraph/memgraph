@@ -92,9 +92,10 @@ class TypedValue {
    * The order is load-bearing, and is the only thing here that is. Two questions are asked of a
    * type on every value the engine touches - can it be copied by assigning it, and does destroying
    * it have anything to do - and the types that answer yes are grouped first so that each question
-   * is one comparison rather than a table lookup. `IsInlineCopyable` and `HasTrivialDestructor`
-   * name the boundaries; nothing else depends on the numeric values, which are not persisted or
-   * sent anywhere.
+   * is one comparison rather than a table lookup. `kLastInlineCopyable` and
+   * `kLastTriviallyDestructible` below name where each group ends, and `IsInlineCopyable` and
+   * `HasTrivialDestructor` ask the questions through them. Nothing else depends on the numeric
+   * values, which are not persisted or sent anywhere.
    */
   enum class Type : unsigned {
     // Held in the union as a value that is copied by assigning it.
@@ -125,22 +126,30 @@ class TypedValue {
     VirtualNode
   };
 
+  /// Where each of the two groups above ends. Naming them here puts the boundary beside the order
+  /// that carries it, so moving a type past one is a visible edit rather than a silent consequence.
+  static constexpr Type kLastInlineCopyable = Type::Edge;
+  static constexpr Type kLastTriviallyDestructible = Type::Point3d;
+
   /// How many types a value can be, read off the last enumerator above.
   ///
   /// Kept beside the enumeration rather than beside any one table built over
   /// it, so that a type added here is counted everywhere at once.
-  static constexpr auto kTypeCount = static_cast<unsigned>(Type::VirtualNode) + 1U;
+  static constexpr auto kTypeCount = std::to_underlying(Type::VirtualNode) + 1U;
 
   /// Whether copying a value of this type is assigning it: the numbers, and the two accessors,
   /// which are trivially copyable structs naming a record and the transaction reading it.
   static constexpr bool IsInlineCopyable(Type type) {
-    return static_cast<unsigned>(type) <= static_cast<unsigned>(Type::Edge);
+    return std::to_underlying(type) <= std::to_underlying(kLastInlineCopyable);
   }
 
   /// Whether destroying a value of this type has nothing to do, so it can be overwritten where it
-  /// stands. Everything up to `Point3d` owns no allocation of its own.
+  /// stands. Everything up to `kLastTriviallyDestructible` owns no allocation of its own.
+  ///
+  /// Every type this admits is either inline copyable or assembled field by field, so a type can
+  /// have a trivial destructor without being inline copyable, never the other way round.
   static constexpr bool HasTrivialDestructor(Type type) {
-    return static_cast<unsigned>(type) <= static_cast<unsigned>(Type::Point3d);
+    return std::to_underlying(type) <= std::to_underlying(kLastTriviallyDestructible);
   }
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
