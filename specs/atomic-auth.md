@@ -215,7 +215,8 @@ as section 7 says, avoids that.
   emits auth statements is an auth transaction, so it cannot also contain data
   statements. The stream owner's privileges are checked against the database
   each statement targets, the system database for auth statements, as they are
-  for a session.
+  for a session. A stream cannot change database, so a data statement's target
+  is always the stream's own database.
 - **`SHOW TRANSACTIONS` and `TERMINATE TRANSACTIONS` find an auth transaction
   by its session's current database.** A user with `TRANSACTION_MANAGEMENT` on
   that database can list the open transaction's statements, with passwords
