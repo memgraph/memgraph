@@ -12,6 +12,7 @@
 #include "replication/replication_client.hpp"
 
 #include "flags/coord_flag_env_handler.hpp"
+#include "flags/replication.hpp"
 #include "memory/db_arena_fwd.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "metrics/scoped_histogram_timer.hpp"
@@ -303,6 +304,12 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
       spdlog::debug("Replica {} up to date for db {}.", client_.name_, main_db_name);
       state = ReplicaState::READY;
+    } else if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC &&
+               !AsyncRecoveryIntervalElapsed()) {
+      // Stay MAYBE_BEHIND so the frequent check rechecks once the interval has passed.
+      spdlog::debug(
+          "Replica {} is behind for db {}, waiting for the async recovery interval.", client_.name_, main_db_name);
+      state = ReplicaState::MAYBE_BEHIND;
     } else {
       spdlog::debug("Replica {} is behind for db {}.", client_.name_, main_db_name);
       state = ReplicaState::RECOVERY;
@@ -323,6 +330,14 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       });
     }
   });
+}
+
+bool ReplicationStorageClient::AsyncRecoveryIntervalElapsed() const {
+  auto const interval = std::chrono::seconds{FLAGS_replication_async_recovery_interval_sec};
+  if (interval == std::chrono::seconds::zero()) return true;
+  auto const last_end = last_recovery_end_.load(std::memory_order_acquire);
+  if (last_end == std::chrono::steady_clock::time_point{}) return true;
+  return std::chrono::steady_clock::now() - last_end >= interval;
 }
 
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
@@ -759,6 +774,10 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   }
 
   spdlog::debug("Starting replica {} recovery for db {}.", client_.name_, main_db_name);
+
+  // Recorded however the round ends, so a failed round also spaces the next attempt.
+  utils::OnScopeExit const record_recovery_end{
+      [this] { last_recovery_end_.store(std::chrono::steady_clock::now(), std::memory_order_release); }};
 
   if (reset_needed) {
     // A force reset wipes the replica's storage (incl. its num_committed_txns_) back to 0 before re-recovering
