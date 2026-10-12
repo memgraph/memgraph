@@ -4107,6 +4107,13 @@ TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
   return lhs + rhs;
 }
 
+/// A weight body that is a literal or a parameter is one value for the whole row, so it orders paths
+/// exactly as hop count does. In the server every literal but `null` arrives as a parameter.
+bool IsConstantWeight(const ExpansionLambda &weight_lambda) {
+  return utils::Downcast<PrimitiveLiteral>(weight_lambda.expression) != nullptr ||
+         utils::Downcast<ParameterLookup>(weight_lambda.expression) != nullptr;
+}
+
 /// Hop count is the cost: today's `PathInfo` and today's bidirectional BFS, with no per-path payload.
 struct KShortestHopCost {
   static constexpr bool kWeighted = false;
@@ -4376,6 +4383,8 @@ class KShortestPathsCursor : public Cursor {
   // checked outside, so a verdict holds across Yen's inner searches.
   utils::pmr::unordered_map<ExpansionKey, typename Cost::Verdict, ExpansionKeyHash> expansion_memo_;
   bool memoize_expansion_{false};
+  // Hop-count mode under a constant weight lambda: the row's constant, once an arc has read it.
+  std::optional<TypedValue> constant_weight_;
 
   // Bidirectional search state
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
@@ -4620,6 +4629,17 @@ class KShortestPathsCursor : public Cursor {
     return EdgeAndEndpointReadable(edge, head, context) && EvaluateFilterLambda(edge, head, frame, evaluator, context);
   }
 
+  /// A constant weight, read and checked at the first arc a row may take - where the weighted search
+  /// checks its weight - so a row that takes no arc never reads it.
+  void EvaluateConstantWeight(ExpressionEvaluator &evaluator) {
+    if constexpr (!Cost::kWeighted) {
+      if (!self_.weight_lambda_ || constant_weight_) return;
+      auto weight = self_.weight_lambda_->expression->Accept(evaluator);
+      ValidateKShortestWeight(weight);
+      constant_weight_.emplace(std::move(weight));
+    }
+  }
+
   /// The access check and the lambda take the arc's head in path order: the vertex we reach on the source-side
   /// pass, the vertex we expand *from* on the target-side (`Backward`) pass. So both passes test the pairs a
   /// forward walk would, and an arc's verdict does not depend on which pass reaches it.
@@ -4631,7 +4651,11 @@ class KShortestPathsCursor : public Cursor {
       return false;
 
     const VertexAccessor &head = Backward ? expand_from : next;
-    auto verdict = [&] { return ArcAllowed(edge, head, frame, evaluator, context); };
+    auto verdict = [&] {
+      if (!ArcAllowed(edge, head, frame, evaluator, context)) return false;
+      EvaluateConstantWeight(evaluator);
+      return true;
+    };
     if (!memoize_expansion_) return verdict();
 
     const ExpansionKey key{.edge = edge.Gid(), .head = head.Gid()};
@@ -4999,6 +5023,12 @@ class KShortestPathsCursor : public Cursor {
     } else {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
       frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
+      if (constant_weight_ && self_.total_weight_ && self_.total_weight_->user_declared()) {
+        // Added once per hop rather than multiplied: a Duration cannot be multiplied by an integer.
+        TypedValue total(*constant_weight_, memory);
+        for (size_t hop = 1; hop < path.edges.size(); ++hop) total = total + *constant_weight_;
+        frame_writer.Write(*self_.total_weight_, std::move(total));
+      }
     }
   }
 
@@ -5064,6 +5094,8 @@ class KShortestPathsCursor : public Cursor {
     ReleaseInnerSearchState();
     // Makes `|K` per input row; `Pull` guards its serving site instead of returning early.
     n_returned_paths_ = 0;
+    // A parameter is one value per query, but the check runs once per row, as the weighted search's does.
+    constant_weight_.reset();
   }
 
   // Releases the inner search's scratch instead of just emptying it. `clear()` keeps a hash
@@ -5106,7 +5138,7 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem,
       return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem, metric_handles);
     }
     case EdgeAtom::Type::KSHORTEST: {
-      if (weight_lambda_) {
+      if (weight_lambda_ && !IsConstantWeight(*weight_lambda_)) {
         return MakeUniqueCursorPtr<KShortestPathsCursor<KShortestWeightCost>>(mem, *this, mem, metric_handles);
       }
       return MakeUniqueCursorPtr<KShortestPathsCursor<KShortestHopCost>>(mem, *this, mem, metric_handles);
