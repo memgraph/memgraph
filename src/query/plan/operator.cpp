@@ -4484,6 +4484,28 @@ class KShortestPathsCursor : public Cursor {
     return allowed;
   }
 
+  /// This vertex's out-edges, fetched and cached on the first ask. Both searches go through here, so
+  /// the hop accounting and the `hops_limit` charge are paid exactly once per vertex per query.
+  const CachedEdges &OutEdgesOf(const VertexAccessor &vertex, ExecutionContext &context) {
+    if (const auto it = out_edges_.find(vertex); it != out_edges_.end()) return it->second;
+    auto fetched =
+        UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+    context.number_of_hops += fetched.expanded_count;
+    return out_edges_
+        .emplace(vertex, CachedEdges(fetched.edges.begin(), fetched.edges.end(), out_edges_.get_allocator().resource()))
+        .first->second;
+  }
+
+  /// This vertex's in-edges; see `OutEdgesOf`.
+  const CachedEdges &InEdgesOf(const VertexAccessor &vertex, ExecutionContext &context) {
+    if (const auto it = in_edges_.find(vertex); it != in_edges_.end()) return it->second;
+    auto fetched = UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+    context.number_of_hops += fetched.expanded_count;
+    return in_edges_
+        .emplace(vertex, CachedEdges(fetched.edges.begin(), fetched.edges.end(), in_edges_.get_allocator().resource()))
+        .first->second;
+  }
+
   PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
                                Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if (source == target) return PathInfo(evaluator.GetMemoryResource());
@@ -4516,16 +4538,7 @@ class KShortestPathsCursor : public Cursor {
       for (const auto &vertex : bfs_source_frontier_) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          if (!out_edges_.contains(vertex)) {
-            auto out_edges_result =
-                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-            context.number_of_hops += out_edges_result.expanded_count;
-            out_edges_.emplace(vertex,
-                               CachedEdges(out_edges_result.edges.begin(),
-                                           out_edges_result.edges.end(),
-                                           out_edges_.get_allocator().resource()));
-          }
-          for (const auto &edge : out_edges_.at(vertex)) {
+          for (const auto &edge : OutEdgesOf(vertex, context)) {
             if (!ShouldExpand<kTo, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
@@ -4537,16 +4550,7 @@ class KShortestPathsCursor : public Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          if (!in_edges_.contains(vertex)) {
-            auto in_edges_result =
-                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-            context.number_of_hops += in_edges_result.expanded_count;
-            in_edges_.emplace(
-                vertex,
-                CachedEdges(
-                    in_edges_result.edges.begin(), in_edges_result.edges.end(), in_edges_.get_allocator().resource()));
-          }
-          for (const auto &edge : in_edges_.at(vertex)) {
+          for (const auto &edge : InEdgesOf(vertex, context)) {
             if (!ShouldExpand<kFrom, kForward>(edge, vertex, bfs_in_edge_, frame, evaluator, context)) {
               continue;
             }
@@ -4573,16 +4577,7 @@ class KShortestPathsCursor : public Cursor {
       for (const auto &vertex : bfs_target_frontier_) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          if (!out_edges_.contains(vertex)) {
-            auto out_edges_result =
-                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-            context.number_of_hops += out_edges_result.expanded_count;
-            out_edges_.emplace(vertex,
-                               CachedEdges(out_edges_result.edges.begin(),
-                                           out_edges_result.edges.end(),
-                                           out_edges_.get_allocator().resource()));
-          }
-          for (const auto &edge : out_edges_.at(vertex)) {
+          for (const auto &edge : OutEdgesOf(vertex, context)) {
             if (!ShouldExpand<kTo, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
@@ -4594,16 +4589,7 @@ class KShortestPathsCursor : public Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          if (!in_edges_.contains(vertex)) {
-            auto in_edges_result =
-                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-            context.number_of_hops += in_edges_result.expanded_count;
-            in_edges_.emplace(
-                vertex,
-                CachedEdges(
-                    in_edges_result.edges.begin(), in_edges_result.edges.end(), in_edges_.get_allocator().resource()));
-          }
-          for (const auto &edge : in_edges_.at(vertex)) {
+          for (const auto &edge : InEdgesOf(vertex, context)) {
             if (!ShouldExpand<kFrom, kBackward>(edge, vertex, bfs_out_edge_, frame, evaluator, context)) {
               continue;
             }
