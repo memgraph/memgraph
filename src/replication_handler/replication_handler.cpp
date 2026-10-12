@@ -302,9 +302,12 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
     // STEP 4) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
+      auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
 
+      // repl_state -> commit_mutex_ -> engine_lock_, as in PrepareForNewEpoch: a forced MAIN->MAIN promotion runs
+      // alongside commits, which read epoch_ under commit_mutex_ alone when narrowing.
+      auto commit_serializer = mem_storage->LockCommitMutexIfNarrowing();
       // Modifying storage->timestamp_ needs to be done under the engine lock.
-      // Engine lock needs to be acquired after the repl state lock
       auto lock = std::lock_guard{storage->engine_lock_};
 
       // Under the engine lock because commits and snapshot creation read the epoch under it.
@@ -315,9 +318,11 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
       if (auto const ldt = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
           ldt >= storage->timestamp_) {
         // Mark all txns finished with IDs in range [old_storage_ts, global_ldt]
-        static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
+        mem_storage->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
         spdlog::trace("Txn IDs in ranges [{},{}] marked as finished", storage->timestamp_, ldt);
-        storage->timestamp_ = ldt + 1;
+        // Through the setter, so the watermark a BEGIN freezes its snapshot from moves with the clock.
+        // Left behind, it would put every later reader's snapshot a whole jump below its start stamp.
+        mem_storage->SetTimestampQuiescent(ldt + 1);
       }
       spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });

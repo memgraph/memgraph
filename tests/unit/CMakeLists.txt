@@ -820,6 +820,11 @@ add_unit_test(storage_v2
     LINK_TARGETS mg::storage storage_test_utils disk_test_utils
 )
 
+add_unit_test(storage_v2_commit_lock_narrowing
+    SOURCES storage_v2_commit_lock_narrowing.cpp
+    LINK_TARGETS mg::storage storage_test_utils disk_test_utils
+)
+
 add_unit_test(storage_v2_acc
     SOURCES storage_v2_acc.cpp
     LINK_TARGETS mg::storage

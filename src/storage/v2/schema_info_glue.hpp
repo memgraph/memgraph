@@ -22,7 +22,7 @@ inline std::optional<SchemaInfo::ModifyingAccessor> SchemaInfoAccessor(Storage *
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     return SchemaInfo::CreateVertexModifyingAccessor(transaction->schema_diff_,
                                                      transaction->post_process_,
-                                                     transaction->start_timestamp,
+                                                     transaction->SchemaReconstructionBound(),
                                                      transaction->transaction_id,
                                                      prop_on_edges);
   }
@@ -36,7 +36,7 @@ inline std::optional<SchemaInfo::ModifyingAccessor> SchemaInfoUniqueAccessor(Sto
   if (storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     return SchemaInfo::CreateEdgeModifyingAccessor(transaction->schema_diff_,
                                                    &transaction->post_process_,
-                                                   transaction->start_timestamp,
+                                                   transaction->SchemaReconstructionBound(),
                                                    transaction->transaction_id,
                                                    prop_on_edges);
   }
