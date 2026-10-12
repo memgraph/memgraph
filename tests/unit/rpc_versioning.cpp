@@ -648,6 +648,14 @@ TEST(RpcVersioning, SlkLoadUser_MigratesV3FGA) {
 // one-element batch, which is what an old main's per-statement traffic looks like to a new replica.
 TEST(RpcVersioning, UpdateAuthDataRpc_V1Request_UpgradesToASingleItemBatch) {
   Endpoint const endpoint{"localhost", port};
+  auto const auth_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_rpc_versioning_auth_v1";
+  std::filesystem::remove_all(auth_dir);
+  auto const cleanup = memgraph::utils::OnScopeExit{[&] { std::filesystem::remove_all(auth_dir); }};
+
+  memgraph::auth::SynchedAuth auth{auth_dir, memgraph::auth::Auth::Config{}};
+  memgraph::system::State system_state{std::nullopt, false};
+  memgraph::system::ReplicaHandlerAccessToState system_state_access{system_state};
+  memgraph::utils::UUID const main_uuid;
 
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
@@ -656,25 +664,13 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V1Request_UpgradesToASingleItemBatch) {
     rpc_server.AwaitShutdown();
   }};
 
-  uint64_t seen_version = 0;
-  size_t seen_ops = 0;
-  std::string seen_username;
   rpc_server.Register<memgraph::replication::UpdateAuthDataRpc>(
       [&](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
           uint64_t const request_version,
           auto *req_reader,
           auto *res_builder) {
-        memgraph::replication::UpdateAuthDataReq req;
-        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
-        seen_version = request_version;
-        seen_ops = req.ops.size();
-        if (!req.ops.empty()) {
-          if (auto const *update = std::get_if<memgraph::replication::AuthUpdateOp>(&req.ops.front())) {
-            if (update->user) seen_username = update->user->username();
-          }
-        }
-        memgraph::replication::UpdateAuthDataRes const res(true);
-        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+        memgraph::auth::UpdateAuthDataHandler(
+            system_state_access, main_uuid, auth, request_version, req_reader, res_builder);
       });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -683,14 +679,12 @@ TEST(RpcVersioning, UpdateAuthDataRpc_V1Request_UpgradesToASingleItemBatch) {
   ClientContext client_context;
   Client client{endpoint, &client_context};
 
-  auto stream = client.Stream<memgraph::replication::UpdateAuthDataRpcV1>(
-      memgraph::utils::UUID{}, 0, 1, memgraph::auth::User{"alice"});
-  auto reply = stream.SendAndWait();
+  auto stream =
+      client.Stream<memgraph::replication::UpdateAuthDataRpcV1>(main_uuid, 0, 1, memgraph::auth::User{"alice"});
+  auto const reply = stream.SendAndWait();
 
   EXPECT_TRUE(reply.success);
-  EXPECT_EQ(seen_version, 1U) << "the server must observe the V1 wire version and run the upgrade chain";
-  EXPECT_EQ(seen_ops, 1U) << "a V1 request's single item must upgrade into a one-element batch";
-  EXPECT_EQ(seen_username, "alice") << "the upgraded batch must carry the user the V1 request held";
+  EXPECT_TRUE(auth.Lock()->HasUser("alice")) << "the upgraded batch must carry the user the V1 request held";
 }
 
 // A V2 request is answered at V2, so the response must exist at V2 as well. A replica that cannot encode its reply
