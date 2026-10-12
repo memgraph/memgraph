@@ -29,9 +29,11 @@ namespace shapes = memgraph::test::shapes;
 
 namespace {
 
-// Copying by assigning the union member needs every type it is done for to be trivially copyable.
-// The numbers and the accessors are obviously so; each of these is declared elsewhere and could
-// stop being so without anything here changing.
+// Copying a value that owns nothing takes a fixed width of the union's bytes, which reproduces the
+// value only while every type it is done for is trivially copyable. Each of these is declared
+// elsewhere and could stop being so without anything here changing.
+static_assert(std::is_trivially_copyable_v<memgraph::query::VertexAccessor>);
+static_assert(std::is_trivially_copyable_v<memgraph::query::EdgeAccessor>);
 static_assert(std::is_trivially_copyable_v<memgraph::utils::Date>);
 static_assert(std::is_trivially_copyable_v<memgraph::utils::LocalTime>);
 static_assert(std::is_trivially_copyable_v<memgraph::utils::LocalDateTime>);
