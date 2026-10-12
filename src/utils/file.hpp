@@ -45,9 +45,19 @@ enum class OnNoSpace : uint8_t {
 
 /// Why writing to an output file failed.
 enum class FileWriteError : uint8_t {
-  kNoSpace,  ///< Out of space or quota; only reported by files opened with `OnNoSpace::kReportError`.
-  kOther,    ///< Any other failure, with `errno` left for the caller; only reported by `AppendFrom`.
+  kNoSpace,  ///< Out of space or quota. Writes report it only on files opened with `OnNoSpace::kReportError`.
+  kOther,    ///< Any other failure. `AppendFrom` leaves `errno` for the caller.
 };
+
+constexpr std::string_view FileWriteErrorToString(FileWriteError const error) {
+  switch (error) {
+    case FileWriteError::kNoSpace:
+      return "no space left on device";
+    case FileWriteError::kOther:
+      return "write failed";
+  }
+  return "unknown error";
+}
 
 using FileUniquePtr = std::unique_ptr<FILE, decltype(&std::fclose)>;
 
@@ -267,8 +277,8 @@ class OutputFile {
   /// This method opens a new file used for writing. If the file doesn't exist
   /// it is created. The `mode` flags controls whether data is appended to the
   /// file or the file is wiped on first write. Files are created with a
-  /// restrictive permission mask (0640). On failure and misuse it returns false.
-  bool Open(const std::filesystem::path &path, Mode mode);
+  /// restrictive permission mask (0640). On failure it returns why, after logging it.
+  std::expected<void, FileWriteError> Open(const std::filesystem::path &path, Mode mode);
 
   /// Returns a boolean indicating whether a file is opened.
   bool IsOpen() const;
@@ -358,6 +368,7 @@ class OutputFile {
   size_t written_since_last_sync_{0};
   OnNoSpace on_no_space_{OnNoSpace::kCrash};
   // Set once writing ran out of space; every later write and sync then fails without touching the file.
+  // Cleared by Open and Close; a move hands it to the new owner and clears it on the moved-from file.
   bool write_failed_{false};
   std::array<uint8_t, kFileBufferSize> buffer_;  // intentionally uninitialized for performance
 
@@ -394,9 +405,8 @@ class NonConcurrentOutputFile {
   /// This method opens a new file used for writing. If the file doesn't exist
   /// it is created. The `mode` flags controls whether data is appended to the
   /// file or the file is wiped on first write. Files are created with a
-  /// restrictive permission mask (0640). On failure and misuse it crashes the
-  /// program.
-  bool Open(const std::filesystem::path &path, Mode mode);
+  /// restrictive permission mask (0640). On failure it returns why, after logging it.
+  std::expected<void, FileWriteError> Open(const std::filesystem::path &path, Mode mode);
 
   /// Returns a boolean indicating whether a file is opened.
   bool IsOpen() const;
@@ -494,8 +504,9 @@ class NonConcurrentOutputFile {
   size_t SeekFile(Position position, ssize_t offset);
 
   // Hand the window `bytes` just completed to writeback and dispose of the one before it. Call
-  // after every successful write to the descriptor, whatever route those bytes took.
-  void PaceWriteback(size_t bytes);
+  // after every successful write to the descriptor, whatever route those bytes took. Running out of
+  // space during writeback is reported per the `OnNoSpace` policy.
+  std::expected<void, FileWriteError> PaceWriteback(size_t bytes);
 
   // Abandon the windows in flight and treat `offset` as the current file position. Pacing knows
   // where it is by counting bytes written, which is the file offset only while the file is
@@ -510,6 +521,7 @@ class NonConcurrentOutputFile {
   size_t written_since_last_sync_{0};
   OnNoSpace on_no_space_{OnNoSpace::kCrash};
   // Set once writing ran out of space; every later write and sync then fails without touching the file.
+  // Cleared by Open and Close.
   bool write_failed_{false};
 
   // Writeback pacing; see `EnableWritebackPacing`. A zero window means pacing is off, whether

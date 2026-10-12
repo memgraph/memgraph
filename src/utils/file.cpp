@@ -440,7 +440,7 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   return *this;
 }
 
-bool OutputFile::Open(const std::filesystem::path &path, Mode mode) {
+std::expected<void, FileWriteError> OutputFile::Open(const std::filesystem::path &path, Mode mode) {
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
@@ -465,11 +465,12 @@ bool OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     break;
   }
 
-  auto const res = fd_ != -1;
-  if (!res) {
-    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  if (fd_ == -1) {
+    auto const error = errno;
+    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(error), error);
+    return std::unexpected{IsOutOfSpace(error) ? FileWriteError::kNoSpace : FileWriteError::kOther};
   }
-  return res;
+  return {};
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }
@@ -765,7 +766,7 @@ NonConcurrentOutputFile::~NonConcurrentOutputFile() {
   if (IsOpen()) Close();
 }
 
-bool NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode) {
+std::expected<void, FileWriteError> NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode) {
   MG_ASSERT(!IsOpen(),
             "While trying to open {} for writing the database"
             " used a handle that already has {} opened in it!",
@@ -792,11 +793,12 @@ bool NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
     }
   }
 
-  auto const res = fd_ != -1;
-  if (!res) {
-    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
+  if (fd_ == -1) {
+    auto const error = errno;
+    spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(error), error);
+    return std::unexpected{IsOutOfSpace(error) ? FileWriteError::kNoSpace : FileWriteError::kOther};
   }
-  return res;
+  return {};
 }
 
 bool NonConcurrentOutputFile::IsOpen() const { return fd_ != -1; }
@@ -1020,8 +1022,7 @@ std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBufferInternal
     buffer += written;
   }
 
-  PaceWriteback(flushed);
-  return {};
+  return PaceWriteback(flushed);
 }
 
 void NonConcurrentOutputFile::EnableWritebackPacing(size_t window_bytes, PageCachePolicy completed_window) {
@@ -1063,17 +1064,17 @@ std::expected<uint64_t, FileWriteError> NonConcurrentOutputFile::AppendFrom(int 
     }
     if (sent == 0) break;  // the source ended early
     copied += static_cast<uint64_t>(sent);
-    PaceWriteback(static_cast<size_t>(sent));
+    if (auto paced = PaceWriteback(static_cast<size_t>(sent)); !paced) return std::unexpected{paced.error()};
   }
   return copied;
 }
 
-void NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
-  if (pacing_window_ == 0) return;
+std::expected<void, FileWriteError> NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
+  if (pacing_window_ == 0) return {};
   pacing_offset_ += bytes;
 
   auto const pending_len = pacing_offset_ - pacing_pending_start_;
-  if (pending_len < pacing_window_) return;
+  if (pending_len < pacing_window_) return {};
 
   // What a failed `sync_file_range` means. EIO and ENOSPC are the same class of failure that makes
   // a failed `fsync` fatal in this file, and they must not be swallowed: Linux reports a given
@@ -1083,12 +1084,21 @@ void NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
   // with the data; the file is written exactly as it was before pacing, so pacing turns itself off
   // and the file carries on. A descriptor pacing cannot work on will not become one.
   //
+  // A file that reports running out of space instead of crashing reports it here too, and it must:
+  // on filesystems with delayed allocation a full disk often surfaces only at writeback.
+  //
   // Returns whether pacing is still on. Retrying the whole range after EINTR is what `Sync` does
   // with `fsync`, and is safe because handing the same range over again asks for the same work.
-  auto const sync_range = [this](uint64_t start, uint64_t len, unsigned int flags) {
+  auto const sync_range = [this](
+                              uint64_t start, uint64_t len, unsigned int flags) -> std::expected<bool, FileWriteError> {
     while (::sync_file_range(fd_, static_cast<off64_t>(start), static_cast<off64_t>(len), flags) != 0) {
       auto const err = errno;
       if (err == EINTR) continue;
+      if (on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(err)) {
+        pacing_window_ = 0;
+        errno = err;
+        return ReportNoSpace("wait for writeback of");
+      }
       MG_ASSERT(err != EIO && err != ENOSPC,
                 "While waiting for writeback of {} an error occurred: {} ({}). Data already written to this "
                 "file may not have reached the physical device, and no later fsync will report it.",
@@ -1114,11 +1124,15 @@ void NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
   // The WRITE-only call is asynchronous in intent, but the kernel may still block it once the range
   // exceeds the device's request queue. That is the trade pacing exists to make: this writer waits
   // instead of every writer on the machine waiting at `dirty_ratio`.
-  if (!sync_range(pacing_pending_start_, pending_len, SYNC_FILE_RANGE_WRITE)) return;
+  auto const written = sync_range(pacing_pending_start_, pending_len, SYNC_FILE_RANGE_WRITE);
+  if (!written) return std::unexpected{written.error()};
+  if (!*written) return {};
   ++pacing_windows_completed_;
 
   if (pacing_prev_len_ != 0) {
-    if (!sync_range(pacing_prev_start_, pacing_prev_len_, SYNC_FILE_RANGE_WAIT_BEFORE)) return;
+    auto const waited = sync_range(pacing_prev_start_, pacing_prev_len_, SYNC_FILE_RANGE_WAIT_BEFORE);
+    if (!waited) return std::unexpected{waited.error()};
+    if (!*waited) return {};
     if (pacing_completed_window_ == PageCachePolicy::kDrop) {
       ::posix_fadvise(
           fd_, static_cast<off_t>(pacing_prev_start_), static_cast<off_t>(pacing_prev_len_), POSIX_FADV_DONTNEED);
@@ -1128,6 +1142,7 @@ void NonConcurrentOutputFile::PaceWriteback(size_t bytes) {
   pacing_prev_start_ = pacing_pending_start_;
   pacing_prev_len_ = pending_len;
   pacing_pending_start_ = pacing_offset_;
+  return {};
 }
 
 std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBufferInternal() {

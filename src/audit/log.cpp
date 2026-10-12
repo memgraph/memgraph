@@ -178,7 +178,7 @@ bool Log::ReopenLog() {
   if (!res) {
     spdlog::warn("Failed to reopen audit log file. Audit log file couldn't be opened.");
   }
-  return res;
+  return res.has_value();
 }
 
 void Log::Flush() {

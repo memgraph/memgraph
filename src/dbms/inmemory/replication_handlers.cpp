@@ -713,8 +713,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   auto const &src_snapshot_file = active_files[0];
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
   // A resent snapshot can replace one this replica already holds; only a new one is removed if it can't be loaded.
+  // If the check itself fails, the snapshot is treated as already held, so it is never removed on a guess.
   std::error_code exists_ec;
-  bool const replaces_existing_snapshot = std::filesystem::exists(dst_snapshot_file, exists_ec);
+  bool const replaces_existing_snapshot = std::filesystem::exists(dst_snapshot_file, exists_ec) || exists_ec;
 
   if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
     spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);

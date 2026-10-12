@@ -58,8 +58,10 @@ class Encoder final : public BaseEncoder {
 
   explicit Encoder(utils::OnNoSpace on_no_space) noexcept : file_{on_no_space} {}
 
-  bool Initialize(const std::filesystem::path &path);
-  bool Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
+  /// Opens the file. If it couldn't be opened, running out of space is reported as `kNoSpace`.
+  std::expected<void, utils::FileWriteError> Initialize(const std::filesystem::path &path);
+  std::expected<void, utils::FileWriteError> Initialize(const std::filesystem::path &path, std::string_view magic,
+                                                        uint64_t version);
 
   bool OpenExisting(const std::filesystem::path &path);
 

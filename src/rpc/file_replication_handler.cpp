@@ -119,7 +119,9 @@ std::expected<size_t, utils::FileWriteError> FileReplicationHandler::WriteToFile
 
   auto const fail = [this](utils::FileWriteError const error) {
     // The file being written is always the last one opened; the handle may already be closed.
-    spdlog::error("Couldn't write received file {}. The transfer is dropped and main will retry it.", paths_.back());
+    spdlog::error("Couldn't write received file {}: {}. The transfer is dropped and main will retry it.",
+                  paths_.back(),
+                  utils::FileWriteErrorToString(error));
     return std::unexpected{error};
   };
 

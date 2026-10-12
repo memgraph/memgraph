@@ -38,21 +38,21 @@ void WriteSize(Encoder<FileType> *encoder, uint64_t size) {
 }  // namespace
 
 template <typename FileType>
-bool Encoder<FileType>::Initialize(const std::filesystem::path &path) {
+std::expected<void, utils::FileWriteError> Encoder<FileType>::Initialize(const std::filesystem::path &path) {
   logical_position_ = 0;
   logical_size_ = 0;
   return file_.Open(path, FileType::Mode::OVERWRITE_EXISTING);
 }
 
 template <typename FileType>
-bool Encoder<FileType>::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
-  if (!Initialize(path)) {
-    return false;
-  }
+std::expected<void, utils::FileWriteError> Encoder<FileType>::Initialize(const std::filesystem::path &path,
+                                                                         const std::string_view magic,
+                                                                         uint64_t version) {
+  if (auto opened = Initialize(path); !opened) return opened;
   Write(reinterpret_cast<const uint8_t *>(magic.data()), magic.size());
   auto version_encoded = utils::HostToLittleEndian(version);
   Write(reinterpret_cast<const uint8_t *>(&version_encoded), sizeof(version_encoded));
-  return true;
+  return {};
 }
 
 template <typename FileType>

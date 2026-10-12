@@ -241,11 +241,42 @@ class RecoveryRollbackGuard {
   bool committed_ = false;
 };
 
-void RemoveFailedSnapshotPart(std::filesystem::path const &part_path) {
-  spdlog::error("Snapshot part {} ran out of disk space and is removed", part_path);
-  std::error_code ec;
-  std::filesystem::remove(part_path, ec);
-  if (ec) spdlog::warn("Couldn't remove temporary snapshot part {}: {}", part_path, ec.message());
+// Writes one part of a parallel snapshot with `fill` and reports through `done` whether it can be combined. No
+// failure escapes the worker thread: running out of space is also recorded in `out_of_space`, any other exception
+// just fails the part, and a failed part is removed.
+template <typename TResult>
+void WriteSnapshotPart(std::filesystem::path const &part_path, size_t const writeback_window, TResult &result,
+                       std::promise<bool> &done, std::atomic<bool> &out_of_space, auto &&fill) {
+  auto const fail = [&](std::string_view const reason, bool const no_space) {
+    spdlog::error(
+        "Snapshot part {} {}. Snapshot creation will be retried on the next scheduled interval.", part_path, reason);
+    if (no_space) out_of_space.store(true, std::memory_order_relaxed);
+    std::error_code ec;
+    std::filesystem::remove(part_path, ec);
+    done.set_value(false);
+  };
+  try {
+    SnapshotEncoder part{utils::OnNoSpace::kReportError};
+    // This part is copied into the snapshot and deleted moments later, so its pages stay.
+    part.EnableWritebackPacing(writeback_window, utils::PageCachePolicy::kKeep);
+    if (auto const opened = part.Initialize(part_path); !opened) {
+      fail("couldn't be opened", opened.error() == utils::FileWriteError::kNoSpace);
+      return;
+    }
+    result = fill(part);
+    if (!part.Finalize(utils::PageCachePolicy::kKeep)) {
+      part.Close();
+      fail("ran out of disk space", true);
+      return;
+    }
+  } catch (std::exception const &e) {
+    fail(fmt::format("failed: {}", e.what()), false);
+    return;
+  } catch (...) {
+    fail("failed", false);
+    return;
+  }
+  done.set_value(true);
 }
 
 // Running out of space, whether in a worker or while appending a part here, is recorded in
@@ -362,32 +393,12 @@ std::expected<void, SnapshotCreationError> MultiThreadedWorkflow(
                      start_gid = edge_batch_gid[id],
                      end_gid = edge_batch_gid[id + 1],
                      path = snapshot_encoder.GetPath()] {
-        // Create workers temporary file
-        const auto snapshot_path = fmt::format("{}_edge_part_{}", path, id);
-        {
-          SnapshotEncoder edges_snapshot{utils::OnNoSpace::kReportError};
-          // This part is copied into the snapshot and deleted moments later, so its pages stay.
-          edges_snapshot.EnableWritebackPacing(writeback_window, utils::PageCachePolicy::kKeep);
-          if (!edges_snapshot.Initialize(snapshot_path)) {
-            spdlog::warn(
-                "Failed to open snapshot file {} in MultiThreadedWorkflow. Snapshot creation will be retried on the "
-                "next scheduled interval",
-                snapshot_path);
-            edge_res[id].second.set_value(false);
-            return;
-          }
-          // Fill snapshot with edges
-          edge_res[id].first = partial_edge_handler(start_gid, end_gid, edges_snapshot);
-          if (!edges_snapshot.Finalize(utils::PageCachePolicy::kKeep)) {
-            edges_snapshot.Close();
-            RemoveFailedSnapshotPart(snapshot_path);
-            out_of_space.store(true, std::memory_order_relaxed);
-            edge_res[id].second.set_value(false);
-            return;
-          }
-        }
-        // Signal that the snapshot is done
-        edge_res[id].second.set_value(true);
+        WriteSnapshotPart(fmt::format("{}_edge_part_{}", path, id),
+                          writeback_window,
+                          edge_res[id].first,
+                          edge_res[id].second,
+                          out_of_space,
+                          [&](SnapshotEncoder &part) { return partial_edge_handler(start_gid, end_gid, part); });
       });
     }
   }
@@ -404,31 +415,12 @@ std::expected<void, SnapshotCreationError> MultiThreadedWorkflow(
                    start_gid = vertex_batch_gid[id],
                    end_gid = vertex_batch_gid[id + 1],
                    path = snapshot_encoder.GetPath()] {
-      // Create workers temporary file
-      const auto snapshot_path = fmt::format("{}_vertex_part_{}", path, id);
-      {
-        SnapshotEncoder vertex_snapshot{utils::OnNoSpace::kReportError};
-        vertex_snapshot.EnableWritebackPacing(writeback_window, utils::PageCachePolicy::kKeep);
-        if (!vertex_snapshot.Initialize(snapshot_path)) {
-          spdlog::warn(
-              "Failed to open snapshot file {} in MultiThreadedWorkflow. Snapshot creation will be retried on the "
-              "next scheduled interval",
-              snapshot_path);
-          vertex_res[id].second.set_value(false);
-          return;
-        }
-        // Fill snapshot with vertices
-        vertex_res[id].first = partial_vertex_handler(start_gid, end_gid, vertex_snapshot);
-        if (!vertex_snapshot.Finalize(utils::PageCachePolicy::kKeep)) {
-          vertex_snapshot.Close();
-          RemoveFailedSnapshotPart(snapshot_path);
-          out_of_space.store(true, std::memory_order_relaxed);
-          vertex_res[id].second.set_value(false);
-          return;
-        }
-      }
-      // Signal that the snapshot is done
-      vertex_res[id].second.set_value(true);
+      WriteSnapshotPart(fmt::format("{}_vertex_part_{}", path, id),
+                        writeback_window,
+                        vertex_res[id].first,
+                        vertex_res[id].second,
+                        out_of_space,
+                        [&](SnapshotEncoder &part) { return partial_vertex_handler(start_gid, end_gid, part); });
     });
   }
 
@@ -13624,12 +13616,13 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
   spdlog::info("snapshot starting: {} (trigger={})", path, trigger);
   SnapshotEncoder snapshot{utils::OnNoSpace::kReportError};
   snapshot.EnableWritebackPacing(writeback_window);
-  if (!snapshot.Initialize(path, kSnapshotMagic, kVersion)) {
+  if (auto const opened = snapshot.Initialize(path, kSnapshotMagic, kVersion); !opened) {
     spdlog::warn(
         "Failed to open snapshot file {}. Not a fatal failure, snapshot creation will be retried on the next scheduled "
         "interval.",
         path);
-    return std::unexpected{SnapshotCreationError::kAborted};
+    return std::unexpected{opened.error() == utils::FileWriteError::kNoSpace ? SnapshotCreationError::kNoSpaceLeft
+                                                                             : SnapshotCreationError::kAborted};
   }
 
   // Guard: if CreateSnapshot exits after the file is opened without finalizing it, remove the partial
