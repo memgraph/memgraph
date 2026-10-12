@@ -339,6 +339,7 @@ def test_show_transactions_masks_a_password_however_it_is_written(cursor, user, 
     execute(cursor, statement)
     shown = str(execute(watcher, "SHOW TRANSACTIONS"))
 
+    assert "'****'" in shown
     assert "ter2" not in shown
 
 
@@ -362,6 +363,7 @@ def test_show_transactions_masks_both_passwords_of_a_password_change(cursor, sta
     eve.close()
 
     assert "SET PASSWORD" in shown
+    assert "'****'" in shown
     assert "ter2" not in shown
 
 

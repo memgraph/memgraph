@@ -646,7 +646,7 @@ TEST(RpcVersioning, SlkLoadUser_MigratesV3FGA) {
 // UpdateAuthDataRpc V2 carries a whole auth transaction as one ordered batch, so a replica cannot apply a prefix
 // of it. V1 carried at most one user, role or profile per request; the upgrade wraps that single item into a
 // one-element batch, which is what an old main's per-statement traffic looks like to a new replica.
-TEST(RpcVersioning, UpdateAuthDataRpc_V1Request_UpgradesToASingleItemBatch) {
+TEST(RpcVersioning, UpdateAuthDataRpc_V1RequestIsAppliedByTheReplica) {
   Endpoint const endpoint{"localhost", port};
   auto const auth_dir = std::filesystem::temp_directory_path() / "MG_tests_unit_rpc_versioning_auth_v1";
   std::filesystem::remove_all(auth_dir);
