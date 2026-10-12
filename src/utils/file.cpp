@@ -400,9 +400,18 @@ bool InputFile::LoadBuffer() {
   return true;
 }
 
-namespace {
-bool IsOutOfSpace(int const error) { return error == ENOSPC || error == EDQUOT; }
-}  // namespace
+std::unexpected<FileWriteError> NoSpaceHandling::Fail(std::string_view const operation,
+                                                      std::filesystem::path const &path, int const error) {
+  spdlog::error(
+      "While trying to {} {} an error occurred: {} ({}). The file is incomplete and nothing more will be "
+      "written to it.",
+      operation,
+      path,
+      strerror(error),
+      error);
+  failed_ = true;
+  return std::unexpected{FileWriteError::kNoSpace};
+}
 
 OutputFile::~OutputFile() {
   if (IsOpen()) Close();
@@ -412,13 +421,12 @@ OutputFile::OutputFile(OutputFile &&other) noexcept
     : fd_(other.fd_),
       buffer_position_(other.buffer_position_.load(std::memory_order_acquire)),
       written_since_last_sync_(other.written_since_last_sync_),
-      on_no_space_(other.on_no_space_),
-      write_failed_(other.write_failed_),
+      no_space_(other.no_space_),
       buffer_(other.buffer_),
       path_(std::move(other.path_)) {
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
-  other.write_failed_ = false;
+  other.no_space_.Reset();
   other.buffer_position_.store(0, std::memory_order_release);
 }
 
@@ -430,12 +438,11 @@ OutputFile &OutputFile::operator=(OutputFile &&other) noexcept {
   path_ = std::move(other.path_);
   buffer_position_ = other.buffer_position_.load();
   buffer_ = other.buffer_;
-  on_no_space_ = other.on_no_space_;
-  write_failed_ = other.write_failed_;
+  no_space_ = other.no_space_;
 
   other.fd_ = -1;
   other.written_since_last_sync_ = 0;
-  other.write_failed_ = false;
+  other.no_space_.Reset();
   other.buffer_position_ = 0;
 
   return *this;
@@ -449,7 +456,7 @@ std::expected<void, FileWriteError> OutputFile::Open(const std::filesystem::path
             path_);
   path_ = path;
   written_since_last_sync_ = 0;
-  write_failed_ = false;
+  no_space_.Reset();
 
   int flags = O_WRONLY | O_CLOEXEC | O_CREAT;
   if (mode == Mode::APPEND_TO_EXISTING) flags |= O_APPEND;
@@ -469,7 +476,7 @@ std::expected<void, FileWriteError> OutputFile::Open(const std::filesystem::path
   if (fd_ == -1) {
     auto const error = errno;
     spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(error), error);
-    return std::unexpected{IsOutOfSpace(error) ? FileWriteError::kNoSpace : FileWriteError::kOther};
+    return std::unexpected{NoSpaceHandling::IsOutOfSpace(error) ? FileWriteError::kNoSpace : FileWriteError::kOther};
   }
   return {};
 }
@@ -481,7 +488,7 @@ const std::filesystem::path &OutputFile::path() const { return path_; }
 std::expected<void, FileWriteError> OutputFile::Write(const uint8_t *data, size_t size) {
   std::unique_lock flush_guard(flush_lock_);
   MG_ASSERT(IsOpen(), "Trying to write to an unopened file!");
-  if (write_failed_) return std::unexpected{FileWriteError::kNoSpace};
+  if (no_space_.Failed()) return std::unexpected{FileWriteError::kNoSpace};
   auto const buffer_start = buffer_position_.load(std::memory_order_acquire);
 
   auto *write_ptr = buffer_.data() + buffer_start;
@@ -597,7 +604,7 @@ std::expected<void, FileWriteError> OutputFile::Sync() {
     }
   }
 
-  if (ret == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) return ReportNoSpace("sync");
+  if (ret == -1 && no_space_.Reports(errno)) return ReportNoSpace("sync", errno);
 
   // In this check we are extremely rigorous because any error except EINTR is
   // treated as a fatal error that will crash the database. The errors that will
@@ -654,7 +661,7 @@ void OutputFile::Close() noexcept {
     }
   }
 
-  if (ret == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) {
+  if (ret == -1 && no_space_.Reports(errno)) {
     spdlog::error("While trying to close {}, an error occurred: {} ({})", path_, strerror(errno), errno);
   } else {
     MG_ASSERT(ret == 0,
@@ -668,7 +675,7 @@ void OutputFile::Close() noexcept {
 
   fd_ = -1;
   written_since_last_sync_ = 0;
-  write_failed_ = false;
+  no_space_.Reset();
   buffer_position_.store(0, std::memory_order_release);
   path_ = "";
 }
@@ -681,7 +688,7 @@ std::expected<void, FileWriteError> OutputFile::FlushBuffer() {
 }
 
 std::expected<void, FileWriteError> OutputFile::FlushBufferInternal(size_t to_write) {
-  if (write_failed_) return std::unexpected{FileWriteError::kNoSpace};
+  if (no_space_.Failed()) return std::unexpected{FileWriteError::kNoSpace};
   // Doesn't update buffer_position_ to avoid using atomics
   auto *buffer = buffer_.data();
   while (to_write > 0) {
@@ -689,8 +696,8 @@ std::expected<void, FileWriteError> OutputFile::FlushBufferInternal(size_t to_wr
     if (written == -1 && errno == EINTR) {
       continue;
     }
-    if (written == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) {
-      return ReportNoSpace("write to");
+    if (written == -1 && no_space_.Reports(errno)) {
+      return ReportNoSpace("write to", errno);
     }
 
     MG_ASSERT(written > 0,
@@ -720,18 +727,9 @@ std::expected<void, FileWriteError> OutputFile::FlushBufferInternal() {
   return {};
 }
 
-std::unexpected<FileWriteError> OutputFile::ReportNoSpace(std::string_view const operation) {
-  auto const error = errno;
-  spdlog::error(
-      "While trying to {} {} an error occurred: {} ({}). The file is incomplete and nothing more will be "
-      "written to it.",
-      operation,
-      path_,
-      strerror(error),
-      error);
-  write_failed_ = true;
+std::unexpected<FileWriteError> OutputFile::ReportNoSpace(std::string_view const operation, int const error) {
   buffer_position_.store(0, std::memory_order_release);
-  return std::unexpected{FileWriteError::kNoSpace};
+  return no_space_.Fail(operation, path_, error);
 }
 
 void OutputFile::DisableFlushing() { flush_lock_.lock_shared(); }
@@ -775,7 +773,7 @@ std::expected<void, FileWriteError> NonConcurrentOutputFile::Open(const std::fil
             path_);
   path_ = path;
   written_since_last_sync_ = 0;
-  write_failed_ = false;
+  no_space_.Reset();
   RestartPacing(0);  // otherwise a reused handle carries the previous file's offset into this one
 
   int flags = O_WRONLY | O_CLOEXEC | O_CREAT;
@@ -797,7 +795,7 @@ std::expected<void, FileWriteError> NonConcurrentOutputFile::Open(const std::fil
   if (fd_ == -1) {
     auto const error = errno;
     spdlog::error("While trying to open {} for writing an error occurred: {} ({})", path_, strerror(error), error);
-    return std::unexpected{IsOutOfSpace(error) ? FileWriteError::kNoSpace : FileWriteError::kOther};
+    return std::unexpected{NoSpaceHandling::IsOutOfSpace(error) ? FileWriteError::kNoSpace : FileWriteError::kOther};
   }
   return {};
 }
@@ -807,7 +805,7 @@ bool NonConcurrentOutputFile::IsOpen() const { return fd_ != -1; }
 const std::filesystem::path &NonConcurrentOutputFile::path() const { return path_; }
 
 std::expected<void, FileWriteError> NonConcurrentOutputFile::Write(const uint8_t *data, size_t size) {
-  if (write_failed_) return std::unexpected{FileWriteError::kNoSpace};
+  if (no_space_.Failed()) return std::unexpected{FileWriteError::kNoSpace};
   auto const buffer_start = buffer_position_;
 
   auto *write_ptr = buffer_.data() + buffer_start;
@@ -916,7 +914,7 @@ std::expected<void, FileWriteError> NonConcurrentOutputFile::Sync() {
     }
   }
 
-  if (ret == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) return ReportNoSpace("sync");
+  if (ret == -1 && no_space_.Reports(errno)) return ReportNoSpace("sync", errno);
 
   // In this check we are extremely rigorous because any error except EINTR is
   // treated as a fatal error that will crash the database. The errors that will
@@ -971,7 +969,7 @@ void NonConcurrentOutputFile::Close() noexcept {
     }
   }
 
-  if (ret == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) {
+  if (ret == -1 && no_space_.Reports(errno)) {
     spdlog::error("While trying to close {}, an error occurred: {} ({})", path_, strerror(errno), errno);
   } else {
     MG_ASSERT(ret == 0,
@@ -985,7 +983,7 @@ void NonConcurrentOutputFile::Close() noexcept {
 
   fd_ = -1;
   written_since_last_sync_ = 0;
-  write_failed_ = false;
+  no_space_.Reset();
   buffer_position_ = 0;
   path_ = "";
 }
@@ -997,7 +995,7 @@ std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBuffer() {
 }
 
 std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBufferInternal(size_t to_write) {
-  if (write_failed_) return std::unexpected{FileWriteError::kNoSpace};
+  if (no_space_.Failed()) return std::unexpected{FileWriteError::kNoSpace};
   auto *buffer = buffer_.data();
   auto const flushed = to_write;
   while (to_write > 0) {
@@ -1005,8 +1003,8 @@ std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBufferInternal
     if (written == -1 && errno == EINTR) {
       continue;
     }
-    if (written == -1 && on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) {
-      return ReportNoSpace("write to");
+    if (written == -1 && no_space_.Reports(errno)) {
+      return ReportNoSpace("write to", errno);
     }
 
     MG_ASSERT(written > 0,
@@ -1060,7 +1058,7 @@ std::expected<uint64_t, FileWriteError> NonConcurrentOutputFile::AppendFrom(int 
     auto const sent = ::sendfile(fd_, src_fd, &src_offset, chunk);
     if (sent == -1) {
       if (errno == EINTR) continue;
-      if (on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(errno)) return ReportNoSpace("append to");
+      if (no_space_.Reports(errno)) return ReportNoSpace("append to", errno);
       return std::unexpected{FileWriteError::kOther};
     }
     if (sent == 0) break;  // the source ended early
@@ -1095,10 +1093,9 @@ std::expected<void, FileWriteError> NonConcurrentOutputFile::PaceWriteback(size_
     while (::sync_file_range(fd_, static_cast<off64_t>(start), static_cast<off64_t>(len), flags) != 0) {
       auto const err = errno;
       if (err == EINTR) continue;
-      if (on_no_space_ == OnNoSpace::kReportError && IsOutOfSpace(err)) {
+      if (no_space_.Reports(err)) {
         pacing_window_ = 0;
-        errno = err;
-        return ReportNoSpace("wait for writeback of");
+        return ReportNoSpace("wait for writeback of", err);
       }
       MG_ASSERT(err != EIO && err != ENOSPC,
                 "While waiting for writeback of {} an error occurred: {} ({}). Data already written to this "
@@ -1157,18 +1154,10 @@ std::expected<void, FileWriteError> NonConcurrentOutputFile::FlushBufferInternal
   return {};
 }
 
-std::unexpected<FileWriteError> NonConcurrentOutputFile::ReportNoSpace(std::string_view const operation) {
-  auto const error = errno;
-  spdlog::error(
-      "While trying to {} {} an error occurred: {} ({}). The file is incomplete and nothing more will be "
-      "written to it.",
-      operation,
-      path_,
-      strerror(error),
-      error);
-  write_failed_ = true;
+std::unexpected<FileWriteError> NonConcurrentOutputFile::ReportNoSpace(std::string_view const operation,
+                                                                       int const error) {
   buffer_position_ = 0;
-  return std::unexpected{FileWriteError::kNoSpace};
+  return no_space_.Fail(operation, path_, error);
 }
 
 std::pair<const uint8_t *, size_t> NonConcurrentOutputFile::CurrentBuffer() const {
