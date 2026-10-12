@@ -21,11 +21,4 @@ class RecoveryFailure : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(RecoveryFailure)
 };
 
-/// The disk ran out of space or quota while writing a snapshot. The partial snapshot is removed.
-class SnapshotNoSpaceLeft : public utils::BasicException {
- public:
-  using utils::BasicException::BasicException;
-  SPECIALIZE_GET_EXCEPTION_NAME(SnapshotNoSpaceLeft)
-};
-
 }  // namespace memgraph::storage::durability

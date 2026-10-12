@@ -249,7 +249,7 @@ void RemoveFailedSnapshotPart(std::filesystem::path const &part_path) {
 }
 
 // Running out of space, whether in a worker or while appending a part here, is recorded in
-// `out_of_space` rather than thrown at once, so every remaining part is still waited for and removed.
+// `out_of_space` rather than ending the loop, so every remaining part is still waited for and removed.
 bool WaitAndCombine(task_results_t &partial_results, SnapshotEncoder &snapshot_encoder, uint64_t &element_count,
                     std::vector<BatchInfo> &batch_infos, std::unordered_set<uint64_t> &used_ids,
                     auto &&snapshot_aborted, std::atomic<bool> &out_of_space) {
@@ -336,13 +336,13 @@ auto Batch(auto &&acc, const uint64_t items_per_batch) {
   return batches;
 }
 
-bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Vertex> *vertices,
-                           auto &&partial_edge_handler, auto &&partial_vertex_handler, const uint64_t items_per_batch,
-                           uint64_t &offset_edges, uint64_t &offset_vertices, SnapshotEncoder &snapshot_encoder,
-                           uint64_t &edges_count, uint64_t &vertices_count, std::vector<BatchInfo> &edge_batch_infos,
-                           std::vector<BatchInfo> &vertex_batch_infos, std::unordered_set<uint64_t> &used_ids,
-                           uint64_t thread_count, size_t writeback_window, auto &&snapshot_aborted,
-                           SnapshotProgress *progress = nullptr) {
+std::expected<void, SnapshotCreationError> MultiThreadedWorkflow(
+    utils::SkipListDb<Edge> *edges, utils::SkipListDb<Vertex> *vertices, auto &&partial_edge_handler,
+    auto &&partial_vertex_handler, const uint64_t items_per_batch, uint64_t &offset_edges, uint64_t &offset_vertices,
+    SnapshotEncoder &snapshot_encoder, uint64_t &edges_count, uint64_t &vertices_count,
+    std::vector<BatchInfo> &edge_batch_infos, std::vector<BatchInfo> &vertex_batch_infos,
+    std::unordered_set<uint64_t> &used_ids, uint64_t thread_count, size_t writeback_window, auto &&snapshot_aborted,
+    SnapshotProgress *progress = nullptr) {
   SafeTaskQueue tasks;
   // Set by a worker whose part ran out of disk space; reported once every part has been cleaned up.
   std::atomic<bool> out_of_space{false};
@@ -462,10 +462,9 @@ bool MultiThreadedWorkflow(utils::SkipListDb<Edge> *edges, utils::SkipListDb<Ver
           vertex_res, snapshot_encoder, vertices_count, vertex_batch_infos, used_ids, snapshot_aborted, out_of_space)) {
     all_ok = false;
   }
-  if (out_of_space.load(std::memory_order_relaxed)) {
-    throw SnapshotNoSpaceLeft("Ran out of disk space while writing snapshot {}", snapshot_encoder.GetPath());
-  }
-  return all_ok;
+  if (out_of_space.load(std::memory_order_relaxed)) return std::unexpected{SnapshotCreationError::kNoSpaceLeft};
+  if (!all_ok) return std::unexpected{SnapshotCreationError::kAborted};
+  return {};
 };
 
 // Drops a fully-read snapshot from the page cache, off the caller's thread where the process has a
@@ -13571,7 +13570,7 @@ void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::S
 
 }  // namespace
 
-std::optional<std::filesystem::path> CreateSnapshot(
+std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
     Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, utils::SkipListDb<Vertex> *vertices, utils::SkipListDb<Edge> *edges,
     utils::UUID const &uuid, std::string const epoch_id,
@@ -13603,7 +13602,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       return false;
     }
     // file_retainer->DeleteFile unlinks (or queues unlinking of) the path. The fd is still open
-    // here; it will be released by ~SnapshotEncoder after we return std::nullopt. Mark cleanup
+    // here; it will be released by ~SnapshotEncoder after we return. Mark cleanup
     // as done so the OnScopeExit guard below is a no-op and does not double-close the encoder.
     // Note: snapshot_aborted() may race with itself across worker threads; DeleteFile is
     // idempotent (exists-guarded), so a double call is safe. store is relaxed — the worker
@@ -13630,15 +13629,15 @@ std::optional<std::filesystem::path> CreateSnapshot(
         "Failed to open snapshot file {}. Not a fatal failure, snapshot creation will be retried on the next scheduled "
         "interval.",
         path);
-    return std::nullopt;
+    return std::unexpected{SnapshotCreationError::kAborted};
   }
 
-  // Guard: if an exception escapes CreateSnapshot after the file is opened, remove the partial
+  // Guard: if CreateSnapshot exits after the file is opened without finalizing it, remove the partial
   // snapshot so stale files do not accumulate.
-  // Invariant: no partial snapshot file survives an exception escaping CreateSnapshot.
-  // Normal early returns (snapshot_aborted() → true, MultiThreadedWorkflow failure) set
+  // Invariant: no partial snapshot file survives CreateSnapshot failing.
+  // Early returns that clean up themselves (snapshot_aborted() → true, MultiThreadedWorkflow failure) set
   // snapshot_file_cleanup_done = true before returning, so the guard is a no-op for those paths.
-  // This guard fires on exceptions: running out of disk space (SnapshotNoSpaceLeft) or unexpected ones (e.g. OOM).
+  // It fires on running out of disk space at Finalize and on unexpected exceptions (e.g. OOM).
   const utils::OnScopeExit partial_file_cleanup{[&snapshot, &path, &snapshot_file_cleanup_done] {
     // Relaxed load: all workers are joined before CreateSnapshot returns (or throws),
     // so the join provides the necessary happens-before for visibility of stores.
@@ -13969,36 +13968,44 @@ std::optional<std::filesystem::path> CreateSnapshot(
       // (file_retainer guards against double-unlink). No extra cleanup is needed here
       // because snapshot_file_cleanup_done was already stored to true by that call.
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
     auto *edge_ptr = (!light_edges && storage->config_.salient.items.properties_on_edges) ? edges : nullptr;
-    if (!MultiThreadedWorkflow(edge_ptr,
-                               vertices,
-                               partial_edge_handler,
-                               partial_vertex_handler,
-                               storage->config_.durability.items_per_batch,
-                               offset_edges,
-                               offset_vertices,
-                               snapshot,
-                               edges_count,
-                               vertices_count,
-                               edge_batch_infos,
-                               vertex_batch_infos,
-                               used_ids,
-                               storage->config_.durability.snapshot_thread_count,
-                               writeback_window,
-                               snapshot_aborted,
-                               progress)) {
-      spdlog::warn(
-          "Failed to execute some tasks when doing a multi-threaded snapshot, snapshot will be aborted and snapshot "
-          "creation will be retried on the next scheduled interval");
+    if (auto const workflow = MultiThreadedWorkflow(edge_ptr,
+                                                    vertices,
+                                                    partial_edge_handler,
+                                                    partial_vertex_handler,
+                                                    storage->config_.durability.items_per_batch,
+                                                    offset_edges,
+                                                    offset_vertices,
+                                                    snapshot,
+                                                    edges_count,
+                                                    vertices_count,
+                                                    edge_batch_infos,
+                                                    vertex_batch_infos,
+                                                    used_ids,
+                                                    storage->config_.durability.snapshot_thread_count,
+                                                    writeback_window,
+                                                    snapshot_aborted,
+                                                    progress);
+        !workflow) {
+      if (workflow.error() == SnapshotCreationError::kNoSpaceLeft) {
+        spdlog::error(
+            "Ran out of disk space while writing snapshot {}, snapshot creation will be retried on the next scheduled "
+            "interval",
+            path);
+      } else {
+        spdlog::warn(
+            "Failed to execute some tasks when doing a multi-threaded snapshot, snapshot will be aborted and snapshot "
+            "creation will be retried on the next scheduled interval");
+      }
       snapshot_file_cleanup_done.store(true, std::memory_order_relaxed);  // Prevent OnScopeExit double-close.
       snapshot.Close();
       // Clean up the partial main snapshot file
       std::error_code ec;
       std::filesystem::remove(path, ec);
-      return std::nullopt;
+      return std::unexpected{workflow.error()};
     }
   } else {
     if (light_edges) {
@@ -14026,7 +14033,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       used_ids.insert(res.used_ids.begin(), res.used_ids.end());
     }
     if (snapshot_aborted()) {
-      return std::nullopt;
+      return std::unexpected{SnapshotCreationError::kAborted};
     }
     spdlog::trace("snapshot writing vertices");
     if (progress) progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
@@ -14039,7 +14046,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       used_ids.insert(res.used_ids.begin(), res.used_ids.end());
     }
     if (snapshot_aborted()) {
-      return std::nullopt;
+      return std::unexpected{SnapshotCreationError::kAborted};
     }
   }
 
@@ -14058,7 +14065,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
         write_mapping(item);
       }
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
 
@@ -14086,7 +14093,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
         snapshot.SetPosition(last_pos);
       }
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
 
@@ -14157,19 +14164,19 @@ std::optional<std::filesystem::path> CreateSnapshot(
     // Write ASC label+properties indices.
     {
       write_label_property_indices(asc_indices);
-      if (snapshot_aborted()) return std::nullopt;
+      if (snapshot_aborted()) return std::unexpected{SnapshotCreationError::kAborted};
     }
 
     // Write DESC label+properties indices.
     {
       write_label_property_indices(desc_indices);
-      if (snapshot_aborted()) return std::nullopt;
+      if (snapshot_aborted()) return std::unexpected{SnapshotCreationError::kAborted};
     }
 
     // Write label+property index statistics — covers both ASC and DESC indices, deduplicated.
     {
       write_label_property_stats(asc_indices, desc_indices);
-      if (snapshot_aborted()) return std::nullopt;
+      if (snapshot_aborted()) return std::unexpected{SnapshotCreationError::kAborted};
     }
 
     // Write edge-type indices.
@@ -14183,7 +14190,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
         write_mapping(item);
       }
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
 
@@ -14198,7 +14205,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
         write_mapping(item.second);
       }
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
 
@@ -14233,7 +14240,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
         write_mapping(property);
       }
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
 
@@ -14242,7 +14249,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       spdlog::trace("snapshot writing vector indices");
       storage->indices_.vector_index_.SerializeAllVectorIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
 
@@ -14251,7 +14258,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       spdlog::trace("snapshot writing vector edge indices");
       storage->indices_.vector_edge_index_.SerializeAllVectorEdgeIndices(&snapshot, used_ids);
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
 
@@ -14271,7 +14278,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
           }
         }
         if (snapshot_aborted()) {
-          return std::nullopt;
+          return std::unexpected{SnapshotCreationError::kAborted};
         }
       }
       // Text indices on edges
@@ -14288,7 +14295,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
           }
         }
         if (snapshot_aborted()) {
-          return std::nullopt;
+          return std::unexpected{SnapshotCreationError::kAborted};
         }
       }
     }
@@ -14311,7 +14318,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
         write_mapping(item.second);
       }
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
 
@@ -14327,7 +14334,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
         }
       }
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
     // Write type constraints
@@ -14341,7 +14348,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
         snapshot.WriteUint(static_cast<uint64_t>(type));
       }
       if (snapshot_aborted()) {
-        return std::nullopt;
+        return std::unexpected{SnapshotCreationError::kAborted};
       }
     }
   }
@@ -14361,7 +14368,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       snapshot.WriteString(storage->name_id_mapper_->IdToName(item));
     }
     if (snapshot_aborted()) {
-      return std::nullopt;
+      return std::unexpected{SnapshotCreationError::kAborted};
     }
   }
 
@@ -14381,7 +14388,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       }
     }
     if (snapshot_aborted()) {
-      return std::nullopt;
+      return std::unexpected{SnapshotCreationError::kAborted};
     }
   }
 
@@ -14395,7 +14402,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       snapshot.WriteUint(last_durable_timestamp);
     }
     if (snapshot_aborted()) {
-      return std::nullopt;
+      return std::unexpected{SnapshotCreationError::kAborted};
     }
   }
 
@@ -14417,7 +14424,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     // durable_timestamp/contents, inflating the count and causing a negative replication lag on recovering replicas.
     snapshot.WriteUint(transaction->last_durable_num_committed_txns_);
     if (snapshot_aborted()) {
-      return std::nullopt;
+      return std::unexpected{SnapshotCreationError::kAborted};
     }
   }
 
@@ -14437,7 +14444,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
   {
     offset_edge_batches = snapshot.GetPosition();
     if (!write_batch_infos(edge_batch_infos)) {
-      return std::nullopt;
+      return std::unexpected{SnapshotCreationError::kAborted};
     }
   }
 
@@ -14445,7 +14452,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
   {
     offset_vertex_batches = snapshot.GetPosition();
     if (!write_batch_infos(vertex_batch_infos)) {
-      return std::nullopt;
+      return std::unexpected{SnapshotCreationError::kAborted};
     }
   }
 
@@ -14484,7 +14491,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
 #endif
 
     if (snapshot_aborted()) {
-      return std::nullopt;
+      return std::unexpected{SnapshotCreationError::kAborted};
     }
   }
 
@@ -14553,7 +14560,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     }
 
     if (snapshot_aborted()) {
-      return std::nullopt;
+      return std::unexpected{SnapshotCreationError::kAborted};
     }
   }
 
@@ -14564,12 +14571,16 @@ std::optional<std::filesystem::path> CreateSnapshot(
   }
 
   if (snapshot_aborted()) {
-    return std::nullopt;
+    return std::unexpected{SnapshotCreationError::kAborted};
   }
 
   // Running out of space in any earlier write surfaces here; partial_file_cleanup then removes the file.
   if (!snapshot.Finalize(utils::PageCachePolicy::kDrop)) {
-    throw SnapshotNoSpaceLeft("Ran out of disk space while writing snapshot {}", path);
+    spdlog::error(
+        "Ran out of disk space while writing snapshot {}, snapshot creation will be retried on the next scheduled "
+        "interval",
+        path);
+    return std::unexpected{SnapshotCreationError::kNoSpaceLeft};
   }
   // The snapshot file is now complete and valid on disk. Mark cleanup as done BEFORE any
   // post-finalize housekeeping (file_size / retention / WAL-ensure below) so that a throw from

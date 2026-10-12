@@ -4563,28 +4563,23 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
       return std::unexpected{CreateSnapshotError::NothingNewToWrite};
   }
 
-  std::optional<std::filesystem::path> snapshot_path;
-  try {
-    snapshot_path = durability::CreateSnapshot(this,
-                                               transaction,
-                                               recovery_.snapshot_directory_,
-                                               recovery_.wal_directory_,
-                                               &vertices_,
-                                               &edges_,
-                                               storage_uuid,
-                                               std::string{epoch.id()},
-                                               std::move(epoch_history),
-                                               &file_retainer_,
-                                               &abort_snapshot_,
-                                               &snapshot_progress_,
-                                               trigger);
-  } catch (durability::SnapshotNoSpaceLeft const &e) {
-    // CreateSnapshot has already removed the partial snapshot and its parts.
-    spdlog::error("{}", e.what());
-    return std::unexpected{CreateSnapshotError::NoSpaceLeft};
-  }
+  const auto snapshot_path = durability::CreateSnapshot(this,
+                                                        transaction,
+                                                        recovery_.snapshot_directory_,
+                                                        recovery_.wal_directory_,
+                                                        &vertices_,
+                                                        &edges_,
+                                                        storage_uuid,
+                                                        std::string{epoch.id()},
+                                                        std::move(epoch_history),
+                                                        &file_retainer_,
+                                                        &abort_snapshot_,
+                                                        &snapshot_progress_,
+                                                        trigger);
   if (!snapshot_path) {
-    return std::unexpected{CreateSnapshotError::AbortSnapshot};
+    return std::unexpected{snapshot_path.error() == durability::SnapshotCreationError::kNoSpaceLeft
+                               ? CreateSnapshotError::NoSpaceLeft
+                               : CreateSnapshotError::AbortSnapshot};
   }
 
   // Update digest only after the file has been created. Only in transaction because digests are used only in
