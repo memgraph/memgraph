@@ -4064,19 +4064,29 @@ namespace {
 /// Adds two path costs. A null operand is the additive identity: the seed's "nothing traversed yet"
 /// and the target's own zero distance in the reverse tree. Every edge weight is non-null - the
 /// KSHORTEST weight lambda throws on null - so this never hides one.
+///
+/// An Int sum saturates at INT64_MAX rather than wrapping. The search adds costs no served path carries
+/// (the reverse tree, a spur's priority), so it cannot throw here; a saturated cost orders after every
+/// finite one, and `CheckServedTotal` refuses it on a path that is served.
 TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull()) return rhs;
   if (rhs.IsNull()) return lhs;
   ValidateWeightTypes(lhs, rhs);
   if (lhs.IsInt() && rhs.IsInt()) {
-    // A wrapped sum goes negative and would order a longer path first.
     int64_t sum{};
-    if (__builtin_add_overflow(lhs.ValueInt(), rhs.ValueInt(), &sum)) {
-      throw QueryRuntimeException("The total weight of a KSHORTEST path overflows a 64-bit integer.");
-    }
+    if (__builtin_add_overflow(lhs.ValueInt(), rhs.ValueInt(), &sum))
+      return TypedValue(std::numeric_limits<int64_t>::max());
     return TypedValue(sum);
   }
   return lhs + rhs;
+}
+
+/// A served Int total at INT64_MAX is a saturated sum: the path's true total does not fit in 64 bits.
+/// A total of exactly INT64_MAX is refused with it.
+void CheckServedTotal(const TypedValue &total) {
+  if (total.IsInt() && total.ValueInt() == std::numeric_limits<int64_t>::max()) {
+    throw QueryRuntimeException("The total weight of a KSHORTEST path overflows a 64-bit integer.");
+  }
 }
 
 /// Orders two path costs exactly, with null - only ever the seed - below everything. No tolerance:
@@ -4990,6 +5000,7 @@ class KShortestPathsCursor : public Cursor {
     auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, memory);
     frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
     if constexpr (Cost::kWeighted) {
+      CheckServedTotal(path.cost.total);
       frame_writer.Write(self_.total_weight_.value(), TypedValue(path.cost.total, memory));
     }
   }
