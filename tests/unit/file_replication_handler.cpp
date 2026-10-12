@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <tuple>
+
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
 
@@ -53,7 +55,7 @@ TEST_F(FileReplicationHandlerTest, EmptyGetRemainingBytes) {
 
 TEST_F(FileReplicationHandlerTest, EmptyResetFile) {
   FileReplicationHandler file_replication_handler;
-  ASSERT_NO_THROW(file_replication_handler.ResetCurrentFile());
+  ASSERT_NO_THROW(std::ignore = file_replication_handler.ResetCurrentFile());
 }
 
 TEST_F(FileReplicationHandlerTest, EmptyHasOpenedFile) {
@@ -68,7 +70,7 @@ TEST_F(FileReplicationHandlerTest, EmptyActiveFiles) {
 
 TEST_F(FileReplicationHandlerTest, WritingToClosedFile) {
   FileReplicationHandler file_replication_handler;
-  ASSERT_NO_THROW(file_replication_handler.WriteToFile(nullptr, 0));
+  ASSERT_NO_THROW(std::ignore = file_replication_handler.WriteToFile(nullptr, 0));
 }
 
 TEST_F(FileReplicationHandlerTest, OpenEmptyFileName) {

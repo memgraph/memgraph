@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <thread>
+#include <tuple>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -42,9 +43,9 @@ class PageCacheReleaserTest : public ::testing::Test {
     auto const path = dir_ / name;
     std::vector<uint8_t> const data(kFileBytes, 0xCD);
     memgraph::utils::NonConcurrentOutputFile file;
-    file.Open(path, memgraph::utils::NonConcurrentOutputFile::Mode::OVERWRITE_EXISTING);
-    file.Write(data.data(), data.size());
-    file.Sync();
+    std::ignore = file.Open(path, memgraph::utils::NonConcurrentOutputFile::Mode::OVERWRITE_EXISTING);
+    std::ignore = file.Write(data.data(), data.size());
+    std::ignore = file.Sync();
     file.Close();
     return path;
   }

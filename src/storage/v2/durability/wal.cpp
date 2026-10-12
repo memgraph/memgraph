@@ -2341,7 +2341,7 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   wal_.SetPosition(offset_deltas);
   wal_.ResetCrcAcc();
 
-  // Sync the initial data.
+  // Sync the initial data. The WAL crashes on a failed write, so this never reports an error.
   std::ignore = wal_.Sync();
 }
 
@@ -2366,6 +2366,7 @@ void WalFile::WriteSummary() {
 void WalFile::FinalizeWal() {
   if (count_ != 0) {
     WriteSummary();
+    // The WAL crashes on a failed write, so this never reports an error.
     std::ignore = wal_.Finalize();
     wal_.Close();
     // Rename file.
@@ -2441,6 +2442,7 @@ WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
   return txn_end_pos;
 }
 
+// The WAL crashes on a failed write, so this never reports an error.
 void WalFile::Sync() { std::ignore = wal_.Sync(); }
 
 uint64_t WalFile::GetSize() { return wal_.GetSize(); }

@@ -193,6 +193,7 @@ void Log::Flush() {
       params_json.push_back(nlohmann::json::object_t::value_type(k, BoltValueToJson(v)));
     }
 
+    // log_ crashes on a failed write, so these never report an error.
     std::ignore = log_.Write(fmt::format("{}.{:06d},{},{},{},{},{}\n",
                                          item->timestamp / 1'000'000,
                                          item->timestamp % 1'000'000,

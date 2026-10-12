@@ -773,6 +773,7 @@ bool OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const 
   // Write the new UUID.
   snapshot.WriteMarker(Marker::SECTION_METADATA);
   snapshot.WriteString(std::string{uuid});
+  // Crashes on a failed write rather than leave a half-rewritten UUID section.
   std::ignore = snapshot.Sync();
   return true;
 }

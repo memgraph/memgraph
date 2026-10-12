@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <tuple>
 #include <vector>
 
 #include "utils/file.hpp"
@@ -72,9 +73,9 @@ inline std::optional<double> ResidentFraction(const std::filesystem::path &path)
 inline bool PageCacheEvictionObservable(const std::filesystem::path &probe) {
   const std::vector<uint8_t> data(1U << 20, 0xAB);
   utils::NonConcurrentOutputFile file;
-  file.Open(probe, utils::NonConcurrentOutputFile::Mode::OVERWRITE_EXISTING);
-  file.Write(data.data(), data.size());
-  file.Sync();
+  std::ignore = file.Open(probe, utils::NonConcurrentOutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Write(data.data(), data.size());
+  std::ignore = file.Sync();
   const auto before = ResidentFraction(probe);
   file.DropCachedPages();
   const auto after = ResidentFraction(probe);
