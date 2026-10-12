@@ -210,6 +210,7 @@ TYPED_TEST(InterpreterTest, AFailedAuthCommitLeavesTheTransactionOpenUntilRollba
   EXPECT_EQ(this->default_interpreter.interpreter.transaction_status_.load(), memgraph::query::TransactionStatus::IDLE);
 }
 
+#ifdef MG_ENTERPRISE
 // An auth COMMIT that cannot take the system transaction loses every buffered statement, so it reports a
 // serialization error, which a driver retries, rather than a client error it does not.
 TYPED_TEST(InterpreterTest, AnAuthCommitBlockedBySystemQueryIsRetryable) {
@@ -240,6 +241,7 @@ TYPED_TEST(InterpreterTest, AnAuthCommitBlockedBySystemQueryIsRetryable) {
 
   EXPECT_FALSE(auth.auth.ReadLock()->GetUser("alice").has_value());
 }
+#endif
 
 TYPED_TEST(InterpreterTest, MixingDataThenAuthFailsTheTransaction) {
   AuthQueryHandlerFixture auth{this->data_directory / "auth"};
