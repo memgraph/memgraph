@@ -1341,6 +1341,28 @@ TYPED_TEST(TriggerStoreTest, AddTrigger) {
   ASSERT_EQ(store.AfterCommitTriggers().size(), 0);
 }
 
+TYPED_TEST(TriggerStoreTest, AddTriggerRefusesNonCypherStatement) {
+  memgraph::query::TriggerStore store{this->testing_directory};
+
+  for (auto const privilege_context :
+       {memgraph::query::TriggerPrivilegeContext::DEFINER, memgraph::query::TriggerPrivilegeContext::INVOKER}) {
+    ASSERT_THROW(store.AddTrigger("trigger",
+                                  "CREATE USER from_trigger",
+                                  {},
+                                  memgraph::query::TriggerEventType::VERTEX_CREATE,
+                                  memgraph::query::TriggerPhase::AFTER_COMMIT,
+                                  &this->ast_cache,
+                                  &*this->dba,
+                                  memgraph::query::InterpreterConfig::Query{},
+                                  this->auth_checker.GenQueryUser(std::nullopt, {}),
+                                  memgraph::dbms::kDefaultDB,
+                                  privilege_context,
+                                  nullptr),
+                 memgraph::utils::BasicException);
+  }
+  ASSERT_TRUE(store.GetTriggerInfo().empty());
+}
+
 TYPED_TEST(TriggerStoreTest, DropTrigger) {
   memgraph::query::TriggerStore store{this->testing_directory};
 

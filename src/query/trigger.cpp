@@ -180,6 +180,9 @@ Trigger::Trigger(std::string name, const std::string &query, const UserParameter
       event_type_{event_type},
       creator_{creator ? creator->clone() : nullptr},  // deep copy (otherwise not thread safe)
       privilege_context_{privilege_context} {
+  if (!utils::Downcast<CypherQuery>(parsed_statements_.query)) {
+    throw utils::BasicException("A trigger statement must be a Cypher query.");
+  }
   // We check immediately if the query is valid by trying to create a plan.
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
     GetPlan(db_accessor, db_name, creator_);
