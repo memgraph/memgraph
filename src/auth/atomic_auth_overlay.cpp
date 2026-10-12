@@ -143,7 +143,7 @@ bool AtomicAuthOverlay::Flush() {
 AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const &overlay, std::string prefix, bool at_end)
     : overlay_(&overlay),
       prefix_(std::move(prefix)),
-      base_it_(overlay.base_.begin(prefix_)),
+      base_it_(at_end ? overlay.base_.end(prefix_) : overlay.base_.begin(prefix_)),
       base_end_(overlay.base_.end(prefix_)),
       at_end_(at_end) {
   if (!at_end_) {
