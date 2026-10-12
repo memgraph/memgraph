@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cstdlib>
 #include <filesystem>
+#include <future>
 #include <map>
 #include <set>
 #include <sstream>
@@ -207,6 +208,37 @@ TYPED_TEST(InterpreterTest, AFailedAuthCommitLeavesTheTransactionOpenUntilRollba
 
   this->default_interpreter.Interpret("ROLLBACK");
   EXPECT_EQ(this->default_interpreter.interpreter.transaction_status_.load(), memgraph::query::TransactionStatus::IDLE);
+}
+
+// An auth COMMIT that cannot take the system transaction loses every buffered statement, so it reports a
+// serialization error, which a driver retries, rather than a client error it does not.
+TYPED_TEST(InterpreterTest, AnAuthCommitBlockedBySystemQueryIsRetryable) {
+  // Licensed, so the commit has replication actions and needs the system transaction.
+  memgraph::license::global_license_checker.EnableTesting();
+  AuthQueryHandlerFixture auth{this->data_directory / "auth"};
+  this->interpreter_context.auth = &auth.handler;
+
+  this->default_interpreter.Interpret("BEGIN");
+  this->default_interpreter.Interpret("CREATE USER alice");
+  {
+    // Another session's system query, held on its own thread: the system mutex is not recursive.
+    std::promise<bool> held;
+    std::promise<void> release;
+    std::jthread const holder([&] {
+      auto const tx = this->system_state.TryCreateTransaction();
+      held.set_value(tx.has_value());
+      release.get_future().wait();
+    });
+    bool const holding = held.get_future().get();
+    if (holding) {
+      EXPECT_THROW(this->default_interpreter.Interpret("COMMIT"), memgraph::query::TransactionSerializationException);
+    }
+    release.set_value();
+    ASSERT_TRUE(holding);
+  }
+  this->default_interpreter.Interpret("ROLLBACK");
+
+  EXPECT_FALSE(auth.auth.ReadLock()->GetUser("alice").has_value());
 }
 
 TYPED_TEST(InterpreterTest, MixingDataThenAuthFailsTheTransaction) {

@@ -11606,12 +11606,11 @@ void Interpreter::Commit() {
       // populate it are compiled out there along with the rest of the enterprise auth surface. That is correct
       // rather than incidental: a community build has no auth delta to send.
       // Failing here costs the user the whole transaction, not one statement: the throw leaves through
-      // AbortCommand, which sets `expect_rollback_`, and the buffered work goes with it. That is the same
-      // bargain a serialization error strikes on the data path (`Unable to commit due to serialization error.`),
-      // where retrying also means running the statements again, so auth is not the odd one out. `kSystemTxTryMS`
-      // is a fixed 100ms shared with the single-statement path above, and is usually shorter than the lock is
-      // held, because the holder keeps it across replication. A longer wait would need to stay interruptible, and
-      // to apply at both call sites.
+      // AbortCommand, which sets `expect_rollback_`, and the buffered work goes with it. It is therefore reported
+      // as a serialization error, which a driver retries by running the transaction again, rather than as the
+      // concurrent-system-query error a single statement gets. `kSystemTxTryMS` is a fixed 100ms shared with the
+      // single-statement path above, and is usually shorter than the lock is held, because the holder keeps it
+      // across replication. A longer wait would need to stay interruptible, and to apply at both call sites.
 #ifdef MG_ENTERPRISE
       bool const names_databases = !auth_transaction_->named_databases().empty();
 #else
@@ -11621,9 +11620,7 @@ void Interpreter::Commit() {
           (!auth_transaction_->pending_actions().empty() || names_databases)) {
         system_transaction_ =
             interpreter_context_->system_->TryCreateTransaction(std::chrono::milliseconds(kSystemTxTryMS));
-        if (!system_transaction_) {
-          throw ConcurrentSystemQueriesException("Multiple concurrent system queries are not supported.");
-        }
+        if (!system_transaction_) throw TransactionSerializationException();
       }
 #ifdef MG_ENTERPRISE
       // DROP DATABASE needs the system transaction held here, so a database that exists now still exists when the
