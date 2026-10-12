@@ -49,7 +49,7 @@ def instance_description(test_name, parallel):
             "args": [
                 "--log-level=TRACE",
                 "--data-recovery-on-startup=false",
-                "--storage-snapshot-interval-sec=0",
+                "--storage-snapshot-interval-sec=3600",
                 f"--storage-parallel-snapshot-creation={str(parallel).lower()}",
                 "--storage-snapshot-thread-count=4",
                 "--storage-items-per-batch=100",
