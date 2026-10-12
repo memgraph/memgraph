@@ -11,7 +11,11 @@
 
 #pragma once
 
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <iosfwd>
 #include <map>
 #include <memory>
@@ -89,23 +93,21 @@ class TypedValue {
 
   /** A value type. Each type corresponds to exactly one C++ type.
    *
-   * The order is load-bearing, and is the only thing here that is. Two questions are asked of a
-   * type on every value the engine touches - can it be copied by assigning it, and does destroying
-   * it have anything to do - and the types that answer yes are grouped first so that each question
-   * is one comparison rather than a table lookup. `kLastInlineCopyable` and
-   * `kLastTriviallyDestructible` below name where each group ends, and `IsInlineCopyable` and
-   * `HasTrivialDestructor` ask the questions through them. Nothing else depends on the numeric
-   * values, which are not persisted or sent anywhere.
+   * The order is load-bearing, and is the only thing here that is. One question is asked of a type
+   * on every value the engine touches: does it own an allocation. The types that own nothing are
+   * grouped first so that the question is one comparison rather than a table lookup.
+   * `kLastWithoutAnAllocation` below names where that group ends and `OwnsAnAllocation` asks
+   * through it. Nothing else depends on the numeric values, which are not persisted or sent
+   * anywhere.
    */
   enum class Type : unsigned {
-    // Held in the union as a value that is copied by assigning it.
+    // Held in the union outright: copying is assigning it, and destroying it has nothing to do.
     Null,
     Bool,
     Int,
     Double,
     Vertex,
     Edge,
-    // Owns no allocation either, so needs no destructor, but is copied case by case.
     Date,
     LocalTime,
     LocalDateTime,
@@ -126,10 +128,9 @@ class TypedValue {
     VirtualNode
   };
 
-  /// Where each of the two groups above ends. Naming them here puts the boundary beside the order
-  /// that carries it, so moving a type past one is a visible edit rather than a silent consequence.
-  static constexpr Type kLastInlineCopyable = Type::Edge;
-  static constexpr Type kLastTriviallyDestructible = Type::Point3d;
+  /// Where the first group above ends. Naming it here puts the boundary beside the order that
+  /// carries it, so moving a type past it is a visible edit rather than a silent consequence.
+  static constexpr Type kLastWithoutAnAllocation = Type::Point3d;
 
   /// How many types a value can be, read off the last enumerator above.
   ///
@@ -137,19 +138,10 @@ class TypedValue {
   /// it, so that a type added here is counted everywhere at once.
   static constexpr auto kTypeCount = std::to_underlying(Type::VirtualNode) + 1U;
 
-  /// Whether copying a value of this type is assigning it: the numbers, and the two accessors,
-  /// which are trivially copyable structs naming a record and the transaction reading it.
-  static constexpr bool IsInlineCopyable(Type type) {
-    return std::to_underlying(type) <= std::to_underlying(kLastInlineCopyable);
-  }
-
-  /// Whether destroying a value of this type has nothing to do, so it can be overwritten where it
-  /// stands. Everything up to `kLastTriviallyDestructible` owns no allocation of its own.
-  ///
-  /// Every type this admits is either inline copyable or assembled field by field, so a type can
-  /// have a trivial destructor without being inline copyable, never the other way round.
-  static constexpr bool HasTrivialDestructor(Type type) {
-    return std::to_underlying(type) <= std::to_underlying(kLastTriviallyDestructible);
+  /// Whether a value of this type owns something that has to be released, which is also what
+  /// decides how it is copied.
+  static constexpr bool OwnsAnAllocation(Type type) {
+    return std::to_underlying(type) > std::to_underlying(kLastWithoutAnAllocation);
   }
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
@@ -190,33 +182,16 @@ class TypedValue {
 
   /** Construct a copy given allocator_type.
    *
-   * Copying a number is an assignment; everything that needs an allocation, a nested copy, or a
-   * placement new is left to `CopyComplexValue`, so the common case does not pay for reaching it.
+   * Copying a value that owns nothing is taking its bytes; everything that needs an allocation, a
+   * nested copy, or a placement new is left to `CopyComplexValue`, so the common case does not pay
+   * for reaching it.
    */
   TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{alloc}, type_(other.type_) {
-    if (!IsInlineCopyable(other.type_)) {
+    if (OwnsAnAllocation(other.type_)) {
       CopyComplexValue(other);
       return;
     }
-    switch (other.type_) {
-      case Type::Null:
-        return;
-      case Type::Bool:
-        bool_v = other.bool_v;
-        return;
-      case Type::Int:
-        int_v = other.int_v;
-        return;
-      case Type::Double:
-        double_v = other.double_v;
-        return;
-      case Type::Vertex:
-        vertex_v = other.vertex_v;
-        return;
-      default:
-        edge_v = other.edge_v;
-        return;
-    }
+    AssignValueHeldInline(other);
   }
 
   /**
@@ -550,26 +525,8 @@ class TypedValue {
    * writing a row into the frame does per slot per row. `MoveAssignComplex` has the rest.
    */
   TypedValue &operator=(TypedValue &&other) noexcept(false) {
-    if (HasTrivialDestructor(type_) && IsInlineCopyable(other.type_) && this != &other && alloc_ == other.alloc_) {
-      switch (other.type_) {
-        case Type::Null:
-          break;
-        case Type::Bool:
-          bool_v = other.bool_v;
-          break;
-        case Type::Int:
-          int_v = other.int_v;
-          break;
-        case Type::Double:
-          double_v = other.double_v;
-          break;
-        case Type::Vertex:
-          vertex_v = other.vertex_v;
-          break;
-        default:
-          edge_v = other.edge_v;
-          break;
-      }
+    if (!OwnsAnAllocation(type_) && !OwnsAnAllocation(other.type_) && this != &other && alloc_ == other.alloc_) {
+      AssignValueHeldInline(other);
       type_ = other.type_;
       // The source is left holding its value. It owns no allocation, so there is nothing to
       // release, and the general path leaves a moved-from value intact as well.
@@ -590,7 +547,7 @@ class TypedValue {
   /// was reached through an out-of-line switch over every type a value can hold, once per value, and
   /// a row's worth of expression evaluation destroys a value per node it walks.
   ~TypedValue() {
-    if (HasTrivialDestructor(type_)) return;
+    if (!OwnsAnAllocation(type_)) return;
     DestroyValue();
   }
 
@@ -834,6 +791,19 @@ class TypedValue {
   /** Out of line so the getters inline without the message formatting. */
   [[noreturn]] void ThrowTypeMismatch(Type expected) const;
 
+  /// Copies the whole of `other`'s value, for a type that owns no allocation. `type_` is left
+  /// alone, because a copy and a move assignment reach this having already set it or needing to set
+  /// it afterwards.
+  ///
+  /// Every type this is called for is trivially copyable, so its value is exactly its bytes and
+  /// taking a fixed width of them copies whichever of them is there. Choosing the member by type
+  /// instead would make this a jump table, and large enough that the copy and the move assignment
+  /// would stop being inlined into their callers, which is the whole point of asking first.
+  void AssignValueHeldInline(TypedValue const &other) {
+    std::memcpy(static_cast<void *>(value_bytes_.data()), static_cast<void const *>(other.value_bytes_.data()),
+                kValueHeldInlineSize);
+  }
+
   /// The rest of the destructor and of the copy constructor. Both assume `type_` is already the
   /// type being destroyed or copied, and neither is reached for a type handled inline above.
   void DestroyValue();
@@ -842,8 +812,26 @@ class TypedValue {
 
   [[no_unique_address]] allocator_type alloc_{};
 
+  /// How much of the union a type that owns no allocation can occupy, taken from the widest of
+  /// them so that copying this many bytes copies whichever one is there. A type added to that
+  /// group without being named here would be copied short.
+  static constexpr auto kValueHeldInlineSize = std::max({sizeof(bool),
+                                                         sizeof(int64_t),
+                                                         sizeof(double),
+                                                         sizeof(VertexAccessor),
+                                                         sizeof(EdgeAccessor),
+                                                         sizeof(utils::Date),
+                                                         sizeof(utils::LocalTime),
+                                                         sizeof(utils::LocalDateTime),
+                                                         sizeof(utils::ZonedDateTime),
+                                                         sizeof(utils::Duration),
+                                                         sizeof(storage::Enum),
+                                                         sizeof(storage::Point2d),
+                                                         sizeof(storage::Point3d)});
+
   // storage for the value of the property
   union {
+    std::array<std::byte, kValueHeldInlineSize> value_bytes_;
     bool bool_v;
     int64_t int_v;
     double double_v;

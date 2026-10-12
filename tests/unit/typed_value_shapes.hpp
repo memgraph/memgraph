@@ -40,25 +40,15 @@ inline constexpr std::array kEveryTypedValueType{
     query::TypedValue::Type::VirtualNode,
 };
 
-/// The types a copy makes by assigning the union member: the numbers, and the two accessors, which
-/// are trivially copyable structs naming a record and the transaction reading it.
+/// The types whose value is held in the union outright, owning nothing that has to be released:
+/// the numbers, the two accessors, which name a record and the transaction reading it, and the
+/// temporals, the enum and the points.
 ///
 /// `TypedValue` answers this from where a type sits in the declaration, which is what makes the
 /// question one comparison. Listing the types here by name gives the test an account of its own to
 /// hold that against, so moving a type across the boundary fails a test that names it rather than
 /// changing how values are handled unnoticed.
-inline constexpr std::array kInlineCopyableTypes{
-    query::TypedValue::Type::Null,
-    query::TypedValue::Type::Bool,
-    query::TypedValue::Type::Int,
-    query::TypedValue::Type::Double,
-    query::TypedValue::Type::Vertex,
-    query::TypedValue::Type::Edge,
-};
-
-/// The types whose destructor has nothing to do: those above, plus the temporals, the enum and the
-/// points, which own no allocation either but are copied field by field rather than by assignment.
-inline constexpr std::array kTriviallyDestructibleTypes{
+inline constexpr std::array kTypesWithoutAnAllocation{
     query::TypedValue::Type::Null,
     query::TypedValue::Type::Bool,
     query::TypedValue::Type::Int,
