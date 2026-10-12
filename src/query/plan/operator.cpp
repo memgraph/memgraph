@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <execution>
@@ -3307,6 +3308,10 @@ void ValidateKShortestWeight(const TypedValue &weight) {
         "weight, or filter the ones without one out. {}",
         EdgeAtom::kKShortestWeightFirstHint);
   }
+  // NaN passes the non-negative check and orders nowhere.
+  if (weight.IsDouble() && std::isnan(weight.ValueDouble())) {
+    throw QueryRuntimeException("The weight lambda of a KSHORTEST path expansion must not evaluate to NaN.");
+  }
   ValidateWeight(weight);
 }
 
@@ -4063,6 +4068,14 @@ TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull()) return rhs;
   if (rhs.IsNull()) return lhs;
   ValidateWeightTypes(lhs, rhs);
+  if (lhs.IsInt() && rhs.IsInt()) {
+    // A wrapped sum goes negative and would order a longer path first.
+    int64_t sum{};
+    if (__builtin_add_overflow(lhs.ValueInt(), rhs.ValueInt(), &sum)) {
+      throw QueryRuntimeException("The total weight of a KSHORTEST path overflows a 64-bit integer.");
+    }
+    return TypedValue(sum);
+  }
   return lhs + rhs;
 }
 
