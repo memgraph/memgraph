@@ -92,6 +92,9 @@ class Encoder final : public BaseEncoder {
   /// Running out of space in an earlier write is reported here, see `utils::OnNoSpace`.
   std::expected<void, utils::FileWriteError> Sync();
 
+  /// See OutputFile::WriteFailed.
+  bool WriteFailed() const { return file_.WriteFailed(); }
+
   /// See NonConcurrentOutputFile::EnableWritebackPacing.
   void EnableWritebackPacing(size_t window_bytes,
                              utils::PageCachePolicy completed_window = utils::PageCachePolicy::kDrop)

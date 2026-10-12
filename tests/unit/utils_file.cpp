@@ -1413,8 +1413,10 @@ TYPED_TEST_SUITE(OutputFileNoSpaceTest, OutputFileTypes);
 TYPED_TEST(OutputFileNoSpaceTest, WriteReportsNoSpace) {
   TypeParam file{memgraph::utils::OnNoSpace::kReportError};
   ASSERT_TRUE(file.Open(this->kDevFull, TypeParam::Mode::OVERWRITE_EXISTING));
+  EXPECT_FALSE(file.WriteFailed());
   auto const written = file.Write(this->more_than_buffer_.data(), this->more_than_buffer_.size());
   ASSERT_FALSE(written.has_value());
+  EXPECT_TRUE(file.WriteFailed());
   EXPECT_EQ(written.error(), memgraph::utils::FileWriteError::kNoSpace);
   // The failure sticks: later writes and syncs report it without touching the file.
   EXPECT_FALSE(file.Write("more").has_value());
@@ -1448,6 +1450,7 @@ TYPED_TEST(OutputFileNoSpaceTest, HandleIsReusableAfterFailure) {
   ASSERT_TRUE(file.Write("lost").has_value());
   EXPECT_FALSE(file.Sync().has_value());
   file.Close();
+  EXPECT_FALSE(file.WriteFailed());
 
   auto const path = fs::temp_directory_path() / "MG_test_unit_utils_file_no_space_reuse";
   auto const remove = memgraph::utils::OnScopeExit{[&path] { fs::remove(path); }};

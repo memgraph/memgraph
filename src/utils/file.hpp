@@ -321,6 +321,10 @@ class OutputFile {
   /// program.
   std::expected<void, FileWriteError> Sync();
 
+  /// Whether writing has run out of space since the file was opened, so a long write can stop early
+  /// instead of finding out at `Sync`.
+  bool WriteFailed() const { return write_failed_; }
+
   /// See `utils::DropCachedPages`. A refusal is logged and otherwise passes.
   void DropCachedPages() const;
 
@@ -442,6 +446,10 @@ class NonConcurrentOutputFile {
   /// earlier write, is reported per the `OnNoSpace` policy; any other failure and misuse crash the
   /// program.
   std::expected<void, FileWriteError> Sync();
+
+  /// Whether writing has run out of space since the file was opened, so a long write can stop early
+  /// instead of finding out at `Sync`.
+  bool WriteFailed() const { return write_failed_; }
 
   /// Bound the dirty page cache this file is allowed to accumulate, in `window_bytes` at a time.
   ///

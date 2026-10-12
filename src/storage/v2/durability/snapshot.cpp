@@ -244,7 +244,8 @@ class RecoveryRollbackGuard {
 
 // Writes one part of a parallel snapshot with `fill` and reports through `done` whether it can be combined. No
 // failure escapes the worker thread: running out of space is also recorded in `out_of_space`, any other exception
-// just fails the part, and a failed part is removed.
+// just fails the part, and a failed part is removed. Once some part has run out of space, the snapshot can't
+// succeed, so the remaining parts are skipped or dropped without being finished.
 template <typename TResult>
 void WriteSnapshotPart(std::filesystem::path const &part_path, size_t const writeback_window, TResult &result,
                        std::promise<bool> &done, std::atomic<bool> &out_of_space, auto &&fill) {
@@ -256,6 +257,10 @@ void WriteSnapshotPart(std::filesystem::path const &part_path, size_t const writ
     std::filesystem::remove(part_path, ec);
     done.set_value(false);
   };
+  if (out_of_space.load(std::memory_order_relaxed)) {
+    done.set_value(false);
+    return;
+  }
   try {
     SnapshotEncoder part{utils::OnNoSpace::kReportError};
     // This part is copied into the snapshot and deleted moments later, so its pages stay.
@@ -265,6 +270,13 @@ void WriteSnapshotPart(std::filesystem::path const &part_path, size_t const writ
       return;
     }
     result = fill(part);
+    if (out_of_space.load(std::memory_order_relaxed)) {
+      part.Close();
+      std::error_code ec;
+      std::filesystem::remove(part_path, ec);
+      done.set_value(false);
+      return;
+    }
     if (!part.Finalize(utils::PageCachePolicy::kKeep)) {
       part.Close();
       fail("ran out of disk space", true);
@@ -399,7 +411,11 @@ std::expected<void, SnapshotCreationError> MultiThreadedWorkflow(
                           edge_res[id].first,
                           edge_res[id].second,
                           out_of_space,
-                          [&](SnapshotEncoder &part) { return partial_edge_handler(start_gid, end_gid, part); });
+                          [&](SnapshotEncoder &part) {
+                            return partial_edge_handler(start_gid, end_gid, part, [&out_of_space] {
+                              return out_of_space.load(std::memory_order_relaxed);
+                            });
+                          });
       });
     }
   }
@@ -421,7 +437,11 @@ std::expected<void, SnapshotCreationError> MultiThreadedWorkflow(
                         vertex_res[id].first,
                         vertex_res[id].second,
                         out_of_space,
-                        [&](SnapshotEncoder &part) { return partial_vertex_handler(start_gid, end_gid, part); });
+                        [&](SnapshotEncoder &part) {
+                          return partial_vertex_handler(start_gid, end_gid, part, [&out_of_space] {
+                            return out_of_space.load(std::memory_order_relaxed);
+                          });
+                        });
     });
   }
 
@@ -13429,7 +13449,7 @@ void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::S
     auto batch_start_offset = snapshot.GetPosition();
 
     for (auto &entry : collected) {
-      if (snapshot_aborted()) return;
+      if (snapshot_aborted() || snapshot.WriteFailed()) return;
       write_edge_record(snapshot, entry.gid, entry.props, write_mapping);
       ++edges_count;
       progress_counter.Increment();
@@ -13541,7 +13561,7 @@ void WriteLightEdgesSection(Storage *storage, Transaction *transaction, utils::S
     if (!wr.edges.empty()) heap.push({wr.edges.front().gid, wr.edges.begin(), wr.edges.end()});
   }
   while (!heap.empty()) {
-    if (snapshot_aborted()) return;
+    if (snapshot_aborted() || snapshot.WriteFailed()) return;
     auto entry = heap.top();
     heap.pop();
     write_edge_record(snapshot, entry.current->gid, entry.current->props, write_mapping);
@@ -13644,6 +13664,17 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
     }
   }};
 
+  // Writes don't report running out of space, so the long sections check for it to stop early rather than
+  // only finding out at Finalize. The guard above removes the partial file.
+  auto const ran_out_of_space = [&snapshot, &path] {
+    if (!snapshot.WriteFailed()) return false;
+    spdlog::error(
+        "Ran out of disk space while writing snapshot {}, snapshot creation will be retried on the next scheduled "
+        "interval",
+        path);
+    return true;
+  };
+
   // Write placeholder offsets.
   uint64_t offset_offsets = 0;
   uint64_t offset_edges = 0;
@@ -13714,8 +13745,10 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
   };
 
   // Store edges.
-  auto partial_edge_handler = [&edges, storage, transaction, &snapshot_aborted, &write_mapping_to, progress](
-                                  int64_t start_gid, int64_t end_gid, auto &edges_snapshot) -> SnapshotPartialRes {
+  // Both handlers stop early once their file has run out of space or `stop` says another part has.
+  auto partial_edge_handler =
+      [&edges, storage, transaction, &snapshot_aborted, &write_mapping_to, progress](
+          int64_t start_gid, int64_t end_gid, auto &edges_snapshot, auto &&stop) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
     auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
@@ -13733,7 +13766,7 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
     auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
     for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
       // This is a hot loop, use counter to reduce the frequency that we check for abort
-      if (counter() && snapshot_aborted()) [[unlikely]] {
+      if (counter() && (snapshot_aborted() || edges_snapshot.WriteFailed() || stop())) [[unlikely]] {
         break;
       }
 
@@ -13821,8 +13854,9 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
   };
 
   // Store vertices.
-  auto partial_vertex_handler = [&vertices, storage, transaction, &snapshot_aborted, &write_mapping_to, progress](
-                                    int64_t start_gid, int64_t end_gid, auto &vertex_snapshot) -> SnapshotPartialRes {
+  auto partial_vertex_handler =
+      [&vertices, storage, transaction, &snapshot_aborted, &write_mapping_to, progress](
+          int64_t start_gid, int64_t end_gid, auto &vertex_snapshot, auto &&stop) -> SnapshotPartialRes {
     if (start_gid >= end_gid) return {};
 
     auto counter = utils::ResettableCounter{50};  // Counter used to reduce the frequency of checking abort
@@ -13841,7 +13875,7 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
     auto it = acc.find_equal_or_greater(Gid::FromInt(start_gid));
     for (; it != acc.end() && it->gid.AsInt() < end_gid; ++it) {
       // This is a hot loop, use counter to reduce the frequency that we check for abort
-      if (counter() && snapshot_aborted()) [[unlikely]] {
+      if (counter() && (snapshot_aborted() || vertex_snapshot.WriteFailed() || stop())) [[unlikely]] {
         break;
       }
 
@@ -13965,6 +13999,7 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
       if (snapshot_aborted()) {
         return std::unexpected{SnapshotCreationError::kAborted};
       }
+      if (ran_out_of_space()) return std::unexpected{SnapshotCreationError::kNoSpaceLeft};
     }
     auto *edge_ptr = (!light_edges && storage->config_.salient.items.properties_on_edges) ? edges : nullptr;
     if (auto const workflow = MultiThreadedWorkflow(edge_ptr,
@@ -14022,7 +14057,7 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
       if (progress) progress->SetPhase(SnapshotProgress::Phase::EDGES, edges->size());
       offset_edges = snapshot.GetPosition();  // Global edge offset
       // Handle edges
-      const auto res = partial_edge_handler(0, kEnd, snapshot);
+      const auto res = partial_edge_handler(0, kEnd, snapshot, [] { return false; });
       edges_count = res.count;
       edge_batch_infos = res.batch_info;
       used_ids.insert(res.used_ids.begin(), res.used_ids.end());
@@ -14030,12 +14065,13 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
     if (snapshot_aborted()) {
       return std::unexpected{SnapshotCreationError::kAborted};
     }
+    if (ran_out_of_space()) return std::unexpected{SnapshotCreationError::kNoSpaceLeft};
     spdlog::trace("snapshot writing vertices");
     if (progress) progress->SetPhase(SnapshotProgress::Phase::VERTICES, vertices->size());
     {
       offset_vertices = snapshot.GetPosition();  // Global vertex offset
       // Handle vertices
-      const auto res = partial_vertex_handler(0, kEnd, snapshot);
+      const auto res = partial_vertex_handler(0, kEnd, snapshot, [] { return false; });
       vertices_count = res.count;
       vertex_batch_infos = res.batch_info;
       used_ids.insert(res.used_ids.begin(), res.used_ids.end());
@@ -14043,6 +14079,7 @@ std::expected<std::filesystem::path, SnapshotCreationError> CreateSnapshot(
     if (snapshot_aborted()) {
       return std::unexpected{SnapshotCreationError::kAborted};
     }
+    if (ran_out_of_space()) return std::unexpected{SnapshotCreationError::kNoSpaceLeft};
   }
 
   // Write indices.
