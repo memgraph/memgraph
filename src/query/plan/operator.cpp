@@ -3939,12 +3939,12 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(*start_vertex));
         }
 
-        TypedValue current_weight = BindAndCalculateNextWeight(*self_.weight_lambda_,
-                                                               TypedValue(),
-                                                               *start_vertex,
-                                                               /* total_weight */ TypedValue(),
-                                                               frame_writer,
-                                                               evaluator);
+        const TypedValue current_weight = BindAndCalculateNextWeight(*self_.weight_lambda_,
+                                                                     TypedValue(),
+                                                                     *start_vertex,
+                                                                     /* total_weight */ TypedValue(),
+                                                                     frame_writer,
+                                                                     evaluator);
 
         expand_from_vertex(*start_vertex, current_weight, 0);
         cheapest_cost_[*start_vertex] = 0;
