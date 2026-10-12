@@ -4089,8 +4089,9 @@ void CheckServedTotal(const TypedValue &total) {
   }
 }
 
-/// Orders two path costs exactly, with null - only ever the seed - below everything. No tolerance:
-/// two nearly equal doubles order by hop count and then arbitrarily, as any other tie does.
+/// Orders two path costs exactly, with null - only ever the seed - below everything. No tolerance: two
+/// equal doubles order by hop count and then arbitrarily, as any other tie does. Double totals are rounded
+/// sums, so paths whose exact weights differ by about one ulp can come out in either order.
 bool CostLess(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && !rhs.IsNull();
   ValidateWeightTypes(lhs, rhs);
@@ -4415,9 +4416,10 @@ class KShortestPathsCursor : public Cursor {
     int64_t parent;
   };
 
-  /// Exact `dist(v, target)` over the unblocked graph this row's filters leave, built once per input
-  /// row. Blocking only raises true distances, so it stays an admissible and consistent heuristic for
-  /// every spur search, and a vertex missing from it can never reach the target.
+  /// `dist(v, target)` over the unblocked graph this row's filters leave, built once per input row:
+  /// exact for Int and Duration weights, rounded for Double. Blocking only raises true distances, so it stays an
+  /// admissible and consistent heuristic for every spur search, and a vertex missing from it can never reach the
+  /// target.
   utils::pmr::unordered_map<VertexAccessor, TypedValue, VertexAccessorHash> reverse_dist_;
 
   std::priority_queue<WeightedQueueEntry, utils::pmr::vector<WeightedQueueEntry>, WeightedQueueComparator> weighted_pq_;
@@ -4871,7 +4873,9 @@ class KShortestPathsCursor : public Cursor {
   /// walked here from `v`, and its weight and filter verdict are read in the forward sense, so the
   /// tree agrees with the spur searches edge for edge. It weighs every arc that can reach the target,
   /// so an invalid weight raises an error even on an arc no path from the source takes, unless the
-  /// filter lambda or an access check rules the arc out first.
+  /// filter lambda or an access check rules the arc out first. Under `USING HOPS LIMIT` the tree spends
+  /// the budget on everything that can reach the target, so a row can serve no path where the hop-count
+  /// search, which spends it only around the endpoints, still finds one.
   void BuildReverseTree(const VertexAccessor &target, Frame &frame, ExpressionEvaluator &evaluator,
                         ExecutionContext &context) {
     ClearWeightedSearchState();
