@@ -5557,3 +5557,56 @@ TEST_P(StorageEdgeTest, OnlyNonSequentialOperationsCanBePerformedWhenHeadOperati
 
   ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageEdgeDeleteAbort, SerializationErrorMidDeleteLeavesNoDuplicateAdjacency) {
+  using memgraph::storage::View;
+  std::unique_ptr<memgraph::storage::Storage> store(
+      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = true}}}));
+
+  memgraph::storage::Gid gid_from;
+  memgraph::storage::Gid gid_to;
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    gid_from = from.Gid();
+    gid_to = to.Gid();
+    auto et = acc->NameToEdgeType("et");
+    for (int i = 0; i < 3; ++i) ASSERT_TRUE(acc->CreateEdge(&from, &to, et).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto acc1 = store->Access(memgraph::storage::WRITE);
+  auto acc2 = store->Access(memgraph::storage::WRITE);
+
+  // acc2 holds an uncommitted write on the middle edge, so acc1's delete fails part-way whichever end it starts from.
+  {
+    auto from = acc2->FindVertex(gid_from, View::OLD);
+    ASSERT_TRUE(from);
+    auto edges = from->OutEdges(View::NEW)->edges;
+    ASSERT_EQ(edges.size(), 3);
+    ASSERT_TRUE(edges[1].SetProperty(acc2->NameToProperty("p"), memgraph::storage::PropertyValue(1)).has_value());
+  }
+  {
+    auto from = acc1->FindVertex(gid_from, View::OLD);
+    ASSERT_TRUE(from);
+    auto edges = from->OutEdges(View::NEW)->edges;
+    ASSERT_EQ(edges.size(), 3);
+    std::vector<memgraph::storage::EdgeAccessor *> to_delete{&edges[0], &edges[1], &edges[2]};
+    auto res = acc1->DetachDelete({}, to_delete, false);
+    ASSERT_FALSE(res.has_value());
+    ASSERT_EQ(res.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
+  }
+  acc1->Abort();
+  acc2->Abort();
+
+  auto acc = store->Access(memgraph::storage::WRITE);
+  auto from = acc->FindVertex(gid_from, View::OLD);
+  auto to = acc->FindVertex(gid_to, View::OLD);
+  ASSERT_TRUE(from);
+  ASSERT_TRUE(to);
+  EXPECT_EQ(from->OutEdges(View::OLD)->edges.size(), 3);
+  EXPECT_EQ(to->InEdges(View::OLD)->edges.size(), 3);
+  EXPECT_EQ(store->GetBaseInfo().edge_count, 3);
+}
