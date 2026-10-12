@@ -4995,6 +4995,9 @@ class KShortestPathsCursor : public Cursor {
 
     while (!weighted_pq_.empty()) {
       AbortCheck(context);
+      // An expansion the hops limit cut short may have missed a cheaper route, so a later pop of the
+      // target proves nothing.
+      if (context.hops_limit.IsLimitReached()) break;
       auto entry = weighted_pq_.top();
       weighted_pq_.pop();
 
@@ -5008,7 +5011,6 @@ class KShortestPathsCursor : public Cursor {
 
       // No budget left to take another edge.
       if (std::cmp_greater_equal(entry.depth, upper_bound)) continue;
-      if (context.hops_limit.IsLimitReached()) break;
       ExpandWeighted(entry, tree_node, frame, evaluator, context);
     }
 

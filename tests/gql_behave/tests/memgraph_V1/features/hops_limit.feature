@@ -301,3 +301,23 @@ Feature: Hops Limit
         Then the result should be:
             | path      |
             | [0, 1, 7] |
+
+    # S->T costs 10 and S->B->T costs 2. The limit cuts the search short after it has queued the
+    # expensive route, so serving that route first would be wrong.
+    Scenario: Weighted KSHORTEST under a hops limit serves only paths it can prove are the cheapest
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (s:N {id: 'S'}), (b:N {id: 'B'}), (t:N {id: 'T'}),
+                   (s)-[:R {w: 10}]->(t), (s)-[:R {w: 1}]->(b), (b)-[:R {w: 1}]->(t)
+            """
+        And having executed:
+            """
+            SET DATABASE SETTING 'hops_limit_partial_results' TO 'true'
+            """
+        When executing query:
+            """
+            USING HOPS LIMIT 4 MATCH (s:N {id: 'S'}), (t:N {id: 'T'}) WITH s, t
+            MATCH p=(s)-[:R *KSHORTEST (e, n | e.w) total]->(t) RETURN total
+            """
+        Then the result should be empty
