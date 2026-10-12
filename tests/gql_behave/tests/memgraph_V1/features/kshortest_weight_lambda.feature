@@ -366,3 +366,28 @@ Feature: KSHORTEST weight lambda
         Then the result should be:
             | totals                                            |
             | [0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9]     |
+
+    # Each graph's served path is cheap, but the search also adds weights near 2^62 that no served path
+    # carries: in the reverse tree (1), in a spur's priority (2) and in a spur's cost (3).
+    Scenario: Weighted KSHORTEST overflows only on a served total
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (s1:N {id: 's1'})-[:R {w: 1}]->(t1:N {id: 't1'}),
+                   (:N {id: 'y1'})-[:R {w: 4611686018427387904}]->(:N {id: 'x1'})-[:R {w: 4611686018427387904}]->(t1),
+                   (s2:N {id: 's2'})-[:R {w: 1}]->(t2:N {id: 't2'}),
+                   (s2)-[:R {w: 4611686018427387904}]->(:N {id: 'x2'})-[:R {w: 4611686018427387904}]->(t2),
+                   (s3:N {id: 's3'})-[:R {w: 1}]->(a3:N {id: 'a3'})-[:R {w: 1}]->(t3:N {id: 't3'}),
+                   (a3)-[:R {w: 9223372036854775807}]->(:N {id: 'c3'})-[:R {w: 0}]->(t3)
+            """
+        When executing query:
+            """
+            UNWIND ['1', '2', '3'] AS g
+            MATCH (s:N {id: 's' + g}), (t:N {id: 't' + g}) WITH g, s, t
+            MATCH p=(s)-[:R *KSHORTEST|1 (e, n | e.w) total]->(t) RETURN g, total ORDER BY g
+            """
+        Then the result should be, in order:
+            | g   | total |
+            | '1' | 1     |
+            | '2' | 1     |
+            | '3' | 2     |
