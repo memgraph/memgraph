@@ -291,6 +291,10 @@ TEST_F(WeightedKShortestCasesInMemory, IntOverflow) { db_->KShortestWeightedTest
 
 TEST_F(WeightedKShortestCasesInMemory, FilterLambda) { db_->KShortestWeightedTestFilterLambda(db_.get()); }
 
+TEST_F(WeightedKShortestCasesInMemory, UnusedArcWeightValidated) {
+  db_->KShortestWeightedTestUnusedArcWeightValidated(db_.get());
+}
+
 // The ladder drives deviation indices the 6-vertex fixture never reaches; under weights the root
 // prefix's cost has to be accumulated correctly all the way down it.
 TEST_F(WeightedKShortestCasesInMemory, LadderMatchesOracleAtDepth) {

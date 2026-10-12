@@ -1377,6 +1377,59 @@ class Database {
     dba.Abort();
   }
 
+  // The reverse tree weighs every arc that can reach the target, so an invalid weight on an arc no
+  // path from the source takes still raises an error, unless the filter lambda rules the arc out.
+  void KShortestWeightedTestUnusedArcWeightValidated(Database *db) {
+    using PV = memgraph::storage::PropertyValue;
+    // 0 -> 1 is the only path; 2 -> 1 reaches the target from a vertex the source cannot reach.
+    const std::vector<std::tuple<int, int, std::string>> graph_edges{{0, 1, "a"}, {2, 1, "a"}};
+    const std::map<std::pair<int, int>, PV> weights{{{0, 1}, PV(int64_t{1})}, {{2, 1}, PV(int64_t{-1})}};
+    for (const bool filtered : {false, true}) {
+      SCOPED_TRACE(filtered ? "filtered" : "unfiltered");
+      auto storage_dba = db->Access();
+      memgraph::query::DbAccessor dba(storage_dba.get());
+      memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+      auto filter_edge_sym = context.symbol_table.CreateSymbol("filter_edge", true);
+      auto filter_node_sym = context.symbol_table.CreateSymbol("filter_node", true);
+      auto *inner_edge = IDENT("filter_edge")->MapTo(filter_edge_sym);
+      auto [vertices, edges] = db->BuildGraph(&dba, {0, 0, 0}, graph_edges);
+      SetEdgeWeights(dba, edges, graph_edges, weights);
+      dba.AdvanceCommand();
+
+      auto *filter_expr =
+          filtered ? GREATER_EQ(PROPERTY_LOOKUP(dba, inner_edge, PROPERTY_PAIR(dba, "weight")), LITERAL(0)) : nullptr;
+      auto run = [&] {
+        return RunWeighted(db,
+                           dba,
+                           context,
+                           {vertices[0]},
+                           {vertices[1]},
+                           memgraph::query::EdgeAtom::Direction::OUT,
+                           {},
+                           -1,
+                           -1,
+                           -1,
+                           MakeWeightLambda(dba, context),
+                           nullptr,
+                           nullptr,
+                           memgraph::query::plan::ExpansionLambda{filter_edge_sym, filter_node_sym, filter_expr});
+      };
+      if (filtered) {
+        const auto result = run();
+        ASSERT_EQ(result.rows.size(), 1U);
+        EXPECT_EQ(result.rows[0][3].ValueInt(), 1);
+      } else {
+        try {
+          run();
+          ADD_FAILURE() << "expected an error";
+        } catch (const memgraph::query::QueryRuntimeException &e) {
+          EXPECT_EQ(std::string(e.what()), "Weight must be non-negative, got -1.");
+        }
+      }
+      dba.Abort();
+    }
+  }
+
 #ifdef MG_ENTERPRISE
   // `blocked_vertex_id` also blocks every edge into that vertex with a filter lambda, so the
   // expansion must honour the access checks and the lambda at once. `limit` is `|k`, or -1 for none.
