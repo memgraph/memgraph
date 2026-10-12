@@ -270,7 +270,9 @@ Some behaviour outside transactions changes too:
 
 - A profile read no longer takes the system lock, so it is not refused while
   another session runs a system query.
-- `SHOW TRANSACTIONS` shows an auth statement with its passwords masked.
+- `SHOW TRANSACTIONS` shows a statement that sets a password rebuilt from its
+  parsed form, with every password as `'****'`, so no spelling of a password
+  reaches it. Other statements are shown as written.
 - A replica that fails to apply a profile change refuses it, so the main
   recovers the replica by snapshot, instead of acknowledging a change it did
   not make.

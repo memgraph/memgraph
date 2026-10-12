@@ -10578,20 +10578,26 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   auto &parse_info = std::get<ParseInfo>(parse_res);
   auto &parsed_query = parse_info.parsed_query;
 
-  // SHOW TRANSACTIONS lists this text. Auth statements carry passwords, so theirs is masked; any other statement is
-  // shown as written, since the masker can misread ordinary text as a credential. The masker matches the usual
-  // spellings only, and in an auth statement every string literal is a password, so one it left showing falls back
-  // to the stripped text, which replaces every literal.
+  // SHOW TRANSACTIONS lists this text. A statement that sets a password is rebuilt from its parsed fields, so no
+  // spelling of the password can reach the listing; any other statement is shown as written, unless an auth
+  // statement carries a literal, which is then replaced.
   auto shown_query = std::invoke([&]() -> std::string {
-    if (!utils::Downcast<AuthQuery>(parsed_query.query)) return parsed_query.query_string;
-    auto masked = logging::MaskSensitiveInformation(parsed_query.query_string);
-    bool const leaks = std::ranges::any_of(parsed_query.stripped_query.literals(), [&](auto const &literal) {
-      auto const &value = literal.second;
-      // A literal written with escapes reads differently in the text, so finding nothing to mask is a leak too.
-      return value.IsString() && (!masked || (!value.ValueString().empty() && masked->contains(value.ValueString())));
-    });
-    if (leaks) return parsed_query.stripped_query.stripped_query().str();
-    return masked ? *std::move(masked) : parsed_query.query_string;
+    auto const *auth = utils::Downcast<AuthQuery>(parsed_query.query);
+    if (!auth) return parsed_query.query_string;
+    switch (auth->action_) {
+      using enum AuthQuery::Action;
+      case CREATE_USER:
+        if (!auth->password_) return parsed_query.query_string;
+        return fmt::format(
+            "CREATE USER {}{} IDENTIFIED BY '****'", auth->if_not_exists_ ? "IF NOT EXISTS " : "", auth->user_);
+      case SET_PASSWORD:
+        return fmt::format("SET PASSWORD FOR {} TO '****'", auth->user_);
+      case CHANGE_PASSWORD:
+        return "SET PASSWORD TO '****' REPLACE '****'";
+      default:
+        return parsed_query.stripped_query.literals().size() == 0 ? parsed_query.query_string
+                                                                  : parsed_query.stripped_query.stripped_query().str();
+    }
   });
 
   // All queries other than transaction control queries advance the command in

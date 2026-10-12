@@ -311,10 +311,11 @@ def test_show_transactions_masks_a_password_in_an_open_auth_transaction(cursor):
         ("bob", "SET PASSWORD FOR bob /*c*/ TO 'hunter2'"),
         (None, "CREATE USER carol IDENTIFIED /*x*/ BY 'hunter2'"),
         (None, "CREATE USER dave IDENTIFIED /*x*/ BY 'hun\\'ter2'"),
+        (None, "CREATE USER erin /* rpa' */ IDENTIFIED BY 'hun\\'ter2'"),
+        (None, "CREATE USER fred /* rpa' */ IDENTIFIED BY 'hunter2 rpa\"tail'"),
     ],
 )
-def test_show_transactions_masks_a_password_the_masker_does_not_recognise(cursor, user, statement):
-    # The masker knows the usual spellings only; anything it misses must not reach the listing either.
+def test_show_transactions_masks_a_password_however_it_is_written(cursor, user, statement):
     watcher = transaction_watcher(cursor)
     if user:
         execute(cursor, f"CREATE USER {user}")
@@ -323,6 +324,29 @@ def test_show_transactions_masks_a_password_the_masker_does_not_recognise(cursor
     execute(cursor, statement)
     shown = str(execute(watcher, "SHOW TRANSACTIONS"))
 
+    assert "ter2" not in shown
+
+
+@pytest.mark.parametrize(
+    "statement",
+    [
+        "SET PASSWORD TO 'newpw' REPLACE /*x*/ 'hun\\'ter2'",
+        "SET PASSWORD /*c*/ TO 'new\\'ter2' REPLACE 'hun\\'ter2'",
+    ],
+)
+def test_show_transactions_masks_both_passwords_of_a_password_change(cursor, statement):
+    watcher = transaction_watcher(cursor)
+    execute(cursor, "CREATE USER eve IDENTIFIED BY 'hun\\'ter2'")
+    eve = mgclient.connect(host="localhost", port=7687, username="eve", password="hun'ter2")
+    eve.autocommit = True
+    eve_cursor = eve.cursor()
+
+    execute(eve_cursor, "BEGIN")
+    execute(eve_cursor, statement)
+    shown = str(execute(watcher, "SHOW TRANSACTIONS"))
+    eve.close()
+
+    assert "SET PASSWORD" in shown
     assert "ter2" not in shown
 
 
@@ -338,7 +362,6 @@ def test_show_transactions_keeps_a_recognised_statement_as_written(cursor):
 
 
 def test_show_transactions_shows_a_data_statement_as_written(cursor):
-    # The masker reads "rpa'" in 'Sherpa' as the start of a credential; only auth statements are masked.
     watcher = transaction_watcher(cursor)
 
     execute(cursor, "BEGIN")
