@@ -608,8 +608,9 @@ TEST_F(AtomicAuthOverlayTest, AnAbandonedScanRefusesTheCommit) {
   EXPECT_FALSE(overlay.Flush());
 }
 
-// As WritingAKeyThatAppearedAfterAScanConflicts, but with the prefix already inhabited, so only the key-set check
-// can catch bob: a write to a key that appeared after the scan must not exempt that key from it.
+// A listing that missed bob, followed by a write to bob, must not commit once bob has appeared: no serial order
+// lets the listing miss a user the transaction then changed. The prefix is already inhabited, so only the key-set
+// check can catch bob, and a write to a key that appeared after the scan must not exempt that key from it.
 TEST_F(AtomicAuthOverlayTest, WritingAKeyThatAppearedUnderAnInhabitedScannedPrefixConflicts) {
   store_->Put("user:alice", "alice_data");
 
@@ -638,21 +639,6 @@ TEST_F(AtomicAuthOverlayTest, AScanThatSeesAReadKeyChangedConflictsEvenAfterItCh
   store_->Put("link:u", "with_r");
 
   EXPECT_FALSE(overlay.Flush()) << "the scan acted on a value the earlier read never saw";
-}
-
-// A listing that missed bob, followed by a write to bob, must not commit once bob has appeared: no serial order
-// lets the listing miss a user the transaction then changed.
-TEST_F(AtomicAuthOverlayTest, WritingAKeyThatAppearedAfterAScanConflicts) {
-  AtomicAuthOverlay overlay(*store_);
-  EXPECT_EQ(CountUnder(overlay, "user:"), 0);
-
-  store_->Put("user:bob", "their_bob");
-
-  EXPECT_EQ(overlay.Get("user:bob").value(), "their_bob");
-  overlay.Put("user:bob", "our_bob");
-
-  EXPECT_FALSE(overlay.Flush());
-  EXPECT_EQ(store_->Get("user:bob").value(), "their_bob");
 }
 
 TEST_F(AtomicAuthOverlayTest, ScanDoesNotConflictWithOwnWrites) {
