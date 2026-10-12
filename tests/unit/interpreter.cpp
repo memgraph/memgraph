@@ -2460,6 +2460,11 @@ TYPED_TEST(InterpreterTest, ResetQueryPlanCacheRejectedInExplicitTransaction) {
   this->default_interpreter.Abort();
 }
 
+TYPED_TEST(InterpreterTest, ResetQueryPlanCacheWithoutCurrentDatabaseThrows) {
+  this->default_interpreter.interpreter.current_db_.ResetDB();
+  EXPECT_THROW(this->Interpret("RESET QUERY PLAN CACHE"), memgraph::query::DatabaseContextRequiredException);
+}
+
 TYPED_TEST(InterpreterTest, CacheableQueries) {
   // Accessor-free queries are planned and executed like any Cypher query (just without opening a storage
   // transaction), so they populate both the AST cache and the plan cache -- which lets a repeated Lab ping

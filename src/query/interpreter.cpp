@@ -6188,7 +6188,9 @@ PreparedQuery PrepareResetQueryPlanCacheQuery(ParsedQuery parsed_query, bool in_
   if (in_explicit_transaction) {
     throw QueryException("RESET QUERY PLAN CACHE is not allowed in an explicit transaction.");
   }
-  MG_ASSERT(current_db.db_acc_, "Reset query plan cache expects a current DB");
+  if (!current_db.db_acc_) {
+    throw DatabaseContextRequiredException("Database required to reset query plan cache.");
+  }
   auto *plan_cache = current_db.db_acc_->get()->plan_cache();
   return PreparedQuery{.header = {},
                        .privileges = std::move(parsed_query.required_privileges),
