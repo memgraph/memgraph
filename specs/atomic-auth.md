@@ -67,7 +67,9 @@ a record read once reads the same for the rest of the transaction, but a scan,
 such as `SHOW USERS`, sees what other sessions have committed since. A
 concurrent change by another transaction to anything the transaction read or
 wrote fails the commit rather than overwriting it, and that check at `COMMIT`
-is what makes the outcome serializable.
+is what makes the outcome serializable. A statement that asks only whether any
+record exists, such as the check for a first user, depends only on that answer:
+records changing while some still exist do not fail the commit.
 
 ---
 
@@ -116,10 +118,10 @@ An explicit transaction cannot mix auth queries with data queries. Run them in
 separate transactions.
 ```
 
-The mixed statement fails. The server does not end the transaction itself: a
-Bolt client resets the session after a failure, which ends the transaction and
-discards everything in it, so a later `COMMIT` reports that there is no
-transaction to commit.
+The mixed statement fails. The server does not end the transaction itself.
+Over Bolt, the client resets the session after a failure, which ends the
+transaction and discards everything in it, so a later `COMMIT` reports that
+there is no transaction to commit.
 
 ### 3.2 What runs inside an auth transaction
 
@@ -174,8 +176,19 @@ The listing is a serialisable read: the transaction saw a user set that another
 session has since changed, so committing against it would mean acting on a
 state that never existed. Retrying re-reads the set and succeeds.
 
-Nothing blocks while a transaction is open. Conflict detection is optimistic
-and the loser finds out at `COMMIT`.
+An open transaction holds no lock between statements. Conflict detection is
+optimistic and the loser finds out at `COMMIT`, which takes the system lock to
+apply and replicate the changes; see section 6 for a commit refused because
+another session holds it.
+
+A transaction that reads the same record twice, or asks twice whether any
+record of a kind exists, and gets two different answers fails at `COMMIT`, even
+if the record has since changed back: it acted on two states that never existed
+together.
+
+A transaction that names a database, in `GRANT`, `DENY` or `REVOKE DATABASE`
+or `SET MAIN DATABASE`, fails at `COMMIT` if that database has been dropped
+since.
 
 ---
 
@@ -190,12 +203,17 @@ replication, not for the life of the transaction, and only when the transaction
 has changes to replicate. An open auth transaction does not block other
 sessions' system queries.
 
-A replica that misses the commit is marked behind and recovers by full
-snapshot. The main sends only the batched format, which a replica running an
-older version cannot decode, so such a replica is snapshotted on every auth
-commit until it is upgraded. An upgraded replica still accepts the earlier
-per-record format from an older main, so upgrading replicas before the main,
+A replica the main cannot reach during the commit is marked behind and
+recovers by full snapshot. The main sends only the batched format, which a
+replica running an earlier version cannot decode. Such a replica rejects the
+batch, the commit still succeeds on the main, and the main's next check of the
+replica sends it a full auth snapshot, so every auth commit costs that snapshot
+until the replica is upgraded. An upgraded replica still accepts the earlier
+per-record format from an earlier main, so upgrading replicas before the main,
 as section 7 says, avoids that.
+
+An instance that is no longer main when a transaction with changes commits
+refuses the commit with "Cannot commit because instance is not main anymore."
 
 ---
 
@@ -232,11 +250,11 @@ as section 7 says, avoids that.
   it reconnects, not at `COMMIT`. `COMMIT` checks no privilege of its own: each
   statement was checked when it ran. Triggers, streams, and transaction-management
   queries re-read privileges. This is existing behaviour, unchanged here.
-- **A commit can fail for a reason other than a conflict.** If another session
-  holds the system lock for more than 100ms, the commit is refused with
-  "Multiple concurrent system queries are not supported." Unlike a conflict, that
-  is not reported as retryable, so a driver's retry logic will not replay it.
-  This applies to any system query, not only to a transaction.
+- **A commit can fail because another session holds the system lock.** If it
+  is held for more than 100ms, the commit is refused with the same transient
+  serialization error as a conflict, so a driver's retry logic replays it. A
+  single auth statement outside a transaction still reports "Multiple
+  concurrent system queries are not supported." in the same situation.
 
 ---
 
@@ -247,6 +265,15 @@ that runs it: it takes the lock, writes, replicates and releases, with no
 transaction involved. Existing scripts are unaffected, with one exception: a
 profile write, user or tenant, inside an explicit transaction was applied at
 once before and is now refused.
+
+Some behaviour outside transactions changes too:
+
+- A profile read no longer takes the system lock, so it is not refused while
+  another session runs a system query.
+- `SHOW TRANSACTIONS` shows an auth statement with its passwords masked.
+- A replica that fails to apply a profile change refuses it, so the main
+  recovers the replica by snapshot, instead of acknowledging a change it did
+  not make.
 
 Replication is the exception. Every auth change now goes out in the batched
 format, so an older replica cannot decode it. Outside a transaction each record
