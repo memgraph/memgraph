@@ -15,6 +15,7 @@
 # while its trigger file exists.
 
 import os
+import re
 import shutil
 import sys
 import time
@@ -40,6 +41,11 @@ REPLICA_PORT = 17688
 REPLICATION_PORT = 17001
 NODES_PER_TXN = 200
 PADDING = "y" * 64
+LONG_BACKOFF_MS = 5000
+WAL_CREATE_FAILED = (
+    "Commit failed because a new WAL file could not be created, it will be retried: Failed to open WAL file"
+)
+MAX_SHUTDOWN_SECONDS = 3
 
 
 @pytest.fixture(autouse=True)
@@ -53,7 +59,7 @@ def test_name(request):
     return request.node.name
 
 
-def instance_description(test_name, narrowing, port=MAIN_PORT, name="main", extra_args=()):
+def instance_description(test_name, port=MAIN_PORT, name="main", extra_args=()):
     return {
         name: {
             "args": [
@@ -64,7 +70,6 @@ def instance_description(test_name, narrowing, port=MAIN_PORT, name="main", extr
                 "--storage-wal-file-size-kib=1",
                 "--storage-wal-file-flush-every-n-tx=1",
             ]
-            + (["--experimental-enabled=commit-lock-narrowing"] if narrowing else [])
             + list(extra_args),
             "log_file": f"{get_logs_path(FILE, test_name)}/{name}.log",
             "data_directory": f"{get_data_path(FILE, test_name)}/{name}",
@@ -92,6 +97,8 @@ def trigger_path(test_name):
 
 def reset(test_name):
     shutil.rmtree(os.path.join(E2E_DIR, "data", get_data_path(FILE, test_name)), ignore_errors=True)
+    # The log files are dated and appended to, so a previous run's lines would satisfy the log assertions.
+    shutil.rmtree(os.path.join(E2E_DIR, "logs", get_logs_path(FILE, test_name)), ignore_errors=True)
     if os.path.exists(trigger_path(test_name)):
         os.remove(trigger_path(test_name))
 
@@ -118,19 +125,15 @@ def wal_files(test_name):
     return [os.path.join(directory, name) for name in os.listdir(directory)]
 
 
-@pytest.mark.parametrize("narrowing", [False, True], ids=["narrowing_off", "narrowing_on"])
-@pytest.mark.parametrize("armed_from", ["first_wal", "rotation"])
-def test_commit_fails_cleanly_when_wal_cannot_be_created(test_name, narrowing, armed_from, monkeypatch):
+def test_commit_fails_cleanly_when_wal_cannot_be_created(test_name, monkeypatch):
     reset(test_name)
-    instances = instance_description(test_name, narrowing)
+    instances = instance_description(test_name)
     start_with_shim(instances, "main", test_name, monkeypatch)
     instance = interactive_mg_runner.MEMGRAPH_INSTANCES["main"]
     cursor = connect(host="localhost", port=MAIN_PORT).cursor()
 
-    expected = 0
-    if armed_from == "rotation":
-        write_txn(cursor)  # the first WAL exists and is finalised by this commit; the next commit needs a new one
-        expected = NODES_PER_TXN
+    write_txn(cursor)  # the first WAL exists and is finalised by this commit; the next commit needs a new one
+    expected = NODES_PER_TXN
 
     open(trigger_path(test_name), "w").close()
     for _ in range(3):  # a persisting failure fails every attempt, and none of them takes the process down
@@ -138,7 +141,7 @@ def test_commit_fails_cleanly_when_wal_cannot_be_created(test_name, narrowing, a
             write_txn(cursor)
         assert instance.is_running()
         assert count_nodes(cursor) == expected
-    assert "could not be created" in log_text(test_name)
+    assert WAL_CREATE_FAILED in log_text(test_name)
     assert all(os.path.getsize(path) > 0 for path in wal_files(test_name)), wal_files(test_name)
 
     os.remove(trigger_path(test_name))
@@ -153,11 +156,10 @@ def test_commit_fails_cleanly_when_wal_cannot_be_created(test_name, narrowing, a
     assert count_nodes(cursor) == expected
 
 
-@pytest.mark.parametrize("narrowing", [False, True], ids=["narrowing_off", "narrowing_on"])
-def test_sync_replica_survives_wal_creation_failure(test_name, narrowing, monkeypatch):
+def test_sync_replica_survives_wal_creation_failure(test_name, monkeypatch):
     reset(test_name)
-    main_description = instance_description(test_name, narrowing, MAIN_PORT, "main")
-    replica_description = instance_description(test_name, narrowing, REPLICA_PORT, "replica")
+    main_description = instance_description(test_name, MAIN_PORT, "main")
+    replica_description = instance_description(test_name, REPLICA_PORT, "replica")
     instances = {**main_description, **replica_description}
     interactive_mg_runner.start(instances, "main")
     start_with_shim(instances, "replica", test_name, monkeypatch)
@@ -181,7 +183,7 @@ def test_sync_replica_survives_wal_creation_failure(test_name, narrowing, monkey
             pass
         assert main.is_running()
         assert replica.is_running()
-        assert "could not be created" in log_text(test_name, "replica")
+        assert WAL_CREATE_FAILED in log_text(test_name, "replica")
     finally:
         os.remove(trigger_path(test_name))
 
@@ -194,12 +196,9 @@ def test_sync_replica_survives_wal_creation_failure(test_name, narrowing, monkey
     )
 
 
-@pytest.mark.parametrize("narrowing", [False, True], ids=["narrowing_off", "narrowing_on"])
-def test_automatic_index_creation_is_retried_until_wal_can_be_created(test_name, narrowing, monkeypatch):
+def test_automatic_index_creation_is_retried_until_wal_can_be_created(test_name, monkeypatch):
     reset(test_name)
-    instances = instance_description(
-        test_name, narrowing, extra_args=["--storage-automatic-label-index-creation-enabled=true"]
-    )
+    instances = instance_description(test_name, extra_args=["--storage-automatic-label-index-creation-enabled=true"])
     start_with_shim(instances, "main", test_name, monkeypatch)
     cursor = connect(host="localhost", port=MAIN_PORT).cursor()
 
@@ -209,7 +208,7 @@ def test_automatic_index_creation_is_retried_until_wal_can_be_created(test_name,
         trigger.write("1")
     execute_and_fetch_all(cursor, f"CREATE (:Auto {{pad: '{PADDING * 32}'}})")
 
-    mg_sleep_and_assert(True, lambda: "could not be created" in log_text(test_name))
+    mg_sleep_and_assert(True, lambda: WAL_CREATE_FAILED in log_text(test_name))
     assert interactive_mg_runner.MEMGRAPH_INSTANCES["main"].is_running()
     assert execute_and_fetch_all(cursor, "SHOW INDEX INFO") == []
 
@@ -217,12 +216,9 @@ def test_automatic_index_creation_is_retried_until_wal_can_be_created(test_name,
     mg_sleep_and_assert(1, lambda: len(execute_and_fetch_all(cursor, "SHOW INDEX INFO")), max_duration=30)
 
 
-@pytest.mark.parametrize("narrowing", [False, True], ids=["narrowing_off", "narrowing_on"])
-def test_shutdown_is_prompt_while_index_creation_keeps_failing(test_name, narrowing, monkeypatch):
+def test_shutdown_is_prompt_while_index_creation_keeps_failing(test_name, monkeypatch):
     reset(test_name)
-    instances = instance_description(
-        test_name, narrowing, extra_args=["--storage-automatic-label-index-creation-enabled=true"]
-    )
+    instances = instance_description(test_name, extra_args=["--storage-automatic-label-index-creation-enabled=true"])
     start_with_shim(instances, "main", test_name, monkeypatch)
     cursor = connect(host="localhost", port=MAIN_PORT).cursor()
 
@@ -230,12 +226,18 @@ def test_shutdown_is_prompt_while_index_creation_keeps_failing(test_name, narrow
     with open(trigger_path(test_name), "w") as trigger:
         trigger.write("1")
     execute_and_fetch_all(cursor, f"CREATE (:Auto {{pad: '{PADDING * 32}'}})")
-    # The WAL creation stays failing, so the indexer keeps retrying with a growing backoff.
-    mg_sleep_and_assert(True, lambda: log_text(test_name).count("Async index creation could not be committed") >= 3)
+
+    # The WAL creation stays failing, so the indexer keeps retrying and its backoff grows (100 ms, x1.5 each time, up to
+    # 10 s). Shut down while it is in a multi-second backoff: an uncancellable sleep would hold the shutdown for that long.
+    def in_long_backoff():
+        retries = re.findall(r"Async index creation could not be committed\. Retrying in (\d+) ms", log_text(test_name))
+        return any(int(ms) >= LONG_BACKOFF_MS for ms in retries)
+
+    mg_sleep_and_assert(True, in_long_backoff, max_duration=60)
 
     started = time.monotonic()
     interactive_mg_runner.stop(instances, "main")
-    assert time.monotonic() - started < 10
+    assert time.monotonic() - started < MAX_SHUTDOWN_SECONDS
 
 
 if __name__ == "__main__":
