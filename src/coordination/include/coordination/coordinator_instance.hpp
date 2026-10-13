@@ -131,8 +131,10 @@ class CoordinatorInstance {
       -> std::optional<std::string>;
 
   // Drops candidates that must not be promoted: any reported DB is broken, or reports 0 committed txns where the last
-  // known main (main_num_txns: db_uuid -> txns) had > 0. Failover retries every tick, so `log` limits warning/error to
-  // changes in the excluded set (repeats go to debug); null `log` always logs at warning/error.
+  // known main (main_num_txns: db_uuid -> txns) had > 0. main_num_txns is unpersisted leader memory: after a leader
+  // change it is empty or stale until main answers a state check, and a missing entry disables the 0-txns rule.
+  // Manual SET INSTANCE ... TO MAIN bypasses this filter on purpose. Failover retries every tick, so `log` limits
+  // warning/error to changes in the excluded set (repeats go to debug); null `log` always logs at warning/error.
   struct FailoverExclusionLog {
     std::mutex mutex;
     std::map<std::string, std::string> reasons;  // instance -> joined exclusion reasons last logged

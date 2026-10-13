@@ -1786,7 +1786,6 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
     }
   }
 
-  // Manual SET INSTANCE ... TO MAIN bypasses this filter on purpose (operator escape hatch).
   return ChooseMostUpToDateInstance(
       FilterFailoverCandidates(std::move(instances_info), main_num_txns_cache_, &failover_exclusion_log_));
 }

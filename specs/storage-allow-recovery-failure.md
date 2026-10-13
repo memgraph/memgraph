@@ -237,6 +237,8 @@ keeps today's fatal behavior.
 - **Non-goals (explicit):** coordinator-driven failover based on per-tenant
   broken state (a main broken for one tenant but otherwise healthy stays main),
   and any replica re-sync mechanism beyond the existing snapshot+WAL path.
+  Automatic failover does skip a candidate replica that reports a broken
+  tenant; it never demotes a main because of one.
 
 ### Scope boundary
 - In-memory storage only. On-disk storage keeps today's crash-on-recovery-failure
@@ -300,7 +302,8 @@ data instances):
 - On-disk (`ON_DISK_TRANSACTIONAL`) storage: keeps today's fatal behavior; the
   flag has no effect there.
 - Coordinator-driven failover decisions based on per-tenant broken state. A main
-  that is broken for one tenant but otherwise healthy remains main.
+  that is broken for one tenant but otherwise healthy remains main. (Automatic
+  failover only uses it to skip a broken candidate replica.)
 - Any automatic replica re-sync mechanism beyond the existing snapshot + WAL
   recovery path.
 - Best-effort / partial salvage recovery (loading a snapshot then replaying WAL
