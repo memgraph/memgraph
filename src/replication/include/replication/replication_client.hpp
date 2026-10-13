@@ -22,6 +22,7 @@
 #include "utils/thread_pool.hpp"
 
 #include <concepts>
+#include <cstdint>
 
 namespace memgraph::replication {
 struct ReplicationClient;
@@ -42,8 +43,10 @@ struct ReplicationClient {
 
   ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
 
-  template <FrequentCheckCB FS, FrequentCheckCB FF>
-  void StartFrequentCheck(FS &&success_callback, FF &&fail_callback) {
+  // reconnect_callback runs before success_callback when a ping succeeds on a new connection (peer may have restarted
+  // with less data). The generation is seeded at start, so a restart before the first ping is detected too.
+  template <FrequentCheckCB FS, FrequentCheckCB FF, FrequentCheckCB FR>
+  void StartFrequentCheck(FS &&success_callback, FF &&fail_callback, FR &&reconnect_callback) {
     // Help the user to get the most accurate replica state possible.
     if (replica_check_frequency_ > std::chrono::seconds(0)) {
       replica_checker_.SetInterval(replica_check_frequency_);
@@ -52,13 +55,21 @@ struct ReplicationClient {
           [this,
            succ_cb = std::forward<FS>(success_callback),
            fail_cb = std::forward<FF>(fail_callback),
-           failed_attempts = 0UL]() mutable {
+           reconnect_cb = std::forward<FR>(reconnect_callback),
+           failed_attempts = 0UL,
+           last_gen = rpc_client_.Generation()]() mutable {
             // Measure callbacks also to see how long it takes between scheduled runs
             metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.frequent_heartbeat_rpc_seconds};
             try {
               {
                 auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
                 stream.SendAndWait();
+              }
+              auto const gen = rpc_client_.Generation();
+              // Do not clobber a running system recovery; keep last_gen so the next tick re-checks.
+              if (last_gen != gen && state_.WithLock([](auto const &state) { return state != State::RECOVERY; })) {
+                reconnect_cb(*this);
+                last_gen = gen;
               }
               succ_cb(*this);
               failed_attempts = 0U;

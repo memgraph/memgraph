@@ -63,6 +63,7 @@ auto Connection::EnsureConnected() -> std::shared_ptr<communication::Client> {
   // Publishing drops the caller's share of the old socket, but not any share an in-flight RPC or a
   // concurrent Interrupt still holds -- those keep it alive until they are done with it.
   client_.store(sock, std::memory_order_release);
+  generation_.fetch_add(1, std::memory_order_release);
   return sock;
 }
 

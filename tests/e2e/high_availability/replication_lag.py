@@ -218,8 +218,9 @@ def get_sync_cluster():
 
 
 # Executes setup queries and returns cluster info
-def setup_cluster(test_name, setup_queries):
+def setup_cluster(test_name, setup_queries, instance_1_args=()):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    inner_instances_description["instance_1"]["args"] += list(instance_1_args)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
@@ -585,6 +586,91 @@ def test_num_committed_txns_preserved_after_recover_snapshot(test_name):
     # The MAIN's committed-txn count must still be 3 (the value captured in the snapshot), not reset to 0.
     expected_instance_3 = {"memgraph": {"num_committed_txns": 3, "num_txns_behind_main": 0}}
     mg_sleep_and_assert(expected_instance_3, partial(retrieve_lag_for_instance, coord3_cursor, "instance_3"))
+
+
+# MAIN needs 3 failed pings (more than 2 check periods) to notice a down replica, longer than the restarts below.
+CHECK_FREQUENCY_SEC = 3
+SLOW_CHECK_ARGS = [f"--replication-replica-check-frequency-sec={CHECK_FREQUENCY_SEC}"]
+
+
+def restart_instance_2(inner_instances_description, keep_directories, extra_args=()):
+    # A slower restart lets MAIN converge through its failed-ping path and the test would not exercise reconnect.
+    started = time.monotonic()
+    interactive_mg_runner.kill(inner_instances_description, "instance_2", keep_directories=keep_directories)
+    inner_instances_description["instance_2"]["args"] += list(extra_args)
+    interactive_mg_runner.start(inner_instances_description, "instance_2", run_setup_queries=False)
+    elapsed = time.monotonic() - started
+    assert elapsed < 2 * CHECK_FREQUENCY_SEC, f"replica restart took {elapsed:.1f} s, MAIN may have noticed the outage"
+
+
+def replica_node_count(port):
+    # The replica may refuse connections while it restarts.
+    try:
+        return execute_and_fetch_all(connect(host="localhost", port=port).cursor(), "MATCH (n) RETURN count(n)")[0][0]
+    except Exception:
+        return -1
+
+
+@pytest.mark.parametrize("mode", ["fresh_dir", "no_recovery"])
+def test_main_detects_replica_restarted_with_less_data(test_name, mode):
+    # A replica restarted within the 3-failed-pings window with less data than MAIN holds must be re-synced
+    # without any further write on MAIN.
+    inner_instances_description = setup_cluster(test_name, get_sync_cluster_main_1(), SLOW_CHECK_ARGS)
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    coord3_cursor = connect(host="localhost", port=7692).cursor()
+
+    for _ in range(3):
+        execute_and_fetch_all(instance1_cursor, "CREATE ()")
+    mg_sleep_and_assert(3, partial(replica_node_count, 7688))
+    expected_lag = {"memgraph": {"num_committed_txns": 3, "num_txns_behind_main": 0}}
+    mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
+
+    restart_instance_2(
+        inner_instances_description,
+        keep_directories=(mode != "fresh_dir"),
+        extra_args=["--data-recovery-on-startup=false"] if mode == "no_recovery" else [],
+    )
+
+    mg_sleep_and_assert(3, partial(replica_node_count, 7688), max_duration=20)
+    mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
+
+
+def test_replica_reconnect_without_data_loss_stays_ready(test_name):
+    # False-positive control: a restart that loses nothing goes through the reconnect path but must converge to
+    # READY with the data untouched.
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    inner_instances_description["instance_1"]["args"] += SLOW_CHECK_ARGS
+    inner_instances_description["instance_2"]["args"] += [
+        "--storage-wal-enabled=true",
+        "--data-recovery-on-startup=true",
+    ]
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    coord3_cursor = connect(host="localhost", port=7692).cursor()
+    for query in get_sync_cluster_main_1():
+        execute_and_fetch_all(coord3_cursor, query)
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+
+    for _ in range(3):
+        execute_and_fetch_all(instance1_cursor, "CREATE ()")
+    mg_sleep_and_assert(3, partial(replica_node_count, 7688))
+    expected_lag = {"memgraph": {"num_committed_txns": 3, "num_txns_behind_main": 0}}
+    mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
+
+    restart_instance_2(inner_instances_description, keep_directories=True)
+
+    mg_sleep_and_assert(3, partial(replica_node_count, 7688), max_duration=20)
+    mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
+
+    # MAIN's view of the replica is READY again, with nothing moved.
+    def main_status():
+        return [
+            row[-1]["memgraph"]["status"]
+            for row in execute_and_fetch_all(instance1_cursor, "SHOW REPLICAS")
+            if row[0] == "instance_2"
+        ]
+
+    mg_sleep_and_assert(["ready"], main_status)
+    assert replica_node_count(7688) == 3
 
 
 if __name__ == "__main__":

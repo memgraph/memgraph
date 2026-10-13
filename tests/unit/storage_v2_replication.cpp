@@ -911,6 +911,69 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   }));
 }
 
+TEST_F(ReplicationTest, HeartbeatFromBeforeReplicaRestartDoesNotUndoReconnectReset) {
+  MinMemgraph main(main_conf);
+  auto const main_uuid = std::get<memgraph::replication::RoleMainData>(main.repl_state.Lock()->ReplicationData()).uuid_;
+  auto *main_storage = main.db.storage();
+  auto const num_committed_txns = [&] {
+    uint64_t num = 0;
+    main_storage->repl_storage_state_.WithClient(replicas[0],
+                                                 [&](auto &client) { num = client.GetNumCommittedTxns(); });
+    return num;
+  };
+  auto const wait_for = [](auto const &pred) {
+    for (int i = 0; i < 1000 && !pred(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    return pred();
+  };
+
+  static constexpr uint64_t kTxns = 3;
+  {
+    MinMemgraph replica(repl_conf);
+    ASSERT_TRUE(replica.repl_handler.TrySetReplicationRoleReplica(
+        ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}));
+    ASSERT_TRUE(main.repl_handler
+                    .TryRegisterReplica(ReplicationClientConfig{
+                        .name = replicas[0],
+                        .mode = ReplicationMode::SYNC,
+                        .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                    })
+                    .has_value());
+    for (uint64_t i = 0; i < kTxns; ++i) {
+      const memgraph::memory::DbArenaScope arena_scope{&main.db.Arena()};
+      auto acc = main.db.Access(memgraph::storage::WRITE);
+      acc->CreateVertex();
+      ASSERT_TRUE(acc->PrepareForCommitPhase(MakeCommitArgs(main.db_acc)).has_value());
+    }
+    ASSERT_TRUE(wait_for([&] { return main_storage->GetReplicaState(replicas[0]) == ReplicaState::READY; }));
+    ASSERT_EQ(num_committed_txns(), kTxns);
+
+    // A heartbeat answered by the replica, then stalled on the engine lock while the replica restarts.
+    main_storage->engine_lock_.lock();
+    main_storage->repl_storage_state_.WithClient(replicas[0], [&](auto &client) {
+      client.TryCheckReplicaStateAsync(main_storage, memgraph::dbms::DatabaseProtector{main.db_acc});
+    });
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+  }
+
+  // Restarted with no data.
+  MinMemgraph replica(repl2_conf);
+  ASSERT_TRUE(replica.repl_handler.SetReplicationRoleReplica(
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, main_uuid));
+  // The frequent check reconnects and drops the cached replica progress.
+  bool const reset_seen = wait_for([&] { return num_committed_txns() == 0; });
+  main_storage->engine_lock_.unlock();
+  ASSERT_TRUE(reset_seen);
+
+  ASSERT_TRUE(wait_for([&] {
+    const memgraph::memory::DbArenaScope arena_scope{&replica.db.Arena()};
+    auto acc = replica.db.Access(memgraph::storage::READ);
+    uint64_t vertices = 0;
+    for ([[maybe_unused]] auto const &v : acc->Vertices(View::OLD)) ++vertices;
+    return main_storage->GetReplicaState(replicas[0]) == ReplicaState::READY && vertices == kTxns;
+  }));
+  EXPECT_EQ(num_committed_txns(), kTxns);
+}
+
 TEST_F(ReplicationTest, EpochTest) {
   MinMemgraph main(main_conf);
   MinMemgraph replica1(repl_conf);

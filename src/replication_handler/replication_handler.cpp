@@ -194,6 +194,14 @@ void StartReplicaClient(replication::ReplicationClient &client, system::System &
             client.SetMaybeBehind();
           });
         });
+      },
+      [&](ReplicationClient &local_client) {
+        // Connection silently re-established, the replica may have restarted with less data
+        local_client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+        dbms_handler.ForEach([&name = local_client.name_](dbms::DatabaseAccess db_acc) {
+          db_acc->storage()->repl_storage_state_.WithClient(
+              name, [&](storage::ReplicationStorageClient &client) { client.OnReconnect(); });
+        });
       });
 }
 
