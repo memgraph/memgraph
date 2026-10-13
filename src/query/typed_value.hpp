@@ -221,14 +221,15 @@ class TypedValue {
 
   /**
    * Construct with the value of other.
-   * allocator_type is obtained from other. After the move, other will be
-   * set to Null.
+   * allocator_type is obtained from other. After the move, other keeps its
+   * type, and holds whatever moving its value out of it left behind.
    */
   TypedValue(TypedValue &&other) noexcept;
 
   /**
    * Construct with the value of other, but use the given allocator_type.
-   * After the move, other will be set to Null.
+   * After the move, other keeps its type, and holds whatever moving its value
+   * out of it left behind.
    * If `*memory != *other.get_allocator()`, then a copy is made instead of
    * a move.
    */
