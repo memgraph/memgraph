@@ -106,6 +106,20 @@ class VertexDb : public Database {
   std::unique_ptr<memgraph::storage::Storage> db_;
 };
 
+// A suite that builds one database for all its tests.
+template <typename Storage, typename Base>
+class SharedDbTest : public Base {
+ public:
+  using StorageType = Storage;
+
+  static void SetUpTestSuite() { db_ = std::make_unique<VertexDb<Storage>>(); }
+
+  static void TearDownTestSuite() { db_ = nullptr; }
+
+ protected:
+  inline static std::unique_ptr<VertexDb<Storage>> db_;
+};
+
 class GeneralKShortestTestInMemory
     : public ::testing::TestWithParam<std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>>> {
  public:
@@ -228,38 +242,15 @@ const auto kWeightedMatrix = testing::Combine(
 const auto kWeightedLimitMatrix = testing::Combine(testing::Values(-1, 2), testing::Values(-1), kWeightedDirections,
                                                    testing::Values(std::vector<std::string>{}), testing::Values(1, 3));
 
-class WeightedKShortestTestInMemory : public ::testing::TestWithParam<WeightedMatrixParam> {
- public:
-  using StorageType = memgraph::storage::InMemoryStorage;
-
-  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
-
-  static void TearDownTestCase() { db_ = nullptr; }
-
- protected:
-  static std::unique_ptr<VertexDb<StorageType>> db_;
-};
+class WeightedKShortestTestInMemory
+    : public SharedDbTest<memgraph::storage::InMemoryStorage, ::testing::TestWithParam<WeightedMatrixParam>> {};
 
 TEST_P(WeightedKShortestTestInMemory, All) { RunWeightedMatrixCell(db_.get(), GetParam()); }
-
-std::unique_ptr<VertexDb<WeightedKShortestTestInMemory::StorageType>> WeightedKShortestTestInMemory::db_{nullptr};
 
 INSTANTIATE_TEST_SUITE_P(Weighted, WeightedKShortestTestInMemory, kWeightedMatrix);
 INSTANTIATE_TEST_SUITE_P(WeightedLimit, WeightedKShortestTestInMemory, kWeightedLimitMatrix);
 
-class WeightedKShortestCasesInMemory : public ::testing::Test {
- public:
-  using StorageType = memgraph::storage::InMemoryStorage;
-
-  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
-
-  static void TearDownTestCase() { db_ = nullptr; }
-
- protected:
-  static std::unique_ptr<VertexDb<StorageType>> db_;
-};
-
-std::unique_ptr<VertexDb<WeightedKShortestCasesInMemory::StorageType>> WeightedKShortestCasesInMemory::db_{nullptr};
+class WeightedKShortestCasesInMemory : public SharedDbTest<memgraph::storage::InMemoryStorage, ::testing::Test> {};
 
 TEST_F(WeightedKShortestCasesInMemory, ZeroWeights) { db_->KShortestWeightedTestZeroWeights(db_.get()); }
 
@@ -308,19 +299,9 @@ TEST_F(WeightedKShortestCasesInMemory, InterleavedRootsMatchOracle) {
 
 // Random graphs at fixed seeds, every pair, against the brute-force enumeration. This is what would
 // catch a spur search that loses a path on a shape nobody thought to write down.
-class WeightedKShortestRandomInMemory : public ::testing::TestWithParam<std::tuple<uint32_t, int, double>> {
- public:
-  using StorageType = memgraph::storage::InMemoryStorage;
-
-  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
-
-  static void TearDownTestCase() { db_ = nullptr; }
-
- protected:
-  static std::unique_ptr<VertexDb<StorageType>> db_;
-};
-
-std::unique_ptr<VertexDb<WeightedKShortestRandomInMemory::StorageType>> WeightedKShortestRandomInMemory::db_{nullptr};
+class WeightedKShortestRandomInMemory
+    : public SharedDbTest<memgraph::storage::InMemoryStorage,
+                          ::testing::TestWithParam<std::tuple<uint32_t, int, double>>> {};
 
 TEST_P(WeightedKShortestRandomInMemory, MatchesOracle) {
   auto const [seed, vertex_count, density] = GetParam();
@@ -438,19 +419,8 @@ TEST_F(GeneralKShortestTestOnDisk, KShortestWithFilterLambda) {
   db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::BOTH, {}, -1, FilterLambdaType::USE_CTX);
 }
 
-class WeightedKShortestTestOnDisk : public ::testing::TestWithParam<WeightedMatrixParam> {
- public:
-  using StorageType = memgraph::storage::DiskStorage;
-
-  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
-
-  static void TearDownTestCase() { db_ = nullptr; }
-
- protected:
-  static std::unique_ptr<VertexDb<StorageType>> db_;
-};
-
-std::unique_ptr<VertexDb<WeightedKShortestTestOnDisk::StorageType>> WeightedKShortestTestOnDisk::db_{nullptr};
+class WeightedKShortestTestOnDisk
+    : public SharedDbTest<memgraph::storage::DiskStorage, ::testing::TestWithParam<WeightedMatrixParam>> {};
 
 TEST_P(WeightedKShortestTestOnDisk, All) { RunWeightedMatrixCell(db_.get(), GetParam()); }
 

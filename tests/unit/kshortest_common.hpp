@@ -847,6 +847,17 @@ class Database {
 
   // The weight lambda every weighted case here uses: `e.weight`, which is what `BuildGraph` stores
   // and what `EdgeWeightFor` replays.
+  // Runs `body` and checks that it raises exactly `expected`.
+  template <typename Body>
+  static void ExpectRuntimeError(Body &&body, std::string_view expected) {
+    try {
+      std::forward<Body>(body)();
+      ADD_FAILURE() << "expected an error: " << expected;
+    } catch (const memgraph::query::QueryRuntimeException &e) {
+      EXPECT_EQ(std::string_view(e.what()), expected);
+    }
+  }
+
   memgraph::query::plan::ExpansionLambda MakeWeightLambda(memgraph::query::DbAccessor &dba,
                                                           memgraph::query::ExecutionContext &context) {
     auto edge_sym = context.symbol_table.CreateSymbol("weight_edge", true);
@@ -862,40 +873,56 @@ class Database {
     int64_t hops = 0;
   };
 
+  // A filter lambda over its own inner symbols.
+  static memgraph::query::plan::ExpansionLambda FilterLambda(memgraph::query::ExecutionContext &context,
+                                                             memgraph::query::Expression *expression) {
+    return memgraph::query::plan::ExpansionLambda{context.symbol_table.CreateSymbol("filter_edge", true),
+                                                  context.symbol_table.CreateSymbol("filter_node", true),
+                                                  expression};
+  }
+
+  // -1 is the matrices' "no bound".
+  static std::optional<int> Bound(int value) { return value == -1 ? std::nullopt : std::optional(value); }
+
+  struct WeightedQuery {
+    std::vector<memgraph::query::VertexAccessor> sources;
+    std::vector<memgraph::query::VertexAccessor> sinks;
+    memgraph::query::EdgeAtom::Direction direction = memgraph::query::EdgeAtom::Direction::OUT;
+    std::vector<memgraph::storage::EdgeTypeId> edge_types;
+    std::optional<int> lower_bound;
+    std::optional<int> upper_bound;
+    std::optional<int> limit;
+    // `e.weight` when unset.
+    std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda;
+    std::optional<memgraph::query::plan::ExpansionLambda> filter_lambda;
+  };
+
   // One weighted KSHORTEST expansion, over every ordered pair of the two vertex lists.
   WeightedRun RunWeighted(Database *db, memgraph::query::DbAccessor &dba, memgraph::query::ExecutionContext &context,
-                          const std::vector<memgraph::query::VertexAccessor> &sources,
-                          const std::vector<memgraph::query::VertexAccessor> &sinks,
-                          memgraph::query::EdgeAtom::Direction direction,
-                          const std::vector<memgraph::storage::EdgeTypeId> &edge_types, int lower_bound,
-                          int upper_bound, int limit, const memgraph::query::plan::ExpansionLambda &weight_lambda,
-                          memgraph::query::Expression *filter_expr = nullptr,
-                          std::shared_ptr<memgraph::query::plan::LogicalOperator> input_op = nullptr,
-                          std::optional<memgraph::query::plan::ExpansionLambda> filter_lambda = std::nullopt) {
+                          const WeightedQuery &query) {
     auto source_sym = context.symbol_table.CreateSymbol("source", true);
     auto sink_sym = context.symbol_table.CreateSymbol("sink", true);
     auto edges_sym = context.symbol_table.CreateSymbol("edges", true);
     auto total_sym = context.symbol_table.CreateSymbol("total", true);
-    if (!filter_lambda) {
-      filter_lambda = memgraph::query::plan::ExpansionLambda{context.symbol_table.CreateSymbol("filter_edge", true),
-                                                             context.symbol_table.CreateSymbol("filter_node", true),
-                                                             filter_expr};
-    }
+    auto literal_or_null = [&](std::optional<int> value) -> memgraph::query::Expression * {
+      return value ? LITERAL(*value) : nullptr;
+    };
 
-    input_op = YieldVertices(&dba, sources, source_sym, input_op);
-    input_op = YieldVertices(&dba, sinks, sink_sym, input_op);
+    std::shared_ptr<memgraph::query::plan::LogicalOperator> input_op;
+    input_op = YieldVertices(&dba, query.sources, source_sym, input_op);
+    input_op = YieldVertices(&dba, query.sinks, sink_sym, input_op);
     input_op = db->MakeKShortestOperator(source_sym,
                                          sink_sym,
                                          edges_sym,
-                                         direction,
-                                         edge_types,
+                                         query.direction,
+                                         query.edge_types,
                                          input_op,
                                          true,
-                                         lower_bound == -1 ? nullptr : LITERAL(lower_bound),
-                                         upper_bound == -1 ? nullptr : LITERAL(upper_bound),
-                                         *filter_lambda,
-                                         limit == -1 ? nullptr : LITERAL(limit),
-                                         weight_lambda,
+                                         literal_or_null(query.lower_bound),
+                                         literal_or_null(query.upper_bound),
+                                         query.filter_lambda.value_or(FilterLambda(context, nullptr)),
+                                         literal_or_null(query.limit),
+                                         query.weight_lambda.value_or(MakeWeightLambda(dba, context)),
                                          total_sym);
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
@@ -960,14 +987,13 @@ class Database {
     auto run = RunWeighted(db,
                            dba,
                            context,
-                           vertices,
-                           vertices,
-                           direction,
-                           storage_edge_types,
-                           lower_bound,
-                           upper_bound,
-                           limit,
-                           MakeWeightLambda(dba, context));
+                           {.sources = vertices,
+                            .sinks = vertices,
+                            .direction = direction,
+                            .edge_types = storage_edge_types,
+                            .lower_bound = Bound(lower_bound),
+                            .upper_bound = Bound(upper_bound),
+                            .limit = Bound(limit)});
 
     const auto edge_list = GetEdgeList(graph_edges, direction, edge_types);
     const int effective_lower = lower_bound != -1 ? lower_bound : 1;
@@ -1068,17 +1094,8 @@ class Database {
     SetEdgeWeights(dba, edges, DetourEdges(), weights);
     dba.AdvanceCommand();
 
-    auto run = RunWeighted(db,
-                           dba,
-                           context,
-                           {vertices[0]},
-                           {vertices[3]},
-                           memgraph::query::EdgeAtom::Direction::OUT,
-                           {},
-                           lower_bound,
-                           -1,
-                           -1,
-                           MakeWeightLambda(dba, context));
+    auto run = RunWeighted(
+        db, dba, context, {.sources = {vertices[0]}, .sinks = {vertices[3]}, .lower_bound = Bound(lower_bound)});
 
     std::vector<std::pair<memgraph::query::TypedValue, size_t>> out;
     for (const auto &row : run.rows) {
@@ -1189,17 +1206,7 @@ class Database {
                        std::vector<std::tuple<int, int, std::string>>{{0, 1, "a"}, {1, 2, "a"}, {2, 0, "a"}});
     dba.AdvanceCommand();
 
-    auto run = RunWeighted(db,
-                           dba,
-                           context,
-                           {vertices[0]},
-                           {vertices[3]},
-                           memgraph::query::EdgeAtom::Direction::OUT,
-                           {},
-                           -1,
-                           -1,
-                           -1,
-                           MakeWeightLambda(dba, context));
+    auto run = RunWeighted(db, dba, context, {.sources = {vertices[0]}, .sinks = {vertices[3]}});
     EXPECT_TRUE(run.rows.empty());
     EXPECT_EQ(run.hops, 0) << "nothing reaches the target, so nothing should have been expanded";
     dba.Abort();
@@ -1227,7 +1234,7 @@ class Database {
     // No pair has more than 4 simple paths; the limit bounds a cursor that would loop instead.
     constexpr int kLimit = 10;
     auto run =
-        RunWeighted(db, dba, context, vertices, vertices, out, {}, -1, -1, kLimit, MakeWeightLambda(dba, context));
+        RunWeighted(db, dba, context, {.sources = vertices, .sinks = vertices, .direction = out, .limit = kLimit});
 
     const auto edge_list = GetEdgeList(graph_edges, out, {});
     std::map<std::pair<int, int>, std::vector<std::pair<int64_t, std::vector<int>>>> actual;
@@ -1264,23 +1271,15 @@ class Database {
     auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
     SetEdgeWeights(dba, edges, DetourEdges(), DetourIntWeights());
     dba.AdvanceCommand();
-    try {
-      RunWeighted(db,
-                  dba,
-                  context,
-                  {vertices[0]},
-                  {vertices[3]},
-                  memgraph::query::EdgeAtom::Direction::OUT,
-                  {},
-                  -1,
-                  -1,
-                  -1,
-                  MakeWeightLambda(dba, context),
-                  LITERAL(42));
-      ADD_FAILURE() << "expected an error";
-    } catch (const memgraph::query::QueryRuntimeException &e) {
-      EXPECT_EQ(std::string(e.what()), "Expansion condition must evaluate to boolean or null");
-    }
+    ExpectRuntimeError(
+        [&] {
+          RunWeighted(
+              db,
+              dba,
+              context,
+              {.sources = {vertices[0]}, .sinks = {vertices[3]}, .filter_lambda = FilterLambda(context, LITERAL(42))});
+        },
+        "Expansion condition must evaluate to boolean or null");
     dba.Abort();
   }
 
@@ -1318,12 +1317,7 @@ class Database {
       SCOPED_TRACE(name);
       auto weights = DetourIntWeights();
       weights[{0, 1}] = weight;
-      try {
-        DetourResults(db, weights);
-        ADD_FAILURE() << "expected an error";
-      } catch (const memgraph::query::QueryRuntimeException &e) {
-        EXPECT_EQ(std::string(e.what()), expected);
-      }
+      ExpectRuntimeError([&] { DetourResults(db, weights); }, expected);
     }
   }
 
@@ -1333,12 +1327,8 @@ class Database {
     auto weights = DetourIntWeights();
     weights[{0, 1}] = PV(std::numeric_limits<int64_t>::max());
     weights[{1, 2}] = PV(int64_t{1});
-    try {
-      DetourResults(db, weights);
-      ADD_FAILURE() << "expected an error";
-    } catch (const memgraph::query::QueryRuntimeException &e) {
-      EXPECT_EQ(std::string(e.what()), "The total weight of a KSHORTEST path overflows a 64-bit integer.");
-    }
+    ExpectRuntimeError([&] { DetourResults(db, weights); },
+                       "The total weight of a KSHORTEST path overflows a 64-bit integer.");
   }
 
   // The filter lambda still prunes under weights. Blocking vertex 2 leaves only the single expensive
@@ -1356,20 +1346,13 @@ class Database {
     dba.AdvanceCommand();
 
     auto *filter_expr = NEQ(PROPERTY_LOOKUP(dba, inner_node, PROPERTY_PAIR(dba, "id")), LITERAL(2));
-    auto run = RunWeighted(db,
-                           dba,
-                           context,
-                           {vertices[0]},
-                           {vertices[3]},
-                           memgraph::query::EdgeAtom::Direction::OUT,
-                           {},
-                           -1,
-                           -1,
-                           -1,
-                           MakeWeightLambda(dba, context),
-                           nullptr,
-                           nullptr,
-                           memgraph::query::plan::ExpansionLambda{filter_edge_sym, filter_node_sym, filter_expr});
+    auto run = RunWeighted(
+        db,
+        dba,
+        context,
+        {.sources = {vertices[0]},
+         .sinks = {vertices[3]},
+         .filter_lambda = memgraph::query::plan::ExpansionLambda{filter_edge_sym, filter_node_sym, filter_expr}});
 
     ASSERT_EQ(run.rows.size(), 1U) << "both cheap routes pass through the blocked vertex";
     EXPECT_EQ(run.rows[0][3].ValueInt(), 10);
@@ -1399,32 +1382,20 @@ class Database {
       auto *filter_expr =
           filtered ? GREATER_EQ(PROPERTY_LOOKUP(dba, inner_edge, PROPERTY_PAIR(dba, "weight")), LITERAL(0)) : nullptr;
       auto run = [&] {
-        return RunWeighted(db,
-                           dba,
-                           context,
-                           {vertices[0]},
-                           {vertices[1]},
-                           memgraph::query::EdgeAtom::Direction::OUT,
-                           {},
-                           -1,
-                           -1,
-                           -1,
-                           MakeWeightLambda(dba, context),
-                           nullptr,
-                           nullptr,
-                           memgraph::query::plan::ExpansionLambda{filter_edge_sym, filter_node_sym, filter_expr});
+        return RunWeighted(
+            db,
+            dba,
+            context,
+            {.sources = {vertices[0]},
+             .sinks = {vertices[1]},
+             .filter_lambda = memgraph::query::plan::ExpansionLambda{filter_edge_sym, filter_node_sym, filter_expr}});
       };
       if (filtered) {
         const auto result = run();
         ASSERT_EQ(result.rows.size(), 1U);
         EXPECT_EQ(result.rows[0][3].ValueInt(), 1);
       } else {
-        try {
-          run();
-          ADD_FAILURE() << "expected an error";
-        } catch (const memgraph::query::QueryRuntimeException &e) {
-          EXPECT_EQ(std::string(e.what()), "Weight must be non-negative, got -1.");
-        }
+        ExpectRuntimeError(run, "Weight must be non-negative, got -1.");
       }
       dba.Abort();
     }
@@ -1604,17 +1575,11 @@ class Database {
     std::vector<memgraph::storage::EdgeTypeId> storage_edge_types;
     for (const auto &t : edge_types) storage_edge_types.push_back(dba.NameToEdgeType(t));
 
-    auto run = RunWeighted(db,
-                           dba,
-                           context,
-                           vertices,
-                           vertices,
-                           direction,
-                           storage_edge_types,
-                           -1,
-                           -1,
-                           -1,
-                           MakeWeightLambda(dba, context));
+    auto run =
+        RunWeighted(db,
+                    dba,
+                    context,
+                    {.sources = vertices, .sinks = vertices, .direction = direction, .edge_types = storage_edge_types});
 
     std::map<std::pair<int, int>, std::vector<std::pair<int64_t, std::vector<int>>>> actual;
     for (const auto &row : run.rows) {
