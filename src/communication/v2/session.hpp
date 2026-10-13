@@ -230,8 +230,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     raw_fd_.store(-1, std::memory_order_release);
   }
 
-  // Callable from any thread; never runs session code on the caller's stack. Asio: posts to the strand (not
-  // dispatch). Raw: an idle (ARMED) session is closed right here; a running one is closed by its owner at re-arm.
+  // Callable from any thread. Asio: posts to the strand. Raw: an idle (ARMED) session is closed on the caller's
+  // thread (no request code runs there); a busy one is closed by its owner at its next re-arm.
   void RequestTermination() override {
     terminate_requested_.store(true, std::memory_order_release);
     if (raw_.load(std::memory_order_acquire)) {
@@ -470,11 +470,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // Submits the session's next run to the pool. The caller is the owner and this is its last touch of the stream.
   void DispatchWork_(const bool read_first) {
     ClearOwner_();
-    session_context_->AddTask(
-        [self = shared_from_this(), read_first](const utils::Priority thread_priority) {
-          self->RunReady_(thread_priority, read_first);
-        },
-        session_.ApproximateQueryPriority());
+    try {
+      session_context_->AddTask(
+          [self = shared_from_this(), read_first](const utils::Priority thread_priority) {
+            self->RunReady_(thread_priority, read_first);
+          },
+          session_.ApproximateQueryPriority());
+    } catch (const std::exception & /* unused */) {
+      // Submission failed (e.g. bad_alloc): the session is still RUNNING with no task, so close it here.
+      HandleException(std::current_exception());
+    }
   }
 
   // Runs on the owning thread; nothing else may touch the stream until RawArm_/close/re-submit.

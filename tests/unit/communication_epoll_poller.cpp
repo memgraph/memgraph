@@ -10,12 +10,15 @@
 // licenses/APL.txt.
 
 #include <fcntl.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <memory>
+#include <set>
 #include <thread>
 #include <vector>
 
@@ -417,4 +420,107 @@ TEST(EpollPoller, CloseAllRacingTryBeginCloseClosesExactlyOnce) {
     poller.Close(sb);
   }
   RecordProperty("terminator_wins", terminator_wins);
+}
+
+// Chunk growth past kChunkSize, and free-list reuse after concurrent CloseEntry calls: every freed index is handed
+// out exactly once with a bumped generation, and old-generation handles stay inert (also under TSan for free_).
+TEST(EpollPoller, AdoptGrowsPastOneChunkAndReusesSlotsUnderConcurrentClose) {
+  constexpr size_t kTotal = 2100;  // 3 chunks of 1024
+  constexpr size_t kClosed = kTotal / 2;
+  rlimit lim{};
+  ASSERT_EQ(::getrlimit(RLIMIT_NOFILE, &lim), 0);
+  const rlim_t needed = 2 * (kTotal + kClosed) + 256;
+  if (lim.rlim_max < needed) GTEST_SKIP() << "RLIMIT_NOFILE hard limit too low: " << lim.rlim_max;
+
+  struct RestoreLimit {
+    rlimit original;
+    bool raised{false};
+
+    ~RestoreLimit() {
+      if (raised) ::setrlimit(RLIMIT_NOFILE, &original);
+    }
+  } restore{.original = lim};
+
+  if (lim.rlim_cur < needed) {
+    rlimit raised_lim{.rlim_cur = needed, .rlim_max = lim.rlim_max};
+    ASSERT_EQ(::setrlimit(RLIMIT_NOFILE, &raised_lim), 0) << "errno " << errno;
+    restore.raised = true;
+  }
+
+  EpollPoller poller;
+  std::vector<std::unique_ptr<Pair>> pairs;
+  std::vector<std::shared_ptr<Target>> targets;
+  std::vector<EpollPoller::Slot> slots;
+  std::set<uint32_t> indices;
+  for (size_t i = 0; i < kTotal; ++i) {
+    pairs.push_back(std::make_unique<Pair>());
+    targets.push_back(std::make_shared<Target>());
+    const auto slot = poller.Adopt(pairs.back()->server, targets.back());
+    ASSERT_NE(slot, EpollPoller::kInvalid) << "i=" << i;
+    ASSERT_TRUE(indices.insert(static_cast<uint32_t>(slot >> 32)).second) << "duplicate index, i=" << i;
+    slots.push_back(slot);
+    ASSERT_TRUE(poller.Arm(slot));
+  }
+  ASSERT_EQ(indices.size(), kTotal);
+
+  // Both threads sweep every even position (in opposite directions) the way non-owner terminators close ARMED
+  // sessions; TryBeginClose picks exactly one winner per slot.
+  std::atomic<size_t> closed{0};
+  std::vector<std::thread> closers;
+  for (size_t t = 0; t < 2; ++t) {
+    closers.emplace_back([&, t] {
+      for (size_t n = 0; n < kClosed; ++n) {
+        const size_t i = 2 * (t == 0 ? n : kClosed - 1 - n);
+        if (poller.TryBeginClose(slots[i])) {
+          auto keep = poller.Close(slots[i]);
+          EXPECT_EQ(keep, targets[i]);
+          closed.fetch_add(1);
+        }
+      }
+    });
+  }
+  for (auto &th : closers) th.join();
+  ASSERT_EQ(closed.load(), kClosed);
+
+  std::set<uint32_t> freed;
+  for (size_t i = 0; i < kTotal; i += 2) {
+    freed.insert(static_cast<uint32_t>(slots[i] >> 32));
+    EXPECT_FALSE(poller.TryBeginClose(slots[i])) << "stale slot closable while FREE, i=" << i;
+  }
+  ASSERT_EQ(freed.size(), kClosed);
+
+  std::set<uint32_t> reused;
+  std::vector<EpollPoller::Slot> new_slots;
+  for (size_t i = 0; i < kClosed; ++i) {
+    pairs.push_back(std::make_unique<Pair>());
+    targets.push_back(std::make_shared<Target>());
+    const auto slot = poller.Adopt(pairs.back()->server, targets.back());
+    ASSERT_NE(slot, EpollPoller::kInvalid);
+    const auto index = static_cast<uint32_t>(slot >> 32);
+    ASSERT_TRUE(freed.contains(index)) << "fresh index instead of reuse, i=" << i;
+    ASSERT_TRUE(reused.insert(index).second) << "index handed out twice, i=" << i;
+    ASSERT_EQ(static_cast<uint32_t>(slot), 1U) << "generation not bumped";
+    new_slots.push_back(slot);
+  }
+  ASSERT_EQ(reused, freed);
+
+  // Old-generation handles must not touch the new occupants (now RUNNING, then ARMED).
+  for (size_t i = 0; i < kTotal; i += 2) {
+    EXPECT_FALSE(poller.TryBeginClose(slots[i]));
+    EXPECT_EQ(EpollPollerTestAccess::ClaimEvent(poller, slots[i]), nullptr);
+  }
+  for (const auto slot : new_slots) {
+    ASSERT_TRUE(poller.Arm(slot));
+  }
+  for (size_t i = 0; i < kTotal; i += 2) {
+    EXPECT_FALSE(poller.TryBeginClose(slots[i]));
+    EXPECT_EQ(EpollPollerTestAccess::ClaimEvent(poller, slots[i]), nullptr);
+  }
+
+  poller.CloseAll();
+  for (size_t i = 0; i < targets.size(); ++i) {
+    const bool was_closed_early = i < kTotal && i % 2 == 0;
+    EXPECT_EQ(targets[i]->force_closed.load(), was_closed_early ? 0 : 1) << "i=" << i;
+  }
+  for (const auto slot : new_slots) EXPECT_FALSE(poller.TryBeginClose(slot));
 }

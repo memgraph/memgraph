@@ -110,9 +110,8 @@ bool EpollPoller::Arm(const Slot slot) {
   ev.data.u64 = slot;
   if (::epoll_ctl(epfd_, EPOLL_CTL_MOD, entry.fd, &ev) == 0) return true;
 
-  // Once ARMED is published any gen-matched claim can win: a stale harvested event or an ERR/HUP queued while
-  // RUNNING. The claimant then owns the slot and this arm counts as done. If the CAS-back loses, the MOD failure is
-  // swallowed: the epitem is still registered and the claimant's own Arm re-MODs it.
+  // A gen-matched claim (stale harvested event, ERR/HUP queued while RUNNING) can win once ARMED is published; the
+  // claimant owns the slot and this arm is done, its MOD failure swallowed (the claimant's own Arm re-MODs).
   auto expected = Pack(gen, kArmed);
   return !entry.word.compare_exchange_strong(
       expected, Pack(gen, kRunning), std::memory_order_acq_rel, std::memory_order_relaxed);
@@ -133,8 +132,7 @@ std::shared_ptr<PollTarget> EpollPoller::CloseEntry(Entry &entry, const uint32_t
   entry.fd = -1;
   auto keep = std::move(entry.keep);
   {
-    // FREE is stored under alloc_mtx_, after which the push_back (no-throw, see Adopt) makes the slot reusable;
-    // Adopt cannot pop it before the unlock, and CloseAll's alloc_mtx_ barrier outlasts the closer.
+    // FREE and push_back (no-throw, see Adopt) share one alloc_mtx_ hold so CloseAll's barrier outlasts the closer.
     const std::scoped_lock lock{alloc_mtx_};
     entry.word.store(Pack(gen + 1, kFree), std::memory_order_release);
     free_.push_back(index);
