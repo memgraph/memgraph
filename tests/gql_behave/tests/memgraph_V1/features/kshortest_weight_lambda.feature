@@ -395,3 +395,18 @@ Feature: KSHORTEST weight lambda
         Then the result should be:
             | total                 |
             | 6.917529027641082e+18 |
+
+    # The constant runs on the hop-count search; the declared total is still the constant once per hop, and
+    # two hops of 2^62 do not fit in 64 bits.
+    Scenario: A constant weight refuses a total that overflows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:N {id: 'a'})-[:R]->(:N {id: 'b'})-[:R]->(:N {id: 'c'})
+            """
+        When executing query:
+            """
+            MATCH (a:N {id: 'a'}), (c:N {id: 'c'}) WITH a, c
+            MATCH p=(a)-[:R *KSHORTEST (e, n | 4611686018427387904) total]->(c) RETURN total
+            """
+        Then an error should be raised
