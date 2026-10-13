@@ -11,6 +11,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -290,6 +291,9 @@ int main(int argc, char **argv) {
   if (!CheckSuspiciousPositionalArgs(argc, argv)) return EXIT_FAILURE;
   WarnDeprecatedFlags();
 
+  // Raise before Python, schedulers and servers start, so everything created later has the headroom.
+  const auto nofile_result = memgraph::utils::RaiseNoFileSoftLimit();
+
   // Publish worker count early so allocators can pre-size thread-local structures
   memgraph::utils::SetNumWorkers(FLAGS_bolt_num_workers);
 
@@ -468,15 +472,26 @@ int main(int argc, char **argv) {
               << kMgVmMaxMapCount << std::endl;
   }
 
-  if (const auto nofile = memgraph::utils::RaiseNoFileSoftLimit()) {
-    spdlog::info("Open files limit (RLIMIT_NOFILE): soft {}, hard {}.", nofile->rlim_cur, nofile->rlim_max);
-    if (nofile->rlim_cur < kMgMinOpenFiles) {
+  if (nofile_result) {
+    const auto &nofile = nofile_result->limit;
+    const auto fmt_limit = [](rlim_t v) { return v == RLIM_INFINITY ? std::string{"unlimited"} : std::to_string(v); };
+    spdlog::info(
+        "Open files limit (RLIMIT_NOFILE): soft {}, hard {}.", fmt_limit(nofile.rlim_cur), fmt_limit(nofile.rlim_max));
+    if (nofile_result->raise_errno != 0) {
+      spdlog::warn("Failed to raise the soft open files limit (RLIMIT_NOFILE): {} ({}).",
+                   std::strerror(nofile_result->raise_errno),
+                   nofile_result->raise_errno);
+    }
+    if (nofile.rlim_cur < kMgMinOpenFiles) {
       spdlog::warn(memgraph::utils::MessageWithLink(
-          "Open files limit {} is too low, increase it to at least {} (systemd LimitNOFILE, docker --ulimit nofile). "
-          "Connections and storage files will fail with \"Too many open files\" once it is exhausted.",
-          nofile->rlim_cur,
+          "Open files limit is too low (soft {}, hard {}), increase it to at least {} (systemd LimitNOFILE, docker "
+          "--ulimit nofile; the limit cannot exceed fs.nr_open). Connections and storage files will fail with "
+          "\"Too many open files\" once it is exhausted.",
+          fmt_limit(nofile.rlim_cur),
+          fmt_limit(nofile.rlim_max),
           kMgMinOpenFiles,
-          "https://memgr.ph/open-files"));
+          "https://memgraph.com/docs/database-management/"
+          "system-configuration#handle-numerous-open-files-simultaneously"));
     }
   } else {
     spdlog::warn("Can't get info on the open files limit (RLIMIT_NOFILE).");

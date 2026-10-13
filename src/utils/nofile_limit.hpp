@@ -13,6 +13,9 @@
 
 #include <sys/resource.h>
 
+#include <algorithm>
+#include <cerrno>
+#include <cstdio>
 #include <optional>
 
 namespace memgraph::utils {
@@ -24,19 +27,42 @@ inline std::optional<rlimit> &OriginalNoFileLimit() {
   return original;
 }
 
-/// Raises the soft RLIMIT_NOFILE to the hard limit and returns the resulting limits.
-/// Records the pre-raise limits in OriginalNoFileLimit(). Failures are non-fatal:
-/// the limits actually in effect are returned (nullopt if getrlimit itself fails).
-inline std::optional<rlimit> RaiseNoFileSoftLimit() {
+/// Kernel ceiling for RLIMIT_NOFILE (fs.nr_open); setrlimit() fails with EPERM above it.
+inline rlim_t ReadNrOpen() {
+  constexpr rlim_t kDefaultNrOpen = 1048576;
+  rlim_t value = kDefaultNrOpen;
+  if (std::FILE *f = std::fopen("/proc/sys/fs/nr_open", "r")) {
+    unsigned long long parsed = 0;
+    if (std::fscanf(f, "%llu", &parsed) == 1 && parsed > 0) value = static_cast<rlim_t>(parsed);
+    std::fclose(f);
+  }
+  return value;
+}
+
+struct NoFileRaiseResult {
+  rlimit limit{};      // limits in effect after the attempt
+  int raise_errno{0};  // errno of a failed setrlimit(), 0 otherwise
+};
+
+/// Raises the soft RLIMIT_NOFILE to min(hard, nr_open). Records the pre-raise limits in
+/// OriginalNoFileLimit(). Failures are non-fatal: the limits actually in effect are returned together
+/// with the errno of a failed setrlimit(). nullopt if getrlimit itself fails.
+inline std::optional<NoFileRaiseResult> RaiseNoFileSoftLimit() {
   rlimit limit{};
   if (getrlimit(RLIMIT_NOFILE, &limit) != 0) return std::nullopt;
   OriginalNoFileLimit() = limit;
-  if (limit.rlim_cur < limit.rlim_max) {
+  NoFileRaiseResult result{.limit = limit};
+  const rlim_t target = std::min(limit.rlim_max, ReadNrOpen());
+  if (limit.rlim_cur < target) {
     rlimit raised = limit;
-    raised.rlim_cur = limit.rlim_max;
-    if (setrlimit(RLIMIT_NOFILE, &raised) == 0) limit = raised;
+    raised.rlim_cur = target;
+    if (setrlimit(RLIMIT_NOFILE, &raised) == 0) {
+      result.limit = raised;
+    } else {
+      result.raise_errno = errno;
+    }
   }
-  return limit;
+  return result;
 }
 
 }  // namespace memgraph::utils
