@@ -191,7 +191,8 @@ def execute_test(memgraph_binary, tester_binary):
         queries = []
         user_i = 0
         for line in reader:
-            timestamp, address, username, database, query, params = line
+            assert len(line) in (6, 7), f"Expected 6 or 7 audit log fields; got {len(line)}: {line}"
+            timestamp, address, username, database, query, params = line[:6]
             params = json.loads(params)
             print(database, query, params)
             # Skip all databases switching queries
@@ -202,8 +203,11 @@ def execute_test(memgraph_binary, tester_binary):
                 assert (
                     username == users[user_i]
                 ), f"Logged incorrect user. Expecting '{users[user_i]}'; got '{username}'"
+                assert len(line) == 7, f"Impersonated query must have 7 fields (login user); got {len(line)}: {line}"
+                assert line[6] == "admin", f"Logged incorrect login user. Expecting 'admin'; got '{line[6]}'"
                 user_i = user_i + 1
                 continue
+            assert len(line) == 6, f"Non-impersonated query must have exactly 6 fields; got {len(line)}: {line}"
             # Append to list of all queries
             queries.append((database, query, params))
 

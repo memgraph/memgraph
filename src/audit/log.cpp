@@ -158,13 +158,19 @@ Log::~Log() {
 }
 
 void Log::Record(const std::string &address, const std::string &username, const std::string &query,
-                 const memgraph::communication::bolt::map_t &params, const std::string &db) {
+                 const memgraph::communication::bolt::map_t &params, const std::string &db,
+                 const std::optional<std::string> &login_username) {
   if (!started_.load(std::memory_order_relaxed)) return;
   auto timestamp =
       std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch())
           .count();
-  buffer_->emplace(Item{
-      .timestamp = timestamp, .address = address, .username = username, .query = query, .params = params, .db = db});
+  buffer_->emplace(Item{.timestamp = timestamp,
+                        .address = address,
+                        .username = username,
+                        .query = query,
+                        .params = params,
+                        .db = db,
+                        .login_username = login_username});
 }
 
 bool Log::ReopenLog() {
@@ -192,14 +198,16 @@ void Log::Flush() {
       params_json.push_back(nlohmann::json::object_t::value_type(k, BoltValueToJson(v)));
     }
 
-    log_.Write(fmt::format("{}.{:06d},{},{},{},{},{}\n",
+    auto const login_column = item->login_username ? fmt::format(",{}", *item->login_username) : std::string{};
+    log_.Write(fmt::format("{}.{:06d},{},{},{},{},{}{}\n",
                            item->timestamp / 1'000'000,
                            item->timestamp % 1'000'000,
                            item->address,
                            item->username,
                            item->db,
                            utils::Escape(item->query),
-                           utils::Escape(params_json.dump())));
+                           utils::Escape(params_json.dump()),
+                           login_column));
   }
   log_.Sync();
 }
