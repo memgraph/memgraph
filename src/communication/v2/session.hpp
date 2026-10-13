@@ -499,17 +499,20 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
               return;
             }
             while (true) {
+              // Sampled before Execute(): the would-block probe happens inside it (see ParkAdmission).
+              const auto commit_epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::CommitLock);
+              const auto main_epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::MainLock);
               if (shared_this->session_.Execute()) {
                 if (shared_this->session_.HasPendingCommit()) {
                   // PULL/DISCARD's Commit() would block; park this worker until commit_mutex_ frees.
                   // Return now so a pipelined message can't run before the commit finishes.
-                  shared_this->PostFinishPendingCommit();
+                  shared_this->PostFinishPendingCommit(commit_epoch);
                   return;
                 }
                 if (shared_this->session_.HasPendingBegin()) {
                   // BEGIN/RUN-first-query would block on main_lock_; park until it frees (bounded
                   // by the finite storage-access deadline).
-                  shared_this->PostFinishPendingBegin();
+                  shared_this->PostFinishPendingBegin(main_epoch);
                   return;
                 }
                 // Check if we can just steal this task (loop through)
@@ -540,13 +543,14 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
 
   // Parks a would-block PULL/DISCARD commit on the pool under CommitLock, no deadline:
   // a commit must not be abandoned by timeout; the pool's monitor-sweep provides liveness.
-  void PostFinishPendingCommit() {
+  void PostFinishPendingCommit(uint64_t observed_epoch) {
     auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
       try {
+        const auto epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::CommitLock);
         switch (shared_this->session_.FinishPendingCommit()) {
           case memgraph::communication::bolt::PendingCommitOutcome::Reschedule:
             // commit_mutex_ still held; re-park and wait for the next WakeMatching({CommitLock}).
-            shared_this->PostFinishPendingCommit();
+            shared_this->PostFinishPendingCommit(epoch);
             return;
           case memgraph::communication::bolt::PendingCommitOutcome::Done:
           case memgraph::communication::bolt::PendingCommitOutcome::ClientError:
@@ -582,19 +586,21 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       session_context_->ParkAdmission(std::move(lambda),
                                       id,
                                       std::chrono::steady_clock::time_point::max(),
-                                      utils::WaitTag{utils::WaitResource::CommitLock, {}});
+                                      utils::WaitTag{utils::WaitResource::CommitLock, {}},
+                                      observed_epoch);
     }
   }
 
   // Parks a would-block BEGIN on the pool under MainLock with the FINITE storage-access deadline:
   // unlike commit, main_lock_ contention must time out to honour the storage-access timeout contract.
-  void PostFinishPendingBegin() {
+  void PostFinishPendingBegin(uint64_t observed_epoch) {
     auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
       try {
+        const auto epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::MainLock);
         switch (shared_this->session_.FinishPendingBegin()) {
           case memgraph::communication::bolt::PendingBeginOutcome::Reschedule:
             // main_lock_ still held; re-park and wait for the next WakeMatching({MainLock}).
-            shared_this->PostFinishPendingBegin();
+            shared_this->PostFinishPendingBegin(epoch);
             return;
           case memgraph::communication::bolt::PendingBeginOutcome::Done:
           case memgraph::communication::bolt::PendingBeginOutcome::ClientError:
@@ -631,7 +637,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       DMG_ASSERT(deadline != std::chrono::steady_clock::time_point::max(),
                  "PendingBegin park deadline must be finite (storage-access timeout)");
       session_context_->ParkAdmission(
-          std::move(lambda), id, deadline, utils::WaitTag{utils::WaitResource::MainLock, {}});
+          std::move(lambda), id, deadline, utils::WaitTag{utils::WaitResource::MainLock, {}}, observed_epoch);
     }
   }
 

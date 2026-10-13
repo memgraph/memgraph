@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -19,6 +20,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <queue>
 #include <thread>
 
@@ -211,7 +213,15 @@ class PriorityThreadPool {
 
   // PRECONDITION: must not be called while holding any Worker::mtx_.
   // The session continuation that calls this runs outside any worker lock.
-  void ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline, WaitTag tag);
+  // observed_epoch: WakeEpoch(tag.resource) sampled before the attempt that failed. If a wake has
+  // happened since, the task is re-posted instead of parked (closes the failed-probe -> park lost wake).
+  void ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline, WaitTag tag,
+                     std::optional<uint64_t> observed_epoch = std::nullopt);
+
+  // Monotonic count of WakeMatching calls for the resource.
+  uint64_t WakeEpoch(WaitResource resource) const noexcept {
+    return wake_epochs_[static_cast<size_t>(resource)].value.load(std::memory_order_seq_cst);
+  }
 
   // True iff parking the calling admission would let real work run. Yields the core only when
   // there is productive work queued AND no idle worker to take it.
@@ -285,6 +295,12 @@ class PriorityThreadPool {
     std::chrono::steady_clock::time_point deadline;
     WaitTag tag;
   };
+
+  struct alignas(64) WakeEpochCounter {
+    std::atomic<uint64_t> value{0};
+  };
+
+  std::array<WakeEpochCounter, 2> wake_epochs_;  // indexed by WaitResource
 
   std::mutex parked_mtx_;
   std::deque<ParkedAdmission> parked_admissions_;  // FIFO: push_back to park, front = oldest

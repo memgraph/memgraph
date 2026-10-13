@@ -60,9 +60,16 @@ struct Context {
   }
 
   // Park a task until a matching WakeMatching({resource}) fires.  deadline is advisory (monitor backstop).
-  void ParkAdmission(auto &&task, TaskID id, std::chrono::steady_clock::time_point deadline, utils::WaitTag tag) {
+  // observed_epoch: WakeEpoch() sampled before the failed attempt; a newer epoch re-posts instead of parking.
+  void ParkAdmission(auto &&task, TaskID id, std::chrono::steady_clock::time_point deadline, utils::WaitTag tag,
+                     uint64_t observed_epoch) {
     MG_ASSERT(worker_pool_, "Trying to park admission on a non-existent worker pool");
-    worker_pool_->ParkAdmission(std::forward<decltype(task)>(task), id, deadline, tag);
+    worker_pool_->ParkAdmission(std::forward<decltype(task)>(task), id, deadline, tag, observed_epoch);
+  }
+
+  // Wake epoch of the resource (0 when no pool is configured).
+  uint64_t WakeEpoch(utils::WaitResource resource) const noexcept {
+    return worker_pool_ ? worker_pool_->WakeEpoch(resource) : 0;
   }
 
   // True when the pool is shutting down; pending tasks should be dropped (teardown errors the client).

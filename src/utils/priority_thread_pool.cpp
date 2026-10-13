@@ -230,8 +230,9 @@ void PriorityThreadPool::ShutDown() {
       drain.swap(parked_admissions_);
       has_parked_.store(false, std::memory_order_release);
     }
-    // Running continuations directly lets the session driver observe IsDrainingAdmissions() and
-    // fail cleanly; stragglers that slip in after the swap are dropped by connection teardown.
+    // Each continuation runs inline once: a non-blocking commit/BEGIN retry that may complete, or return
+    // Reschedule and be dropped (IsDrainingAdmissions() suppresses the re-post), leaving the client to
+    // connection teardown. Stragglers that slip in after the swap are dropped by connection teardown.
     for (auto &e : drain) e.task(utils::Priority::LOW);
   }
   // After drain: pool_stop_source_ stop trips ScheduledReAddTask's stop-guard.
@@ -271,8 +272,8 @@ PriorityThreadPool::TaskID PriorityThreadPool::ScheduledReAddTask(TaskSignature 
   (void)priority;  // Not used for id computation here; kept for API symmetry with ScheduledAddTask
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
     // Shutting down (past the parked-set drain): run the woken continuation inline rather than
-    // dropping it. It observes IsDrainingAdmissions() and fails the client cleanly, exactly as
-    // ShutDown's drain does. Dropping here would lose a task that WakeMatching pulled from the deque
+    // dropping it. It makes one non-blocking retry and drops any re-post, exactly as ShutDown's drain
+    // does. Dropping here would lose a task that WakeMatching pulled from the deque
     // in the window where ShutDown swapped the parked set and then requested stop.
     task(utils::Priority::LOW);
     return 0;
@@ -345,11 +346,21 @@ uint32_t PriorityThreadPool::AdmissionRescheduleCap() const noexcept {
 }
 
 void PriorityThreadPool::ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline,
-                                       WaitTag tag) {
-  const std::unique_lock lk{parked_mtx_};
-  if (draining_admissions_.load(std::memory_order_acquire)) return;  // shutting down: drop; teardown errors the client
-  parked_admissions_.push_back({.id = id, .task = std::move(task), .deadline = deadline, .tag = tag});
-  has_parked_.store(true, std::memory_order_release);
+                                       WaitTag tag, std::optional<uint64_t> observed_epoch) {
+  {
+    const std::unique_lock lk{parked_mtx_};
+    if (draining_admissions_.load(std::memory_order_acquire)) return;  // shutting down: drop; teardown errors client
+    // seq_cst store-then-load pairs with WakeMatching's seq_cst epoch bump-then-load of has_parked_:
+    // either the waker sees has_parked_ (and then waits on parked_mtx_ for this entry) or we see the new epoch.
+    has_parked_.store(true, std::memory_order_seq_cst);
+    if (!observed_epoch || WakeEpoch(tag.resource) == *observed_epoch) {
+      parked_admissions_.push_back({.id = id, .task = std::move(task), .deadline = deadline, .tag = tag});
+      return;
+    }
+    has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
+  }
+  // A wake for this resource fired since the caller's failed attempt: re-post instead of parking.
+  ScheduledReAddTask(std::move(task), id, utils::Priority::LOW, /*productive=*/false);
 }
 
 bool PriorityThreadPool::ShouldParkAdmission() const noexcept {
@@ -357,9 +368,12 @@ bool PriorityThreadPool::ShouldParkAdmission() const noexcept {
 }
 
 void PriorityThreadPool::WakeMatching(FreedTag freed) {
-  // Relaxed fast-path: stale-true (false positive) wastes one lock acquisition; stale-false
+  // Bump before the fast-path check so a ParkAdmission racing with this wake observes it (see ParkAdmission).
+  wake_epochs_[static_cast<size_t>(freed.resource)].value.fetch_add(1, std::memory_order_seq_cst);
+
+  // Fast-path: stale-true (false positive) wastes one lock acquisition; stale-false
   // (false negative — real entry missed) is covered by the monitor sweep backstop.
-  if (!has_parked_.load(std::memory_order_relaxed)) return;
+  if (!has_parked_.load(std::memory_order_seq_cst)) return;
 
   using WakeEntry = std::pair<TaskID, TaskSignature>;
   std::vector<WakeEntry> wakeups;
@@ -375,8 +389,8 @@ void PriorityThreadPool::WakeMatching(FreedTag freed) {
     }
     has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
   }  // release parked_mtx_ BEFORE ScheduledReAddTask (which acquires Worker::mtx_)
-  // If the pool is draining, run the woken continuations inline (each fails the client cleanly via
-  // IsDrainingAdmissions()) instead of rescheduling onto workers that ShutDown is about to stop.
+  // If the pool is draining, run the woken continuations inline (one non-blocking retry each; any
+  // re-post is dropped via IsDrainingAdmissions()) instead of rescheduling onto workers that ShutDown is about to stop.
   // ScheduledReAddTask's own stop-guard covers the narrower window where stop is requested after this
   // check; between them a task pulled out of the deque here is never lost.
   const bool draining = draining_admissions_.load(std::memory_order_acquire);
