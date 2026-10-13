@@ -41,7 +41,10 @@ FD_LIMIT = 400
 HOLD_SECONDS = 2.5
 # A spinning accept loop burns ~HOLD_SECONDS of CPU on one thread; an idle thread burns ~0.
 MAX_THREAD_CPU_SECONDS = 0.5
-MAX_ACCEPT_LOG_LINES = 50
+# Time at the fd limit is < one throttle window (10 s), so each throttled listener logs at most once: Bolt, HTTP
+# (metrics), WebSocket, RPC.
+MAX_ACCEPT_LOG_LINES = 4
+ACCEPT_FAILED_RE = re.compile(r"accept failed \(.*\); retrying every \d+ms")
 RECOVERY_DEADLINE_SECONDS = 5.0
 CLK_TCK = os.sysconf("SC_CLK_TCK")
 
@@ -112,7 +115,7 @@ def metrics_ok(port):
 
 def accept_log_lines(log_path):
     with open(log_path, errors="replace") as f:
-        return sum(1 for line in f if "accept" in line.lower() and "accepted a" not in line.lower())
+        return sum(1 for line in f if ACCEPT_FAILED_RE.search(line))
 
 
 def accepted_connection_lines(log_path):
@@ -226,24 +229,33 @@ def test_no_busy_loop_or_log_flood_at_fd_limit(scenario):
     assert scenario["log_growth"] < 1_000_000, f"log grew by {scenario['log_growth']} bytes while at fd limit"
 
 
-def test_bolt_accepts_after_release(scenario):
-    assert retry(lambda: bolt_works(scenario["ports"]["bolt"]))
+def probe_bolt(scenario):
+    return retry(lambda: bolt_works(scenario["ports"]["bolt"]))
 
 
-def test_websocket_accepts_after_release(scenario):
-    assert retry(lambda: ws_handshake_works(scenario["ports"]["ws"]))
+def probe_websocket(scenario):
+    return retry(lambda: ws_handshake_works(scenario["ports"]["ws"]))
 
 
-def test_metrics_http_accepts_after_release(scenario):
+def probe_metrics(scenario):
     if not scenario["have_metrics"]:
         pytest.skip("metrics server not available (enterprise license required)")
-    assert retry(lambda: metrics_ok(scenario["ports"]["metrics"]))
+    return retry(lambda: metrics_ok(scenario["ports"]["metrics"]))
 
 
-def test_rpc_accepts_after_release(scenario):
+def probe_rpc(scenario):
     before = accepted_connection_lines(scenario["log_path"])
     with socket.create_connection(("127.0.0.1", scenario["ports"]["rpc"]), timeout=2):
-        assert retry(lambda: accepted_connection_lines(scenario["log_path"]) > before)
+        return retry(lambda: accepted_connection_lines(scenario["log_path"]) > before)
+
+
+@pytest.mark.parametrize(
+    "probe",
+    [probe_bolt, probe_websocket, probe_metrics, probe_rpc],
+    ids=["bolt", "websocket", "metrics_http", "rpc"],
+)
+def test_listener_accepts_after_release(scenario, probe):
+    assert probe(scenario)
 
 
 if __name__ == "__main__":
