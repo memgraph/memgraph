@@ -17,6 +17,7 @@
 import os
 import shutil
 import sys
+import time
 
 import interactive_mg_runner
 import pytest
@@ -133,7 +134,7 @@ def test_commit_fails_cleanly_when_wal_cannot_be_created(test_name, narrowing, a
 
     open(trigger_path(test_name), "w").close()
     for _ in range(3):  # a persisting failure fails every attempt, and none of them takes the process down
-        with pytest.raises(Exception, match="persist(e|a)nce error"):
+        with pytest.raises(Exception, match="persistence error"):
             write_txn(cursor)
         assert instance.is_running()
         assert count_nodes(cursor) == expected
@@ -214,6 +215,27 @@ def test_automatic_index_creation_is_retried_until_wal_can_be_created(test_name,
 
     os.remove(trigger_path(test_name))
     mg_sleep_and_assert(1, lambda: len(execute_and_fetch_all(cursor, "SHOW INDEX INFO")), max_duration=30)
+
+
+@pytest.mark.parametrize("narrowing", [False, True], ids=["narrowing_off", "narrowing_on"])
+def test_shutdown_is_prompt_while_index_creation_keeps_failing(test_name, narrowing, monkeypatch):
+    reset(test_name)
+    instances = instance_description(
+        test_name, narrowing, extra_args=["--storage-automatic-label-index-creation-enabled=true"]
+    )
+    start_with_shim(instances, "main", test_name, monkeypatch)
+    cursor = connect(host="localhost", port=MAIN_PORT).cursor()
+
+    execute_and_fetch_all(cursor, "MATCH (n:Auto) RETURN n")
+    with open(trigger_path(test_name), "w") as trigger:
+        trigger.write("1")
+    execute_and_fetch_all(cursor, f"CREATE (:Auto {{pad: '{PADDING * 32}'}})")
+    # The WAL creation stays failing, so the indexer keeps retrying with a growing backoff.
+    mg_sleep_and_assert(True, lambda: log_text(test_name).count("Async index creation could not be committed") >= 3)
+
+    started = time.monotonic()
+    interactive_mg_runner.stop(instances, "main")
+    assert time.monotonic() - started < 10
 
 
 if __name__ == "__main__":

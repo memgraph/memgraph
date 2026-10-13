@@ -2289,7 +2289,8 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
 
   // Initialize the WAL file.
   if (!wal_.Initialize(path_, kWalMagic, kVersion)) {
-    throw WalOpenError(fmt::format("Failed to open WAL file {}: {}", path_.string(), strerror(errno)));
+    auto const open_errno = errno;
+    throw WalOpenError(fmt::format("Failed to open WAL file {}: {}", path_.string(), strerror(open_errno)));
   }
 
   wal_.WriteMarker(Marker::SECTION_OFFSETS);

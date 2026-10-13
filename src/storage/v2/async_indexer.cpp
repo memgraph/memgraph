@@ -93,6 +93,13 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
             cv_.notify_all();  // wake CompleteRemaining waiters
           }};
 
+          // Releases mutex_ while backing off so Shutdown()/CompleteRemaining() are not blocked; false if cancelled.
+          auto const backoff_wait = [&]() {
+            cv_.wait_for(lock, backoff, cancel_check);
+            backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(10'000));  // 1.5x multiplier, max 10s
+            return !cancel_check();
+          };
+
           for (auto it = access.begin(); it != it_end;) {
             try {
               auto protector = storage->make_database_protector();
@@ -133,8 +140,7 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
               if (!result && std::holds_alternative<PersistenceError>(result.error())) {
                 // The index was not published (e.g. the WAL file could not be created); keep the request and retry.
                 spdlog::warn("Async index creation could not be committed. Retrying in {} ms.", backoff.count());
-                std::this_thread::sleep_for(backoff);
-                backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(10'000));
+                if (!backoff_wait()) return;
                 continue;
               }
 
@@ -145,8 +151,7 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
             } catch (ReadOnlyAccessTimeout &) {
               spdlog::info("Async index creation, was blocked by other transactions. Retrying in {} ms.",
                            backoff.count());
-              std::this_thread::sleep_for(backoff);
-              backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(10'000));  // 1.5x multiplier, max 10s
+              if (!backoff_wait()) return;
             }
           }
         }
