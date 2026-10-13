@@ -207,7 +207,7 @@ int Target(void *arg) {
   // The server raises its soft open files limit; the module gets the original one.
   if (const auto &original = memgraph::utils::OriginalNoFileLimit()) {
     if (setrlimit(RLIMIT_NOFILE, &*original) != 0) {
-      std::cerr << "Couldn't restore the open files limit for auth module!" << std::endl;
+      std::cerr << "Couldn't restore the open files limit for auth module!\n";
       // This isn't a fatal error.
     }
   }
