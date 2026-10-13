@@ -6670,9 +6670,10 @@ std::vector<ActiveUserInfo> GetActiveUsersInfo(InterpreterContext *interpreter_c
     std::vector<ActiveUserInfo> info;
     info.reserve(interpreters_.size());
     for (const auto &interpreter : interpreters_) {
-      // Not an atomic snapshot: db and user come from separate locked reads, so they may skew -- ok here.
-      auto db_view = interpreter->current_db_.foreign_db_view();
       auto session_info = interpreter->GetSessionInfoSnapshot();
+      if (session_info.uuid.empty()) continue;  // no logged-in session (pre-login or logged off)
+      // Not an atomic snapshot: session info and db come from separate locked reads, so they may skew -- ok here.
+      auto db_view = interpreter->current_db_.foreign_db_view();
       info.push_back({std::move(session_info), std::move(db_view.name), db_view.marked_for_deletion});
     }
 
@@ -7467,12 +7468,11 @@ auto ShowSessions(const std::unordered_set<Interpreter *> &interpreters, QueryUs
   for (const Interpreter *interpreter : interpreters) {
     auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
     if (!session_snapshot) continue;  // null snapshot: session is pre-login (mid-handshake) or logged off — skip
-    auto const user_snapshot = interpreter->foreign_user_view_.load(std::memory_order_acquire);
     // Empty db means the session holds no database (db-less); db_for_check falls back to kDefaultDB for the
     // privilege check only — the display value remains empty to reflect the true session state.
     auto db = interpreter->current_db_.foreign_db_view().name;
     auto db_for_check = db.empty() ? std::string{dbms::kDefaultDB} : db;
-    if (SameUser(user_snapshot, user_or_role) || privilege_checker(user_or_role, db_for_check)) {
+    if (SameUser(session_snapshot->user, user_or_role) || privilege_checker(user_or_role, db_for_check)) {
       results.push_back({TypedValue(session_snapshot->uuid),
                          TypedValue(session_snapshot->username),
                          TypedValue(db),
@@ -12032,18 +12032,26 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
 }
 #endif
 
-void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp) {
+void Interpreter::SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp,
+                                 std::shared_ptr<QueryUserOrRole> user) {
   session_log_ctx_.SetSessionUuid(uuid);
   const std::scoped_lock lock{session_info_mutex_};
-  session_info_ = {
-      .uuid = std::move(uuid), .username = std::move(username), .login_timestamp = std::move(login_timestamp)};
+  session_info_ = {.uuid = std::move(uuid),
+                   .username = std::move(username),
+                   .login_timestamp = std::move(login_timestamp),
+                   .user = std::move(user)};
   foreign_session_view_.store(std::make_shared<const SessionInfo>(session_info_), std::memory_order_release);
 }
 
 void Interpreter::ResetUser() {
   user_or_role_.reset();
   foreign_user_view_.store(nullptr, std::memory_order_release);
-  // LOGOFF: drop the published session snapshot too, so SHOW/TERMINATE SESSIONS don't see a logged-off session.
+  // LOGOFF: drop the session info and its published snapshot, so SHOW/TERMINATE SESSIONS and SHOW ACTIVE USERS don't
+  // see a logged-off session.
+  {
+    const std::scoped_lock lock{session_info_mutex_};
+    session_info_ = {};
+  }
   foreign_session_view_.store(nullptr, std::memory_order_release);
   session_log_ctx_.ClearUser();
 #ifdef MG_ENTERPRISE
