@@ -17,6 +17,7 @@
 
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_state.hpp"
+#include "coordination/replication_instance_client.hpp"
 #include "replication_coordination_glue/common.hpp"
 
 #include "rpc_messages.hpp"
@@ -232,6 +233,60 @@ TEST(RpcVersioning, GetDBHistoriesV3ToV2Server) {
     ASSERT_EQ(reply.arg_.dbs_info.size(), 1);
     EXPECT_EQ(reply.arg_.dbs_info[0].num_committed_txns, 2);
   }
+  {
+    memgraph::coordination::ReplicationInstanceClient const instance_client{
+        "instance_1", endpoint, nullptr, 1s, std::nullopt};
+    auto const info = instance_client.SendGetDatabaseHistoriesRpc();
+    ASSERT_TRUE(info.has_value());
+    auto const dbs_info_res = std::vector{memgraph::replication_coordination_glue::InstanceDBInfo{
+        .db_uuid = "123", .num_committed_txns = 2, .broken = false}};
+    EXPECT_EQ(info->dbs_info, dbs_info_res);
+  }
+}
+
+// A transient V3 failure on a V3-capable instance must not be read through V2, which has no broken bit.
+TEST(RpcVersioning, GetDBHistoriesTransientV3FailureKeepsBrokenBit) {
+  Endpoint const endpoint{"localhost", port};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    ASSERT_TRUE(rpc_server.Shutdown());
+    rpc_server.AwaitShutdown();
+  }};
+
+  std::atomic<int> v3_requests{0};
+  rpc_server.Register<memgraph::coordination::GetDatabaseHistoriesRpc>(
+      [&v3_requests](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                     uint64_t const request_version,
+                     auto * /*req_reader*/,
+                     auto *res_builder) {
+        // The first V3 request fails (an undowngradable response drops the connection), later ones succeed
+        if (request_version == memgraph::coordination::GetDatabaseHistoriesReqV2::kVersion ||
+            (request_version == memgraph::coordination::GetDatabaseHistoriesReq::kVersion && v3_requests++ == 0)) {
+          memgraph::coordination::GetDatabaseHistoriesResV2 res;
+          res.arg_.last_committed_system_timestamp = 81;
+          res.arg_.dbs_info = std::vector{
+              memgraph::replication_coordination_glue::InstanceDBInfoV2{.db_uuid = "123", .num_committed_txns = 0}};
+          memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+          return;
+        }
+        memgraph::coordination::GetDatabaseHistoriesRes res;
+        res.arg_.last_committed_system_timestamp = 81;
+        res.arg_.dbs_info = std::vector{memgraph::replication_coordination_glue::InstanceDBInfo{
+            .db_uuid = "123", .num_committed_txns = 0, .broken = true}};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  memgraph::coordination::ReplicationInstanceClient const instance_client{
+      "instance_1", endpoint, nullptr, 1s, std::nullopt};
+  auto const info = instance_client.SendGetDatabaseHistoriesRpc();
+  ASSERT_TRUE(info.has_value());
+  ASSERT_EQ(info->dbs_info.size(), 1);
+  EXPECT_TRUE(info->dbs_info[0].broken);
 }
 
 namespace memgraph::coordination {

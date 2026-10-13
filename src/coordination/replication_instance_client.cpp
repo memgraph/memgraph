@@ -116,32 +116,51 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     g.get_database_histories_rpc_fail->Increment();
     return {};
   } catch (const rpc::RpcFailedException &e) {
-    // ISSU, only when coordinators are upgraded before data instances: retry as V2 (no broken bit, read as not broken).
-    // Once V3 has succeeded the instance is V3-capable, so V2 would fail open on a transient failure; fail the RPC.
+    // ISSU, only when coordinators are upgraded before data instances: an old instance can't answer V3. Once V3 has
+    // succeeded the instance is V3-capable and V2 would fail open (no broken bit) on a transient failure.
     if (v3_histories_supported_.load(std::memory_order_acquire)) {
       spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
       g.get_database_histories_rpc_fail->Increment();
       return {};
     }
-    if (!v2_fallback_logged_.exchange(true, std::memory_order_acq_rel)) {
-      spdlog::warn(
-          "GetDatabaseHistoriesReq V3 failed for instance {} ({}). Falling back to V2; the broken-database state of "
-          "this instance is unavailable (old data instance).",
-          instance_name_,
-          e.what());
-    }
   }
 
+  std::optional<replication_coordination_glue::InstanceInfo> v2_info;
   try {
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpcV2>()};
-    auto res = stream.SendAndWait();
-    g.get_database_histories_rpc_success->Increment();
-    return replication_coordination_glue::ToInstanceInfo(res.arg_);
+    v2_info = replication_coordination_glue::ToInstanceInfo(stream.SendAndWait().arg_);
   } catch (const rpc::RpcFailedException &e) {
     spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
     g.get_database_histories_rpc_fail->Increment();
     return {};
   }
+
+  // The instance answered V2, so the link is up: an old instance fails V3 again, a V3-capable one doesn't.
+  try {
+    auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
+    auto res = stream.SendAndWait();
+    g.get_database_histories_rpc_success->Increment();
+    v3_histories_supported_.store(true, std::memory_order_release);
+    return res.arg_;
+  } catch (const rpc::RpcTimeoutException &e) {
+    spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
+    g.get_database_histories_rpc_fail->Increment();
+    return {};
+  } catch (const rpc::RpcFailedToConnectException &e) {
+    spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
+    g.get_database_histories_rpc_fail->Increment();
+    return {};
+  } catch (const rpc::RpcFailedException &e) {
+    if (!v2_fallback_logged_.exchange(true, std::memory_order_acq_rel)) {
+      spdlog::warn(
+          "Instance {} doesn't support GetDatabaseHistoriesReq V3 ({}); using V2. Its broken-database state is "
+          "unavailable until it is upgraded.",
+          instance_name_,
+          e.what());
+    }
+  }
+  g.get_database_histories_rpc_success->Increment();
+  return v2_info;
 }
 
 auto ReplicationInstanceClient::SendGetReplicationLagRpc() const
