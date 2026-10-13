@@ -410,6 +410,9 @@ class Interpreter final {
     std::string uuid;
     std::string username;
     std::string login_timestamp;
+    // Login principal (null when none, e.g. coordinator); SHOW/TERMINATE SESSIONS gate on it, not the impersonated
+    // user.
+    std::shared_ptr<QueryUserOrRole> user;
   };
 
   // Owning-thread only: written/read by SetUser/ResetUser/SetSessionInfo on the same thread.
@@ -431,7 +434,7 @@ class Interpreter final {
 #endif
   std::unique_ptr<CachedFineGrainedAuth> cached_fga_;
   SessionInfo session_info_;
-  // Leaf lock for session_info_; only the foreign GetActiveUsersInfo reader locks (owning-thread reads serialized).
+  // Leaf lock for session_info_: taken by SetSessionInfo/ResetUser (writes) and GetSessionInfoSnapshot (foreign read).
   mutable std::mutex session_info_mutex_;
   // Published snapshots of user_or_role_ and session_info_ for foreign readers; atomic<shared_ptr> makes
   // load() refcount-safe (raw ptr/relaxed atomic reintroduces UAF). Keep WHOLE: operator== checks username+rolenames
@@ -651,7 +654,8 @@ class Interpreter final {
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
 #endif
 
-  void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp);
+  void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp,
+                      std::shared_ptr<QueryUserOrRole> user);
 
   SessionInfo GetSessionInfoSnapshot() const {
     std::lock_guard lock{session_info_mutex_};
