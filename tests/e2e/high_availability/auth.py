@@ -1661,7 +1661,7 @@ def test_explicit_transactions_are_rejected_on_a_coordinator(test_name):
     # A coordinator has no database, so BEGIN is refused before an auth transaction can be created. That matters
     # beyond the error message: a coordinator commits role changes through Raft and has no replication state, so
     # an auth transaction reaching COMMIT there would ask for a system transaction it must never have. If this
-    # test starts failing because BEGIN succeeds, the coordinator guard in Interpreter::Commit is what keeps it
+    # test starts failing because BEGIN succeeds, the coordinator guard in Interpreter::CommitAuthTransaction is what keeps it
     # from crashing, and it needs a test of its own.
     inner_instances_description = get_coords_only_description(test_name=test_name)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
