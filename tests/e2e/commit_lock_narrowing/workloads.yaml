@@ -1,0 +1,13 @@
+commit_lock_narrowing_cluster: &commit_lock_narrowing_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-enabled=commit-lock-narrowing", "--scheduler=priority_queue", "--bolt-num-workers=2", "--storage-access-timeout-sec=30"]
+      log_file: "commit_lock_narrowing.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Commit lock narrowing: parked commits and admissions are acknowledged"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["commit_lock_narrowing/test_commit_lock_narrowing.py"]
+    <<: *commit_lock_narrowing_cluster
