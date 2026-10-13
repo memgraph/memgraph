@@ -4628,6 +4628,10 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
   // This is to make sure SHOW SNAPSHOTS, CREATE SNAPSHOT, and some replication
   // stuff are mutually exclusive from each other
   auto const snapshot_guard = std::unique_lock(snapshot_lock_);
+  // A replica recovery holds this lock across Clear() and the load; the storage may have broken while we waited.
+  if (IsBroken()) {
+    return std::unexpected{CreateSnapshotError::AbortSnapshot};
+  }
 
   auto const make_accessor = [&]() {
     if (storage_mode_ == StorageMode::IN_MEMORY_ANALYTICAL) {
