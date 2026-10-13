@@ -3700,9 +3700,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         anonymous_identifiers.push_back(&edge->total_weight_);
       }
     };
-    // A v3.13 KSHORTEST filter `(e, n, p | ...)` now parses as the weight lambda, which sees one edge and
-    // the node it reaches, never a path. The weighted and all shortest path expansions keep accepting an
-    // extra argument the body does not read.
+    // KSHORTEST's weight lambda sees one edge and its node, never a path. WSHORTEST and ALLSHORTEST
+    // still accept an accumulator the body does not read.
     auto reject_accumulators_in_weight_lambda = [&]() {
       if (edge->type_ == EdgeAtom::Type::KSHORTEST && edge->weight_lambda_.accumulated_path) {
         throw SemanticException(

@@ -4063,12 +4063,8 @@ namespace {
 
 bool CostLess(const TypedValue &lhs, const TypedValue &rhs);
 
-/// Adds two path costs for the search, whose sum only orders paths. A null operand is the additive
-/// identity: the seed's "nothing traversed yet" and the target's own zero distance in the reverse tree.
-/// Every edge weight is non-null - the KSHORTEST weight lambda throws on null - so this never hides one.
-/// The search adds costs no served path carries (the reverse tree, a spur's priority), so an Int sum that
-/// overflows becomes the Double of its size instead of an error. `AddServedCost` gives the total a served
-/// path shows.
+/// Sum that only orders the search. Null is the identity (the seed; the target in the reverse tree).
+/// An Int overflow becomes a Double: no path shows this sum. See `AddServedCost`.
 TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull()) return rhs;
   if (rhs.IsNull()) return lhs;
@@ -4103,9 +4099,8 @@ TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
   return lhs + rhs;
 }
 
-/// Orders two path costs exactly, with null - only ever the seed - below everything. No tolerance: two
-/// equal doubles order by hop count and then arbitrarily, as any other tie does. Double totals are rounded
-/// sums, so paths whose exact weights differ by about half an ulp per hop can come out in either order.
+/// Exact order; null (the seed) sorts first. Double sums round, so paths within about half an ulp
+/// per hop can come out in either order.
 bool CostLess(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && !rhs.IsNull();
   ValidateWeightTypes(lhs, rhs);
@@ -4124,9 +4119,7 @@ struct KShortestHopCost {
 /// A user-supplied weight lambda is the cost, ordered by `(total weight, hop count)`.
 struct KShortestWeightCost {
   static constexpr bool kWeighted = true;
-  /// `nullopt` is "blocked"; otherwise the arc's own weight, so one memo entry answers the access
-  /// check, the filter lambda and the weight at once. Weights are scalars - numeric or a Duration,
-  /// enforced by `ValidateWeight` - so the `TypedValue` here never owns an allocation.
+  /// `nullopt` = blocked; otherwise the arc's weight. One memo entry covers access check, filter and weight.
   using Verdict = std::optional<TypedValue>;
 
   struct Payload {
@@ -4178,10 +4171,8 @@ class KShortestPathsCursor : public Cursor {
     // A cost switch only, not a semantic one: `ShouldExpand` agrees either way.
     memoize_expansion_ = self_.filter_lambda_.expression != nullptr || FineGrainedChecksActive(context);
 
-    // Walks `current_path_index_` up to the next path long enough to serve, generating more when the
-    // already-found ones run out. Under weights a path shorter than the lower bound can turn up at
-    // any point in the enumeration, so the bound is a serving filter rather than a one-off top-up;
-    // in hop-count mode the paths only grow, so this skips the same prefix the top-up loop did.
+    // Advances to the next path at least `lower_bound_` long, generating more as needed. Under weights a
+    // short path can turn up late, so the bound filters at serving time.
     auto advance_to_servable = [&] {
       if (!current_source_.has_value() || !current_target_.has_value()) return false;
       while (true) {
@@ -4382,9 +4373,8 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::vector<VertexAccessor> bfs_source_next_;
   utils::pmr::vector<VertexAccessor> bfs_target_next_;
 
-  // Memoised `access check && filter lambda` verdicts, and under weights the arc's weight with them.
-  // Sound across Yen's inner searches because the blocked sets - the only per-deviation inputs - are
-  // checked outside the memo.
+  // Memoised access-check and filter verdicts, plus the weight under weights. The blocked sets are
+  // checked outside, so a verdict holds across Yen's inner searches.
   utils::pmr::unordered_map<ExpansionKey, typename Cost::Verdict, ExpansionKeyHash> expansion_memo_;
   bool memoize_expansion_{false};
 
@@ -4423,10 +4413,8 @@ class KShortestPathsCursor : public Cursor {
     int64_t parent;
   };
 
-  /// `dist(v, target)` over the unblocked graph this row's filters leave, built once per input row:
-  /// exact for Duration and for Int sums that fit, rounded for Double and larger Int sums. Blocking only raises true
-  /// distances, so it stays an admissible and consistent heuristic for every spur search, and a vertex missing from it
-  /// can never reach the target.
+  /// `dist(v, target)` on this row's filtered graph, blocked sets ignored: the A* heuristic.
+  /// A vertex missing from it cannot reach the target.
   utils::pmr::unordered_map<VertexAccessor, TypedValue, VertexAccessorHash> reverse_dist_;
 
   std::priority_queue<WeightedQueueEntry, utils::pmr::vector<WeightedQueueEntry>, WeightedQueueComparator> weighted_pq_;
@@ -4476,9 +4464,7 @@ class KShortestPathsCursor : public Cursor {
       VertexAccessor deviation_vertex = source;
       // The base path is itself a found path, so this walk never falls off the trie.
       uint64_t trie_node = 0;
-      // The root prefix's cost, grown edge by edge as the walk passes them. A candidate costs this
-      // plus its spur; under hop count it stays null and the hop count does the ordering.
-      // Assigned only in the weighted instantiation.
+      // The root prefix's cost; a candidate costs this plus its spur. Weighted mode only.
       // NOLINTNEXTLINE(misc-const-correctness)
       TypedValue root_weight;
 
@@ -4534,9 +4520,8 @@ class KShortestPathsCursor : public Cursor {
   void GenerateCandidatesFromDeviation(const VertexAccessor &target, const PathInfo &base_path, size_t deviation_index,
                                        const VertexAccessor &deviation_vertex, const TypedValue &root_weight,
                                        Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    // The candidate's total is `deviation_index + spur_len`, so the spur gets what's left of it. Under weights
-    // it starts from the root's cost, so a candidate's total is its path's weights added left to right, the
-    // same sum whichever deviation produced it.
+    // The spur gets the hops the root leaves. Under weights it starts at the root's cost, so the total
+    // is the path's weights summed left to right.
     auto spur_path = ComputeShortestPath(deviation_vertex,
                                          target,
                                          upper_bound_ - static_cast<int64_t>(deviation_index),
@@ -4779,10 +4764,8 @@ class KShortestPathsCursor : public Cursor {
 
   // --- weighted spur search ---------------------------------------------------------------------
 
-  /// The access check, then the filter lambda, then the weight - one memo entry per `(edge, head)`
-  /// answers all three. `head` is the vertex the arc reaches in the *forward* direction whichever
-  /// way this search walks it, so the reverse tree and the spur searches can never disagree about
-  /// an arc, and the memo needs no pass in its key.
+  /// Access check, filter, then weight; one memo entry per `(edge, head)`. `head` is the forward head
+  /// whichever way the search walks, so the reverse tree and the spurs agree on every arc.
   std::optional<TypedValue> WeightedVerdict(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame,
                                             ExpressionEvaluator &evaluator, ExecutionContext &context) {
     const ExpansionKey key{.edge = edge.Gid(), .head = head.Gid()};
@@ -4813,18 +4796,16 @@ class KShortestPathsCursor : public Cursor {
     return std::move(verdict).value_or(TypedValue());
   }
 
-  /// Whether a state settled at `(settled_depth, settled_cost)` rules out `(depth, cost)` at the same
-  /// vertex. One no deeper and no cheaper always does. Under a hop cap that is all: a cheaper but
-  /// deeper state may run out of hops. Without one, a cheaper state rules out every dearer one.
+  /// Whether settled `(settled_depth, settled_cost)` rules out `(depth, cost)` at the same vertex: it is
+  /// no deeper and no dearer, or, without a hop cap, strictly cheaper.
   bool Dominates(int64_t settled_depth, const TypedValue &settled_cost, int64_t depth, const TypedValue &cost) const {
     if (CostLess(cost, settled_cost)) return false;
     if (settled_depth <= depth) return true;
     return upper_bound_ == std::numeric_limits<int64_t>::max() && CostLess(settled_cost, cost);
   }
 
-  /// A dominated state can only lead to worse paths, so it is dropped. That is also what keeps every
-  /// returned path simple: coming back to a vertex costs at least as much - weights are non-negative -
-  /// and always takes more hops.
+  /// Dropping dominated states also keeps paths simple: weights are non-negative, so a revisit is never
+  /// cheaper and always deeper.
   bool IsDominated(const VertexAccessor &vertex, int64_t depth, const TypedValue &cost) const {
     const auto it = settled_.find(vertex);
     if (it == settled_.end()) return false;
@@ -4857,14 +4838,9 @@ class KShortestPathsCursor : public Cursor {
     return out;
   }
 
-  /// One reverse Dijkstra from the target per input row, over the whole graph this row's filters
-  /// leave - Yen's blocked sets are deliberately ignored. An arc `u -> v` of the forward search is
-  /// walked here from `v`, and its weight and filter verdict are read in the forward sense, so the
-  /// tree agrees with the spur searches edge for edge. It weighs every arc that can reach the target,
-  /// so an invalid weight raises an error even on an arc no path from the source takes, unless the
-  /// filter lambda or an access check rules the arc out first. Under `USING HOPS LIMIT` the tree spends
-  /// the budget on everything that can reach the target, so a row can serve no path where the hop-count
-  /// search, which spends it only around the endpoints, still finds one.
+  /// Reverse Dijkstra from the target, once per row, on this row's filtered graph; arcs read forward.
+  /// It weighs every arc that can reach the target, so an invalid weight raises unless filtered out.
+  /// Under `USING HOPS LIMIT` it can spend the budget, and the row then serves no path.
   void BuildReverseTree(const VertexAccessor &target, Frame &frame, ExpressionEvaluator &evaluator,
                         ExecutionContext &context) {
     // `ResetState` left the search state and the tree empty for this row.
@@ -4938,11 +4914,8 @@ class KShortestPathsCursor : public Cursor {
     }
   }
 
-  /// Yen's spur search under weights: A* from `source`, over the graph minus `blocked_edges_` and
-  /// `blocked_vertices_`, with the reverse tree as the heuristic. Blocking only raises true
-  /// distances, so that heuristic stays admissible and consistent and the first pop of the target
-  /// is optimal. `upper_bound` is the hop budget this spur has left, and `start_cost` the cost of the root it
-  /// extends, so the path it returns carries its full total.
+  /// Yen's spur search: A* from `source` on the unblocked graph with `reverse_dist_` as the heuristic, so
+  /// the first pop of the target is optimal. `upper_bound` is the hops left; `start_cost` the root's cost.
   PathInfo ComputeShortestPathWeighted(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
                                        const TypedValue &start_cost, Frame &frame, ExpressionEvaluator &evaluator,
                                        ExecutionContext &context) {
