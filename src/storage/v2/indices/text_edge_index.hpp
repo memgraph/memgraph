@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <mutex>
 #include <nlohmann/json_fwd.hpp>
 
@@ -45,6 +46,10 @@ struct TextEdgeIndexData {
   /// Set by DropIndex so the context stays valid for existing snapshots until
   /// the last reference is released.
   bool deferred_drop{false};
+
+  /// Set when a post-commit update failed even after a retry; Search/Aggregate then throw until the index is
+  /// dropped and re-created.
+  std::atomic<bool> dirty{false};
 
   TextEdgeIndexData(mgcxx::text_search::Context context, EdgeTypeId scope, std::vector<PropertyId> properties)
       : context(std::move(context)), scope(scope), properties(std::move(properties)) {}
