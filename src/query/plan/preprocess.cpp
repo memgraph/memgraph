@@ -93,6 +93,11 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
               collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.accumulated_weight));
             }
           }
+          // A no-op while the weight expression is not visited above; keep it next to that visit.
+          if (edge->weight_lambda_.expression) {
+            collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
+            collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
+          }
         }
         expansions.emplace_back(Expansion{
             prev_node, edge, edge->direction_, false, collector.symbols_, current_node, unknown_expansion_group_id});
