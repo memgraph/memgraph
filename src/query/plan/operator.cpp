@@ -4397,8 +4397,8 @@ class KShortestPathsCursor : public Cursor {
   };
 
   struct WeightedQueueComparator {
-    // Reversed, like `PathComparator`: `std::priority_queue` serves its maximum, and the cheapest
-    // entry has to come out first.
+    // Reversed, like `PathComparator`: the heap serves its maximum, and the cheapest entry has to
+    // come out first.
     bool operator()(const WeightedQueueEntry &lhs, const WeightedQueueEntry &rhs) const {
       if (const auto order = CostCompare(lhs.priority, rhs.priority); std::is_neq(order)) return std::is_gt(order);
       return lhs.depth > rhs.depth;
@@ -4416,7 +4416,22 @@ class KShortestPathsCursor : public Cursor {
   /// A vertex missing from it cannot reach the target.
   utils::pmr::unordered_map<VertexAccessor, TypedValue, VertexAccessorHash> reverse_dist_;
 
-  std::priority_queue<WeightedQueueEntry, utils::pmr::vector<WeightedQueueEntry>, WeightedQueueComparator> weighted_pq_;
+  // A heap by hand, as `candidate_paths_`: `priority_queue::top()` is const, so a pop would copy.
+  utils::pmr::vector<WeightedQueueEntry> weighted_pq_;
+
+  void PushWeighted(WeightedQueueEntry &&entry) {
+    weighted_pq_.push_back(std::move(entry));
+    std::push_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedQueueComparator{});
+  }
+
+  WeightedQueueEntry PopWeighted() {
+    std::pop_heap(weighted_pq_.begin(), weighted_pq_.end(), WeightedQueueComparator{});
+    // NOLINTNEXTLINE(misc-const-correctness)
+    WeightedQueueEntry entry = std::move(weighted_pq_.back());
+    weighted_pq_.pop_back();
+    return entry;
+  }
+
   utils::pmr::vector<SearchTreeNode> search_tree_;
 
   /// Per vertex, the settled `(depth, cost)` pairs no other one dominates: a Pareto front under a hop
@@ -4766,11 +4781,19 @@ class KShortestPathsCursor : public Cursor {
 
   /// Access check, filter, then weight; one memo entry per `(edge, head)`. `head` is the forward head
   /// whichever way the search walks, so the reverse tree and the spurs agree on every arc.
-  std::optional<TypedValue> WeightedVerdict(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame,
-                                            ExpressionEvaluator &evaluator, ExecutionContext &context) {
+  const TypedValue *WeightedVerdict(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame,
+                                    ExpressionEvaluator &evaluator, ExecutionContext &context) {
     const ExpansionKey key{.edge = edge.Gid(), .head = head.Gid()};
-    if (const auto it = expansion_memo_.find(key); it != expansion_memo_.end()) return it->second;
+    auto it = expansion_memo_.find(key);
+    if (it == expansion_memo_.end()) {
+      it = expansion_memo_.emplace(key, ComputeWeightedVerdict(edge, head, frame, evaluator, context)).first;
+    }
+    // Stable: the memo only grows within a row, and an `unordered_map` keeps its elements across a rehash.
+    return it->second ? &*it->second : nullptr;
+  }
 
+  std::optional<TypedValue> ComputeWeightedVerdict(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame,
+                                                   ExpressionEvaluator &evaluator, ExecutionContext &context) {
     std::optional<TypedValue> verdict;
     if (ArcAllowed(edge, head, frame, evaluator, context)) {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
@@ -4781,18 +4804,19 @@ class KShortestPathsCursor : public Cursor {
       ValidateKShortestWeight(weight);
       verdict.emplace(std::move(weight));
     }
-    expansion_memo_.emplace(key, verdict);
     return verdict;
   }
 
   /// The weight of an edge a found path already walks, read back out of the memo.
-  TypedValue EdgeWeight(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame,
-                        ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    auto verdict = WeightedVerdict(edge, head, frame, evaluator, context);
+  const TypedValue &EdgeWeight(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame,
+                               ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    const auto *weight = WeightedVerdict(edge, head, frame, evaluator, context);
     // A found path's edges were accepted by a search in this row, and verdicts are memoised for the
     // whole row, so this is a hit that already said yes.
-    DMG_ASSERT(verdict.has_value(), "a found path's edge must still pass the expansion checks");
-    return std::move(verdict).value_or(TypedValue());
+    if (weight == nullptr) [[unlikely]] {
+      throw QueryRuntimeException("A KSHORTEST path lost the weight of one of its relationships.");
+    }
+    return *weight;
   }
 
   /// Whether settled `(settled_depth, settled_cost)` rules out `(depth, cost)` at the same vertex: it is
@@ -4822,7 +4846,7 @@ class KShortestPathsCursor : public Cursor {
   }
 
   void ClearWeightedSearchState() {
-    while (!weighted_pq_.empty()) weighted_pq_.pop();
+    weighted_pq_.clear();
     search_tree_.clear();
     settled_.clear();
   }
@@ -4844,17 +4868,16 @@ class KShortestPathsCursor : public Cursor {
   void BuildReverseTree(const VertexAccessor &target, Frame &frame, ExpressionEvaluator &evaluator,
                         ExecutionContext &context) {
     // `ResetState` left the search state and the tree empty for this row.
-    weighted_pq_.push(WeightedQueueEntry{.priority = TypedValue(),
-                                         .cost = TypedValue(),
-                                         .depth = 0,
-                                         .vertex = target,
-                                         .in_edge = std::nullopt,
-                                         .parent = -1});
+    PushWeighted(WeightedQueueEntry{.priority = TypedValue(),
+                                    .cost = TypedValue(),
+                                    .depth = 0,
+                                    .vertex = target,
+                                    .in_edge = std::nullopt,
+                                    .parent = -1});
 
     while (!weighted_pq_.empty()) {
       AbortCheck(context);
-      auto entry = weighted_pq_.top();
-      weighted_pq_.pop();
+      auto entry = PopWeighted();
       // First pop of a vertex is its cheapest walk to the target; later ones are stale.
       if (!reverse_dist_.emplace(entry.vertex, entry.cost).second) continue;
       if (context.hops_limit.IsLimitReached()) break;
@@ -4864,12 +4887,12 @@ class KShortestPathsCursor : public Cursor {
         const auto weight = WeightedVerdict(edge, entry.vertex, frame, evaluator, context);
         if (!weight) return;
         auto cost = AddCost(entry.cost, *weight);
-        weighted_pq_.push(WeightedQueueEntry{.priority = cost,
-                                             .cost = std::move(cost),
-                                             .depth = 0,
-                                             .vertex = predecessor,
-                                             .in_edge = std::nullopt,
-                                             .parent = -1});
+        PushWeighted(WeightedQueueEntry{.priority = cost,
+                                        .cost = std::move(cost),
+                                        .depth = 0,
+                                        .vertex = predecessor,
+                                        .in_edge = std::nullopt,
+                                        .parent = -1});
       };
 
       // `u -> v` over an out-edge of `u` is an in-edge of `v`, and vice versa.
@@ -4898,12 +4921,12 @@ class KShortestPathsCursor : public Cursor {
       auto cost = AddCost(from.cost, *weight);
       if (IsDominated(next, depth, cost)) return;
       auto priority = AddCost(cost, heuristic->second);
-      weighted_pq_.push(WeightedQueueEntry{.priority = std::move(priority),
-                                           .cost = std::move(cost),
-                                           .depth = depth,
-                                           .vertex = next,
-                                           .in_edge = edge,
-                                           .parent = tree_node});
+      PushWeighted(WeightedQueueEntry{.priority = std::move(priority),
+                                      .cost = std::move(cost),
+                                      .depth = depth,
+                                      .vertex = next,
+                                      .in_edge = edge,
+                                      .parent = tree_node});
     };
 
     if (self_.common_.direction != EdgeAtom::Direction::IN) {
@@ -4926,20 +4949,19 @@ class KShortestPathsCursor : public Cursor {
     if (source_dist == reverse_dist_.end()) return PathInfo(memory);
 
     ClearWeightedSearchState();
-    weighted_pq_.push(WeightedQueueEntry{.priority = AddCost(start_cost, source_dist->second),
-                                         .cost = start_cost,
-                                         .depth = 0,
-                                         .vertex = source,
-                                         .in_edge = std::nullopt,
-                                         .parent = -1});
+    PushWeighted(WeightedQueueEntry{.priority = AddCost(start_cost, source_dist->second),
+                                    .cost = start_cost,
+                                    .depth = 0,
+                                    .vertex = source,
+                                    .in_edge = std::nullopt,
+                                    .parent = -1});
 
     while (!weighted_pq_.empty()) {
       AbortCheck(context);
       // An expansion the hops limit cut short may have missed a cheaper route, so a later pop of the
       // target proves nothing.
       if (context.hops_limit.IsLimitReached()) break;
-      auto entry = weighted_pq_.top();
-      weighted_pq_.pop();
+      auto entry = PopWeighted();
 
       if (IsDominated(entry.vertex, entry.depth, entry.cost)) continue;
       RecordSettled(entry.vertex, entry.depth, entry.cost);
@@ -5058,6 +5080,7 @@ class KShortestPathsCursor : public Cursor {
       reached->rehash(0);
     }
     ClearWeightedSearchState();
+    weighted_pq_.shrink_to_fit();
     search_tree_.shrink_to_fit();
     settled_.rehash(0);
   }
