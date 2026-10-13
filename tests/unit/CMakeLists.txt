@@ -115,6 +115,11 @@ add_unit_test(interpreter
     TEST_PROPERTIES COST 150
 )
 
+add_unit_test(ai_license_embedding_memory
+    SOURCES ai_license_embedding_memory.cpp
+    LINK_TARGETS mg-communication mg-query mg-glue mg-dbms
+)
+
 add_unit_test(query_plan_pruning_bfs
     SOURCES query_plan_pruning_bfs.cpp
     LINK_TARGETS mg-query

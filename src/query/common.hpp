@@ -12,10 +12,12 @@
 /// @file
 #pragma once
 
+#include <algorithm>
 #include <concepts>
 #include <cstdint>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include <range/v3/view/zip.hpp>
 

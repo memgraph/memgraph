@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
 namespace memgraph::query::relations::equality {
 
@@ -32,6 +33,13 @@ bool AnyValueWithin(const TypedValue &value, auto const &holds) {
     case TypedValue::Type::Map:
       return std::ranges::any_of(value.UnsafeValueMap(),
                                  [&](auto const &entry) { return AnyValueWithin(entry.second, holds); });
+    case TypedValue::Type::VectorRef: {
+      // Read as the list of doubles it materializes to, without making one.
+      thread_local std::vector<float> floats;
+      value.MaterializeVectorRefInto(floats);
+      return std::ranges::any_of(floats,
+                                 [&](float element) { return holds(TypedValue(static_cast<double>(element))); });
+    }
     default:
       return holds(value);
   }
@@ -66,7 +74,11 @@ constexpr auto kIsUndecidable = [](const TypedValue &value) {
 
 }  // namespace
 
-bool HoldsANull(const TypedValue &value) { return AnyValueWithin(value, kIsNull); }
+bool HoldsANull(const TypedValue &value) {
+  // An embedding is floats, so there is nothing to materialize to learn it holds no Null.
+  if (value.type() == TypedValue::Type::VectorRef) return false;
+  return AnyValueWithin(value, kIsNull);
+}
 
 bool EqualsItself(const TypedValue &value) { return !AnyValueWithin(value, kIsUndecidable); }
 
@@ -108,6 +120,24 @@ TypedValue EqualOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b, Typ
     }
   }
   return undecided ? TypedValue(alloc) : TypedValue(true, alloc);
+}
+
+TypedValue EqualOfVectorRefs(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc) {
+  thread_local std::vector<float> floats_a;
+  thread_local std::vector<float> floats_b;
+  a.MaterializeVectorRefInto(floats_a);
+  b.MaterializeVectorRefInto(floats_b);
+  return TypedValue(floats_a == floats_b, alloc);
+}
+
+TypedValue EqualOfVectorRefAndOther(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc) {
+  // Only a list can be equal to an embedding. It is materialized with the default allocator so that
+  // the transient list is freed here rather than held by the query's arena.
+  auto const &embedding = a.type() == TypedValue::Type::VectorRef ? a : b;
+  auto const &other = a.type() == TypedValue::Type::VectorRef ? b : a;
+  if (other.type() != TypedValue::Type::List) return TypedValue(false, alloc);
+  auto const list = embedding.MaterializeVectorRef(TypedValue::allocator_type{});
+  return EqualOfLists(list.UnsafeValueList(), other.UnsafeValueList(), alloc);
 }
 
 }  // namespace memgraph::query::relations::equality

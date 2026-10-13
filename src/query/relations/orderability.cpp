@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <vector>
 
 import memgraph.storage.property_value;
 
@@ -40,6 +41,7 @@ constexpr std::optional<storage::Stretch> StoredRunOf(TypedValue::Type type) {
     case String:
       return storage::StretchOf(storage::PropertyValueType::String);
     case List:
+    case VectorRef:
       return storage::StretchOf(storage::PropertyValueType::List);
     case Map:
       return storage::StretchOf(storage::PropertyValueType::Map);
@@ -111,6 +113,26 @@ static_assert(ASortRefinesTheStoredOrder(),
 std::partial_ordering CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b) {
   return std::lexicographical_compare_three_way(
       a.begin(), a.end(), b.begin(), b.end(), [](TypedValue const &x, TypedValue const &y) { return Compare(x, y); });
+}
+
+std::partial_ordering CompareOfVectorRefs(TypedValue const &a, TypedValue const &b) {
+  thread_local std::vector<float> floats_a;
+  thread_local std::vector<float> floats_b;
+  a.MaterializeVectorRefInto(floats_a);
+  b.MaterializeVectorRefInto(floats_b);
+  return std::lexicographical_compare_three_way(
+      floats_a.begin(), floats_a.end(), floats_b.begin(), floats_b.end(), [](float x, float y) {
+        return PlaceDoubles(x, y);
+      });
+}
+
+std::partial_ordering CompareOfVectorRefAndList(TypedValue const &a, TypedValue const &b) {
+  auto const a_is_embedding = a.type() == TypedValue::Type::VectorRef;
+
+  // Materialized with the default allocator so the transient list is not held by the query's arena.
+  auto const list = (a_is_embedding ? a : b).MaterializeVectorRef(TypedValue::allocator_type{});
+  return a_is_embedding ? CompareOfLists(list.UnsafeValueList(), b.UnsafeValueList())
+                        : CompareOfLists(a.UnsafeValueList(), list.UnsafeValueList());
 }
 
 }  // namespace memgraph::query::relations::orderability

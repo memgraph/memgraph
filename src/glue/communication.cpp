@@ -267,6 +267,13 @@ storage::Result<Value> ToBoltValue(const query::TypedValue &value, const storage
       return storage::Result<Value>{std::in_place, ToBoltVertex(value.ValueVirtualNode(), *db)};
     }
 
+    case query::TypedValue::Type::VectorRef: {
+      // Materialize the lazy embedding into a transient List of Doubles, then
+      // encode using the same path as a regular TypedValue::List.
+      const query::TypedValue materialized = value.MaterializeVectorRef(value.get_allocator());
+      return ToBoltValue(materialized, db, view, auth_checker);
+    }
+
     // Unsupported conversions
     case query::TypedValue::Type::Function: {
       throw communication::bolt::ValueException("Unsupported conversion from TypedValue::Function to Value");

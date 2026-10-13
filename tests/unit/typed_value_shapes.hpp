@@ -33,11 +33,11 @@ inline constexpr std::array kEveryTypedValueType{
     query::TypedValue::Type::LocalDateTime, query::TypedValue::Type::ZonedDateTime,
     query::TypedValue::Type::Duration,      query::TypedValue::Type::Enum,
     query::TypedValue::Type::Point2d,       query::TypedValue::Type::Point3d,
-    query::TypedValue::Type::String,        query::TypedValue::Type::List,
-    query::TypedValue::Type::Map,           query::TypedValue::Type::Path,
-    query::TypedValue::Type::Graph,         query::TypedValue::Type::VirtualGraph,
-    query::TypedValue::Type::Function,      query::TypedValue::Type::VirtualEdge,
-    query::TypedValue::Type::VirtualNode,
+    query::TypedValue::Type::VectorRef,     query::TypedValue::Type::String,
+    query::TypedValue::Type::List,          query::TypedValue::Type::Map,
+    query::TypedValue::Type::Path,          query::TypedValue::Type::Graph,
+    query::TypedValue::Type::VirtualGraph,  query::TypedValue::Type::Function,
+    query::TypedValue::Type::VirtualEdge,   query::TypedValue::Type::VirtualNode,
 };
 
 /// The types whose value is held in the union outright, owning nothing that has to be released:
@@ -63,12 +63,15 @@ inline constexpr std::array kTypesWithoutAnAllocation{
     query::TypedValue::Type::Enum,
     query::TypedValue::Type::Point2d,
     query::TypedValue::Type::Point3d,
+    query::TypedValue::Type::VectorRef,
 };
 
 /// The types no shape is made of. A function is bound to a call rather than
-/// held as a value a test can write down, and the three virtual types are made
-/// by a projection out of values it has already produced.
+/// held as a value a test can write down, the three virtual types are made
+/// by a projection out of values it has already produced, and a lazy embedding
+/// names a stored vector the index holds.
 inline constexpr std::array kUnshapedTypedValueTypes{
+    query::TypedValue::Type::VectorRef,
     query::TypedValue::Type::Function,
     query::TypedValue::Type::VirtualGraph,
     query::TypedValue::Type::VirtualEdge,

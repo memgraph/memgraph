@@ -39,6 +39,18 @@ namespace memgraph::query::relations::equality {
 TypedValue EqualOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b, TypedValue::allocator_type alloc);
 TypedValue EqualOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b, TypedValue::allocator_type alloc);
 
+/// The two cases of a lazy embedding, which equality reads as the list of doubles it materializes to.
+///
+/// Two embeddings are compared through float buffers reused by the thread, so that a sort or a hash
+/// join over them never allocates in the query's arena. A float widens to a double exactly, so
+/// comparing the floats answers what the list of doubles would, a NaN included.
+///
+/// @pre Both are VectorRef.
+TypedValue EqualOfVectorRefs(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc);
+
+/// @pre One is a VectorRef and the other is not.
+TypedValue EqualOfVectorRefAndOther(const TypedValue &a, const TypedValue &b, TypedValue::allocator_type alloc);
+
 /// Whether a Null sits anywhere within the value, however deeply nested.
 ///
 /// Ask this before answering equality from anything other than this relation. A
@@ -81,7 +93,12 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
   // defined in the value's own translation unit and are calls anywhere else.
   // Every element of a container reaches this.
   if (a.type() != b.type()) {
-    if (!AreMixedNumbers(a.type(), b.type())) return TypedValue(false, alloc);
+    if (!AreMixedNumbers(a.type(), b.type())) {
+      // A lazy embedding is equal to the list it would materialize to, and to nothing else.
+      if (a.type() == TypedValue::Type::VectorRef || b.type() == TypedValue::Type::VectorRef) [[unlikely]]
+        return EqualOfVectorRefAndOther(a, b, alloc);
+      return TypedValue(false, alloc);
+    }
     return TypedValue(std::is_eq(ComparePayloadOfMixedNumbers(a, b)), alloc);
   }
 
@@ -131,6 +148,8 @@ inline TypedValue Equal(const TypedValue &a, const TypedValue &b) {
     case TypedValue::Type::Function:
     case TypedValue::Type::Null:
       LOG_FATAL("Unhandled comparison for types");
+    case TypedValue::Type::VectorRef:
+      return EqualOfVectorRefs(a, b, alloc);
   }
 }
 
