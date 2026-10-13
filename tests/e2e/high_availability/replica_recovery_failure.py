@@ -114,14 +114,6 @@ def vertex_count(cursor):
     return execute_and_fetch_all(cursor, "MATCH (n) RETURN count(n)")[0][0]
 
 
-def start_fresh(instances):
-    interactive_mg_runner.start_all(instances, keep_directories=False)
-
-
-def register_replica(main_cursor):
-    execute_and_fetch_all(main_cursor, f"REGISTER REPLICA r1 ASYNC TO 'localhost:{REPLICA_REPL_PORT}'")
-
-
 def write_batches(main_cursor, batches, snapshot):
     for _ in range(batches):
         execute_and_fetch_all(main_cursor, "UNWIND range(1, 3000) AS i CREATE (:Node {id: i})")
@@ -133,11 +125,11 @@ def prepare_replica_needing_snapshot(test_name):
     """Replica holding NUM_NODES nodes (and a snapshot of them) is stopped, MAIN moves on and prunes its WAL chain, so
     the replica needs a snapshot to catch up. Returns the instances and the replica's snapshot dir."""
     instances = get_instances(test_name)
-    start_fresh(instances)
+    interactive_mg_runner.start_all(instances, keep_directories=False)
     main_cursor = connect(host="localhost", port=MAIN_BOLT).cursor()
     replica_cursor = connect(host="localhost", port=REPLICA_BOLT).cursor()
     execute_and_fetch_all(replica_cursor, f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICA_REPL_PORT}")
-    register_replica(main_cursor)
+    execute_and_fetch_all(main_cursor, f"REGISTER REPLICA r1 ASYNC TO 'localhost:{REPLICA_REPL_PORT}'")
     execute_and_fetch_all(main_cursor, f"UNWIND range(1, {NUM_NODES}) AS i CREATE (:Node {{id: i}})")
     mg_sleep_and_assert(NUM_NODES, partial(vertex_count, replica_cursor))
     replica_snapshots = os.path.join(data_dir(test_name, "replica"), "snapshots")
@@ -160,7 +152,7 @@ def setup_failed_snapshot_load(test_name):
 
 
 def test_failed_snapshot_load_is_broken_and_writes_no_snapshots(test_name):
-    instances, before = setup_failed_snapshot_load(test_name)
+    _, before = setup_failed_snapshot_load(test_name)
     replica_cursor = connect(host="localhost", port=REPLICA_BOLT).cursor()
     replica_snapshots = os.path.join(data_dir(test_name, "replica"), "snapshots")
 
@@ -173,6 +165,13 @@ def test_failed_snapshot_load_is_broken_and_writes_no_snapshots(test_name):
     time.sleep(4)
     assert health(replica_cursor) == "broken"
     assert files_in(replica_snapshots) == before
+
+    # Once MAIN has a loadable snapshot, the next recovery heals the replica.
+    main_cursor = connect(host="localhost", port=MAIN_BOLT).cursor()
+    execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT")
+    expected = vertex_count(main_cursor)
+    mg_sleep_and_assert("ready", partial(health, replica_cursor), max_duration=60)
+    mg_sleep_and_assert(expected, partial(vertex_count, replica_cursor))
 
 
 def test_restart_after_failed_snapshot_load_restores_data(test_name):
@@ -194,22 +193,13 @@ def test_restart_after_failed_snapshot_load_restores_data(test_name):
     assert vertex_count(replica_cursor) == NUM_NODES
 
 
-def test_broken_replica_converges_once_main_has_good_snapshot(test_name):
-    instances, _ = setup_failed_snapshot_load(test_name)
-    main_cursor = connect(host="localhost", port=MAIN_BOLT).cursor()
-    replica_cursor = connect(host="localhost", port=REPLICA_BOLT).cursor()
-
-    execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT")
-    expected = vertex_count(main_cursor)
-    mg_sleep_and_assert("ready", partial(health, replica_cursor), max_duration=60)
-    mg_sleep_and_assert(expected, partial(vertex_count, replica_cursor))
-
-
 def test_unreadable_received_snapshot_leaves_replica_untouched(test_name):
     # MAIN only sends snapshots whose header it can read, so the received file is damaged on the replica itself: a
     # read transaction holds the replica's main lock after the snapshot lands in its snapshots dir, and the header is
-    # overwritten before the transaction ends.
+    # overwritten before the transaction ends. MAIN is stopped while the replica comes up and is only started once the
+    # blocker transaction and the watcher are in place, so the first snapshot it sends is already covered.
     instances, replica_snapshots = prepare_replica_needing_snapshot(test_name)
+    interactive_mg_runner.stop(instances, "main", keep_directories=True)
     main_names = files_in(os.path.join(data_dir(test_name, "main"), "snapshots"))
     assert main_names
     stop = threading.Event()
@@ -218,8 +208,11 @@ def test_unreadable_received_snapshot_leaves_replica_untouched(test_name):
     def damage_received_snapshot():
         while not stop.is_set():
             for name in main_names & files_in(replica_snapshots):
-                with open(os.path.join(replica_snapshots, name), "r+b") as fh:
-                    fh.write(b"\xff" * 64)
+                try:
+                    with open(os.path.join(replica_snapshots, name), "r+b") as fh:
+                        fh.write(b"\xff" * 64)
+                except FileNotFoundError:  # already deleted by the replica
+                    continue
                 damaged.set()
 
     interactive_mg_runner.start(instances, "replica")
@@ -233,13 +226,15 @@ def test_unreadable_received_snapshot_leaves_replica_untouched(test_name):
     assert blocker is not None
     blocker.autocommit = False
     blocker_cursor = blocker.cursor()
-    pre_failure_count = vertex_count(blocker_cursor)
-    assert pre_failure_count == NUM_NODES
+    assert vertex_count(blocker_cursor) == NUM_NODES
 
     watcher = threading.Thread(target=damage_received_snapshot)
     watcher.start()
     try:
+        interactive_mg_runner.start(instances, "main")
         assert damaged.wait(timeout=60), "MAIN never sent its snapshot"
+        # The replica's handler keeps going after the peer is gone, and MAIN can no longer re-send an undamaged file.
+        interactive_mg_runner.kill(instances, "main", keep_directories=True)
         blocker.rollback()
         mg_sleep_and_assert(
             True,
@@ -254,7 +249,7 @@ def test_unreadable_received_snapshot_leaves_replica_untouched(test_name):
     assert health(replica_cursor) == "ready"
     assert vertex_count(replica_cursor) == NUM_NODES
     assert "Clearing database" not in log_text(test_name, "replica")
-    # The damaged file is deleted; MAIN's retries only re-create it while the watcher is running.
+    # The damaged file is deleted by the replica.
     mg_sleep_and_assert(True, lambda: main_names.isdisjoint(files_in(replica_snapshots)))
 
 
