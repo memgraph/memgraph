@@ -391,3 +391,96 @@ Feature: KSHORTEST weight lambda
             | '1' | 1     |
             | '2' | 1     |
             | '3' | 2     |
+
+    # Three Int weights of 2^62 overflow a 64-bit sum before the Double weight is added.
+    Scenario: A Double weight after an overflowed Int sum still overflows
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (s:N {id: 's'})-[:R {w: 4611686018427387904}]->(:N)-[:R {w: 4611686018427387904}]->(:N)
+                   -[:R {w: 4611686018427387904}]->(:N)-[:R {w: 0.5}]->(t:N {id: 't'}),
+                   (s)-[:R {w: 1.0e19}]->(t)
+            """
+        When executing query:
+            """
+            MATCH (s:N {id: 's'}), (t:N {id: 't'}) WITH s, t
+            MATCH p=(s)-[:R *KSHORTEST (e, n | e.w) total]->(t) RETURN size(relationships(p)) AS hops, total
+            """
+        Then an error should be raised
+
+    Scenario: An overflowed path cheaper than a Double path raises at the first path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (s:N {id: 's'})-[:R {w: 4611686018427387904}]->(:N)-[:R {w: 4611686018427387904}]->(:N)
+                   -[:R {w: 4611686018427387904}]->(:N)-[:R {w: 0.5}]->(t:N {id: 't'}),
+                   (s)-[:R {w: 1.0e20}]->(t)
+            """
+        When executing query:
+            """
+            MATCH (s:N {id: 's'}), (t:N {id: 't'}) WITH s, t
+            MATCH p=(s)-[:R *KSHORTEST|1 (e, n | e.w) total]->(t) RETURN size(relationships(p)) AS hops, total
+            """
+        Then an error should be raised
+
+    # The Double weight comes first, so the sum is a Double before it passes 2^63 and never overflows.
+    Scenario: A Double weight before large Int weights does not overflow
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (s:N {id: 's'})-[:R {w: 0.5}]->(:N)-[:R {w: 4611686018427387904}]->(:N)
+                   -[:R {w: 4611686018427387904}]->(:N)-[:R {w: 4611686018427387904}]->(t:N {id: 't'}),
+                   (s)-[:R {w: 1.0e19}]->(t)
+            """
+        When executing query:
+            """
+            MATCH (s:N {id: 's'}), (t:N {id: 't'}) WITH s, t
+            MATCH p=(s)-[:R *KSHORTEST (e, n | e.w) total]->(t) RETURN size(relationships(p)) AS hops, total
+            """
+        Then the result should be, in order:
+            | hops | total                  |
+            | 1    | 1e+19                  |
+            | 4    | 1.3835058055282164e+19 |
+
+    # The search orders an overflowed Int sum by its size, so a cheaper Double path is still served first.
+    Scenario: A path whose Int sum overflows orders after a cheaper path
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (s1:N {id: 's1'})-[:R {w: 4611686018427387904}]->(:N)-[:R {w: 4611686018427387904}]->(:N)
+                   -[:R {w: 0.5}]->(:N)-[:R {w: 4611686018427387904}]->(:N)-[:R {w: 4611686018427387904}]->(t1:N {id: 't1'}),
+                   (s1)-[:R {w: 1.0e19}]->(t1),
+                   (s2:N {id: 's2'})-[:R {w: 4611686018427387904}]->(:N)-[:R {w: 4611686018427387904}]->(:N)
+                   -[:R {w: 4611686018427387904}]->(t2:N {id: 't2'}),
+                   (s2)-[:R {w: 1.0e19}]->(t2)
+            """
+        When executing query:
+            """
+            UNWIND ['1', '2'] AS g
+            MATCH (s:N {id: 's' + g}), (t:N {id: 't' + g}) WITH g, s, t
+            MATCH p=(s)-[:R *KSHORTEST|1 (e, n | e.w) total]->(t) RETURN g, size(relationships(p)) AS hops, total ORDER BY g
+            """
+        Then the result should be, in order:
+            | g   | hops | total |
+            | '1' | 1    | 1e+19 |
+            | '2' | 1    | 1e+19 |
+
+    Scenario: A total of exactly INT64_MAX does not overflow
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:N {id: 's1'})-[:R {w: 9223372036854775807}]->(:N {id: 't1'}),
+                   (:N {id: 's2'})-[:R {w: 0.5}]->(:N)-[:R {w: 9223372036854775807}]->(:N {id: 't2'}),
+                   (:N {id: 's3'})-[:R {w: 9223372036854775807}]->(:N)-[:R {w: 0.5}]->(:N {id: 't3'})
+            """
+        When executing query:
+            """
+            UNWIND ['1', '2', '3'] AS g
+            MATCH (s:N {id: 's' + g}), (t:N {id: 't' + g}) WITH g, s, t
+            MATCH p=(s)-[:R *KSHORTEST (e, n | e.w) total]->(t) RETURN g, total ORDER BY g
+            """
+        Then the result should be, in order:
+            | g   | total                 |
+            | '1' | 9223372036854775807   |
+            | '2' | 9.223372036854776e+18 |
+            | '3' | 9.223372036854776e+18 |

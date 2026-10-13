@@ -4065,28 +4065,33 @@ namespace {
 /// and the target's own zero distance in the reverse tree. Every edge weight is non-null - the
 /// KSHORTEST weight lambda throws on null - so this never hides one.
 ///
-/// An Int sum saturates at INT64_MAX rather than wrapping. The search adds costs no served path carries
-/// (the reverse tree, a spur's priority), so it cannot throw here; a saturated cost orders after every
-/// finite one, and `CheckServedTotal` refuses it on a path that is served.
+/// The search's sum, which only orders paths. The search adds costs no served path carries (the reverse
+/// tree, a spur's priority), so an Int sum that overflows becomes the Double of its size instead of an
+/// error. `AddServedCost` gives the total a served path shows.
 TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull()) return rhs;
   if (rhs.IsNull()) return lhs;
   ValidateWeightTypes(lhs, rhs);
   if (lhs.IsInt() && rhs.IsInt()) {
     int64_t sum{};
-    if (__builtin_add_overflow(lhs.ValueInt(), rhs.ValueInt(), &sum))
-      return TypedValue(std::numeric_limits<int64_t>::max());
+    if (__builtin_add_overflow(lhs.ValueInt(), rhs.ValueInt(), &sum)) {
+      return TypedValue(static_cast<double>(lhs.ValueInt()) + static_cast<double>(rhs.ValueInt()));
+    }
     return TypedValue(sum);
   }
   return lhs + rhs;
 }
 
-/// A served Int total at INT64_MAX is a saturated sum: the path's true total does not fit in 64 bits.
-/// A total of exactly INT64_MAX is refused with it.
-void CheckServedTotal(const TypedValue &total) {
-  if (total.IsInt() && total.ValueInt() == std::numeric_limits<int64_t>::max()) {
-    throw QueryRuntimeException("The total weight of a KSHORTEST path overflows a 64-bit integer.");
+/// A served path's total, added weight by weight in path order. An Int sum that overflows is an error.
+TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
+  if (lhs.IsInt() && rhs.IsInt()) {
+    int64_t sum{};
+    if (__builtin_add_overflow(lhs.ValueInt(), rhs.ValueInt(), &sum)) {
+      throw QueryRuntimeException("The total weight of a KSHORTEST path overflows a 64-bit integer.");
+    }
+    return TypedValue(sum);
   }
+  return AddCost(lhs, rhs);
 }
 
 /// Orders two path costs exactly, with null - only ever the seed - below everything. No tolerance: two
@@ -4167,7 +4172,7 @@ class KShortestPathsCursor : public Cursor {
         Cost::kWeighted || self_.filter_lambda_.expression != nullptr || FineGrainedChecksActive(context);
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
-      PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
+      PushPathToFrame(shortest_paths_[current_path_index_++], frame, evaluator, context);
       n_returned_paths_++;
     };
 
@@ -4417,9 +4422,9 @@ class KShortestPathsCursor : public Cursor {
   };
 
   /// `dist(v, target)` over the unblocked graph this row's filters leave, built once per input row:
-  /// exact for Int and Duration weights, rounded for Double. Blocking only raises true distances, so it stays an
-  /// admissible and consistent heuristic for every spur search, and a vertex missing from it can never reach the
-  /// target.
+  /// exact for Duration and for Int sums that fit, rounded for Double and larger Int sums. Blocking only raises true
+  /// distances, so it stays an admissible and consistent heuristic for every spur search, and a vertex missing from it
+  /// can never reach the target.
   utils::pmr::unordered_map<VertexAccessor, TypedValue, VertexAccessorHash> reverse_dist_;
 
   std::priority_queue<WeightedQueueEntry, utils::pmr::vector<WeightedQueueEntry>, WeightedQueueComparator> weighted_pq_;
@@ -4996,16 +5001,27 @@ class KShortestPathsCursor : public Cursor {
     return PathInfo(memory);
   }
 
-  void PushPathToFrame(const PathInfo &path, Frame *frame, utils::MemoryResource *memory, ExecutionContext &context) {
+  void PushPathToFrame(const PathInfo &path, Frame &frame, ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    auto *memory = evaluator.GetMemoryResource();
     auto edge_list = TypedValue::TVector(memory);
     for (const auto &edge : path.edges) {
       edge_list.emplace_back(edge);
     }
-    auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, memory);
-    frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
     if constexpr (Cost::kWeighted) {
-      CheckServedTotal(path.cost.total);
-      frame_writer.Write(self_.total_weight_.value(), TypedValue(path.cost.total, memory));
+      // Added again, in path order: the search's cost only orders, and an overflow is an error only here.
+      TypedValue total;
+      VertexAccessor at = current_source_.value();
+      for (const auto &edge : path.edges) {
+        const VertexAccessor next = (edge.From() == at) ? edge.To() : edge.From();
+        total = AddServedCost(total, EdgeWeight(edge, next, frame, evaluator, context));
+        at = next;
+      }
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
+      frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
+      frame_writer.Write(self_.total_weight_.value(), TypedValue(std::move(total), memory));
+    } else {
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
+      frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
     }
   }
 
