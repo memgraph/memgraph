@@ -4065,6 +4065,8 @@ namespace {
 /// and the target's own zero distance in the reverse tree. Every edge weight is non-null - the
 /// KSHORTEST weight lambda throws on null - so this never hides one.
 ///
+bool CostLess(const TypedValue &lhs, const TypedValue &rhs);
+
 /// The search's sum, which only orders paths. The search adds costs no served path carries (the reverse
 /// tree, a spur's priority), so an Int sum that overflows becomes the Double of its size instead of an
 /// error. `AddServedCost` gives the total a served path shows.
@@ -4079,11 +4081,19 @@ TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
     }
     return TypedValue(sum);
   }
-  return lhs + rhs;
+  // A Double added to an Int above 2^53 can round below the Int. A cost that drops lets a cycle look
+  // cheaper than the path that skips it, and the search would keep a path that repeats a vertex.
+  auto sum = lhs + rhs;
+  if (CostLess(sum, lhs)) return lhs;
+  if (CostLess(sum, rhs)) return rhs;
+  return sum;
 }
 
-/// A served path's total, added weight by weight in path order. An Int sum that overflows is an error.
+/// A served path's total, added weight by weight in path order. An Int sum that overflows is an error, and
+/// unlike `AddCost` nothing is promoted or held up: the total is the plain left-to-right sum.
 TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
+  if (lhs.IsNull()) return rhs;
+  ValidateWeightTypes(lhs, rhs);
   if (lhs.IsInt() && rhs.IsInt()) {
     int64_t sum{};
     if (__builtin_add_overflow(lhs.ValueInt(), rhs.ValueInt(), &sum)) {
@@ -4091,7 +4101,7 @@ TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
     }
     return TypedValue(sum);
   }
-  return AddCost(lhs, rhs);
+  return lhs + rhs;
 }
 
 /// Orders two path costs exactly, with null - only ever the seed - below everything. No tolerance: two
