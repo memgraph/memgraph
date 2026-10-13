@@ -89,6 +89,14 @@ def test_sso_successful():
             assert len(current_user_result) == 1 and current_user_result[0]["user"] == USERNAME
 
 
+def test_sso_module_inherits_no_sockets():
+    response = base64.b64encode(b"no_inherited_sockets").decode("utf-8")
+    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+        client.verify_connectivity()
+
+
 def test_sso_show_current_role_with_architect_role():
     response = base64.b64encode(b"dummy_value").decode("utf-8")
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
