@@ -1482,7 +1482,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
       // data dir while `fresh` still holds it open.
       auto rollback_to_cold = [&] {
         acc.reset();  // drop our accessor
-        // ~Gatekeeper<Database> runs now: it seals `fresh`, so background workers armed by on_resume_
+        // ~Gatekeeper<Database> runs now: it seals `fresh`, so its background workers
         // mint no new protectors, waits for the ones they hold to drain, then ~Database ->
         // RemoveDatabase(uuid) + storage teardown complete.
         {
@@ -1491,7 +1491,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
         gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
       };
       try {
-        if (on_resume_) on_resume_(acc);  // PRE-PUBLISH arm (triggers/streams/TTL re-arm)
+        if (on_resume_) on_resume_(acc);  // PRE-PUBLISH arm (triggers/streams re-arm)
         {
           // PUBLISH — move-assign the fresh HOT gatekeeper over the RESUMING shell, under lock_.
           // `acc` survives the move (it points at fresh's pimpl, which the unique_ptr move transfers
@@ -1593,6 +1593,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
       best_effort("recording the resume system action (may not replicate until the next system sync)", [&] {
         if (txn) txn->AddAction<ResumeDatabase>(salient.uuid, acc);
         spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
+      });
+      best_effort("post-publish resume arm", [&] {
+        if (on_published_) on_published_(acc);
       });
       // Winner's own successful publish: a real COLD -> HOT rebuild, so already_hot is false.
       if (already_hot) *already_hot = false;

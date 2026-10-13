@@ -193,6 +193,8 @@ struct GKInternals {
   GKInternals &operator=(GKInternals const &) = delete;
   GKInternals &operator=(GKInternals &&) = delete;
 
+  bool is_live() const { return value_ && state_ == GatekeeperState::HOT; }
+
   std::unique_ptr<T> value_;
   uint64_t count_ = 0;
   std::atomic_bool is_marked_for_deletion = false;
@@ -227,6 +229,8 @@ struct Gatekeeper {
   // (`*gk = std::move(fresh)`) relies on this: it overwrites a RESUMING shell while holding the handler
   // lock_, and would deadlock if overwriting instead invoked the blocking ~Gatekeeper. Keep this
   // `= default` (and keep ~GKInternals from waiting) or that publish path hangs.
+  // PRECONDITION: the overwritten gatekeeper has no live accessors (count_ == 0), since its internals are
+  // freed without waiting. The publish overwrites a value-less RESUMING shell, which refuses access().
   Gatekeeper &operator=(Gatekeeper &&) noexcept = default;
 
   struct Accessor {
@@ -414,7 +418,7 @@ struct Gatekeeper {
     // and stop driving recovery on a tenant that is going away. access() is NOT gated on the seal so
     // the teardown worker can still mint an Accessor to run its own stop steps on a HOT-but-sealed shell,
     // and so the accessor count drains to 0 allowing ~Gatekeeper to proceed.
-    if (pimpl_->value_ && pimpl_->state_ == GatekeeperState::HOT) {
+    if (pimpl_->is_live()) {
       return Accessor{pimpl_.get()};
     }
     return std::nullopt;
@@ -429,9 +433,7 @@ struct Gatekeeper {
     std::optional<Accessor> access() const {
       if (!owner_) return std::nullopt;
       auto guard = std::unique_lock{owner_->mutex_};
-      if (!owner_->value_ || owner_->state_ != GatekeeperState::HOT || owner_->is_marked_for_deletion) {
-        return std::nullopt;
-      }
+      if (!owner_->is_live() || owner_->is_marked_for_deletion) return std::nullopt;
       return Accessor{owner_};
     }
 

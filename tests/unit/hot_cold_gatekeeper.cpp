@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <atomic>
 #include <chrono>
 #include <optional>
 #include <thread>
@@ -405,6 +406,24 @@ struct SelfAware {
   }
 };
 
+// Mints accessors through its Ref on a background thread until refused, which ~RefWorker then joins.
+struct RefWorker {
+  Gatekeeper<RefWorker>::Ref ref;
+  std::atomic_bool minted = false;
+  std::jthread worker;
+
+  void BindGatekeeper(Gatekeeper<RefWorker>::Ref bound) {
+    ref = bound;
+    worker = std::jthread{[this] {
+      while (ref.access()) minted = true;
+    }};
+  }
+
+  void WaitUntilMinted() const {
+    while (!minted) std::this_thread::yield();
+  }
+};
+
 }  // namespace
 
 TEST(HotColdGatekeeper, RefMintsAccessorsAndSurvivesGatekeeperMove) {
@@ -445,4 +464,17 @@ TEST(HotColdGatekeeper, RefSeesNoValueWhileValueIsDestroyed) {
 
   gk = Gatekeeper<SelfAware>{};
   EXPECT_TRUE(dtor_saw_nullopt);
+}
+
+TEST(HotColdGatekeeper, RefWorkerStopsWhenGatekeeperIsDestroyed) {
+  auto gk = std::optional<Gatekeeper<RefWorker>>{std::in_place};
+  (*gk->access())->WaitUntilMinted();
+  gk.reset();
+}
+
+TEST(HotColdGatekeeper, RefWorkerStopsWhenValueIsDeleted) {
+  Gatekeeper<RefWorker> gk{};
+  auto acc = gk.access();
+  (*acc)->WaitUntilMinted();
+  EXPECT_TRUE(acc->try_delete(std::chrono::seconds(10)));
 }

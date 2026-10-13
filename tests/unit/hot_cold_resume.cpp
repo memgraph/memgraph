@@ -274,6 +274,20 @@ TEST_F(HotColdResume, OnResumePrePublishArmRuns) {
   handler_->SetOnResume({});
 }
 
+// The post-publish arm (on_published_) runs exactly once, after the tenant is published.
+TEST_F(HotColdResume, OnPublishedArmRunsAfterPublish) {
+  auto name = CreateTenant("post_publish");
+  ASSERT_TRUE(handler_->Suspend(name).has_value());
+
+  std::vector<bool> published_in_arm;
+  handler_->SetOnPublished([&](memgraph::dbms::DatabaseAccess) { published_in_arm.push_back(InAll(name)); });
+
+  ASSERT_TRUE(handler_->Resume(name).has_value());
+  EXPECT_EQ(published_in_arm, std::vector{true});
+
+  handler_->SetOnPublished({});
+}
+
 // A throwing pre-publish arm aborts the resume (RESUMING -> COLD); the tenant stays COLD and a later
 // (non-throwing) resume succeeds.
 TEST_F(HotColdResume, OnResumeFailureStaysColdRetriable) {

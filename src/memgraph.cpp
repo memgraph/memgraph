@@ -1039,6 +1039,8 @@ int main(int argc, char **argv) {
   //  - restore_streams_: undo that stop if a suspend does not commit (preserving each stream's run/stop state);
   //  - on_resume_: after a COLD tenant's storage is rebuilt, re-arm its triggers AND streams from durable
   //    metadata (BuildDetached does not auto-arm either). Triggers must come first (streams use modules).
+  //  - on_published_: once the resumed tenant is published, let TTL run (it commits, so it must not run
+  //    on an unpublished tenant).
   if (dbms_handler.has_value()) {
     auto *dh = &*dbms_handler;
     auto *ic = &interpreter_context_;
@@ -1048,6 +1050,8 @@ int main(int argc, char **argv) {
     dh->SetOnResume([dh, ic, &repl_state](memgraph::dbms::DatabaseAccess db_acc) {
       memgraph::dbms::DbmsHandler::RestoreTriggersFor(db_acc, ic);
       dh->RestoreStreamsFor(db_acc, ic);
+    });
+    dh->SetOnPublished([&repl_state](memgraph::dbms::DatabaseAccess db_acc) {
       db_acc->storage()->ttl_.SetUserCheck([&repl_state]() {
         const auto locked_repl_state = repl_state->ReadLock();
         return locked_repl_state->IsMainWriteable();
