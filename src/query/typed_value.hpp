@@ -22,7 +22,6 @@
 #include <string>
 #include <string_view>
 #include <utility>
-#include <variant>
 #include <vector>
 
 #include "query/path.hpp"
@@ -45,17 +44,37 @@ class VirtualNode;   // fwd declare
 /// Lazy handle for a vector-index embedding stored as a VectorIndexId reference. Holds a copy of the
 /// storage accessor (vertex or edge; both trivially copyable) and the property id. No floats are
 /// reconstructed until MaterializeVectorRef() / MaterializeVectorRefInto() is called.
+/// A hand-rolled tagged union (not std::variant) so the tag packs after the accessor and the handle
+/// stays within TypedValue's widest union member.
 struct LazyVectorRef {
-  std::variant<storage::VertexAccessor, storage::EdgeAccessor> entity;
+  LazyVectorRef(storage::VertexAccessor entity, storage::PropertyId prop, storage::View view)
+      : vertex{entity}, prop{prop}, view{view}, is_edge_{false} {}
+
+  LazyVectorRef(storage::EdgeAccessor entity, storage::PropertyId prop, storage::View view)
+      : edge{entity}, prop{prop}, view{view}, is_edge_{true} {}
+
+  template <class F>
+  decltype(auto) Visit(F &&f) const {
+    if (is_edge_) return std::forward<F>(f)(edge);
+    return std::forward<F>(f)(vertex);
+  }
+
+  union {
+    storage::VertexAccessor vertex;
+    storage::EdgeAccessor edge;
+  };
+
   storage::PropertyId prop;
   // View the ref was read under. Materialization re-resolves the property through the same MVCC
   // delta chain, so a lazy ref stays snapshot-consistent with the eager read it replaced.
   storage::View view;
+
+ private:
+  bool is_edge_;
 };
 
-// The copy/move constructors assign into the vector_ref_v union member without first constructing it,
-// which is only well-defined because the type is trivially copyable.
 static_assert(std::is_trivially_copyable_v<LazyVectorRef>);
+static_assert(std::is_trivially_destructible_v<LazyVectorRef>);
 
 namespace {
 template <typename T>
@@ -275,7 +294,7 @@ class TypedValue {
   }
 
   explicit TypedValue(LazyVectorRef ref, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::VectorRef) {
-    vector_ref_v = ref;
+    std::construct_at(&vector_ref_v, ref);
   }
 
   // conversion function to storage::ExternalPropertyValue
@@ -937,6 +956,9 @@ class TypedValue {
    */
   Type type_;
 };
+
+// A lazy embedding must never widen TypedValue's union.
+static_assert(sizeof(LazyVectorRef) <= sizeof(TypedValue::TMap));
 
 /**
  * An exception raised by the TypedValue system. Typically when

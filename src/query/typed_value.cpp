@@ -795,7 +795,7 @@ void TypedValue::CopyComplexValue(TypedValue const &other) {
       return;
     }
     case Type::VectorRef:
-      vector_ref_v = other.vector_ref_v;
+      std::construct_at(&vector_ref_v, other.vector_ref_v);
       return;
   }
   LOG_FATAL("Unsupported TypedValue::Type");
@@ -902,7 +902,7 @@ TypedValue::TypedValue(TypedValue &&other, allocator_type alloc) : alloc_{alloc}
       }
       break;
     case Type::VectorRef:
-      vector_ref_v = other.vector_ref_v;
+      std::construct_at(&vector_ref_v, other.vector_ref_v);
       break;
   }
 }
@@ -1026,8 +1026,7 @@ TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
   MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRef called on non-VectorRef TypedValue");
   std::vector<float> tmp;
   const bool ok =
-      std::visit([&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, vector_ref_v.view, tmp); },
-                 vector_ref_v.entity);
+      vector_ref_v.Visit([&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, vector_ref_v.view, tmp); });
   // On a miss GetVectorInto may leave tmp resized-but-unfilled; drop it so we never serialize
   // zero-fill or a prior entity's floats as this ref's value.
   if (!ok) tmp.clear();
@@ -1043,8 +1042,7 @@ TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
 void TypedValue::MaterializeVectorRefInto(std::vector<float> &out) const {
   MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRefInto called on non-VectorRef TypedValue");
   const bool ok =
-      std::visit([&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, vector_ref_v.view, out); },
-                 vector_ref_v.entity);
+      vector_ref_v.Visit([&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, vector_ref_v.view, out); });
   // On any miss GetVectorInto leaves `out` untouched (or resized but unfilled); clear the reused
   // thread-local scratch so a failed lookup never compares/hashes against a prior entity's floats.
   if (!ok) out.clear();
@@ -1435,7 +1433,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
           point_3d_v = other.point_3d_v;
           break;
         case Type::VectorRef:
-          vector_ref_v = other.vector_ref_v;
+          std::construct_at(&vector_ref_v, other.vector_ref_v);
           break;
       }
       return *this;
@@ -1552,7 +1550,7 @@ TypedValue &TypedValue::MoveAssignComplex(TypedValue &&other) {
           point_3d_v = other.point_3d_v;
           break;
         case Type::VectorRef:
-          vector_ref_v = other.vector_ref_v;
+          std::construct_at(&vector_ref_v, other.vector_ref_v);
           break;
       }
 
