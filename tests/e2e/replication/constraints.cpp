@@ -23,6 +23,11 @@
 #include "utils/thread.hpp"
 #include "utils/timer.hpp"
 
+namespace {
+// Covers replication_async_recovery_interval_sec (10 s) plus the replica check tick, with headroom.
+constexpr auto kAsyncReplicaWait = std::chrono::seconds{20};
+}  // namespace
+
 int main(int argc, char **argv) {
   google::SetUsageMessage("Memgraph E2E Replication Read-write Benchmark");
   gflags::ParseCommandLineFlags(&argc, &argv, true);
@@ -43,26 +48,31 @@ int main(int argc, char **argv) {
     client->Execute("CREATE CONSTRAINT ON (n:Node) ASSERT n.id IS TYPED INTEGER;");
     client->DiscardAll();
 
-    // Poll until all replicas have the constraints (with 5s timeout for async replicas)
+    // Poll until all replicas have the constraints. The async replica only recovers once per
+    // replication_async_recovery_interval_sec, so the wait covers a full interval plus a check tick.
     for (const auto &database_endpoint : database_endpoints) {
       std::vector<std::vector<mg::Value>> constraints;
-      const bool success = mg::e2e::replication::WaitForCondition([&database_endpoint, &constraints]() {
-        auto client = mg::e2e::replication::Connect(database_endpoint);
-        client->Execute("SHOW CONSTRAINT INFO;");
-        if (auto maybe_constraints = client->FetchAll()) {
-          constraints = std::move(*maybe_constraints);
-          return constraints.size() == 2;
-        }
-        return false;
-      });
+      const bool success = mg::e2e::replication::WaitForCondition(
+          [&database_endpoint, &constraints]() {
+            auto client = mg::e2e::replication::Connect(database_endpoint);
+            client->Execute("SHOW CONSTRAINT INFO;");
+            if (auto maybe_constraints = client->FetchAll()) {
+              constraints = std::move(*maybe_constraints);
+              return constraints.size() == 2;
+            }
+            return false;
+          },
+          kAsyncReplicaWait);
       if (!success) {
-        LOG_FATAL("Timed out waiting for 2 constraints on {} (got {})", database_endpoint.SocketAddress(),
+        LOG_FATAL("Timed out waiting for 2 constraints on {} (got {})",
+                  database_endpoint.SocketAddress(),
                   constraints.size());
       }
 
       // sort by constraint type
-      std::sort(constraints.begin(), constraints.end(),
-                [](auto const &lhs, auto const &rhs) { return lhs[0].ValueString() < rhs[0].ValueString(); });
+      std::sort(constraints.begin(), constraints.end(), [](auto const &lhs, auto const &rhs) {
+        return lhs[0].ValueString() < rhs[0].ValueString();
+      });
 
       {
         const auto constraint_type = constraints[0][0].ValueString();
@@ -109,8 +119,8 @@ int main(int argc, char **argv) {
       threads.emplace_back(
           [i, &database_endpoint, cluster_size = database_endpoints.size(), &local_duration = thread_duration[i]] {
             auto client = mg::e2e::replication::Connect(database_endpoint);
-            mg::e2e::replication::IntGenerator node_update_generator(fmt::format("NodeUpdateGenerator {}", i), 0,
-                                                                     FLAGS_nodes - 1);
+            mg::e2e::replication::IntGenerator node_update_generator(
+                fmt::format("NodeUpdateGenerator {}", i), 0, FLAGS_nodes - 1);
             memgraph::utils::Timer t;
 
             while (true) {
@@ -156,21 +166,23 @@ int main(int argc, char **argv) {
     client->DiscardAll();
     client->Execute("DROP CONSTRAINT ON (n:Node) ASSERT n.id IS TYPED INTEGER;");
     client->DiscardAll();
-    // Poll until all replicas have dropped the constraints (with 5s timeout for async replicas)
+    // Poll until all replicas have dropped the constraints; same budget as above for the async replica.
     for (const auto &database_endpoint : database_endpoints) {
       size_t remaining_constraints = 0;
-      const bool success = mg::e2e::replication::WaitForCondition([&database_endpoint, &remaining_constraints]() {
-        auto client = mg::e2e::replication::Connect(database_endpoint);
-        client->Execute("SHOW CONSTRAINT INFO;");
-        if (const auto data = client->FetchAll()) {
-          remaining_constraints = data->size();
-          return data->empty();
-        }
-        return false;
-      });
+      const bool success = mg::e2e::replication::WaitForCondition(
+          [&database_endpoint, &remaining_constraints]() {
+            auto client = mg::e2e::replication::Connect(database_endpoint);
+            client->Execute("SHOW CONSTRAINT INFO;");
+            if (const auto data = client->FetchAll()) {
+              remaining_constraints = data->size();
+              return data->empty();
+            }
+            return false;
+          },
+          kAsyncReplicaWait);
       if (!success) {
-        LOG_FATAL("{} still has some constraints ({} remaining).", database_endpoint.SocketAddress(),
-                  remaining_constraints);
+        LOG_FATAL(
+            "{} still has some constraints ({} remaining).", database_endpoint.SocketAddress(), remaining_constraints);
       }
     }
     spdlog::info("All constraints were deleted.");
