@@ -125,6 +125,28 @@ Feature: KSHORTEST weight lambda
             | 'A' | 100   | [[['A', 'E', 'F', 'D'], 2], [['A', 'B', 'D'], 10], [['A', 'D'], 20], [['A', 'C', 'D'], 102], [['A', 'B', 'C', 'D'], 106], [['A', 'C', 'B', 'D'], 107]] |
             | 'C' | 0     | [[['C', 'D'], 1], [['C', 'B', 'D'], 6]]                                                                                                                |
 
+    # LIMIT stops the subquery after one path, so the cursor is reset with paths left over. Source C must
+    # get its own cheapest path, not A's second one.
+    Scenario: Weighted KSHORTEST in a limited subquery restarts for each outer row
+        When executing query:
+            """
+            UNWIND ['A', 'C'] AS src
+            MATCH (s:N {id: src})
+            CALL {
+                WITH s
+                MATCH (t:N {id: 'D'})
+                WITH s, t
+                MATCH p=(s)-[:R *KSHORTEST (e, n | e.w) total]->(t)
+                RETURN [x IN nodes(p) | x.id] AS path, total
+                LIMIT 1
+            }
+            RETURN src, path, total
+            """
+        Then the result should be, in order:
+            | src | path            | total |
+            | 'A' | ['A', 'C', 'D'] | 2     |
+            | 'C' | ['C', 'D']      | 1     |
+
     Scenario: Undirected weighted KSHORTEST
         When executing query:
             """
