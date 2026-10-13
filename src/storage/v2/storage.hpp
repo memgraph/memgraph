@@ -487,7 +487,7 @@ class Storage {
   mutable utils::ResourceLock main_lock_;
 
   // Install-once hook; fires WakeMatching({MainLock}) from ResourceLock::maybe_notify.
-  // Cleared at shutdown (memgraph.cpp ForEach); the pool also outlives every storage.
+  // Cleared at shutdown (memgraph.cpp ForEach); the pool is declared before, so destroyed after, every storage.
   std::atomic<bool> main_lock_hook_installed_{false};
 
   bool MainLockHookInstalled() const noexcept { return main_lock_hook_installed_.load(std::memory_order_acquire); }
