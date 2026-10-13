@@ -43,6 +43,10 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/broken_replica_self_heal.py"]
 
+  - name: "Replica recovery failure"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/replica_recovery_failure.py"]
+
   - name: "HA broken cure flows"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/broken_cure_flows.py"]
