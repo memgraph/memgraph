@@ -167,7 +167,7 @@ class Server final {
     listener_.AddConnection(std::move(*s));
   }
 
-  // Sleeps in short slices so Shutdown() is noticed promptly; Shutdown() itself stays signal-handler safe.
+  // Polls alive_ in slices instead of a condvar wake: Shutdown() must stay signal-handler safe.
   void BackOffAfterTransientError(int err) {
     accept_log_throttle_.Warn(service_name_, std::generic_category().message(err));
     constexpr std::chrono::milliseconds slice{100};
