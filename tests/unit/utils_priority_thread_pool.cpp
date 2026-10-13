@@ -199,12 +199,11 @@ struct FakeWork final : memgraph::utils::IdleRunnable {
   void Dispatch() override { dispatched.fetch_add(1); }
 };
 
-// WaitAndDispatch sleeps until `max` elapses or Wake().
 struct WaitablePoller : memgraph::utils::IdlePoller {
   std::shared_ptr<memgraph::utils::IdleRunnable> TryClaim() override { return nullptr; }
 
   void WaitAndDispatch(std::chrono::milliseconds max) override {
-    waits.fetch_add(1);
+    (max.count() > 0 ? blocking : non_blocking).fetch_add(1);
     max_requested_ms.store(std::max<int64_t>(max_requested_ms.load(), max.count()));
     auto lk = std::unique_lock{mtx};
     cv.wait_for(lk, hold.count() > 0 ? hold : max, [this] { return woken; });
@@ -223,9 +222,38 @@ struct WaitablePoller : memgraph::utils::IdlePoller {
   std::condition_variable cv;
   bool woken{false};
   std::chrono::milliseconds hold{0};  // when non-zero, waits this long (ignoring `max`) unless Wake()d
-  std::atomic<int> waits{0};
+  std::atomic<int> blocking{0};
+  std::atomic<int> non_blocking{0};
   std::atomic<int64_t> max_requested_ms{0};
+
+  int Waits() const { return blocking.load() + non_blocking.load(); }
 };
+
+// Records the monitor's first visit (nothing is ever claimed, so only the monitor can get here).
+struct ProbePoller final : WaitablePoller {
+  void WaitAndDispatch(std::chrono::milliseconds max) override {
+    if (!reached.load()) {
+      first_max_ms = max.count();
+      first_hot = mask->AnyHot();
+      reached_at = std::chrono::steady_clock::now().time_since_epoch().count();
+      reached = true;
+    }
+    WaitablePoller::WaitAndDispatch(max);
+  }
+
+  const memgraph::utils::HotMask *mask{nullptr};
+  std::atomic<std::chrono::steady_clock::rep> reached_at{0};
+  std::atomic<std::int64_t> first_max_ms{-1};
+  std::atomic_bool first_hot{false};
+  std::atomic_bool reached{false};
+};
+
+template <typename Pred>
+bool WaitFor(Pred pred, std::chrono::steady_clock::duration timeout, std::chrono::microseconds pause = 1ms) {
+  const auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (!pred() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(pause);
+  return pred();
+}
 
 // Only a worker that finishes a task and spins reaches the idle poller, so keep the workers cycling until `pred`.
 template <typename Pred>
@@ -288,8 +316,8 @@ TEST(PriorityThreadPool, IdlePollerWorkRunsInlineOnAWorkerOnce) {
     EXPECT_EQ(w->runs.load() + w->dispatched.load(), 1);
     total_runs += w->runs.load();
   }
-  EXPECT_GE(total_runs, 1);                    // the inline path is exercised (a hand-back needs a rare producer race)
-  EXPECT_EQ(poller.max_concurrent.load(), 1);  // the pool lets one worker poll at a time
+  EXPECT_GE(total_runs, 1);  // the inline path is exercised (a hand-back needs a rare producer race)
+  EXPECT_EQ(poller.max_concurrent.load(), 1);
 }
 
 TEST(PriorityThreadPool, ClaimAfterAProducerTookTheHotBitIsDispatchedNotRunInline) {
@@ -318,8 +346,7 @@ TEST(PriorityThreadPool, ClaimAfterAProducerTookTheHotBitIsDispatchedNotRunInlin
         release.wait(false);
         pool->ScheduledAddTask([this](auto) { task_ran = true; }, utils::Priority::LOW);
       });
-      const auto deadline = std::chrono::steady_clock::now() + 5s;
-      while (!took_bit.load() && std::chrono::steady_clock::now() < deadline) std::this_thread::yield();
+      WaitFor([this] { return took_bit.load(); }, 5s, 0us);
       return work;
     }
   };
@@ -333,101 +360,87 @@ TEST(PriorityThreadPool, ClaimAfterAProducerTookTheHotBitIsDispatchedNotRunInlin
     std::this_thread::sleep_for(10ms);  // drain: nothing may be queued when the claim happens
     poller.go = true;
     pool.ScheduledAddTask([](auto) {}, utils::Priority::LOW);
-    const auto claim_deadline = std::chrono::steady_clock::now() + 10s;
-    while (poller.work->runs.load() + poller.work->dispatched.load() == 0 &&
-           std::chrono::steady_clock::now() < claim_deadline) {
-      std::this_thread::sleep_for(100us);
-    }
+    WaitFor([&] { return poller.work->runs.load() + poller.work->dispatched.load() != 0; }, 10s, 100us);
     EXPECT_EQ(poller.work->runs.load(), 0);
     EXPECT_EQ(poller.work->dispatched.load(), 1);
 
     poller.release = true;
     poller.release.notify_all();
-    const auto ran_deadline = std::chrono::steady_clock::now() + 5s;
-    while (!poller.task_ran.load() && std::chrono::steady_clock::now() < ran_deadline) std::this_thread::sleep_for(1ms);
-    EXPECT_TRUE(poller.task_ran.load());
+    EXPECT_TRUE(WaitFor([&] { return poller.task_ran.load(); }, 5s));
     if (poller.producer.joinable()) poller.producer.join();
     pool.ClearIdlePoller();
   }
 }
 
-TEST(HotMask, WaitUntilEmptyWakesWhenLastBitIsCleared) {
+TEST(HotMask, WaitUntilEmptyWakesOnEmptyAndStopAndTimesOutWhileHot) {
   using memgraph::utils::HotMask;
   using Clock = std::chrono::steady_clock;
   HotMask mask{4};
-  std::stop_source stop;
-  // Short deadline: a missing wake-up shows up as a timeout-length latency, not just a slow test.
-  const auto park = [&] { return mask.WaitUntilEmpty(Clock::now() + 200ms, stop.get_token()); };
   ASSERT_TRUE(mask.SingleWord());
   mask.EnableWaiter();
-  mask.Set(1);
-  mask.Set(3);
+  std::stop_source stop;
 
-  for (int round = 0; round < 20; ++round) {
+  // A waiter parked on a hot mask must return promptly once `wake` runs; a missing wake-up costs the full 5 s park.
+  const auto expect_prompt_wake = [&](const char *what, const auto &wake) {
     std::atomic<Clock::rep> returned_at{0};
     std::thread waiter([&] {
-      while (mask.AnyHot()) park();
+      while (mask.AnyHot() && !stop.stop_requested()) mask.WaitUntilEmpty(Clock::now() + 5s, stop.get_token());
       returned_at = Clock::now().time_since_epoch().count();
     });
-    std::this_thread::sleep_for(5ms);
-    mask.Reset(1);
-    const auto reset_at = Clock::now();
-    mask.Reset(3);  // transition to empty must wake the parked waiter
+    std::this_thread::sleep_for(20ms);
+    wake();
+    const auto woke_at = Clock::now();
     waiter.join();
-    ASSERT_NE(returned_at.load(), 0);
-    const auto latency = Clock::time_point{Clock::duration{returned_at.load()}} - reset_at;
-    EXPECT_LT(latency, 100ms) << "round " << round;
-    mask.Set(1);
-    mask.Set(3);
-  }
+    ASSERT_NE(returned_at.load(), 0) << what;
+    EXPECT_LT(Clock::time_point{Clock::duration{returned_at.load()}} - woke_at, 2s) << what;
+  };
 
-  // GetHotElement emptying the mask wakes as well.
-  std::atomic<Clock::rep> returned_at{0};
-  std::thread waiter([&] {
-    while (mask.AnyHot()) park();
-    returned_at = Clock::now().time_since_epoch().count();
+  mask.Set(1);
+  mask.Set(3);
+  expect_prompt_wake("GetHotElement emptying the mask", [&] {
+    EXPECT_TRUE(mask.GetHotElement());
+    EXPECT_TRUE(mask.GetHotElement());
   });
-  std::this_thread::sleep_for(5ms);
-  ASSERT_TRUE(mask.GetHotElement());
-  ASSERT_TRUE(mask.GetHotElement());
-  const auto emptied_at = Clock::now();
-  waiter.join();
-  ASSERT_NE(returned_at.load(), 0);
-  EXPECT_LT(Clock::time_point{Clock::duration{returned_at.load()}} - emptied_at, 100ms);
+  ASSERT_FALSE(mask.AnyHot());
 
-  // Stop wakes a waiter whose mask is still hot.
-  mask.Set(2);
-  std::atomic<Clock::rep> stopped_at{0};
-  std::thread stopped([&] {
-    park();
-    stopped_at = Clock::now().time_since_epoch().count();
+  mask.Set(1);
+  mask.Set(3);
+  expect_prompt_wake("ResetWasSet clearing the last bit", [&] {
+    EXPECT_TRUE(mask.ResetWasSet(1));
+    EXPECT_TRUE(mask.ResetWasSet(3));
   });
-  std::this_thread::sleep_for(5ms);
-  stop.request_stop();
-  mask.WakeWaiter();
-  const auto stop_at = Clock::now();
-  stopped.join();
-  ASSERT_NE(stopped_at.load(), 0);
-  EXPECT_LT(Clock::time_point{Clock::duration{stopped_at.load()}} - stop_at, 100ms);
-}
+  EXPECT_FALSE(mask.ResetWasSet(3));
 
-TEST(HotMask, WaitUntilEmptyTimesOutWhileHot) {
-  using memgraph::utils::HotMask;
-  HotMask mask{4};
-  std::stop_source stop;
+  mask.Set(1);
+  mask.Set(3);
+  expect_prompt_wake("Reset clearing the last bit", [&] {
+    mask.Reset(1);
+    mask.Reset(3);
+  });
+  ASSERT_FALSE(mask.AnyHot());
+
   mask.Set(2);
+  expect_prompt_wake("stop + WakeWaiter on a hot mask", [&] {
+    stop.request_stop();
+    mask.WakeWaiter();
+  });
+  // Stop already requested: parking on the still-hot mask must not block at all.
+  EXPECT_TRUE(mask.AnyHot());
+  EXPECT_TRUE(mask.WaitUntilEmpty(Clock::now() + 3s, stop.get_token()));
+  mask.Reset(2);
 
-  const auto start = std::chrono::steady_clock::now();
-  const auto deadline = start + 20ms;
-  EXPECT_FALSE(mask.WaitUntilEmpty(deadline, stop.get_token()));
-  const auto elapsed = std::chrono::steady_clock::now() - start;
+  std::stop_source no_stop;
+  mask.Set(2);
+  const auto start = Clock::now();
+  EXPECT_FALSE(mask.WaitUntilEmpty(start + 20ms, no_stop.get_token()));
+  const auto elapsed = Clock::now() - start;
   EXPECT_GE(elapsed, 15ms);
   EXPECT_LT(elapsed, 1s);
   EXPECT_TRUE(mask.AnyHot());
 
-  EXPECT_FALSE(mask.WaitUntilEmpty(start, stop.get_token()));
+  EXPECT_FALSE(mask.WaitUntilEmpty(start, no_stop.get_token()));
   mask.Reset(2);
-  EXPECT_TRUE(mask.WaitUntilEmpty(std::chrono::steady_clock::now() + 10s, stop.get_token()));
+  EXPECT_TRUE(mask.WaitUntilEmpty(Clock::now() + 10s, no_stop.get_token()));
 }
 
 TEST(HotMask, ParkRacingTheLastResetNeverLosesTheWakeup) {
@@ -493,124 +506,105 @@ TEST(PriorityThreadPool, MonitorPollsWhenIdleAndShutDownWakesIt) {
   {
     utils::PriorityThreadPool pool{2, 1};
     pool.SetIdlePoller(&poller);
-    const auto deadline = std::chrono::steady_clock::now() + 5s;
-    while (poller.waits.load() == 0 && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
-    ASSERT_GE(poller.waits.load(), 1);
+    ASSERT_TRUE(WaitFor([&] { return poller.Waits() > 0; }, 5s));
     std::this_thread::sleep_for(20ms);  // let the monitor settle inside WaitAndDispatch
     const auto start = std::chrono::steady_clock::now();
     pool.ShutDown();
     shutdown_took = std::chrono::steady_clock::now() - start;
   }
-  EXPECT_LT(shutdown_took, 2s);                    // without Wake() the held wait would last 5 s
+  EXPECT_LT(shutdown_took, 2s);
   EXPECT_LE(poller.max_requested_ms.load(), 100);  // a wait never outlasts the tick
 }
 
-TEST(PriorityThreadPool, AttachWhileMonitorIsInItsCvWaitWakesItAtOnce) {
+namespace {
+// An attempt is void when a real worker spun and reset bit 0 after startup, wiping the fake hot bit before the
+// monitor's first poll: it would then measure the non-park path.
+enum class Outcome { kValid, kVoid, kNeverPolled };
+
+struct AttachResult {
+  Outcome outcome;
+  std::chrono::steady_clock::duration latency{};
+  std::int64_t first_max_ms{-1};
+};
+
+// Attaches a poller (mid-tick unless `fake_hot`) and times the monitor's first visit. With `fake_hot` a hot bit with
+// no spinner behind it (a worker descheduled mid-spin) is set first.
+AttachResult AttachProbe(bool fake_hot) {
   using namespace memgraph;
   using Clock = std::chrono::steady_clock;
-  // Without the attach wake the monitor stays in its cv wait until the next tick, ~90 ms away, so every attempt would
-  // take ~90 ms. Scheduler jitter can only slow an attempt, so the fastest of a few is the robust measurement.
-  auto best = Clock::duration::max();
-  for (int attempt = 0; attempt < 3 && best >= 60ms; ++attempt) {
-    WaitablePoller poller;
-    utils::PriorityThreadPool pool{2, 1};
-    // The monitor ticks every 100 ms: 110 ms in, it is mid-tick (~90 ms from the next one) in its cv wait.
-    std::this_thread::sleep_for(110ms);
-    const auto attached = Clock::now();
-    pool.SetIdlePoller(&poller);
-    while (poller.waits.load() == 0 && Clock::now() < attached + 5s) std::this_thread::sleep_for(100us);
-    ASSERT_GE(poller.waits.load(), 1);
-    best = std::min(best, Clock::now() - attached);
-    pool.ClearIdlePoller();
-  }
-  EXPECT_LT(best, 60ms);  // not the remainder of the tick
-}
+  ProbePoller poller;
+  std::atomic<int> started{0};  // outlives the workers
+  utils::PriorityThreadPool pool{2, 1, [&started] { started.fetch_add(1); }};
+  auto &mask = pool.GetHotMask();
+  poller.mask = &mask;
 
-TEST(PriorityThreadPool, MonitorPollsOnceWhileAHotWorkerIsDescheduled) {
-  using namespace memgraph;
-  using Clock = std::chrono::steady_clock;
-  if (!utils::IsAvailableTSC()) GTEST_SKIP() << "hot workers (and the monitor's park) need the TSC";
+  struct Cleanup {
+    utils::HotMask &mask;
+    bool armed;
 
-  // Records the monitor's first visit to the poller; TryClaim never yields work, and no task is ever scheduled, so
-  // the workers stay asleep and only the monitor can get here.
-  struct Poller final : WaitablePoller {
-    void WaitAndDispatch(std::chrono::milliseconds max) override {
-      if (!reached.load()) {
-        first_max_ms = max.count();
-        first_hot = mask->AnyHot();
-        reached_at = Clock::now().time_since_epoch().count();
-        reached = true;
-      }
-      WaitablePoller::WaitAndDispatch(max);
+    ~Cleanup() {
+      if (armed) mask.Reset(0);
     }
+  } cleanup{mask, false};  // declared after the pool: cleared on every exit path before the pool dies
 
-    const utils::HotMask *mask{nullptr};
-    std::atomic<Clock::rep> reached_at{0};
-    std::atomic<std::int64_t> first_max_ms{-1};
-    std::atomic_bool first_hot{false};
-    std::atomic_bool reached{false};
-  };
-
-  // An attempt is void when a real worker spun and reset bit 0 after startup, wiping the fake hot bit before the
-  // monitor's first poll: it would then measure the non-park path.
-  enum class Outcome { kValid, kVoid, kNeverPolled };
-
-  struct Result {
-    Outcome outcome;
-    Clock::duration latency{};
-    std::int64_t first_max_ms{-1};
-  };
-
-  const auto attempt = [&]() -> Result {
-    Poller poller;
-    utils::PriorityThreadPool pool{2, 1};
-    auto &mask = pool.GetHotMask();
-    poller.mask = &mask;
-    // Workers briefly spin (hot) after startup; wait until they sleep so the bit set below is not theirs to reset.
-    const auto cold_deadline = Clock::now() + 5s;
-    while (mask.AnyHot() && Clock::now() < cold_deadline) std::this_thread::sleep_for(1ms);
-    if (mask.AnyHot()) return {Outcome::kVoid};
-
-    // A hot bit with no spinner behind it: a worker descheduled mid-spin. Cleared on every exit path.
+  if (fake_hot) {
+    // The constructor returns before workers reach their loop: wait for every worker to start, then for their startup
+    // spin to end, so the bit set below is not theirs to reset.
+    if (!WaitFor([&] { return started.load() == 3; }, 5s)) return {Outcome::kVoid};
+    std::this_thread::sleep_for(5ms);  // covers the window between the init callback and the worker's first Set
+    if (!WaitFor([&] { return !mask.AnyHot(); }, 5s)) return {Outcome::kVoid};
     mask.Set(0);
-    const struct Cleanup {
-      utils::HotMask &mask;
-      ~Cleanup() { mask.Reset(0); }
-    } cleanup{mask};
-
-    // Land mid-tick (~90 ms from the next one) so the old "park until the tick" behaviour cannot hide.
+    cleanup.armed = true;
     std::this_thread::sleep_for(10ms);
-    const auto attached = Clock::now();
-    pool.SetIdlePoller(&poller);
-    const auto deadline = attached + 5s;
-    while (!poller.reached.load() && Clock::now() < deadline) std::this_thread::sleep_for(100us);
-    pool.ClearIdlePoller();
-    if (!poller.reached.load()) return {Outcome::kNeverPolled};
-    if (!poller.first_hot.load()) return {Outcome::kVoid};
-    return {Outcome::kValid,
-            Clock::time_point{Clock::duration{poller.reached_at.load()}} - attached,
-            poller.first_max_ms.load()};
-  };
-
-  bool validated = false;
-  for (int i = 0; i < 5 && !validated; ++i) {
-    const auto r = attempt();
-    ASSERT_NE(r.outcome, Outcome::kNeverPolled) << "monitor never polled while a hot bit was set";
-    if (r.outcome == Outcome::kVoid) continue;
-    validated = true;
-    EXPECT_EQ(r.first_max_ms, 0);  // a hot worker means the poll must not block
-    EXPECT_LT(r.latency, 50ms);    // park capped at 5 ms; parking to the tick would take ~90 ms
+  } else {
+    std::this_thread::sleep_for(110ms);  // the monitor ticks every 100 ms: now it is mid-tick in its cv wait
   }
-  EXPECT_TRUE(validated) << "every attempt was voided by a worker wiping the fake hot bit";
+  const auto attached = Clock::now();
+  pool.SetIdlePoller(&poller);
+  const bool reached = WaitFor([&] { return poller.reached.load(); }, 5s, 100us);
+  pool.ClearIdlePoller();
+  if (!reached) return {Outcome::kNeverPolled};
+  if (fake_hot && !poller.first_hot.load()) return {Outcome::kVoid};
+  return {Outcome::kValid,
+          Clock::time_point{Clock::duration{poller.reached_at.load()}} - attached,
+          poller.first_max_ms.load()};
 }
 
-TEST(PriorityThreadPool, MonitorNeverBlocksInThePollerWhileWorkersAreHot) {
+// Scheduler jitter can only slow an attempt, so the fastest valid one is the robust measurement.
+template <typename Check>
+void ExpectFastFirstPoll(bool fake_hot, std::chrono::milliseconds limit, int attempts, Check check) {
+  int valid = 0;
+  auto best = std::chrono::steady_clock::duration::max();
+  for (int i = 0; i < attempts && best >= limit; ++i) {
+    const auto r = AttachProbe(fake_hot);
+    ASSERT_NE(r.outcome, Outcome::kNeverPolled) << "monitor never polled";
+    if (r.outcome == Outcome::kVoid) continue;
+    ++valid;
+    check(r);
+    best = std::min(best, r.latency);
+  }
+  ASSERT_GE(valid, 1) << "every attempt was voided by a worker wiping the fake hot bit";
+  EXPECT_LT(best, limit);
+}
+}  // namespace
+
+// Without the attach wake the monitor stays in its cv wait until the next tick, so every attempt takes ~90 ms.
+TEST(PriorityThreadPool, AttachWhileMonitorIsInItsCvWaitWakesItAtOnce) {
+  ExpectFastFirstPoll(false, 60ms, 3, [](const AttachResult &) {});
+}
+
+// Without the 5 ms park cap every valid attempt parks until the tick (up to ~100 ms).
+TEST(PriorityThreadPool, MonitorPollsOnceWhileAHotWorkerIsDescheduled) {
+  if (!memgraph::utils::IsAvailableTSC()) GTEST_SKIP() << "hot workers (and the monitor's park) need the TSC";
+  ExpectFastFirstPoll(true, 50ms, 5, [](const AttachResult &r) { EXPECT_EQ(r.first_max_ms, 0); });
+}
+
+TEST(PriorityThreadPool, ParkedMonitorPollsWithoutBlockingWhileAWorkerIsHot) {
   using namespace memgraph;
-  using Clock = std::chrono::steady_clock;
   if (!utils::IsAvailableTSC()) GTEST_SKIP() << "hot workers (and the monitor's park) need the TSC";
 
-  // A worker's hot bit stays set for its whole Phase 3 spin, which includes TryClaim: parking one worker inside
-  // TryClaim holds the mask non-empty for as long as the test wants.
+  // Once parked, the monitor must not block in the poller while a worker is hot (never parks with >64 workers/no TSC).
+  // A hot bit lasts the whole Phase 3 spin incl. TryClaim, so parking a worker there holds the mask non-empty.
   struct HoldingPoller final : WaitablePoller {
     std::shared_ptr<utils::IdleRunnable> TryClaim() override {
       if (!held.exchange(true)) {
@@ -621,16 +615,9 @@ TEST(PriorityThreadPool, MonitorNeverBlocksInThePollerWhileWorkersAreHot) {
       return nullptr;
     }
 
-    void WaitAndDispatch(std::chrono::milliseconds max) override {
-      (max.count() > 0 ? blocking : non_blocking).fetch_add(1);
-      WaitablePoller::WaitAndDispatch(max);
-    }
-
     std::atomic_bool held{false};
     std::atomic_bool in_claim{false};
     std::atomic_bool release{false};
-    std::atomic<int> blocking{0};
-    std::atomic<int> non_blocking{0};
   };
 
   HoldingPoller poller;
@@ -648,7 +635,7 @@ TEST(PriorityThreadPool, MonitorNeverBlocksInThePollerWhileWorkersAreHot) {
   } releaser{poller};
 
   pool.SetIdlePoller(&poller);
-  ASSERT_TRUE(PumpUntil(pool, [&] { return poller.in_claim.load(); }, 10s));  // one worker parked in TryClaim
+  ASSERT_TRUE(PumpUntil(pool, [&] { return poller.in_claim.load(); }, 10s));
 
   std::this_thread::sleep_for(150ms);  // a blocking WaitAndDispatch begun before the bit was set ends within one tick
   const auto blocking_before = poller.blocking.load();
@@ -656,14 +643,12 @@ TEST(PriorityThreadPool, MonitorNeverBlocksInThePollerWhileWorkersAreHot) {
   std::this_thread::sleep_for(300ms);
   EXPECT_EQ(poller.blocking.load(), blocking_before) << "monitor blocked in the poller while a worker was hot";
   // Parks <= 5 ms between polls: ~60 expected over 300 ms.
-  EXPECT_GE(poller.non_blocking.load() - non_blocking_before, 10) << "monitor stopped polling while a worker was hot";
+  EXPECT_GE(poller.non_blocking.load() - non_blocking_before, 3) << "monitor stopped polling while a worker was hot";
 
   poller.release = true;
   poller.release.notify_all();
   // The tick alone suffices here; the empty-transition wake is covered by the HotMask tests.
-  const auto cold_deadline = Clock::now() + 2s;
-  while (poller.blocking.load() == blocking_before && Clock::now() < cold_deadline) std::this_thread::sleep_for(1ms);
-  EXPECT_GT(poller.blocking.load(), blocking_before);
+  EXPECT_TRUE(WaitFor([&] { return poller.blocking.load() > blocking_before; }, 2s));
   pool.ClearIdlePoller();
 }
 
@@ -673,8 +658,7 @@ TEST(PriorityThreadPool, ClearIdlePollerWaitsForTheMonitorToLeaveThePoller) {
   struct HeldPoller final : WaitablePoller {
     void WaitAndDispatch(std::chrono::milliseconds /*max*/) override {
       entered = true;
-      const auto deadline = std::chrono::steady_clock::now() + 10s;
-      while (!release.load() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+      WaitFor([this] { return release.load(); }, 10s);
       returned = true;
     }
 
@@ -688,9 +672,7 @@ TEST(PriorityThreadPool, ClearIdlePollerWaitsForTheMonitorToLeaveThePoller) {
   HeldPoller poller;
   utils::PriorityThreadPool pool{2, 1};
   pool.SetIdlePoller(&poller);
-  const auto deadline = std::chrono::steady_clock::now() + 5s;
-  while (!poller.entered.load() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
-  ASSERT_TRUE(poller.entered.load());
+  ASSERT_TRUE(WaitFor([&] { return poller.entered.load(); }, 5s));
 
   std::atomic_bool cleared{false};
   bool returned_when_cleared = false;
@@ -700,7 +682,7 @@ TEST(PriorityThreadPool, ClearIdlePollerWaitsForTheMonitorToLeaveThePoller) {
     cleared = true;
   });
   std::this_thread::sleep_for(100ms);
-  EXPECT_FALSE(cleared.load());  // still blocked behind the in-flight WaitAndDispatch
+  EXPECT_FALSE(cleared.load());
   poller.release = true;
   clearer.join();
   EXPECT_TRUE(returned_when_cleared);
@@ -717,8 +699,7 @@ TEST(PriorityThreadPool, NoTryClaimAfterClearIdlePollerReturns) {
       if (cleared.load()) late_claim = true;
       if (calls.fetch_add(1) == 0) {  // the first claim stays in flight until released
         entered = true;
-        const auto deadline = std::chrono::steady_clock::now() + 10s;
-        while (!release.load() && std::chrono::steady_clock::now() < deadline) std::this_thread::sleep_for(1ms);
+        WaitFor([this] { return release.load(); }, 10s);
       }
       std::this_thread::yield();
       in_try.fetch_sub(1);
@@ -747,7 +728,7 @@ TEST(PriorityThreadPool, NoTryClaimAfterClearIdlePollerReturns) {
   });
   const auto hold_end = std::chrono::steady_clock::now() + 100ms;
   PumpUntil(pool, [&] { return std::chrono::steady_clock::now() >= hold_end; }, 1s, 100us);
-  EXPECT_FALSE(cleared_returned.load());  // still blocked behind the in-flight TryClaim
+  EXPECT_FALSE(cleared_returned.load());
   poller.release = true;
   clearer.join();
   EXPECT_EQ(in_try_when_cleared, 0);

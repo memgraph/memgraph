@@ -134,7 +134,7 @@ class Server final {
   ServerContext *server_context_;
 
   // Plain-TCP sessions move here after their first read; null: sessions stay on asio. Declared before the io pool so
-  // it is destroyed after the io threads are gone.
+  // it outlives it.
   std::unique_ptr<EpollPoller> poller_;
   IOContextThreadPool io_thread_pool_;
   tcp::acceptor acceptor_{io_thread_pool_.GetIOContext()};
@@ -145,12 +145,11 @@ class Server final {
 template <typename TSession, typename TSessionContext>
 Server<TSession, TSessionContext>::~Server() {
   MG_ASSERT(!IsRunning(), "Server wasn't shutdown properly");
-  // Join the io threads before members are destroyed: no handler may touch retry_timer_/acceptor_ after they die, no
-  // late TryAdopt_ may reach the poller, and CloseAll must run while the io_context (which the released sockets'
-  // destructors touch) is still alive.
+  // Join io threads first: no handler may touch retry_timer_/acceptor_ after they die, no late TryAdopt_ may reach the
+  // poller, and CloseAll must run while the io_context (touched by released sockets' destructors) is alive.
   io_thread_pool_.AwaitShutdown();
   if (poller_) {
-    // Quiescing detach: no worker or monitor may be inside the poller when it is destroyed.
+    // CloseAll requires the worker pool already joined (memgraph.cpp joins it before the server goes out of scope).
     if (session_context_->worker_pool_) session_context_->worker_pool_->ClearIdlePoller();
     poller_->CloseAll();
   }

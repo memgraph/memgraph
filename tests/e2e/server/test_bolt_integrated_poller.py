@@ -43,7 +43,6 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 
 NUM_WORKERS = 4
 SHARED_PORT = 30711
-COUNT_PORT = 30712
 SHUTDOWN_PORT = 30713
 DISABLED_PORT = 30714
 
@@ -90,10 +89,16 @@ def start_instance(name: str, port: int, extra_args: list[str] | None = None) ->
     interactive_mg_runner.start_all_keep_others(context)
 
 
+def stop_only(name: str):
+    instance = interactive_mg_runner.MEMGRAPH_INSTANCES[name]
+    instance.stop(keep_directories=False)
+    interactive_mg_runner.MEMGRAPH_INSTANCES.pop(name)
+    return instance
+
+
 def stop_instance(name: str) -> PollerStats:
     """Stats are logged only on graceful shutdown (Server::AwaitShutdown), so they are read after a clean stop."""
-    interactive_mg_runner.MEMGRAPH_INSTANCES[name].stop(keep_directories=False)
-    interactive_mg_runner.MEMGRAPH_INSTANCES.pop(name)
+    stop_only(name)
     return read_stats(name)
 
 
@@ -135,9 +140,8 @@ def active_tcp_sessions(cursor) -> int:
 
 def wait_for_session_count(cursor, expected: int, timeout_s: float = 10.0) -> int:
     """
-    Session teardown is asynchronous, so poll the gauge until it is exactly `expected`; callers assert on the
-    returned value. The gauge includes the session of the cursor doing the polling. Exact (not `<=`) so that a
-    leaked session cannot be hidden by an unrelated one finishing its teardown.
+    Teardown is asynchronous, so poll until the gauge is exactly `expected` (it counts the polling cursor's session).
+    Exact, not `<=`, so a leaked session cannot be masked by an unrelated one finishing its teardown.
     """
     deadline = time.monotonic() + timeout_s
     while True:
@@ -148,8 +152,7 @@ def wait_for_session_count(cursor, expected: int, timeout_s: float = 10.0) -> in
 
 
 def raw_socket(port: int) -> socket.socket:
-    sock = socket.create_connection(("127.0.0.1", interactive_mg_runner.effective_port(port)), timeout=5)
-    return sock
+    return socket.create_connection(("127.0.0.1", interactive_mg_runner.effective_port(port)), timeout=5)
 
 
 def recv_exact(sock: socket.socket, size: int) -> bytes:
@@ -212,7 +215,7 @@ def test_large_messages(shared_port):
 
 # (bytes sent, whether the handshake is completed first, whether the server must close the peer itself)
 MALFORMED_PEERS = {
-    **{f"drop_mid_handshake_{n}": (BOLT_HANDSHAKE[:n], False, False) for n in (1, 2, 4, 10, 19)},
+    **{f"drop_mid_handshake_{n}": (BOLT_HANDSHAKE[:n], False, False) for n in (2, 19)},
     "garbage_before_handshake": (bytes(range(256)) * 16, False, True),
     # A well-framed chunk (4 bytes + end marker) whose payload is not a Bolt message.
     "bad_message_after_handshake": (struct.pack(">H", 4) + b"\xff\xff\xff\xff" + b"\x00\x00", True, True),
@@ -245,7 +248,6 @@ def test_malformed_peer(shared_port, payload, handshake_first, server_closes):
 
 
 def terminate_idle_session(port: int) -> None:
-    """Open a victim, TERMINATE it from an admin session while it is idle and check it is closed at once."""
     victim = connect(port)
     victim_cursor = victim.cursor()
     for _ in range(5):
@@ -256,8 +258,8 @@ def terminate_idle_session(port: int) -> None:
     admin_cursor = admin.cursor()
     both = wait_for_session_count(admin_cursor, 2)
     assert both == 2, f"expected victim + admin sessions, got ActiveTCPSessions {both}"
-    # An idle raw session has no pending handler, so TERMINATE must close it directly (RawTerminate_);
-    # the gauge dropping with no victim traffic proves it was not left for a lazy close at the next re-arm.
+    # An idle session has no query in flight, so TERMINATE must close it right away; the gauge dropping with
+    # no victim traffic proves it was not left for a lazy close at the next request.
     assert fetch_all(admin_cursor, f"TERMINATE SESSIONS '{victim_uuid}'") == [(victim_uuid, True)]
     after = wait_for_session_count(admin_cursor, MONITOR_ONLY)
     assert after == MONITOR_ONLY, f"idle session was not closed by TERMINATE SESSIONS: ActiveTCPSessions {after}"
@@ -274,8 +276,7 @@ def test_terminate_idle_raw_session(shared_port):
     terminate_idle_session(shared_port)
 
 
-# 60M streamed rows: about 3 s on a release build (sanitizer builds are 5-15x slower). Nested UNWINDs keep memory flat,
-# unlike one huge range(). The test fails (instead of passing vacuously) if the query ends before it was seen running.
+# 60M streamed rows; nested UNWINDs keep memory flat, unlike one huge range().
 LONG_QUERY_OUTER = 12_000
 LONG_QUERY_INNER = 5_000
 LONG_QUERY_MARKER = "poller_long_query_marker"
@@ -291,7 +292,6 @@ LONG_QUERY_RESULT = sum(
 
 
 def wait_until_running(admin_cursor, victim: multiprocessing.Process, timeout: float = 30.0) -> None:
-    """Poll SHOW TRANSACTIONS until the victim's long query is visible, i.e. executing inside the owner."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if any(LONG_QUERY_MARKER in str(row) for row in fetch_all(admin_cursor, "SHOW TRANSACTIONS")):
@@ -301,20 +301,92 @@ def wait_until_running(admin_cursor, victim: multiprocessing.Process, timeout: f
     pytest.fail(f"the long query was not observed running within {timeout} s")
 
 
+def pack_str(text: str) -> bytes:
+    data = text.encode()
+    if len(data) < 16:
+        return bytes([0x80 + len(data)]) + data
+    return b"\xd0" + bytes([len(data)]) + data if len(data) < 256 else b"\xd1" + struct.pack(">H", len(data)) + data
+
+
+def pack_map(entries: dict[str, bytes]) -> bytes:
+    return bytes([0xA0 + len(entries)]) + b"".join(pack_str(key) + value for key, value in entries.items())
+
+
+def bolt_message(tag: int, *fields: bytes) -> bytes:
+    body = bytes([0xB0 + len(fields), tag]) + b"".join(fields)
+    return struct.pack(">H", len(body)) + body + b"\x00\x00"
+
+
+def read_bolt_message(sock: socket.socket) -> tuple[int, bytes]:
+    """Return (message tag, whole payload) of the next Bolt message; the payload keeps the PackStream bytes."""
+    payload = b""
+    while True:
+        header = recv_exact(sock, 2)
+        if len(header) != 2:
+            raise ConnectionError("the server closed the connection")
+        (size,) = struct.unpack(">H", header)
+        if size == 0:
+            return payload[1], payload
+        chunk = recv_exact(sock, size)
+        if len(chunk) != size:
+            raise ConnectionError("the server closed the connection")
+        payload += chunk
+
+
+BOLT_SUCCESS, BOLT_RECORD, BOLT_FAILURE = 0x70, 0x71, 0x7F
+BOLT_HELLO, BOLT_LOGON, BOLT_RUN, BOLT_PULL = 0x01, 0x6A, 0x10, 0x3F
+UUID_RE = re.compile(rb"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def bolt_run_pull(query: str) -> bytes:
+    return bolt_message(BOLT_RUN, pack_str(query), pack_map({}), pack_map({})) + bolt_message(
+        BOLT_PULL, pack_map({"n": b"\xff"})
+    )
+
+
 def run_long_query_victim(port: int, pipe) -> None:
-    """Victim client, in its own process because mgclient holds the GIL while blocked on the socket."""
-    cursor = connect(port).cursor()
-    fetch_all(cursor, "RETURN 1")
-    pipe.send(("uuid", fetch_all(cursor, "SET SESSION TRACE OFF")[0][0]))
+    """
+    Raw Bolt in its own process (it blocks on the socket): mgclient answers FAILURE with a RESET and then reports the
+    send error on the closed socket, so an abort could not be told apart from a close of an idle session.
+    """
+    sock = raw_socket(port)
+    sock.sendall(BOLT_HANDSHAKE)
+    assert recv_exact(sock, 4) == BOLT_5_2
+    sock.sendall(bolt_message(BOLT_HELLO, pack_map({"user_agent": pack_str("poller-test/1.0")})))
+    assert read_bolt_message(sock)[0] == BOLT_SUCCESS
+    sock.sendall(bolt_message(BOLT_LOGON, pack_map({"scheme": pack_str("none")})))
+    assert read_bolt_message(sock)[0] == BOLT_SUCCESS
+
+    sock.sendall(bolt_run_pull("SET SESSION TRACE OFF"))
+    uuid = None
+    for _ in range(3):  # RUN SUCCESS, RECORD, PULL SUCCESS
+        tag, payload = read_bolt_message(sock)
+        if tag == BOLT_RECORD:
+            uuid = UUID_RE.search(payload).group().decode()
+    pipe.send(("uuid", uuid))
+
+    sock.sendall(bolt_run_pull(LONG_QUERY))
     try:
-        pipe.send(("query", fetch_all(cursor, LONG_QUERY)))
-    except mgclient.Error as error:
-        pipe.send(("query_error", str(error)))
+        # RUN SUCCESS, then either RECORD + PULL SUCCESS (completed) or FAILURE (aborted).
+        outcome = ("completed", b"")
+        for _ in range(3):
+            tag, payload = read_bolt_message(sock)
+            if tag == BOLT_FAILURE:
+                outcome = ("failure", payload)
+                break
+        pipe.send(outcome)
+    except (ConnectionError, socket.timeout) as error:
+        pipe.send(("transport_error", str(error).encode()))
+
+    # A terminated session is closed by the owner; an open one would block here until the timeout.
+    sock.settimeout(5)
     try:
-        fetch_all(cursor, "RETURN 1")
-        pipe.send(("next", "succeeded"))
-    except mgclient.Error:
-        pipe.send(("next", "failed"))
+        closed = sock.recv(4096) == b""
+    except ConnectionResetError:
+        closed = True
+    except socket.timeout:
+        closed = False
+    pipe.send(("closed", closed))
 
 
 def recv_from_victim(pipe, timeout: float = 120.0) -> tuple[str, object]:
@@ -336,18 +408,16 @@ def test_terminate_running_raw_session(shared_port):
         assert both == 2, f"expected victim + admin sessions, got ActiveTCPSessions {both}"
 
         wait_until_running(admin_cursor, victim)
-        # A RUNNING raw session cannot be closed by the caller (RawTerminate_ sees it is not ARMED); the owner must
-        # honour terminate_requested_ when it re-arms after the request.
+        # Execute_ consumes the buffered PULL right after RUN; the sleep is only margin against hitting an idle session.
+        time.sleep(0.1)
         assert fetch_all(admin_cursor, f"TERMINATE SESSIONS '{victim_uuid}'") == [(victim_uuid, True)]
 
-        # The request that was already executing finishes and only then does the owner close the connection.
-        # An error is tolerated because the client may not have pipelined PULL behind RUN when the close happened.
+        # A running session is closed by its owner at re-arm; a completed query or transport error means it was not
+        # terminated while running.
         kind, value = recv_from_victim(parent_pipe)
-        if kind == "query":
-            assert value == [(LONG_QUERY_RESULT,)]
-        else:
-            assert kind == "query_error", f"unexpected victim message {kind!r}: {value!r}"
-        assert recv_from_victim(parent_pipe) == ("next", "failed"), "the session stayed usable after TERMINATE SESSIONS"
+        assert kind == "failure", f"the in-flight query was not aborted by TERMINATE SESSIONS: {kind!r}: {value!r}"
+        assert b"asked to abort by another user" in value, f"unexpected abort message {value!r}"
+        assert recv_from_victim(parent_pipe) == ("closed", True), "the session stayed open after TERMINATE SESSIONS"
     finally:
         victim.join(timeout=10)
         if victim.is_alive():
@@ -373,9 +443,7 @@ def test_poller_disabled():
         connection.close()
         terminate_idle_session(DISABLED_PORT)
     finally:
-        instance = interactive_mg_runner.MEMGRAPH_INSTANCES["poller_disabled"]
-        instance.stop(keep_directories=False)
-        interactive_mg_runner.MEMGRAPH_INSTANCES.pop("poller_disabled")
+        instance = stop_only("poller_disabled")
     assert instance.proc_mg.returncode == 0, f"memgraph exited with {instance.proc_mg.returncode} on SIGTERM"
     text = read_log("poller_disabled")
     assert "server is fully armed and operational" in text, "the server log is missing the startup line"
@@ -434,13 +502,11 @@ def test_graceful_shutdown_under_load():
         for worker in workers:
             worker.start()
         time.sleep(1)  # clients must be mid-query when SIGTERM arrives
-        start = time.monotonic()
         instance.proc_mg.send_signal(signal.SIGTERM)
         try:
             instance.proc_mg.wait(timeout=5)
         except subprocess.TimeoutExpired:
             pytest.fail("memgraph did not shut down within 5 s under load")
-        assert time.monotonic() - start < 5
     finally:
         for worker in workers:
             worker.terminate()

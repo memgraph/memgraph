@@ -218,16 +218,17 @@ void PriorityThreadPool::MonitorLoop(const std::stop_token &stop) {
       monitor_cv_.wait_until(
           lk, stop, next_tick, [this] { return idle_poll_.poller.load(std::memory_order_acquire) != nullptr; });
     } else if (can_park && hot_threads_.AnyHot()) {
-      // Hot workers poll the poller themselves; park until they are all gone. A descheduled hot worker keeps its bit
-      // set, so the park is bounded by kMonitorParkPoll, after which the monitor polls once itself.
-      hot_threads_.WaitUntilEmpty(std::min(next_tick, Clock::now() + kMonitorParkPoll), stop);
+      // Hot workers poll for themselves; a descheduled one keeps its bit set, so the park is capped and a timeout with
+      // the mask still hot polls once, non-blocking. Wakes that find it hot (e.g. another worker flapping) re-park
+      // without polling; that worker is polling instead.
+      const bool woken = hot_threads_.WaitUntilEmpty(std::min(next_tick, Clock::now() + kMonitorParkPoll), stop);
       if (!hot_threads_.AnyHot()) {
         const utils::TSCTimer linger{freq};
         yielder y;  // NOLINT (misc-const-correctness)
         while (!hot_threads_.AnyHot() && !stop.stop_requested() && linger.Elapsed() < kMonitorLingerSeconds) {
           y();
         }
-      } else if (!stop.stop_requested()) {
+      } else if (!woken && !stop.stop_requested()) {
         auto use = std::unique_lock{monitor_use_mtx_};
         if (auto *poller = idle_poll_.poller.load(std::memory_order_acquire)) {
           poller->WaitAndDispatch(std::chrono::milliseconds::zero());
