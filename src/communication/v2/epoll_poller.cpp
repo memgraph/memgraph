@@ -69,6 +69,8 @@ EpollPoller::Slot EpollPoller::Adopt(const int fd, std::shared_ptr<PollTarget> t
     const auto chunk_index = index >> kChunkShift;
     if (chunk_index >= kMaxChunks) return kInvalid;
     if (chunks_[chunk_index].load(std::memory_order_relaxed) == nullptr) {
+      // free_ can then hold every slot of every chunk, so CloseEntry's push_back never allocates (never throws).
+      free_.reserve((static_cast<size_t>(chunk_index) + 1) * kChunkSize);
       chunks_[chunk_index].store(new Entry[kChunkSize], std::memory_order_release);
     }
     ++next_index_;
@@ -108,8 +110,9 @@ bool EpollPoller::Arm(const Slot slot) {
   ev.data.u64 = slot;
   if (::epoll_ctl(epfd_, EPOLL_CTL_MOD, entry.fd, &ev) == 0) return true;
 
-  // An ERR/HUP queued while RUNNING can be claimed as soon as ARMED is published; then the claimant owns the slot
-  // and this arm counts as done.
+  // Once ARMED is published any gen-matched claim can win: a stale harvested event or an ERR/HUP queued while
+  // RUNNING. The claimant then owns the slot and this arm counts as done. If the CAS-back loses, the MOD failure is
+  // swallowed: the epitem is still registered and the claimant's own Arm re-MODs it.
   auto expected = Pack(gen, kArmed);
   return !entry.word.compare_exchange_strong(
       expected, Pack(gen, kRunning), std::memory_order_acq_rel, std::memory_order_relaxed);
@@ -129,9 +132,13 @@ std::shared_ptr<PollTarget> EpollPoller::CloseEntry(Entry &entry, const uint32_t
   ::close(entry.fd);
   entry.fd = -1;
   auto keep = std::move(entry.keep);
-  entry.word.store(Pack(gen + 1, kFree), std::memory_order_release);
-  const std::scoped_lock lock{alloc_mtx_};
-  free_.push_back(index);
+  {
+    // FREE is stored under alloc_mtx_, after which the push_back (no-throw, see Adopt) makes the slot reusable;
+    // Adopt cannot pop it before the unlock, and CloseAll's alloc_mtx_ barrier outlasts the closer.
+    const std::scoped_lock lock{alloc_mtx_};
+    entry.word.store(Pack(gen + 1, kFree), std::memory_order_release);
+    free_.push_back(index);
+  }
   return keep;
 }
 
@@ -227,14 +234,21 @@ void EpollPoller::CloseAll() {
     keep.reset();
   }
 
-  // Foreign terminators (TryBeginClose winners) may still be inside CloseEntry; the chunks must outlive them.
-  const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+  // Foreign terminators (TryBeginClose winners) always finish CloseEntry, so wait unboundedly: the chunks must outlive
+  // every closer.
+  const auto warn_at = std::chrono::steady_clock::now() + std::chrono::seconds(1);
+  bool warned = false;
   for (uint32_t index = 0; index < end; ++index) {
-    while (static_cast<uint8_t>(Lookup(index)->word.load(std::memory_order_acquire)) == kClosing &&
-           std::chrono::steady_clock::now() < deadline) {
+    while (static_cast<uint8_t>(Lookup(index)->word.load(std::memory_order_acquire)) == kClosing) {
+      if (!warned && std::chrono::steady_clock::now() >= warn_at) {
+        warned = true;
+        spdlog::warn("Bolt poller shutdown is still waiting for a session close to finish");
+      }
       std::this_thread::yield();
     }
   }
+  // A closer stores FREE under alloc_mtx_; acquiring it here waits out any closer still pushing to free_.
+  const std::scoped_lock barrier{alloc_mtx_};
 }
 
 }  // namespace memgraph::communication::v2

@@ -230,8 +230,8 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     raw_fd_.store(-1, std::memory_order_release);
   }
 
-  // Callable from any thread. post, not dispatch: the caller here is foreign to the session (an
-  // admin command thread), so it must never run session code inline on its own stack.
+  // Callable from any thread; never runs session code on the caller's stack. Asio: posts to the strand (not
+  // dispatch). Raw: an idle (ARMED) session is closed right here; a running one is closed by its owner at re-arm.
   void RequestTermination() override {
     terminate_requested_.store(true, std::memory_order_release);
     if (raw_.load(std::memory_order_acquire)) {
@@ -512,7 +512,12 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     if (!IsConnected()) return false;
     AssertOwner_();
     auto buffer = input_buffer_.write_end()->GetBuffer();
-    DMG_ASSERT(buffer.len > 0, "recv into an empty buffer would be misread as EOF");
+    if (buffer.len == 0) [[unlikely]] {
+      // recv into an empty buffer returns 0, which would be misread as peer EOF.
+      session_.HandleError();
+      OnError(boost::system::error_code{ENOBUFS, boost::system::system_category()});
+      return false;
+    }
     ssize_t n;
     do {
       n = ::recv(raw_fd_.load(std::memory_order_relaxed), buffer.data, buffer.len, MSG_DONTWAIT);

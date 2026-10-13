@@ -45,6 +45,7 @@ constexpr memgraph::utils::PriorityThreadPool::TaskID kMinHighPriorityId = kMaxL
 constexpr uint16_t kMaxWorkers = memgraph::utils::HotMask::kMaxElements;
 constexpr uint32_t kPollEverySpins = 64;
 constexpr auto kMonitorPeriod = std::chrono::milliseconds(100);
+constexpr auto kMonitorParkPoll = std::chrono::milliseconds(5);
 constexpr double kMonitorLingerSeconds = 30e-6;
 
 // Raw FUTEX_WAIT with a relative timeout; wake it with FutexWakeAll on the same word. Returns false only on timeout.
@@ -218,13 +219,18 @@ void PriorityThreadPool::MonitorLoop(const std::stop_token &stop) {
           lk, stop, next_tick, [this] { return idle_poll_.poller.load(std::memory_order_acquire) != nullptr; });
     } else if (can_park && hot_threads_.AnyHot()) {
       // Hot workers poll the poller themselves; park until they are all gone. A descheduled hot worker keeps its bit
-      // set, so the monitor keeps parking (bounded per tick) until that worker's <=1 ms spin ends.
-      hot_threads_.WaitUntilEmpty(next_tick, stop);
+      // set, so the park is bounded by kMonitorParkPoll, after which the monitor polls once itself.
+      hot_threads_.WaitUntilEmpty(std::min(next_tick, Clock::now() + kMonitorParkPoll), stop);
       if (!hot_threads_.AnyHot()) {
         const utils::TSCTimer linger{freq};
         yielder y;  // NOLINT (misc-const-correctness)
         while (!hot_threads_.AnyHot() && !stop.stop_requested() && linger.Elapsed() < kMonitorLingerSeconds) {
           y();
+        }
+      } else if (!stop.stop_requested()) {
+        auto use = std::unique_lock{monitor_use_mtx_};
+        if (auto *poller = idle_poll_.poller.load(std::memory_order_acquire)) {
+          poller->WaitAndDispatch(std::chrono::milliseconds::zero());
         }
       }
     } else {

@@ -77,7 +77,7 @@ class EpollPoller final : public utils::IdlePoller {
   void Wake() override;
 
   // Force-closes every RUNNING/ARMED slot (OnForceClosed first); a slot already CLOSING is left to its winner, awaited
-  // for up to ~1 s. RUNNING slots are taken without the owner's consent: only valid once the pool is joined.
+  // until it finishes. RUNNING slots are taken without the owner's consent: only valid once the pool is joined.
   // Does not decrement the session metrics.
   void CloseAll();
 

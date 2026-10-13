@@ -133,21 +133,27 @@ class Server final {
   TSessionContext *session_context_;
   ServerContext *server_context_;
 
+  // Plain-TCP sessions move here after their first read; null: sessions stay on asio. Declared before the io pool so
+  // it is destroyed after the io threads are gone.
+  std::unique_ptr<EpollPoller> poller_;
   IOContextThreadPool io_thread_pool_;
   tcp::acceptor acceptor_{io_thread_pool_.GetIOContext()};
   boost::asio::steady_timer retry_timer_{io_thread_pool_.GetIOContext()};
   AcceptRetryLogThrottle accept_log_throttle_;
-  // Plain-TCP sessions move here after their first read; null: sessions stay on asio.
-  std::unique_ptr<EpollPoller> poller_;
 };
 
 template <typename TSession, typename TSessionContext>
 Server<TSession, TSessionContext>::~Server() {
   MG_ASSERT(!IsRunning(), "Server wasn't shutdown properly");
-  // Join the io threads before members are destroyed so no handler can touch retry_timer_/acceptor_ after they die.
+  // Join the io threads before members are destroyed: no handler may touch retry_timer_/acceptor_ after they die, no
+  // late TryAdopt_ may reach the poller, and CloseAll must run while the io_context (which the released sockets'
+  // destructors touch) is still alive.
   io_thread_pool_.AwaitShutdown();
-  // Quiescing detach: no worker or monitor may be inside the poller when it is destroyed.
-  if (poller_ && session_context_->worker_pool_) session_context_->worker_pool_->ClearIdlePoller();
+  if (poller_) {
+    // Quiescing detach: no worker or monitor may be inside the poller when it is destroyed.
+    if (session_context_->worker_pool_) session_context_->worker_pool_->ClearIdlePoller();
+    poller_->CloseAll();
+  }
 }
 
 template <typename TSession, typename TSessionContext>
