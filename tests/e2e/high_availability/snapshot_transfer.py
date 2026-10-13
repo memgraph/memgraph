@@ -10,10 +10,11 @@
 # licenses/APL.txt.
 
 # A replica that was down while the main kept writing and then took a snapshot is recovered by the main
-# sending it that snapshot over RPC: the snapshot removes the main's earlier WAL files, so WAL files alone
-# can no longer bring the replica up to date. The replica's disk is full for the first transfers (simulated by
-# tests/e2e/no_space_preload.so, which fails writes to snapshot files with ENOSPC while its trigger file
-# exists): the replica must survive them, and the main's retry must succeed once there is space again.
+# sending it that snapshot over RPC: with a snapshot retention count of 1, the snapshot removes the main's
+# earlier WAL files, so WAL files alone can no longer bring the replica up to date. The replica's disk is
+# full for the first transfers (simulated by tests/e2e/no_space_preload.so, which fails writes to snapshot
+# files with ENOSPC while its trigger file exists): the replica must survive them, and the main's retry must
+# succeed once there is space again.
 
 import glob
 import os
@@ -64,9 +65,11 @@ def data_instance(name: str, bolt_port: int, management_port: int, test_name: st
             str(management_port),
             "--replication-restore-state-on-startup=true",
             "--data-recovery-on-startup=true",
-            # Every write fills a WAL file, so the snapshot leaves the main without the WAL files the
-            # stopped replica would need.
+            # Every write fills a WAL file, and with a single retained snapshot creating one deletes the WAL
+            # files it covers, so the main is left without the WAL files the stopped replica would need. With
+            # a higher retention count the main keeps every WAL file until enough snapshots accumulate.
             "--storage-wal-file-size-kib=1",
+            "--storage-snapshot-retention-count=1",
         ],
         "log_file": f"{get_logs_path(file, test_name)}/{name}.log",
         "data_directory": f"{get_data_path(file, test_name)}/{name}",
