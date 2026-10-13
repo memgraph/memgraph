@@ -14,16 +14,34 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+#include <type_traits>
 
 #include "query/db_accessor.hpp"
+#include "storage/v2/enum.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "storage/v2/point.hpp"
 #include "tests/unit/typed_value_shapes.hpp"
+#include "utils/temporal.hpp"
 
 using memgraph::query::TypedValue;
 
 namespace shapes = memgraph::test::shapes;
 
 namespace {
+
+// Copying a value that owns nothing takes a fixed width of the union's bytes, which reproduces the
+// value only while every type it is done for is trivially copyable. Each of these is declared
+// elsewhere and could stop being so without anything here changing.
+static_assert(std::is_trivially_copyable_v<memgraph::query::VertexAccessor>);
+static_assert(std::is_trivially_copyable_v<memgraph::query::EdgeAccessor>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::Date>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::LocalTime>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::LocalDateTime>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::ZonedDateTime>);
+static_assert(std::is_trivially_copyable_v<memgraph::utils::Duration>);
+static_assert(std::is_trivially_copyable_v<memgraph::storage::Enum>);
+static_assert(std::is_trivially_copyable_v<memgraph::storage::Point2d>);
+static_assert(std::is_trivially_copyable_v<memgraph::storage::Point3d>);
 
 bool IsUnshaped(TypedValue::Type type) {
   return std::ranges::find(shapes::kUnshapedTypedValueTypes, type) != shapes::kUnshapedTypedValueTypes.end();
@@ -56,27 +74,12 @@ TEST_F(TypedValueShapes, EveryTypeIsListedOnce) {
 
 TEST_F(TypedValueShapes, EveryTypeIsHandledTheWayItsValueNeeds) {
   for (auto const type : shapes::kEveryTypedValueType) {
-    auto const inline_copyable = Contains(shapes::kInlineCopyableTypes, type);
-    auto const trivial_destructor = Contains(shapes::kTriviallyDestructibleTypes, type);
+    auto const owns_an_allocation = !Contains(shapes::kTypesWithoutAnAllocation, type);
 
-    EXPECT_EQ(TypedValue::IsInlineCopyable(type), inline_copyable)
+    EXPECT_EQ(TypedValue::OwnsAnAllocation(type), owns_an_allocation)
         << "type " << static_cast<unsigned>(type) << " is "
-        << (inline_copyable ? "listed as copied by assigning it, and is not treated that way"
-                            : "treated as copied by assigning it, and is not listed that way");
-    EXPECT_EQ(TypedValue::HasTrivialDestructor(type), trivial_destructor)
-        << "type " << static_cast<unsigned>(type) << " is "
-        << (trivial_destructor ? "listed as needing no destructor, and is not treated that way"
-                               : "treated as needing no destructor, and is not listed that way");
-  }
-}
-
-TEST_F(TypedValueShapes, NothingIsCopiedByAssignmentWithoutAlsoNeedingNoDestructor) {
-  // A type copied by assigning the union member leaves whatever was there unconstructed, so one
-  // that owned an allocation would leak. The implementation relies on the first group sitting
-  // inside the second; this is the pair of lists saying the same thing.
-  for (auto const type : shapes::kInlineCopyableTypes) {
-    EXPECT_TRUE(Contains(shapes::kTriviallyDestructibleTypes, type))
-        << "type " << static_cast<unsigned>(type) << " is copied by assignment but needs a destructor";
+        << (owns_an_allocation ? "treated as holding its value outright, and is not listed that way"
+                               : "listed as holding its value outright, and is not treated that way");
   }
 }
 
