@@ -9,10 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-// LD_PRELOAD shim that simulates file descriptor exhaustion for WAL files: while the file named by
-// MG_TEST_EMFILE_TRIGGER exists, creating a file (open/openat with O_CREAT) under a `/wal/` directory fails with
-// EMFILE. The trigger file may contain a number N: the first N such creations after it appears still succeed.
-// Everything else is passed through untouched.
+// LD_PRELOAD shim: while the file named by MG_TEST_EMFILE_TRIGGER exists, open()/openat() with O_CREAT on a path
+// containing `/wal/` fails with EMFILE. The trigger file may hold N: the first N such creations still succeed.
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
@@ -26,7 +24,7 @@
 #include <string.h>
 #include <unistd.h>
 
-// Creations still allowed through while armed; -1 while no trigger is present.
+// Creations still allowed through while armed; -1 = disarmed (no trigger).
 static int allowed = -1;
 
 static int should_fail(const char *path, int flags) {

@@ -9,10 +9,8 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-# A commit that cannot create its WAL file (descriptor exhaustion, EMFILE) fails with an error instead of aborting the
-# instance, keeps nothing of the failed transaction, and succeeds again once files can be created. The exhaustion is
-# simulated by tests/e2e/durability/emfile_preload.so, which fails creating files under a `wal/` directory with EMFILE
-# while its trigger file exists.
+# EMFILE on WAL creation is simulated by emfile_preload.so, which fails file creation under `wal/` while its trigger
+# file exists. A commit then fails with an error instead of aborting the instance.
 
 import os
 import re
@@ -35,7 +33,7 @@ interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactiv
 FILE = "wal_open_failure"
 PRELOAD_LIBRARY = os.path.join(interactive_mg_runner.SCRIPT_DIR, "emfile_preload.so")
 E2E_DIR = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e")
-# Not the default ports, so that the test cannot collide with another suite running on the same machine.
+# Not the default ports, to avoid colliding with another suite on the same machine.
 MAIN_PORT = 17687
 REPLICA_PORT = 17688
 REPLICATION_PORT = 17001
@@ -132,11 +130,11 @@ def test_commit_fails_cleanly_when_wal_cannot_be_created(test_name, monkeypatch)
     instance = interactive_mg_runner.MEMGRAPH_INSTANCES["main"]
     cursor = connect(host="localhost", port=MAIN_PORT).cursor()
 
-    write_txn(cursor)  # the first WAL exists and is finalised by this commit; the next commit needs a new one
+    write_txn(cursor)  # finalises the first WAL, so the next commit needs a new one
     expected = NODES_PER_TXN
 
     open(trigger_path(test_name), "w").close()
-    for _ in range(3):  # a persisting failure fails every attempt, and none of them takes the process down
+    for _ in range(3):
         with pytest.raises(Exception, match="persistence error"):
             write_txn(cursor)
         assert instance.is_running()
@@ -187,7 +185,6 @@ def test_sync_replica_survives_wal_creation_failure(test_name, monkeypatch):
     finally:
         os.remove(trigger_path(test_name))
 
-    # Once files can be created again the replica catches up with the main.
     write_txn(main_cursor)
     main_count = count_nodes(main_cursor)
     assert main_count >= 2 * NODES_PER_TXN
@@ -203,7 +200,7 @@ def test_automatic_index_creation_is_retried_until_wal_can_be_created(test_name,
     cursor = connect(host="localhost", port=MAIN_PORT).cursor()
 
     execute_and_fetch_all(cursor, "MATCH (n:Auto) RETURN n")  # requests an index on :Auto once a write commits
-    # The first WAL creation, by the commit below, is let through; the one the index creation needs is not.
+    # Trigger content "1" lets the first WAL creation (the commit below) through; the index creation's is refused.
     with open(trigger_path(test_name), "w") as trigger:
         trigger.write("1")
     execute_and_fetch_all(cursor, f"CREATE (:Auto {{pad: '{PADDING * 32}'}})")
@@ -227,8 +224,7 @@ def test_shutdown_is_prompt_while_index_creation_keeps_failing(test_name, monkey
         trigger.write("1")
     execute_and_fetch_all(cursor, f"CREATE (:Auto {{pad: '{PADDING * 32}'}})")
 
-    # The WAL creation stays failing, so the indexer keeps retrying and its backoff grows (100 ms, x1.5 each time, up to
-    # 10 s). Shut down while it is in a multi-second backoff: an uncancellable sleep would hold the shutdown for that long.
+    # Shut down during a multi-second retry backoff (100 ms, x1.5, max 10 s): an uncancellable sleep would delay it.
     def in_long_backoff():
         retries = re.findall(r"Async index creation could not be committed\. Retrying in (\d+) ms", log_text(test_name))
         return any(int(ms) >= LONG_BACKOFF_MS for ms in retries)
