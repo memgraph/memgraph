@@ -1820,7 +1820,7 @@ auto CoordinatorInstance::FilterFailoverCandidates(
   bool log_instances{true};
   bool log_no_candidate{true};
   if (log != nullptr) {
-    std::lock_guard const guard{log->mutex};
+    std::scoped_lock const guard{log->mutex};
     log_instances = log->reasons != reasons;
     log->reasons = reasons;
     bool const none_left = had_candidates && reasons.size() == instances_info.size();
