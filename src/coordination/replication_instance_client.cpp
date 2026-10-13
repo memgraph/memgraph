@@ -117,8 +117,9 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     return {};
   } catch (const rpc::RpcFailedException &e) {
     // ISSU: an instance which doesn't know V3 drops the connection when it can't answer in V3. Retry with V2, whose
-    // response has no broken bit (read as not broken). Assumes data instances are upgraded before coordinators, so a
-    // V3 coordinator talking to a V2 data instance is the only mixed pair we have to survive.
+    // response has no broken bit (read as not broken). The documented upgrade order (replicas, MAIN, coordinator
+    // followers, leader) already makes the server serve V2 to old coordinators; this fallback only matters when
+    // coordinators are upgraded first, and keeps their failover candidates instead of leaving none.
     // The V2 answer is only trusted while V3 has never succeeded for this instance: once it has, the instance is
     // V3-capable and a V3 failure is transient, so answering V2 would report "not broken" for a possibly broken
     // instance (fail-open). Treat it as a failed RPC instead.

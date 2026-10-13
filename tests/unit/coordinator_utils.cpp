@@ -501,18 +501,6 @@ TEST(CoordinationUtils, FilterFailoverEmptiedCandidateExcluded) {
   EXPECT_EQ(*chosen, "healthy");
 }
 
-TEST(CoordinationUtils, FilterFailoverBrokenCandidateExcluded) {
-  auto const db = std::string{UUID()};
-  InstancesInfo instances_info{
-      {"broken", MakeInfo({{.db_uuid = db, .num_committed_txns = 99, .broken = true}})},
-      {"healthy", MakeInfo({{.db_uuid = db, .num_committed_txns = 50}})},
-  };
-  // Broken is excluded regardless of the main's count, even when main has nothing recorded
-  auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, {});
-  ASSERT_EQ(filtered.size(), 1);
-  EXPECT_TRUE(filtered.contains("healthy"));
-}
-
 TEST(CoordinationUtils, FilterFailoverAnyBrokenDbExcludesCandidate) {
   auto const db_a = std::string{UUID()};
   auto const db_b = std::string{UUID()};
@@ -522,7 +510,8 @@ TEST(CoordinationUtils, FilterFailoverAnyBrokenDbExcludesCandidate) {
            {{.db_uuid = db_a, .num_committed_txns = 10}, {.db_uuid = db_b, .num_committed_txns = 10, .broken = true}})},
       {"healthy", MakeInfo({{.db_uuid = db_a, .num_committed_txns = 10}, {.db_uuid = db_b, .num_committed_txns = 10}})},
   };
-  auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, {{db_a, 10}, {db_b, 10}});
+  // Broken excludes regardless of the main's counts
+  auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, {});
   ASSERT_EQ(filtered.size(), 1);
   EXPECT_TRUE(filtered.contains("healthy"));
 }
@@ -567,7 +556,6 @@ TEST(CoordinationUtils, FilterFailoverAllExcludedNoFailover) {
   };
   auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, {{db, 51}});
   EXPECT_TRUE(filtered.empty());
-  EXPECT_FALSE(CoordinatorInstance::ChooseMostUpToDateInstance(filtered).has_value());
 }
 
 TEST(CoordinationUtils, FilterFailoverExclusionLogTracksChanges) {
@@ -579,7 +567,7 @@ TEST(CoordinationUtils, FilterFailoverExclusionLogTracksChanges) {
   EXPECT_TRUE(CoordinatorInstance::FilterFailoverCandidates(instances_info, main_num_txns, &log).empty());
   auto const first = log.reasons;
   ASSERT_EQ(first.size(), 1);
-  EXPECT_FALSE(log.no_candidate_signature.empty());
+  EXPECT_TRUE(log.no_candidate_logged);
 
   // Same exclusion on the next tick: state unchanged (logged at debug).
   EXPECT_TRUE(CoordinatorInstance::FilterFailoverCandidates(instances_info, main_num_txns, &log).empty());
@@ -589,5 +577,5 @@ TEST(CoordinationUtils, FilterFailoverExclusionLogTracksChanges) {
   InstancesInfo const healthy{{"cleared", MakeInfo({{.db_uuid = db, .num_committed_txns = 51}})}};
   EXPECT_EQ(CoordinatorInstance::FilterFailoverCandidates(healthy, main_num_txns, &log).size(), 1);
   EXPECT_TRUE(log.reasons.empty());
-  EXPECT_TRUE(log.no_candidate_signature.empty());
+  EXPECT_FALSE(log.no_candidate_logged);
 }

@@ -137,7 +137,7 @@ class CoordinatorInstance {
   struct FailoverExclusionLog {
     std::mutex mutex;
     std::map<std::string, std::string> reasons;  // instance -> joined exclusion reasons last logged
-    std::string no_candidate_signature;          // excluded set for which "no instance is safe" was last logged
+    bool no_candidate_logged{false};             // "no instance is safe" already logged for the current reasons
   };
 
   static auto FilterFailoverCandidates(

@@ -1745,16 +1745,17 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
       auto instance_info = *maybe_instance_info;
 
       bool replica_behind{false};
-      for (const auto &[db_uuid, num_committed_txns, broken] : instance_info.dbs_info) {
-        auto const main_db_info = main_num_txns_cache_.find(db_uuid);
+      for (auto const &db : instance_info.dbs_info) {
+        auto const main_db_info = main_num_txns_cache_.find(db.db_uuid);
         // If database got deleted on main but that change still isn't replicated, we cannot conclude that replica is
         // too far behind using such a condition
         if (main_db_info == main_num_txns_cache_.end()) {
-          spdlog::trace("No entry for db: {}", db_uuid);
+          spdlog::trace("No entry for db: {}", db.db_uuid);
           continue;
         }
 
-        if (main_db_info->second > num_committed_txns && main_db_info->second - num_committed_txns > max_allowed_lag) {
+        if (main_db_info->second > db.num_committed_txns &&
+            main_db_info->second - db.num_committed_txns > max_allowed_lag) {
           spdlog::info(
               "Instance {} won't be used in a failover because it's too much behind the current main. Main has "
               "committed "
@@ -1762,7 +1763,7 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
               instance_name,
               main_db_info->second,
               instance_name,
-              num_committed_txns,
+              db.num_committed_txns,
               main_db_info->first);
           replica_behind = true;
           break;
@@ -1817,9 +1818,6 @@ auto CoordinatorInstance::FilterFailoverCandidates(
     if (!reason.empty()) reasons.emplace(instance_name, std::move(reason));
   }
 
-  std::string signature;
-  for (auto const &[name, reason] : reasons) signature += name + ": " + reason;
-
   bool log_instances{true};
   bool log_no_candidate{true};
   if (log != nullptr) {
@@ -1827,8 +1825,8 @@ auto CoordinatorInstance::FilterFailoverCandidates(
     log_instances = log->reasons != reasons;
     log->reasons = reasons;
     bool const none_left = had_candidates && reasons.size() == instances_info.size();
-    log_no_candidate = !none_left || log->no_candidate_signature != signature;
-    log->no_candidate_signature = none_left ? signature : std::string{};
+    log_no_candidate = !none_left || log_instances || !log->no_candidate_logged;
+    log->no_candidate_logged = none_left;
   }
 
   for (auto const &[instance_name, reason] : reasons) {
