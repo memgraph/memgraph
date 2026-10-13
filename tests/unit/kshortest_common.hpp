@@ -1117,8 +1117,7 @@ class Database {
             {{0, 2}, PV(int64_t{4})}};
   }
 
-  // Zero weights tie every route, so hop count is all that is left to order them by - and no path
-  // may wander through a vertex twice on the way, which costs nothing here.
+  // Zero weights tie every route, so only hop count orders them.
   void KShortestWeightedTestZeroWeights(Database *db) {
     using PV = memgraph::storage::PropertyValue;
     const auto served = DetourResults(db,
@@ -1134,7 +1133,6 @@ class Database {
       EXPECT_GE(hops, previous_hops) << "an all-zero total must still order by hops";
       previous_hops = hops;
     }
-    // `DetourResults` runs `CheckPath`, which is what rejects a revisited vertex.
   }
 
   // Durations add and compare like numbers, and the total keeps the type.
@@ -1261,7 +1259,7 @@ class Database {
   }
 
   // The weighted search applies the filter lambda through the same check as the hop-count one, so a
-  // non-boolean verdict is the same error.
+  // non-boolean verdict is the same error. The only test that pins this text.
   void KShortestWeightedTestNonBooleanFilterThrows(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
