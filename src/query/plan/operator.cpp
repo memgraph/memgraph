@@ -4076,9 +4076,10 @@ TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
     }
     return TypedValue(sum);
   }
-  // A Double added to an Int above 2^53 can round below the Int. A cost that drops lets a cycle look
-  // cheaper than the path that skips it, and the search would keep a path that repeats a vertex.
   auto sum = lhs + rhs;
+  // Same-type sums of non-negative weights never drop. A Double added to an Int above 2^53 can round
+  // below the Int, and a dropping cost lets a cycle look cheaper than the path that skips it.
+  if (lhs.type() == rhs.type()) return sum;
   if (CostLess(sum, lhs)) return lhs;
   if (CostLess(sum, rhs)) return rhs;
   return sum;
