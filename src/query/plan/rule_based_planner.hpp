@@ -1822,16 +1822,17 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
   }
 
   /// The EXISTS branch, without either fold's tail. Both forms are rooted at an `Once` naming the caller's bound
-  /// symbols, so the branch correlates through the shared frame: the pattern form builds one here, and the subquery
-  /// form gets one from `Plan`, which seeds each query part of a body with it.
+  /// symbols and any list element the body reads, so the branch correlates through the shared frame: the pattern
+  /// form builds one here, and the subquery form gets one from `Plan`, which seeds each query part of a body with it.
   std::unique_ptr<LogicalOperator> MakeSubqueryBranch(const SubqueryMatching &matching, const SymbolTable &symbol_table,
                                                       AstStorage &storage,
                                                       const std::unordered_set<Symbol> &bound_symbols,
                                                       bool write_occurred) {
+    // A copy: bound_symbols may alias context_->bound_symbols, which the subquery form moves out below.
+    // The element is bound: the evaluator writes it before each run of the branch.
+    auto branch_bound_symbols = bound_symbols;
+    branch_bound_symbols.insert(matching.element_symbols.begin(), matching.element_symbols.end());
     if (matching.type == SubqueryKind::kSubquery) {
-      // Copy first: bound_symbols may alias context_->bound_symbols, and moving out of it would empty the very set
-      // the branch has to correlate against.
-      auto branch_bound_symbols = bound_symbols;
       // in_subquery_body selects the rules a body plans under: it is seeded with these symbols, it keeps
       // emitting rows for the fold to read, it carries outer-scope symbols across a WITH, and it may not write.
       auto const restore = utils::OnScopeExit{[this,
@@ -1850,11 +1851,10 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
       return Plan(*matching.subquery);
     }
 
-    std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
+    std::vector<Symbol> once_symbols(branch_bound_symbols.begin(), branch_bound_symbols.end());
     std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
 
     std::vector<Symbol> new_symbols;
-    std::unordered_set<Symbol> expand_symbols(bound_symbols.begin(), bound_symbols.end());
 
     auto filters = matching.filters;
 
@@ -1864,7 +1864,7 @@ class RuleBasedPlanner : public SubqueryBranchPlanner {
                             matching,
                             symbol_table,
                             storage,
-                            expand_symbols,
+                            branch_bound_symbols,
                             new_symbols,
                             named_paths,
                             filters,

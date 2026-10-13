@@ -1291,6 +1291,7 @@ bool SubqueryMatchingCollector::PreVisit(SubqueryExpression &op) {
   SubqueryMatching subquery_matching;
   subquery_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
   subquery_matching.fold = op.fold_;
+  subquery_matching.element_symbols = op.element_symbols_;
 
   if (op.HasPattern()) {
     std::vector<Pattern *> patterns;

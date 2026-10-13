@@ -3593,3 +3593,239 @@ Feature: Subquery expressions
       Then the result should be, in order:
           | x   |
           | 'd' |
+
+  # Subqueries inside a list expression read the element, so the body runs once per element. Index copies only where
+  # the branch scans an unbound labelled atom (the COUNT body case).
+
+  # Deferred positions: a MATCH or OPTIONAL MATCH WHERE, a body WHERE and a pattern comprehension WHERE.
+  Scenario: Deferred EXISTS reads the element through a property map
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      And parameters are:
+          | ids | [1, 2] |
+      When executing query:
+          """
+          MATCH (n:Q) WHERE any(x IN $ids WHERE EXISTS { (n {id: x})-[:R]->() }) RETURN n.id AS id
+          """
+      Then the result should be:
+          | id |
+          | 1  |
+
+  Scenario: Deferred COUNT reads the element through a property map
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      And parameters are:
+          | ids | [1, 2] |
+      When executing query:
+          """
+          MATCH (n:Q) WHERE any(x IN $ids WHERE COUNT { (n {id: x})-[:R]->() } > 0) RETURN n.id AS id
+          """
+      Then the result should be:
+          | id |
+          | 1  |
+
+  Scenario: Deferred EXISTS reads the element in a body WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      And parameters are:
+          | ids | [1, 2] |
+      When executing query:
+          """
+          MATCH (n:Q) WHERE any(x IN $ids WHERE EXISTS { MATCH (n)-[:R]->() WHERE n.id = x }) RETURN n.id AS id
+          """
+      Then the result should be:
+          | id |
+          | 1  |
+
+  Scenario: Deferred exists() pattern function reads the element
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      And parameters are:
+          | ids | [1, 2] |
+      When executing query:
+          """
+          MATCH (n:Q) WHERE any(x IN $ids WHERE exists((n {id: x})-[:R]->())) RETURN n.id AS id
+          """
+      Then the result should be:
+          | id |
+          | 1  |
+
+  Scenario: Deferred EXISTS anchored on a node element
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      When executing query:
+          """
+          MATCH (q:Q) WHERE any(x IN [q] WHERE EXISTS { (x)-[:R]->() }) RETURN q.id AS id
+          """
+      Then the result should be:
+          | id |
+          | 1  |
+          | 3  |
+
+  Scenario: Deferred bare pattern predicate anchored on a node element
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      When executing query:
+          """
+          MATCH (q:Q) WHERE any(x IN [q] WHERE (x)-[:R]->()) RETURN q.id AS id
+          """
+      Then the result should be:
+          | id |
+          | 1  |
+          | 3  |
+
+  Scenario: A lambda in a pattern comprehension filter reads its element in a pattern predicate
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      And parameters are:
+          | ids | [1, 2] |
+      When executing query:
+          """
+          RETURN [(q:Q)-[:R]->(z) WHERE any(y IN $ids WHERE (q {id: y})-[:R]->()) | q.id] AS r
+          """
+      Then the result should be:
+          | r   |
+          | [1] |
+
+  Scenario: A lambda in a body WHERE reads its element in a pattern predicate
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      And parameters are:
+          | ids | [1, 2] |
+      When executing query:
+          """
+          MATCH (n:Q) WHERE EXISTS { MATCH (n)-[:R]->(z) WHERE any(y IN $ids WHERE (n {id: y})-[:R]->()) } RETURN n.id AS id
+          """
+      Then the result should be:
+          | id |
+          | 1  |
+
+  Scenario: A lambda in a COUNT body WHERE reads its element in an EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      When executing query:
+          """
+          RETURN COUNT { MATCH (q:Q) WHERE any(y IN [q.id] WHERE EXISTS { (:Q {id: y})-[:R]->() }) } AS c
+          """
+      Then the result should be:
+          | c |
+          | 2 |
+
+  Scenario: A lambda in a COUNT body WHERE reads its element in an EXISTS (index :Q(id))
+      Given an empty graph
+      And with new index :Q(id)
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      When executing query:
+          """
+          RETURN COUNT { MATCH (q:Q) WHERE any(y IN [q.id] WHERE EXISTS { (:Q {id: y})-[:R]->() }) } AS c
+          """
+      Then the result should be:
+          | c |
+          | 2 |
+
+  Scenario: A lambda in a COUNT body WHERE reads its element in an EXISTS (index :Q)
+      Given an empty graph
+      And with new index :Q
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      When executing query:
+          """
+          RETURN COUNT { MATCH (q:Q) WHERE any(y IN [q.id] WHERE EXISTS { (:Q {id: y})-[:R]->() }) } AS c
+          """
+      Then the result should be:
+          | c |
+          | 2 |
+
+  Scenario: OPTIONAL MATCH WHERE with an EXISTS anchored on a node element
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Q {id: 1})-[:R]->(:Z), (:Q {id: 2}), (:Q {id: 3})-[:R]->(:Z)
+          """
+      When executing query:
+          """
+          MATCH (m:Q) OPTIONAL MATCH (q:Q) WHERE q = m AND any(x IN [m] WHERE EXISTS { (x)-[:R]->() }) RETURN m.id AS m, q.id AS q ORDER BY m
+          """
+      Then the result should be, in order:
+          | m | q    |
+          | 1 | 1    |
+          | 2 | null |
+          | 3 | 3    |
+
+  # A pattern comprehension that reads a list expression's element is refused until it can run once per element.
+  # The refusal replaces wrong rows; query_semantic pins its text.
+  Scenario: Deferred pattern comprehension reads the element
+      Given an empty graph
+      And parameters are:
+          | ids | [2, 99] |
+      When executing query:
+          """
+          MATCH (n:Q) WHERE any(x IN $ids WHERE size([(n {id: x})-[:R]->(z) | z]) > 0) RETURN n.id AS id
+          """
+      Then an error should be raised
+
+  Scenario: A pattern comprehension in a projection reads the element
+      Given an empty graph
+      And parameters are:
+          | ids | [1, 99] |
+      When executing query:
+          """
+          MATCH (n:Q {id: 1}) RETURN [x IN $ids | size([(m {id: x})-[:R]->(z) | z])] AS s
+          """
+      Then an error should be raised
+
+  Scenario: Deferred pattern comprehension anchored on a node element
+      Given an empty graph
+      When executing query:
+          """
+          MATCH (n:Q {id: 2}) WITH collect(n) AS ns MATCH (q:Q) WHERE any(x IN ns WHERE size([(x)-[:R]->(z) | z]) > 0) RETURN q.id AS id
+          """
+      Then an error should be raised
+
+  Scenario: A pattern comprehension in a projection anchored on a node element
+      Given an empty graph
+      When executing query:
+          """
+          MATCH (n:Q {id: 2}) WITH collect(n) AS ns RETURN [x IN ns | size([(x)-[:R]->(z) | z])] AS s
+          """
+      Then an error should be raised
+
+  Scenario: A pattern comprehension in an EXISTS body reads the element
+      Given an empty graph
+      When executing query:
+          """
+          MATCH (a:A) WHERE all(x IN a.l WHERE EXISTS { MATCH (n:Q) WHERE size([(n)-[:R]->(m) WHERE m.v = x | m]) > 0 }) RETURN a.l AS r
+          """
+      Then an error should be raised
