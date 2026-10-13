@@ -121,7 +121,7 @@ def vertex_count(cursor):
 def log_contains(log_file: str, *fragments: str):
     # The log is a daily file, so its name carries the date: instance_1.log is written as instance_1_<date>.log.
     stem, _ = os.path.splitext(os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", log_file))
-    for path in glob.glob(f"{stem}*.log"):
+    for path in glob.glob(f"{glob.escape(stem)}*.log"):
         with open(path) as f:
             if any(all(fragment in line for fragment in fragments) for line in f):
                 return True
