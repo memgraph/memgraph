@@ -23,7 +23,6 @@
 
 #include <concepts>
 #include <cstdint>
-#include <optional>
 
 namespace memgraph::replication {
 struct ReplicationClient;
@@ -44,8 +43,9 @@ struct ReplicationClient {
 
   ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
 
-  // reconnect_callback runs when a ping succeeded on a different connection than the previous successful ping (peer may
-  // have restarted with less data); it runs before success_callback.
+  // reconnect_callback runs when a ping succeeded on a different connection than the one last observed (peer may have
+  // restarted with less data); it runs before success_callback. The generation is seeded when the check starts, so a
+  // restart before the first successful ping is detected too.
   template <FrequentCheckCB FS, FrequentCheckCB FF, FrequentCheckCB FR>
   void StartFrequentCheck(FS &&success_callback, FF &&fail_callback, FR &&reconnect_callback) {
     // Help the user to get the most accurate replica state possible.
@@ -58,7 +58,7 @@ struct ReplicationClient {
            fail_cb = std::forward<FF>(fail_callback),
            reconnect_cb = std::forward<FR>(reconnect_callback),
            failed_attempts = 0UL,
-           last_gen = std::optional<uint64_t>{}]() mutable {
+           last_gen = rpc_client_.Generation()]() mutable {
             // Measure callbacks also to see how long it takes between scheduled runs
             metrics::ScopedHistogramTimer const timer{metrics::Metrics().global.frequent_heartbeat_rpc_seconds};
             try {
@@ -68,7 +68,7 @@ struct ReplicationClient {
               }
               // A silently re-established connection may be a restarted peer holding less data.
               auto const gen = rpc_client_.Generation();
-              if (last_gen && *last_gen != gen) {
+              if (last_gen != gen) {
                 // Do not clobber a running system recovery.
                 if (state_.WithLock([](auto const &state) { return state != State::RECOVERY; })) reconnect_cb(*this);
               }

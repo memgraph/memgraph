@@ -12,6 +12,7 @@
 import os
 import random
 import sys
+import time
 
 import interactive_mg_runner
 import pytest
@@ -2526,9 +2527,10 @@ def test_replication_not_messed_up_by_ShowIndexInfo(connection):
 
 
 @pytest.mark.parametrize("sync_mode", ["SYNC", "ASYNC"])
-def test_main_detects_replica_restarted_with_less_data(sync_mode, test_name):
+@pytest.mark.parametrize("pinged_before_kill", [False, True])
+def test_main_detects_replica_restarted_with_less_data(sync_mode, pinged_before_kill, test_name):
     # A replica that restarts quickly (before 3 failed heartbeats) with less data than MAIN has must be re-synced
-    # without a new write on MAIN.
+    # without a new write on MAIN, whether or not a frequent heartbeat had succeeded before the restart.
     configuration = {
         "replica_1": {
             "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
@@ -2558,6 +2560,8 @@ def test_main_detects_replica_restarted_with_less_data(sync_mode, test_name):
     for _ in range(3):
         execute_and_fetch_all(main_cursor, "CREATE ()")
     mg_sleep_and_assert(3, replica_node_count)
+    if pinged_before_kill:
+        time.sleep(3)  # default check frequency is 1s
 
     interactive_mg_runner.kill(configuration, "replica_1", keep_directories=True)
     configuration["replica_1"]["args"].append("--data-recovery-on-startup=false")
