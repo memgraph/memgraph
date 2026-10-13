@@ -392,7 +392,9 @@ class DbAccessor final {
  public:
   explicit DbAccessor(storage::Storage::Accessor *accessor) : accessor_(accessor) {}
 
-  void SetParallelExecution() { accessor_->GetTransaction()->SetParallelExecution(); }
+  void EnableDeltaChainCache() { accessor_->GetTransaction()->EnableDeltaChainCache(); }
+
+  void DisableDeltaChainCache() { accessor_->GetTransaction()->DisableDeltaChainCache(); }
 
   bool CheckIndicesAreReady(storage::IndicesCollection const &required_indices) const {
     return accessor_->CheckIndicesAreReady(required_indices);
