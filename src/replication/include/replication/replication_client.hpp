@@ -43,9 +43,8 @@ struct ReplicationClient {
 
   ReplicationClient &operator=(ReplicationClient &&) noexcept = delete;
 
-  // reconnect_callback runs when a ping succeeded on a different connection than the one last observed (peer may have
-  // restarted with less data); it runs before success_callback. The generation is seeded when the check starts, so a
-  // restart before the first successful ping is detected too.
+  // reconnect_callback runs before success_callback when a ping succeeds on a new connection (peer may have restarted
+  // with less data). The generation is seeded at start, so a restart before the first ping is detected too.
   template <FrequentCheckCB FS, FrequentCheckCB FF, FrequentCheckCB FR>
   void StartFrequentCheck(FS &&success_callback, FF &&fail_callback, FR &&reconnect_callback) {
     // Help the user to get the most accurate replica state possible.
@@ -66,7 +65,6 @@ struct ReplicationClient {
                 auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
                 stream.SendAndWait();
               }
-              // A silently re-established connection may be a restarted peer holding less data.
               auto const gen = rpc_client_.Generation();
               // Do not clobber a running system recovery; keep last_gen so the next tick re-checks.
               if (last_gen != gen && state_.WithLock([](auto const &state) { return state != State::RECOVERY; })) {

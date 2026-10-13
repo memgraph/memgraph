@@ -77,8 +77,6 @@ class Connection {
 
   auto endpoint() const -> io::network::Endpoint const & { return endpoint_; }
 
-  /// Number of sockets successfully published so far. Changes whenever the peer may have been a different process
-  /// since the last observation. Lock-free.
   auto Generation() const -> uint64_t { return generation_.load(std::memory_order_acquire); }
 
  private:
@@ -115,7 +113,7 @@ class Connection {
   // stream would reuse a connection that already carries a half-written request.
   std::atomic<bool> needs_reconnect_{false};
 
-  // Bumped by EnsureConnected after each socket is published; failed connects do not bump.
+  // Bumped by EnsureConnected after each successful publish.
   std::atomic<uint64_t> generation_{0};
 };
 
@@ -638,7 +636,8 @@ class Client {
 
   auto Endpoint() const -> io::network::Endpoint const & { return conn_->endpoint(); }
 
-  /// Connection generation: increases each time a new socket is established (first connect included).
+  /// Increases each time a new socket is established (first connect included; failed connects do not count), so a
+  /// change means the peer may be a different process. Lock-free.
   auto Generation() const -> uint64_t { return conn_->Generation(); }
 
  private:

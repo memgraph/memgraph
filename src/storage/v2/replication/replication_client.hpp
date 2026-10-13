@@ -131,11 +131,9 @@ class ReplicationStorageClient {
 
   auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
 
-  // The connection to the replica was re-established, so the replica may have restarted with less data. Forget the
-  // cached view of its progress and force a heartbeat. Only READY and MAYBE_BEHIND are touched: RECOVERY and
-  // REPLICATING are owned by their running operation, and DIVERGED_FROM_MAIN is sticky.
-  // Also runs after deliberate Shutdown() paths (sealed-tenant retire, ASYNC abort, timeouts); the extra heartbeat is
-  // accepted.
+  // Replica may have restarted with less data: drop the cached commit_ts_info_ and force a heartbeat. Only READY and
+  // MAYBE_BEHIND change; RECOVERY/REPLICATING belong to their running operation, DIVERGED_FROM_MAIN is sticky.
+  // Also fires after deliberate Shutdown() paths (sealed-tenant retire, ASYNC abort, timeouts); extra heartbeat is OK.
   void OnReconnect() const {
     replica_state_.WithLock([this](auto &val) {
       if (val != replication::ReplicaState::READY && val != replication::ReplicaState::MAYBE_BEHIND) return;
