@@ -10,6 +10,9 @@ User=memgraph
 Group=memgraph
 ExecStart=/usr/lib/memgraph/memgraph
 
+# systemd defaults to 1024 open files, which limits Memgraph to ~950 client connections.
+LimitNOFILE=1048576
+
 # Uncomment this if Memgraph needs more time to write the snapshot on exit.
 #TimeoutStopSec=5min
 

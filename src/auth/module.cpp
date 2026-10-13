@@ -30,6 +30,8 @@
 #include <thread>
 #include <vector>
 
+#include "utils/nofile_limit.hpp"
+
 namespace {
 
 /////////////////////////////////////////////////////////////////////////
@@ -200,6 +202,14 @@ int Target(void *arg) {
   if (!SetLimit(RLIMIT_CORE, 0)) {
     std::cerr << "Couldn't disable core dumps for auth module!" << std::endl;
     // This isn't a fatal error.
+  }
+
+  // The server raises its soft open files limit; the module gets the original one.
+  if (const auto &original = memgraph::utils::OriginalNoFileLimit()) {
+    if (setrlimit(RLIMIT_NOFILE, &*original) != 0) {
+      std::cerr << "Couldn't restore the open files limit for auth module!" << std::endl;
+      // This isn't a fatal error.
+    }
   }
 
   // Ignore SIGINT.

@@ -77,6 +77,7 @@
 #include "utils/build_info.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/nofile_limit.hpp"
 #include "utils/page_cache_releaser.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
@@ -104,6 +105,7 @@ constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
 constexpr uint64_t kMgVmMaxMapCount = 524'288;
+constexpr uint64_t kMgMinOpenFiles = 65'536;
 
 void WarnDeprecatedFlags() {
   [[maybe_unused]] auto warn_if_set = [](std::string_view name, std::string_view message) {
@@ -464,6 +466,20 @@ int main(int argc, char **argv) {
   } else {
     std::cout << "Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least "
               << kMgVmMaxMapCount << std::endl;
+  }
+
+  if (const auto nofile = memgraph::utils::RaiseNoFileSoftLimit()) {
+    spdlog::info("Open files limit (RLIMIT_NOFILE): soft {}, hard {}.", nofile->rlim_cur, nofile->rlim_max);
+    if (nofile->rlim_cur < kMgMinOpenFiles) {
+      spdlog::warn(memgraph::utils::MessageWithLink(
+          "Open files limit {} is too low, increase it to at least {} (systemd LimitNOFILE, docker --ulimit nofile). "
+          "Connections and storage files will fail with \"Too many open files\" once it is exhausted.",
+          nofile->rlim_cur,
+          kMgMinOpenFiles,
+          "https://memgr.ph/open-files"));
+    }
+  } else {
+    spdlog::warn("Can't get info on the open files limit (RLIMIT_NOFILE).");
   }
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
