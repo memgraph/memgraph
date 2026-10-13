@@ -218,8 +218,9 @@ def get_sync_cluster():
 
 
 # Executes setup queries and returns cluster info
-def setup_cluster(test_name, setup_queries):
+def setup_cluster(test_name, setup_queries, instance_1_args=()):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    inner_instances_description["instance_1"]["args"] += list(instance_1_args)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
     coord_cursor_3 = connect(host="localhost", port=7692).cursor()
 
@@ -587,6 +588,10 @@ def test_num_committed_txns_preserved_after_recover_snapshot(test_name):
     mg_sleep_and_assert(expected_instance_3, partial(retrieve_lag_for_instance, coord3_cursor, "instance_3"))
 
 
+# MAIN needs 3 failed pings (~9 s at this frequency) to notice a down replica, longer than the restarts below.
+SLOW_CHECK_ARGS = ["--replication-replica-check-frequency-sec=3"]
+
+
 def replica_node_count(port):
     # The replica may refuse connections while it restarts.
     try:
@@ -599,7 +604,7 @@ def replica_node_count(port):
 def test_main_detects_replica_restarted_with_less_data(test_name, mode):
     # A replica restarted within the 3-failed-pings window with less data than MAIN holds must be re-synced
     # without any further write on MAIN.
-    inner_instances_description = setup_cluster(test_name, get_sync_cluster_main_1())
+    inner_instances_description = setup_cluster(test_name, get_sync_cluster_main_1(), SLOW_CHECK_ARGS)
     instance1_cursor = connect(host="localhost", port=7687).cursor()
     coord3_cursor = connect(host="localhost", port=7692).cursor()
 
@@ -622,6 +627,7 @@ def test_replica_reconnect_without_data_loss_stays_ready(test_name):
     # False-positive control: a restart that loses nothing goes through the reconnect path but must converge to
     # READY with the data untouched.
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    inner_instances_description["instance_1"]["args"] += SLOW_CHECK_ARGS
     inner_instances_description["instance_2"]["args"] += [
         "--storage-wal-enabled=true",
         "--data-recovery-on-startup=true",

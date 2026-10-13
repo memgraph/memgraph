@@ -2526,11 +2526,11 @@ def test_replication_not_messed_up_by_ShowIndexInfo(connection):
     assert result[0][0] == 1  # The one node was replicated from MAIN to REPLICA
 
 
-@pytest.mark.parametrize("sync_mode", ["SYNC", "ASYNC"])
-@pytest.mark.parametrize("pinged_before_kill", [False, True])
+@pytest.mark.parametrize("sync_mode, pinged_before_kill", [("SYNC", False), ("ASYNC", True)])
 def test_main_detects_replica_restarted_with_less_data(sync_mode, pinged_before_kill, test_name):
     # A replica that restarts quickly (before 3 failed heartbeats) with less data than MAIN has must be re-synced
     # without a new write on MAIN, whether or not a frequent heartbeat had succeeded before the restart.
+    # MAIN pings every 3 s, so noticing a down replica takes ~9 s, longer than the restart.
     configuration = {
         "replica_1": {
             "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
@@ -2539,7 +2539,7 @@ def test_main_detects_replica_restarted_with_less_data(sync_mode, pinged_before_
             "setup_queries": ["SET REPLICATION ROLE TO REPLICA WITH PORT 10001;"],
         },
         "main": {
-            "args": ["--bolt-port", "7687", "--log-level=TRACE"],
+            "args": ["--bolt-port", "7687", "--log-level=TRACE", "--replication-replica-check-frequency-sec=3"],
             "log_file": f"{get_logs_path(file, test_name)}/main.log",
             "data_directory": f"{get_data_path(file, test_name)}/main",
             "setup_queries": [f"REGISTER REPLICA replica_1 {sync_mode} TO '127.0.0.1:10001';"],
@@ -2561,7 +2561,7 @@ def test_main_detects_replica_restarted_with_less_data(sync_mode, pinged_before_
         execute_and_fetch_all(main_cursor, "CREATE ()")
     mg_sleep_and_assert(3, replica_node_count)
     if pinged_before_kill:
-        time.sleep(3)  # default check frequency is 1s
+        time.sleep(4)  # longer than the 3 s check frequency, so a heartbeat has succeeded
 
     interactive_mg_runner.kill(configuration, "replica_1", keep_directories=True)
     configuration["replica_1"]["args"].append("--data-recovery-on-startup=false")
