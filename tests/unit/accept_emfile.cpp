@@ -99,7 +99,7 @@ bool Retry(const std::function<bool()> &probe) {
 }
 
 // Runs in the forked child: the server is up and listening on `port`. Returns 0 on success.
-int ExhaustionScenario(uint16_t port, bool check_cpu, const std::function<bool()> &accepted_probe) {
+int ExhaustionScenario(uint16_t port, const std::function<bool()> &accepted_probe) {
   // Created before descriptors run out; connect() needs no new fd.
   std::vector<int> clients;
   for (int i = 0; i < 3; ++i) clients.push_back(socket(AF_INET, SOCK_STREAM, 0));
@@ -133,7 +133,7 @@ int ExhaustionScenario(uint16_t port, bool check_cpu, const std::function<bool()
   for (int const fd : fillers) close(fd);
   for (int const c : clients) close(c);
 
-  if (check_cpu && cpu_used > kMaxCpuSecondsWhileHeld) {
+  if (cpu_used > kMaxCpuSecondsWhileHeld) {
     std::fprintf(stderr, "scenario: accept loop burned %.2fs CPU while at the fd limit\n", cpu_used);
     return 3;
   }
@@ -245,7 +245,7 @@ TEST(AcceptEmfile, HttpListenerRearmsAfterTransientAcceptError) {
     memgraph::communication::http::Server<OkHandler, Empty> server{{"127.0.0.1", 0}, &data, &context};
     server.Start();
     auto const port = server.GetEndpoint()->port();
-    auto const rc = ExhaustionScenario(port, false, [port] {
+    auto const rc = ExhaustionScenario(port, [port] {
       return RawExchange(port, "GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n", "HTTP/1.1 200");
     });
     server.Shutdown();
@@ -261,7 +261,7 @@ TEST(AcceptEmfile, WebsocketListenerRearmsAfterTransientAcceptError) {
     memgraph::communication::websocket::Server server{{"127.0.0.1", 0}, &context, auth};
     server.Start();
     auto const port = server.GetEndpoint()->port();
-    auto const rc = ExhaustionScenario(port, false, [port] {
+    auto const rc = ExhaustionScenario(port, [port] {
       return RawExchange(port,
                          "GET / HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                          "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n",
@@ -280,7 +280,7 @@ TEST(AcceptEmfile, RpcV1AcceptThreadDoesNotSpinAndRecovers) {
     memgraph::communication::Server<EchoSession, Empty> server{{"127.0.0.1", 0}, &data, &context, 60, "Test", 1};
     if (!server.Start()) return 1;
     auto const port = server.endpoint().GetPort();
-    auto const rc = ExhaustionScenario(port, true, [port] { return RawExchange(port, "tttt", "tttt"); });
+    auto const rc = ExhaustionScenario(port, [port] { return RawExchange(port, "tttt", "tttt"); });
     server.Shutdown();
     server.AwaitShutdown();
     return rc;
@@ -296,7 +296,7 @@ TEST(AcceptEmfile, RpcV2AcceptDoesNotSpinAndRecovers) {
     memgraph::communication::v2::ServerEndpoint endpoint{boost::asio::ip::make_address("127.0.0.1"), port};
     memgraph::communication::v2::Server<V2Session, V2Context> server{endpoint, &data, &context, "Test", 1};
     if (!server.Start()) return 1;
-    auto const rc = ExhaustionScenario(port, true, [] { return g_v2_sessions_created.load() > 0; });
+    auto const rc = ExhaustionScenario(port, [] { return g_v2_sessions_created.load() > 0; });
     server.Shutdown();
     server.AwaitShutdown();
     return rc;
