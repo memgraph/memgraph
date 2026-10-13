@@ -247,7 +247,8 @@ BENCHMARK_DEFINE_F(KShortestBenchFixture, KShortest)(benchmark::State &state) {
 
 BENCHMARK_REGISTER_F(KShortestBenchFixture, KShortest)->RangeMultiplier(2)->Range(2, 8)->Unit(benchmark::kMillisecond);
 
-// The same search with an always-true lambda: the delta against `KShortest` is the predicate's cost.
+// A constant weight and an always-true filter: the delta against `KShortest` is the weighted search
+// plus the predicate.
 BENCHMARK_DEFINE_F(KShortestBenchFixture, KShortestFiltered)(benchmark::State &state) {
   RunQuery(
       state,
@@ -277,7 +278,7 @@ BENCHMARK_DEFINE_F(KShortestMultiRowBenchFixture, KShortestMultiRow)(benchmark::
 
 BENCHMARK_REGISTER_F(KShortestMultiRowBenchFixture, KShortestMultiRow)->Arg(2)->Arg(4)->Unit(benchmark::kMillisecond);
 
-// The delta against `KShortestMultiRow` is the predicate plus the memo, once per input row.
+// The delta against `KShortestMultiRow` is the weighted search, the predicate and the memo, per input row.
 BENCHMARK_DEFINE_F(KShortestMultiRowBenchFixture, KShortestMultiRowFiltered)(benchmark::State &state) {
   RunQuery(state,
            "MATCH (s:Source), (t:Target) WHERE s.pair = t.pair WITH s, t "

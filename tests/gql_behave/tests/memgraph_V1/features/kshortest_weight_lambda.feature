@@ -243,7 +243,8 @@ Feature: KSHORTEST weight lambda
             | '2' | 1     |
             | '3' | 2     |
 
-    # Three Int weights of 2^62 overflow a 64-bit sum before the Double weight is added.
+    # Three Int weights of 2^62 overflow a 64-bit sum before the Double weight is added. The unit test
+    # IntOverflow pins the text; the control is "A Double weight before large Int weights does not overflow".
     Scenario: A Double weight after an overflowed Int sum still overflows
         Given an empty graph
         And having executed:
@@ -259,6 +260,7 @@ Feature: KSHORTEST weight lambda
             """
         Then an error should be raised
 
+    # Control: "A Double weight before large Int weights does not overflow".
     Scenario: An overflowed path cheaper than a Double path raises at the first path
         Given an empty graph
         And having executed:
