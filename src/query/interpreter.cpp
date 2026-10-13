@@ -4034,7 +4034,7 @@ void CheckParallelExecution(std::optional<size_t> &parallel_execution, plan::Log
     parallel_checker.CheckParallelized(plan);
     if (parallel_checker.is_parallelized_) {
       if (interpreter_context->worker_pool != nullptr) {
-        dba->SetParallelExecution();  // Internal flag needed to disable delta cache for parallel queries
+        dba->DisableDeltaChainCache();
       } else {
         parallel_execution.reset();
         spdlog::trace(
@@ -4165,6 +4165,10 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   // Only reads the accessor for write plans, and a plan running without one writes nothing.
   if (dba != nullptr) AccessorCompliance(*plan, *dba);
   const auto rw_type = plan->rw_type();
+
+  // A plan is the first thing that knows a vertex will be read more than once. Parallel execution
+  // takes this back below.
+  if (dba != nullptr) dba->EnableDeltaChainCache();
 
 #ifdef MG_ENTERPRISE
   CheckParallelExecution(parallel_execution, plan->plan(), interpreter_context, notifications, dba);
@@ -4388,6 +4392,8 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
                                              dba,
                                              interpreter.query_planner_context(),
                                              parsed_inner_query.module_generation);
+
+  if (dba != nullptr) dba->EnableDeltaChainCache();
 
 #ifdef MG_ENTERPRISE
   CheckParallelExecution(parallel_execution, cypher_query_plan->plan(), interpreter_context, notifications, dba);
@@ -11353,6 +11359,8 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
     // create a new transaction for each trigger
     auto tx_acc = db_acc->Access(memgraph::storage::WRITE);
     DbAccessor db_accessor{tx_acc.get()};
+    // Runs a plan that revisits vertices, on a transaction only this thread reads.
+    db_accessor.EnableDeltaChainCache();
 
     // On-disk storage removes all Vertex/Edge Accessors because previous trigger tx finished.
     // So we need to adapt TriggerContext based on user transaction which is still alive.

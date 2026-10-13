@@ -3168,6 +3168,28 @@ class StorageTryAccessTest : public ::testing::Test {
       .transaction{.isolation_level = memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION}}};
 };
 
+// Snapshot creation is multi-threaded and single-pass, so it depends on the cache staying off unless
+// a caller asks for it.
+TEST_F(StorageTryAccessTest, DeltaChainCacheIsOffUntilACallerAsksForIt) {
+  using namespace memgraph::storage;
+
+  auto acc = store.TryAccess(READ);
+  ASSERT_NE(acc, nullptr);
+  auto *transaction = acc->GetTransaction();
+  ASSERT_EQ(transaction->isolation_level, IsolationLevel::SNAPSHOT_ISOLATION)
+      << "the cache is only ever eligible under snapshot isolation, so the rest of this test is vacuous";
+
+  EXPECT_FALSE(transaction->UseCache()) << "a transaction must not cache before a caller asks for it";
+
+  transaction->EnableDeltaChainCache();
+  EXPECT_TRUE(transaction->UseCache());
+
+  transaction->DisableDeltaChainCache();
+  EXPECT_FALSE(transaction->UseCache()) << "a caller must be able to take the cache away again";
+
+  acc->Abort();
+}
+
 TEST_F(StorageTryAccessTest, SucceedsAndReturnsUsableAccessorWhenFree) {
   using namespace memgraph::storage;
 

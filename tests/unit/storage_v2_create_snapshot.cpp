@@ -443,11 +443,8 @@ TEST_F(CreateSnapshotTest, LightEdgeSnapshotRoundTripParallel) {
   }
 }
 
-// A parallel snapshot hands the same Transaction to every worker. Reads through a
-// VertexAccessor also write that transaction's delta-chain cache once a chain is longer
-// than --delta_chain_cache_threshold, and that cache has no locking, so the snapshot must
-// not arm it. Uncommitted writes on every vertex give each worker a chain to walk back,
-// and the recovered value must be the committed one.
+// Uncommitted writes give every worker a long chain to walk back, so each would write the shared
+// delta-chain cache. The recovered value must be the committed one.
 TEST_F(CreateSnapshotTest, ParallelSnapshotOverLongDeltaChains) {
   namespace s = memgraph::storage;
 
