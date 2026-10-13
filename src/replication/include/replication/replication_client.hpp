@@ -68,11 +68,11 @@ struct ReplicationClient {
               }
               // A silently re-established connection may be a restarted peer holding less data.
               auto const gen = rpc_client_.Generation();
-              if (last_gen != gen) {
-                // Do not clobber a running system recovery.
-                if (state_.WithLock([](auto const &state) { return state != State::RECOVERY; })) reconnect_cb(*this);
+              // Do not clobber a running system recovery; keep last_gen so the next tick re-checks.
+              if (last_gen != gen && state_.WithLock([](auto const &state) { return state != State::RECOVERY; })) {
+                reconnect_cb(*this);
+                last_gen = gen;
               }
-              last_gen = gen;
               succ_cb(*this);
               failed_attempts = 0U;
             } catch (const rpc::RpcFailedException &) {
