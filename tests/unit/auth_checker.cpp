@@ -725,6 +725,15 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   lose.permissions().Grant(memgraph::auth::Permission::CREATE);
   auth->SaveRole(lose);
 
+#ifdef MG_ENTERPRISE
+  limited.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  limited.GrantUserImp();
+  auth->SaveUser(limited);
+  role.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  role.GrantUserImp();
+  auth->SaveRole(role);
+#endif
+
   auto user_session = auth_checker.GenQueryUser("limited", {});
   auto role_session = auth_checker.GenQueryUser("sso_user", {"reader"});
   auto partial_session = auth_checker.GenQueryUser("sso_partial", {"keep", "lose"});
@@ -734,6 +743,10 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", session_long));
   EXPECT_TRUE(role_session->IsAuthorized({MATCH}, "memgraph", session_long));
   EXPECT_FALSE(role_session->IsAuthorized({CREATE}, "memgraph", session_long));
+#ifdef MG_ENTERPRISE
+  EXPECT_TRUE(user_session->CanImpersonate("admin", session_long));
+  EXPECT_TRUE(role_session->CanImpersonate("admin", session_long));
+#endif
 
   ASSERT_TRUE(auth->RemoveUser("limited"));
   ASSERT_TRUE(auth->RemoveRole("reader"));
@@ -771,6 +784,39 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
 
   auto empty_session = auth_checker.GenEmptyUser();
   EXPECT_TRUE(empty_session->IsAuthorized({CREATE}, "memgraph", session_long));
+}
+
+TEST(AuthChecker, DroppedLastUserSessionGetsAuthOffAccess) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_dropped_last"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+  auto *const session_long = &memgraph::query::session_long_policy;
+  auto *const up_to_date = &memgraph::query::up_to_date_policy;
+
+  auto solo = *auth->AddUser("solo");
+  solo.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(solo);
+
+  auto session = auth_checker.GenQueryUser("solo", {});
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+
+  // No users left: access control is off, so the dropped session is no longer restricted.
+  ASSERT_TRUE(auth->RemoveUser("solo"));
+  EXPECT_TRUE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+  EXPECT_TRUE(session->IsAuthorized({CREATE}, "memgraph", session_long));
+
+  // Access control back on: the dropped session is not revived.
+  auto recreated = *auth->AddUser("solo");
+  recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
+  auth->SaveUser(recreated);
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", session_long));
 }
 
 #ifdef MG_ENTERPRISE

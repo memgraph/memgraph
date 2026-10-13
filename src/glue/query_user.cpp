@@ -41,16 +41,16 @@ void QueryUserOrRole::RefreshPrincipal(const auth::Auth &auth) const {
 
 bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
                                    std::optional<std::string_view> db_name, query::UserPolicy *policy) const {
-  // The session-long policy only consults the cached principal; no Auth state is read.
+  // The session-long policy only consults the cached principal; a dropped session only checks if auth is on.
   if (!policy->DoUpdate()) {
-    if (dropped_) return false;
+    if (dropped_) return !auth_->ReadLock()->AccessControlled();
     if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
     if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
     return true;
   }
   auto locked_auth = auth_->ReadLock();
   if (!locked_auth->UpToDate(auth_epoch_)) RefreshPrincipal(*locked_auth);
-  if (dropped_) return false;
+  if (dropped_) return !locked_auth->AccessControlled();  // auth off: same access as a fresh connection
 
   if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
   if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
