@@ -342,10 +342,10 @@ class RemoveAttachedVertexException : public QueryRuntimeException {
   SPECIALIZE_GET_EXCEPTION_NAME(RemoveAttachedVertexException)
 };
 
-class UserModificationInMulticommandTxException : public MulticommandTxException {
+class UserProfileInMulticommandTxException : public MulticommandTxException {
  public:
-  UserModificationInMulticommandTxException() : MulticommandTxException("Managing users") {}
-  SPECIALIZE_GET_EXCEPTION_NAME(UserModificationInMulticommandTxException)
+  UserProfileInMulticommandTxException() : MulticommandTxException("Managing user profiles") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(UserProfileInMulticommandTxException)
 };
 
 class TenantProfileInMulticommandTxException : public MulticommandTxException {
@@ -358,7 +358,8 @@ class MixedAuthAndDataTxException : public QueryException {
  public:
   MixedAuthAndDataTxException()
       : QueryException(
-            "An explicit transaction cannot mix auth queries with data queries. Run them in separate transactions.") {}
+            "A transaction that runs an auth query can contain only auth queries. Run other queries in a separate "
+            "transaction.") {}
   SPECIALIZE_GET_EXCEPTION_NAME(MixedAuthAndDataTxException)
 };
 

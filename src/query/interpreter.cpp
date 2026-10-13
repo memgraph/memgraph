@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -10120,7 +10121,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
   // statement has run: a profile query arriving first would otherwise be let through and write durably at once.
   // Reads carry no such risk and stay allowed, as they are outside a transaction.
   if (interpreter->in_explicit_transaction_ && IsUserProfileWrite(query->action_)) {
-    throw UserModificationInMulticommandTxException();
+    throw UserProfileInMulticommandTxException();
   }
   const bool is_replica = interpreter_context->repl_state->ReadLock()->IsReplica();
 
@@ -10584,14 +10585,18 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   auto shown_query = std::invoke([&]() -> std::string {
     auto const *auth = utils::Downcast<AuthQuery>(parsed_query.query);
     if (!auth) return parsed_query.query_string;
+    auto const user_name = [auth] {
+      bool const plain = std::ranges::all_of(auth->user_, [](unsigned char c) { return std::isalnum(c) || c == '_'; });
+      return plain ? auth->user_ : fmt::format("`{}`", auth->user_);
+    };
     switch (auth->action_) {
       using enum AuthQuery::Action;
       case CREATE_USER:
         if (!auth->password_) return parsed_query.query_string;
         return fmt::format(
-            "CREATE USER {}{} IDENTIFIED BY '****'", auth->if_not_exists_ ? "IF NOT EXISTS " : "", auth->user_);
+            "CREATE USER {}{} IDENTIFIED BY '****'", auth->if_not_exists_ ? "IF NOT EXISTS " : "", user_name());
       case SET_PASSWORD:
-        return fmt::format("SET PASSWORD FOR {} TO '****'", auth->user_);
+        return fmt::format("SET PASSWORD FOR {} TO '****'", user_name());
       case CHANGE_PASSWORD:
         return "SET PASSWORD TO '****' REPLACE '****'";
       default:
@@ -11579,6 +11584,8 @@ void Interpreter::CommitAuthTransaction() {
       throw memgraph::utils::BasicException(
           "Aborting transaction commit because the transaction was requested to stop from other session. ");
     }
+    MG_ASSERT(claimed == TransactionStatus::ACTIVE || claimed == TransactionStatus::VERIFYING,
+              "An auth commit found its transaction in an unexpected state.");
     claimed = TransactionStatus::ACTIVE;
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }

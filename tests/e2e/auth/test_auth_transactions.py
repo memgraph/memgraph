@@ -89,7 +89,7 @@ def test_the_transaction_sees_its_own_writes(cursor):
 def test_mixing_auth_and_data_queries_is_rejected(cursor):
     execute(cursor, "BEGIN")
     execute(cursor, "CREATE USER frank")
-    with pytest.raises(mgclient.DatabaseError, match="cannot mix auth queries with data queries"):
+    with pytest.raises(mgclient.DatabaseError, match="can contain only auth queries"):
         execute(cursor, "CREATE (n:Node)")
     # The failed statement already aborted the transaction, so there is nothing left to roll back.
 
@@ -100,7 +100,7 @@ def test_profile_queries_are_rejected_in_an_auth_transaction(cursor):
     # guard is what refuses it; the profile guard itself is covered by the test below.
     execute(cursor, "BEGIN")
     execute(cursor, "CREATE USER grace")
-    with pytest.raises(mgclient.DatabaseError, match="cannot mix auth queries with data queries"):
+    with pytest.raises(mgclient.DatabaseError, match="can contain only auth queries"):
         execute(cursor, "CREATE PROFILE limited")
 
 
@@ -108,7 +108,9 @@ def test_a_profile_query_is_rejected_as_the_first_statement(cursor):
     # The other ordering. Arriving before any auth statement, a profile query would otherwise be let through and
     # write durably at once, outliving the ROLLBACK.
     execute(cursor, "BEGIN")
-    with pytest.raises(mgclient.DatabaseError, match="Managing users is not allowed in multicommand transactions"):
+    with pytest.raises(
+        mgclient.DatabaseError, match="Managing user profiles is not allowed in multicommand transactions"
+    ):
         execute(cursor, "CREATE PROFILE early")
 
 
@@ -185,7 +187,9 @@ def test_profile_writes_are_still_rejected_in_a_data_transaction(cursor):
     # mix modes, so the profile guard is what refuses it.
     execute(cursor, "BEGIN")
     execute(cursor, "MATCH (n) RETURN n")
-    with pytest.raises(mgclient.DatabaseError, match="Managing users is not allowed in multicommand transactions"):
+    with pytest.raises(
+        mgclient.DatabaseError, match="Managing user profiles is not allowed in multicommand transactions"
+    ):
         execute(cursor, "CREATE PROFILE unwritable LIMIT sessions 1")
 
 
@@ -365,6 +369,25 @@ def test_show_transactions_masks_both_passwords_of_a_password_change(cursor, sta
     assert "SET PASSWORD" in shown
     assert "'****'" in shown
     assert "ter2" not in shown
+
+
+@pytest.mark.parametrize(
+    "setup, statement, expected",
+    [
+        ("CREATE USER `bob-1`", "SET PASSWORD FOR `bob-1` TO 'hunter2'", "SET PASSWORD FOR `bob-1` TO '****'"),
+        (None, "CREATE USER `bob.x` IDENTIFIED BY 'hunter2'", "CREATE USER `bob.x` IDENTIFIED BY '****'"),
+    ],
+)
+def test_show_transactions_quotes_a_name_that_needs_it(cursor, setup, statement, expected):
+    watcher = transaction_watcher(cursor)
+    if setup:
+        execute(cursor, setup)
+
+    execute(cursor, "BEGIN")
+    execute(cursor, statement)
+    shown = str(execute(watcher, "SHOW TRANSACTIONS"))
+
+    assert expected in shown
 
 
 def test_show_transactions_keeps_a_recognised_statement_as_written(cursor):
