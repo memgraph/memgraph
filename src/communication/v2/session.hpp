@@ -46,7 +46,7 @@
 #include <boost/beast/websocket/rfc6455.hpp>
 #include <boost/system/detail/error_code.hpp>
 
-#include "communication/bolt/v1/state.hpp"  // PendingCommitOutcome, PendingBeginOutcome
+#include "communication/bolt/v1/state.hpp"
 #include "communication/buffer.hpp"
 #include "communication/context.hpp"
 #include "communication/exceptions.hpp"
@@ -469,17 +469,6 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
     try {
       // Execute until all data has been read
       while (session_.Execute()) {
-        // WebSocket runs Bolt inline on the strand; the pool-path (DoWork/DoRead) would exit the
-        // WS read loop, so poll here instead — acceptable: WebSocket is not the hot transport. Sleep
-        // between attempts so a contended commit_mutex_/main_lock_ does not spin a core (NB5).
-        while (session_.HasPendingCommit()) {
-          session_.FinishPendingCommit();
-          if (session_.HasPendingCommit()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
-        while (session_.HasPendingBegin()) {
-          session_.FinishPendingBegin();
-          if (session_.HasPendingBegin()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-        }
       }
       // Handled all data,  async wait for new incoming data
       DoReadAsio();
@@ -499,19 +488,16 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
               return;
             }
             while (true) {
-              // Sampled before Execute(): the would-block probe happens inside it (see ParkAdmission).
+              // Sampled before Execute(): the would-block probe runs inside it, so a wake in between is not lost.
               const auto commit_epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::CommitLock);
               const auto main_epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::MainLock);
               if (shared_this->session_.Execute()) {
                 if (shared_this->session_.HasPendingCommit()) {
-                  // PULL/DISCARD's Commit() would block; park this worker until commit_mutex_ frees.
-                  // Return now so a pipelined message can't run before the commit finishes.
+                  // Return after parking so a pipelined message can't run before the commit finishes.
                   shared_this->PostFinishPendingCommit(commit_epoch);
                   return;
                 }
                 if (shared_this->session_.HasPendingBegin()) {
-                  // BEGIN/RUN-first-query would block on main_lock_; park until it frees (bounded
-                  // by the finite storage-access deadline).
                   shared_this->PostFinishPendingBegin(main_epoch);
                   return;
                 }
@@ -541,19 +527,17 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
         session_.ApproximateQueryPriority());
   }
 
-  // Parks a would-block PULL/DISCARD commit on the pool under CommitLock, no deadline:
-  // a commit must not be abandoned by timeout; the pool's monitor-sweep provides liveness.
+  // Parks a would-block commit with no deadline: it must not be abandoned by timeout (liveness: pool monitor sweep).
   void PostFinishPendingCommit(uint64_t observed_epoch) {
     auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
       try {
         const auto epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::CommitLock);
         switch (shared_this->session_.FinishPendingCommit()) {
-          case memgraph::communication::bolt::PendingCommitOutcome::Reschedule:
-            // commit_mutex_ still held; re-park and wait for the next WakeMatching({CommitLock}).
+          case memgraph::communication::bolt::PendingOutcome::Reschedule:
             shared_this->PostFinishPendingCommit(epoch);
             return;
-          case memgraph::communication::bolt::PendingCommitOutcome::Done:
-          case memgraph::communication::bolt::PendingCommitOutcome::ClientError:
+          case memgraph::communication::bolt::PendingOutcome::Done:
+          case memgraph::communication::bolt::PendingOutcome::ClientError:
             shared_this->pending_commit_task_id_.store(0, std::memory_order_relaxed);
             shared_this->pending_commit_retries_ = 0;
             if (shared_this->session_.HasBufferedData()) {
@@ -569,12 +553,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       }
     };
 
-    // Pool shutting down: drop the continuation; teardown will error the client.
+    // Draining: drop the continuation; connection teardown errors the client.
     if (session_context_->IsDrainingAdmissions()) return;
 
     const auto id = pending_commit_task_id_.load(std::memory_order_relaxed);
-    // Layer-2: id==0 always re-posts (mints a place-keeping id).  Otherwise re-post until the
-    // pressure-scaled cap; light load avoids CV round-trip cost, high load parks sooner.
+    // id==0 always re-posts (mints a place-keeping id); then re-post up to the pressure-scaled cap before parking.
     const uint32_t cap = session_context_->RescheduleCap();
     if (id == 0 || pending_commit_retries_ < cap) {
       ++pending_commit_retries_;
@@ -582,28 +565,25 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
           std::memory_order_relaxed);
     } else {
-      // No deadline: a commit must not be abandoned mid-flight; monitor-sweep provides liveness.
       session_context_->ParkAdmission(std::move(lambda),
                                       id,
                                       std::chrono::steady_clock::time_point::max(),
-                                      utils::WaitTag{utils::WaitResource::CommitLock, {}},
+                                      utils::WaitResource::CommitLock,
                                       observed_epoch);
     }
   }
 
-  // Parks a would-block BEGIN on the pool under MainLock with the FINITE storage-access deadline:
-  // unlike commit, main_lock_ contention must time out to honour the storage-access timeout contract.
+  // Parks a would-block BEGIN with the finite storage-access deadline: unlike commit, it must time out.
   void PostFinishPendingBegin(uint64_t observed_epoch) {
     auto lambda = [shared_this = shared_from_this()](const auto /*thread_priority*/) {
       try {
         const auto epoch = shared_this->session_context_->WakeEpoch(utils::WaitResource::MainLock);
         switch (shared_this->session_.FinishPendingBegin()) {
-          case memgraph::communication::bolt::PendingBeginOutcome::Reschedule:
-            // main_lock_ still held; re-park and wait for the next WakeMatching({MainLock}).
+          case memgraph::communication::bolt::PendingOutcome::Reschedule:
             shared_this->PostFinishPendingBegin(epoch);
             return;
-          case memgraph::communication::bolt::PendingBeginOutcome::Done:
-          case memgraph::communication::bolt::PendingBeginOutcome::ClientError:
+          case memgraph::communication::bolt::PendingOutcome::Done:
+          case memgraph::communication::bolt::PendingOutcome::ClientError:
             shared_this->pending_begin_task_id_.store(0, std::memory_order_relaxed);
             shared_this->pending_begin_retries_ = 0;
             if (shared_this->session_.HasBufferedData()) {
@@ -619,12 +599,11 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       }
     };
 
-    // Pool shutting down: drop the continuation; teardown will error the client.
+    // Draining: drop the continuation; connection teardown errors the client.
     if (session_context_->IsDrainingAdmissions()) return;
 
     const auto id = pending_begin_task_id_.load(std::memory_order_relaxed);
-    // Layer-2: same pressure-scaling as commit (see PostFinishPendingCommit).  Unlike commit,
-    // the park deadline is FINITE (storage-access timeout) — begin must not park indefinitely.
+    // Same re-post-then-park policy as PostFinishPendingCommit.
     const uint32_t cap = session_context_->RescheduleCap();
     if (id == 0 || pending_begin_retries_ < cap) {
       ++pending_begin_retries_;
@@ -632,12 +611,10 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
           session_context_->AddTask(std::move(lambda), utils::Priority::LOW, /*productive=*/false),
           std::memory_order_relaxed);
     } else {
-      // Finite deadline (storage-access timeout); woken by ResourceLock::maybe_notify → WakeMatching({MainLock}).
       const auto deadline = session_.PendingBeginDeadline();
       DMG_ASSERT(deadline != std::chrono::steady_clock::time_point::max(),
                  "PendingBegin park deadline must be finite (storage-access timeout)");
-      session_context_->ParkAdmission(
-          std::move(lambda), id, deadline, utils::WaitTag{utils::WaitResource::MainLock, {}}, observed_epoch);
+      session_context_->ParkAdmission(std::move(lambda), id, deadline, utils::WaitResource::MainLock, observed_epoch);
     }
   }
 
@@ -799,22 +776,18 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
   // vs TerminateIfIdle_; async-completion: arm vs its handler), so relaxed suffices.
   std::atomic_bool read_armed_{false};
 
-  // TaskID of the in-flight commit-park continuation; 0 = not yet issued. Only one commit-park is ever
-  // in flight per session (the sequential post-and-return chain). Relaxed is safe because the sole
-  // hazard — the first-post store landing after AddTask returns — is self-correcting: a stale-0 read
-  // costs at most one extra (harmless, sequential) AddTask, and a stale-nonzero read is recovered by
-  // the pool's 100ms monitor backstop. Not a load-bearing ordering; do not read into it.
+  // TaskID of the in-flight commit-park continuation; 0 = not yet issued. Post-and-return keeps one in flight
+  // per session, so relaxed suffices: a stale 0 costs one extra AddTask, a stale id is recovered by the pool's
+  // monitor sweep.
   std::atomic<utils::PriorityThreadPool::TaskID> pending_commit_task_id_{0};
 
-  // Layer-2 reschedule counter for the in-flight commit.  Safe as plain uint32_t: post-and-return
-  // discipline ensures only one commit task is active at a time.  Reset on Done/ClientError.
+  // Plain (non-atomic): post-and-return keeps one commit task active at a time.
   uint32_t pending_commit_retries_{0};
 
-  // TaskID of the in-flight begin-park continuation; 0 = not yet issued; same relaxed reasoning as above.
+  // As pending_commit_task_id_, for BEGIN.
   std::atomic<utils::PriorityThreadPool::TaskID> pending_begin_task_id_{0};
 
-  // Layer-2 reschedule counter for the in-flight begin.  One-in-flight serialized; same reasoning
-  // as pending_commit_retries_.  Reset on Done/ClientError.
+  // Plain for the same reason as pending_commit_retries_.
   uint32_t pending_begin_retries_{0};
 };
 }  // namespace memgraph::communication::v2

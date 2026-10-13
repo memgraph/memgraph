@@ -127,8 +127,7 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
 
     return State::Idle;
   } catch (const memgraph::query::CommitWouldBlockException &) {
-    // Commit() throws before any state change — stash n/qid so PostFinishPendingCommit can retry on wake.
-    // Both PULL and DISCARD call Commit(), so this catch is outside the if-constexpr.
+    // Commit() throws before mutating, so the parked PULL/DISCARD can be retried with the stashed n/qid.
     session.StashPendingCommit(n, qid);
     return State::PendingCommit;
   } catch (const std::exception &e) {
@@ -243,8 +242,7 @@ State HandlePrepare(TSession &session) {
     }
     return State::Result;
   } catch (const memgraph::query::BeginWouldBlockException &e) {
-    // main_lock_ is contended; SetupDatabaseTransaction throws before any storage mutation,
-    // so re-running InterpretPrepare on wake is safe.
+    // SetupDatabaseTransaction throws before a storage txn opens, so re-running InterpretPrepare on wake is safe.
     session.StashPendingBeginPrepare(e.deadline());
     return State::PendingBegin;
   } catch (const std::exception &e) {
@@ -458,8 +456,7 @@ State HandleBegin(TSession &session, const State state, const Marker marker) {
     }
     return State::Idle;
   } catch (const memgraph::query::BeginWouldBlockException &e) {
-    // main_lock_ is contended; Configure() has already run. Stash the extra map so the pool
-    // driver can retry BeginTransaction(extra) + MessageSuccess({}) on wake without re-decoding.
+    // Configure() already ran for this message; the retry repeats only BeginTransaction(extra) from the stash.
     session.StashPendingBeginMessage(extra.ValueMap(), e.deadline());
     return State::PendingBegin;
   } catch (const std::exception &e) {
@@ -489,8 +486,7 @@ State HandleCommit(TSession &session, const State state, const Marker marker) {
     }
     return State::Idle;
   } catch (const memgraph::query::CommitWouldBlockException &) {
-    // commit_mutex_ contended: park this write and retry the COMMIT message on wake, instead of
-    // failing the client. The explicit txn stays staged (Commit throws before mutating).
+    // Commit() throws before mutating, so the explicit txn stays staged and the COMMIT message can be retried.
     session.StashPendingCommitMessage();
     return State::PendingCommit;
   } catch (const std::exception &e) {

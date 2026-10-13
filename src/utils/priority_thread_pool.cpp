@@ -80,17 +80,17 @@ bool HotMask::AnySet() const noexcept {
 }
 
 uint16_t HotMask::Count() const noexcept {
-  // Relaxed: Count() is a soft pressure signal; stale bits from an in-flight hot→cold transition are tolerable.
+  // Relaxed: soft pressure signal; stale bits are tolerable.
   uint32_t total = 0;
   for (size_t g = 0; g < n_groups_; ++g) {
     total += std::popcount(hot_masks_[g].load(std::memory_order_relaxed));
   }
-  // total ≤ n_groups_ * 64 ≤ 1024, safe to narrow to uint16_t.
   return static_cast<uint16_t>(total);
 }
 
 PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
-                                       ThreadInitCallback thread_init_callback)
+                                       ThreadInitCallback thread_init_callback,
+                                       std::chrono::milliseconds monitor_interval)
     : hot_threads_{mixed_work_threads_count}, task_id_{kMaxLowPriorityId}, last_wid_{0} {
   MG_ASSERT(mixed_work_threads_count > 0, "PriorityThreadPool requires at least one mixed work thread");
   MG_ASSERT(mixed_work_threads_count <= kMaxWorkers,
@@ -133,7 +133,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
   published->wait();
 
   // Under heavy load a task can get stuck, monitor and move to different thread
-  monitoring_.SetInterval(std::chrono::milliseconds(100));
+  monitoring_.SetInterval(monitor_interval);
   monitoring_.Run(
       "sched_mon",
       [this,
@@ -178,8 +178,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
           }
         }
 
-        // Sweep parked admissions: re-inject expired entries; kick oldest to prevent starvation.
-        // parked_mtx_ is released before the wakeup loop so ScheduledReAddTask can acquire Worker::mtx_.
+        // Re-inject expired parked admissions, plus the oldest remaining one to prevent starvation.
         {
           const auto now = std::chrono::steady_clock::now();
           using WakeEntry = std::pair<TaskID, TaskSignature>;
@@ -196,7 +195,6 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
                   ++it;
                 }
               }
-              // Backstop: kick the oldest remaining entry to prevent starvation.
               if (!parked_admissions_.empty()) {
                 wakeups.emplace_back(parked_admissions_.front().id, std::move(parked_admissions_.front().task));
                 parked_admissions_.pop_front();
@@ -205,7 +203,7 @@ PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16
             }
           }
           for (auto &[id, task] : wakeups) {
-            ScheduledReAddTask(std::move(task), id, utils::Priority::LOW, /*productive=*/false);
+            ScheduledReAddTask(std::move(task), id);
           }
         }
       });
@@ -218,13 +216,10 @@ PriorityThreadPool::~PriorityThreadPool() {
 }
 
 void PriorityThreadPool::AwaitShutdown() {
-  pool_.clear();  // joins every worker; no worker touches work_ past this point
+  pool_.clear();
 
-  // Workers exit on !run_ without draining, and a push can race the stop request, so tasks may remain queued. They
-  // own session state (DB accessors), so release them here, while their owners are still alive, rather than in
-  // ~PriorityThreadPool. The pool is stopped: ScheduledAddTask drops new work, ParkAdmission drops while draining,
-  // and the parked set is empty, so a destructor re-entering the pool is a no-op. Containers are moved out under
-  // their mutex and destroyed after unlocking.
+  // Workers exit on !run_ without draining, so queued tasks remain. They own DB accessors: release them here while
+  // the DBMS is alive. Moved out under the mutex, destroyed unlocked, so a destructor re-entering the pool is a no-op.
   std::vector<TaskSignature> orphans;
   const auto take_queue = [&](Worker &worker) {
     int64_t productive = 0;
@@ -253,7 +248,7 @@ void PriorityThreadPool::AwaitShutdown() {
 }
 
 void PriorityThreadPool::ShutDown() {
-  // Stop monitor before the drain so no sweep tick can race the swap below.
+  // Monitor first: a sweep tick must not race the parked-set swap below.
   monitoring_.Stop();
   draining_admissions_.store(true, std::memory_order_release);
   {
@@ -263,13 +258,11 @@ void PriorityThreadPool::ShutDown() {
       drain.swap(parked_admissions_);
       has_parked_.store(false, std::memory_order_release);
     }
-    // Each continuation runs inline on this thread and may block (commit falls back to LockCommitBlocking once
-    // ShouldParkAdmission() is false; BEGIN waits up to the remaining storage-access deadline). One that returns
-    // Reschedule is dropped (IsDrainingAdmissions() suppresses the re-post), leaving the client to connection
-    // teardown. Stragglers that slip in after the swap are released by AwaitShutdown.
+    // Continuations run inline here and may block (commit falls back to LockCommitBlocking; BEGIN waits out its
+    // storage-access deadline). A Reschedule is dropped, leaving the client to connection teardown.
     for (auto &e : drain) e.task(utils::Priority::LOW);
   }
-  // After drain: pool_stop_source_ stop trips ScheduledReAddTask's stop-guard.
+  // Only after the drain: this arms ScheduledReAddTask's inline-run guard.
   pool_stop_source_.request_stop();
   for (auto &worker : workers_) {
     worker->stop();
@@ -301,16 +294,12 @@ PriorityThreadPool::TaskID PriorityThreadPool::ScheduledAddTask(TaskSignature ne
   return id;
 }
 
-PriorityThreadPool::TaskID PriorityThreadPool::ScheduledReAddTask(TaskSignature task, TaskID id, Priority priority,
-                                                                  bool productive) {
-  (void)priority;  // Not used for id computation here; kept for API symmetry with ScheduledAddTask
+void PriorityThreadPool::ScheduledReAddTask(TaskSignature task, TaskID id) {
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
-    // Shutting down (past the parked-set drain): run the woken continuation inline rather than
-    // dropping it, exactly as ShutDown's drain does (it may block, and drops any re-post).
-    // Dropping here would lose a task that WakeMatching pulled from the deque
-    // in the window where ShutDown swapped the parked set and then requested stop.
+    // Run inline like ShutDown's drain (may block): a task WakeMatching already pulled from the parked set
+    // after ShutDown's swap would otherwise be lost.
     task(utils::Priority::LOW);
-    return 0;
+    return;
   }
   auto tid = hot_threads_.GetHotElement();
   if (!tid) {
@@ -318,32 +307,22 @@ PriorityThreadPool::TaskID PriorityThreadPool::ScheduledReAddTask(TaskSignature 
         std::max(1UL, std::min(static_cast<TaskID>(GetSafeHardwareConcurrency()), workers_.size()));
     tid = last_wid_++ % max_wakeup_thread;
   }
-  workers_[*tid]->push(std::move(task), id, productive);
-  return id;
-}
-
-bool PriorityThreadPool::HasPendingWork() const noexcept {
-  return productive_pending_.load(std::memory_order_relaxed) > 0;
+  workers_[*tid]->push(std::move(task), id, /*productive=*/false);
 }
 
 std::chrono::microseconds PriorityThreadPool::AdmissionTryBudget() const noexcept {
-  // All reads are relaxed: this is a heuristic pressure signal, not a synchronisation barrier.
   const uint64_t pool = GetNumWorkers();
   const uint64_t free = FreeWorkers();
   const uint64_t backlog = QueuedProductiveTasks();
 
-  // No-pressure fast path: ≥10% workers idle and backlog empty → caller can afford to sleep long.
   if (free * 10 >= pool && backlog == 0) return kTryBudgetMax;
 
-  // T(P) = kTryBudgetMax − (clamped_backlog/pool)×range; pool ≥ 2 by MG_ASSERT. PROVISIONAL: constants are
-  // perf-tunable.
   const uint64_t safe_pool = pool > 0 ? pool : 1;
   const uint64_t clamped_backlog = backlog < safe_pool ? backlog : safe_pool;
   const auto range = static_cast<uint64_t>(kTryBudgetMax.count() - kTryBudgetMin.count());
   const int64_t budget_us =
       static_cast<int64_t>(kTryBudgetMax.count()) - static_cast<int64_t>((clamped_backlog * range) / safe_pool);
 
-  // Scarce-worker clamp: fewer than 10% free → collapse immediately to minimum regardless of backlog.
   if (free * 10 < pool) return kTryBudgetMin;
 
   int64_t clamped = budget_us;
@@ -355,19 +334,14 @@ std::chrono::microseconds PriorityThreadPool::AdmissionTryBudget() const noexcep
 }
 
 uint32_t PriorityThreadPool::AdmissionRescheduleCap() const noexcept {
-  // All reads are relaxed: this is a heuristic pressure signal, not a synchronisation barrier.
   const uint64_t pool = GetNumWorkers();
   const uint64_t free = FreeWorkers();
   const uint64_t backlog = QueuedProductiveTasks();
 
-  // Scarce-worker fast path: fewer than 10% workers idle → park immediately (core is precious).
   if (free * 10 < pool) return kRescheduleCapMin;
 
-  // No-pressure fast path: ≥10% workers idle and backlog empty → maximum reschedule budget.
   if (backlog == 0) return kRescheduleCapMax;
 
-  // N(P) = kRescheduleCapMax − (clamped_backlog/pool)×range; pool ≥ 2 by MG_ASSERT. PROVISIONAL: constants are
-  // perf-tunable.
   const uint64_t safe_pool = pool > 0 ? pool : 1;
   const uint64_t clamped_backlog = backlog < safe_pool ? backlog : safe_pool;
   const uint32_t range = kRescheduleCapMax - kRescheduleCapMin;
@@ -380,33 +354,30 @@ uint32_t PriorityThreadPool::AdmissionRescheduleCap() const noexcept {
 }
 
 void PriorityThreadPool::ParkAdmission(TaskSignature task, TaskID id, std::chrono::steady_clock::time_point deadline,
-                                       WaitTag tag, std::optional<uint64_t> observed_epoch) {
+                                       WaitResource resource, std::optional<uint64_t> observed_epoch) {
   {
     const std::unique_lock lk{parked_mtx_};
     if (draining_admissions_.load(std::memory_order_acquire)) return;  // shutting down: drop; teardown errors client
-    // seq_cst store-then-load pairs with WakeMatching's seq_cst epoch bump-then-load of has_parked_:
-    // either the waker sees has_parked_ (and then waits on parked_mtx_ for this entry) or we see the new epoch.
+    // Dekker pairing, all seq_cst: this has_parked_ store then epoch load vs WakeMatching's epoch bump then
+    // has_parked_ load. Either the waker sees has_parked_ (and blocks on parked_mtx_) or we see the bump.
     has_parked_.store(true, std::memory_order_seq_cst);
-    if (!observed_epoch || WakeEpoch(tag.resource) == *observed_epoch) {
-      parked_admissions_.push_back({.id = id, .task = std::move(task), .deadline = deadline, .tag = tag});
+    if (!observed_epoch || WakeEpoch(resource) == *observed_epoch) {
+      parked_admissions_.push_back({.id = id, .task = std::move(task), .deadline = deadline, .resource = resource});
       return;
     }
     has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
   }
-  // A wake for this resource fired since the caller's failed attempt: re-post instead of parking.
-  ScheduledReAddTask(std::move(task), id, utils::Priority::LOW, /*productive=*/false);
+  ScheduledReAddTask(std::move(task), id);
 }
 
 bool PriorityThreadPool::ShouldParkAdmission() const noexcept {
   return productive_pending_.load(std::memory_order_acquire) > 0 && !hot_threads_.AnySet();
 }
 
-void PriorityThreadPool::WakeMatching(FreedTag freed) {
-  // Bump before the fast-path check so a ParkAdmission racing with this wake observes it (see ParkAdmission).
-  wake_epochs_[static_cast<size_t>(freed.resource)].value.fetch_add(1, std::memory_order_seq_cst);
+void PriorityThreadPool::WakeMatching(WaitResource resource) {
+  wake_epochs_[static_cast<size_t>(resource)].value.fetch_add(1, std::memory_order_seq_cst);
 
-  // Fast-path: stale-true (false positive) wastes one lock acquisition; stale-false
-  // (false negative — real entry missed) is covered by the monitor sweep backstop.
+  // Stale-true costs one lock acquisition; ParkAdmission's seq_cst pairing rules out a miss.
   if (!has_parked_.load(std::memory_order_seq_cst)) return;
 
   using WakeEntry = std::pair<TaskID, TaskSignature>;
@@ -414,7 +385,7 @@ void PriorityThreadPool::WakeMatching(FreedTag freed) {
   {
     const std::unique_lock lk{parked_mtx_};
     for (auto it = parked_admissions_.begin(); it != parked_admissions_.end();) {
-      if (it->tag.resource == freed.resource) {
+      if (it->resource == resource) {
         wakeups.emplace_back(it->id, std::move(it->task));
         it = parked_admissions_.erase(it);
       } else {
@@ -422,17 +393,15 @@ void PriorityThreadPool::WakeMatching(FreedTag freed) {
       }
     }
     has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
-  }  // release parked_mtx_ BEFORE ScheduledReAddTask (which acquires Worker::mtx_)
-  // If the pool is draining, run the woken continuations inline (they may block; any re-post is dropped via
-  // IsDrainingAdmissions()) instead of rescheduling onto workers that ShutDown is about to stop.
-  // ScheduledReAddTask's own stop-guard covers the narrower window where stop is requested after this
-  // check; between them a task pulled out of the deque here is never lost.
+  }  // parked_mtx_ released before ScheduledReAddTask takes Worker::mtx_
+  // Draining: run inline (may block) rather than post to workers about to stop; ScheduledReAddTask's stop-guard
+  // covers a stop requested after this check.
   const bool draining = draining_admissions_.load(std::memory_order_acquire);
   for (auto &[id, task] : wakeups) {
     if (draining) [[unlikely]] {
       task(utils::Priority::LOW);
     } else {
-      ScheduledReAddTask(std::move(task), id, utils::Priority::LOW, /*productive=*/false);
+      ScheduledReAddTask(std::move(task), id);
     }
   }
 }

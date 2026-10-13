@@ -637,9 +637,8 @@ class ShowSchemaInfoInMulticommandTxException : public MulticommandTxException {
   SPECIALIZE_GET_EXCEPTION_NAME(ShowSchemaInfoInMulticommandTxException)
 };
 
-/// Thrown inside Interpreter::Commit() (first action, pre-mutation) when commit_mutex_ is
-/// contended (experimental_commit_lock_narrowing ON). Never a client Bolt error; the Bolt
-/// driver (U4b) catches, parks under WaitResource::CommitLock, and retries — re-entry is safe.
+/// Thrown from Interpreter::Commit() before any mutation, so retry is safe. Only parking-capable (Bolt) interpreters
+/// throw it, under commit-lock-narrowing; never surfaced to the client.
 class CommitWouldBlockException final : public std::exception {
  public:
   CommitWouldBlockException() = default;
@@ -647,9 +646,8 @@ class CommitWouldBlockException final : public std::exception {
   const char *what() const noexcept override { return "commit_mutex_ held by another committer; park and retry"; }
 };
 
-/// Thrown inside CurrentDB::SetupDatabaseTransaction() when main_lock_ is contended and the
-/// storage-access deadline has NOT yet passed (experimental_commit_lock_narrowing ON). Never a
-/// client Bolt error; Bolt driver (U3b) catches, parks under WaitResource::MainLock, then retries.
+/// Thrown from CurrentDB::SetupDatabaseTransaction() before a storage txn opens, so retry is safe. Same gating as
+/// CommitWouldBlockException; never surfaced to the client. Carries the finite storage-access deadline.
 class BeginWouldBlockException final : public std::exception {
  public:
   explicit BeginWouldBlockException(std::chrono::steady_clock::time_point deadline) : deadline_{deadline} {}

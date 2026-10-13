@@ -214,20 +214,18 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
 
   bool acquired = false;
   if (db_acc->storage()->IsCommitSerialised()) {
-    // Arm the storage-access deadline before the first probe so every timed wait is charged against it
-    // and no probe can push the total wait past it (NB2). Persists across park-retries.
+    // Arm the deadline before the first probe so every timed wait is charged against it; persists across park-retries.
     if (!pending_begin_deadline_) pending_begin_deadline_ = std::chrono::steady_clock::now() + timeout;
-    // A storage-mode switch between attempts can change the planned access type; a handle made for another
-    // type would gate the wrong mode.
+    // A storage-mode switch between attempts can change the access type; a stale handle would gate the wrong mode.
     if (pending_access_ && pending_access_->AccessType() != acc_type) pending_access_.reset();
     if (!pending_access_) {
-      // Alloc-free one-probe TryAccess on the hot path; allocate a PendingAccess only on a miss (NB7).
+      // Alloc-free one-probe TryAccess on the hot path; allocate a PendingAccess only on a miss.
       if (auto acc = db_acc->storage()->TryAccess(acc_type, override_isolation_level)) {
         db_transactional_accessor_ = std::move(acc);
         acquired = true;
         pending_begin_deadline_.reset();
       } else {
-        pending_access_ = db_acc->storage()->MakePendingAccess(acc_type);  // nullptr on Disk
+        pending_access_ = db_acc->storage()->MakePendingAccess(acc_type);
         if (!pending_access_) pending_begin_deadline_.reset();
       }
     }
@@ -240,8 +238,8 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
       if (now >= *pending_begin_deadline_) {
         timed_out();
       } else {
-        // Per-attempt budget clamped to the time left so a timed probe can't overshoot the deadline (NB2).
-        // Null pool: a finite cap, never microseconds{int64 max} (µs->ns overflow wraps negative — NB3).
+        // Clamp the budget to the time left so a probe can't overshoot the deadline. Null pool: finite cap,
+        // since microseconds::max overflows when converted to ns.
         auto const base = pool ? pool->AdmissionTryBudget()
                                : std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{24});
         auto const budget =
@@ -252,12 +250,14 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
           ClearPendingBegin();
         } else if (std::chrono::steady_clock::now() >= *pending_begin_deadline_) {
           timed_out();
-        } else if (pool != nullptr && pool->ShouldParkAdmission()) {
+        } else if (pool != nullptr &&
+                   (acc_type == storage::StorageAccessType::READ || acc_type == storage::StorageAccessType::WRITE)) {
+          // Only scope-free admissions park: a parked UNIQUE/READ_ONLY would keep its writer-preference scope gating
+          // others while holding no worker, so its retry could queue behind the BEGINs it blocks.
           throw BeginWouldBlockException{*pending_begin_deadline_};
         } else {
-          // !ShouldParkAdmission (or no pool): P==0 (no waker) or idle spinners present (blocking is immediate) —
-          // skip park and block on the same pending scope for the time left, so the total wait stays one deadline
-          // and writer preference holds until acquired.
+          // No pool, or a scope-holding admission (UNIQUE/READ_ONLY): block on the same pending scope for the time
+          // left, so the total wait stays one deadline and writer preference holds.
           auto const remaining = std::chrono::duration_cast<std::chrono::microseconds>(
               *pending_begin_deadline_ - std::chrono::steady_clock::now());
           std::unique_ptr<storage::Storage::Accessor> acc;
@@ -313,7 +313,6 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   trigger_context_collector_.reset();
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
-  // Deregister any in-flight PendingScope if aborted while parked waiting for the commit serializer.
   ClearPendingBegin();
 }
 
@@ -11315,11 +11314,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
             .qid = qid,
             .db = query_execution->prepared_query->db};
   } catch (const BeginWouldBlockException &) {
-    // Autocommit (RUN-first-query) BEGIN parked on main_lock_: stash the still-intact parse. Prepare
-    // throws at the storage-access acquire, before parsed_query/params_getter are consumed, so the
-    // pool wake can re-drive via ResumeParkedPrepare instead of hitting "query was not parsed". Do NOT
-    // AbortCommand here: pending_access_ (on CurrentDB) must survive to keep writer-preference across
-    // the park; ResetInterpreter on the re-drive clears the transient query_execution.
+    // Parked autocommit BEGIN: stash the parse (not yet consumed) for ResumeParkedPrepare. No AbortCommand:
+    // pending_access_ must survive the park to keep writer preference.
     parked_prepare_.emplace(
         ParkedPrepare{.parse_res = std::move(parse_res), .params_getter = std::move(params_getter), .extras = extras});
     throw;
@@ -11373,15 +11369,12 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
 }
 
 void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type) {
-  // Lazily install the main_lock wake hook once per DB; TrySetMainLockNotifyHook's internal exchange
-  // closes the load→install TOCTOU race. No-op when flag is OFF or on Disk storage.
+  // Install the main_lock wake hook lazily, once per DB.
   if (current_db_.db_acc_) {
     auto *storage = (*current_db_.db_acc_)->storage();
     if (storage->IsCommitSerialised() && interpreter_context_->worker_pool && !storage->MainLockHookInstalled()) {
-      storage->TrySetMainLockNotifyHook([pool = interpreter_context_->worker_pool] {
-        pool->WakeMatching(
-            utils::FreedTag{.resource = utils::WaitResource::MainLock, .freed = utils::AccessMode::WRITE});
-      });
+      storage->TrySetMainLockNotifyHook(
+          [pool = interpreter_context_->worker_pool] { pool->WakeMatching(utils::WaitResource::MainLock); });
     }
   }
   if (!pinned_begin_isolation_) pinned_begin_isolation_.emplace(GetIsolationLevelOverride());
@@ -11819,45 +11812,36 @@ void Interpreter::CommitAuthTransaction() {
 }
 
 void Interpreter::Commit() {
-  // Try commit_mutex_ as the first action so that if another write is in WAL+replication, we throw
-  // CommitWouldBlockException before any non-idempotent work runs, making park-and-retry safe.
-  // Gate on write deltas: reads bypass the serializer entirely (the stall is writers-only, not readers).
-  // Acquire repl_state_ ReadLock BEFORE commit_mutex_ so this thread's order (repl_state_ -> commit_mutex_)
-  // matches DoToMainPromotion's (repl_state_ WRITE -> commit_mutex_ in PrepareForNewEpoch); the two orders
-  // would otherwise form an ABBA deadlock under the flag (B2). Held only for write txns here (the sole path
-  // that pre-takes commit_mutex_); other commits fill it at the is_main site below, reads never take it.
-  // Declared before the locks below so it runs after both are released.
+  // Write commits pre-take commit_mutex_ first so a blocked one throws CommitWouldBlockException before any
+  // non-idempotent work. Lock order repl_state_ ReadLock -> commit_mutex_ matches DoToMainPromotion
+  // (repl_state_ WRITE -> PrepareForNewEpoch); the reverse order would ABBA-deadlock.
+  // Declared before the locks below so the wake runs after both are released.
   bool released_serializer = false;
   auto *const wake_pool = interpreter_context_->worker_pool;
   utils::OnScopeExit const wake_parked_commits([&released_serializer, wake_pool]() {
     if (released_serializer && wake_pool != nullptr) {
-      wake_pool->WakeMatching({.resource = utils::WaitResource::CommitLock, .freed = utils::AccessMode::WRITE});
+      wake_pool->WakeMatching(utils::WaitResource::CommitLock);
     }
   });
   decltype(std::optional{interpreter_context_->repl_state->ReadLock()}) locked_repl_state{std::nullopt};
   memgraph::storage::CommitLock preheld_commit_lock;
-  // A before-commit trigger runs ahead of the commit-mutex acquire in PrepareForCommitPhase. Pre-taking would
-  // serialise every writer's trigger phase and self-deadlock a trigger procedure that writes, so such commits
-  // (collector engaged exactly when the trigger loop below runs) and callers that cannot retry take the mutex there.
+  // Before-commit triggers run ahead of the mutex acquire in PrepareForCommitPhase; pre-taking would serialise
+  // trigger phases and self-deadlock a writing trigger procedure, so those commits take it there.
   if (can_park_ && !current_db_.trigger_context_collector_ && current_db_.db_transactional_accessor_ &&
       current_db_.db_transactional_accessor_->IsCommitSerialised()) {
     auto const *commit_txn = current_db_.db_transactional_accessor_->GetTransaction();
     bool const is_write = commit_txn && (!commit_txn->deltas.empty() || !commit_txn->md_deltas.empty());
     if (is_write) {
       locked_repl_state.emplace(interpreter_context_->repl_state->ReadLock());
-      // Layer-1 budget: AdmissionTryBudget() shrinks under backlog and scarce idle workers.
       auto *pool = interpreter_context_->worker_pool;
-      // Null pool: no pressure signal, so an effectively-infinite budget — but a finite cap, never
-      // microseconds{int64 max}, whose µs→ns conversion overflows steady_clock and wraps negative (NB3).
-      // The blocking fallback below governs in the null-pool case regardless.
-      auto const budget = pool ? pool->AdmissionTryBudget()
-                               : std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::hours{24});
+      DMG_ASSERT(pool, "can_park_ requires a worker pool");
+      auto const budget = pool->AdmissionTryBudget();
       preheld_commit_lock = current_db_.db_transactional_accessor_->TryLockCommitFor(budget);
       if (!preheld_commit_lock.owns_lock()) {
-        if (pool != nullptr && pool->ShouldParkAdmission()) {
+        if (pool->ShouldParkAdmission()) {
           throw CommitWouldBlockException{};
         }
-        // !ShouldParkAdmission: P==0 (no waker) or idle spinners present (blocking is immediate) — block instead.
+        // Not worth parking (no waker, or idle spinners): block.
         preheld_commit_lock = current_db_.db_transactional_accessor_->LockCommitBlocking();
       }
       released_serializer = preheld_commit_lock.owns_lock();
@@ -12014,9 +11998,8 @@ void Interpreter::Commit() {
       QueryAllocator execution_memory{db->DbQueryMemoryTracker()};
       AdvanceCommand();
       try {
-        // Reuse the commit's held ReadLock (write txns) so this is NOT a nested read — a nested read would
-        // deadlock against a concurrent system-transaction's blocking repl_state_ WRITE under the writer-
-        // preferring RWSpinLock (B2). Non-write commits hold nothing here and take a standalone read.
+        // Reuse the held ReadLock: a nested read would deadlock against a pending repl_state_ WRITE
+        // (RWSpinLock blocks new readers behind a waiting writer).
         bool const is_main =
             locked_repl_state ? (*locked_repl_state)->IsMain() : interpreter_context_->repl_state->ReadLock()->IsMain();
         trigger.Execute(&*current_db_.execution_db_accessor_,
@@ -12045,7 +12028,6 @@ void Interpreter::Commit() {
   };
   utils::OnScopeExit const reset_members(reset_necessary_members);
 
-  // Reuse the ReadLock hoisted above commit_mutex_ (write txns); otherwise acquire it now (B2).
   if (!locked_repl_state) {
     locked_repl_state = interpreter_context_->repl_state->ReadLock();
   }
@@ -12064,8 +12046,8 @@ void Interpreter::Commit() {
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
-  // Parked write commits are woken by wake_parked_commits once commit_mutex_ and the repl lock are released.
-  // PrepareForNewEpoch also holds commit_mutex_ but has no pool handle; the 100 ms sweep is the backstop.
+  // PrepareForNewEpoch also holds commit_mutex_ but has no pool handle to wake parked commits; the monitor sweep
+  // is the backstop.
 
   std::optional<std::string> replication_error_msg;
   bool replication_error_committed = false;

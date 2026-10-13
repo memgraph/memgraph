@@ -385,8 +385,8 @@ struct CurrentDB {
   // GKInternals::mutex_ that finish_suspend() holds across a whole ~Database; nesting them would stall the
   // session table behind a tenant suspend.
   mutable std::mutex db_acc_mutex_;
-  // unique_ptr: teardown (CleanupDBTransaction/ResetDB/~CurrentDB) deregisters the PendingScope on
-  // abandonment — a leaked scope blocks all new main_lock acquisitions on this storage.
+  // Must be reset on abandonment (CleanupDBTransaction/ResetDB/~CurrentDB): a leaked PendingScope keeps
+  // blocking new main_lock acquirers. Declared last so it dies before db_acc_.
   std::unique_ptr<storage::Storage::PendingAccess> pending_access_;
   std::optional<std::chrono::steady_clock::time_point> pending_begin_deadline_;
 };
@@ -506,16 +506,14 @@ class Interpreter final {
 
   Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
 
-  // Opt in to would-block parking. Only an owner whose callers drive CommitWouldBlockException /
-  // BeginWouldBlockException retries (the Bolt session) may set this; every other Interpreter blocks instead.
+  // Only an owner that retries on Commit/BeginWouldBlockException (the Bolt session) may set this, and only
+  // with a non-null worker_pool; every other Interpreter blocks instead.
   void SetCanPark(bool can_park) { can_park_ = can_park; }
 
-  // True while an autocommit (RUN-first-query) BEGIN is parked on main_lock_ with its parse stashed.
   bool HasParkedPrepare() const { return parked_prepare_.has_value(); }
 
-  // Re-drive a parked autocommit Prepare from the stashed parse (pool wake). Re-attempts only the
-  // storage-access acquire; on a further would-block it re-stashes and rethrows (park again). This is
-  // the implicit-transaction analogue of retrying an explicit BEGIN via BeginTransaction().
+  // Re-drives a parked autocommit Prepare from the stashed parse; on a further would-block it re-stashes
+  // and rethrows.
   Interpreter::PrepareResult ResumeParkedPrepare();
 
   /**
@@ -812,11 +810,8 @@ class Interpreter final {
   // SubqueryExpression only during a single transaction (for now should be okay as is)
   std::vector<std::unique_ptr<QueryExecution>> query_executions_;
 
-  // Stash for a parked autocommit BEGIN. When Prepare's storage-access acquire would block, the
-  // still-intact parse inputs are moved here (Prepare throws before consuming them) so the pool wake
-  // can re-drive via ResumeParkedPrepare instead of failing "not parsed". pending_access_ lives on
-  // CurrentDB and survives ResetInterpreter, so the retained scope keeps writer-preference across the
-  // park. Cleared on the first successful/failed re-drive.
+  // Parse inputs of an autocommit Prepare that would-blocked at storage access (it throws before consuming
+  // them), kept for ResumeParkedPrepare. pending_access_ survives ResetInterpreter, so writer preference holds.
   struct ParkedPrepare {
     ParseRes parse_res;
     UserParameters_fn params_getter;
@@ -838,10 +833,9 @@ class Interpreter final {
   std::optional<PendingAutocommit> pending_autocommit_;
 
   bool can_park_{false};
-  // Set only around the two BEGIN setups whose callers can retry a BeginWouldBlockException.
+  // Set only around the two BEGIN setups whose callers retry a BeginWouldBlockException.
   bool begin_park_allowed_{false};
-  // Isolation override resolved on the first BEGIN attempt and reused by its retries, so the one-shot NEXT override
-  // is consumed once.
+  // Resolved on the first BEGIN attempt and reused by retries so the one-shot NEXT override is consumed once.
   std::optional<std::optional<storage::IsolationLevel>> pinned_begin_isolation_;
 
   // all queries that are run as part of the current transaction
@@ -879,11 +873,10 @@ class Interpreter final {
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
 
-  // SetupInterpreterTransaction on a first BEGIN attempt; on a retry after BeginWouldBlockException it only
-  // honours a TERMINATED status set while parked (throws), keeping the tx id, status and metadata.
+  // On a retry after BeginWouldBlockException, only honours a TERMINATED status set while parked (throws);
+  // keeps the tx id, status and metadata.
   void SetupBeginAttempt(const QueryExtras &extras);
 
-  // Drops the parked BEGIN's pending scope, deadline and pinned isolation override.
   void DropPendingBegin();
   void SetupDatabaseTransaction(bool couldCommit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
@@ -928,7 +921,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   bool emit_slow_query = false;
   int64_t slow_query_duration_ms = 0;
   std::optional<QueryHandlerResult> maybe_res;
-  // True only while the autocommit tail's Commit() runs; a would-block from it must stash the tail state.
+  // A would-block is only stashed for the tail's Commit(), not for an earlier throw.
   bool in_commit_tail = false;
   try {
     if (pending_autocommit_) {

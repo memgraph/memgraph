@@ -256,7 +256,6 @@ struct PlanInvalidatorDefault : public PlanInvalidator {
 
 using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
 
-// Using timed_mutex so callers can use try_lock_for() without a type change.
 using CommitMutex = std::timed_mutex;
 using CommitLock = std::unique_lock<CommitMutex>;
 
@@ -368,40 +367,26 @@ class Storage {
   std::unique_ptr<Accessor> ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level);
   std::unique_ptr<Accessor> ReadOnlyAccess();
 
-  /// Handle for a single in-flight non-blocking BEGIN attempt.  Encapsulates the pending-scope
-  /// registration (for UNIQUE / READ_ONLY) so the query layer never touches main_lock_ directly.
+  /// Handle for one in-flight non-blocking BEGIN. UNIQUE / READ_ONLY register a pending scope on
+  /// main_lock_ (writer preference) that lives as long as the handle.
   struct PendingAccess {
     virtual ~PendingAccess() = default;
-    /// The access type this handle was made for.
     virtual StorageAccessType AccessType() const noexcept = 0;
-    /// Returns the built accessor if main_lock_ now admits the requested mode, else nullptr
-    /// (still registered pending — call again on the next wake). Never blocks, never throws.
-    virtual std::unique_ptr<Accessor> TryAcquire(std::optional<IsolationLevel> override_isolation_level) = 0;
-    /// Timed variant: waits up to `budget` for main_lock_ to admit the mode. Returns the accessor
+    /// Waits up to `budget` for main_lock_ to admit the requested mode. Returns the built accessor
     /// on success, nullptr on timeout (pending registration stays for the next probe).
-    /// Default falls back to the one-probe TryAcquire for backends without timed-wait support.
     virtual std::unique_ptr<Accessor> TryAcquireFor(std::optional<IsolationLevel> override_isolation_level,
-                                                    std::chrono::microseconds budget);
+                                                    std::chrono::microseconds budget) = 0;
   };
 
-  /// Returns a PendingAccess for non-blocking BEGIN retry, or nullptr when the storage backend does
-  /// not support non-blocking acquisition (DiskStorage keeps this default → caller must block).
+  /// nullptr when the backend has no non-blocking acquisition (DiskStorage): the caller must block.
   virtual std::unique_ptr<PendingAccess> MakePendingAccess(StorageAccessType /*rw_type*/) { return nullptr; }
 
-  /// Non-blocking single-probe accessor acquisition: returns the accessor if main_lock_ admits the
-  /// mode right now, else nullptr. Grants no priority (one probe). DiskStorage keeps this default
-  /// (no probe → a poller learns to block instead of spinning); InMemoryStorage overrides it.
+  /// One non-blocking probe: the accessor if main_lock_ admits the mode now, else nullptr; registers no
+  /// pending scope. DiskStorage's default always returns nullptr.
   virtual std::unique_ptr<Accessor> TryAccess(StorageAccessType /*rw_type*/,
                                               std::optional<IsolationLevel> /*override_isolation_level*/ = {}) {
     return nullptr;
   }
-
-  /// Timed variant of TryAccess: waits up to `budget` for main_lock_ to admit the requested mode.
-  /// Returns the accessor on success, nullptr on timeout. Default falls back to one-probe TryAccess
-  /// for backends (DiskStorage) that have no timed-probe path.
-  virtual std::unique_ptr<Accessor> TryAccessFor(StorageAccessType rw_type,
-                                                 std::optional<IsolationLevel> override_isolation_level,
-                                                 std::chrono::microseconds budget);
 
   enum class SetIsolationLevelError : uint8_t { DisabledForAnalyticalMode };
 
@@ -422,19 +407,15 @@ class Storage {
 
   virtual void PrepareForNewEpoch() = 0;
 
-  // EXPERIMENTAL (lock-free-read-snapshot). Only meaningful when the experiment is ON.
-  // Returns non-owning lock on timeout — caller must check owns_lock() before proceeding.
+  // Commit-mutex helpers: valid only when IsCommitSerialised(). The timed variant returns a
+  // non-owning lock on timeout; check owns_lock().
   [[nodiscard]] CommitLock TryCommitLockFor(std::chrono::microseconds budget) noexcept {
     return CommitLock{commit_mutex_, budget};
   }
 
-  // EXPERIMENTAL (lock-free-read-snapshot). Only meaningful when the experiment is ON.
-  // Blocking acquire of commit_mutex_; always returns owning lock.
   [[nodiscard]] CommitLock LockCommitBlocking() { return CommitLock{commit_mutex_}; }
 
-  // True iff the lock-free read-snapshot experiment is ON for this storage instance.
-  // The lock-free read-snapshot commit path is IN_MEMORY_TRANSACTIONAL-only; the spec says the flag is
-  // inert for on-disk and analytical storage, so gate on the mode as well as the flag (NB6).
+  // The flag is inert outside IN_MEMORY_TRANSACTIONAL, so gate on the mode as well.
   bool IsCommitSerialised() const noexcept {
     return config_.experimental_commit_lock_narrowing && GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL;
   }
@@ -486,23 +467,21 @@ class Storage {
   // creation.
   mutable utils::ResourceLock main_lock_;
 
-  // Install-once hook; fires WakeMatching({MainLock}) from ResourceLock::maybe_notify.
-  // Cleared at shutdown (memgraph.cpp ForEach); the pool is declared before, so destroyed after, every storage.
+  // Install-once hook, fired from ResourceLock::maybe_notify. Cleared at shutdown; the worker pool is
+  // declared before dbms_handler in memgraph.cpp, so it outlives every storage.
   std::atomic<bool> main_lock_hook_installed_{false};
 
   bool MainLockHookInstalled() const noexcept { return main_lock_hook_installed_.load(std::memory_order_acquire); }
 
-  // Install once; a second call is a no-op (returns false). The exchange closes the
-  // load→install race between concurrent first-BEGINs on the same DB.
+  // Second call is a no-op (false); the exchange closes the race between concurrent first BEGINs.
   bool TrySetMainLockNotifyHook(std::move_only_function<void()> hook) {
     if (main_lock_hook_installed_.exchange(true, std::memory_order_acq_rel)) return false;
     main_lock_.SetNotifyHook(std::move(hook));
     return true;
   }
 
-  // Permanent disarm for shutdown: marks the slot taken so a later TrySetMainLockNotifyHook (a BEGIN on a
-  // storage that never had a hook) cannot install one, and never un-marks it, so a second SetNotifyHook
-  // cannot overwrite on_notify_all_storage_ under an in-flight reader.
+  // Permanent: the slot stays marked taken, so no later TrySet can reinstall and overwrite the hook
+  // under an in-flight reader.
   void ClearMainLockNotifyHook() {
     main_lock_hook_installed_.store(true, std::memory_order_release);
     main_lock_.ClearNotifyHook();
@@ -886,9 +865,8 @@ class Accessor {
 
   virtual void DropAllConstraints() = 0;
 
+  // preheld_commit_lock: owning lock from TryLockCommitFor() is adopted; non-owning → acquire blocking.
   // NOLINTNEXTLINE(google-default-arguments)
-  // preheld_commit_lock: owning lock pre-acquired by the caller via TryLockCommitFor(); adopted here.
-  // Default-constructed (non-owning) = no pre-held guard; implementation acquires blocking.
   virtual std::expected<void, StorageManipulationError> PrepareForCommitPhase(CommitArgs commit_args,
                                                                               CommitLock preheld_commit_lock = {}) = 0;
 
@@ -899,17 +877,12 @@ class Accessor {
 
   virtual void FinalizeTransaction() = 0;
 
-  // EXPERIMENTAL (lock-free-read-snapshot) helpers for the parkable-commit path.
   bool IsCommitSerialised() const noexcept { return storage_->IsCommitSerialised(); }
 
-  // Pressure-scaled timed wait. Must not be called on the OFF path — commit_mutex_ is only
-  // meaningful when IsCommitSerialised().
   [[nodiscard]] CommitLock TryLockCommitFor(std::chrono::microseconds budget) noexcept {
     return storage_->TryCommitLockFor(budget);
   }
 
-  // Blocking acquire. Must not be called on the OFF path — commit_mutex_ is only meaningful
-  // when IsCommitSerialised().
   [[nodiscard]] CommitLock LockCommitBlocking() { return storage_->LockCommitBlocking(); }
 
   // Stable per-query id; preserved across PERIODIC COMMIT.

@@ -589,17 +589,15 @@ void SessionHL::InterpretParse(const std::string &query, bolt_map_t params, cons
 }
 
 std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrepare() {
-  // A parked autocommit (RUN-first-query) BEGIN consumed parsed_res_ on its first pass; on the pool
-  // wake, re-drive the stashed Prepare rather than failing "not parsed". Explicit BEGIN is already
-  // re-runnable via BeginTransaction(); this makes the implicit path symmetric.
+  // A parked RUN-first BEGIN already consumed parsed_res_ on its first pass; on the pool wake, resume the
+  // stashed Prepare instead of failing "not parsed".
   const bool resume = !parsed_res_ && interpreter_.HasParkedPrepare();
   if (!parsed_res_ && !resume) {
     throw memgraph::communication::bolt::ClientError("Trying to prepare a query that was not parsed.");
   }
 
   try {
-    // BeginWouldBlockException propagates out (it is not a QueryException) so the Bolt pool driver
-    // parks/reschedules the BEGIN; a re-block inside ResumeParkedPrepare re-stashes and re-parks.
+    // BeginWouldBlockException is not a QueryException, so it propagates past the catches below to the pool driver.
     auto result = [&] {
       if (resume) return interpreter_.ResumeParkedPrepare();
       auto parsed_res = *std::move(parsed_res_);
@@ -750,7 +748,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
       auth_(context.auth),
       endpoint_(std::move(context.endpoint)) {
   bolt_session_gauge_ = metrics::ScopedGauge{metrics::Metrics().global.active_bolt_sessions};
-  interpreter_.SetCanPark(true);
+  interpreter_.SetCanPark(interpreter_context_->worker_pool != nullptr);
 #ifdef MG_ENTERPRISE
   interpreter_.OnChangeCB([&](std::string_view db_name) {
     auto &user_or_role = interpreter_.user_or_role_;
