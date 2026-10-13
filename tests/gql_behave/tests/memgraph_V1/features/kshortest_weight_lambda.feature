@@ -484,3 +484,39 @@ Feature: KSHORTEST weight lambda
             | '1' | 9223372036854775807   |
             | '2' | 9.223372036854776e+18 |
             | '3' | 9.223372036854776e+18 |
+
+    # 2 -> 4 -> 2 adds 1.5, but a Double added to an Int above 2^53 rounds the cost down, so the cycle
+    # looked cheaper than the path that skips it.
+    Scenario: Weighted KSHORTEST never serves a path that repeats a vertex
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (v0:N {id: 0}), (v2:N {id: 2}), (v3:N {id: 3}), (v4:N {id: 4}), (v5:N {id: 5}),
+                   (v0)-[:R {w: 2}]->(v3), (v3)-[:R {w: 6917529027641081856}]->(v2), (v2)-[:R {w: 0.5}]->(v4),
+                   (v4)-[:R {w: 1}]->(v2), (v2)-[:R {w: 3}]->(v5)
+            """
+        When executing query:
+            """
+            MATCH (s:N {id: 0}), (t:N {id: 5}) WITH s, t
+            MATCH p=(s)-[:R *KSHORTEST (e, n | e.w) total]->(t) RETURN [x IN nodes(p) | x.id] AS path, total
+            """
+        Then the result should be:
+            | path         | total               |
+            | [0, 3, 2, 5] | 6917529027641081861 |
+
+    # 2 + 6917529027641081856 is not a Double, so adding 0.5 rounds the sum below it. The total is still
+    # the plain left-to-right sum.
+    Scenario: A served total is the left-to-right sum even where a Double rounds it down
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (:N {id: 's'})-[:R {w: 2}]->(:N)-[:R {w: 6917529027641081856}]->(:N)-[:R {w: 0.5}]->(:N {id: 't'})
+            """
+        When executing query:
+            """
+            MATCH (s:N {id: 's'}), (t:N {id: 't'}) WITH s, t
+            MATCH p=(s)-[:R *KSHORTEST (e, n | e.w) total]->(t) RETURN total
+            """
+        Then the result should be:
+            | total                 |
+            | 6.917529027641082e+18 |
