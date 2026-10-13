@@ -20,7 +20,8 @@ void QueryUserOrRole::RefreshPrincipal(const auth::Auth &auth) const {
   if (dropped_) return;  // latched: a same-named user created later must not revive the session
   if (user_) {
     auto user = auth.GetUser(user_->username());
-    if (!user) {
+    // A same-named user with a different uuid is a different identity: treat as dropped.
+    if (!user || user->uuid() != user_->uuid()) {
       dropped_ = true;
       return;
     }
