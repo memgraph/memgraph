@@ -97,8 +97,8 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view, bool with_vector_reconstruction = true) const;
 
-  /// Reconstruct a vertex's indexed vector into `out` (resized to the index dimension); false if absent.
-  /// Zero owning PropertyValue — used to materialize an embedding transiently.
+  /// Materialize into `out` the numeric-list value the MVCC read at `view` yields (index-backed or plain);
+  /// false if that value is not a numeric list. No owning PropertyValue of the floats is built.
   bool GetVectorInto(PropertyId property, View view, std::vector<float> &out) const;
 
   /// Returns the size of the encoded vertex property in bytes.
