@@ -1210,7 +1210,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue MakePropertyValue(const TRecordAccessor &record_accessor, storage::PropertyId prop_id,
                                storage::PropertyValue raw) {
     if (ctx_->lazy_vector_refs && raw.IsVectorIndexId())
-      return TypedValue(LazyVectorRef{.entity = record_accessor.impl_, .prop = prop_id, .view = view_}, ctx_->memory);
+      return TypedValue(LazyVectorRef{record_accessor.impl_, prop_id, view_}, ctx_->memory);
     return {std::move(raw), GetNameIdMapper(), ctx_->memory};
   }
 

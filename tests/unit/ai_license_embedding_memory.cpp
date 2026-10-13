@@ -674,8 +674,7 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_HashConsistentAndWritePathMaterialis
   const memgraph::storage::VertexAccessor sva = *it;
 
   auto *mem = memgraph::utils::NewDeleteResource();
-  const memgraph::query::TypedValue vref{memgraph::query::LazyVectorRef{.entity = sva, .prop = prop, .view = View::NEW},
-                                         mem};
+  const memgraph::query::TypedValue vref{memgraph::query::LazyVectorRef{sva, prop, View::NEW}, mem};
   ASSERT_TRUE(vref.IsVectorRef());
 
   const memgraph::query::TypedValue materialised = vref.MaterializeVectorRef(mem);
@@ -720,8 +719,7 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationHonoursMvccView) {
   memgraph::storage::VertexAccessor sva = *it;
 
   auto *mem = memgraph::utils::NewDeleteResource();
-  const memgraph::query::TypedValue vref_old{
-      memgraph::query::LazyVectorRef{.entity = sva, .prop = prop, .view = View::OLD}, mem};
+  const memgraph::query::TypedValue vref_old{memgraph::query::LazyVectorRef{sva, prop, View::OLD}, mem};
   ASSERT_TRUE(vref_old.IsVectorRef());
 
   // Overwrite the embedding in the same transaction; usearch now holds the 42.0 vector.
@@ -758,8 +756,7 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationIgnoresOtherTransacti
   ASSERT_TRUE(rvertex);
   auto *mem = memgraph::utils::NewDeleteResource();
   for (const auto view : {View::OLD, View::NEW}) {
-    const memgraph::query::TypedValue ref{
-        memgraph::query::LazyVectorRef{.entity = *rvertex, .prop = env.prop, .view = view}, mem};
+    const memgraph::query::TypedValue ref{memgraph::query::LazyVectorRef{*rvertex, env.prop, view}, mem};
     const auto floats = ref.MaterializeVectorRef(mem);
     ASSERT_EQ(floats.ValueList().size(), static_cast<size_t>(kDim));
     EXPECT_FLOAT_EQ(static_cast<float>(floats.ValueList().front().ValueDouble()), 0.5F)
@@ -767,8 +764,7 @@ TEST_F(AiLicenseEmbeddingTest, Variant1Lazy_MaterializationIgnoresOtherTransacti
   }
 
   writer->Abort();
-  const memgraph::query::TypedValue ref{
-      memgraph::query::LazyVectorRef{.entity = *rvertex, .prop = env.prop, .view = View::OLD}, mem};
+  const memgraph::query::TypedValue ref{memgraph::query::LazyVectorRef{*rvertex, env.prop, View::OLD}, mem};
   EXPECT_FLOAT_EQ(static_cast<float>(ref.MaterializeVectorRef(mem).ValueList().front().ValueDouble()), 0.5F);
 }
 
