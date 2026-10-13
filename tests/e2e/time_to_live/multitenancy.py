@@ -101,8 +101,9 @@ def test_ttl_after_rename(connect):
     # 0/ Setup TTL on a new database
     # 1/ Check that TTL is working
     # 2/ Rename the database
-    # 3/ Re-enable TTL, so the async indexer rebuilds the TTL index
-    # 4/ Check that TTL is still working
+    # 3/ Check that TTL is still working
+    # 4/ Re-enable TTL, so the async indexer rebuilds the TTL index
+    # 5/ Check that TTL is still working
 
     memgraph = connect.cursor()
 
@@ -123,16 +124,53 @@ def test_ttl_after_rename(connect):
         assert_db(memgraph, "renamed")
 
         # 3/
+        memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
+        mg_sleep_and_assert(0, partial(get_n, memgraph))
+
+        # 4/
         memgraph.execute("DISABLE TTL")
         memgraph.execute('ENABLE TTL EVERY "1s"')
         mg_sleep_and_assert(True, partial(has_ttl_index, memgraph))
 
-        # 4/
+        # 5/
         memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
         mg_sleep_and_assert(0, partial(get_n, memgraph))
     finally:
         memgraph.execute("USE DATABASE memgraph")
         memgraph.execute("DROP DATABASE renamed")
+
+
+def test_ttl_after_resume(connect):
+    # Goal: to show that TTL runs again on a resumed database
+    # 0/ Setup TTL on a new database
+    # 1/ Check that TTL is working
+    # 2/ Suspend and resume the database
+    # 3/ Check that TTL is still working
+
+    memgraph = connect.cursor()
+
+    try:
+        # 0/
+        memgraph.execute("CREATE DATABASE clean")
+        memgraph.execute("USE DATABASE clean")
+        memgraph.execute('ENABLE TTL EVERY "1s"')
+
+        # 1/
+        memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
+        mg_sleep_and_assert(0, partial(get_n, memgraph))
+
+        # 2/
+        memgraph.execute("USE DATABASE memgraph")
+        memgraph.execute("SUSPEND DATABASE clean")
+        memgraph.execute("RESUME DATABASE clean")
+        memgraph.execute("USE DATABASE clean")
+
+        # 3/
+        memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
+        mg_sleep_and_assert(0, partial(get_n, memgraph))
+    finally:
+        memgraph.execute("USE DATABASE memgraph")
+        memgraph.execute("DROP DATABASE clean")
 
 
 if __name__ == "__main__":
