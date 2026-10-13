@@ -1525,10 +1525,10 @@ User User::Deserialize(const nlohmann::json &data) {
     throw AuthException("Couldn't load user data!");
   }
 
-  // If UUID is not present, default to an auto-generated one
-  utils::UUID uuid{};
+  // Missing/non-array uuid (pre-uuid records) gets Nil, not a random one, so identity is stable across loads.
+  auto uuid = utils::UUID::Nil();
   auto uuid_it = data.find(kUUID);
-  if (uuid_it != data.end() && uuid_it->is_array()) uuid = *uuid_it;
+  if (uuid_it != data.end() && uuid_it->is_array()) uuid_it->get_to(uuid);
 
   std::optional<HashedPassword> password_hash{};
   if (hash_it->is_object()) {
