@@ -66,6 +66,7 @@
 #include "license/license.hpp"
 #include "memory/global_memory_control.hpp"
 #include "memory/query_memory_control.hpp"
+#include "metrics/metric_handles.hpp"
 #include "metrics/prometheus_metrics.hpp"
 #include "parameters/parameters.hpp"
 #include "query/auth_checker.hpp"
@@ -10538,6 +10539,32 @@ Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserPa
   }
 }
 
+void Interpreter::CountAbortedQuery(utils::BasicException const &e) {
+  auto const reason = std::invoke([&e]() -> std::optional<metrics::AbortedQueryReason> {
+    if (dynamic_cast<utils::OutOfMemoryException const *>(&e)) return metrics::AbortedQueryReason::MEMORY_LIMIT;
+    auto const *abort = dynamic_cast<HintedAbortError const *>(&e);
+    if (!abort) return std::nullopt;
+    switch (abort->Reason()) {
+      case AbortReason::TIMEOUT:
+        return metrics::AbortedQueryReason::TIMEOUT;
+      case AbortReason::TERMINATED:
+        return metrics::AbortedQueryReason::TERMINATED;
+      case AbortReason::SHUTDOWN:
+        return metrics::AbortedQueryReason::SHUTDOWN;
+      case AbortReason::NO_ABORT:
+      case AbortReason::EXCEPTION:
+        return std::nullopt;
+    }
+  });
+  if (!reason) return;
+
+  auto const index = std::to_underlying(*reason);
+  if (auto *h = current_db_.db_acc_ ? (*current_db_.db_acc_)->metric_handles() : nullptr)
+    h->aborted_queries[index].Increment();
+  else
+    metrics::Metrics().global.aborted_queries[index].Increment();
+}
+
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
                                                 QueryExtras const &extras) {
   std::optional<memory::DbArenaScope> db_arena_scope;
@@ -11155,6 +11182,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       h->failed_prepare.Increment();
     else
       metrics::Metrics().global.failed_prepare->Increment();
+    CountAbortedQuery(e);
     AbortCommand(query_execution_ptr);
     throw;
   }
