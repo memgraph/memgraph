@@ -903,6 +903,7 @@ int main(int argc, char **argv) {
 
   // Declared BEFORE dbms_handler so it is destroyed AFTER every storage: the main_lock_ notify hook
   // captures a raw pool pointer and can fire from any lock release, including during storage teardown.
+  // Queued tasks hold sessions (DB accessors), so AwaitShutdown() releases them before the DBMS is torn down.
   std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
 
   std::optional<memgraph::dbms::DbmsHandler> dbms_handler;

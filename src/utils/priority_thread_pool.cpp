@@ -217,7 +217,40 @@ PriorityThreadPool::~PriorityThreadPool() {
   }
 }
 
-void PriorityThreadPool::AwaitShutdown() { pool_.clear(); }
+void PriorityThreadPool::AwaitShutdown() {
+  pool_.clear();  // joins every worker; no worker touches work_ past this point
+
+  // Workers exit on !run_ without draining, and a push can race the stop request, so tasks may remain queued. They
+  // own session state (DB accessors), so release them here, while their owners are still alive, rather than in
+  // ~PriorityThreadPool. The pool is stopped: ScheduledAddTask drops new work, ParkAdmission drops while draining,
+  // and the parked set is empty, so a destructor re-entering the pool is a no-op. Containers are moved out under
+  // their mutex and destroyed after unlocking.
+  std::vector<TaskSignature> orphans;
+  const auto take_queue = [&](Worker &worker) {
+    int64_t productive = 0;
+    {
+      const std::unique_lock lk{worker.mtx_};
+      while (!worker.work_.empty()) {
+        productive += worker.work_.top().productive ? 1 : 0;
+        orphans.push_back(std::move(worker.work_.top().work));
+        worker.work_.pop();
+      }
+      worker.has_pending_work_.store(false, std::memory_order_release);
+    }
+    productive_pending_.fetch_sub(productive, std::memory_order_relaxed);
+  };
+  for (auto &worker : workers_) take_queue(*worker);
+  for (auto &worker : hp_workers_) take_queue(*worker);
+
+  std::deque<ParkedAdmission> parked;
+  {
+    const std::unique_lock lk{parked_mtx_};
+    parked.swap(parked_admissions_);
+    has_parked_.store(false, std::memory_order_release);
+  }
+  orphans.clear();
+  parked.clear();
+}
 
 void PriorityThreadPool::ShutDown() {
   // Stop monitor before the drain so no sweep tick can race the swap below.
@@ -230,9 +263,10 @@ void PriorityThreadPool::ShutDown() {
       drain.swap(parked_admissions_);
       has_parked_.store(false, std::memory_order_release);
     }
-    // Each continuation runs inline once: a non-blocking commit/BEGIN retry that may complete, or return
-    // Reschedule and be dropped (IsDrainingAdmissions() suppresses the re-post), leaving the client to
-    // connection teardown. Stragglers that slip in after the swap are dropped by connection teardown.
+    // Each continuation runs inline on this thread and may block (commit falls back to LockCommitBlocking once
+    // ShouldParkAdmission() is false; BEGIN waits up to the remaining storage-access deadline). One that returns
+    // Reschedule is dropped (IsDrainingAdmissions() suppresses the re-post), leaving the client to connection
+    // teardown. Stragglers that slip in after the swap are released by AwaitShutdown.
     for (auto &e : drain) e.task(utils::Priority::LOW);
   }
   // After drain: pool_stop_source_ stop trips ScheduledReAddTask's stop-guard.
@@ -272,8 +306,8 @@ PriorityThreadPool::TaskID PriorityThreadPool::ScheduledReAddTask(TaskSignature 
   (void)priority;  // Not used for id computation here; kept for API symmetry with ScheduledAddTask
   if (pool_stop_source_.stop_requested()) [[unlikely]] {
     // Shutting down (past the parked-set drain): run the woken continuation inline rather than
-    // dropping it. It makes one non-blocking retry and drops any re-post, exactly as ShutDown's drain
-    // does. Dropping here would lose a task that WakeMatching pulled from the deque
+    // dropping it, exactly as ShutDown's drain does (it may block, and drops any re-post).
+    // Dropping here would lose a task that WakeMatching pulled from the deque
     // in the window where ShutDown swapped the parked set and then requested stop.
     task(utils::Priority::LOW);
     return 0;
@@ -389,8 +423,8 @@ void PriorityThreadPool::WakeMatching(FreedTag freed) {
     }
     has_parked_.store(!parked_admissions_.empty(), std::memory_order_release);
   }  // release parked_mtx_ BEFORE ScheduledReAddTask (which acquires Worker::mtx_)
-  // If the pool is draining, run the woken continuations inline (one non-blocking retry each; any
-  // re-post is dropped via IsDrainingAdmissions()) instead of rescheduling onto workers that ShutDown is about to stop.
+  // If the pool is draining, run the woken continuations inline (they may block; any re-post is dropped via
+  // IsDrainingAdmissions()) instead of rescheduling onto workers that ShutDown is about to stop.
   // ScheduledReAddTask's own stop-guard covers the narrower window where stop is requested after this
   // check; between them a task pulled out of the deque here is never lost.
   const bool draining = draining_admissions_.load(std::memory_order_acquire);

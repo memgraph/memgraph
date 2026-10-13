@@ -15,7 +15,9 @@
 #include <chrono>
 #include <cstddef>
 #include <future>
+#include <memory>
 #include <thread>
+#include <vector>
 
 #include <utils/priority_thread_pool.hpp>
 #include "utils/synchronized.hpp"
@@ -657,10 +659,57 @@ TEST(PriorityThreadPool, ParkAdmission_WakeAfterSampleBeforeParkRunsPromptly) {
 
   pool.ParkAdmission([&](utils::Priority) { ran.set_value(); }, 1000, deadline, kCommitTag, observed);
 
-  EXPECT_EQ(ran_future.wait_for(40ms), std::future_status::ready);
+  // Re-post check, not a latency check. The monitor sweep (100 ms backstop) cannot be disabled, so this bound
+  // does not by itself distinguish a re-post from a sweep wake.
+  EXPECT_EQ(ran_future.wait_for(1s), std::future_status::ready);
 
   pool.ShutDown();
   pool.AwaitShutdown();
+}
+
+// Tasks still queued when the pool stops, and parked continuations, release their captured state by the time
+// AwaitShutdown returns, while the pool object is alive.
+TEST(PriorityThreadPool, AwaitShutdown_ReleasesUnrunQueuedAndParkedTasks) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{1, 1};
+
+  std::promise<void> started;
+  std::promise<void> release;
+  auto release_future = release.get_future().share();
+  pool.ScheduledAddTask(
+      [&started, release_future](utils::Priority) {
+        started.set_value();
+        release_future.wait();
+      },
+      utils::Priority::LOW);
+  started.get_future().wait();  // the only mixed worker is now busy; HP workers never steal LOW work
+
+  std::atomic<int> ran{0};
+  constexpr int kQueued = 3;
+  std::vector<std::weak_ptr<int>> sentinels;
+  for (int i = 0; i < kQueued; ++i) {
+    auto sentinel = std::make_shared<int>(i);
+    sentinels.emplace_back(sentinel);
+    pool.ScheduledAddTask(
+        [sentinel = std::move(sentinel), &ran](utils::Priority) { ran.fetch_add(1, std::memory_order_acq_rel); },
+        utils::Priority::LOW);
+  }
+
+  auto parked_sentinel = std::make_shared<int>(42);
+  std::weak_ptr<int> parked_weak = parked_sentinel;
+  pool.ParkAdmission([sentinel = std::move(parked_sentinel)](utils::Priority) {},
+                     1000,
+                     std::chrono::steady_clock::now() + std::chrono::hours(1),
+                     kMainTag);
+
+  pool.ShutDown();
+  EXPECT_TRUE(parked_weak.expired());
+
+  release.set_value();
+  pool.AwaitShutdown();
+
+  EXPECT_EQ(ran.load(std::memory_order_acquire), 0);
+  for (const auto &w : sentinels) EXPECT_TRUE(w.expired());
 }
 
 // Test 2: Monitor sweep re-injects a parked entry whose deadline is already in the past
