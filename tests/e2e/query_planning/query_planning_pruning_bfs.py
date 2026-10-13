@@ -25,10 +25,25 @@ def operator_names(plan):
     return [line.strip().removeprefix("* ").split(" ")[0] for line in plan]
 
 
+PRUNING_OPERATORS = ("PruningBFSExpand", "GroupedPruningBFSExpand")
+
+
+def prunes(ops):
+    """Whether the rewrite fired, under either of the names it plans under.
+    Sharing one search across the input rows is named apart, but it is the same
+    rewrite: what separates the two is only how much of the search is reused."""
+    return any(op in ops for op in PRUNING_OPERATORS)
+
+
+def groups(ops):
+    """Whether the expansion shares one search across all of its input rows."""
+    return "GroupedPruningBFSExpand" in ops
+
+
 def fetch_pruning(memgraph, query):
     """Run `query`, first asserting it really is planned as a pruning BFS."""
     ops = operator_names(get_plan(memgraph, query))
-    assert "PruningBFSExpand" in ops, f"Expected a pruning BFS plan, got: {ops}"
+    assert prunes(ops), f"Expected a pruning BFS plan, got: {ops}"
     return list(memgraph.execute_and_fetch(query))
 
 
@@ -37,7 +52,7 @@ def fetch_depth_first(memgraph, query):
     edge variable is not enough to block the rewrite; the query must read it."""
     ops = operator_names(get_plan(memgraph, query))
     assert "ExpandVariable" in ops, f"Expected a depth-first plan, got: {ops}"
-    assert "PruningBFSExpand" not in ops, f"Expected a depth-first plan, got: {ops}"
+    assert not prunes(ops), f"Expected a depth-first plan, got: {ops}"
     return list(memgraph.execute_and_fetch(query))
 
 
@@ -58,26 +73,26 @@ def setup_graph(memgraph):
 def test_pruning_bfs_when_edges_unused(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*1..5]->(b) RETURN DISTINCT b")
     ops = operator_names(plan)
-    assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
+    assert prunes(ops), f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
 def test_no_rewrite_with_plain_aggregation(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN count(b)")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_pruning_bfs_with_count_distinct(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN count(DISTINCT b)")
     ops = operator_names(plan)
-    assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
+    assert prunes(ops), f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
 def test_pruning_bfs_with_collect_distinct(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN collect(DISTINCT b)")
     ops = operator_names(plan)
-    assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
+    assert prunes(ops), f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
 def test_no_rewrite_with_mixed_aggregation(memgraph):
@@ -85,7 +100,7 @@ def test_no_rewrite_with_mixed_aggregation(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN count(DISTINCT b), count(b)")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_when_distinct_above_plain_aggregate(memgraph):
@@ -93,19 +108,19 @@ def test_no_rewrite_when_distinct_above_plain_aggregate(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) WITH count(b) AS cnt, a RETURN DISTINCT a, cnt")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_pruning_bfs_with_filter_lambda(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*1..5 (e, n | n:N)]->(b) RETURN DISTINCT b")
     ops = operator_names(plan)
-    assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
+    assert prunes(ops), f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
 def test_pruning_bfs_undirected(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*..3]-(b) RETURN DISTINCT b")
     ops = operator_names(plan)
-    assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
+    assert prunes(ops), f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
 # === A lower bound above one is walked depth-first ===
@@ -214,55 +229,55 @@ def test_no_rewrite_without_distinct(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN b")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_with_return_star(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*]->(b) RETURN *")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_when_edges_used(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[r*1..5]->(b) RETURN r, b")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_when_named_path_used(memgraph):
     plan = get_plan(memgraph, "MATCH p=(a:N {id: 'a'})-[*1..5]->(b) RETURN p")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_for_explicit_bfs(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*BFS 1..5]->(b) RETURN b")
     ops = operator_names(plan)
     assert "BFSExpand" in ops, f"Expected BFSExpand in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_when_existing_node(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'}), (b:N {id: 'c'}) WITH a, b MATCH (a)-[*]->(b) RETURN DISTINCT b")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_with_accumulated_path_lambda(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N)-[* (e, n, p | size(nodes(p)) < 5)]->(b) RETURN DISTINCT b")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_with_multi_expand(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N)-[*]->(b)-[*]->(c) RETURN DISTINCT c")
     ops = operator_names(plan)
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_leaks_across_union(memgraph):
@@ -392,7 +407,7 @@ def test_pruning_bfs_with_lower_bound_of_zero(memgraph):
     """A walk of no edges reaches only its own source, which a pruning BFS emits
     as readily, so a bound below one permits pruning just as a bound of one does."""
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*0..2]->(b) RETURN DISTINCT b")
-    assert "PruningBFSExpand" in operator_names(plan), f"Expected a pruning plan, got: {plan}"
+    assert prunes(operator_names(plan)), f"Expected a pruning plan, got: {plan}"
 
     results = list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*0..2]->(x) RETURN DISTINCT x.id AS id"))
     assert {r["id"] for r in results} == {"a", "b", "c", "d", "e"}, f"Got {sorted(r['id'] for r in results)}"
@@ -402,7 +417,7 @@ def test_no_rewrite_with_lower_bound_above_one(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*2..3]->(b) RETURN DISTINCT b")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_pruning_bfs_with_written_lower_bound_of_one(memgraph):
@@ -410,7 +425,7 @@ def test_pruning_bfs_with_written_lower_bound_of_one(memgraph):
     resolves rather than the plan."""
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*1..3]->(b) RETURN DISTINCT b")
     ops = operator_names(plan)
-    assert "PruningBFSExpand" in ops, f"Expected PruningBFSExpand in plan, got: {plan}"
+    assert prunes(ops), f"Expected PruningBFSExpand in plan, got: {plan}"
 
 
 def test_bounds_sharing_a_stripped_query_do_not_share_a_plan(diamond_graph):
@@ -443,14 +458,14 @@ def test_no_rewrite_with_limit_below_distinct(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*..3]->(b) WITH b LIMIT 5 RETURN DISTINCT b")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_with_skip_below_distinct(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N {id: 'a'})-[*..3]->(b) WITH b SKIP 2 RETURN DISTINCT b")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_when_merge_create_branch_reads_edges(memgraph):
@@ -459,14 +474,14 @@ def test_no_rewrite_when_merge_create_branch_reads_edges(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N)-[e*..3]->(b) MERGE (z:M) ON CREATE SET z.n = size(e) RETURN DISTINCT b")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_when_merge_match_branch_reads_edges(memgraph):
     plan = get_plan(memgraph, "MATCH (a:N)-[e*..3]->(b) MERGE (z:M) ON MATCH SET z.n = size(e) RETURN DISTINCT b")
     ops = operator_names(plan)
     assert "ExpandVariable" in ops, f"Expected ExpandVariable in plan, got: {plan}"
-    assert "PruningBFSExpand" not in ops, f"PruningBFSExpand should not appear, got: {plan}"
+    assert not prunes(ops), f"PruningBFSExpand should not appear, got: {plan}"
 
 
 def test_no_rewrite_when_later_lambda_reads_earlier_edges(memgraph):
@@ -520,6 +535,104 @@ def test_negative_bound_throws(memgraph):
     """N2: negative parameterised bound must raise, not silently succeed."""
     with pytest.raises(Exception):
         list(memgraph.execute_and_fetch("MATCH (a:N {id: 'a'})-[*$lo..5]->(b) RETURN DISTINCT b", {"lo": -1}))
+
+
+# === One search shared across the input rows ===
+#
+# Where the source is dead above the expansion, which source reached a vertex is
+# not observable, so the searches need not be kept apart: each vertex is expanded
+# once and emitted once no matter how many sources lead into it.
+
+
+def test_grouped_when_source_is_dead_above(memgraph):
+    plan = get_plan(memgraph, "MATCH (a:N)-[*]->(b) RETURN count(DISTINCT b)")
+    assert groups(operator_names(plan)), f"Expected the searches to be shared, got: {plan}"
+
+
+def test_not_grouped_under_an_upper_bound(memgraph):
+    """A vertex first reached deep would keep a later source that reaches it
+    early from walking what that source still has the bound to walk."""
+    ops = operator_names(get_plan(memgraph, "MATCH (a:N)-[*..3]->(b) RETURN count(DISTINCT b)"))
+    assert prunes(ops), f"Expected a pruning plan, got: {ops}"
+    assert not groups(ops), f"An upper bound must keep the searches apart, got: {ops}"
+
+
+def test_not_grouped_when_the_source_is_read_above(memgraph):
+    """Sharing drops the rows a per-source search repeats, which is only
+    invisible where nothing above can tell those rows from the ones left."""
+    ops = operator_names(get_plan(memgraph, "MATCH (a:N)-[*]->(b) RETURN DISTINCT a.id, b.id"))
+    assert prunes(ops), f"Expected a pruning plan, got: {ops}"
+    assert not groups(ops), f"A read of the source must keep the searches apart, got: {ops}"
+
+
+def test_not_grouped_when_edges_cross_either_way(memgraph):
+    """A walk back into a source may be retreading the edge it left by, which
+    takes the branch it was found on, and branches belong to one source."""
+    ops = operator_names(get_plan(memgraph, "MATCH (a:N)-[*]-(b) RETURN count(DISTINCT b)"))
+    assert prunes(ops), f"Expected a pruning plan, got: {ops}"
+    assert not groups(ops), f"An undirected expansion must keep the searches apart, got: {ops}"
+
+
+def test_not_grouped_when_the_lambda_reads_the_outer_row(memgraph):
+    """A vertex let through under one row's filter would be passed over under
+    the next one's, so a shared search would settle it for every row at once."""
+    query = "MATCH (a:N)-[* (e, n | n.id > a.id)]->(b) RETURN count(DISTINCT b)"
+    ops = operator_names(get_plan(memgraph, query))
+    assert prunes(ops), f"Expected a pruning plan, got: {ops}"
+    assert not groups(ops), f"A row-dependent lambda must keep the searches apart, got: {ops}"
+
+
+def test_correctness_grouped_matches_depth_first(memgraph):
+    """Overlapping sources: 'c' is reached from both 'a' and 'd', and a shared
+    search expands it only once."""
+    query = "MATCH (s:N)-[*]->(x) RETURN DISTINCT x.id AS id"
+    assert groups(operator_names(get_plan(memgraph, query))), "Expected the searches to be shared"
+    grouped = {r["id"] for r in memgraph.execute_and_fetch(query)}
+    dfs = {r["id"] for r in fetch_depth_first(memgraph, "MATCH p=(s:N)-[*]->(x) RETURN DISTINCT x.id AS id")}
+    assert grouped == dfs == {"b", "c", "d", "e"}, f"grouped={sorted(grouped)} dfs={sorted(dfs)}"
+
+
+def test_correctness_grouped_reaches_a_source_from_another_source(memgraph):
+    """A source is held back by a lower bound of one until a walk arrives at it,
+    and the walk that does may set out from a different source."""
+    memgraph.drop_database()
+    memgraph.execute("CREATE (p:N {id: 'p'})-[:TO]->(q:N {id: 'q'});")
+    query = "MATCH (s:N)-[*]->(x) RETURN DISTINCT x.id AS id"
+    assert groups(operator_names(get_plan(memgraph, query))), "Expected the searches to be shared"
+    assert {r["id"] for r in memgraph.execute_and_fetch(query)} == {"q"}
+
+
+def test_correctness_grouped_closes_a_cycle_between_sources(memgraph):
+    """Both vertices are sources and each reaches the other, so a search that
+    skipped an already-reached source would still owe it its row."""
+    memgraph.drop_database()
+    memgraph.execute("CREATE (p:N {id: 'p'})-[:TO]->(q:N {id: 'q'})-[:TO]->(p);")
+    query = "MATCH (s:N)-[*]->(x) RETURN DISTINCT x.id AS id"
+    assert groups(operator_names(get_plan(memgraph, query))), "Expected the searches to be shared"
+    grouped = {r["id"] for r in memgraph.execute_and_fetch(query)}
+    dfs = {r["id"] for r in fetch_depth_first(memgraph, "MATCH p=(s:N)-[*]->(x) RETURN DISTINCT x.id AS id")}
+    assert grouped == dfs == {"p", "q"}, f"grouped={sorted(grouped)} dfs={sorted(dfs)}"
+
+
+def test_correctness_grouped_with_a_lower_bound_of_zero(memgraph):
+    """A walk of no edges reaches its own source, so every source is its own
+    answer whether or not anything else arrives at it."""
+    memgraph.drop_database()
+    memgraph.execute("CREATE (p:N {id: 'p'})-[:TO]->(q:N {id: 'q'}), (r:N {id: 'r'});")
+    query = "MATCH (s:N)-[*0]->(x) RETURN DISTINCT x.id AS id"
+    assert groups(operator_names(get_plan(memgraph, query))), "Expected the searches to be shared"
+    assert {r["id"] for r in memgraph.execute_and_fetch(query)} == {"p", "q", "r"}
+
+
+def test_correctness_grouped_survives_being_reset(memgraph):
+    """An Apply resets its subtree once the row it is feeding is exhausted, and
+    the searches are shared only within one such run. What an outer row reached
+    carried into the next would leave every later row with nothing to find: the
+    five rows here reach 4, 1, 0, 2 and 0 vertices, which is seven in all, but
+    only four if the first row's search is still standing when the second runs."""
+    query = "MATCH (o:N) CALL { WITH o MATCH (o)-[*]->(x:N) RETURN DISTINCT x } RETURN count(x) AS n"
+    assert any(op in line for line in get_plan(memgraph, query) for op in PRUNING_OPERATORS), "Expected a pruning plan"
+    assert list(memgraph.execute_and_fetch(query))[0]["n"] == 7
 
 
 if __name__ == "__main__":
