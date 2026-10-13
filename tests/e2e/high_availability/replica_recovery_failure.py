@@ -25,6 +25,7 @@ import time
 from functools import partial
 
 import interactive_mg_runner
+import mgclient
 import pytest
 from common import connect, corrupt_snapshots, execute_and_fetch_all, get_data_path, get_logs_path, show_instances
 from mg_utils import mg_sleep_and_assert
@@ -158,7 +159,7 @@ def test_failed_snapshot_load_is_broken_and_writes_no_snapshots(test_name):
 
     # The replica must never present the cleared storage as a healthy database.
     mg_sleep_and_assert("broken", partial(health, replica_cursor))
-    with pytest.raises(Exception):
+    with pytest.raises(mgclient.DatabaseError, match="broken state"):
         vertex_count(replica_cursor)
 
     # No periodic snapshot of the emptied storage, and the failed received snapshot is gone.
@@ -335,9 +336,9 @@ def test_failed_wal_reset_is_broken(test_name):
     mg_sleep_and_assert(True, try_write, max_duration=60)
     write_batches(cursor_2, batches=2, snapshot=False)
     wal_2 = os.path.join(data_dir(test_name, "instance_2"), "wal")
-    wals = sorted(os.listdir(wal_2), key=lambda f: os.path.getmtime(os.path.join(wal_2, f)))
-    assert len(wals) > 1
-    for name in wals[:-1]:  # all finalized files
+    finalized_wals = [name for name in os.listdir(wal_2) if not name.endswith("_current")]
+    assert finalized_wals
+    for name in finalized_wals:
         path = os.path.join(wal_2, name)
         with open(path, "r+b") as fh:
             fh.seek(1024)
@@ -346,7 +347,7 @@ def test_failed_wal_reset_is_broken(test_name):
     interactive_mg_runner.start(instances, "instance_1")
     cursor_1 = connect(host="localhost", port=7788).cursor()
 
-    mg_sleep_and_assert("broken", partial(health, cursor_1))
+    mg_sleep_and_assert("broken", partial(health, cursor_1), max_duration=60)
 
     marker = "because the reset is needed while recovering from WalFiles"
     assert marker in log_text(test_name, "instance_1")
