@@ -750,6 +750,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
       auth_(context.auth),
       endpoint_(std::move(context.endpoint)) {
   bolt_session_gauge_ = metrics::ScopedGauge{metrics::Metrics().global.active_bolt_sessions};
+  interpreter_.SetCanPark(true);
 #ifdef MG_ENTERPRISE
   interpreter_.OnChangeCB([&](std::string_view db_name) {
     auto &user_or_role = interpreter_.user_or_role_;

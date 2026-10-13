@@ -1107,3 +1107,64 @@ TEST_F(LockFreeReadSnapshotRecovery, NoTransactionBeginsInsideADdlCommitWindow_O
 
   PublishAndEnd(*store, index_commit);
 }
+
+TEST(MainLockNotifyHook, ClearIsPermanent_TrySetAfterClearDoesNotInstall) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  int fired = 0;
+
+  store->ClearMainLockNotifyHook();
+  EXPECT_TRUE(store->MainLockHookInstalled());
+  EXPECT_FALSE(store->TrySetMainLockNotifyHook([&fired] { ++fired; }));
+
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+  }
+  EXPECT_EQ(fired, 0);
+}
+
+TEST(MainLockNotifyHook, ClearAfterInstallStopsFiringAndStaysDisarmed) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  int fired = 0;
+
+  ASSERT_TRUE(store->TrySetMainLockNotifyHook([&fired] { ++fired; }));
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+  }
+  EXPECT_GT(fired, 0);
+
+  store->ClearMainLockNotifyHook();
+  const int after_clear = fired;
+  EXPECT_FALSE(store->TrySetMainLockNotifyHook([&fired] { ++fired; }));
+  {
+    auto acc = store->Access(memgraph::storage::WRITE);
+  }
+  EXPECT_EQ(fired, after_clear);
+}
+
+TEST(PendingAccess, RemembersAccessType) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  for (auto const type : {memgraph::storage::StorageAccessType::READ,
+                          memgraph::storage::StorageAccessType::WRITE,
+                          memgraph::storage::StorageAccessType::UNIQUE,
+                          memgraph::storage::StorageAccessType::READ_ONLY}) {
+    auto pending = store->MakePendingAccess(type);
+    ASSERT_NE(pending, nullptr);
+    EXPECT_EQ(pending->AccessType(), type);
+  }
+}
+
+TEST(PendingAccess, TimedAcquireOnHeldLockStaysWithinBudget) {
+  auto store = MakeStorage(/*flag_on=*/true);
+  auto holder = store->UniqueAccess();
+  auto pending = store->MakePendingAccess(memgraph::storage::StorageAccessType::UNIQUE);
+  ASSERT_NE(pending, nullptr);
+
+  constexpr auto kBudget = std::chrono::milliseconds(50);
+  auto const start = std::chrono::steady_clock::now();
+  auto acc = pending->TryAcquireFor(std::nullopt, kBudget);
+  auto const elapsed = std::chrono::steady_clock::now() - start;
+
+  EXPECT_EQ(acc, nullptr);
+  EXPECT_GE(elapsed, kBudget);
+  EXPECT_LT(elapsed, kBudget + std::chrono::milliseconds(500));
+}

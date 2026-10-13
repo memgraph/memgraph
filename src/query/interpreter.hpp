@@ -279,6 +279,11 @@ struct CurrentDB {
                                 utils::PriorityThreadPool *pool = nullptr);
   void CleanupDBTransaction(bool abort);
 
+  void ClearPendingBegin() {
+    pending_access_.reset();
+    pending_begin_deadline_.reset();
+  }
+
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // Move the outgoing Accessor out of db_acc_ under the lock, then let it destruct AFTER the lock is
     // released (see db_acc_mutex_ for why: its dtor can block on a foreign GKInternals::mutex_).
@@ -288,6 +293,7 @@ struct CurrentDB {
       old_db = std::exchange(db_acc_, std::move(new_db));
       in_explicit_db_ = in_explicit_db;
     }
+    ClearPendingBegin();
   }
 
   void ResetDB() {
@@ -307,8 +313,7 @@ struct CurrentDB {
     db_transactional_accessor_.reset();
     execution_db_accessor_.reset();
     trigger_context_collector_.reset();
-    pending_access_.reset();
-    pending_begin_deadline_.reset();
+    ClearPendingBegin();
     old_db.reset();  // db access released last; still outside db_acc_mutex_
   }
 
@@ -319,7 +324,8 @@ struct CurrentDB {
   // under db_acc_mutex_; the swapped-out Accessor is destructed after the lock is released.
   // Returns true iff a marked-for-deletion database was released.
   bool ReleaseDbIfMarked() {
-    if (db_transactional_accessor_ || execution_db_accessor_ || trigger_context_collector_ || pending_access_) return false;
+    if (db_transactional_accessor_ || execution_db_accessor_ || trigger_context_collector_ || pending_access_)
+      return false;
     std::optional<memgraph::dbms::DatabaseAccess> old_db;
     {
       std::lock_guard lock{db_acc_mutex_};
@@ -499,6 +505,10 @@ class Interpreter final {
   Interpreter::ParseRes Parse(const std::string &query, UserParameters_fn params_getter, QueryExtras const &extras);
 
   Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
+
+  // Opt in to would-block parking. Only an owner whose callers drive CommitWouldBlockException /
+  // BeginWouldBlockException retries (the Bolt session) may set this; every other Interpreter blocks instead.
+  void SetCanPark(bool can_park) { can_park_ = can_park; }
 
   // True while an autocommit (RUN-first-query) BEGIN is parked on main_lock_ with its parse stashed.
   bool HasParkedPrepare() const { return parked_prepare_.has_value(); }
@@ -815,6 +825,25 @@ class Interpreter final {
 
   std::optional<ParkedPrepare> parked_prepare_;
 
+  // Autocommit Pull tail computed before a Commit() that threw CommitWouldBlockException. The retry Pull resumes
+  // at Commit() from this instead of re-running the (non-idempotent) query handler.
+  struct PendingAutocommit {
+    std::map<std::string, TypedValue> summary;
+    std::string query_string;
+    std::optional<std::string> plan_text;
+    int64_t slow_query_duration_ms{0};
+    bool emit_slow_query{false};
+  };
+
+  std::optional<PendingAutocommit> pending_autocommit_;
+
+  bool can_park_{false};
+  // Set only around the two BEGIN setups whose callers can retry a BeginWouldBlockException.
+  bool begin_park_allowed_{false};
+  // Isolation override resolved on the first BEGIN attempt and reused by its retries, so the one-shot NEXT override
+  // is consumed once.
+  std::optional<std::optional<storage::IsolationLevel>> pinned_begin_isolation_;
+
   // all queries that are run as part of the current transaction
   utils::Synchronized<std::vector<std::string>, utils::SpinLock> transaction_queries_;
 
@@ -849,6 +878,13 @@ class Interpreter final {
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
+
+  // SetupInterpreterTransaction on a first BEGIN attempt; on a retry after BeginWouldBlockException it only
+  // honours a TERMINATED status set while parked (throws), keeping the tx id, status and metadata.
+  void SetupBeginAttempt(const QueryExtras &extras);
+
+  // Drops the parked BEGIN's pending scope, deadline and pinned isolation override.
+  void DropPendingBegin();
   void SetupDatabaseTransaction(bool couldCommit,
                                 storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
 };
@@ -891,60 +927,78 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
   // own slow-query unit, independent of the later COMMIT/ROLLBACK.
   bool emit_slow_query = false;
   int64_t slow_query_duration_ms = 0;
+  std::optional<QueryHandlerResult> maybe_res;
+  // True only while the autocommit tail's Commit() runs; a would-block from it must stash the tail state.
+  bool in_commit_tail = false;
   try {
-    // Wrap the (statically polymorphic) stream type into a common type which
-    // the handler knows.
-    AnyStream stream{result_stream, query_execution->resource()};
-    const auto maybe_res = query_execution->prepared_query->query_handler(&stream, n);
-    // Stream is using execution memory of the query_execution which
-    // can be deleted after its execution so the stream should be cleared
-    // first.
-    stream.~AnyStream();
+    if (pending_autocommit_) {
+      // Retry of a would-blocked autocommit Commit(): the handler already ran, resume at Commit().
+      maybe_res = QueryHandlerResult::COMMIT;
+      maybe_summary.emplace(std::move(pending_autocommit_->summary));
+      captured_query_string = std::move(pending_autocommit_->query_string);
+      captured_plan_text = std::move(pending_autocommit_->plan_text);
+      slow_query_duration_ms = pending_autocommit_->slow_query_duration_ms;
+      emit_slow_query = pending_autocommit_->emit_slow_query;
+      pending_autocommit_.reset();
+    } else {
+      // Wrap the (statically polymorphic) stream type into a common type which
+      // the handler knows.
+      AnyStream stream{result_stream, query_execution->resource()};
+      maybe_res = query_execution->prepared_query->query_handler(&stream, n);
+      // Stream is using execution memory of the query_execution which
+      // can be deleted after its execution so the stream should be cleared
+      // first.
+      stream.~AnyStream();
 
-    // If the query finished executing, we have received a value which tells
-    // us what to do after.
-    if (maybe_res) {
-      // Save its summary
-      maybe_summary.emplace(std::move(query_execution->summary));
-      captured_query_string = std::move(query_execution->query_string);
+      // If the query finished executing, we have received a value which tells
+      // us what to do after.
+      if (maybe_res) {
+        // Save its summary
+        maybe_summary.emplace(std::move(query_execution->summary));
+        captured_query_string = std::move(query_execution->query_string);
 
-      // Evaluate the gate now, while the renderer's DbAccessor is alive (Commit /
-      // ResetInterpreter tear it down). For autocommit, emit is deferred to after
-      // Commit() so a commit failure is logged as failed, not slow.
-      {
-        const auto threshold_ms = flags::run_time::GetEffectiveLogMinDurationMs(session_log_ctx_);
-        if (threshold_ms >= 0) {
-          auto duration_seconds = [&](const char *key) -> double {
-            auto it = maybe_summary->find(key);
-            if (it == maybe_summary->end() || !it->second.IsDouble()) return 0.0;
-            return it->second.ValueDouble();
-          };
-          const double total_sec = duration_seconds("parsing_time") + duration_seconds("planning_time") +
-                                   duration_seconds("plan_execution_time");
-          slow_query_duration_ms = static_cast<int64_t>(total_sec * 1000.0);
-          if (slow_query_duration_ms >= threshold_ms) {
-            emit_slow_query = true;
-            auto &renderer = query_execution->prepared_query->slow_query_plan_renderer;
-            if (renderer && flags::run_time::GetEffectiveLogQueryPlan(session_log_ctx_)) {
-              captured_plan_text = renderer();
+        // Evaluate the gate now, while the renderer's DbAccessor is alive (Commit /
+        // ResetInterpreter tear it down). For autocommit, emit is deferred to after
+        // Commit() so a commit failure is logged as failed, not slow.
+        {
+          const auto threshold_ms = flags::run_time::GetEffectiveLogMinDurationMs(session_log_ctx_);
+          if (threshold_ms >= 0) {
+            auto duration_seconds = [&](const char *key) -> double {
+              auto it = maybe_summary->find(key);
+              if (it == maybe_summary->end() || !it->second.IsDouble()) return 0.0;
+              return it->second.ValueDouble();
+            };
+            const double total_sec = duration_seconds("parsing_time") + duration_seconds("planning_time") +
+                                     duration_seconds("plan_execution_time");
+            slow_query_duration_ms = static_cast<int64_t>(total_sec * 1000.0);
+            if (slow_query_duration_ms >= threshold_ms) {
+              emit_slow_query = true;
+              auto &renderer = query_execution->prepared_query->slow_query_plan_renderer;
+              if (renderer && flags::run_time::GetEffectiveLogQueryPlan(session_log_ctx_)) {
+                captured_plan_text = renderer();
+              }
             }
           }
         }
-      }
 
-      // NOTE: must happen before Commit(), which clears the runtime data of every query execution.
-      if (!query_execution->notifications.empty()) {
-        std::vector<TypedValue> notifications;
-        notifications.reserve(query_execution->notifications.size());
-        for (const auto &notification : query_execution->notifications) {
-          notifications.emplace_back(notification.ConvertToMap());
+        // NOTE: must happen before Commit(), which clears the runtime data of every query execution.
+        if (!query_execution->notifications.empty()) {
+          std::vector<TypedValue> notifications;
+          notifications.reserve(query_execution->notifications.size());
+          for (const auto &notification : query_execution->notifications) {
+            notifications.emplace_back(notification.ConvertToMap());
+          }
+          maybe_summary->insert_or_assign("notifications", std::move(notifications));
         }
-        maybe_summary->insert_or_assign("notifications", std::move(notifications));
       }
+    }
+    if (maybe_res) {
       if (!in_explicit_transaction_) {
         switch (*maybe_res) {
           case QueryHandlerResult::COMMIT:
+            in_commit_tail = true;
             Commit();
+            in_commit_tail = false;
             break;
           case QueryHandlerResult::ABORT:
             Abort();
@@ -975,6 +1029,15 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
         query_execution.reset(nullptr);
       }
     }
+  } catch (const CommitWouldBlockException &) {
+    if (in_commit_tail) {
+      pending_autocommit_.emplace(PendingAutocommit{.summary = std::move(*maybe_summary),
+                                                    .query_string = std::move(captured_query_string),
+                                                    .plan_text = std::move(captured_plan_text),
+                                                    .slow_query_duration_ms = slow_query_duration_ms,
+                                                    .emit_slow_query = emit_slow_query});
+    }
+    throw;
   } catch (const ExplicitTransactionUsageException &e) {
     memgraph::logging::EmitSessionTraceEvent(e.what());
     MaybeEmitFailedQueryLog(FailedQueryText(captured_query_string, query_execution), e.what());

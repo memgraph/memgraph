@@ -216,6 +216,9 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     // Arm the storage-access deadline before the first probe so every timed wait is charged against it
     // and no probe can push the total wait past it (NB2). Persists across park-retries.
     if (!pending_begin_deadline_) pending_begin_deadline_ = std::chrono::steady_clock::now() + timeout;
+    // A storage-mode switch between attempts can change the planned access type; a handle made for another
+    // type would gate the wrong mode.
+    if (pending_access_ && pending_access_->AccessType() != acc_type) pending_access_.reset();
     if (!pending_access_) {
       // Alloc-free one-probe TryAccess on the hot path; allocate a PendingAccess only on a miss (NB7).
       if (auto acc = db_acc->storage()->TryAccess(acc_type, override_isolation_level)) {
@@ -223,14 +226,17 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
         pending_begin_deadline_.reset();
       } else {
         pending_access_ = db_acc->storage()->MakePendingAccess(acc_type);  // nullptr on Disk
+        if (!pending_access_) pending_begin_deadline_.reset();
       }
     }
     if (pending_access_) {
       auto const now = std::chrono::steady_clock::now();
-      if (now >= *pending_begin_deadline_) {
-        pending_access_.reset();
-        pending_begin_deadline_.reset();
+      auto const timed_out = [&] {
+        ClearPendingBegin();
         storage::ThrowAccessTimeout(acc_type);
+      };
+      if (now >= *pending_begin_deadline_) {
+        timed_out();
       } else {
         // Per-attempt budget clamped to the time left so a timed probe can't overshoot the deadline (NB2).
         // Null pool: a finite cap, never microseconds{int64 max} (µs->ns overflow wraps negative — NB3).
@@ -240,18 +246,22 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
             std::min(base, std::chrono::duration_cast<std::chrono::microseconds>(*pending_begin_deadline_ - now));
         if (auto acc = pending_access_->TryAcquireFor(override_isolation_level, budget)) {
           db_transactional_accessor_ = std::move(acc);
-          pending_access_.reset();
-          pending_begin_deadline_.reset();
+          ClearPendingBegin();
         } else if (std::chrono::steady_clock::now() >= *pending_begin_deadline_) {
-          pending_access_.reset();
-          pending_begin_deadline_.reset();
-          storage::ThrowAccessTimeout(acc_type);
+          timed_out();
         } else if (pool != nullptr && pool->ShouldParkAdmission()) {
           throw BeginWouldBlockException{*pending_begin_deadline_};
         } else {
-          // !ShouldParkAdmission: P==0 (no waker) or idle spinners present (blocking is immediate) — skip park.
-          pending_access_.reset();
-          pending_begin_deadline_.reset();
+          // !ShouldParkAdmission (or no pool): P==0 (no waker) or idle spinners present (blocking is immediate) —
+          // skip park and block on the same pending scope for the time left, so the total wait stays one deadline
+          // and writer preference holds until acquired.
+          auto const remaining = std::chrono::duration_cast<std::chrono::microseconds>(
+              *pending_begin_deadline_ - std::chrono::steady_clock::now());
+          std::unique_ptr<storage::Storage::Accessor> acc;
+          if (remaining.count() > 0) acc = pending_access_->TryAcquireFor(override_isolation_level, remaining);
+          if (!acc) timed_out();
+          db_transactional_accessor_ = std::move(acc);
+          ClearPendingBegin();
         }
       }
     }
@@ -298,8 +308,7 @@ void memgraph::query::CurrentDB::CleanupDBTransaction(bool abort) {
   // Clear ScopedGauge, which decrements the gauge backing this metric.
   transaction_gauge_ = {};
   // Deregister any in-flight PendingScope if aborted while parked waiting for the commit serializer.
-  pending_access_.reset();
-  pending_begin_deadline_.reset();
+  ClearPendingBegin();
 }
 
 struct QueryLogWrapper {
@@ -3708,9 +3717,6 @@ struct PullPlan {
   // we have to keep track of any unsent results from previous `PullPlan::Pull`
   // manually by using this flag.
   bool has_unsent_results_ = false;
-  // Guard against double-Shutdown: a commit-lock park re-invokes Pull on an already-exhausted plan,
-  // and a coroutine cursor's Shutdown() may not be idempotent (could destroy its frame on second call).
-  bool shutdown_done_ = false;
   metrics::DatabaseMetricHandles *metric_handles_;
   utils::QueryMemoryTracker *fallback_memory_tracker_;
 };
@@ -3880,10 +3886,7 @@ std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *strea
     }
     summary->insert_or_assign("stats", std::move(stats));
   }
-  if (!shutdown_done_) {
-    cursor_->Shutdown();
-    shutdown_done_ = true;
-  }
+  cursor_->Shutdown();
   // NOTE: += because each thread adds its own execution time to the total execution time
   ctx_.profile_execution_time += execution_time_;
 
@@ -3981,7 +3984,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         if (in_explicit_transaction_) {
           throw ExplicitTransactionUsageException("Nested transactions are not supported.");
         }
-        SetupInterpreterTransaction(extras);
+        SetupBeginAttempt(extras);
         // Multiple paths can lead to transaction BEGIN, so we need to reset the timer in the handler
         current_timeout_deadline_ = CreateTimeoutDeadline(extras, interpreter_context_->config);
         in_explicit_transaction_ = true;
@@ -10460,6 +10463,7 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 
 void Interpreter::ResetInterpreter() {
   query_executions_.clear();
+  pending_autocommit_.reset();
   system_transaction_.reset();
   auth_transaction_.reset();
   transaction_queries_->clear();
@@ -10483,12 +10487,17 @@ void Interpreter::ResetInterpreter() {
 void Interpreter::BeginTransaction(QueryExtras const &extras) {
   if (!in_explicit_transaction_) ResetInterpreter();
   auto prepared_query = PrepareTransactionQuery(TransactionQuery::BEGIN, extras);
+  begin_park_allowed_ = true;
+  utils::OnScopeExit const disallow_begin_park([this] { begin_park_allowed_ = false; });
   try {
     prepared_query.query_handler(nullptr, {});
   } catch (const BeginWouldBlockException &) {
     // PrepareTransactionQuery(BEGIN) sets in_explicit_transaction_ = true before calling
     // SetupDatabaseTransaction (which throws here). Reset it so the Bolt retry doesn't hit the nested-txn guard.
     in_explicit_transaction_ = false;
+    throw;
+  } catch (...) {
+    DropPendingBegin();
     throw;
   }
 }
@@ -10713,7 +10722,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     ResetInterpreter();
     transaction_queries_->push_back(std::move(shown_query));
 
-    SetupInterpreterTransaction(extras);
+    SetupBeginAttempt(extras);
     memgraph::logging::EmitSessionTraceEvent(
         "Query [{}] associated with transaction [{}]", parsed_query.query_string, current_transaction_.value_or(0));
   }
@@ -10893,11 +10902,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       }
 
       if (transaction_requirements.access) {
-        if (transaction_requirements.isolation_override) {
+        if (transaction_requirements.isolation_override && !pinned_begin_isolation_) {
           SetNextTransactionIsolationLevel(*transaction_requirements.isolation_override);
         }
-        SetupDatabaseTransaction(transaction_requirements.could_commit,
-                                 ToStorageAccessType(*transaction_requirements.access));
+        {
+          begin_park_allowed_ = true;
+          utils::OnScopeExit const disallow_begin_park([this] { begin_park_allowed_ = false; });
+          SetupDatabaseTransaction(transaction_requirements.could_commit,
+                                   ToStorageAccessType(*transaction_requirements.access));
+        }
 
         // SET STORAGE MODE can land between the unlocked read of `storage_mode` and the accessor
         // taking its hold, leaving the access type chosen for a mode no longer in force: an index
@@ -11365,8 +11378,37 @@ void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAcc
       });
     }
   }
-  current_db_.SetupDatabaseTransaction(
-      GetIsolationLevelOverride(), couldCommit, acc_type, interpreter_context_->worker_pool);
+  if (!pinned_begin_isolation_) pinned_begin_isolation_.emplace(GetIsolationLevelOverride());
+  try {
+    current_db_.SetupDatabaseTransaction(
+        *pinned_begin_isolation_,
+        couldCommit,
+        acc_type,
+        (can_park_ && begin_park_allowed_) ? interpreter_context_->worker_pool : nullptr);
+  } catch (const BeginWouldBlockException &) {
+    throw;
+  } catch (...) {
+    DropPendingBegin();
+    throw;
+  }
+  pinned_begin_isolation_.reset();
+}
+
+void Interpreter::DropPendingBegin() {
+  current_db_.ClearPendingBegin();
+  pinned_begin_isolation_.reset();
+}
+
+void Interpreter::SetupBeginAttempt(const QueryExtras &extras) {
+  if (!current_db_.pending_begin_deadline_) {
+    SetupInterpreterTransaction(extras);
+    return;
+  }
+  if (transaction_status_.load(std::memory_order_acquire) == TransactionStatus::TERMINATED) {
+    DropPendingBegin();
+    FinishAutocommitNothing();
+    throw HintedAbortError(AbortReason::TERMINATED);
+  }
 }
 
 void Interpreter::SetupInterpreterTransaction(const QueryExtras &extras) {
@@ -11414,6 +11456,8 @@ std::vector<TypedValue> Interpreter::GetQueries() {
 }
 
 void Interpreter::Abort() {
+  pending_autocommit_.reset();
+  pinned_begin_isolation_.reset();
 #ifdef MG_ENTERPRISE
   // Note: if the storage layer already aborted the transaction internally (e.g. PeriodicCommit
   // constraint violation), CleanupDBTransaction(false) will have been called first, nulling the
@@ -11778,7 +11822,11 @@ void Interpreter::Commit() {
   // that pre-takes commit_mutex_); other commits fill it at the is_main site below, reads never take it.
   decltype(std::optional{interpreter_context_->repl_state->ReadLock()}) locked_repl_state{std::nullopt};
   memgraph::storage::CommitLock preheld_commit_lock;
-  if (current_db_.db_transactional_accessor_ && current_db_.db_transactional_accessor_->IsCommitSerialised()) {
+  // A before-commit trigger runs ahead of the commit-mutex acquire in PrepareForCommitPhase. Pre-taking would
+  // serialise every writer's trigger phase and self-deadlock a trigger procedure that writes, so such commits
+  // (collector engaged exactly when the trigger loop below runs) and callers that cannot retry take the mutex there.
+  if (can_park_ && !current_db_.trigger_context_collector_ && current_db_.db_transactional_accessor_ &&
+      current_db_.db_transactional_accessor_->IsCommitSerialised()) {
     auto const *commit_txn = current_db_.db_transactional_accessor_->GetTransaction();
     bool const is_write = commit_txn && (!commit_txn->deltas.empty() || !commit_txn->md_deltas.empty());
     if (is_write) {
