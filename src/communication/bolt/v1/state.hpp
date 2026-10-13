@@ -62,8 +62,8 @@ enum class State : uint8_t {
   Close,
 
   /**
-   * PULL/DISCARD autocommit whose Commit() threw CommitWouldBlockException (commit_mutex_ contended);
-   * parks under WaitResource::CommitLock and retries on wake — nothing sent to client until commit settles.
+   * PULL/DISCARD autocommit or COMMIT message whose Commit() threw CommitWouldBlockException;
+   * parks under WaitResource::CommitLock and retries on wake — nothing is sent to the client until it settles.
    */
   PendingCommit,
 
@@ -75,8 +75,5 @@ enum class State : uint8_t {
 };
 
 // Lives here (not session.hpp) so the v2 driver can name it without pulling in the bolt Session header.
-enum class PendingCommitOutcome : uint8_t { Reschedule, Done, ClientError };
-
-// Lives here (not session.hpp) so the v2 driver can name it without pulling in the bolt Session header.
-enum class PendingBeginOutcome : uint8_t { Reschedule, Done, ClientError };
+enum class PendingOutcome : uint8_t { Reschedule, Done, ClientError };
 }  // namespace memgraph::communication::bolt

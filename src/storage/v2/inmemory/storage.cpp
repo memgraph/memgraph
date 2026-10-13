@@ -5108,7 +5108,7 @@ class InMemoryPendingAccess final : public Storage::PendingAccess {
  public:
   InMemoryPendingAccess(InMemoryStorage *storage, utils::ResourceLock &main_lock, StorageAccessType rw_type)
       : storage_{storage}, rw_type_{rw_type} {
-    switch (rw_type) {  // register pending up front for the gating modes only
+    switch (rw_type) {
       case StorageAccessType::UNIQUE:
         scope_.emplace<utils::UniquePendingScope>(main_lock);
         break;
@@ -5122,21 +5122,6 @@ class InMemoryPendingAccess final : public Storage::PendingAccess {
 
   StorageAccessType AccessType() const noexcept override { return rw_type_; }
 
-  std::unique_ptr<Storage::Accessor> TryAcquire(std::optional<IsolationLevel> iso) override {
-    switch (rw_type_) {
-      case StorageAccessType::UNIQUE: {
-        auto g = std::get<utils::UniquePendingScope>(scope_).try_acquire();
-        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
-      }
-      case StorageAccessType::READ_ONLY: {
-        auto g = std::get<utils::ReadOnlyPendingScope>(scope_).try_acquire();
-        return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
-      }
-      default:
-        return storage_->TryAccess(rw_type_, iso);  // READ/WRITE: plain one-probe
-    }
-  }
-
   std::unique_ptr<Storage::Accessor> TryAcquireFor(std::optional<IsolationLevel> iso,
                                                    std::chrono::microseconds budget) override {
     switch (rw_type_) {
@@ -5149,7 +5134,7 @@ class InMemoryPendingAccess final : public Storage::PendingAccess {
         return g ? storage_->AccessorFromGuard(std::move(*g), iso) : nullptr;
       }
       default:
-        return storage_->TryAccessFor(rw_type_, iso, budget);  // READ/WRITE: timed probe
+        return storage_->TryAccessFor(rw_type_, iso, budget);
     }
   }
 

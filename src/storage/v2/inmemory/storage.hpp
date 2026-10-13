@@ -834,19 +834,15 @@ class InMemoryStorage final : public Storage {
   /// contender each time and can be starved by a stream of compatible holders. A caller that needs
   /// to be preferred while it retries holds a UniquePendingScope or ReadOnlyPendingScope across the
   /// whole loop.
-  ///
-  /// InMemoryStorage's alone: DiskStorage has no probe rather than one that always fails, so a
-  /// caller polling it would spin instead of learning that it should just block.
   std::unique_ptr<Accessor> TryAccess(StorageAccessType rw_type,
                                       std::optional<IsolationLevel> override_isolation_level = {}) override;
 
   /// Timed variant of TryAccess: waits up to `budget` for main_lock_ to admit the mode.
   std::unique_ptr<Accessor> TryAccessFor(StorageAccessType rw_type,
                                          std::optional<IsolationLevel> override_isolation_level,
-                                         std::chrono::microseconds budget) override;
+                                         std::chrono::microseconds budget);
 
-  /// Builds an InMemoryAccessor from an already-held main_lock_ guard (the shared post-guard tail of
-  /// Access and TryAccess). Symmetric to TryAccess: ownership of the guard transfers into the accessor.
+  /// Builds an InMemoryAccessor from an already-held main_lock_ guard; the accessor takes ownership of it.
   std::unique_ptr<Accessor> AccessorFromGuard(utils::ResourceLockGuard guard,
                                               std::optional<IsolationLevel> override_isolation_level);
 
