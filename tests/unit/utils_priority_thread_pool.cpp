@@ -14,6 +14,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
+#include <future>
 #include <thread>
 
 #include <utils/priority_thread_pool.hpp>
@@ -634,6 +635,29 @@ TEST(PriorityThreadPool, ParkAdmission_WakeMatching_Single) {
     std::this_thread::sleep_for(std::chrono::milliseconds(1));
   }
   ASSERT_TRUE(ran.load(std::memory_order_acquire));
+
+  pool.ShutDown();
+  pool.AwaitShutdown();
+}
+
+// A wake that lands between the epoch sample and ParkAdmission must not be lost: the task is re-posted
+// immediately instead of waiting for the monitor sweep.
+TEST(PriorityThreadPool, ParkAdmission_WakeAfterSampleBeforeParkRunsPromptly) {
+  using namespace memgraph;
+  utils::PriorityThreadPool pool{2, 1};
+
+  std::promise<void> ran;
+  auto ran_future = ran.get_future();
+  const auto deadline = std::chrono::steady_clock::now() + std::chrono::hours(1);
+
+  const auto observed = pool.WakeEpoch(utils::WaitResource::CommitLock);
+  pool.WakeMatching(kFreeCommit);  // release after the sample, before the park: nothing parked yet
+  EXPECT_NE(pool.WakeEpoch(utils::WaitResource::CommitLock), observed);
+  EXPECT_EQ(pool.WakeEpoch(utils::WaitResource::MainLock), 0U);
+
+  pool.ParkAdmission([&](utils::Priority) { ran.set_value(); }, 1000, deadline, kCommitTag, observed);
+
+  EXPECT_EQ(ran_future.wait_for(40ms), std::future_status::ready);
 
   pool.ShutDown();
   pool.AwaitShutdown();
