@@ -4167,7 +4167,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
   const auto rw_type = plan->rw_type();
 
   // A plan is the first thing that knows a vertex will be read more than once. Parallel execution
-  // takes this back below.
+  // takes this back below, and only an enterprise build can parallelize a plan at all.
   if (dba != nullptr) dba->EnableDeltaChainCache();
 
 #ifdef MG_ENTERPRISE
@@ -4895,6 +4895,10 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
 
   MG_ASSERT(current_db.execution_db_accessor_, "Analyze Graph query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
+
+  // Walks the vertices of every analyzed index from this thread, so a vertex carrying more than one
+  // of them is read once per index.
+  dba->EnableDeltaChainCache();
 
   auto callback = HandleAnalyzeGraphQuery(analyze_graph_query, dba);
 
