@@ -19,6 +19,7 @@
 #include <algorithm>
 #include <charconv>
 #include <cmath>
+#include <compare>
 #include <cstdint>
 #include <exception>
 #include <execution>
@@ -4102,11 +4103,14 @@ TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
 
 /// Exact order; null (the seed) sorts first. Double sums round, so paths within about half an ulp
 /// per hop can come out in either order.
-bool CostLess(const TypedValue &lhs, const TypedValue &rhs) {
-  if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && !rhs.IsNull();
+std::partial_ordering CostCompare(const TypedValue &lhs, const TypedValue &rhs) {
+  if (lhs.IsNull() || rhs.IsNull()) return !lhs.IsNull() <=> !rhs.IsNull();
   ValidateWeightTypes(lhs, rhs);
-  return (lhs < rhs).ValueBool();
+  // Engaged: unlike types threw above, and a NaN weight is refused.
+  return *relations::comparability::Compare(lhs, rhs);
 }
+
+bool CostLess(const TypedValue &lhs, const TypedValue &rhs) { return std::is_lt(CostCompare(lhs, rhs)); }
 
 /// Hop count is the cost: today's `PathInfo` and today's bidirectional BFS, with no per-path payload.
 struct KShortestHopCost {
@@ -4282,8 +4286,7 @@ class KShortestPathsCursor : public Cursor {
     bool operator()(const PathInfo &a, const PathInfo &b) const {
       if constexpr (Cost::kWeighted) {
         // Reversed, as below: the heap serves the cheapest path, and the shortest of those.
-        if (CostLess(a.cost.total, b.cost.total)) return false;
-        if (CostLess(b.cost.total, a.cost.total)) return true;
+        if (const auto order = CostCompare(a.cost.total, b.cost.total); std::is_neq(order)) return std::is_gt(order);
       }
       return a.edges.size() > b.edges.size();  // Reversed: the heap serves the shortest path first
     }
@@ -4401,8 +4404,7 @@ class KShortestPathsCursor : public Cursor {
     // Reversed, like `PathComparator`: `std::priority_queue` serves its maximum, and the cheapest
     // entry has to come out first.
     bool operator()(const WeightedQueueEntry &lhs, const WeightedQueueEntry &rhs) const {
-      if (CostLess(lhs.priority, rhs.priority)) return false;
-      if (CostLess(rhs.priority, lhs.priority)) return true;
+      if (const auto order = CostCompare(lhs.priority, rhs.priority); std::is_neq(order)) return std::is_gt(order);
       return lhs.depth > rhs.depth;
     }
   };
@@ -4800,9 +4802,10 @@ class KShortestPathsCursor : public Cursor {
   /// Whether settled `(settled_depth, settled_cost)` rules out `(depth, cost)` at the same vertex: it is
   /// no deeper and no dearer, or, without a hop cap, strictly cheaper.
   bool Dominates(int64_t settled_depth, const TypedValue &settled_cost, int64_t depth, const TypedValue &cost) const {
-    if (CostLess(cost, settled_cost)) return false;
+    const auto order = CostCompare(cost, settled_cost);
+    if (std::is_lt(order)) return false;
     if (settled_depth <= depth) return true;
-    return upper_bound_ == std::numeric_limits<int64_t>::max() && CostLess(settled_cost, cost);
+    return upper_bound_ == std::numeric_limits<int64_t>::max() && std::is_gt(order);
   }
 
   /// Dropping dominated states also keeps paths simple: weights are non-negative, so a revisit is never
