@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <vector>
 
 #include "utils/temporal.hpp"
 #include "value_order/numbers.hpp"
@@ -66,10 +67,30 @@ bool EquivalentOfPoints(const TypedValue &a, const TypedValue &b) {
 
 bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b) {
   // A container is equivalent only to a container of its own kind, so a pair of
-  // unlike types is settled without walking either.
-  if (a.type() != b.type()) return false;
+  // unlike types is settled without walking either. An embedding is the one
+  // exception: it is equivalent to the list it materializes to.
+  if (a.type() != b.type()) {
+    if (a.type() != TypedValue::Type::VectorRef && b.type() != TypedValue::Type::VectorRef) return false;
+    auto const &embedding = a.type() == TypedValue::Type::VectorRef ? a : b;
+    auto const &other = a.type() == TypedValue::Type::VectorRef ? b : a;
+    if (other.type() != TypedValue::Type::List) return false;
+
+    // Materialized with the default allocator so the transient list is not held by the query's arena.
+    auto const list = embedding.MaterializeVectorRef(TypedValue::allocator_type{});
+    return EquivalentOfLists(list.UnsafeValueList(), other.UnsafeValueList());
+  }
 
   switch (a.type()) {
+    case TypedValue::Type::VectorRef: {
+      // The elements are doubles, so the pair is read as the lists of them are: elementwise, a NaN
+      // equivalent to a NaN. Floats widen exactly, so this is that answer without making either list.
+      thread_local std::vector<float> floats_a;
+      thread_local std::vector<float> floats_b;
+      a.MaterializeVectorRefInto(floats_a);
+      b.MaterializeVectorRefInto(floats_b);
+      return std::ranges::equal(
+          floats_a, floats_b, [](float x, float y) { return x == y || (std::isnan(x) && std::isnan(y)); });
+    }
     case TypedValue::Type::List:
       return EquivalentOfLists(a.UnsafeValueList(), b.UnsafeValueList());
     case TypedValue::Type::Map:
@@ -163,6 +184,18 @@ size_t Hash(const TypedValue &value) {
       throw TypedValueException("Unsupported hash function for Graph");
     case TypedValue::Type::VirtualGraph:
       throw TypedValueException("Unsupported hash function for VirtualGraph");
+    case TypedValue::Type::VectorRef: {
+      // An embedding is equivalent to the list of doubles it materializes to, so it hashes as that list
+      // does: the same collection hash over each float taken through the hash of its double.
+      thread_local std::vector<float> floats;
+      value.MaterializeVectorRefInto(floats);
+
+      struct FloatAsDoubleHash {
+        size_t operator()(float element) const { return Hash(TypedValue(static_cast<double>(element))); }
+      };
+
+      return utils::FnvCollection<std::vector<float>, float, FloatAsDoubleHash>{}(floats);
+    }
   }
   LOG_FATAL("Unhandled TypedValue.type() in hash function");
 }
