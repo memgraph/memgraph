@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <exception>
 #include <map>
 #include <optional>
 #include <set>
@@ -35,6 +36,8 @@ namespace memgraph::auth {
 /// the base is left untouched. A write the base fails to make throws
 /// AuthException instead, since retrying cannot help.
 class AtomicAuthOverlay {
+  using WriteSet = std::map<std::string, std::optional<std::string>, std::less<>>;
+
  public:
   explicit AtomicAuthOverlay(kvstore::KVStore &base);
 
@@ -58,6 +61,10 @@ class AtomicAuthOverlay {
     using reference = value_type const &;
     using pointer = value_type const *;
 
+    iterator(iterator &&) = default;
+    iterator &operator=(iterator &&) = default;
+    ~iterator();
+
     iterator &operator++();
     bool operator==(iterator const &other) const;
     bool operator!=(iterator const &other) const;
@@ -75,11 +82,14 @@ class AtomicAuthOverlay {
 
     kvstore::KVStore::iterator base_it_;
     kvstore::KVStore::iterator base_end_;
-    std::map<std::string, std::optional<std::string>>::const_iterator write_it_;
-    std::map<std::string, std::optional<std::string>>::const_iterator write_end_;
+    WriteSet::const_iterator write_it_;
+    WriteSet::const_iterator write_end_;
 
     std::optional<value_type> current_;
     bool at_end_{false};
+
+    /// Exceptions in flight when the scan began. More at its destruction means an exception is abandoning it.
+    int entry_exceptions_{std::uncaught_exceptions()};
 
     /// Set when this transaction has deleted a key under the prefix by the time the scan starts. Base being
     /// inhabited then no longer means the transaction's view is, so the scan's answer rests on the keys it yields
@@ -168,8 +178,12 @@ class AtomicAuthOverlay {
   /// of that key, and no later check can tell, since the key may change back.
   mutable bool saw_two_values_{false};
 
+  /// Set when a scan is destroyed by an exception before reaching the end. What it read never joined the read set,
+  /// so no later scan of the prefix can stand in for it.
+  mutable bool abandoned_scan_{false};
+
   /// key -> new value (nullopt = tombstone)
-  std::map<std::string, std::optional<std::string>, std::less<>> write_set_;
+  WriteSet write_set_;
 };
 
 }  // namespace memgraph::auth

@@ -12,6 +12,7 @@
 #include "auth/atomic_auth_overlay.hpp"
 
 #include <algorithm>
+#include <exception>
 #include <ranges>
 #include <utility>
 
@@ -89,7 +90,7 @@ bool AtomicAuthOverlay::DeleteMultiple(std::vector<std::string> const &keys) {
 }
 
 bool AtomicAuthOverlay::Flush() {
-  if (saw_two_values_) return false;
+  if (saw_two_values_ || abandoned_scan_) return false;
 
   // Validate read-set against current base state
   for (auto const &[key, snapshot_val] : read_set_) {
@@ -110,9 +111,9 @@ bool AtomicAuthOverlay::Flush() {
     if ((it == e) != dependency.was_empty) return false;
     if (dependency.kind == ScanDependency::Kind::kEmptiness) continue;
     // A key-set dependency whose prefix no scan walked to the end has no key set to hold the transaction to, so it
-    // refuses. The check is per prefix: once one scan has reached the end, a later scan of the prefix abandoned
-    // early passes here. What keeps an abandoned scan from committing is the interpreter: a scan that throws fails
-    // its statement, and COMMIT then refuses.
+    // refuses. The check is per prefix, so once one scan has reached the end, a later scan of the prefix that
+    // stopped early passes here. A scan stopped by an exception is refused above instead, through
+    // `abandoned_scan_`, since what it read never joined the read set.
     if (!dependency.exhausted) return false;
     for (; it != e; ++it) {
       if (!dependency.seen.contains(it->first)) return false;
@@ -173,6 +174,10 @@ AtomicAuthOverlay::iterator::iterator(AtomicAuthOverlay const &overlay, std::str
         [](auto const &entry) { return !entry.second.has_value(); });
     Advance();
   }
+}
+
+AtomicAuthOverlay::iterator::~iterator() {
+  if (!at_end_ && std::uncaught_exceptions() > entry_exceptions_) overlay_->abandoned_scan_ = true;
 }
 
 void AtomicAuthOverlay::iterator::Advance() {

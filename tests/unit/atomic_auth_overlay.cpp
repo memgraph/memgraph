@@ -19,6 +19,7 @@
 #include <optional>
 #include <random>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -604,6 +605,42 @@ TEST_F(AtomicAuthOverlayTest, AnAbandonedScanRefusesTheCommit) {
     auto it = overlay.begin("p:");
     ASSERT_NE(it, overlay.end("p:"));
   }
+
+  EXPECT_FALSE(overlay.Flush());
+}
+
+// A scan abandoned by an exception read values it never recorded, so no later scan of the prefix can stand in for
+// it: one asking only whether the prefix is inhabited, or one walking it to the end after the change.
+void AbandonScanByException(AtomicAuthOverlay const &overlay, std::string const &prefix) {
+  try {
+    for (auto it = overlay.begin(prefix), e = overlay.end(prefix); it != e; ++it) throw std::runtime_error("abandoned");
+  } catch (std::runtime_error const &) {
+  }
+}
+
+TEST_F(AtomicAuthOverlayTest, AScanAbandonedByAnExceptionRefusesTheCommitAfterAnEmptinessCheck) {
+  store_->Put("user:alice", "alice_data");
+  store_->Put("user:bob", "bob_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  memgraph::auth::Repository repo{overlay};
+  AbandonScanByException(overlay, "user:");
+  store_->Put("user:alice", "alice_modified");
+  EXPECT_TRUE(repo.HasAnyUser());
+  overlay.Put("role:admin", "admin_data");
+
+  EXPECT_FALSE(overlay.Flush());
+}
+
+TEST_F(AtomicAuthOverlayTest, AScanAbandonedByAnExceptionRefusesTheCommitAfterAFullScan) {
+  store_->Put("user:alice", "alice_data");
+  store_->Put("user:bob", "bob_data");
+
+  AtomicAuthOverlay overlay(*store_);
+  AbandonScanByException(overlay, "user:");
+  store_->Put("user:alice", "alice_modified");
+  EXPECT_EQ(CountUnder(overlay, "user:"), 2);
+  overlay.Put("role:admin", "admin_data");
 
   EXPECT_FALSE(overlay.Flush());
 }
