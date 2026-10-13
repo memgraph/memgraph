@@ -20,11 +20,9 @@
 
 namespace memgraph::communication {
 
-// Fixed delay before re-arming accept() after a transient resource-exhaustion error. Short enough to recover quickly
-// once descriptors are freed, long enough that a persistent condition costs ~2 wakeups/s instead of a busy loop.
+// Delay before re-arming accept() after a transient error; bounds a persistent condition to ~2 wakeups/s.
 inline constexpr std::chrono::milliseconds kAcceptRetryDelay{500};
 
-// Minimum spacing between "accept failed, retrying" log lines.
 inline constexpr std::chrono::seconds kAcceptRetryLogInterval{10};
 
 inline bool IsTransientAcceptErrno(int err) {

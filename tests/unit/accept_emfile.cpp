@@ -98,7 +98,6 @@ bool Retry(const std::function<bool()> &probe) {
   return false;
 }
 
-// Runs in the forked child: the server is up and listening on `port`. Returns 0 on success.
 int ExhaustionScenario(uint16_t port, const std::function<bool()> &accepted_probe) {
   // Created before descriptors run out; connect() needs no new fd.
   std::vector<int> clients;
@@ -144,7 +143,7 @@ int ExhaustionScenario(uint16_t port, const std::function<bool()> &accepted_prob
   return 0;
 }
 
-// Forks before the child creates any thread; `body` runs in the child and returns its exit code.
+// `body` runs in the forked child and returns its exit code.
 void RunInChild(const std::function<int()> &body) {
   pid_t const pid = fork();
   ASSERT_GE(pid, 0);
@@ -199,7 +198,6 @@ class EchoSession {
   memgraph::communication::OutputStream *out_;
 };
 
-// Minimal v2 session: counts constructions so the test can observe that a connection was accepted.
 std::atomic<int> g_v2_sessions_created{0};
 
 struct V2Context {
