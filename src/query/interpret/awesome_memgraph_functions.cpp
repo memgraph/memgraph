@@ -482,10 +482,8 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       auto key = TypedValue::TString(dba->PropertyToName(property.first), ctx.memory);
       if (is_allowed(property.first)) {
         if (ctx.lazy_vector_refs && property.second.IsVectorIndexId()) {
-          properties.emplace(
-              std::move(key),
-              TypedValue(LazyVectorRef{.entity = record_accessor.impl_, .prop = property.first, .view = ctx.view},
-                         ctx.memory));
+          properties.emplace(std::move(key),
+                             TypedValue(LazyVectorRef{record_accessor.impl_, property.first, ctx.view}, ctx.memory));
         } else {
           auto typed_value =
               TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
@@ -1032,8 +1030,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     for (const auto &[key, value] : *maybe_props) {
       if (is_allowed(key)) {
         if (ctx.lazy_vector_refs && value.IsVectorIndexId()) {
-          values.emplace_back(
-              TypedValue(LazyVectorRef{.entity = record_accessor.impl_, .prop = key, .view = ctx.view}, ctx.memory));
+          values.emplace_back(TypedValue(LazyVectorRef{record_accessor.impl_, key, ctx.view}, ctx.memory));
         } else {
           values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
         }
