@@ -27,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -109,7 +110,10 @@ int ExhaustionScenario(uint16_t port, const std::function<bool()> &accepted_prob
     return kSkipExitCode;
   }
   errno = 0;
-  if (int const fd = open("/dev/null", O_RDONLY); fd >= 0 || errno != EMFILE) {
+  if (int const fd = open("/dev/null", O_RDONLY); fd < 0 && errno == ENFILE) {
+    std::fprintf(stderr, "scenario: hit the system-wide fd limit (ENFILE) instead of EMFILE\n");
+    return kSkipExitCode;
+  } else if (fd >= 0 || errno != EMFILE) {
     std::fprintf(stderr, "scenario: expected open() to fail with EMFILE, got errno %d\n", errno);
     return 5;
   }
@@ -218,20 +222,23 @@ struct V2Session {
   int ApproximateQueryPriority() const { return 0; }
 };
 
-// v2::Server reports the requested endpoint, not the bound one, so reserve a free port up front.
-uint16_t PickFreePort() {
+// v2::Server reports the requested endpoint, not the bound one, so pick a port up front. The returned socket holds the
+// port until the server has bound it: with SO_REUSEADDR on both, Linux lets the server bind and listen next to a
+// non-listening holder, while unrelated binds get EADDRINUSE.
+std::pair<int, uint16_t> ReserveFreePort() {
   int const fd = socket(AF_INET, SOCK_STREAM, 0);
+  int const one = 1;
+  setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
   sockaddr_in addr{};
   addr.sin_family = AF_INET;
   addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   socklen_t len = sizeof(addr);
-  uint16_t port = 0;
-  if (bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0 &&
-      getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &len) == 0) {
-    port = ntohs(addr.sin_port);
+  if (bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0 ||
+      getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &len) != 0) {
+    close(fd);
+    return {-1, 0};
   }
-  close(fd);
-  return port;
+  return {fd, ntohs(addr.sin_port)};
 }
 
 }  // namespace
@@ -289,10 +296,11 @@ TEST(AcceptEmfile, RpcV2AcceptDoesNotSpinAndRecovers) {
   RunInChild([] {
     V2Context data;
     memgraph::communication::ServerContext context;
-    auto const port = PickFreePort();
-    if (port == 0) return 1;
+    auto const [reservation, port] = ReserveFreePort();
+    if (reservation < 0) return 1;
     memgraph::communication::v2::ServerEndpoint endpoint{boost::asio::ip::make_address("127.0.0.1"), port};
     memgraph::communication::v2::Server<V2Session, V2Context> server{endpoint, &data, &context, "Test", 1};
+    close(reservation);
     if (!server.Start()) return 1;
     auto const rc = ExhaustionScenario(port, [] { return g_v2_sessions_created.load() > 0; });
     server.Shutdown();
