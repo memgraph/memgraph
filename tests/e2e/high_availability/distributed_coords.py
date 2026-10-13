@@ -11,9 +11,11 @@
 
 import concurrent.futures
 import os
+import re
 import subprocess
 import sys
 import time
+import urllib.request
 from functools import partial
 
 import interactive_mg_runner
@@ -103,6 +105,7 @@ def get_instances_description_no_setup(test_name: str):
                 "7690",
                 "--log-level=TRACE",
                 "--coordinator-id=1",
+                "--metrics-port=9095",
                 "--coordinator-port=10111",
                 "--management-port=10121",
                 "--coordinator-hostname",
@@ -118,6 +121,7 @@ def get_instances_description_no_setup(test_name: str):
                 "7691",
                 "--log-level=TRACE",
                 "--coordinator-id=2",
+                "--metrics-port=9096",
                 "--coordinator-port=10112",
                 "--management-port=10122",
                 "--coordinator-hostname",
@@ -133,6 +137,7 @@ def get_instances_description_no_setup(test_name: str):
                 "7692",
                 "--log-level=TRACE",
                 "--coordinator-id=3",
+                "--metrics-port=9097",
                 "--coordinator-port=10113",
                 "--management-port=10123",
                 "--coordinator-hostname",
@@ -143,6 +148,14 @@ def get_instances_description_no_setup(test_name: str):
             "setup_queries": [],
         },
     }
+
+
+RAFT_GAUGE = re.compile(r"^memgraph_raft_(\w+) (\S+)$", re.MULTILINE)
+
+
+def raft_gauges(port):
+    with urllib.request.urlopen(f"http://localhost:{port}/metrics") as response:
+        return {name: float(value) for name, value in RAFT_GAUGE.findall(response.read().decode("utf-8"))}
 
 
 def get_default_setup_queries():
@@ -340,6 +353,23 @@ def test_global_edge_index_drop_replication(test_name):
         return len(execute_and_fetch_all(cursor, "show index info"))
 
     mg_sleep_and_assert(0, partial(get_num_indices, instance_1_cursor))
+
+
+def test_raft_term_rises_when_the_leader_dies(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    coord_cursor_3 = connect(host="localhost", port=7692).cursor()
+    for query in get_default_setup_queries():
+        execute_and_fetch_all(coord_cursor_3, query)
+    term_before = raft_gauges(9097).get("term")
+    assert term_before is not None
+
+    interactive_mg_runner.kill(inner_instances_description, "coordinator_3", keep_directories=False)
+
+    def new_leader_elected(gauges):
+        return all(g.get("term", 0) > term_before and g.get("has_leader") == 1 for g in gauges.values())
+
+    mg_sleep_and_assert_eval_function(new_leader_elected, lambda: {port: raft_gauges(port) for port in (9095, 9096)})
 
 
 def test_leadership_change(test_name):
