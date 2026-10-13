@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <limits>
 #include <thread>
@@ -3256,4 +3257,220 @@ TEST_F(StorageTryAccessTest, ReadOnlyHeldBlocksNewWrite) {
   auto write_acc = store.TryAccess(WRITE);
   ASSERT_NE(write_acc, nullptr);
   EXPECT_NO_THROW(write_acc->Abort());
+}
+
+class StorageV2IdenticalWriteTest : public testing::Test, public testing::WithParamInterface<bool> {};
+
+INSTANTIATE_TEST_SUITE_P(DeltaOnIdenticalPropertyUpdate, StorageV2IdenticalWriteTest, testing::Bool());
+
+TEST_P(StorageV2IdenticalWriteTest, EveryWriterHonoursDeltaOnIdenticalPropertyUpdate) {
+  using namespace memgraph::storage;
+  const bool delta_expected = GetParam();
+  InMemoryStorage store{Config{
+      .salient = {.items = {.properties_on_edges = true, .delta_on_identical_property_update = delta_expected}}}};
+
+  PropertyId same_prop;
+  PropertyId other_prop;
+  Gid from_gid;
+  {
+    auto acc = store.Access(WRITE);
+    same_prop = acc->NameToProperty("same");
+    other_prop = acc->NameToProperty("other");
+    auto from = acc->CreateVertex();
+    auto to = acc->CreateVertex();
+    from_gid = from.Gid();
+    ASSERT_TRUE(from.SetProperty(same_prop, PropertyValue(1)).has_value());
+    auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("et"));
+    ASSERT_TRUE(edge.has_value());
+    ASSERT_TRUE(edge->SetProperty(same_prop, PropertyValue(1)).has_value());
+    ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+  }
+
+  auto fetch_vertex = [&](auto &acc) { return *acc->FindVertex(from_gid, View::NEW); };
+  auto fetch_edge = [&](auto &acc) { return acc->FindVertex(from_gid, View::NEW)->OutEdges(View::NEW)->edges.at(0); };
+
+  auto check = [&](std::string_view writer, auto fetch, auto write_identical) {
+    SCOPED_TRACE(writer);
+    auto acc_a = store.Access(WRITE);
+    auto acc_b = store.Access(WRITE);
+    auto obj_a = fetch(acc_a);
+    auto obj_b = fetch(acc_b);
+    ASSERT_TRUE(write_identical(obj_a).has_value());
+    auto res = obj_b.SetProperty(other_prop, PropertyValue(2));
+    if (delta_expected) {
+      ASSERT_FALSE(res.has_value());
+      EXPECT_EQ(res.error(), Error::SERIALIZATION_ERROR);
+    } else {
+      EXPECT_TRUE(res.has_value());
+    }
+    acc_a->Abort();
+    acc_b->Abort();
+  };
+
+  auto identical_map = [&] { return std::map<PropertyId, PropertyValue>{{same_prop, PropertyValue(1)}}; };
+
+  check(
+      "VertexAccessor::SetProperty", fetch_vertex, [&](auto &v) { return v.SetProperty(same_prop, PropertyValue(1)); });
+  check("VertexAccessor::UpdateProperties", fetch_vertex, [&](auto &v) {
+    auto props = identical_map();
+    return v.UpdateProperties(props);
+  });
+  check("EdgeAccessor::SetProperty", fetch_edge, [&](auto &e) { return e.SetProperty(same_prop, PropertyValue(1)); });
+  check("EdgeAccessor::UpdateProperties", fetch_edge, [&](auto &e) {
+    auto props = identical_map();
+    return e.UpdateProperties(props);
+  });
+}
+
+namespace {
+// Deliberately independent of storage::AreIdentical: the test must not trust the predicate under test.
+void ExpectSameKindAndValue(const memgraph::storage::PropertyValue &actual,
+                            const memgraph::storage::PropertyValue &expected) {
+  if (expected.IsAnyList()) {
+    ASSERT_TRUE(actual.IsAnyList());
+    ASSERT_EQ(actual.ListSize(), expected.ListSize());
+    for (size_t i = 0; i < expected.ListSize(); ++i) {
+      SCOPED_TRACE(i);
+      auto const a = memgraph::storage::GetNumericValueAt(actual, i);
+      auto const e = memgraph::storage::GetNumericValueAt(expected, i);
+      ASSERT_TRUE(a && e);
+      ASSERT_EQ(a->index(), e->index());
+      if (auto const *d = std::get_if<double>(&*e)) {
+        EXPECT_EQ(std::get<double>(*a), *d);
+        EXPECT_EQ(std::signbit(std::get<double>(*a)), std::signbit(*d));
+      } else {
+        EXPECT_EQ(std::get<int64_t>(*a), std::get<int64_t>(*e));
+      }
+    }
+  } else if (expected.IsMap()) {
+    ASSERT_TRUE(actual.IsMap());
+    auto const &am = actual.ValueMap();
+    auto const &em = expected.ValueMap();
+    ASSERT_EQ(am.size(), em.size());
+    for (auto const &[key, value] : em) {
+      auto const it = am.find(key);
+      ASSERT_NE(it, am.end());
+      ExpectSameKindAndValue(it->second, value);
+    }
+  } else if (expected.IsDouble()) {
+    ASSERT_TRUE(actual.IsDouble());
+    EXPECT_EQ(actual.ValueDouble(), expected.ValueDouble());
+    EXPECT_EQ(std::signbit(actual.ValueDouble()), std::signbit(expected.ValueDouble()));
+  } else if (expected.IsPoint2d()) {
+    ASSERT_TRUE(actual.IsPoint2d());
+    auto const a = actual.ValuePoint2d();
+    auto const e = expected.ValuePoint2d();
+    EXPECT_EQ(a.crs(), e.crs());
+    EXPECT_EQ(a.x(), e.x());
+    EXPECT_EQ(std::signbit(a.x()), std::signbit(e.x()));
+    EXPECT_EQ(a.y(), e.y());
+    EXPECT_EQ(std::signbit(a.y()), std::signbit(e.y()));
+  } else {
+    ASSERT_TRUE(expected.IsInt());
+    ASSERT_TRUE(actual.IsInt());
+    EXPECT_EQ(actual.ValueInt(), expected.ValueInt());
+  }
+}
+}  // namespace
+
+// A write that compares equal but differs in kind (1 -> 1.0, 0.0 -> -0.0, a point's 0.0 -> -0.0) is a change under
+// either config: it makes a delta, Abort undoes it, and the committed value is the new one exactly.
+TEST_P(StorageV2IdenticalWriteTest, EqualValueOfAnotherTypeIsAChange) {
+  using namespace memgraph::storage;
+  InMemoryStorage store{
+      Config{.salient = {.items = {.properties_on_edges = true, .delta_on_identical_property_update = GetParam()}}}};
+
+  PropertyId prop;
+  PropertyId other_prop;
+  {
+    auto acc = store.Access(WRITE);
+    prop = acc->NameToProperty("p");
+    other_prop = acc->NameToProperty("other");
+  }
+
+  struct Case {
+    std::string_view name;
+    PropertyValue old_value;
+    PropertyValue new_value;
+  };
+
+  auto const cases = [&] {
+    std::vector<Case> out;
+    out.push_back({"Int 1 -> Double 1.0", PropertyValue(1), PropertyValue(1.0)});
+    out.push_back({"List{1} -> List{1.0}",
+                   PropertyValue(std::vector<PropertyValue>{PropertyValue(1)}),
+                   PropertyValue(std::vector<PropertyValue>{PropertyValue(1.0)})});
+    out.push_back({"Map{a:1} -> Map{a:1.0}",
+                   PropertyValue(PropertyValue::map_t{{prop, PropertyValue(1)}}),
+                   PropertyValue(PropertyValue::map_t{{prop, PropertyValue(1.0)}})});
+    out.push_back({"Double 0.0 -> -0.0", PropertyValue(0.0), PropertyValue(-0.0)});
+    out.push_back({"Point2d (0.0, 1.0) -> (-0.0, 1.0)",
+                   PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, 0.0, 1.0}),
+                   PropertyValue(Point2d{CoordinateReferenceSystem::Cartesian_2d, -0.0, 1.0})});
+    return out;
+  }();
+
+  Gid from_gid;
+  auto fetch_vertex = [&](auto &acc) { return *acc->FindVertex(from_gid, View::NEW); };
+  auto fetch_edge = [&](auto &acc) { return acc->FindVertex(from_gid, View::NEW)->OutEdges(View::NEW)->edges.at(0); };
+
+  auto check = [&](std::string_view writer, auto fetch, auto write) {
+    for (auto const &c : cases) {
+      SCOPED_TRACE(std::string(writer) + ": " + std::string(c.name));
+      {
+        auto acc = store.Access(WRITE);
+        auto from = acc->CreateVertex();
+        auto to = acc->CreateVertex();
+        from_gid = from.Gid();
+        ASSERT_TRUE(from.SetProperty(prop, c.old_value).has_value());
+        auto edge = acc->CreateEdge(&from, &to, acc->NameToEdgeType("et"));
+        ASSERT_TRUE(edge.has_value());
+        ASSERT_TRUE(edge->SetProperty(prop, c.old_value).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      {
+        auto acc_a = store.Access(WRITE);
+        auto acc_b = store.Access(WRITE);
+        auto obj_a = fetch(acc_a);
+        auto obj_b = fetch(acc_b);
+        ASSERT_TRUE(write(obj_a, c.new_value).has_value());
+        auto res = obj_b.SetProperty(other_prop, PropertyValue(2));
+        ASSERT_FALSE(res.has_value());
+        EXPECT_EQ(res.error(), Error::SERIALIZATION_ERROR);
+        acc_b->Abort();
+        acc_a->Abort();
+      }
+      {
+        auto acc = store.Access(WRITE);
+        auto value = fetch(acc).GetProperty(prop, View::NEW);
+        ASSERT_TRUE(value.has_value());
+        ExpectSameKindAndValue(*value, c.old_value);
+        acc->Abort();
+      }
+      {
+        auto acc = store.Access(WRITE);
+        auto obj = fetch(acc);
+        ASSERT_TRUE(write(obj, c.new_value).has_value());
+        ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+      }
+      {
+        auto acc = store.Access(WRITE);
+        auto value = fetch(acc).GetProperty(prop, View::NEW);
+        ASSERT_TRUE(value.has_value());
+        ExpectSameKindAndValue(*value, c.new_value);
+        acc->Abort();
+      }
+    }
+  };
+
+  auto update = [&](auto &obj, PropertyValue const &v) {
+    std::map<PropertyId, PropertyValue> props{{prop, v}};
+    return obj.UpdateProperties(props);
+  };
+  auto set = [&](auto &obj, PropertyValue const &v) { return obj.SetProperty(prop, v); };
+
+  check("VertexAccessor::SetProperty", fetch_vertex, set);
+  check("VertexAccessor::UpdateProperties", fetch_vertex, update);
+  check("EdgeAccessor::SetProperty", fetch_edge, set);
+  check("EdgeAccessor::UpdateProperties", fetch_edge, update);
 }
