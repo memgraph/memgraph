@@ -231,7 +231,7 @@ startup_config_dict = {
     "replication_replica_check_frequency_sec": (
         "1",
         "1",
-        "The time duration between two replica checks/pings. If < 1, replicas will NOT be checked at all. NOTE: The MAIN instance allocates a new thread for each REPLICA.",
+        "The time duration between two replica checks/pings. Must be at least 1 since the check is what schedules catch-up of ASYNC replicas. NOTE: The MAIN instance allocates a new thread for each REPLICA.",
     ),
     "storage_delta_on_identical_property_update": (
         "true",
