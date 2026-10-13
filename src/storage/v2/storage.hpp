@@ -372,6 +372,8 @@ class Storage {
   /// registration (for UNIQUE / READ_ONLY) so the query layer never touches main_lock_ directly.
   struct PendingAccess {
     virtual ~PendingAccess() = default;
+    /// The access type this handle was made for.
+    virtual StorageAccessType AccessType() const noexcept = 0;
     /// Returns the built accessor if main_lock_ now admits the requested mode, else nullptr
     /// (still registered pending — call again on the next wake). Never blocks, never throws.
     virtual std::unique_ptr<Accessor> TryAcquire(std::optional<IsolationLevel> override_isolation_level) = 0;
@@ -485,7 +487,7 @@ class Storage {
   mutable utils::ResourceLock main_lock_;
 
   // Install-once hook; fires WakeMatching({MainLock}) from ResourceLock::maybe_notify.
-  // Cleared before pool destruction (memgraph.cpp ForEach) so no notify reaches a dead pool.
+  // Cleared at shutdown (memgraph.cpp ForEach); the pool also outlives every storage.
   std::atomic<bool> main_lock_hook_installed_{false};
 
   bool MainLockHookInstalled() const noexcept { return main_lock_hook_installed_.load(std::memory_order_acquire); }
@@ -498,9 +500,13 @@ class Storage {
     return true;
   }
 
-  // Disarm for shutdown. Does NOT reset main_lock_hook_installed_: re-arming would open a window
-  // for a second SetNotifyHook to overwrite on_notify_all_storage_ under an in-flight reader.
-  void ClearMainLockNotifyHook() { main_lock_.ClearNotifyHook(); }
+  // Permanent disarm for shutdown: marks the slot taken so a later TrySetMainLockNotifyHook (a BEGIN on a
+  // storage that never had a hook) cannot install one, and never un-marks it, so a second SetNotifyHook
+  // cannot overwrite on_notify_all_storage_ under an in-flight reader.
+  void ClearMainLockNotifyHook() {
+    main_lock_hook_installed_.store(true, std::memory_order_release);
+    main_lock_.ClearNotifyHook();
+  }
 
   // Even though the edge count is already kept in the `edges_` SkipList, the
   // list is used only when properties are enabled for edges. Because of that we

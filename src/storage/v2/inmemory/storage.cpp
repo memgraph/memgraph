@@ -1096,9 +1096,8 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
   // (2) UniqueConstraintsViolation() must not run while another committer sits between its mint and
   // publish, since its unpublished writes are invisible to MVCC.
   // Interpreter::Commit may already hold commit_mutex_ (parkable try-lock); adopt it instead of re-locking.
-  auto commit_serializer = preheld_commit_lock.owns_lock()
-                               ? std::optional<CommitLock>{std::move(preheld_commit_lock)}
-                               : mem_storage->LockCommitMutexIfNarrowing();
+  auto commit_serializer = preheld_commit_lock.owns_lock() ? std::optional<CommitLock>{std::move(preheld_commit_lock)}
+                                                           : mem_storage->LockCommitMutexIfNarrowing();
 
   auto engine_guard = std::unique_lock{storage_->engine_lock_};
   commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
@@ -5120,6 +5119,8 @@ class InMemoryPendingAccess final : public Storage::PendingAccess {
         break;  // READ / WRITE gate nobody → no scope
     }
   }
+
+  StorageAccessType AccessType() const noexcept override { return rw_type_; }
 
   std::unique_ptr<Storage::Accessor> TryAcquire(std::optional<IsolationLevel> iso) override {
     switch (rw_type_) {
