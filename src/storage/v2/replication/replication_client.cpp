@@ -759,9 +759,12 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
     throw utils::BasicException("Only InMemoryTransactional mode supports replication!");
   }
 
-  // The recovery task could get executed at any point in the future hence some previous recovery task could have
-  // already recovered replica.
-  if (*replica_state_.Lock() != ReplicaState::RECOVERY) {
+  // A forced reset must run even if a check or round that was already in flight when it was queued
+  // overwrote the state afterwards; the heartbeat cannot rediscover that the replica's base changed.
+  if (reset_needed) {
+    replica_state_.WithLock([](auto &state) { state = ReplicaState::RECOVERY; });
+  } else if (*replica_state_.Lock() != ReplicaState::RECOVERY) {
+    // A normal round can be queued many times; once one finished, the rest are stale.
     spdlog::info("Replica {} is not in RECOVERY state anymore for db {}, ending the recovery task.",
                  client_.name_,
                  main_db_name);
