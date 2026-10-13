@@ -1,7 +1,6 @@
 Feature: KSHORTEST weight lambda
 
-    Scenario: Bare KSHORTEST enumerates every loopless path
-        # Pre-flight: existing
+    Background:
         Given an empty graph
         And having executed:
             """
@@ -11,6 +10,8 @@ Feature: KSHORTEST weight lambda
                    (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
                    (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
             """
+
+    Scenario: Bare KSHORTEST enumerates every loopless path
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -26,16 +27,6 @@ Feature: KSHORTEST weight lambda
             | ['A', 'C', 'D']      | 2    |
 
     Scenario: A weight lambda with a total orders paths by total weight then hops
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -46,16 +37,6 @@ Feature: KSHORTEST weight lambda
             | [[['A', 'C', 'D'], 2], [['A', 'E', 'F', 'D'], 2], [['A', 'B', 'C', 'D'], 6], [['A', 'C', 'B', 'D'], 7], [['A', 'B', 'D'], 10], [['A', 'D'], 20]] |
 
     Scenario: A lone lambda is the weight lambda
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -66,16 +47,6 @@ Feature: KSHORTEST weight lambda
             | [['A', 'C', 'D'], ['A', 'E', 'F', 'D'], ['A', 'B', 'C', 'D'], ['A', 'C', 'B', 'D'], ['A', 'B', 'D'], ['A', 'D']] |
 
     Scenario: The weight lambda reads the node it reaches
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -86,16 +57,6 @@ Feature: KSHORTEST weight lambda
             | [[['A', 'C', 'D'], 4], [['A', 'E', 'F', 'D'], 4], [['A', 'B', 'C', 'D'], 17], [['A', 'C', 'B', 'D'], 18], [['A', 'B', 'D'], 20], [['A', 'D'], 21]] |
 
     Scenario: Weight then filter, with a total
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -107,16 +68,6 @@ Feature: KSHORTEST weight lambda
             | [[['A', 'E', 'F', 'D'], 2], [['A', 'B', 'D'], 10], [['A', 'D'], 20]] |
 
     Scenario: A path limit keeps the cheapest paths
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -127,16 +78,6 @@ Feature: KSHORTEST weight lambda
             | [[['A', 'C', 'D'], 2], [['A', 'E', 'F', 'D'], 2], [['A', 'B', 'C', 'D'], 6]] |
 
     Scenario: An upper hop bound drops cheaper longer paths
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -147,16 +88,6 @@ Feature: KSHORTEST weight lambda
             | [[['A', 'C', 'D'], 2], [['A', 'B', 'D'], 10], [['A', 'D'], 20]] |
 
     Scenario: A lower hop bound serves only longer paths, still by weight
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -167,17 +98,7 @@ Feature: KSHORTEST weight lambda
             | [[['A', 'E', 'F', 'D'], 2], [['A', 'B', 'C', 'D'], 6], [['A', 'C', 'B', 'D'], 7]] |
 
     Scenario: The weight lambda reads a parameter
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
-        And parameters are:
+        Given parameters are:
             | c | 3 |
         When executing query:
             """
@@ -190,16 +111,6 @@ Feature: KSHORTEST weight lambda
             | [[['A', 'C', 'D'], 8], [['A', 'E', 'F', 'D'], 9], [['A', 'B', 'C', 'D'], 21], [['A', 'C', 'B', 'D'], 24], [['A', 'B', 'D'], 32], [['A', 'D'], 61]] |
 
     Scenario: The weight lambda reads the outer row, per input row
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             UNWIND [['A', 'D', 0], ['A', 'D', 100], ['C', 'D', 0]] AS row
@@ -215,16 +126,6 @@ Feature: KSHORTEST weight lambda
             | 'C' | 0     | [[['C', 'D'], 1], [['C', 'B', 'D'], 6]]                                                                                                                |
 
     Scenario: Undirected weighted KSHORTEST
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'E'}), (t:N {id: 'B'}) WITH s, t
@@ -235,16 +136,6 @@ Feature: KSHORTEST weight lambda
             | [[['E', 'A', 'C', 'B'], 2], [['E', 'F', 'D', 'C', 'B'], 2], [['E', 'A', 'C', 'B'], 3], [['E', 'F', 'D', 'C', 'B'], 3]] |
 
     Scenario: Weighted KSHORTEST inside a COUNT subquery reweighs per outer row
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             UNWIND [0, 100, 0] AS bonus
@@ -261,16 +152,6 @@ Feature: KSHORTEST weight lambda
             | 0     | 4     |
 
     Scenario: A constant weight with a filter is the filter-only spelling
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -284,16 +165,6 @@ Feature: KSHORTEST weight lambda
             | ['A', 'E', 'F', 'D'] | 3     |
 
     Scenario: A constant weight with a limit keeps the fewest hops
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -309,16 +180,6 @@ Feature: KSHORTEST weight lambda
             | ['A', 'D']      | 2     | [2, 4, 4]     |
 
     Scenario: Weighted KSHORTEST written right to left
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'A'}), (t:N {id: 'D'}) WITH s, t
@@ -329,16 +190,6 @@ Feature: KSHORTEST weight lambda
             | [[['D', 'C', 'A'], 3], [['D', 'F', 'E', 'A'], 3], [['D', 'C', 'B', 'A'], 16], [['D', 'B', 'C', 'A'], 17], [['D', 'B', 'A'], 19], [['D', 'A'], 20]] |
 
     Scenario: Undirected weighted KSHORTEST reads the node it reaches
-        # Pre-flight: new
-        Given an empty graph
-        And having executed:
-            """
-            CREATE (a:N {id: 'A', cost: 0}), (b:N {id: 'B', cost: 9}), (c:N {id: 'C', cost: 1}), (d:N {id: 'D', cost: 1}),
-                   (e:N {id: 'E', cost: 1}), (f:N {id: 'F', cost: 0}),
-                   (a)-[:R {w: 5}]->(b), (b)-[:R {w: 5}]->(d), (a)-[:R {w: 1}]->(c), (c)-[:R {w: 1}]->(d),
-                   (a)-[:R {w: 20}]->(d), (c)-[:R {w: 1}]->(b), (b)-[:R {w: 0}]->(c),
-                   (a)-[:R {w: 1}]->(e), (e)-[:R {w: 0}]->(f), (f)-[:R {w: 1}]->(d)
-            """
         When executing query:
             """
             MATCH (s:N {id: 'E'}), (t:N {id: 'B'}) WITH s, t
