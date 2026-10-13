@@ -28,6 +28,19 @@
 #include "query/interpreter_context.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "utils/synchronized.hpp"
+
+namespace {
+// TryLock throws exactly when the spinlock is held, so this tells a privilege check whether it runs under it.
+bool IsHeld(memgraph::query::InterpreterSet &interpreters) {
+  try {
+    auto const locked = interpreters.TryLock();
+    return false;
+  } catch (memgraph::utils::TryLockException const &) {
+    return true;
+  }
+}
+}  // namespace
 
 /*
 Tests rely on the fact that interpreters are sequentially added to runninng_interpreters to get transaction_id of its
@@ -610,10 +623,11 @@ TYPED_TEST(TransactionQueueSimpleTest, PassesTheTargetSessionsDatabaseToThePrivi
     return true;
   };
 
-  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
-    return this->interpreter_context.TerminateSessions(
-        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
-  });
+  auto result = this->interpreter_context.TerminateSessions(this->interpreter_context.interpreters,
+                                                            {"target-session-uuid"},
+                                                            caller.user_or_role_.get(),
+                                                            checker,
+                                                            "caller-session-uuid");
 
   // The whole point of the fix: authorization is scoped to the target's tenant, and to nothing else. Asserted
   // against the literal rather than this->db->name(), which would only re-read the name written above and so would
@@ -641,10 +655,11 @@ TYPED_TEST(TransactionQueueSimpleTest, RefusesWhenTheCheckerDeniesTheTargetsData
     return db_name == "some_other_tenant";
   };
 
-  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
-    return this->interpreter_context.TerminateSessions(
-        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
-  });
+  auto result = this->interpreter_context.TerminateSessions(this->interpreter_context.interpreters,
+                                                            {"target-session-uuid"},
+                                                            caller.user_or_role_.get(),
+                                                            checker,
+                                                            "caller-session-uuid");
 
   ASSERT_EQ(result.rows.size(), 1U);
   EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
@@ -669,10 +684,11 @@ TYPED_TEST(TransactionQueueSimpleTest, FallsBackToTheDefaultDbForATargetHoldingN
     return true;
   };
 
-  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
-    return this->interpreter_context.TerminateSessions(
-        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
-  });
+  auto result = this->interpreter_context.TerminateSessions(this->interpreter_context.interpreters,
+                                                            {"target-session-uuid"},
+                                                            caller.user_or_role_.get(),
+                                                            checker,
+                                                            "caller-session-uuid");
 
   // No tenant means no database-scoped privilege could be evaluated against the target's own database, so the
   // check falls back to dbms::kDefaultDB rather than skipping the checker outright.
@@ -700,10 +716,11 @@ TYPED_TEST(TransactionQueueSimpleTest, RefusesATargetHoldingNoDatabaseWhenTheChe
     return db_name == "some_other_tenant";
   };
 
-  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
-    return this->interpreter_context.TerminateSessions(
-        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
-  });
+  auto result = this->interpreter_context.TerminateSessions(this->interpreter_context.interpreters,
+                                                            {"target-session-uuid"},
+                                                            caller.user_or_role_.get(),
+                                                            checker,
+                                                            "caller-session-uuid");
 
   ASSERT_EQ(result.rows.size(), 1U);
   EXPECT_FALSE(result.rows[0][1].ValueBool());
@@ -726,10 +743,11 @@ TYPED_TEST(TransactionQueueSimpleTest, SameUserIsStillAllowedWithoutAnyPrivilege
     return false;
   };
 
-  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
-    return this->interpreter_context.TerminateSessions(
-        interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
-  });
+  auto result = this->interpreter_context.TerminateSessions(this->interpreter_context.interpreters,
+                                                            {"target-session-uuid"},
+                                                            caller.user_or_role_.get(),
+                                                            checker,
+                                                            "caller-session-uuid");
 
   // A user may always terminate their own other connections; the privilege check is never reached.
   ASSERT_EQ(result.rows.size(), 1U);
@@ -754,13 +772,11 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsReportsDuplicateIdAsNotK
   auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &) { return true; };
 
   // The same UUID appears twice in the session_ids list -- the scenario under test.
-  auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
-    return this->interpreter_context.TerminateSessions(interpreters,
-                                                       {"target-session-uuid", "target-session-uuid"},
-                                                       caller.user_or_role_.get(),
-                                                       checker,
-                                                       "caller-session-uuid");
-  });
+  auto result = this->interpreter_context.TerminateSessions(this->interpreter_context.interpreters,
+                                                            {"target-session-uuid", "target-session-uuid"},
+                                                            caller.user_or_role_.get(),
+                                                            checker,
+                                                            "caller-session-uuid");
 
   // One row per input id: two inputs must produce two rows.
   ASSERT_EQ(result.rows.size(), 2U);
@@ -828,10 +844,11 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsCannotBeTrickedIntoSkipp
     for (int i = 0; i < kIterations; ++i) {
       // Not EXPECT/ASSERT here on purpose -- this runs 2000 times per test. Accumulate into plain flags and
       // assert once after the loop.
-      auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
-        return this->interpreter_context.TerminateSessions(
-            interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
-      });
+      auto result = this->interpreter_context.TerminateSessions(this->interpreter_context.interpreters,
+                                                                {"target-session-uuid"},
+                                                                caller.user_or_role_.get(),
+                                                                checker,
+                                                                "caller-session-uuid");
       if (!result.rows.empty() && result.rows[0][1].ValueBool()) saw_unauthorized_kill = true;
       if (!result.to_close.empty()) saw_nonempty_to_close = true;
     }
@@ -894,10 +911,11 @@ TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsRacingIdentityChurnIsDat
     for (int i = 0; i < kIterations; ++i) {
       // Not EXPECT/ASSERT here on purpose -- this runs 2000 times per test. Accumulate into plain flags and
       // assert once after the loop.
-      auto result = this->interpreter_context.interpreters.WithLock([&](auto &interpreters) {
-        return this->interpreter_context.TerminateSessions(
-            interpreters, {"target-session-uuid"}, caller.user_or_role_.get(), checker, "caller-session-uuid");
-      });
+      auto result = this->interpreter_context.TerminateSessions(this->interpreter_context.interpreters,
+                                                                {"target-session-uuid"},
+                                                                caller.user_or_role_.get(),
+                                                                checker,
+                                                                "caller-session-uuid");
       if (!result.rows.empty() && result.rows[0][1].ValueBool()) saw_unauthorized_kill = true;
       if (!result.to_close.empty()) saw_nonempty_to_close = true;
       ++reader_iterations;
@@ -1108,4 +1126,179 @@ TYPED_TEST(TransactionQueueSimpleTest, ShowSessionsOmitsLoggedOffSession) {
     EXPECT_NE(row[1].ValueString(), "carol")
         << "logged-off session must not appear in SHOW SESSIONS (username column) after ResetUser";
   }
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, TerminatePrivilegeCheckRunsWithoutTheInterpretersLock) {
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  this->running_interpreter.Interpret("BEGIN");
+  auto const tx_id = target.GetTransactionId().value();
+
+  int calls = 0;
+  bool lock_held = false;
+  auto checker = [&](memgraph::query::QueryUserOrRole *, std::string const &) {
+    ++calls;
+    lock_held |= IsHeld(this->interpreter_context.interpreters);
+    return false;
+  };
+  auto &interpreters = this->interpreter_context.interpreters;
+  auto *user = caller.user_or_role_.get();
+
+  this->interpreter_context.TerminateSessions(interpreters, {"target-session-uuid"}, user, checker, "caller-uuid");
+  EXPECT_GE(calls, 1) << "TerminateSessions never reached the checker";
+
+  calls = 0;
+  this->interpreter_context.TerminateTransactions(interpreters, {tx_id}, user, checker);
+  EXPECT_GE(calls, 1) << "TerminateTransactions never reached the checker";
+
+  calls = 0;
+  this->interpreter_context.TerminateAllTransactions(interpreters, &caller, user, checker);
+  EXPECT_GE(calls, 1) << "TerminateAllTransactions never reached the checker";
+
+  EXPECT_FALSE(lock_held);
+  this->running_interpreter.Abort();
+}
+
+namespace {
+struct LockProbeUser : memgraph::query::QueryUserOrRole {
+  LockProbeUser(std::string name, memgraph::query::InterpreterSet &interpreters, int &calls, bool &lock_held)
+      : memgraph::query::QueryUserOrRole{std::move(name), {}},
+        interpreters_(&interpreters),
+        calls_(&calls),
+        lock_held_(&lock_held) {}
+
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &, std::optional<std::string_view>,
+                    memgraph::query::UserPolicy *) const override {
+    ++*calls_;
+    *lock_held_ |= IsHeld(*interpreters_);
+    return false;
+  }
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> clone() const override {
+    return std::make_shared<LockProbeUser>(*this);
+  }
+
+  std::vector<std::string> GetRolenames(std::optional<std::string>) const override { return {}; }
+#ifdef MG_ENTERPRISE
+  bool CanImpersonate(const std::string &, memgraph::query::UserPolicy *,
+                      std::optional<std::string_view>) const override {
+    return false;
+  }
+
+  std::string GetDefaultDB() const override { return std::string{memgraph::dbms::kDefaultDB}; }
+#endif
+
+ private:
+  memgraph::query::InterpreterSet *interpreters_;
+  int *calls_;
+  bool *lock_held_;
+};
+}  // namespace
+
+TYPED_TEST(TransactionQueueSimpleTest, ShowQueriesCheckPrivilegeWithoutTheInterpretersLock) {
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  int calls = 0;
+  bool lock_held = false;
+  auto &other = this->running_interpreter.interpreter;
+  other.SetUser(this->running_interpreter.auth_checker.GenQueryUser("alice", {}));
+  other.SetSessionInfo("session-alice", "alice", "ts");
+  this->running_interpreter.Interpret("BEGIN");
+
+  auto &main = this->main_interpreter.interpreter;
+  main.SetUser(std::make_shared<LockProbeUser>("bob", this->interpreter_context.interpreters, calls, lock_held));
+
+  this->main_interpreter.Interpret("SHOW SESSIONS");
+  EXPECT_GE(calls, 1) << "SHOW SESSIONS never reached IsAuthorized";
+
+  calls = 0;
+  this->main_interpreter.Interpret("SHOW TRANSACTIONS");
+  EXPECT_GE(calls, 1) << "SHOW TRANSACTIONS never reached IsAuthorized";
+
+  EXPECT_FALSE(lock_held);
+  this->running_interpreter.Abort();
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, TerminateSessionsSkipsATargetThatLoggedInAgainDuringTheCheck) {
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  target.SetSessionInfo("target-session-uuid", "bob", "ts");
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+
+  // The checker runs without the interpreters lock, so the target can log in again while it decides.
+  auto checker = [&](memgraph::query::QueryUserOrRole *, std::string const &) {
+    target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("carol", {}));
+    target.SetSessionInfo("target-session-uuid", "carol", "ts");
+    return true;
+  };
+
+  auto result = this->interpreter_context.TerminateSessions(this->interpreter_context.interpreters,
+                                                            {"target-session-uuid"},
+                                                            caller.user_or_role_.get(),
+                                                            checker,
+                                                            "caller-uuid");
+
+  ASSERT_EQ(result.rows.size(), 1U);
+  EXPECT_EQ(result.rows[0][0].ValueString(), "target-session-uuid");
+  EXPECT_FALSE(result.rows[0][1].ValueBool());
+  EXPECT_TRUE(result.to_close.empty());
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, TerminateTransactionsSkipsATargetWhoseOwnerChangedDuringTheCheck) {
+  this->db->storage()->config_.salient.name = "tenant_a";
+
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  this->running_interpreter.Interpret("BEGIN");
+  auto const tx_id = target.GetTransactionId().value();
+
+  // The owner key changed between the unlocked check and the kill, so the kill is skipped.
+  auto checker = [&](memgraph::query::QueryUserOrRole *, std::string const &) {
+    target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("admin", {}));
+    return true;
+  };
+
+  auto rows = this->interpreter_context.TerminateTransactions(
+      this->interpreter_context.interpreters, {tx_id}, caller.user_or_role_.get(), checker);
+
+  ASSERT_EQ(rows.size(), 1U);
+  EXPECT_EQ(std::string_view{rows[0][0].ValueString()}, std::to_string(tx_id));
+  EXPECT_FALSE(rows[0][1].ValueBool());
+  EXPECT_EQ(target.transaction_status_.load(), memgraph::query::TransactionStatus::ACTIVE);
+  this->running_interpreter.Abort();
+}
+
+TYPED_TEST(TransactionQueueSimpleTest, TerminateTransactionsListsNotKilledBeforeKilledInInputOrder) {
+  auto &target = this->running_interpreter.interpreter;
+  auto &caller = this->main_interpreter.interpreter;
+  target.SetUser(this->running_interpreter.auth_checker.GenQueryUser("bob", {}));
+  caller.SetUser(this->main_interpreter.auth_checker.GenQueryUser("admin", {}));
+  this->running_interpreter.Interpret("BEGIN");
+  uint64_t const t = target.GetTransactionId().value();
+  uint64_t const u1 = 1;  // transaction ids start at 1<<63, so these never exist
+  uint64_t const u2 = 2;
+
+  auto checker = [](memgraph::query::QueryUserOrRole *, std::string const &) { return true; };
+  auto rows = this->interpreter_context.TerminateTransactions(
+      this->interpreter_context.interpreters, {u1, t, u2, t}, caller.user_or_role_.get(), checker);
+
+  // The duplicate's second occurrence is not killed; not-killed rows precede killed rows, each in input order.
+  std::vector<std::pair<std::string, bool>> got;
+  for (auto const &row : rows) got.emplace_back(row[0].ValueString(), row[1].ValueBool());
+  EXPECT_THAT(got,
+              ::testing::ElementsAre(::testing::Pair(std::to_string(u1), false),
+                                     ::testing::Pair(std::to_string(u2), false),
+                                     ::testing::Pair(std::to_string(t), false),
+                                     ::testing::Pair(std::to_string(t), true)));
+  this->running_interpreter.Abort();
 }

@@ -150,7 +150,7 @@ class MulticommandTxException : public QueryException {
       : QueryException(MessageWithDocsLink(
             "{} is not allowed in multicommand transactions. A multicommand transaction, also known as an "
             "explicit transaction, groups multiple commands into a single atomic operation. Instead, please use an "
-            "implicit transaction, also known as an auto committing transaction, in order to execute this particular"
+            "implicit transaction, also known as an auto committing transaction, in order to execute this particular "
             "query.",
             query)) {}
   SPECIALIZE_GET_EXCEPTION_NAME(MulticommandTxException)
