@@ -227,9 +227,21 @@ class Session {
     pending_commit_from_message_ = true;
   }
 
+  // Terminal outcome of a parked retry: no Execute_ end-of-input drain runs on the park-resolution path
+  // (DoRead when input is empty), so flush the deferred response here. Throw like Execute_'s drain so the
+  // driver's catch tears the session down; a Close state alone would not be acted on until more input.
+  template <typename TOutcome>
+  TOutcome FlushTerminal_(TOutcome outcome) {
+    if (!encoder_buffer_.FlushFinalized()) {
+      state_ = State::Close;
+      throw SessionException("Failed to send buffered Bolt responses to the client!");
+    }
+    return outcome;
+  }
+
   // Pool-side retry of a Commit() that threw CommitWouldBlockException.
-  // FLAG (re-Pull safety): try-lock is Commit()'s first action before any mutation; an
-  // exhausted cursor's second Pull() streams 0 rows so only Commit() re-runs.
+  // An autocommit retry resumes at Commit() from the interpreter's stashed tail state; an explicit COMMIT
+  // query/message retry re-runs a handler that throws before mutating.
   template <typename TImpl>
     requires requires(TImpl &impl) {
       { impl.GetLogContext() } -> std::same_as<memgraph::logging::SessionLogContext *>;
@@ -241,23 +253,24 @@ class Session {
     if (pending_commit_from_message_) {
       // Explicit-transaction COMMIT message retry — mirrors HandleCommit's body. The staged txn is
       // intact (Commit throws before mutating), so re-running CommitTransaction() is safe.
+      PendingCommitOutcome outcome;
       try {
         if (!encoder_.MessageSuccess(impl.CommitTransaction())) {
           state_ = State::Close;
-          pending_commit_ = false;
-          return PendingCommitOutcome::ClientError;
+          outcome = PendingCommitOutcome::ClientError;
+        } else {
+          state_ = State::Idle;
+          outcome = PendingCommitOutcome::Done;
         }
-        state_ = State::Idle;
-        pending_commit_ = false;
-        return PendingCommitOutcome::Done;
       } catch (const memgraph::query::CommitWouldBlockException &) {
         StashPendingCommitMessage();  // still contended → park again
         return PendingCommitOutcome::Reschedule;
       } catch (const std::exception &e) {
         state_ = HandleFailure(impl, e);
-        pending_commit_ = false;
-        return PendingCommitOutcome::ClientError;
+        outcome = PendingCommitOutcome::ClientError;
       }
+      pending_commit_ = false;
+      return FlushTerminal_(outcome);  // outside the try: a flush failure must not become a FAILURE reply
     }
 
     const auto n = pending_commit_n_;
@@ -275,11 +288,11 @@ class Session {
       case State::Result:
         // Commit succeeded; HandlePullDiscard already sent SUCCESS to the client.
         pending_commit_ = false;
-        return PendingCommitOutcome::Done;
+        return FlushTerminal_(PendingCommitOutcome::Done);
       default:
         // State::Error or State::Close: HandleFailure sent the bolt error response.
         pending_commit_ = false;
-        return PendingCommitOutcome::ClientError;
+        return FlushTerminal_(PendingCommitOutcome::ClientError);
     }
   }
 
@@ -321,16 +334,16 @@ class Session {
     if (pending_begin_from_message_) {
       // Explicit-transaction BEGIN message retry: Configure already ran, only BeginTransaction is
       // repeated. On success send MessageSuccess({}) and transition to Idle (no cursor needed).
+      PendingBeginOutcome outcome;
       try {
         impl.BeginTransaction(pending_begin_extra_);
         if (!encoder_.MessageSuccess({})) {
           state_ = State::Close;
-          pending_begin_ = false;
-          return PendingBeginOutcome::ClientError;
+          outcome = PendingBeginOutcome::ClientError;
+        } else {
+          state_ = State::Idle;
+          outcome = PendingBeginOutcome::Done;
         }
-        state_ = State::Idle;
-        pending_begin_ = false;
-        return PendingBeginOutcome::Done;
       } catch (const memgraph::query::BeginWouldBlockException &) {
         // main_lock_ still contended; deadline is retained in pending_begin_deadline_.
         // Do NOT re-stash: pending_begin_ is already true and pending_begin_extra_ must be kept.
@@ -338,9 +351,10 @@ class Session {
       } catch (const std::exception &e) {
         // Deadline expired (access-timeout) or other unrecoverable error; send bolt FAILURE.
         state_ = HandleFailure(impl, e);
-        pending_begin_ = false;
-        return PendingBeginOutcome::ClientError;
+        outcome = PendingBeginOutcome::ClientError;
       }
+      pending_begin_ = false;
+      return FlushTerminal_(outcome);  // outside the try: a flush failure must not become a FAILURE reply
     }
 
     // RUN origin: re-run HandlePrepare. On BeginWouldBlockException, HandlePrepare's catch
@@ -353,11 +367,11 @@ class Session {
       case State::Result:
         // InterpretPrepare succeeded; header sent by HandlePrepare.
         pending_begin_ = false;
-        return PendingBeginOutcome::Done;
+        return FlushTerminal_(PendingBeginOutcome::Done);
       default:
         // State::Error or State::Close: HandleFailure sent the bolt error response.
         pending_begin_ = false;
-        return PendingBeginOutcome::ClientError;
+        return FlushTerminal_(PendingBeginOutcome::ClientError);
     }
   }
 
