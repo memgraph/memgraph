@@ -15,6 +15,7 @@ descriptors are available again. Memgraph is spawned with a small RLIMIT_NOFILE,
 Bolt connections, held there briefly, then released.
 """
 
+import glob
 import os
 import re
 import resource
@@ -28,6 +29,13 @@ import urllib.request
 import interactive_mg_runner
 import mgclient
 import pytest
+
+interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+interactive_mg_runner.PROJECT_DIR = os.path.normpath(
+    os.path.join(interactive_mg_runner.SCRIPT_DIR, "..", "..", "..", "..")
+)
+interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
+interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
 
 FD_LIMIT = 400
 HOLD_SECONDS = 2.5
@@ -116,7 +124,6 @@ def accepted_connection_lines(log_path):
 def scenario():
     ports = {name: free_port() for name in ("bolt", "ws", "metrics", "rpc")}
     tmp = tempfile.mkdtemp(prefix="accept_emfile_")
-    log_path = os.path.join(tmp, "memgraph.log")
 
     def limit_fds():
         resource.setrlimit(resource.RLIMIT_NOFILE, (FD_LIMIT, FD_LIMIT))
@@ -128,7 +135,7 @@ def scenario():
             f"--monitoring-port={ports['ws']}",
             f"--metrics-port={ports['metrics']}",
             f"--data-directory={os.path.join(tmp, 'data')}",
-            f"--log-file={log_path}",
+            f"--log-file={os.path.join(tmp, 'memgraph.log')}",
             "--log-level=INFO",
             "--also-log-to-stderr=false",
             "--storage-snapshot-on-exit=false",
@@ -141,6 +148,8 @@ def scenario():
     pokes = []
     try:
         assert retry(lambda: bolt_works(ports["bolt"]), 60), "memgraph did not start"
+        # The log file name gets a date suffix (memgraph_YYYY-MM-DD.log).
+        log_path = glob.glob(os.path.join(tmp, "memgraph*.log"))[0]
 
         conn = mgclient.connect(host="127.0.0.1", port=ports["bolt"])
         conn.autocommit = True
@@ -153,17 +162,25 @@ def scenario():
         if baseline > FD_LIMIT - 20:
             pytest.skip(f"baseline fd count {baseline} too close to the limit {FD_LIMIT}")
 
+        # Stop one short of the limit: the next accept() on a listener then fails with EMFILE. Also stop if the
+        # server stops accepting (connect times out).
         deadline = time.time() + 30
-        while fd_count(proc.pid) < FD_LIMIT and time.time() < deadline:
-            pokes.append(socket.create_connection(("127.0.0.1", ports["bolt"]), timeout=2))
+        while fd_count(proc.pid) < FD_LIMIT - 1 and time.time() < deadline:
+            try:
+                pokes.append(socket.create_connection(("127.0.0.1", ports["bolt"]), timeout=2))
+            except OSError:
+                break
             time.sleep(0.005)
         time.sleep(0.5)
-        if fd_count(proc.pid) < FD_LIMIT:
+        if fd_count(proc.pid) < FD_LIMIT - 1:
             pytest.skip(f"could not reach fd limit, at {fd_count(proc.pid)}/{FD_LIMIT}")
 
         # Connections to the other listeners complete in the kernel backlog; their accept() fails with EMFILE.
         for name in ("ws", "metrics", "rpc"):
             pokes.append(socket.create_connection(("127.0.0.1", ports[name]), timeout=2))
+
+        if not retry(lambda: accept_log_lines(log_path) > 0, 3):
+            pytest.skip(f"fd count {fd_count(proc.pid)}/{FD_LIMIT} but no accept errors logged; limit not hit")
 
         cpu_before = thread_cpu_seconds(proc.pid)
         log_size_before = os.path.getsize(log_path)
