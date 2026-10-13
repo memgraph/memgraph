@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <atomic>
 #include <chrono>
 #include <optional>
 #include <thread>
@@ -390,4 +391,90 @@ TEST(HotColdGatekeeper, SealIsAdvisory) {
   auto b = gk.access();
   ASSERT_TRUE(b.has_value());
   EXPECT_FALSE(bool(*b));
+}
+
+namespace {
+
+struct SelfAware {
+  Gatekeeper<SelfAware>::Ref ref;
+  bool *dtor_saw_nullopt = nullptr;
+
+  void BindGatekeeper(Gatekeeper<SelfAware>::Ref bound) { ref = bound; }
+
+  ~SelfAware() {
+    if (dtor_saw_nullopt != nullptr) *dtor_saw_nullopt = !ref.access().has_value();
+  }
+};
+
+// Mints accessors through its Ref on a background thread until refused, which ~RefWorker then joins.
+struct RefWorker {
+  Gatekeeper<RefWorker>::Ref ref;
+  std::atomic_bool minted = false;
+  std::jthread worker;
+
+  void BindGatekeeper(Gatekeeper<RefWorker>::Ref bound) {
+    ref = bound;
+    worker = std::jthread{[this] {
+      while (ref.access()) minted = true;
+    }};
+  }
+
+  void WaitUntilMinted() const {
+    while (!minted) std::this_thread::yield();
+  }
+};
+
+}  // namespace
+
+TEST(HotColdGatekeeper, RefMintsAccessorsAndSurvivesGatekeeperMove) {
+  Gatekeeper<SelfAware> gk{};
+  auto const ref = (*gk.access())->ref;
+  EXPECT_TRUE(ref.access().has_value());
+
+  auto moved = std::move(gk);
+  EXPECT_TRUE(ref.access().has_value());
+  EXPECT_TRUE((*moved.access())->ref.access().has_value());
+}
+
+TEST(HotColdGatekeeper, RefRefusesSealedValue) {
+  Gatekeeper<SelfAware> gk{};
+  auto const ref = (*gk.access())->ref;
+  gk.seal();
+  EXPECT_FALSE(ref.access().has_value());
+}
+
+TEST(HotColdGatekeeper, RefRefusesSuspendedAndColdValue) {
+  Gatekeeper<SelfAware> gk{};
+  auto const ref = (*gk.access())->ref;
+  {
+    auto acc = gk.access();
+    ASSERT_TRUE(gk.try_begin_suspend(std::chrono::milliseconds(200)));
+    EXPECT_FALSE(ref.access().has_value());
+  }
+  gk.finish_suspend();
+  EXPECT_FALSE(ref.access().has_value());
+}
+
+// Move-assign destroys the old value without sealing it, so only GKInternals::value_ being empty
+// stops a Ref from minting an accessor to it.
+TEST(HotColdGatekeeper, RefSeesNoValueWhileValueIsDestroyed) {
+  bool dtor_saw_nullopt = false;
+  Gatekeeper<SelfAware> gk{};
+  (*gk.access())->dtor_saw_nullopt = &dtor_saw_nullopt;
+
+  gk = Gatekeeper<SelfAware>{};
+  EXPECT_TRUE(dtor_saw_nullopt);
+}
+
+TEST(HotColdGatekeeper, RefWorkerStopsWhenGatekeeperIsDestroyed) {
+  auto gk = std::optional<Gatekeeper<RefWorker>>{std::in_place};
+  (*gk->access())->WaitUntilMinted();
+  gk.reset();
+}
+
+TEST(HotColdGatekeeper, RefWorkerStopsWhenValueIsDeleted) {
+  Gatekeeper<RefWorker> gk{};
+  auto acc = gk.access();
+  (*acc)->WaitUntilMinted();
+  EXPECT_TRUE(acc->try_delete(std::chrono::seconds(10)));
 }

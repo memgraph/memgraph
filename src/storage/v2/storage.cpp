@@ -98,8 +98,9 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       invalidator_{std::move(invalidator)},
       database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)
                                                              : []() -> std::unique_ptr<DatabaseProtector> {
-        // Default safe factory - returns a dummy protector used for test usage
-        // This ensures async operations never get nullptr in test environments
+        // Default safe factory for a storage built without one (storage-level tests): a dummy protector
+        // that is never null and never sealed. A dbms::Database never reaches this default: it always passes
+        // its own factory, which returns nullptr until the Database is bound to a Gatekeeper.
         struct DefaultDatabaseProtector : DatabaseProtector {
           auto clone() const -> DatabaseProtectorPtr override { return std::make_unique<DefaultDatabaseProtector>(); }
           bool sealed() const override { return false; }

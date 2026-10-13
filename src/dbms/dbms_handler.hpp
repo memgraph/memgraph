@@ -159,15 +159,9 @@ class DbmsHandler {
    */
   DbmsHandler(storage::Config config)
       : db_gatekeeper_{[&] {
-                         config.salient.name = kDefaultDB;
-                         return std::move(config);
-                       }(),
-                       [this]() -> storage::DatabaseProtectorPtr {
-                         if (auto db_acc = db_gatekeeper_.access()) {
-                           return std::make_unique<DatabaseProtector>(*db_acc);
-                         }
-                         return nullptr;
-                       }} {}
+          config.salient.name = kDefaultDB;
+          return std::move(config);
+        }()} {}
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -356,7 +350,7 @@ class DbmsHandler {
 
   /**
    * @brief Set the pre-publish resume arm (runs on the recovered DatabaseAccess BEFORE the fresh
-   *        gatekeeper is published into the map). Used for triggers/streams/TTL re-arm. Default empty.
+   *        gatekeeper is published into the map). Used for triggers/streams re-arm. Default empty.
    *        If it throws, the resume is aborted (RESUMING -> COLD) and the tenant stays retriable.
    *
    * INVARIANT: the arm must operate on the supplied DatabaseAccess and must NOT synchronously
@@ -366,6 +360,12 @@ class DbmsHandler {
    * consumers run on their own threads); a future arm must too.
    */
   void SetOnResume(std::function<void(DatabaseAccess)> cb) { on_resume_ = std::move(cb); }
+
+  /**
+   * @brief Set the post-publish resume arm (runs on the DatabaseAccess AFTER the tenant is published
+   *        HOT). Used for work that may commit, such as re-enabling TTL. Best-effort: a throw only logs.
+   */
+  void SetOnPublished(std::function<void(DatabaseAccess)> cb) { on_published_ = std::move(cb); }
 
   /**
    * @brief Reconfigure Resume_'s retry/timeout knobs (see ResumeRetryPolicy) on a live handler. The
@@ -1180,10 +1180,11 @@ class DbmsHandler {
   // std::string key and could throw bad_alloc inside the noexcept window.
   std::map<std::string, SuspendedEntry, std::less<>> suspended_;
   // TODO: move to be common
-  std::unique_ptr<kvstore::KVStore> durability_;     //!< list of active dbs (pointer so we can postpone its creation)
-  std::unique_ptr<TenantProfiles> tenant_profiles_;  //!< per-DB resource profiles (created after durability_)
-  std::function<void(DatabaseAccess)> on_resume_;    //!< pre-publish resume arm (triggers/streams/TTL); empty default
-  std::function<void(DatabaseAccess)> on_suspend_;   //!< pre-teardown suspend arm (stop streams); empty default
+  std::unique_ptr<kvstore::KVStore> durability_;      //!< list of active dbs (pointer so we can postpone its creation)
+  std::unique_ptr<TenantProfiles> tenant_profiles_;   //!< per-DB resource profiles (created after durability_)
+  std::function<void(DatabaseAccess)> on_resume_;     //!< pre-publish resume arm (triggers/streams); empty default
+  std::function<void(DatabaseAccess)> on_published_;  //!< post-publish resume arm (TTL); empty default
+  std::function<void(DatabaseAccess)> on_suspend_;    //!< pre-teardown suspend arm (stop streams); empty default
   std::function<void(DatabaseAccess)>
       restore_streams_;  //!< streams-only restore (undo a stopped suspend); empty default
   std::function<void(utils::UUID const &)> on_uuid_retired_;  //!< discards a retired uuid's parameters; empty default
