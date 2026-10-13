@@ -112,12 +112,12 @@ COMMIT;
 ### 3.1 A transaction is either auth or data, not both
 
 The first statement decides. An auth statement makes it an auth transaction and
-every later data query is refused; a data query makes it a data transaction and
-every later auth statement is refused. Either way the error is:
+every later query of any other kind is refused; a data query makes it a data
+transaction and every later auth statement is refused. Either way the error is:
 
 ```
-An explicit transaction cannot mix auth queries with data queries. Run them in
-separate transactions.
+A transaction that runs an auth query can contain only auth queries. Run other
+queries in a separate transaction.
 ```
 
 The mixed statement fails. The server does not end the transaction itself.
@@ -163,6 +163,13 @@ each creating their first user conflict, because each has to decide whether it
 is creating the first one. And once a transaction has dropped a user, a
 `CREATE USER` in it decides whether it is the first user from the user it found
 still there, so a concurrent change to that user fails the commit too.
+
+Two statements read more than their names suggest. `DROP ROLE` reads every
+user's role assignments to check that none holds the role, so it conflicts with
+any concurrent role assignment, even of another role. On a licensed instance,
+creating the first user also creates the built-in roles if no role exists yet,
+so it reads the whole role set and conflicts with any concurrent `CREATE ROLE`.
+Both conflicts are retryable like any other.
 
 A statement that lists records depends on the whole list. This is worth
 knowing, because it is the case that surprises people:
@@ -219,6 +226,11 @@ as section 7 says, avoids that.
 
 An instance that is no longer main when a transaction with changes commits
 refuses the commit with "Cannot commit because instance is not main anymore."
+The role is checked once, under the replication read lock, before the change is
+flushed. A demotion that lands after that check and before the change
+replicates leaves it durable on this instance and not replicated, as for an
+autocommit system query, and the instance's recovery from the new main later
+overwrites it. That window is #5062.
 
 ---
 
