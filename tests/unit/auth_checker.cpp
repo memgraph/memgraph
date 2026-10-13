@@ -710,8 +710,8 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   auto *const up_to_date = &memgraph::query::up_to_date_policy;
 
   // Another user keeps access control on after the drop.
-  ASSERT_TRUE(auth->AddUser("admin"));
-  auto limited = *auth->AddUser("limited");
+  ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
+  auto limited = *AddUser(*auth.Lock(), "limited");
   limited.permissions().Grant(memgraph::auth::Permission::MATCH);
   auth->SaveUser(limited);
   auto role = *auth->AddRole("reader");
@@ -776,7 +776,7 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   }
 
   // Re-creating a user with the same name does not revive the dropped session.
-  auto recreated = *auth->AddUser("limited");
+  auto recreated = *AddUser(*auth.Lock(), "limited");
   recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
   auth->SaveUser(recreated);
   EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", up_to_date));
@@ -799,7 +799,7 @@ TEST(AuthChecker, DroppedLastUserSessionGetsAuthOffAccess) {
   auto *const session_long = &memgraph::query::session_long_policy;
   auto *const up_to_date = &memgraph::query::up_to_date_policy;
 
-  auto solo = *auth->AddUser("solo");
+  auto solo = *AddUser(*auth.Lock(), "solo");
   solo.permissions().Grant(memgraph::auth::Permission::MATCH);
   auth->SaveUser(solo);
 
@@ -812,7 +812,7 @@ TEST(AuthChecker, DroppedLastUserSessionGetsAuthOffAccess) {
   EXPECT_TRUE(session->IsAuthorized({CREATE}, "memgraph", session_long));
 
   // Access control back on: the dropped session is not revived.
-  auto recreated = *auth->AddUser("solo");
+  auto recreated = *AddUser(*auth.Lock(), "solo");
   recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
   auth->SaveUser(recreated);
   EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
@@ -831,8 +831,8 @@ TEST(AuthChecker, DroppedUserStillGetsFineGrainedChecker) {
   memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
   memgraph::glue::AuthChecker auth_checker(&auth);
 
-  ASSERT_TRUE(auth->AddUser("admin"));
-  auto limited = *auth->AddUser("limited");
+  ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
+  auto limited = *AddUser(*auth.Lock(), "limited");
   limited.fine_grained_access_handler().label_permissions().Grant({"visible"},
                                                                   memgraph::auth::FineGrainedPermission::READ);
   auth->SaveUser(limited);
