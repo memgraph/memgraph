@@ -15,6 +15,7 @@ function(copy_server_e2e_python_files FILE_NAME)
 endfunction()
 
 copy_server_e2e_python_files(common.py)
+copy_server_e2e_python_files(test_startup_cleanup.py)
 copy_server_e2e_python_files(test_ssl_hot_reload.py)
 copy_server_e2e_python_files(test_ssl_reload_no_ssl.py)
 copy_server_e2e_python_files(test_ssl_hot_reload_coordinator.py)
