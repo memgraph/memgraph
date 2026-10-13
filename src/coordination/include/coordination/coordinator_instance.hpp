@@ -127,6 +127,13 @@ class CoordinatorInstance {
       std::map<std::string, replication_coordination_glue::InstanceInfo> const &instances_info)
       -> std::optional<std::string>;
 
+  // Drops candidates that must not be promoted: any reported DB is broken, or a reported DB has 0 committed txns while
+  // the last known main (main_num_txns: db_uuid -> committed txns) had > 0. Applied before ranking.
+  static auto FilterFailoverCandidates(
+      std::map<std::string, replication_coordination_glue::InstanceInfo> instances_info,
+      std::map<std::string, uint64_t> const &main_num_txns)
+      -> std::map<std::string, replication_coordination_glue::InstanceInfo>;
+
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 
   auto YieldLeadership() const -> YieldLeadershipStatus;

@@ -106,6 +106,26 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     auto res = stream.SendAndWait();
     g.get_database_histories_rpc_success->Increment();
     return res.arg_;
+  } catch (const rpc::RpcTimeoutException &e) {
+    spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
+    g.get_database_histories_rpc_fail->Increment();
+    return {};
+  } catch (const rpc::RpcFailedToConnectException &e) {
+    spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
+    g.get_database_histories_rpc_fail->Increment();
+    return {};
+  } catch (const rpc::RpcFailedException &e) {
+    // ISSU: an instance which doesn't know V3 drops the connection when it can't answer in V3. Retry with V2, whose
+    // response has no broken bit (read as not broken). Assumes data instances are upgraded before coordinators, so a
+    // V3 coordinator talking to a V2 data instance is the only mixed pair we have to survive.
+    spdlog::warn("GetDatabaseHistoriesReq V3 failed for instance {} ({}). Retrying with V2.", instance_name_, e.what());
+  }
+
+  try {
+    auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpcV2>()};
+    auto res = stream.SendAndWait();
+    g.get_database_histories_rpc_success->Increment();
+    return replication_coordination_glue::ToInstanceInfo(res.arg_);
   } catch (const rpc::RpcFailedException &e) {
     spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
     g.get_database_histories_rpc_fail->Increment();

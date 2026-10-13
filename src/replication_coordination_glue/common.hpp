@@ -27,9 +27,19 @@ struct InstanceDBInfoV1 {
   friend bool operator==(InstanceDBInfoV1 const &, InstanceDBInfoV1 const &) = default;
 };
 
+struct InstanceDBInfoV2 {
+  std::string db_uuid;
+  uint64_t num_committed_txns;
+
+  friend bool operator==(InstanceDBInfoV2 const &, InstanceDBInfoV2 const &) = default;
+};
+
 struct InstanceDBInfo {
   std::string db_uuid;
   uint64_t num_committed_txns;
+  // Storage refused service (e.g. replica recovery failed after Clear()). Absent on the wire before V3, where it is
+  // read as false.
+  bool broken{false};
 
   friend bool operator==(InstanceDBInfo const &, InstanceDBInfo const &) = default;
 };
@@ -39,9 +49,24 @@ struct InstanceInfoV1 {
   uint64_t last_committed_system_timestamp;
 };
 
+struct InstanceInfoV2 {
+  std::vector<InstanceDBInfoV2> dbs_info;
+  uint64_t last_committed_system_timestamp;
+};
+
 struct InstanceInfo {
   std::vector<InstanceDBInfo> dbs_info;
   uint64_t last_committed_system_timestamp;
 };
+
+// V2 predates the broken bit; an instance answering in V2 is treated as not broken.
+inline InstanceInfo ToInstanceInfo(InstanceInfoV2 const &v2) {
+  InstanceInfo info{.dbs_info = {}, .last_committed_system_timestamp = v2.last_committed_system_timestamp};
+  info.dbs_info.reserve(v2.dbs_info.size());
+  for (auto const &db : v2.dbs_info) {
+    info.dbs_info.push_back({.db_uuid = db.db_uuid, .num_committed_txns = db.num_committed_txns, .broken = false});
+  }
+  return info;
+}
 
 }  // namespace memgraph::replication_coordination_glue

@@ -423,7 +423,8 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
 
 #ifdef MG_ENTERPRISE
 
-std::variant<coordination::GetDatabaseHistoriesResV1, coordination::GetDatabaseHistoriesRes>
+std::variant<coordination::GetDatabaseHistoriesResV1, coordination::GetDatabaseHistoriesResV2,
+             coordination::GetDatabaseHistoriesRes>
 ReplicationHandler::GetDatabasesHistories(uint64_t const request_version) const {
   if (request_version == coordination::GetDatabaseHistoriesReqV1::kVersion) {
     replication_coordination_glue::InstanceInfoV1 results;
@@ -436,14 +437,29 @@ ReplicationHandler::GetDatabasesHistories(uint64_t const request_version) const 
     return coordination::GetDatabaseHistoriesResV1{results};
   }
 
-  // In the newest version we return num_committed_txns_ instead
+  if (request_version == coordination::GetDatabaseHistoriesReqV2::kVersion) {
+    // V2 returns num_committed_txns_ instead of ldt_
+    replication_coordination_glue::InstanceInfoV2 results;
+    results.last_committed_system_timestamp = system_.LastCommittedSystemTimestamp();
+    dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
+      auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
+      results.dbs_info.emplace_back(
+          std::string{db_acc->storage()->uuid()},
+          repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
+    });
+    return coordination::GetDatabaseHistoriesResV2{results};
+  }
+
+  // V3 adds the per-database broken bit
   replication_coordination_glue::InstanceInfo results;
   results.last_committed_system_timestamp = system_.LastCommittedSystemTimestamp();
   dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
-    auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
-    results.dbs_info.emplace_back(
-        std::string{db_acc->storage()->uuid()},
-        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
+    auto const *storage = db_acc->storage();
+    results.dbs_info.push_back(replication_coordination_glue::InstanceDBInfo{
+        .db_uuid = std::string{storage->uuid()},
+        .num_committed_txns =
+            storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_,
+        .broken = storage->IsBroken()});
   });
 
   return coordination::GetDatabaseHistoriesRes{results};

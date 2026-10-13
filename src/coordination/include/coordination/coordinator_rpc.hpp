@@ -303,15 +303,30 @@ struct GetDatabaseHistoriesReqV1 {
   GetDatabaseHistoriesReqV1() = default;
 };
 
-struct GetDatabaseHistoriesReq {
+struct GetDatabaseHistoriesReqV2 {
   // Type stays the same for all versions
   static constexpr utils::TypeInfo kType{GetDatabaseHistoriesReqV1::kType};
   static constexpr uint64_t kVersion{2};
 
+  static void Load(GetDatabaseHistoriesReqV2 *self, memgraph::slk::Reader *reader);
+  static void Save(const GetDatabaseHistoriesReqV2 &self, memgraph::slk::Builder *builder);
+
+  static GetDatabaseHistoriesReqV2 Upgrade(GetDatabaseHistoriesReqV1 const & /*prev*/) {
+    return GetDatabaseHistoriesReqV2{};
+  }
+
+  GetDatabaseHistoriesReqV2() = default;
+};
+
+// V3 adds the per-database broken bit to the response.
+struct GetDatabaseHistoriesReq {
+  static constexpr utils::TypeInfo kType{GetDatabaseHistoriesReqV1::kType};
+  static constexpr uint64_t kVersion{3};
+
   static void Load(GetDatabaseHistoriesReq *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesReq &self, memgraph::slk::Builder *builder);
 
-  static GetDatabaseHistoriesReq Upgrade(GetDatabaseHistoriesReqV1 const & /*prev*/) {
+  static GetDatabaseHistoriesReq Upgrade(GetDatabaseHistoriesReqV2 const & /*prev*/) {
     return GetDatabaseHistoriesReq{};
   }
 
@@ -334,9 +349,28 @@ struct GetDatabaseHistoriesResV1 {
   replication_coordination_glue::InstanceInfoV1 arg_;
 };
 
-struct GetDatabaseHistoriesRes {
+struct GetDatabaseHistoriesResV2 {
   static constexpr utils::TypeInfo kType{GetDatabaseHistoriesResV1::kType};
   static constexpr uint64_t kVersion{2};
+
+  static void Load(GetDatabaseHistoriesResV2 *self, memgraph::slk::Reader *reader);
+  static void Save(const GetDatabaseHistoriesResV2 &self, memgraph::slk::Builder *builder);
+
+  explicit GetDatabaseHistoriesResV2(replication_coordination_glue::InstanceInfoV2 instance_info)
+      : arg_(std::move(instance_info)) {}
+
+  GetDatabaseHistoriesResV2() = default;
+
+  // We cannot downgrade from GetDatabaseHistoriesResV2, the caller should provide function for creating all responses
+  // independently
+  GetDatabaseHistoriesResV1 Downgrade() = delete;
+
+  replication_coordination_glue::InstanceInfoV2 arg_;
+};
+
+struct GetDatabaseHistoriesRes {
+  static constexpr utils::TypeInfo kType{GetDatabaseHistoriesResV1::kType};
+  static constexpr uint64_t kVersion{3};
 
   static void Load(GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
@@ -346,13 +380,13 @@ struct GetDatabaseHistoriesRes {
 
   GetDatabaseHistoriesRes() = default;
 
-  // We cannot downgrade from GetDatabaseHistoriesRes, the caller should provide function for creating both responses
-  // independently
-  GetDatabaseHistoriesResV1 Downgrade() = delete;
+  // The caller should provide function for creating all responses independently (see GetDatabaseHistoriesResV2)
+  GetDatabaseHistoriesResV2 Downgrade() = delete;
 
   replication_coordination_glue::InstanceInfo arg_;
 };
 
+using GetDatabaseHistoriesRpcV2 = rpc::RequestResponse<GetDatabaseHistoriesReqV2, GetDatabaseHistoriesResV2>;
 using GetDatabaseHistoriesRpc = rpc::RequestResponse<GetDatabaseHistoriesReq, GetDatabaseHistoriesRes>;
 
 struct ShowInstancesReq {
@@ -718,6 +752,8 @@ void Load(memgraph::coordination::UnregisterReplicaReq *self, memgraph::slk::Rea
 // GetDatabaseHistoriesRpc
 void Save(const memgraph::coordination::GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::GetDatabaseHistoriesResV1 *self, memgraph::slk::Reader *reader);
+void Save(const memgraph::coordination::GetDatabaseHistoriesResV2 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetDatabaseHistoriesResV2 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
 

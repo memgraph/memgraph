@@ -69,6 +69,16 @@ inline void Load(replication_coordination_glue::InstanceInfoV1 *obj, Reader *rea
   Load(&obj->dbs_info, reader);
 }
 
+inline void Save(const replication_coordination_glue::InstanceInfoV2 &obj, Builder *builder) {
+  Save(obj.last_committed_system_timestamp, builder);
+  Save(obj.dbs_info, builder);
+}
+
+inline void Load(replication_coordination_glue::InstanceInfoV2 *obj, Reader *reader) {
+  Load(&obj->last_committed_system_timestamp, reader);
+  Load(&obj->dbs_info, reader);
+}
+
 inline void Save(const replication_coordination_glue::InstanceInfo &obj, Builder *builder) {
   Save(obj.last_committed_system_timestamp, builder);
   Save(obj.dbs_info, builder);
@@ -90,14 +100,26 @@ inline void Load(replication_coordination_glue::InstanceDBInfoV1 *obj, Reader *r
   Load(&obj->latest_durable_timestamp, reader);
 }
 
+inline void Save(const replication_coordination_glue::InstanceDBInfoV2 &obj, Builder *builder) {
+  Save(obj.db_uuid, builder);
+  Save(obj.num_committed_txns, builder);
+}
+
+inline void Load(replication_coordination_glue::InstanceDBInfoV2 *obj, Reader *reader) {
+  Load(&obj->db_uuid, reader);
+  Load(&obj->num_committed_txns, reader);
+}
+
 inline void Save(const replication_coordination_glue::InstanceDBInfo &obj, Builder *builder) {
   Save(obj.db_uuid, builder);
   Save(obj.num_committed_txns, builder);
+  Save(obj.broken, builder);
 }
 
 inline void Load(replication_coordination_glue::InstanceDBInfo *obj, Reader *reader) {
   Load(&obj->db_uuid, reader);
   Load(&obj->num_committed_txns, reader);
+  Load(&obj->broken, reader);
 }
 
 inline void Save(const InstanceStatus &obj, Builder *builder) {
