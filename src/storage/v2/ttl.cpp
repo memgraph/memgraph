@@ -325,9 +325,9 @@ void TTL::Configure(bool should_run_edge_ttl) {
           // Transaction failed, will retry in next iteration
           // TODO: on sync replication error it should not continue since it commits
           if (std::holds_alternative<PersistenceError>(commit_result.error())) {
-            // e.g. the WAL file could not be created; back off instead of spinning on a failing commit
-            spdlog::warn("TTL batch commit failed to persist, retrying later.");
-            std::this_thread::sleep_for(std::chrono::seconds{1});
+            // e.g. the WAL file could not be created; leave the rest for the next scheduled run
+            spdlog::warn("TTL batch commit failed to persist, retrying at the next scheduled run.");
+            return;
           }
           continue;
         }

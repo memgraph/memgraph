@@ -12,7 +12,7 @@
 #include <spdlog/spdlog.h>
 #include <algorithm>
 #include <functional>
-#include <thread>
+#include <stop_token>
 
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/indices/property_path.hpp"

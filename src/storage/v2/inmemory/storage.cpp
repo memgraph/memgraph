@@ -3910,17 +3910,7 @@ std::expected<bool, PersistenceError> InMemoryStorage::InitializeWalFile(std::st
                                                                  &file_retainer_);
       ++wal_seq_num_;
     } catch (durability::WalOpenError const &e) {
-      // The commit is retried by the client and fails the same way while the cause persists, so log at most once
-      // a second.
-      static std::atomic<int64_t> last_log_ns{0};
-      auto const now_ns =
-          std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch())
-              .count();
-      auto last = last_log_ns.load(std::memory_order_relaxed);
-      if (now_ns - last >= std::chrono::nanoseconds{std::chrono::seconds{1}}.count() &&
-          last_log_ns.compare_exchange_strong(last, now_ns, std::memory_order_relaxed)) {
-        spdlog::error("Commit failed because a new WAL file could not be created, it will be retried: {}", e.what());
-      }
+      spdlog::warn("Commit failed because a new WAL file could not be created, it will be retried: {}", e.what());
       return std::unexpected{PersistenceError{}};
     }
   }
