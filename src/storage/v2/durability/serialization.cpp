@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdint>
 #include <optional>
+#include <tuple>
 
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -38,21 +39,21 @@ void WriteSize(Encoder<FileType> *encoder, uint64_t size) {
 }  // namespace
 
 template <typename FileType>
-bool Encoder<FileType>::Initialize(const std::filesystem::path &path) {
+std::expected<void, utils::FileWriteError> Encoder<FileType>::Initialize(const std::filesystem::path &path) {
   logical_position_ = 0;
   logical_size_ = 0;
   return file_.Open(path, FileType::Mode::OVERWRITE_EXISTING);
 }
 
 template <typename FileType>
-bool Encoder<FileType>::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
-  if (!Initialize(path)) {
-    return false;
-  }
+std::expected<void, utils::FileWriteError> Encoder<FileType>::Initialize(const std::filesystem::path &path,
+                                                                         const std::string_view magic,
+                                                                         uint64_t version) {
+  if (auto opened = Initialize(path); !opened) return opened;
   Write(reinterpret_cast<const uint8_t *>(magic.data()), magic.size());
   auto version_encoded = utils::HostToLittleEndian(version);
   Write(reinterpret_cast<const uint8_t *>(&version_encoded), sizeof(version_encoded));
-  return true;
+  return {};
 }
 
 template <typename FileType>
@@ -75,7 +76,8 @@ void Encoder<FileType>::Close() {
 
 template <typename FileType>
 void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
-  file_.Write(data, size);
+  // Running out of space is remembered by the file and reported by Sync, Finalize or AppendFrom.
+  std::ignore = file_.Write(data, size);
   logical_position_ += size;
   logical_size_ = std::max(logical_size_, logical_position_);
   crc_acc.Update(data, size);
@@ -294,7 +296,7 @@ uint64_t Encoder<FileType>::GetPosition() {
 }
 
 template <typename FileType>
-std::optional<uint64_t> Encoder<FileType>::AppendFrom(int src_fd, uint64_t size)
+std::expected<uint64_t, utils::FileWriteError> Encoder<FileType>::AppendFrom(int src_fd, uint64_t size)
   requires std::same_as<FileType, utils::NonConcurrentOutputFile>
 {
   auto const appended = file_.AppendFrom(src_fd, size);
@@ -311,16 +313,17 @@ void Encoder<FileType>::SetPosition(uint64_t position) {
 }
 
 template <typename FileType>
-void Encoder<FileType>::Sync() {
-  file_.Sync();
+std::expected<void, utils::FileWriteError> Encoder<FileType>::Sync() {
+  return file_.Sync();
 }
 
 template <typename FileType>
-void Encoder<FileType>::Finalize(utils::PageCachePolicy page_cache) {
-  file_.Sync();
+std::expected<void, utils::FileWriteError> Encoder<FileType>::Finalize(utils::PageCachePolicy page_cache) {
+  if (auto synced = file_.Sync(); !synced) return synced;
   // After the sync every page is clean, which is the only state in which dropping them works.
   if (page_cache == utils::PageCachePolicy::kDrop) file_.DropCachedPages();
   file_.Close();
+  return {};
 }
 
 template <typename FileType>

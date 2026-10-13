@@ -4676,7 +4676,6 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
       return std::unexpected{CreateSnapshotError::NothingNewToWrite};
   }
 
-  // At the moment, the only way in which create snapshot can fail is if it got aborted
   const auto snapshot_path = durability::CreateSnapshot(this,
                                                         transaction,
                                                         recovery_.snapshot_directory_,
@@ -4691,7 +4690,9 @@ std::expected<std::filesystem::path, InMemoryStorage::CreateSnapshotError> InMem
                                                         &snapshot_progress_,
                                                         trigger);
   if (!snapshot_path) {
-    return std::unexpected{CreateSnapshotError::AbortSnapshot};
+    return std::unexpected{snapshot_path.error() == durability::SnapshotCreationError::kNoSpaceLeft
+                               ? CreateSnapshotError::NoSpaceLeft
+                               : CreateSnapshotError::AbortSnapshot};
   }
 
   // Update digest only after the file has been created. Only in transaction because digests are used only in
@@ -5098,6 +5099,9 @@ void InMemoryStorage::CreateSnapshotHandler(
           break;
         case CreateSnapshotError::AbortSnapshot:
           spdlog::warn("snapshot failed: {}", CreateSnapshotErrorToString(maybe_error.error()));
+          break;
+        case CreateSnapshotError::NoSpaceLeft:
+          spdlog::error("snapshot failed: {}", CreateSnapshotErrorToString(maybe_error.error()));
           break;
         case CreateSnapshotError::AlreadyRunning:
         case CreateSnapshotError::NothingNewToWrite:

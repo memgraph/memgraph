@@ -21,6 +21,7 @@ copy_e2e_python_files(durability recovery_failure_broken.py)
 copy_e2e_python_files(durability recovery_failure_status.py)
 copy_e2e_python_files(durability recovery_failure_recover_snapshot.py)
 copy_e2e_python_files(durability drop_broken_database.py)
+copy_e2e_python_files(durability snapshot_no_space.py)
 
 
 

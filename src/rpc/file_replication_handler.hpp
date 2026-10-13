@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #pragma once
+
+#include <expected>
 
 #include "utils/file.hpp"
 
@@ -28,10 +30,10 @@ class FileReplicationHandler final {
   // Returns the number of processed bytes
   std::optional<size_t> OpenFile(const uint8_t *data, size_t size);
 
-  // Returns the number of processed bytes
-  size_t WriteToFile(const uint8_t *data, size_t size);
+  // Returns the number of processed bytes, or the error that made the transfer fail
+  std::expected<size_t, utils::FileWriteError> WriteToFile(const uint8_t *data, size_t size);
 
-  void ResetCurrentFile();
+  std::expected<void, utils::FileWriteError> ResetCurrentFile();
 
   bool HasOpenedFile() const;
 
@@ -43,7 +45,8 @@ class FileReplicationHandler final {
   static bool ValidateFilename(std::optional<std::string> const &maybe_filename);
   static bool ValidateFileSize(std::optional<uint64_t> const &maybe_filesize);
 
-  utils::OutputFile file_;
+  // Received files are deleted with this handler when the transfer fails, so running out of space must not crash.
+  utils::OutputFile file_{utils::OnNoSpace::kReportError};
   uint64_t file_size_{0};
   uint64_t written_{0};
   // Files part of the current request

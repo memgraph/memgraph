@@ -15,6 +15,7 @@
 #include <optional>
 #include <string_view>
 #include <thread>
+#include <tuple>
 
 #include "flags/general.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -449,7 +450,7 @@ TEST_F(VectorIndexTest, SerializeAllVectorIndicesConcurrentAddRemoveTest) {
     while (!stoken.stop_requested()) {
       auto path = tmp_dir / "snapshot_test.bin";
       durability::Encoder<memgraph::utils::NonConcurrentOutputFile> encoder;
-      encoder.Initialize(path);
+      std::ignore = encoder.Initialize(path);
       auto mapped_ids = std::unordered_set<uint64_t>{};
       mem_storage->indices_.vector_index_.SerializeAllVectorIndices(&encoder, mapped_ids);
       encoder.Close();
