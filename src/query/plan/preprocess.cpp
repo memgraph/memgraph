@@ -93,12 +93,6 @@ std::vector<Expansion> NormalizePatterns(const SymbolTable &symbol_table, const 
               collector.symbols_.erase(symbol_table.at(*edge->filter_lambda_.accumulated_weight));
             }
           }
-          // Matches the weighted and all-shortest expansions exactly, down to not visiting the
-          // weight expression itself: an outer symbol only it reads goes unrecorded there too.
-          if (edge->weight_lambda_.expression) {
-            collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_edge));
-            collector.symbols_.erase(symbol_table.at(*edge->weight_lambda_.inner_node));
-          }
         }
         expansions.emplace_back(Expansion{
             prev_node, edge, edge->direction_, false, collector.symbols_, current_node, unknown_expansion_group_id});
