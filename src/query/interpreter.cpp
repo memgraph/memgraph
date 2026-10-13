@@ -210,6 +210,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
   const memory::DbArenaScope db_arena_scope{db_acc.get()};
   const auto timeout = memgraph::flags::run_time::GetStorageAccessTimeoutSec();
 
+  bool acquired = false;
   if (db_acc->storage()->IsCommitSerialised()) {
     // Arm the storage-access deadline before the first probe so every timed wait is charged against it
     // and no probe can push the total wait past it (NB2). Persists across park-retries.
@@ -221,6 +222,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
       // Alloc-free one-probe TryAccess on the hot path; allocate a PendingAccess only on a miss (NB7).
       if (auto acc = db_acc->storage()->TryAccess(acc_type, override_isolation_level)) {
         db_transactional_accessor_ = std::move(acc);
+        acquired = true;
         pending_begin_deadline_.reset();
       } else {
         pending_access_ = db_acc->storage()->MakePendingAccess(acc_type);  // nullptr on Disk
@@ -244,6 +246,7 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
             std::min(base, std::chrono::duration_cast<std::chrono::microseconds>(*pending_begin_deadline_ - now));
         if (auto acc = pending_access_->TryAcquireFor(override_isolation_level, budget)) {
           db_transactional_accessor_ = std::move(acc);
+          acquired = true;
           ClearPendingBegin();
         } else if (std::chrono::steady_clock::now() >= *pending_begin_deadline_) {
           timed_out();
@@ -259,13 +262,14 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
           if (remaining.count() > 0) acc = pending_access_->TryAcquireFor(override_isolation_level, remaining);
           if (!acc) timed_out();
           db_transactional_accessor_ = std::move(acc);
+          acquired = true;
           ClearPendingBegin();
         }
       }
     }
   }
 
-  if (!db_transactional_accessor_) {
+  if (!acquired) {
     switch (acc_type) {
       case storage::StorageAccessType::READ:
         [[fallthrough]];
@@ -285,6 +289,8 @@ void memgraph::query::CurrentDB::SetupDatabaseTransaction(
         spdlog::error("Unknown accessor type: {}", static_cast<int>(acc_type));
         throw QueryRuntimeException("Failed to gain storage access! Unknown accessor type.");
     }
+    // Success on the legacy path (e.g. mode flipped to ANALYTICAL after a park) must leave no pending BEGIN state.
+    ClearPendingBegin();
   }
 
   execution_db_accessor_.emplace(db_transactional_accessor_.get());
@@ -11598,6 +11604,14 @@ void Interpreter::Commit() {
   // matches DoToMainPromotion's (repl_state_ WRITE -> commit_mutex_ in PrepareForNewEpoch); the two orders
   // would otherwise form an ABBA deadlock under the flag (B2). Held only for write txns here (the sole path
   // that pre-takes commit_mutex_); other commits fill it at the is_main site below, reads never take it.
+  // Declared before the locks below so it runs after both are released.
+  bool released_serializer = false;
+  auto *const wake_pool = interpreter_context_->worker_pool;
+  utils::OnScopeExit const wake_parked_commits([&released_serializer, wake_pool]() {
+    if (released_serializer && wake_pool != nullptr) {
+      wake_pool->WakeMatching({.resource = utils::WaitResource::CommitLock, .freed = utils::AccessMode::WRITE});
+    }
+  });
   decltype(std::optional{interpreter_context_->repl_state->ReadLock()}) locked_repl_state{std::nullopt};
   memgraph::storage::CommitLock preheld_commit_lock;
   // A before-commit trigger runs ahead of the commit-mutex acquire in PrepareForCommitPhase. Pre-taking would
@@ -11624,6 +11638,7 @@ void Interpreter::Commit() {
         // !ShouldParkAdmission: P==0 (no waker) or idle spinners present (blocking is immediate) — block instead.
         preheld_commit_lock = current_db_.db_transactional_accessor_->LockCommitBlocking();
       }
+      released_serializer = preheld_commit_lock.owns_lock();
     }
   }
 
@@ -11811,19 +11826,17 @@ void Interpreter::Commit() {
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
-  // Snapshot before move: preheld_commit_lock is unusable after PrepareForCommitPhase takes ownership.
-  const bool did_take_commit_lock = preheld_commit_lock.owns_lock();
+  // A write commit that did not pre-take the serializer takes and releases it inside PrepareForCommitPhase.
+  if (!released_serializer && current_db_.db_transactional_accessor_->IsCommitSerialised()) {
+    released_serializer = !curr_txn->deltas.empty() || !curr_txn->md_deltas.empty();
+  }
   auto maybe_commit_error = current_db_.db_transactional_accessor_->PrepareForCommitPhase(
       make_commit_arg(is_main, *current_db_.db_acc_), std::move(preheld_commit_lock));
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
-  // Wake parked write commits now that commit_mutex_ has been released inside PrepareForCommitPhase.
+  // Parked write commits are woken by wake_parked_commits once commit_mutex_ and the repl lock are released.
   // PrepareForNewEpoch also holds commit_mutex_ but has no pool handle; the 100 ms sweep is the backstop.
-  if (did_take_commit_lock && interpreter_context_->worker_pool != nullptr) {
-    interpreter_context_->worker_pool->WakeMatching(
-        {.resource = utils::WaitResource::CommitLock, .freed = utils::AccessMode::WRITE});
-  }
 
   std::optional<std::string> replication_error_msg;
   bool replication_error_committed = false;
