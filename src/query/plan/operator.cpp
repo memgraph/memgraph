@@ -4179,16 +4179,11 @@ class KShortestPathsCursor : public Cursor {
     // A cost switch only, not a semantic one: `ShouldExpand` agrees either way.
     memoize_expansion_ = self_.filter_lambda_.expression != nullptr || FineGrainedChecksActive(context);
 
-    auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
-      PushPathToFrame(shortest_paths_[current_path_index_++], frame, evaluator, context);
-      n_returned_paths_++;
-    };
-
     // Walks `current_path_index_` up to the next path long enough to serve, generating more when the
     // already-found ones run out. Under weights a path shorter than the lower bound can turn up at
     // any point in the enumeration, so the bound is a serving filter rather than a one-off top-up;
     // in hop-count mode the paths only grow, so this skips the same prefix the top-up loop did.
-    auto advance_to_servable = [&](Frame &frame, ExpressionEvaluator &evaluator) {
+    auto advance_to_servable = [&] {
       if (!current_source_.has_value() || !current_target_.has_value()) return false;
       while (true) {
         while (current_path_index_ < shortest_paths_.size()) {
@@ -4201,12 +4196,16 @@ class KShortestPathsCursor : public Cursor {
       }
     };
 
-    // Guard the serving site rather than returning early: a saturated row must still reach the
-    // input loop, where `ResetState` zeroes the count.
-    if (n_returned_paths_ < limit_ && advance_to_servable(frame, evaluator)) {
-      push_next_path(frame, evaluator);
+    // Guarded rather than returning early: a saturated row must still reach the input loop, where
+    // `ResetState` zeroes the count.
+    auto serve_next_path = [&] {
+      if (n_returned_paths_ >= limit_ || !advance_to_servable()) return false;
+      PushPathToFrame(shortest_paths_[current_path_index_++], frame, evaluator, context);
+      ++n_returned_paths_;
       return true;
-    }
+    };
+
+    if (serve_next_path()) return true;
 
     // Need to pull new input
     while (input_cursor_->Pull(frame, context)) {
@@ -4263,10 +4262,7 @@ class KShortestPathsCursor : public Cursor {
 
       // The count was reset above and nothing has been served yet, so this row is unspent.
       DMG_ASSERT(n_returned_paths_ == 0, "KSHORTEST path count must be reset before a new input row is served");
-      if (n_returned_paths_ < limit_ && advance_to_servable(frame, evaluator)) {
-        push_next_path(frame, evaluator);
-        return true;
-      }
+      if (serve_next_path()) return true;
     }
 
     return false;
@@ -5072,7 +5068,7 @@ class KShortestPathsCursor : public Cursor {
     reverse_dist_.clear();
     reverse_dist_.rehash(0);
     ReleaseInnerSearchState();
-    // Makes `|K` per input row; `Pull` guards each serving site instead of returning early.
+    // Makes `|K` per input row; `Pull` guards its serving site instead of returning early.
     n_returned_paths_ = 0;
   }
 
