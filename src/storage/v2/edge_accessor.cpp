@@ -537,16 +537,28 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view, 
 
 bool EdgeAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
   if (!storage_->config_.salient.items.properties_on_edges) return false;
-  // Resolve the compact VectorIndexId ref (no decoder, nothing reconstructed) through the same MVCC
-  // delta chain the eager read used, so a deferred materialization sees the ref the caller's view
-  // would have; the floats come from the commit-time-updated (unversioned) usearch index.
-  const auto maybe_ref = GetProperty(property, view, /*with_vector_reconstruction=*/false);
-  if (!maybe_ref || !maybe_ref->IsVectorIndexId()) return false;
-  const auto &ids = maybe_ref->ValueVectorIndexIds();
-  if (ids.empty()) return false;
-  const auto index_name = storage_->name_id_mapper_->IdToName(ids[0]);
-  return storage_->indices_.vector_edge_index_.GetVectorInto(
-      edge_.ptr, index_name, storage_->name_id_mapper_.get(), out);
+  // Materialize exactly what the MVCC-resolved read at `view` yields. A delta-carried ref holds its own
+  // floats (the value as of that view); only the live, store-resident ref (empty list) falls back to
+  // the usearch index, which is written at SetProperty time and so is only correct for the live value.
+  const auto maybe_value = GetProperty(property, view, /*with_vector_reconstruction=*/false);
+  if (!maybe_value) return false;
+  if (maybe_value->IsVectorIndexId()) {
+    if (const auto &floats = maybe_value->ValueVectorIndexList(); !floats.empty()) {
+      out.assign(floats.begin(), floats.end());
+      return true;
+    }
+    const auto &ids = maybe_value->ValueVectorIndexIds();
+    if (ids.empty()) return false;
+    const auto index_name = storage_->name_id_mapper_->IdToName(ids[0]);
+    return storage_->indices_.vector_edge_index_.GetVectorInto(
+        edge_.ptr, index_name, storage_->name_id_mapper_.get(), out);
+  }
+  // Left the index (e.g. index drop) and was rewritten to a plain numeric list.
+  if (!maybe_value->IsAnyList()) return false;
+  const auto floats = TryListToVector(*maybe_value);
+  if (!floats) return false;
+  out.assign(floats->begin(), floats->end());
+  return true;
 }
 
 std::vector<PropertyId> EdgeAccessor::VectorIndexedProperties() const {

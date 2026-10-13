@@ -99,8 +99,8 @@ class EdgeAccessor final {
   /// Properties of this edge that are backed by a vector index.
   std::vector<PropertyId> VectorIndexedProperties() const;
 
-  /// Streams the edge's embedding for `property` into a caller-owned buffer without allocating an
-  /// owning PropertyValue. Returns false if the property is not a vector-index embedding.
+  /// Materialize into `out` the numeric-list value the MVCC read at `view` yields (index-backed or plain);
+  /// false if that value is not a numeric list or properties_on_edges is off.
   bool GetVectorInto(PropertyId property, View view, std::vector<float> &out) const;
 
   auto GidPropertiesOnEdges() const -> Gid { return edge_.ptr->gid; }

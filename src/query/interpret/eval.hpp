@@ -832,11 +832,11 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
                                  user_or_role_,
                                  triggering_user_,
 #ifdef MG_ENTERPRISE
-                                 auth_checker_
+                                 auth_checker_,
 #else
-                                 nullptr
+                                 nullptr,
 #endif
-    };
+                                 ctx_->lazy_vector_refs};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     const SelectedFunction impl = SelectFunctionImpl(function, *ctx_);
@@ -1203,13 +1203,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 #endif
 
-  // Turns a raw property into its TypedValue, keeping a vector-index embedding as a lazy VectorRef
-  // bound to (accessor, prop). Every property-read site routes through this, so none can accidentally
-  // materialize an embedding — the reference is only forced on compare, hash, or serialize.
+  // Turns a raw property into its TypedValue. With lazy refs on, a vector-index embedding becomes a lazy
+  // VectorRef bound to (accessor, prop), forced only on compare, hash, or serialize; off, the property was
+  // read reconstructed and is wrapped as usual.
   template <class TRecordAccessor>
   TypedValue MakePropertyValue(const TRecordAccessor &record_accessor, storage::PropertyId prop_id,
                                storage::PropertyValue raw) {
-    if (raw.IsVectorIndexId())
+    if (ctx_->lazy_vector_refs && raw.IsVectorIndexId())
       return TypedValue(LazyVectorRef{.entity = record_accessor.impl_, .prop = prop_id, .view = view_}, ctx_->memory);
     return {std::move(raw), GetNameIdMapper(), ctx_->memory};
   }
@@ -1218,10 +1218,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     RequireAccessor("Reading a property");
     if (!IsPropertyAllowed(record_accessor, ctx_->properties[prop.ix])) return storage::PropertyValue{};
-    // Keep a vector-index embedding as its compact reference; PropertyLookup wraps it as a lazy
-    // VectorRef, so reconstructing the floats here would only be discarded.
-    auto maybe_prop =
-        record_accessor.GetProperty(view_, ctx_->properties[prop.ix], /*with_vector_reconstruction=*/false);
+    // With lazy refs on, keep an embedding as its compact reference; MakePropertyValue wraps it, so
+    // reconstructing the floats here would only be discarded.
+    auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix], !ctx_->lazy_vector_refs);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1229,8 +1228,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(
-          storage::View::NEW, ctx_->properties[prop.ix], /*with_vector_reconstruction=*/false);
+      maybe_prop = record_accessor.GetProperty(storage::View::NEW, ctx_->properties[prop.ix], !ctx_->lazy_vector_refs);
     }
     if (!maybe_prop) {
       switch (maybe_prop.error()) {
@@ -1252,7 +1250,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     RequireAccessor("Reading a property");
     auto prop_id = dba_->NameToProperty(name);
     if (!IsPropertyAllowed(record_accessor, prop_id)) return storage::PropertyValue{};
-    auto maybe_prop = record_accessor.GetProperty(view_, prop_id, /*with_vector_reconstruction=*/false);
+    auto maybe_prop = record_accessor.GetProperty(view_, prop_id, !ctx_->lazy_vector_refs);
     if (maybe_prop == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1260,7 +1258,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_prop = record_accessor.GetProperty(view_, prop_id, /*with_vector_reconstruction=*/false);
+      maybe_prop = record_accessor.GetProperty(view_, prop_id, !ctx_->lazy_vector_refs);
     }
     if (!maybe_prop) {
       switch (maybe_prop.error()) {
@@ -1294,10 +1292,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
   template <class TRecordAccessor>
   std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
-    // Read WITHOUT reconstructing vector embeddings: they come back as compact VectorIndexId
-    // references and the caller (AllPropertiesLookup) wraps each as a lazy VectorRef, so a projected
-    // map never materialises O(dim) floats per property. Non-embedding properties are unaffected.
-    auto maybe_props = record_accessor.Properties(view_, /*with_vector_reconstruction=*/false);
+    // With lazy refs on, embeddings come back as compact VectorIndexId references and the caller wraps
+    // each as a lazy VectorRef, so a projected map never materialises O(dim) floats per property.
+    auto maybe_props = record_accessor.Properties(view_, !ctx_->lazy_vector_refs);
     if (maybe_props == std::unexpected{storage::Error::NONEXISTENT_OBJECT}) {
       // This is a very nasty and temporary hack in order to make MERGE work.
       // The old storage had the following logic when returning an `OLD` view:
@@ -1305,7 +1302,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       // exist, it returned the NEW view. With this hack we simulate that
       // behavior.
       // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_props = record_accessor.Properties(storage::View::NEW, /*with_vector_reconstruction=*/false);
+      maybe_props = record_accessor.Properties(storage::View::NEW, !ctx_->lazy_vector_refs);
     }
     if (!maybe_props) {
       switch (maybe_props.error()) {
