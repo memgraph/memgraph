@@ -587,5 +587,74 @@ def test_num_committed_txns_preserved_after_recover_snapshot(test_name):
     mg_sleep_and_assert(expected_instance_3, partial(retrieve_lag_for_instance, coord3_cursor, "instance_3"))
 
 
+def replica_node_count(port):
+    # The replica may refuse connections while it restarts.
+    try:
+        return execute_and_fetch_all(connect(host="localhost", port=port).cursor(), "MATCH (n) RETURN count(n)")[0][0]
+    except Exception:
+        return -1
+
+
+@pytest.mark.parametrize("mode", ["fresh_dir", "no_recovery"])
+def test_main_detects_replica_restarted_with_less_data(test_name, mode):
+    # A replica restarted within the 3-failed-pings window with less data than MAIN holds must be re-synced
+    # without any further write on MAIN.
+    inner_instances_description = setup_cluster(test_name, get_sync_cluster_main_1())
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+    coord3_cursor = connect(host="localhost", port=7692).cursor()
+
+    for _ in range(3):
+        execute_and_fetch_all(instance1_cursor, "CREATE ()")
+    mg_sleep_and_assert(3, partial(replica_node_count, 7688))
+    expected_lag = {"memgraph": {"num_committed_txns": 3, "num_txns_behind_main": 0}}
+    mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_2", keep_directories=(mode != "fresh_dir"))
+    if mode == "no_recovery":
+        inner_instances_description["instance_2"]["args"].append("--data-recovery-on-startup=false")
+    interactive_mg_runner.start(inner_instances_description, "instance_2", run_setup_queries=False)
+
+    mg_sleep_and_assert(3, partial(replica_node_count, 7688), max_duration=20)
+    mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
+
+
+def test_replica_reconnect_without_data_loss_stays_ready(test_name):
+    # False-positive control: a restart that loses nothing goes through the reconnect path but must converge to
+    # READY with the data untouched.
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    inner_instances_description["instance_2"]["args"] += [
+        "--storage-wal-enabled=true",
+        "--data-recovery-on-startup=true",
+    ]
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+    coord3_cursor = connect(host="localhost", port=7692).cursor()
+    for query in get_sync_cluster_main_1():
+        execute_and_fetch_all(coord3_cursor, query)
+    instance1_cursor = connect(host="localhost", port=7687).cursor()
+
+    for _ in range(3):
+        execute_and_fetch_all(instance1_cursor, "CREATE ()")
+    mg_sleep_and_assert(3, partial(replica_node_count, 7688))
+    expected_lag = {"memgraph": {"num_committed_txns": 3, "num_txns_behind_main": 0}}
+    mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
+
+    interactive_mg_runner.kill(inner_instances_description, "instance_2", keep_directories=True)
+    interactive_mg_runner.start(inner_instances_description, "instance_2", run_setup_queries=False)
+
+    mg_sleep_and_assert(3, partial(replica_node_count, 7688), max_duration=20)
+    mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
+
+    # MAIN's view of the replica is READY again, with nothing moved.
+    def main_status():
+        return [
+            row[-1]["memgraph"]["status"]
+            for row in execute_and_fetch_all(instance1_cursor, "SHOW REPLICAS")
+            if row[0] == "instance_2"
+        ]
+
+    mg_sleep_and_assert(["ready"], main_status)
+    assert replica_node_count(7688) == 3
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

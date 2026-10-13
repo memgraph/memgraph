@@ -131,6 +131,16 @@ class ReplicationStorageClient {
 
   auto State() const -> replication::ReplicaState { return *replica_state_.Lock(); }
 
+  // The connection to the replica was re-established, so the replica may have restarted with less data. Forget the
+  // cached view of its progress and force a heartbeat. A running recovery owns both and is left alone.
+  void OnReconnect() const {
+    replica_state_.WithLock([this](auto &val) {
+      if (val == replication::ReplicaState::RECOVERY) return;
+      commit_ts_info_.store(CommitTsInfo{.ldt_ = 0, .num_committed_txns_ = 0}, std::memory_order_release);
+      val = replication::ReplicaState::MAYBE_BEHIND;
+    });
+  }
+
   auto GetTimestampInfo(Storage const *storage) const -> TimestampInfo;
 
   /**

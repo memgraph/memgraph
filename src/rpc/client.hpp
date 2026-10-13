@@ -77,6 +77,10 @@ class Connection {
 
   auto endpoint() const -> io::network::Endpoint const & { return endpoint_; }
 
+  /// Number of sockets successfully published so far. Changes whenever the peer may have been a different process
+  /// since the last observation. Lock-free.
+  auto Generation() const -> uint64_t { return generation_.load(std::memory_order_acquire); }
+
  private:
   // StreamHandler is nested in Client and so shares its access rights.
   friend class Client;
@@ -110,6 +114,9 @@ class Connection {
   // ErrorStatus() probe in EnsureConnected cannot observe it on its own; without this flag the next
   // stream would reuse a connection that already carries a half-written request.
   std::atomic<bool> needs_reconnect_{false};
+
+  // Bumped by EnsureConnected after each socket is published; failed connects do not bump.
+  std::atomic<uint64_t> generation_{0};
 };
 
 /** Client is thread safe, but it is recommended to use thread_local clients.
@@ -630,6 +637,9 @@ class Client {
   void Shutdown();
 
   auto Endpoint() const -> io::network::Endpoint const & { return conn_->endpoint(); }
+
+  /// Connection generation: increases each time a new socket is established (first connect included).
+  auto Generation() const -> uint64_t { return conn_->Generation(); }
 
  private:
   // Shared, not owned: a StreamHandler outliving this Client keeps the connection alive. const because
