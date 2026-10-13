@@ -13,6 +13,8 @@
 #include <string_view>
 #include <vector>
 
+#include <nlohmann/json_fwd.hpp>
+
 #include "auth/models.hpp"
 #include "auth/repository.hpp"
 
@@ -23,6 +25,9 @@ namespace memgraph::auth::rules {
 /// Each takes the store to read from, so none of them can tell whether they are reading durable state or a
 /// transaction's buffered overlay. Nothing here touches auth modules, the permission-cache epoch, resource
 /// monitoring or replication: those are side effects, and they stay with `Auth`.
+
+/// Parses a stored user or role record and brings it up to the current format.
+nlohmann::json ParseAndMigrateJson(std::string_view str);
 
 /// Resolves a user's roles, per-database then global, and attaches them. Reads the link entries.
 void LinkUser(Repository const &repo, User &user);

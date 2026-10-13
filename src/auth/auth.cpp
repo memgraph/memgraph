@@ -299,12 +299,6 @@ auto ParseJson(std::string_view str) {
   return data;
 }
 
-auto ParseAndMigrateJson(std::string_view str) {
-  auto data = ParseJson(str);
-  auth::MigrateAuthJson(data);
-  return data;
-}
-
 // Returns the role names of a successful auth-module response; nullopt if not authenticated, malformed, or no roles.
 // Shared by Auth::ResolveModuleResponse (data instances; roles checked in kvstore) and auth::SSOGetIdentity
 // (coordinator).
@@ -1154,7 +1148,7 @@ void Auth::RevokeDatabase(const std::string &db, Role &role, system::Transaction
 void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx) {
   storage_.ForEachUser([&](auto /*username*/, auto const &value) {
     try {
-      User user = auth::User::Deserialize(ParseAndMigrateJson(value));
+      User user = auth::User::Deserialize(rules::ParseAndMigrateJson(value));
       if (!user.db_access().Revoke(db)) return;
       LinkUser(user);
       SaveUser(user, system_tx);
@@ -1163,7 +1157,7 @@ void Auth::DeleteDatabase(const std::string &db, system::Transaction *system_tx)
   });
   storage_.ForEachRole([&](auto /*rolename*/, auto const &value) {
     try {
-      auto role = memgraph::auth::Role::Deserialize(ParseAndMigrateJson(value));
+      auto role = memgraph::auth::Role::Deserialize(rules::ParseAndMigrateJson(value));
       if (!role.db_access().Revoke(db)) return;
       SaveRole(role, system_tx);
     } catch (AuthException &) {

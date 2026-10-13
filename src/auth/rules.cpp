@@ -29,12 +29,13 @@ nlohmann::json ParseJson(std::string_view str) {
   }
 }
 
+}  // namespace
+
 nlohmann::json ParseAndMigrateJson(std::string_view str) {
   auto data = ParseJson(str);
   MigrateAuthJson(data);
   return data;
 }
-}  // namespace
 
 void LinkUser(Repository const &repo, User &user) {
   // User set roles on particular databases
