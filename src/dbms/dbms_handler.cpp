@@ -1289,7 +1289,7 @@ DbmsHandler::SuspendResult DbmsHandler::Suspend_(std::string_view name, system::
   // scheduler + async indexer) HERE — while the gatekeeper mutex is NOT held. finish_suspend() below
   // takes that mutex and holds it across ~Database -> ~InMemoryStorage, whose StopAllBackgroundTasks()
   // JOINS the TTL / async-indexer threads. Those threads call make_database_protector() ->
-  // DatabaseHandler::Get() -> Gatekeeper::access(), which blocks acquiring the very mutex finish_suspend()
+  // Gatekeeper::Ref::access(), which blocks acquiring the very mutex finish_suspend()
   // holds -> the join would deadlock (joiner holds the lock the joinee waits on). By stopping them now,
   // that in-destructor join is a no-op. The WAL-finalize-under-mutex suspend->resume directory handoff
   // that finish_suspend() protects is unaffected: only the thread joins move earlier; FinalizeWal still
@@ -1481,16 +1481,17 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
       // pointer-aliases `fresh`'s not-yet-freed metrics (heap-UAF), or let DeleteCold_ remove_all() the
       // data dir while `fresh` still holds it open.
       auto rollback_to_cold = [&] {
-        acc.reset();  // drop our accessor: fresh.count_ -> 0
-        // ~Gatekeeper<Database> runs now (count==0, HOT => no wait): ~Database -> RemoveDatabase(uuid)
-        // + storage teardown complete.
+        acc.reset();  // drop our accessor
+        // ~Gatekeeper<Database> runs now: it seals `fresh`, so its background workers
+        // mint no new protectors, waits for the ones they hold to drain, then ~Database ->
+        // RemoveDatabase(uuid) + storage teardown complete.
         {
           auto dying = std::move(fresh);
         }
         gk->abort_resume();  // RESUMING -> COLD; suspended_ untouched => retriable
       };
       try {
-        if (on_resume_) on_resume_(acc);  // PRE-PUBLISH arm (triggers/streams/TTL re-arm)
+        if (on_resume_) on_resume_(acc);  // PRE-PUBLISH arm (triggers/streams re-arm)
         {
           // PUBLISH — move-assign the fresh HOT gatekeeper over the RESUMING shell, under lock_.
           // `acc` survives the move (it points at fresh's pimpl, which the unique_ptr move transfers
@@ -1503,7 +1504,7 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
           // cold entry carries no epoch to restore (cold-tenant epoch machinery was intentionally removed).
           auto it = suspended_.find(name);  // valid across the move below (it touches db_handler_, not suspended_)
           // Overwriting the RESUMING shell here is deadlock-free because Gatekeeper's move-assign tears
-          // the old state down via ~GKInternals (non-blocking), NOT the count-waiting ~Gatekeeper — see
+          // the old state down via ~GKInternals (which never waits), NOT the count-waiting ~Gatekeeper — see
           // the load-bearing note on Gatekeeper::operator=(Gatekeeper&&) in utils/gatekeeper.hpp.
           *gk = std::move(fresh);
           if (it != suspended_.end()) suspended_.erase(it);
@@ -1592,6 +1593,9 @@ DbmsHandler::ResumeResult DbmsHandler::Resume_(std::string_view name, system::Tr
       best_effort("recording the resume system action (may not replicate until the next system sync)", [&] {
         if (txn) txn->AddAction<ResumeDatabase>(salient.uuid, acc);
         spdlog::info("hot/cold: database '{}' resumed (COLD -> HOT)", name);
+      });
+      best_effort("post-publish resume arm", [&] {
+        if (on_published_) on_published_(acc);
       });
       // Winner's own successful publish: a real COLD -> HOT rebuild, so already_hot is false.
       if (already_hot) *already_hot = false;

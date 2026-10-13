@@ -231,8 +231,6 @@ class TTLFixture : public ::testing::Test {
   memgraph::storage::ttl::TTL *ttl_{&db_->ttl()};
 
   void SetUp() override {
-    // Storage now has a safe default database protector factory
-    // No additional setup needed for tests
     if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
       ttl_->SetUserCheck([]() -> bool { return true; });
     }
