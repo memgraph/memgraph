@@ -814,6 +814,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
           dst_snapshot_file,
           e.what());
       storage->Clear(record_progress);
+      // LoadSnapshot may have re-armed TTL before failing.
+      storage->ttl_.Disable();
       // Otherwise restart recovery would pick the failed snapshot first.
       storage->file_retainer_.DeleteFile(dst_snapshot_file);
       heartbeat.Stop();
@@ -822,6 +824,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       return;
     } catch (...) {
       // Tenant stays broken; just don't leave the failed snapshot for restart recovery to pick first.
+      storage->ttl_.Disable();
       storage->file_retainer_.DeleteFile(dst_snapshot_file);
       throw;
     }
