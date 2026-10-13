@@ -4176,10 +4176,8 @@ class KShortestPathsCursor : public Cursor {
     ExpressionEvaluator evaluator =
         ExpressionEvaluator{&frame, context, storage::View::OLD, nullptr, &context.number_of_hops};
 
-    // A cost switch only, not a semantic one: `ShouldExpand` agrees either way. Weighted mode always
-    // memoises, because a memo entry is also where an arc's weight is kept.
-    memoize_expansion_ =
-        Cost::kWeighted || self_.filter_lambda_.expression != nullptr || FineGrainedChecksActive(context);
+    // A cost switch only, not a semantic one: `ShouldExpand` agrees either way.
+    memoize_expansion_ = self_.filter_lambda_.expression != nullptr || FineGrainedChecksActive(context);
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], frame, evaluator, context);
@@ -4191,7 +4189,7 @@ class KShortestPathsCursor : public Cursor {
     // any point in the enumeration, so the bound is a serving filter rather than a one-off top-up;
     // in hop-count mode the paths only grow, so this skips the same prefix the top-up loop did.
     auto advance_to_servable = [&](Frame &frame, ExpressionEvaluator &evaluator) {
-      if (!current_input_initialized_ || !current_source_.has_value() || !current_target_.has_value()) return false;
+      if (!current_source_.has_value() || !current_target_.has_value()) return false;
       while (true) {
         while (current_path_index_ < shortest_paths_.size()) {
           if (std::cmp_greater_equal(shortest_paths_[current_path_index_].edges.size(), lower_bound_)) return true;
@@ -4257,7 +4255,6 @@ class KShortestPathsCursor : public Cursor {
       // Initialize for this new source-target pair
       current_source_ = source_vertex;
       current_target_ = target_vertex;
-      current_input_initialized_ = true;
 
       if (!InitializeKShortestPaths(source_vertex, target_vertex, frame, evaluator, context)) {
         // If no path found, continue to next input
@@ -4280,7 +4277,8 @@ class KShortestPathsCursor : public Cursor {
   void Reset() override {
     input_cursor_->Reset();
     ResetState();
-    current_input_initialized_ = false;
+    current_source_.reset();
+    current_target_.reset();
   }
 
  private:
@@ -4347,7 +4345,6 @@ class KShortestPathsCursor : public Cursor {
   size_t current_path_index_ = 0;
 
   // Re-entrant state
-  bool current_input_initialized_ = false;
   std::optional<VertexAccessor> current_source_;
   std::optional<VertexAccessor> current_target_;
 
@@ -4449,11 +4446,7 @@ class KShortestPathsCursor : public Cursor {
                                 ExpressionEvaluator &evaluator, ExecutionContext &context) {
     ResetState();
 
-    if constexpr (Cost::kWeighted) {
-      BuildReverseTree(target, frame, evaluator, context);
-      // Nothing reaches the target from here, so neither the seed search nor any spur can.
-      if (!reverse_dist_.contains(source)) return false;
-    }
+    if constexpr (Cost::kWeighted) BuildReverseTree(target, frame, evaluator, context);
 
     // Seeds Yen's with the shortest path; the rest are deviations from it.
     auto shortest_path = ComputeShortestPath(source, target, upper_bound_, TypedValue(), frame, evaluator, context);
@@ -4531,17 +4524,9 @@ class KShortestPathsCursor : public Cursor {
       // NOLINTNEXTLINE(misc-const-correctness)
       PathInfo candidate = std::move(candidate_paths_.back());
       candidate_paths_.pop_back();
-      // Handle upper bound
-      if (candidate.edges.size() > upper_bound_) {
-        if constexpr (Cost::kWeighted) {
-          // A long candidate says nothing about the cheaper ones behind it, so only it is dropped.
-          // Unreachable in practice: the spur search is already capped at the hops left over.
-          continue;
-        } else {
-          // Next path is too long, stop generating candidates
-          return false;
-        }
-      }
+      // Every search is capped at the hops left over, so no candidate is longer than the bound.
+      DMG_ASSERT(std::cmp_less_equal(candidate.edges.size(), upper_bound_),
+                 "a KSHORTEST candidate exceeds the hop bound");
       if (!IsPathInFoundSet(candidate)) {
         AddPathToFoundSet(candidate);
         shortest_paths_.emplace_back(std::move(candidate));
@@ -4833,12 +4818,6 @@ class KShortestPathsCursor : public Cursor {
     return std::move(verdict).value_or(TypedValue());
   }
 
-  /// `h(vertex)`, or null - the additive identity - for a vertex outside the reverse tree.
-  TypedValue Heuristic(const VertexAccessor &vertex) const {
-    const auto it = reverse_dist_.find(vertex);
-    return it == reverse_dist_.end() ? TypedValue() : it->second;
-  }
-
   /// Whether a state settled at `(settled_depth, settled_cost)` rules out `(depth, cost)` at the same
   /// vertex. One no deeper and no cheaper always does. Under a hop cap that is all: a cheaper but
   /// deeper state may run out of hops. Without one, a cheaper state rules out every dearer one.
@@ -4893,9 +4872,7 @@ class KShortestPathsCursor : public Cursor {
   /// search, which spends it only around the endpoints, still finds one.
   void BuildReverseTree(const VertexAccessor &target, Frame &frame, ExpressionEvaluator &evaluator,
                         ExecutionContext &context) {
-    ClearWeightedSearchState();
-    reverse_dist_.clear();
-
+    // `ResetState` left the search state and the tree empty for this row.
     weighted_pq_.push(WeightedQueueEntry{.priority = TypedValue(),
                                          .cost = TypedValue(),
                                          .depth = 0,
@@ -4977,10 +4954,11 @@ class KShortestPathsCursor : public Cursor {
     auto *memory = evaluator.GetMemoryResource();
     if (source == target) return PathInfo(memory);
     // Absent from the reverse tree means no walk from here reaches the target at all.
-    if (!reverse_dist_.contains(source)) return PathInfo(memory);
+    const auto source_dist = reverse_dist_.find(source);
+    if (source_dist == reverse_dist_.end()) return PathInfo(memory);
 
     ClearWeightedSearchState();
-    weighted_pq_.push(WeightedQueueEntry{.priority = AddCost(start_cost, Heuristic(source)),
+    weighted_pq_.push(WeightedQueueEntry{.priority = AddCost(start_cost, source_dist->second),
                                          .cost = start_cost,
                                          .depth = 0,
                                          .vertex = source,
