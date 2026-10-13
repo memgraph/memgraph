@@ -116,13 +116,8 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     g.get_database_histories_rpc_fail->Increment();
     return {};
   } catch (const rpc::RpcFailedException &e) {
-    // ISSU: an instance which doesn't know V3 drops the connection when it can't answer in V3. Retry with V2, whose
-    // response has no broken bit (read as not broken). The documented upgrade order (replicas, MAIN, coordinator
-    // followers, leader) already makes the server serve V2 to old coordinators; this fallback only matters when
-    // coordinators are upgraded first, and keeps their failover candidates instead of leaving none.
-    // The V2 answer is only trusted while V3 has never succeeded for this instance: once it has, the instance is
-    // V3-capable and a V3 failure is transient, so answering V2 would report "not broken" for a possibly broken
-    // instance (fail-open). Treat it as a failed RPC instead.
+    // ISSU, only when coordinators are upgraded before data instances: retry as V2 (no broken bit, read as not broken).
+    // Once V3 has succeeded the instance is V3-capable, so V2 would fail open on a transient failure; fail the RPC.
     if (v3_histories_supported_.load(std::memory_order_acquire)) {
       spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
       g.get_database_histories_rpc_fail->Increment();

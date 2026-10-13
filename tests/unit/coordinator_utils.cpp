@@ -510,14 +510,12 @@ TEST(CoordinationUtils, FilterFailoverAnyBrokenDbExcludesCandidate) {
            {{.db_uuid = db_a, .num_committed_txns = 10}, {.db_uuid = db_b, .num_committed_txns = 10, .broken = true}})},
       {"healthy", MakeInfo({{.db_uuid = db_a, .num_committed_txns = 10}, {.db_uuid = db_b, .num_committed_txns = 10}})},
   };
-  // Broken excludes regardless of the main's counts
   auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, {});
   ASSERT_EQ(filtered.size(), 1);
   EXPECT_TRUE(filtered.contains("healthy"));
 }
 
 TEST(CoordinationUtils, FilterFailoverCandidateMissingDbNotExcluded) {
-  // The DB was dropped (or never replicated); only DBs the candidate reports can block it
   auto const db_a = std::string{UUID()};
   auto const dropped_db = std::string{UUID()};
   InstancesInfo instances_info{
@@ -569,7 +567,6 @@ TEST(CoordinationUtils, FilterFailoverExclusionLogTracksChanges) {
   ASSERT_EQ(first.size(), 1);
   EXPECT_TRUE(log.no_candidate_logged);
 
-  // Same exclusion on the next tick: state unchanged (logged at debug).
   EXPECT_TRUE(CoordinatorInstance::FilterFailoverCandidates(instances_info, main_num_txns, &log).empty());
   EXPECT_EQ(log.reasons, first);
 

@@ -130,10 +130,9 @@ class CoordinatorInstance {
       std::map<std::string, replication_coordination_glue::InstanceInfo> const &instances_info)
       -> std::optional<std::string>;
 
-  // Drops candidates that must not be promoted: any reported DB is broken, or a reported DB has 0 committed txns while
-  // the last known main (main_num_txns: db_uuid -> committed txns) had > 0. Applied before ranking.
-  // Failover is retried every health-check tick while there is no main, so exclusions are logged at warning/error only
-  // when the excluded set changes (tracked in `log`); repeats go to debug. A null `log` always logs at warning.
+  // Drops candidates that must not be promoted: any reported DB is broken, or reports 0 committed txns where the last
+  // known main (main_num_txns: db_uuid -> txns) had > 0. Failover retries every tick, so `log` limits warning/error to
+  // changes in the excluded set (repeats go to debug); null `log` always logs at warning/error.
   struct FailoverExclusionLog {
     std::mutex mutex;
     std::map<std::string, std::string> reasons;  // instance -> joined exclusion reasons last logged

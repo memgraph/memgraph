@@ -1786,7 +1786,7 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
     }
   }
 
-  // Manual SET INSTANCE ... TO MAIN doesn't go through here, so it stays unguarded as the operator's escape hatch.
+  // Manual SET INSTANCE ... TO MAIN bypasses this filter on purpose (operator escape hatch).
   return ChooseMostUpToDateInstance(
       FilterFailoverCandidates(std::move(instances_info), main_num_txns_cache_, &failover_exclusion_log_));
 }
@@ -1797,7 +1797,7 @@ auto CoordinatorInstance::FilterFailoverCandidates(
     -> std::map<std::string, replication_coordination_glue::InstanceInfo> {
   bool const had_candidates = !instances_info.empty();
 
-  std::map<std::string, std::string> reasons;  // excluded instance -> joined reasons
+  std::map<std::string, std::string> reasons;
   for (auto const &[instance_name, instance_info] : instances_info) {
     std::string reason;
     for (auto const &db : instance_info.dbs_info) {
