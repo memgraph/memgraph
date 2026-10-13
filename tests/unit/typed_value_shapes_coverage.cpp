@@ -29,6 +29,10 @@ bool IsUnshaped(TypedValue::Type type) {
   return std::ranges::find(shapes::kUnshapedTypedValueTypes, type) != shapes::kUnshapedTypedValueTypes.end();
 }
 
+bool Contains(std::ranges::range auto const &types, TypedValue::Type type) {
+  return std::ranges::find(types, type) != std::ranges::end(types);
+}
+
 class TypedValueShapes : public ::testing::Test {
  protected:
   std::unique_ptr<memgraph::storage::Storage> db_ =
@@ -47,6 +51,32 @@ TEST_F(TypedValueShapes, EveryTypeIsListedOnce) {
   for (auto index = std::size_t{0}; index < shapes::kEveryTypedValueType.size(); ++index) {
     EXPECT_EQ(static_cast<unsigned>(shapes::kEveryTypedValueType[index]), index)
         << "the list is out of step with the enum at position " << index;
+  }
+}
+
+TEST_F(TypedValueShapes, EveryTypeIsHandledTheWayItsValueNeeds) {
+  for (auto const type : shapes::kEveryTypedValueType) {
+    auto const inline_copyable = Contains(shapes::kInlineCopyableTypes, type);
+    auto const trivial_destructor = Contains(shapes::kTriviallyDestructibleTypes, type);
+
+    EXPECT_EQ(TypedValue::IsInlineCopyable(type), inline_copyable)
+        << "type " << static_cast<unsigned>(type) << " is "
+        << (inline_copyable ? "listed as copied by assigning it, and is not treated that way"
+                            : "treated as copied by assigning it, and is not listed that way");
+    EXPECT_EQ(TypedValue::HasTrivialDestructor(type), trivial_destructor)
+        << "type " << static_cast<unsigned>(type) << " is "
+        << (trivial_destructor ? "listed as needing no destructor, and is not treated that way"
+                               : "treated as needing no destructor, and is not listed that way");
+  }
+}
+
+TEST_F(TypedValueShapes, NothingIsCopiedByAssignmentWithoutAlsoNeedingNoDestructor) {
+  // A type copied by assigning the union member leaves whatever was there unconstructed, so one
+  // that owned an allocation would leak. The implementation relies on the first group sitting
+  // inside the second; this is the pair of lists saying the same thing.
+  for (auto const type : shapes::kInlineCopyableTypes) {
+    EXPECT_TRUE(Contains(shapes::kTriviallyDestructibleTypes, type))
+        << "type " << static_cast<unsigned>(type) << " is copied by assignment but needs a destructor";
   }
 }
 

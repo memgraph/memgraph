@@ -706,18 +706,15 @@ TypedValue::operator storage::ExternalPropertyValue() const {
   }
 }
 
-TypedValue::TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{alloc}, type_(other.type_) {
+void TypedValue::CopyComplexValue(TypedValue const &other) {
+  // Only a type the constructor could not copy by assigning it arrives here, so the arms for the
+  // ones it handles inline never run. They stay so the switch names every type, which is what makes
+  // a type added to the enumeration a compile error here rather than a silently uncopied value.
   switch (other.type_) {
     case TypedValue::Type::Null:
-      return;
     case TypedValue::Type::Bool:
-      this->bool_v = other.bool_v;
-      return;
     case Type::Int:
-      this->int_v = other.int_v;
-      return;
     case Type::Double:
-      this->double_v = other.double_v;
       return;
     case TypedValue::Type::String:
       alloc_trait::construct(alloc_, &string_v, other.string_v);
@@ -1373,7 +1370,7 @@ TypedValue &TypedValue::operator=(const TypedValue &other) {
   return *this;
 }
 
-TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
+TypedValue &TypedValue::MoveAssignComplex(TypedValue &&other) {
   static_assert(!std::allocator_traits<utils::Allocator<TypedValue>>::propagate_on_container_move_assignment::value,
                 "Allocator propagation not implemented");
   if (this != &other) {
@@ -1487,9 +1484,11 @@ TypedValue &TypedValue::operator=(TypedValue &&other) noexcept(false) {
   return *this;
 }
 
-TypedValue::~TypedValue() {
+void TypedValue::DestroyValue() {
+  // Only a type whose destructor has something to do arrives here, so the arms for the ones the
+  // destructor answers inline never run. They stay so the switch names every type, which is what
+  // makes a type added to the enumeration a compile error here rather than a leak.
   switch (type_) {
-      // destructor for primitive types does nothing
     case Type::Null:
     case Type::Bool:
     case Type::Int:

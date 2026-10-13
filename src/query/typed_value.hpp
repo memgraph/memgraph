@@ -87,38 +87,70 @@ class TypedValue {
     return H::combine(std::move(h), Hash{}(value));
   }
 
-  /** A value type. Each type corresponds to exactly one C++ type */
+  /** A value type. Each type corresponds to exactly one C++ type.
+   *
+   * The order is load-bearing, and is the only thing here that is. Two questions are asked of a
+   * type on every value the engine touches - can it be copied by assigning it, and does destroying
+   * it have anything to do - and the types that answer yes are grouped first so that each question
+   * is one comparison rather than a table lookup. `kLastInlineCopyable` and
+   * `kLastTriviallyDestructible` below name where each group ends, and `IsInlineCopyable` and
+   * `HasTrivialDestructor` ask the questions through them. Nothing else depends on the numeric
+   * values, which are not persisted or sent anywhere.
+   */
   enum class Type : unsigned {
+    // Held in the union as a value that is copied by assigning it.
     Null,
     Bool,
     Int,
     Double,
-    String,
-    List,
-    Map,
     Vertex,
     Edge,
-    Path,
+    // Owns no allocation either, so needs no destructor, but is copied case by case.
     Date,
     LocalTime,
     LocalDateTime,
     ZonedDateTime,
     Duration,
-    Graph,
-    VirtualGraph,
-    Function,
     Enum,
     Point2d,
     Point3d,
+    // Owns something: needs a destructor, and copying means allocating.
+    String,
+    List,
+    Map,
+    Path,
+    Graph,
+    VirtualGraph,
+    Function,
     VirtualEdge,
     VirtualNode
   };
+
+  /// Where each of the two groups above ends. Naming them here puts the boundary beside the order
+  /// that carries it, so moving a type past one is a visible edit rather than a silent consequence.
+  static constexpr Type kLastInlineCopyable = Type::Edge;
+  static constexpr Type kLastTriviallyDestructible = Type::Point3d;
 
   /// How many types a value can be, read off the last enumerator above.
   ///
   /// Kept beside the enumeration rather than beside any one table built over
   /// it, so that a type added here is counted everywhere at once.
-  static constexpr auto kTypeCount = static_cast<unsigned>(Type::VirtualNode) + 1U;
+  static constexpr auto kTypeCount = std::to_underlying(Type::VirtualNode) + 1U;
+
+  /// Whether copying a value of this type is assigning it: the numbers, and the two accessors,
+  /// which are trivially copyable structs naming a record and the transaction reading it.
+  static constexpr bool IsInlineCopyable(Type type) {
+    return std::to_underlying(type) <= std::to_underlying(kLastInlineCopyable);
+  }
+
+  /// Whether destroying a value of this type has nothing to do, so it can be overwritten where it
+  /// stands. Everything up to `kLastTriviallyDestructible` owns no allocation of its own.
+  ///
+  /// Every type this admits is either inline copyable or assembled field by field, so a type can
+  /// have a trivial destructor without being inline copyable, never the other way round.
+  static constexpr bool HasTrivialDestructor(Type type) {
+    return std::to_underlying(type) <= std::to_underlying(kLastTriviallyDestructible);
+  }
 
   // TypedValue at this exact moment of compilation is an incomplete type, and
   // the standard says that instantiating a container with an incomplete type
@@ -156,19 +188,48 @@ class TypedValue {
   TypedValue(const TypedValue &other)
       : TypedValue(other, alloc_trait::select_on_container_copy_construction(other.alloc_)) {}
 
-  /** Construct a copy given allocator_type */
-  TypedValue(const TypedValue &other, allocator_type alloc);
+  /** Construct a copy given allocator_type.
+   *
+   * Copying a number is an assignment; everything that needs an allocation, a nested copy, or a
+   * placement new is left to `CopyComplexValue`, so the common case does not pay for reaching it.
+   */
+  TypedValue(const TypedValue &other, allocator_type alloc) : alloc_{alloc}, type_(other.type_) {
+    if (!IsInlineCopyable(other.type_)) {
+      CopyComplexValue(other);
+      return;
+    }
+    switch (other.type_) {
+      case Type::Null:
+        return;
+      case Type::Bool:
+        bool_v = other.bool_v;
+        return;
+      case Type::Int:
+        int_v = other.int_v;
+        return;
+      case Type::Double:
+        double_v = other.double_v;
+        return;
+      case Type::Vertex:
+        vertex_v = other.vertex_v;
+        return;
+      default:
+        edge_v = other.edge_v;
+        return;
+    }
+  }
 
   /**
    * Construct with the value of other.
-   * allocator_type is obtained from other. After the move, other will be
-   * set to Null.
+   * allocator_type is obtained from other. After the move, other keeps its
+   * type, and holds whatever moving its value out of it left behind.
    */
   TypedValue(TypedValue &&other) noexcept;
 
   /**
    * Construct with the value of other, but use the given allocator_type.
-   * After the move, other will be set to Null.
+   * After the move, other keeps its type, and holds whatever moving its value
+   * out of it left behind.
    * If `*memory != *other.get_allocator()`, then a copy is made instead of
    * a move.
    */
@@ -483,8 +544,39 @@ class TypedValue {
   /** Copy assign other, allocator_type of `this` is used */
   TypedValue &operator=(const TypedValue &other);
 
-  /** Move assign other, allocator_type of `this` is used. */
-  TypedValue &operator=(TypedValue &&other) noexcept(false);
+  /** Move assign other, allocator_type of `this` is used.
+   *
+   * Moving a number onto a value that owns nothing is an assignment, and it is what an operator
+   * writing a row into the frame does per slot per row. `MoveAssignComplex` has the rest.
+   */
+  TypedValue &operator=(TypedValue &&other) noexcept(false) {
+    if (HasTrivialDestructor(type_) && IsInlineCopyable(other.type_) && this != &other && alloc_ == other.alloc_) {
+      switch (other.type_) {
+        case Type::Null:
+          break;
+        case Type::Bool:
+          bool_v = other.bool_v;
+          break;
+        case Type::Int:
+          int_v = other.int_v;
+          break;
+        case Type::Double:
+          double_v = other.double_v;
+          break;
+        case Type::Vertex:
+          vertex_v = other.vertex_v;
+          break;
+        default:
+          edge_v = other.edge_v;
+          break;
+      }
+      type_ = other.type_;
+      // The source is left holding its value. It owns no allocation, so there is nothing to
+      // release, and the general path leaves a moved-from value intact as well.
+      return *this;
+    }
+    return MoveAssignComplex(std::move(other));
+  }
 
   // move assignment operators
   TypedValue &operator=(TString &&);
@@ -494,7 +586,13 @@ class TypedValue {
   TypedValue &operator=(std::map<std::string, TypedValue> &&);
   TypedValue &operator=(Path &&);
 
-  ~TypedValue();
+  /// Most values a query builds hold a number, and destroying one of those has nothing to do. That
+  /// was reached through an out-of-line switch over every type a value can hold, once per value, and
+  /// a row's worth of expression evaluation destroys a value per node it walks.
+  ~TypedValue() {
+    if (HasTrivialDestructor(type_)) return;
+    DestroyValue();
+  }
 
   Type type() const { return type_; }
 
@@ -735,6 +833,12 @@ class TypedValue {
  private:
   /** Out of line so the getters inline without the message formatting. */
   [[noreturn]] void ThrowTypeMismatch(Type expected) const;
+
+  /// The rest of the destructor and of the copy constructor. Both assume `type_` is already the
+  /// type being destroyed or copied, and neither is reached for a type handled inline above.
+  void DestroyValue();
+  void CopyComplexValue(TypedValue const &other);
+  TypedValue &MoveAssignComplex(TypedValue &&other);
 
   [[no_unique_address]] allocator_type alloc_{};
 

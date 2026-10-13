@@ -26,14 +26,53 @@ namespace memgraph::test::shapes {
 
 /// Every type, in the order the enum declares them.
 inline constexpr std::array kEveryTypedValueType{
-    query::TypedValue::Type::Null,          query::TypedValue::Type::Bool,          query::TypedValue::Type::Int,
-    query::TypedValue::Type::Double,        query::TypedValue::Type::String,        query::TypedValue::Type::List,
-    query::TypedValue::Type::Map,           query::TypedValue::Type::Vertex,        query::TypedValue::Type::Edge,
-    query::TypedValue::Type::Path,          query::TypedValue::Type::Date,          query::TypedValue::Type::LocalTime,
-    query::TypedValue::Type::LocalDateTime, query::TypedValue::Type::ZonedDateTime, query::TypedValue::Type::Duration,
-    query::TypedValue::Type::Graph,         query::TypedValue::Type::VirtualGraph,  query::TypedValue::Type::Function,
-    query::TypedValue::Type::Enum,          query::TypedValue::Type::Point2d,       query::TypedValue::Type::Point3d,
-    query::TypedValue::Type::VirtualEdge,   query::TypedValue::Type::VirtualNode,
+    query::TypedValue::Type::Null,          query::TypedValue::Type::Bool,
+    query::TypedValue::Type::Int,           query::TypedValue::Type::Double,
+    query::TypedValue::Type::Vertex,        query::TypedValue::Type::Edge,
+    query::TypedValue::Type::Date,          query::TypedValue::Type::LocalTime,
+    query::TypedValue::Type::LocalDateTime, query::TypedValue::Type::ZonedDateTime,
+    query::TypedValue::Type::Duration,      query::TypedValue::Type::Enum,
+    query::TypedValue::Type::Point2d,       query::TypedValue::Type::Point3d,
+    query::TypedValue::Type::String,        query::TypedValue::Type::List,
+    query::TypedValue::Type::Map,           query::TypedValue::Type::Path,
+    query::TypedValue::Type::Graph,         query::TypedValue::Type::VirtualGraph,
+    query::TypedValue::Type::Function,      query::TypedValue::Type::VirtualEdge,
+    query::TypedValue::Type::VirtualNode,
+};
+
+/// The types a copy makes by assigning the union member: the numbers, and the two accessors, which
+/// are trivially copyable structs naming a record and the transaction reading it.
+///
+/// `TypedValue` answers this from where a type sits in the declaration, which is what makes the
+/// question one comparison. Listing the types here by name gives the test an account of its own to
+/// hold that against, so moving a type across the boundary fails a test that names it rather than
+/// changing how values are handled unnoticed.
+inline constexpr std::array kInlineCopyableTypes{
+    query::TypedValue::Type::Null,
+    query::TypedValue::Type::Bool,
+    query::TypedValue::Type::Int,
+    query::TypedValue::Type::Double,
+    query::TypedValue::Type::Vertex,
+    query::TypedValue::Type::Edge,
+};
+
+/// The types whose destructor has nothing to do: those above, plus the temporals, the enum and the
+/// points, which own no allocation either but are copied field by field rather than by assignment.
+inline constexpr std::array kTriviallyDestructibleTypes{
+    query::TypedValue::Type::Null,
+    query::TypedValue::Type::Bool,
+    query::TypedValue::Type::Int,
+    query::TypedValue::Type::Double,
+    query::TypedValue::Type::Vertex,
+    query::TypedValue::Type::Edge,
+    query::TypedValue::Type::Date,
+    query::TypedValue::Type::LocalTime,
+    query::TypedValue::Type::LocalDateTime,
+    query::TypedValue::Type::ZonedDateTime,
+    query::TypedValue::Type::Duration,
+    query::TypedValue::Type::Enum,
+    query::TypedValue::Type::Point2d,
+    query::TypedValue::Type::Point3d,
 };
 
 /// The types no shape is made of. A function is bound to a call rather than
