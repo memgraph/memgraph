@@ -3187,6 +3187,10 @@ TEST_F(StorageTryAccessTest, DeltaChainCacheIsOffUntilACallerAsksForIt) {
   transaction->DisableDeltaChainCache();
   EXPECT_FALSE(transaction->UseCache()) << "a caller must be able to take the cache away again";
 
+  transaction->EnableDeltaChainCache();
+  EXPECT_FALSE(transaction->UseCache())
+      << "once several threads have read a transaction, a later statement must not cache it again";
+
   acc->Abort();
 }
 

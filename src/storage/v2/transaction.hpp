@@ -233,9 +233,16 @@ struct Transaction {
   // Only sound when one thread reads the transaction: manyDeltasCache is a set of unsynchronised hash
   // maps. Only worth it when the transaction re-reads a vertex, since a single pass pays to fill a
   // cache it never reads back. A transaction can check neither, so it caches nothing until asked.
-  void EnableDeltaChainCache() { delta_chain_cache_enabled_ = true; }
+  // Disabling is permanent for the transaction. A later statement cannot establish that an earlier
+  // one's workers have finished, and the protocol rule that keeps two statements from overlapping on
+  // one transaction is not storage's to lean on, so a transaction read from several threads once is
+  // never cached again.
+  void EnableDeltaChainCache() { delta_chain_cache_enabled_ = !delta_chain_cache_withdrawn_; }
 
-  void DisableDeltaChainCache() { delta_chain_cache_enabled_ = false; }
+  void DisableDeltaChainCache() {
+    delta_chain_cache_enabled_ = false;
+    delta_chain_cache_withdrawn_ = true;
+  }
 
   bool UseCache() const { return isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && delta_chain_cache_enabled_; }
 
@@ -361,6 +368,7 @@ struct Transaction {
   AsyncIndexHelper async_index_helper_;
 
   bool delta_chain_cache_enabled_{false};
+  bool delta_chain_cache_withdrawn_{false};
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {
