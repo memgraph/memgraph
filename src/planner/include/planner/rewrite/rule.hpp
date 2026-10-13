@@ -11,19 +11,24 @@
 
 #pragma once
 
+#include <cassert>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
 #include "planner/pattern/match.hpp"
 #include "planner/pattern/match_index.hpp"
 #include "planner/pattern/pattern.hpp"
 #include "planner/pattern/vm/compiler.hpp"
+#include "planner/pattern/vm/root_restriction.hpp"
 #include "planner/rewrite/rule_context.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::planner::core::rewrite {
 
@@ -36,6 +41,7 @@ using pattern::MatcherIndex;
 using pattern::Pattern;
 using pattern::PatternMatch;
 using pattern::SymbolWithChildren;
+using pattern::vm::RootRestriction;
 
 namespace detail {
 
@@ -106,20 +112,49 @@ class RewriteRule {
   /// Access the compiled bytecode for VM execution
   [[nodiscard]] auto compiled() const -> pattern::vm::CompiledMatcher<Symbol> const & { return compiled_; }
 
-  /// Get the root symbol of the first pattern (for index-based candidate lookup)
-  [[nodiscard]] auto first_pattern_root_symbol() const -> std::optional<Symbol> {
-    auto const &root_node = patterns_[0][patterns_[0].root()];
-    if (auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&root_node)) {
-      return sym->sym;
+  /// The root symbol of every pattern (nullopt where a pattern roots at a
+  /// variable/wildcard and so could match any e-class). A new firing of this
+  /// rule requires a change at some bound position, which surfaces at one of its
+  /// pattern roots - so these symbols are the rule's arming triggers. A nullopt
+  /// means the rule cannot be symbol-filtered and must always be armed.
+  [[nodiscard]] auto pattern_root_symbols() const -> std::vector<std::optional<Symbol>> {
+    std::vector<std::optional<Symbol>> roots;
+    roots.reserve(patterns_.size());
+    for (auto const &pattern : patterns_) {
+      auto const &root_node = pattern[pattern.root()];
+      if (auto const *sym = std::get_if<SymbolWithChildren<Symbol>>(&root_node)) {
+        roots.emplace_back(sym->sym);
+      } else {
+        roots.emplace_back(std::nullopt);
+      }
     }
-    return std::nullopt;
+    return roots;
   }
 
-  /// Populate match buffer using VM executor.
+  /// Whether the per-candidate root restriction (VMExecutor::execute's `roots`)
+  /// is SOUND for this rule. The active set is closed under parents, so it holds
+  /// a new match's *root* but not a deeper e-class the VM may enter at (the
+  /// compiler enters at the deepest symbol and walks up). So restricting the entry
+  /// candidates is sound only when the pattern's *only* symbol node is its root -
+  /// then the single IterSymbolEClasses the VM emits *is* the root iteration.
+  /// Multi-pattern rules, or any pattern with a symbol below the root, fall back
+  /// to MatchAll, which never prunes. Fixed by the patterns, so computed once at
+  /// construction and read per pass.
+  [[nodiscard]] auto supports_active_root_restriction() const noexcept -> bool {
+    return supports_active_root_restriction_;
+  }
+
+  /// Populate match buffer using VM executor. A RestrictTo `roots` prunes the
+  /// (root) symbol iteration to that set (see VMExecutor::execute); MatchAll (the
+  /// default) matches every candidate. Only pass a RestrictTo when
+  /// supports_active_root_restriction() holds.
   template <typename VMExecutor>
-  void match(MatcherIndex<Symbol, Analysis> &index, VMExecutor &vm_executor, MatcherContext &ctx) const {
+  void match(MatcherIndex<Symbol, Analysis> &index, VMExecutor &vm_executor, MatcherContext &ctx,
+             RootRestriction roots = RootRestriction::MatchAll()) const {
+    MG_ASSERT(roots.matches_all() || supports_active_root_restriction(),
+              "active-set restriction is sound only for root-entry single-pattern rules");
     ctx.clear();
-    vm_executor.execute(compiled_, index, ctx.match_ctx.arena(), ctx.match_buffer);
+    vm_executor.execute(compiled_, index, ctx.match_ctx.arena(), ctx.match_buffer, roots);
   }
 
   /// Apply matches from buffer to egraph. Returns number of rewrites.
@@ -133,19 +168,35 @@ class RewriteRule {
   }
 
  private:
+  /// The soundness gate behind supports_active_root_restriction(): a single
+  /// pattern whose only symbol node is its root.
+  static auto ComputeSupportsActiveRootRestriction(std::span<Pattern<Symbol> const> patterns) -> bool {
+    if (patterns.size() != 1) return false;
+    auto const &pattern = patterns[0];
+    auto const root = pattern.root().value_of();
+    auto const nodes = pattern.nodes();
+    for (std::size_t i = 0; i < nodes.size(); ++i) {
+      if (i == root) continue;
+      if (std::holds_alternative<SymbolWithChildren<Symbol>>(nodes[i])) return false;
+    }
+    return true;
+  }
+
   RewriteRule(std::vector<Pattern<Symbol>> patterns, std::vector<std::string> pattern_names, ApplyFn apply_fn,
               std::string name, pattern::vm::CompiledMatcher<Symbol> compiled)
       : patterns_(std::move(patterns)),
         pattern_names_(std::move(pattern_names)),
         apply_fn_(std::move(apply_fn)),
         name_(std::move(name)),
-        compiled_(std::move(compiled)) {}
+        compiled_(std::move(compiled)),
+        supports_active_root_restriction_(ComputeSupportsActiveRootRestriction(patterns_)) {}
 
   std::vector<Pattern<Symbol>> patterns_;
   std::vector<std::string> pattern_names_;
   ApplyFn apply_fn_;
   std::string name_;
   pattern::vm::CompiledMatcher<Symbol> compiled_;
+  bool supports_active_root_restriction_;
 };
 
 }  // namespace memgraph::planner::core::rewrite

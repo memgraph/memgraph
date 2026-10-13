@@ -83,4 +83,21 @@ inline auto make_merge_vars_rule() -> TestRewriteRule {
       .apply([](TestRuleContext &ctx, Match const &match) { ctx.merge(match[kVarX], match[kVarY]); });
 }
 
+/**
+ * @brief Symbol-less-rooted (hence always-armed) rule that merges: ?x, F(?x) -> merge
+ *
+ * Pattern 0 is a bare variable ?x - the symbol-less root that makes the whole
+ * rule always-armed (no changed symbol can gate it) - joined with F(?x). Fires
+ * for any x that has an F(x) parent, merging F(x) into x. Exercises an
+ * always-armed rule's merges landing under saturation, not just its indexing.
+ */
+inline auto make_always_armed_collapse_rule() -> TestRewriteRule {
+  TestPattern::Builder bare_x;
+  bare_x.var(kVarX);  // bare-variable root: symbol-less
+  return TestRewriteRule::Builder{"always_armed_collapse"}
+      .pattern(std::move(bare_x).build())
+      .pattern(TestPattern::build(kVarRoot, Op::F, {Var{kVarX}}))
+      .apply([](TestRuleContext &ctx, Match const &match) { ctx.merge(match[kVarRoot], match[kVarX]); });
+}
+
 }  // namespace memgraph::planner::core::test
