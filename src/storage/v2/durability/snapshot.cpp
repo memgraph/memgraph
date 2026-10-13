@@ -13545,11 +13545,6 @@ std::optional<std::filesystem::path> CreateSnapshot(
     std::atomic_bool *abort_snapshot, SnapshotProgress *progress, std::string_view trigger) {
   utils::Timer timer;
 
-  // A snapshot reads each vertex once, so a cached chain could never be read back, and the workers
-  // below share this one transaction. Said here rather than left to the default because the
-  // transaction belongs to the caller, who may have enabled it.
-  transaction->DisableDeltaChainCache();
-
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
 
