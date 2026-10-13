@@ -13,10 +13,10 @@
 
 #include <atomic>
 #include <chrono>
-#include <cstring>
 #include <iosfwd>
 #include <memory>
 #include <optional>
+#include <system_error>
 #include <thread>
 #include <vector>
 
@@ -169,8 +169,10 @@ class Server final {
 
   // Sleeps in short slices so Shutdown() is noticed promptly; Shutdown() itself stays signal-handler safe.
   void BackOffAfterTransientError(int err) {
-    accept_log_throttle_.Warn(service_name_, std::strerror(err));
+    accept_log_throttle_.Warn(service_name_, std::generic_category().message(err));
     constexpr std::chrono::milliseconds slice{100};
+    static_assert(kAcceptRetryDelay % slice == std::chrono::milliseconds{0},
+                  "retry delay must be a whole number of sleep slices");
     for (std::chrono::milliseconds slept{0}; slept < kAcceptRetryDelay && alive_; slept += slice) {
       std::this_thread::sleep_for(slice);
     }

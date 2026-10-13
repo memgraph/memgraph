@@ -450,7 +450,7 @@ add_unit_test(network_timeouts
 
 add_unit_test(accept_emfile
     SOURCES accept_emfile.cpp
-    LINK_TARGETS mg-communication
+    LINK_TARGETS mg-communication mg-metrics mg-flags
 )
 
 add_unit_test(session_registry

@@ -19,6 +19,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <functional>
@@ -32,6 +34,7 @@
 
 #include "communication/http/server.hpp"
 #include "communication/server.hpp"
+#include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
 
@@ -43,6 +46,7 @@ constexpr rlim_t kFdLimit = 64;
 constexpr auto kHold = 1500ms;
 constexpr double kMaxCpuSecondsWhileHeld = 0.5;
 constexpr auto kRecoveryDeadline = 10s;
+constexpr int kSkipExitCode = 77;
 
 double CpuSeconds() {
   rusage ru{};
@@ -101,6 +105,15 @@ int ExhaustionScenario(uint16_t port, bool check_cpu, const std::function<bool()
   for (int i = 0; i < 3; ++i) clients.push_back(socket(AF_INET, SOCK_STREAM, 0));
 
   auto fillers = ExhaustFds();
+  if (fillers.empty()) {
+    std::fprintf(stderr, "scenario: baseline fd usage already at the limit\n");
+    return kSkipExitCode;
+  }
+  errno = 0;
+  if (int const fd = open("/dev/null", O_RDONLY); fd >= 0 || errno != EMFILE) {
+    std::fprintf(stderr, "scenario: expected open() to fail with EMFILE, got errno %d\n", errno);
+    return 5;
+  }
 
   sockaddr_in addr{};
   addr.sin_family = AF_INET;
@@ -143,6 +156,7 @@ void RunInChild(const std::function<int()> &body) {
   int status = 0;
   ASSERT_EQ(waitpid(pid, &status, 0), pid);
   ASSERT_TRUE(WIFEXITED(status)) << "child terminated abnormally";
+  if (WEXITSTATUS(status) == kSkipExitCode) GTEST_SKIP() << "could not reach EMFILE (see child stderr)";
   EXPECT_EQ(WEXITSTATUS(status), 0) << "scenario failed (see child stderr)";
 }
 
@@ -184,6 +198,43 @@ class EchoSession {
   memgraph::communication::InputStream *in_;
   memgraph::communication::OutputStream *out_;
 };
+
+// Minimal v2 session: counts constructions so the test can observe that a connection was accepted.
+std::atomic<int> g_v2_sessions_created{0};
+
+struct V2Context {
+  template <class F, class P>
+  void AddTask(F &&, P) {}
+};
+
+struct V2Session {
+  template <class In, class Out>
+  V2Session(V2Context &, In *, Out *) {
+    g_v2_sessions_created.fetch_add(1);
+  }
+
+  bool Execute() { return false; }
+
+  void HandleError() {}
+
+  int ApproximateQueryPriority() const { return 0; }
+};
+
+// v2::Server reports the requested endpoint, not the bound one, so reserve a free port up front.
+uint16_t PickFreePort() {
+  int const fd = socket(AF_INET, SOCK_STREAM, 0);
+  sockaddr_in addr{};
+  addr.sin_family = AF_INET;
+  addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  socklen_t len = sizeof(addr);
+  uint16_t port = 0;
+  if (bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0 &&
+      getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &len) == 0) {
+    port = ntohs(addr.sin_port);
+  }
+  close(fd);
+  return port;
+}
 
 }  // namespace
 
@@ -230,6 +281,22 @@ TEST(AcceptEmfile, RpcV1AcceptThreadDoesNotSpinAndRecovers) {
     if (!server.Start()) return 1;
     auto const port = server.endpoint().GetPort();
     auto const rc = ExhaustionScenario(port, true, [port] { return RawExchange(port, "tttt", "tttt"); });
+    server.Shutdown();
+    server.AwaitShutdown();
+    return rc;
+  });
+}
+
+TEST(AcceptEmfile, RpcV2AcceptDoesNotSpinAndRecovers) {
+  RunInChild([] {
+    V2Context data;
+    memgraph::communication::ServerContext context;
+    auto const port = PickFreePort();
+    if (port == 0) return 1;
+    memgraph::communication::v2::ServerEndpoint endpoint{boost::asio::ip::make_address("127.0.0.1"), port};
+    memgraph::communication::v2::Server<V2Session, V2Context> server{endpoint, &data, &context, "Test", 1};
+    if (!server.Start()) return 1;
+    auto const rc = ExhaustionScenario(port, true, [] { return g_v2_sessions_created.load() > 0; });
     server.Shutdown();
     server.AwaitShutdown();
     return rc;

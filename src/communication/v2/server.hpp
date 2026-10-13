@@ -133,6 +133,8 @@ class Server final {
 template <typename TSession, typename TSessionContext>
 Server<TSession, TSessionContext>::~Server() {
   MG_ASSERT(!IsRunning(), "Server wasn't shutdown properly");
+  // retry_timer_ and acceptor_ are destroyed before the pool's threads are joined; join them first.
+  io_thread_pool_.AwaitShutdown();
 }
 
 template <typename TSession, typename TSessionContext>
