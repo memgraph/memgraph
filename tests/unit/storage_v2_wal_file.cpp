@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <optional>
+#include <tuple>
 #include <unordered_map>
 
 #include "storage/v2/access_type.hpp"
@@ -1065,11 +1066,11 @@ TEST_P(WalFileTest, DamagedSummaryFailsRecovery) {
   // The summary's CRC trailer ends immediately before the first delta, so its last byte is offset_deltas - 1.
   {
     memgraph::utils::OutputFile corrupted;
-    corrupted.Open(wal_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    std::ignore = corrupted.Open(wal_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
     corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, pristine.offset_deltas - 1);
     uint8_t const flipped = 0xFF;
-    corrupted.Write(&flipped, 1);
-    corrupted.Sync();
+    std::ignore = corrupted.Write(&flipped, 1);
+    std::ignore = corrupted.Sync();
     corrupted.Close();
   }
 
@@ -1424,11 +1425,11 @@ TEST_P(WalFileTest, InvalidMarker) {
     auto current_file = storage_directory / fmt::format("temporary_{}", i);
     ASSERT_TRUE(std::filesystem::copy_file(wal_file, current_file));
     memgraph::utils::OutputFile file;
-    file.Open(current_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    std::ignore = file.Open(current_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
     file.SetPosition(memgraph::utils::OutputFile::Position::SET, final_info.offset_deltas);
     auto value = static_cast<uint8_t>(marker);
-    file.Write(&value, sizeof(value));
-    file.Sync();
+    std::ignore = file.Write(&value, sizeof(value));
+    std::ignore = file.Sync();
     file.Close();
     ASSERT_THROW(memgraph::storage::durability::ReadWalInfo(current_file),
                  memgraph::storage::durability::RecoveryFailure);
@@ -1486,11 +1487,11 @@ TEST_P(WalFileTest, PartialData) {
     }
     {
       memgraph::utils::OutputFile outfile;
-      outfile.Open(current_file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
+      std::ignore = outfile.Open(current_file, memgraph::utils::OutputFile::Mode::APPEND_TO_EXISTING);
       uint8_t value;
       ASSERT_TRUE(infile.Read(&value, sizeof(value)));
-      outfile.Write(&value, sizeof(value));
-      outfile.Sync();
+      std::ignore = outfile.Write(&value, sizeof(value));
+      std::ignore = outfile.Sync();
       outfile.Close();
     }
   }
@@ -1546,11 +1547,11 @@ TEST_P(WalFileTest, WalFileModification) {
     ASSERT_TRUE(std::filesystem::copy_file(wal_file, corrupted_file));
     {
       memgraph::utils::OutputFile corrupted;
-      corrupted.Open(corrupted_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+      std::ignore = corrupted.Open(corrupted_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
       corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, pos);
       uint8_t const flipped_byte = original_byte + 1;
-      corrupted.Write(&flipped_byte, 1);
-      corrupted.Sync();
+      std::ignore = corrupted.Write(&flipped_byte, 1);
+      std::ignore = corrupted.Sync();
       corrupted.Close();
     }
     try {
@@ -1600,11 +1601,11 @@ TEST_P(WalFileTest, WalMissingTransactionEndMarker) {
   // Overwrite the transaction-end marker with a transaction-start marker; the end is now never read.
   {
     memgraph::utils::OutputFile corrupted;
-    corrupted.Open(wal_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    std::ignore = corrupted.Open(wal_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
     corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, end_marker_pos);
     auto const start_marker = static_cast<uint8_t>(memgraph::storage::durability::Marker::DELTA_TRANSACTION_START);
-    corrupted.Write(&start_marker, 1);
-    corrupted.Sync();
+    std::ignore = corrupted.Write(&start_marker, 1);
+    std::ignore = corrupted.Sync();
     corrupted.Close();
   }
 
@@ -1678,11 +1679,11 @@ TEST_P(WalFileTest, FinalizedFileEndingMidTransactionFailsRecovery) {
 
   {
     memgraph::utils::OutputFile corrupted;
-    corrupted.Open(wal_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    std::ignore = corrupted.Open(wal_file, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
     corrupted.SetPosition(memgraph::utils::OutputFile::Position::SET, last_end_marker_pos);
     auto const create_marker = static_cast<uint8_t>(memgraph::storage::durability::Marker::DELTA_VERTEX_CREATE);
-    corrupted.Write(&create_marker, 1);
-    corrupted.Sync();
+    std::ignore = corrupted.Write(&create_marker, 1);
+    std::ignore = corrupted.Sync();
     corrupted.Close();
   }
 

@@ -13,6 +13,7 @@
 
 #include <concepts>
 #include <cstdint>
+#include <expected>
 #include <filesystem>
 #include <optional>
 #include <string_view>
@@ -53,8 +54,14 @@ class BaseEncoder {
 template <typename FileType>
 class Encoder final : public BaseEncoder {
  public:
-  bool Initialize(const std::filesystem::path &path);
-  bool Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
+  Encoder() = default;
+
+  explicit Encoder(utils::OnNoSpace on_no_space) noexcept : file_{on_no_space} {}
+
+  /// Opens the file. If it couldn't be opened, running out of space is reported as `kNoSpace`.
+  std::expected<void, utils::FileWriteError> Initialize(const std::filesystem::path &path);
+  std::expected<void, utils::FileWriteError> Initialize(const std::filesystem::path &path, std::string_view magic,
+                                                        uint64_t version);
 
   bool OpenExisting(const std::filesystem::path &path);
 
@@ -64,7 +71,7 @@ class Encoder final : public BaseEncoder {
   void Write(const uint8_t *data, uint64_t size);
 
   /// See NonConcurrentOutputFile::AppendFrom.
-  [[nodiscard]] std::optional<uint64_t> AppendFrom(int src_fd, uint64_t size)
+  [[nodiscard]] std::expected<uint64_t, utils::FileWriteError> AppendFrom(int src_fd, uint64_t size)
     requires std::same_as<FileType, utils::NonConcurrentOutputFile>;
 
   void WriteMarker(Marker marker) override;
@@ -82,7 +89,11 @@ class Encoder final : public BaseEncoder {
   uint64_t GetPosition() override;
   void SetPosition(uint64_t position);
 
-  void Sync();
+  /// Running out of space in an earlier write is reported here, see `utils::OnNoSpace`.
+  std::expected<void, utils::FileWriteError> Sync();
+
+  /// See OutputFile::WriteFailed.
+  bool WriteFailed() const { return file_.WriteFailed(); }
 
   /// See NonConcurrentOutputFile::EnableWritebackPacing.
   void EnableWritebackPacing(size_t window_bytes,
@@ -92,8 +103,10 @@ class Encoder final : public BaseEncoder {
     file_.EnableWritebackPacing(window_bytes, completed_window);
   }
 
-  /// Syncs and closes the file, disposing of its pages as `page_cache` says.
-  void Finalize(utils::PageCachePolicy page_cache = utils::PageCachePolicy::kKeep);
+  /// Syncs and closes the file, disposing of its pages as `page_cache` says. If the file ran out of
+  /// space, now or in an earlier write, it is left open and the error is returned instead.
+  std::expected<void, utils::FileWriteError> Finalize(
+      utils::PageCachePolicy page_cache = utils::PageCachePolicy::kKeep);
 
   // Disable flushing of the internal buffer.
   void DisableFlushing()

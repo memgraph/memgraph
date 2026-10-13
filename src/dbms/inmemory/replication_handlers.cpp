@@ -715,15 +715,6 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   auto const &src_snapshot_file = active_files[0];
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
 
-  if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
-    spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
-    heartbeat.Stop();
-    rpc::SendFinalResponse(
-        storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
-    return;
-  }
-
-  spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
   {
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
@@ -736,6 +727,17 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     // Acquiring a contended lock is a completed step, so it counts. Recorded on success only -- recording while still
     // blocked would tell the peer we are advancing when we are not.
     record_progress();
+
+    // Moved only once the snapshot is about to be loaded; until then it stays in tmp/, where the request's
+    // FileReplicationHandler deletes it if this handler returns early.
+    if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
+      spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
+      heartbeat.Stop();
+      rpc::SendFinalResponse(
+          storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder, storage->name());
+      return;
+    }
+    spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
 
     spdlog::info("Clearing database {} before recovering from snapshot.", storage->name());
 

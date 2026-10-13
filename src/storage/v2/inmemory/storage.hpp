@@ -109,7 +109,13 @@ class InMemoryStorage final : public Storage {
     static void Destroy(Edge *p) noexcept;
   };
 
-  enum class CreateSnapshotError : uint8_t { ReachedMaxNumTries, AbortSnapshot, AlreadyRunning, NothingNewToWrite };
+  enum class CreateSnapshotError : uint8_t {
+    ReachedMaxNumTries,
+    AbortSnapshot,
+    AlreadyRunning,
+    NothingNewToWrite,
+    NoSpaceLeft
+  };
 
   static const char *CreateSnapshotErrorToString(CreateSnapshotError error) {
     switch (error) {
@@ -122,6 +128,8 @@ class InMemoryStorage final : public Storage {
         return "Another snapshot creation is already in progress";
       case NothingNewToWrite:
         return "Nothing has been written since the last snapshot";
+      case NoSpaceLeft:
+        return "Not enough disk space to write the snapshot";
       default:
         return "Unknown error";
     }

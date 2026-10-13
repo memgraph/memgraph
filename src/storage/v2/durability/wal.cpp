@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <range/v3/all.hpp>
+#include <tuple>
 #include <type_traits>
 #include <unordered_map>
 #include <vector>
@@ -2340,8 +2341,8 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   wal_.SetPosition(offset_deltas);
   wal_.ResetCrcAcc();
 
-  // Sync the initial data.
-  wal_.Sync();
+  // Sync the initial data. The WAL crashes on a failed write, so this never reports an error.
+  std::ignore = wal_.Sync();
 }
 
 void WalFile::WriteSummary() {
@@ -2365,7 +2366,8 @@ void WalFile::WriteSummary() {
 void WalFile::FinalizeWal() {
   if (count_ != 0) {
     WriteSummary();
-    wal_.Finalize();
+    // The WAL crashes on a failed write, so this never reports an error.
+    std::ignore = wal_.Finalize();
     wal_.Close();
     // Rename file.
     std::filesystem::path new_path(RemakeWalName(path_, from_timestamp_, to_timestamp_));
@@ -2440,7 +2442,8 @@ WalTxnEndPos WalFile::AppendTransactionEnd(uint64_t timestamp) {
   return txn_end_pos;
 }
 
-void WalFile::Sync() { wal_.Sync(); }
+// The WAL crashes on a failed write, so this never reports an error.
+void WalFile::Sync() { std::ignore = wal_.Sync(); }
 
 uint64_t WalFile::GetSize() { return wal_.GetSize(); }
 

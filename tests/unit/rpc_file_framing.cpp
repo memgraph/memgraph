@@ -32,6 +32,7 @@
 #include <iterator>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -355,11 +356,11 @@ class ReplicationEncoderPageCache : public ::testing::Test {
     auto const path = root_ / "wal" / name;
     const std::vector<uint8_t> content(kFileBytes, 'x');
     memgraph::utils::OutputFile out;
-    out.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
-    out.Write(content.data(), content.size());
+    std::ignore = out.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+    std::ignore = out.Write(content.data(), content.size());
     // Clean pages are the only ones DONTNEED can evict, and a snapshot on disk is long since
     // synced by the time a replica asks for it.
-    out.Sync();
+    std::ignore = out.Sync();
     out.Close();
     return path;
   }

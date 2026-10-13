@@ -29,6 +29,7 @@
 #include <iostream>
 #include <map>
 #include <thread>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 
@@ -1467,11 +1468,11 @@ void CorruptSnapshot(const std::filesystem::path &path) {
   auto info = memgraph::storage::durability::ReadSnapshotInfo(path);
   spdlog::info("Destroying snapshot {}", path);
   memgraph::utils::OutputFile file;
-  file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
   file.SetPosition(memgraph::utils::OutputFile::Position::SET, info.offset_vertices);
   auto value = static_cast<uint8_t>(memgraph::storage::durability::Marker::TYPE_MAP);
-  file.Write(&value, sizeof(value));
-  file.Sync();
+  std::ignore = file.Write(&value, sizeof(value));
+  std::ignore = file.Sync();
   file.Close();
 }
 
@@ -1479,11 +1480,11 @@ void DestroyWalFirstDelta(const std::filesystem::path &path) {
   auto info = memgraph::storage::durability::ReadWalInfo(path);
   spdlog::info("Destroying WAL {}", path);
   memgraph::utils::OutputFile file;
-  file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
   file.SetPosition(memgraph::utils::OutputFile::Position::SET, info.offset_deltas);
   auto value = static_cast<uint8_t>(memgraph::storage::durability::Marker::TYPE_MAP);
-  file.Write(&value, sizeof(value));
-  file.Sync();
+  std::ignore = file.Write(&value, sizeof(value));
+  std::ignore = file.Sync();
   file.Close();
 }
 
@@ -1491,13 +1492,13 @@ void DestroyWalSuffix(const std::filesystem::path &path) {
   auto info = memgraph::storage::durability::ReadWalInfo(path);
   spdlog::info("Destroying WAL {}", path);
   memgraph::utils::OutputFile file;
-  file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
+  std::ignore = file.Open(path, memgraph::utils::OutputFile::Mode::OVERWRITE_EXISTING);
   ASSERT_LT(info.offset_deltas, file.SetPosition(memgraph::utils::OutputFile::Position::RELATIVE_TO_END, -100));
   uint8_t value = 0;
   for (size_t i = 0; i < 100; ++i) {
-    file.Write(&value, sizeof(value));
+    std::ignore = file.Write(&value, sizeof(value));
   }
-  file.Sync();
+  std::ignore = file.Sync();
   file.Close();
 }
 
