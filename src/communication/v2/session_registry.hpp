@@ -26,8 +26,8 @@ namespace memgraph::communication::v2 {
 struct TerminableSession {
   virtual ~TerminableSession() = default;
 
-  // Ask the session to close its connection. Returns immediately; the close is executed on the
-  // session's own strand, and the session then tears itself down.
+  // Ask the session to close its connection. Never closes it mid-request: an idle session may be closed
+  // before this returns, a busy one is closed once its current request finishes.
   virtual void RequestTermination() = 0;
 };
 
