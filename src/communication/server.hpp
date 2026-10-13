@@ -12,6 +12,8 @@
 #pragma once
 
 #include <atomic>
+#include <chrono>
+#include <cstring>
 #include <iosfwd>
 #include <memory>
 #include <optional>
@@ -20,6 +22,7 @@
 
 #include <fmt/format.h>
 
+#include "communication/accept_retry.hpp"
 #include "communication/init.hpp"
 #include "communication/listener.hpp"
 #include "io/network/fmt.hpp"
@@ -152,9 +155,11 @@ class Server final {
  private:
   void AcceptConnection() {
     // Accept a connection from a socket.
-    auto s = socket_.Accept();
+    int err = 0;
+    auto s = socket_.Accept(&err);
     if (!s) {
       // Connection is not available anymore or configuration failed.
+      if (IsTransientAcceptErrno(err)) BackOffAfterTransientError(err);
       return;
     }
     auto const endpoint = s->endpoint();
@@ -162,8 +167,18 @@ class Server final {
     listener_.AddConnection(std::move(*s));
   }
 
+  // Sleeps in short slices so Shutdown() is noticed promptly; Shutdown() itself stays signal-handler safe.
+  void BackOffAfterTransientError(int err) {
+    accept_log_throttle_.Warn(service_name_, std::strerror(err));
+    constexpr std::chrono::milliseconds slice{100};
+    for (std::chrono::milliseconds slept{0}; slept < kAcceptRetryDelay && alive_; slept += slice) {
+      std::this_thread::sleep_for(slice);
+    }
+  }
+
   std::atomic<bool> alive_;
   std::thread thread_;
+  AcceptRetryLogThrottle accept_log_throttle_;
 
   Socket socket_;
   io::network::Endpoint endpoint_;

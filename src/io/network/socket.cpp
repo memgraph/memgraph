@@ -335,13 +335,16 @@ bool Socket::Listen(int backlog) { return listen(socket_, backlog) == 0; }
 
 // Not const because of C-API
 // NOLINTNEXTLINE
-std::optional<Socket> Socket::Accept() {
+std::optional<Socket> Socket::Accept(int *err) {
   sockaddr_storage addr;
   socklen_t addr_size = sizeof addr;
   char addr_decoded[INET6_ADDRSTRLEN];
 
   int sfd = accept(socket_, reinterpret_cast<sockaddr *>(&addr), &addr_size);
-  if (UNLIKELY(sfd == -1)) return std::nullopt;
+  if (UNLIKELY(sfd == -1)) {
+    if (err) *err = errno;
+    return std::nullopt;
+  }
 
   void *addr_src = nullptr;
   uint16_t port = 0;

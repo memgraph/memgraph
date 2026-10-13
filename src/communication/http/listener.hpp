@@ -17,9 +17,11 @@
 #include <spdlog/spdlog.h>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 
+#include "communication/accept_retry.hpp"
 #include "communication/context.hpp"
 #include "communication/fmt.hpp"
 #include "communication/http/session.hpp"
@@ -67,7 +69,7 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
  private:
   Listener(boost::asio::io_context &ioc, TSessionContext *session_context, ServerContext *context,
            tcp::endpoint endpoint)
-      : ioc_(ioc), session_context_(session_context), context_(context), acceptor_(ioc) {
+      : ioc_(ioc), session_context_(session_context), context_(context), acceptor_(ioc), retry_timer_(ioc) {
     boost::beast::error_code ec;
 
     // Open the acceptor
@@ -112,6 +114,14 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
 
   void OnAccept(boost::beast::error_code ec, tcp::socket socket) {
     if (ec) {
+      if (IsTransientAcceptError(ec)) {
+        accept_log_throttle_.Warn("HTTP listener", ec.message());
+        retry_timer_.expires_after(kAcceptRetryDelay);
+        retry_timer_.async_wait([shared_this = shared_from_this()](const boost::system::error_code &timer_ec) {
+          if (!timer_ec) shared_this->DoAccept();
+        });
+        return;
+      }
       error_happened_ = true;
       LogErrorListener(ec, "accept");
       return;
@@ -126,6 +136,8 @@ class Listener final : public std::enable_shared_from_this<Listener<TRequestHand
   TSessionContext *session_context_;
   ServerContext *context_;
   tcp::acceptor acceptor_;
+  boost::asio::steady_timer retry_timer_;
+  AcceptRetryLogThrottle accept_log_throttle_;
   bool error_happened_{false};
 };
 }  // namespace memgraph::communication::http

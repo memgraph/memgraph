@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -38,7 +38,7 @@ std::optional<boost::asio::ip::tcp::endpoint> Listener::GetEndpoint() const {
 
 Listener::Listener(boost::asio::io_context &ioc, ServerContext *context, tcp::endpoint endpoint,
                    AuthenticationInterface &auth)
-    : ioc_(ioc), context_(context), acceptor_(ioc), auth_(auth) {
+    : ioc_(ioc), context_(context), acceptor_(ioc), retry_timer_(ioc), auth_(auth) {
   boost::beast::error_code ec;
 
   // Open the acceptor
@@ -82,6 +82,14 @@ void Listener::DoAccept() {
 
 void Listener::OnAccept(boost::beast::error_code ec, tcp::socket socket) {
   if (ec) {
+    if (IsTransientAcceptError(ec)) {
+      accept_log_throttle_.Warn("Websocket listener", ec.message());
+      retry_timer_.expires_after(kAcceptRetryDelay);
+      retry_timer_.async_wait([shared_this = shared_from_this()](const boost::system::error_code &timer_ec) {
+        if (!timer_ec) shared_this->DoAccept();
+      });
+      return;
+    }
     error_happened_ = true;
     LogError(ec, "accept");
     return;

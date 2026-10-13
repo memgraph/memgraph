@@ -18,7 +18,9 @@
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/address.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/steady_timer.hpp>
 
+#include "communication/accept_retry.hpp"
 #include "communication/context.hpp"
 #include "communication/v2/pool.hpp"
 #include "communication/v2/session.hpp"
@@ -101,13 +103,19 @@ class Server final {
 
   void OnError(const boost::system::error_code &ec, const std::string_view what) {
     spdlog::error("Listener failed on {}: {}", what, ec.message());
-    if (ec == boost::system::errc::too_many_files_open || ec == boost::system::errc::too_many_files_open_in_system) {
-      spdlog::trace("too many open files... retrying");
-      DoAccept();
-      return;
-    }
     spdlog::trace("fatal communication error... shutting down");
     Shutdown();
+  }
+
+  void OnAcceptError(const boost::system::error_code &ec) {
+    if (!IsTransientAcceptError(ec)) {
+      return OnError(ec, "accept");
+    }
+    accept_log_throttle_.Warn(service_name_, ec.message());
+    retry_timer_.expires_after(kAcceptRetryDelay);
+    retry_timer_.async_wait([this](const boost::system::error_code &timer_ec) {
+      if (!timer_ec) DoAccept();
+    });
   }
 
   ServerEndpoint endpoint_;
@@ -118,6 +126,8 @@ class Server final {
 
   IOContextThreadPool io_thread_pool_;
   tcp::acceptor acceptor_{io_thread_pool_.GetIOContext()};
+  boost::asio::steady_timer retry_timer_{io_thread_pool_.GetIOContext()};
+  AcceptRetryLogThrottle accept_log_throttle_;
 };
 
 template <typename TSession, typename TSessionContext>
@@ -187,7 +197,7 @@ bool Server<TSession, TSessionContext>::Start() {
 template <typename TSession, typename TSessionContext>
 inline void Server<TSession, TSessionContext>::OnAccept(boost::system::error_code ec, tcp::socket socket) {
   if (ec) {
-    return OnError(ec, "accept");
+    return OnAcceptError(ec);
   }
 
   auto session = SessionHandler::Create(std::move(socket), session_context_, *server_context_, service_name_);
