@@ -588,8 +588,19 @@ def test_num_committed_txns_preserved_after_recover_snapshot(test_name):
     mg_sleep_and_assert(expected_instance_3, partial(retrieve_lag_for_instance, coord3_cursor, "instance_3"))
 
 
-# MAIN needs 3 failed pings (~9 s at this frequency) to notice a down replica, longer than the restarts below.
-SLOW_CHECK_ARGS = ["--replication-replica-check-frequency-sec=3"]
+# MAIN needs 3 failed pings (more than 2 check periods) to notice a down replica, longer than the restarts below.
+CHECK_FREQUENCY_SEC = 3
+SLOW_CHECK_ARGS = [f"--replication-replica-check-frequency-sec={CHECK_FREQUENCY_SEC}"]
+
+
+def restart_instance_2(inner_instances_description, keep_directories, extra_args=()):
+    # A slower restart lets MAIN converge through its failed-ping path and the test would not exercise reconnect.
+    started = time.monotonic()
+    interactive_mg_runner.kill(inner_instances_description, "instance_2", keep_directories=keep_directories)
+    inner_instances_description["instance_2"]["args"] += list(extra_args)
+    interactive_mg_runner.start(inner_instances_description, "instance_2", run_setup_queries=False)
+    elapsed = time.monotonic() - started
+    assert elapsed < 2 * CHECK_FREQUENCY_SEC, f"replica restart took {elapsed:.1f} s, MAIN may have noticed the outage"
 
 
 def replica_node_count(port):
@@ -614,10 +625,11 @@ def test_main_detects_replica_restarted_with_less_data(test_name, mode):
     expected_lag = {"memgraph": {"num_committed_txns": 3, "num_txns_behind_main": 0}}
     mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
 
-    interactive_mg_runner.kill(inner_instances_description, "instance_2", keep_directories=(mode != "fresh_dir"))
-    if mode == "no_recovery":
-        inner_instances_description["instance_2"]["args"].append("--data-recovery-on-startup=false")
-    interactive_mg_runner.start(inner_instances_description, "instance_2", run_setup_queries=False)
+    restart_instance_2(
+        inner_instances_description,
+        keep_directories=(mode != "fresh_dir"),
+        extra_args=["--data-recovery-on-startup=false"] if mode == "no_recovery" else [],
+    )
 
     mg_sleep_and_assert(3, partial(replica_node_count, 7688), max_duration=20)
     mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
@@ -644,8 +656,7 @@ def test_replica_reconnect_without_data_loss_stays_ready(test_name):
     expected_lag = {"memgraph": {"num_committed_txns": 3, "num_txns_behind_main": 0}}
     mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))
 
-    interactive_mg_runner.kill(inner_instances_description, "instance_2", keep_directories=True)
-    interactive_mg_runner.start(inner_instances_description, "instance_2", run_setup_queries=False)
+    restart_instance_2(inner_instances_description, keep_directories=True)
 
     mg_sleep_and_assert(3, partial(replica_node_count, 7688), max_duration=20)
     mg_sleep_and_assert(expected_lag, partial(retrieve_lag_for_instance, coord3_cursor, "instance_2"))

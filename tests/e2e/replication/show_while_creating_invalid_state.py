@@ -2530,7 +2530,7 @@ def test_replication_not_messed_up_by_ShowIndexInfo(connection):
 def test_main_detects_replica_restarted_with_less_data(sync_mode, pinged_before_kill, test_name):
     # A replica that restarts quickly (before 3 failed heartbeats) with less data than MAIN has must be re-synced
     # without a new write on MAIN, whether or not a frequent heartbeat had succeeded before the restart.
-    # MAIN pings every 3 s, so noticing a down replica takes ~9 s, longer than the restart.
+    # MAIN pings every 3 s and needs 3 failed pings (more than 6 s) to notice a down replica.
     configuration = {
         "replica_1": {
             "args": ["--bolt-port", "7688", "--log-level=TRACE", "--replication-restore-state-on-startup=true"],
@@ -2563,9 +2563,13 @@ def test_main_detects_replica_restarted_with_less_data(sync_mode, pinged_before_
     if pinged_before_kill:
         time.sleep(4)  # longer than the 3 s check frequency, so a heartbeat has succeeded
 
+    started = time.monotonic()
     interactive_mg_runner.kill(configuration, "replica_1", keep_directories=True)
     configuration["replica_1"]["args"].append("--data-recovery-on-startup=false")
     interactive_mg_runner.start(configuration, "replica_1", run_setup_queries=False)
+    elapsed = time.monotonic() - started
+    # A slower restart lets MAIN converge through its failed-ping path and the test would not exercise reconnect.
+    assert elapsed < 6, f"replica restart took {elapsed:.1f} s, MAIN may have noticed the outage"
 
     mg_sleep_and_assert(3, replica_node_count, max_duration=20)
 
