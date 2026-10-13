@@ -1,0 +1,3 @@
+copy_e2e_python_files(commit_lock_narrowing test_commit_lock_narrowing.py)
+
+copy_e2e_files(commit_lock_narrowing workloads.yaml)
