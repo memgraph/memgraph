@@ -54,7 +54,8 @@ namespace orderability = memgraph::query::relations::orderability;
 
 using Type = TypedValue::Type;
 
-/// Every enumerator, listed so that adding one to the value fails here too.
+/// Every enumerator a test with no storage can build a value of, listed so that adding one to the
+/// value fails here too. A VectorRef names a stored vector, so it is left to the tests that have one.
 constexpr Type kEveryType[] = {
     Type::Null,          Type::Bool,          Type::Int,      Type::Double,      Type::String,       Type::List,
     Type::Map,           Type::Vertex,        Type::Edge,     Type::Path,        Type::Date,         Type::LocalTime,
@@ -124,6 +125,7 @@ std::optional<OrderedPair> PairOf(Type type) {
     case Type::Function:
     case Type::VirtualEdge:
     case Type::VirtualNode:
+    case Type::VectorRef:
       return std::nullopt;
   }
 }
@@ -170,6 +172,7 @@ std::optional<TypedValue> AValueOfType(Type type) {
     case Type::Function:
     case Type::VirtualEdge:
     case Type::VirtualNode:
+    case Type::VectorRef:
       return std::nullopt;
   }
 }

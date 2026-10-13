@@ -148,16 +148,20 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
     case TypedValue::Type::Null:
       return TypedValue(ctx_->memory);
     case TypedValue::Type::Vertex: {
-      for (const auto &[property_id, value] : GetAllProperties(expression_result.ValueVertex())) {
-        auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
-        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
+      const auto &vertex = expression_result.ValueVertex();
+      for (const auto &[property_id, value] : GetAllProperties(vertex)) {
+        auto key = TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory);
+        // Keep embeddings lazy in the projected map: a map retained by collect / ORDER BY then holds
+        // O(refs), not O(N*dim) floats. Materialization happens only at compare/hash/serialize.
+        result.emplace(std::move(key), MakePropertyValue(vertex, property_id, value));
       }
       return {result, ctx_->memory};
     }
     case TypedValue::Type::Edge: {
-      for (const auto &[property_id, value] : GetAllProperties(expression_result.ValueEdge())) {
-        auto typed_value = TypedValue(value, GetNameIdMapper(), ctx_->memory);
-        result.emplace(TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory), typed_value);
+      const auto &edge = expression_result.ValueEdge();
+      for (const auto &[property_id, value] : GetAllProperties(edge)) {
+        auto key = TypedValue::TString(dba_->PropertyToName(property_id), ctx_->memory);
+        result.emplace(std::move(key), MakePropertyValue(edge, property_id, value));
       }
       return {result, ctx_->memory};
     }
@@ -442,13 +446,17 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 
         auto property_id = ctx_->properties[property_lookup.property_.ix];
         if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
+          // GetAllProperties left embeddings as references; MakePropertyValue hands back a lazy
+          // VectorRef, not an (empty) reconstructed list.
+          return MakePropertyValue(
+              expression_result_ptr->ValueVertex(), property_id, property_lookup_cache_[symbol_pos][property_id]);
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_),
-                GetNameIdMapper(),
-                ctx_->memory};
+        // GetProperty checks the accessor (and throws without one) before we index ctx_->properties below.
+        auto value = GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_);
+        return MakePropertyValue(
+            expression_result_ptr->ValueVertex(), ctx_->properties[property_lookup.property_.ix], std::move(value));
       }
     case TypedValue::Type::Edge:
       if (property_lookup.evaluation_mode_ == PropertyLookup::EvaluationMode::GET_ALL_PROPERTIES) {
@@ -459,13 +467,15 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
 
         auto property_id = ctx_->properties[property_lookup.property_.ix];
         if (property_lookup_cache_[symbol_pos].contains(property_id)) {
-          return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
+          return MakePropertyValue(
+              expression_result_ptr->ValueEdge(), property_id, property_lookup_cache_[symbol_pos][property_id]);
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_),
-                GetNameIdMapper(),
-                ctx_->memory};
+        // GetProperty checks the accessor (and throws without one) before we index ctx_->properties below.
+        auto value = GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_);
+        return MakePropertyValue(
+            expression_result_ptr->ValueEdge(), ctx_->properties[property_lookup.property_.ix], std::move(value));
       }
     case TypedValue::Type::VirtualEdge: {
       auto prop_id = dba_->NameToProperty(property_lookup.property_.name);

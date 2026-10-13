@@ -40,8 +40,9 @@ bool EquivalentOfMaps(TypedValue::TMap const &a, TypedValue::TMap const &b);
 
 /// Reads a pair of containers equality did not decide equal.
 ///
-/// @pre `a` is a list or a map. Only those two hold a value equality declines
-/// to decide, other than a Null or a NaN standing on its own.
+/// @pre `a` is a list, a map or a lazy embedding. Only those hold a value
+/// equality declines to decide, other than a Null or a NaN standing on its own.
+/// An embedding is a list of doubles, so it can hold a NaN.
 bool EquivalentOfContainers(const TypedValue &a, const TypedValue &b);
 
 /// Reads a pair of points equality did not decide equal. A point holds its
@@ -71,7 +72,8 @@ inline bool Equivalent(const TypedValue &lhs, const TypedValue &rhs) {
   // one holds a Null there is nothing to be gained by the first walk: equality
   // reaches the end of it only to say it could not decide, which is a walk
   // spent to learn that the second one is needed.
-  if (lhs.type() == TypedValue::Type::List || lhs.type() == TypedValue::Type::Map) {
+  if (lhs.type() == TypedValue::Type::List || lhs.type() == TypedValue::Type::Map ||
+      lhs.type() == TypedValue::Type::VectorRef) {
     return EquivalentOfContainers(lhs, rhs);
   }
 

@@ -54,7 +54,8 @@ constexpr bool ValidFor(TypedValue::Type type) {
     case LocalDateTime:
     case ZonedDateTime:
     case Duration:
-    case List:  // compared by CompareOfLists, not ComparePayload
+    case List:       // compared by CompareOfLists, not ComparePayload
+    case VectorRef:  // the list of doubles it materializes to
       return true;
 
     case Null:
@@ -81,6 +82,20 @@ constexpr bool ValidFor(TypedValue::Type type) {
 /// Takes the vectors so both arguments are lists by type.
 std::optional<std::partial_ordering> CompareOfLists(TypedValue::TVector const &a, TypedValue::TVector const &b);
 
+/// The two cases of a lazy embedding, ordered as the list of doubles it materializes to.
+///
+/// Two embeddings are read through float buffers reused by the thread, so that a filter or a sort
+/// over them never allocates in the query's arena. A float widens to a double exactly, so the answer
+/// is the one CompareOfLists gives, a NaN included.
+///
+/// @pre Both are VectorRef.
+std::optional<std::partial_ordering> CompareOfVectorRefs(const TypedValue &a, const TypedValue &b);
+
+/// Nothing unless the other is a list, as for any list.
+///
+/// @pre One is a VectorRef and the other is not.
+std::optional<std::partial_ordering> CompareOfVectorRefAndOther(const TypedValue &a, const TypedValue &b);
+
 /**
  * Whether comparability places a value against the values of its own type.
  *
@@ -106,7 +121,7 @@ inline bool ValidFor(const TypedValue &value) {
  * fails, while the index still places it somewhere.
  */
 inline bool AnIndexCanFence(const TypedValue &bound) {
-  return ValidFor(bound) && bound.type() != TypedValue::Type::List;
+  return ValidFor(bound) && bound.type() != TypedValue::Type::List && bound.type() != TypedValue::Type::VectorRef;
 }
 
 /// The same question where the type is already known at compile time.
@@ -159,6 +174,7 @@ constexpr bool ValidFor() {
     case Point2d:
     case Point3d:
     case List:
+    case VectorRef:
     case Map:
     case Vertex:
     case Edge:
@@ -195,6 +211,9 @@ inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const T
 
     if (auto const order = ComparePayload(a, b)) return order;
 
+    // A pair of embeddings is read as the lists of doubles they materialize to.
+    if (a.type() == TypedValue::Type::VectorRef) return CompareOfVectorRefs(a, b);
+
     // A Null orders against nothing, itself included, and a type carrying no
     // order of its own places no pair of its values either. Both are
     // incomparable, and this relation says so by having no answer to give.
@@ -210,7 +229,12 @@ inline std::optional<std::partial_ordering> Compare(const TypedValue &a, const T
 
   // Numbers are the only unlike pair the relation places. Every other pair of
   // unlike types is incomparable, as is any pair involving a Null.
-  if (!AreMixedNumbers(a.type(), b.type())) return std::nullopt;
+  if (!AreMixedNumbers(a.type(), b.type())) {
+    // An embedding still orders against a list, as the list it materializes to.
+    if (a.type() == TypedValue::Type::VectorRef || b.type() == TypedValue::Type::VectorRef) [[unlikely]]
+      return CompareOfVectorRefAndOther(a, b);
+    return std::nullopt;
+  }
   return ComparePayloadOfMixedNumbers(a, b);
 }
 
