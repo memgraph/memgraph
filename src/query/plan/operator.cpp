@@ -4061,15 +4061,14 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
 namespace {
 
-/// Adds two path costs. A null operand is the additive identity: the seed's "nothing traversed yet"
-/// and the target's own zero distance in the reverse tree. Every edge weight is non-null - the
-/// KSHORTEST weight lambda throws on null - so this never hides one.
-///
 bool CostLess(const TypedValue &lhs, const TypedValue &rhs);
 
-/// The search's sum, which only orders paths. The search adds costs no served path carries (the reverse
-/// tree, a spur's priority), so an Int sum that overflows becomes the Double of its size instead of an
-/// error. `AddServedCost` gives the total a served path shows.
+/// Adds two path costs for the search, whose sum only orders paths. A null operand is the additive
+/// identity: the seed's "nothing traversed yet" and the target's own zero distance in the reverse tree.
+/// Every edge weight is non-null - the KSHORTEST weight lambda throws on null - so this never hides one.
+/// The search adds costs no served path carries (the reverse tree, a spur's priority), so an Int sum that
+/// overflows becomes the Double of its size instead of an error. `AddServedCost` gives the total a served
+/// path shows.
 TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull()) return rhs;
   if (rhs.IsNull()) return lhs;
@@ -4106,7 +4105,7 @@ TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
 
 /// Orders two path costs exactly, with null - only ever the seed - below everything. No tolerance: two
 /// equal doubles order by hop count and then arbitrarily, as any other tie does. Double totals are rounded
-/// sums, so paths whose exact weights differ by about one ulp can come out in either order.
+/// sums, so paths whose exact weights differ by about half an ulp per hop can come out in either order.
 bool CostLess(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull() || rhs.IsNull()) return lhs.IsNull() && !rhs.IsNull();
   ValidateWeightTypes(lhs, rhs);
