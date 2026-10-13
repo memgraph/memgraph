@@ -1114,6 +1114,7 @@ bool TypedValue::IsPropertyValue() const {
     case Type::Enum:
     case Type::Point2d:
     case Type::Point3d:
+    case Type::VectorRef:  // materializes to a list of doubles in ToPropertyValue
       return true;
     case Type::Vertex:
     case Type::Edge:
@@ -1123,7 +1124,6 @@ bool TypedValue::IsPropertyValue() const {
     case Type::Graph:
     case Type::VirtualGraph:
     case Type::Function:
-    case Type::VectorRef:
       return false;
   }
 }
