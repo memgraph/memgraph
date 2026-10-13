@@ -3275,7 +3275,7 @@ class PruningBFSDispatchCursor : public query::plan::Cursor {
   UniqueCursorPtr chosen_;
 };
 
-void ValidateWeight(TypedValue current_weight) {
+void ValidateWeight(const TypedValue &current_weight) {
   if (current_weight.IsNull()) {
     return;
   }
@@ -4062,7 +4062,14 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
 namespace {
 
-bool CostLess(const TypedValue &lhs, const TypedValue &rhs);
+/// Exact order; null (the seed) sorts first. Double sums round, so paths within about half an ulp
+/// per hop can come out in either order.
+std::partial_ordering CostCompare(const TypedValue &lhs, const TypedValue &rhs) {
+  if (lhs.IsNull() || rhs.IsNull()) return !lhs.IsNull() <=> !rhs.IsNull();
+  ValidateWeightTypes(lhs, rhs);
+  // Engaged: unlike types threw above, and a NaN weight is refused.
+  return *relations::comparability::Compare(lhs, rhs);
+}
 
 /// Sum that only orders the search. Null is the identity (the seed; the target in the reverse tree).
 /// An Int overflow becomes a Double: no path shows this sum. See `AddServedCost`.
@@ -4081,8 +4088,8 @@ TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
   // Same-type sums of non-negative weights never drop. A Double added to an Int above 2^53 can round
   // below the Int, and a dropping cost lets a cycle look cheaper than the path that skips it.
   if (lhs.type() == rhs.type()) return sum;
-  if (CostLess(sum, lhs)) return lhs;
-  if (CostLess(sum, rhs)) return rhs;
+  if (std::is_lt(CostCompare(sum, lhs))) return lhs;
+  if (std::is_lt(CostCompare(sum, rhs))) return rhs;
   return sum;
 }
 
@@ -4100,17 +4107,6 @@ TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
   }
   return lhs + rhs;
 }
-
-/// Exact order; null (the seed) sorts first. Double sums round, so paths within about half an ulp
-/// per hop can come out in either order.
-std::partial_ordering CostCompare(const TypedValue &lhs, const TypedValue &rhs) {
-  if (lhs.IsNull() || rhs.IsNull()) return !lhs.IsNull() <=> !rhs.IsNull();
-  ValidateWeightTypes(lhs, rhs);
-  // Engaged: unlike types threw above, and a NaN weight is refused.
-  return *relations::comparability::Compare(lhs, rhs);
-}
-
-bool CostLess(const TypedValue &lhs, const TypedValue &rhs) { return std::is_lt(CostCompare(lhs, rhs)); }
 
 /// Hop count is the cost: today's `PathInfo` and today's bidirectional BFS, with no per-path payload.
 struct KShortestHopCost {
@@ -4179,7 +4175,7 @@ class KShortestPathsCursor : public Cursor {
     // Advances to the next path at least `lower_bound_` long, generating more as needed. Under weights a
     // short path can turn up late, so the bound filters at serving time.
     auto advance_to_servable = [&] {
-      if (!current_source_.has_value() || !current_target_.has_value()) return false;
+      if (!current_source_.has_value()) return false;  // the target is set and reset with it
       while (true) {
         while (current_path_index_ < shortest_paths_.size()) {
           if (std::cmp_greater_equal(shortest_paths_[current_path_index_].edges.size(), lower_bound_)) return true;
@@ -4242,7 +4238,7 @@ class KShortestPathsCursor : public Cursor {
       if (lower_bound_ < 0) {
         throw QueryRuntimeException("Minimum depth in KSHORTEST path expansion must not be negative.");
       }
-      // Legally empty, as in BFS. Not just a shortcut: the top-up loop would otherwise enumerate
+      // Legally empty, as in BFS. Not just a shortcut: `advance_to_servable` would otherwise enumerate
       // every simple path and still serve nothing.
       if (lower_bound_ > upper_bound_) continue;
 
@@ -4604,6 +4600,12 @@ class KShortestPathsCursor : public Cursor {
     throw QueryRuntimeException("Expansion condition must evaluate to boolean or null");
   }
 
+  /// Access check first: an edge the user cannot read must never make a lambda run on it.
+  bool ArcAllowed(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame, ExpressionEvaluator &evaluator,
+                  ExecutionContext &context) {
+    return EdgeAndEndpointReadable(edge, head, context) && EvaluateFilterLambda(edge, head, frame, evaluator, context);
+  }
+
   /// The access check and the lambda take the arc's head in path order: the vertex we reach on the source-side
   /// pass, the vertex we expand *from* on the target-side (`Backward`) pass. So both passes test the pairs a
   /// forward walk would, and an arc's verdict does not depend on which pass reaches it.
@@ -4615,11 +4617,7 @@ class KShortestPathsCursor : public Cursor {
       return false;
 
     const VertexAccessor &head = Backward ? expand_from : next;
-    // Access check first: an edge the user cannot read must never make the lambda run on it.
-    auto verdict = [&] {
-      return EdgeAndEndpointReadable(edge, head, context) &&
-             EvaluateFilterLambda(edge, head, frame, evaluator, context);
-    };
+    auto verdict = [&] { return ArcAllowed(edge, head, frame, evaluator, context); };
     if (!memoize_expansion_) return verdict();
 
     const ExpansionKey key{.edge = edge.Gid(), .head = head.Gid()};
@@ -4653,12 +4651,11 @@ class KShortestPathsCursor : public Cursor {
   }
 
   PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target, int64_t upper_bound,
-                               const TypedValue &start_cost, Frame &frame, ExpressionEvaluator &evaluator,
-                               ExecutionContext &context) {
+                               [[maybe_unused]] const TypedValue &start_cost, Frame &frame,
+                               ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if constexpr (Cost::kWeighted) {
       return ComputeShortestPathWeighted(source, target, upper_bound, start_cost, frame, evaluator, context);
     } else {
-      (void)start_cost;
       return ComputeShortestPathBfs(source, target, upper_bound, frame, evaluator, context);
     }
   }
@@ -4775,8 +4772,7 @@ class KShortestPathsCursor : public Cursor {
     if (const auto it = expansion_memo_.find(key); it != expansion_memo_.end()) return it->second;
 
     std::optional<TypedValue> verdict;
-    // Access check first: an edge the user cannot read must never make a lambda run on it.
-    if (EdgeAndEndpointReadable(edge, head, context) && EvaluateFilterLambda(edge, head, frame, evaluator, context)) {
+    if (ArcAllowed(edge, head, frame, evaluator, context)) {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       // The lambda is folded into a running total by the caller, so it is asked for this arc alone.
       frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, edge);
@@ -4838,7 +4834,7 @@ class KShortestPathsCursor : public Cursor {
       if (in_edge) out.edges.push_back(*in_edge);
     }
     std::ranges::reverse(out.edges);
-    if constexpr (Cost::kWeighted) out.cost.total = cost;
+    out.cost.total = cost;
     return out;
   }
 
