@@ -464,8 +464,8 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
   auto *dba = ctx.db_accessor;
   auto get_properties = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TMap properties(ctx.memory);
-    // Wrap each embedding property as a lazy VectorRef — a retained map costs O(references), not O(N*dim) floats.
-    auto maybe_props = record_accessor.Properties(ctx.view, /*with_vector_reconstruction=*/false);
+    // With lazy refs on, embeddings stay lazy VectorRefs: a retained map costs O(references), not O(N*dim) floats.
+    auto maybe_props = record_accessor.Properties(ctx.view, !ctx.lazy_vector_refs);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -481,7 +481,7 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
     for (const auto &property : *maybe_props) {
       auto key = TypedValue::TString(dba->PropertyToName(property.first), ctx.memory);
       if (is_allowed(property.first)) {
-        if (property.second.IsVectorIndexId()) {
+        if (ctx.lazy_vector_refs && property.second.IsVectorIndexId()) {
           properties.emplace(
               std::move(key),
               TypedValue(LazyVectorRef{.entity = record_accessor.impl_, .prop = property.first, .view = ctx.view},
@@ -633,6 +633,8 @@ TypedValue IsEmpty(const TypedValue *args, int64_t nargs, const FunctionContext 
     using enum TypedValue::Type;
     case List:
       return TypedValue(arg.UnsafeValueList().empty(), ctx.memory);
+    case VectorRef:
+      return TypedValue(arg.ValueList().empty(), ctx.memory);
     case Map:
       return TypedValue(arg.UnsafeValueMap().empty(), ctx.memory);
     case String:
@@ -1013,8 +1015,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
 
   auto get_values = [&](const auto &record_accessor, auto const &is_allowed) {
     TypedValue::TVector values(ctx.memory);
-    // Keep embeddings lazy (like properties(n)): a VectorRef costs O(references), not O(N*dim) floats.
-    auto maybe_props = record_accessor.Properties(ctx.view, /*with_vector_reconstruction=*/false);
+    // Like properties(n): with lazy refs on, embeddings stay VectorRefs.
+    auto maybe_props = record_accessor.Properties(ctx.view, !ctx.lazy_vector_refs);
     if (!maybe_props) {
       switch (maybe_props.error()) {
         case storage::Error::DELETED_OBJECT:
@@ -1029,7 +1031,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     }
     for (const auto &[key, value] : *maybe_props) {
       if (is_allowed(key)) {
-        if (value.IsVectorIndexId()) {
+        if (ctx.lazy_vector_refs && value.IsVectorIndexId()) {
           values.emplace_back(
               TypedValue(LazyVectorRef{.entity = record_accessor.impl_, .prop = key, .view = ctx.view}, ctx.memory));
         } else {
