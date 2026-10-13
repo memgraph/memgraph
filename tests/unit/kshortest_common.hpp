@@ -845,8 +845,6 @@ class Database {
 
   // --- weighted arm --------------------------------------------------------------------------------
 
-  // The weight lambda every weighted case here uses: `e.weight`, which is what `BuildGraph` stores
-  // and what `EdgeWeightFor` replays.
   // Runs `body` and checks that it raises exactly `expected`.
   template <typename Body>
   static void ExpectRuntimeError(Body &&body, std::string_view expected) {
@@ -858,6 +856,8 @@ class Database {
     }
   }
 
+  // The weight lambda every weighted case here uses: `e.weight`, which is what `BuildGraph` stores
+  // and what `EdgeWeightFor` replays.
   memgraph::query::plan::ExpansionLambda MakeWeightLambda(memgraph::query::DbAccessor &dba,
                                                           memgraph::query::ExecutionContext &context) {
     auto edge_sym = context.symbol_table.CreateSymbol("weight_edge", true);
@@ -892,8 +892,6 @@ class Database {
     std::optional<int> lower_bound;
     std::optional<int> upper_bound;
     std::optional<int> limit;
-    // `e.weight` when unset.
-    std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda;
     std::optional<memgraph::query::plan::ExpansionLambda> filter_lambda;
   };
 
@@ -922,7 +920,7 @@ class Database {
                                          literal_or_null(query.upper_bound),
                                          query.filter_lambda.value_or(FilterLambda(context, nullptr)),
                                          literal_or_null(query.limit),
-                                         query.weight_lambda.value_or(MakeWeightLambda(dba, context)),
+                                         MakeWeightLambda(dba, context),
                                          total_sym);
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
@@ -1283,22 +1281,7 @@ class Database {
     dba.Abort();
   }
 
-  // Weights of the wrong type are runtime errors; `WeightErrorTexts` pins null and negative.
-  void KShortestWeightedTestWeightErrors(Database *db) {
-    using PV = memgraph::storage::PropertyValue;
-    const auto duration = PV(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, 1));
-    const std::vector<std::pair<const char *, PV>> cases{{"string", PV("heavy")},
-                                                         {"duration among integers", duration}};
-
-    for (const auto &[name, weight] : cases) {
-      SCOPED_TRACE(name);
-      auto weights = DetourIntWeights();
-      weights[{0, 1}] = weight;
-      EXPECT_THROW(DetourResults(db, weights), memgraph::query::QueryRuntimeException);
-    }
-  }
-
-  // The texts for the weights the v3.13 filter spelling produces name the migration, word for word.
+  // Each invalid weight raises its own text, word for word; the v3.13 filter spellings name the migration.
   void KShortestWeightedTestWeightErrorTexts(Database *db) {
     using PV = memgraph::storage::PropertyValue;
     const std::string hint =
@@ -1311,7 +1294,12 @@ class Database {
          "weight, or filter the ones without one out. If the lambda is a v3.13 filter: " +
              hint},
         {"negative", PV(int64_t{-1}), "Weight must be non-negative, got -1."},
-        {"NaN", PV(std::nan("")), "The weight lambda of a KSHORTEST path expansion must not evaluate to NaN."}};
+        {"NaN", PV(std::nan("")), "The weight lambda of a KSHORTEST path expansion must not evaluate to NaN."},
+        {"string", PV("heavy"), "Weight must be numeric or a Duration, got string."},
+        {"duration among integers",
+         PV(memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, 1)),
+         "All weights should be of the same type, either numeric or a Duration. Please update the weight expression "
+         "or the filter expression. For more details, visit https://memgr.ph/wsp."}};
 
     for (const auto &[name, weight, expected] : cases) {
       SCOPED_TRACE(name);
@@ -1337,22 +1325,16 @@ class Database {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
-    auto filter_edge_sym = context.symbol_table.CreateSymbol("filter_edge", true);
-    auto filter_node_sym = context.symbol_table.CreateSymbol("filter_node", true);
-    auto *inner_node = IDENT("filter_node")->MapTo(filter_node_sym);
+    auto filter = FilterLambda(context, nullptr);
+    auto *inner_node = IDENT("filter_node")->MapTo(filter.inner_node_symbol);
 
     auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
     SetEdgeWeights(dba, edges, DetourEdges(), DetourIntWeights());
     dba.AdvanceCommand();
 
-    auto *filter_expr = NEQ(PROPERTY_LOOKUP(dba, inner_node, PROPERTY_PAIR(dba, "id")), LITERAL(2));
-    auto run = RunWeighted(
-        db,
-        dba,
-        context,
-        {.sources = {vertices[0]},
-         .sinks = {vertices[3]},
-         .filter_lambda = memgraph::query::plan::ExpansionLambda{filter_edge_sym, filter_node_sym, filter_expr}});
+    filter.expression = NEQ(PROPERTY_LOOKUP(dba, inner_node, PROPERTY_PAIR(dba, "id")), LITERAL(2));
+    auto run =
+        RunWeighted(db, dba, context, {.sources = {vertices[0]}, .sinks = {vertices[3]}, .filter_lambda = filter});
 
     ASSERT_EQ(run.rows.size(), 1U) << "both cheap routes pass through the blocked vertex";
     EXPECT_EQ(run.rows[0][3].ValueInt(), 10);
@@ -1372,23 +1354,17 @@ class Database {
       auto storage_dba = db->Access();
       memgraph::query::DbAccessor dba(storage_dba.get());
       memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
-      auto filter_edge_sym = context.symbol_table.CreateSymbol("filter_edge", true);
-      auto filter_node_sym = context.symbol_table.CreateSymbol("filter_node", true);
-      auto *inner_edge = IDENT("filter_edge")->MapTo(filter_edge_sym);
+      auto filter = FilterLambda(context, nullptr);
+      auto *inner_edge = IDENT("filter_edge")->MapTo(filter.inner_edge_symbol);
       auto [vertices, edges] = db->BuildGraph(&dba, {0, 0, 0}, graph_edges);
       SetEdgeWeights(dba, edges, graph_edges, weights);
       dba.AdvanceCommand();
 
-      auto *filter_expr =
-          filtered ? GREATER_EQ(PROPERTY_LOOKUP(dba, inner_edge, PROPERTY_PAIR(dba, "weight")), LITERAL(0)) : nullptr;
+      if (filtered)
+        filter.expression = GREATER_EQ(PROPERTY_LOOKUP(dba, inner_edge, PROPERTY_PAIR(dba, "weight")), LITERAL(0));
       auto run = [&] {
         return RunWeighted(
-            db,
-            dba,
-            context,
-            {.sources = {vertices[0]},
-             .sinks = {vertices[1]},
-             .filter_lambda = memgraph::query::plan::ExpansionLambda{filter_edge_sym, filter_node_sym, filter_expr}});
+            db, dba, context, {.sources = {vertices[0]}, .sinks = {vertices[1]}, .filter_lambda = filter});
       };
       if (filtered) {
         const auto result = run();

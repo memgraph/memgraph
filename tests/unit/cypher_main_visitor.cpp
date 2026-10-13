@@ -3250,7 +3250,10 @@ constexpr std::string_view kKShortestWeightFirstHint =
 // A v3.13 path filter `(e, n, p | ...)` is now a weight lambda, which cannot take the path.
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestWeightLambdaWithAccumulatedPath) {
   auto &ast_generator = *GetParam();
-  for (const auto *lambda : {"(e, n, p | e.w) total", "(e, n, p | size(p) > 0)"}) {
+  for (const auto *lambda : {"(e, n, p | e.w) total",
+                             "(e, n, p | size(p) > 0)",
+                             "(e, n, p, w | w < 50)",
+                             "(e, n, p | e.w) total (f, m | m.ok)"}) {
     SCOPED_TRACE(lambda);
     try {
       ast_generator.ParseQuery(fmt::format("MATCH ()-[r:type1 *kShortest {}]->() RETURN r", lambda));
@@ -3345,30 +3348,12 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnTotalWeightWithBfs) {
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnDepthFirstWithTwoLambdas) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 * (e, n | 1) (e, n | true)]->() RETURN r"),
-               SemanticException);
-}
-
-TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathReturn) {
-  auto &ast_generator = *GetParam();
   try {
-    ast_generator.ParseQuery(
-        "MATCH pth=()-[r:type1 *kShortest (e, n, p | startNode(relationships(e)[-1]) = "
-        "c:type3)]->(:type2) RETURN pth");
-    FAIL() << "Expected the accumulated path to be rejected for KSHORTEST";
+    ast_generator.ParseQuery("MATCH ()-[r:type1 * (e, n | 1) (e, n | true)]->() RETURN r");
+    FAIL() << "Expected two lambdas to be refused for a depth-first expansion";
   } catch (const SemanticException &e) {
-    EXPECT_EQ(std::string(e.what()),
-              fmt::format("The lambda for calculating weights cannot take the accumulated path or the accumulated "
-                          "weight. {}",
-                          kKShortestWeightFirstHint));
+    EXPECT_EQ(std::string(e.what()), "Only one filter lambda can be supplied.");
   }
-}
-
-TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathWeightReturn) {
-  auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH pth=()-[r:type1 *kShortest (e, n, p, w | "
-                                        "startNode(relationships(e)[-1]) = c:type3 AND w < 50)]->(:type2) RETURN pth"),
-               SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestWithRangeBounds) {
