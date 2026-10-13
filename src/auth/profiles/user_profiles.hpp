@@ -16,7 +16,7 @@
 #include <unordered_set>
 #include <variant>
 
-#include "kvstore/kvstore.hpp"
+#include "auth/repository.hpp"
 #include "utils/rw_spin_lock.hpp"
 
 namespace memgraph::auth {
@@ -24,12 +24,19 @@ namespace memgraph::auth {
 class UserProfiles {
  public:
   enum class Limits : uint8_t { kSessions = 0, kTransactionsMemory };
+
+  /// Whether a drop removed anything. A profile that was never there is not a failure: a replica applying a
+  /// batch may be told to drop one the main created and dropped between snapshots.
+  enum class DropResult : uint8_t { kDropped, kAbsent, kFailed };
+
+  /// Whether a membership change altered anything. A username that is already absent from a profile is not a
+  /// failure: reconciling a replica against the main asks for removals that may already have happened.
+  enum class MembershipResult : uint8_t { kChanged, kAbsent, kFailed };
   static constexpr std::array<std::string_view, 2> kLimits = {"sessions", "transactions_memory"};
   static_assert(kLimits.size() == static_cast<int>(Limits::kTransactionsMemory) + 1, "kLimits size mismatch");
 
   static auto AllLimits() { return fmt::format("{}, {}", kLimits[0], kLimits[1]); }
 
-  static constexpr std::string_view kUserProfilesPrefix = "user_profile:";
   static constexpr std::string_view kUserProfilesVersionKey = "user_profile_version";
   static constexpr std::string_view kUserProfilesV1 = "V1";
   static constexpr std::string_view kUserProfilesVersion = kUserProfilesV1;
@@ -49,17 +56,17 @@ class UserProfiles {
         : name(std::move(name)), limits(std::move(limits)), usernames(std::move(usernames)) {}
   };
 
-  explicit UserProfiles(kvstore::KVStore &durability);
+  explicit UserProfiles(Repository &durability);
 
   bool Create(std::string_view name, limits_t defined_limits, const std::unordered_set<std::string> &usernames = {});
   std::optional<Profile> Update(std::string_view name, const limits_t &updated_limits);
-  bool Drop(std::string_view name);
+  DropResult Drop(std::string_view name);
   std::optional<Profile> Get(std::string_view name) const;
   std::vector<Profile> GetAll() const;
 
   // New methods for username management
   std::optional<Profile> AddUsername(std::string_view profile_name, std::string_view username);
-  bool RemoveUsername(std::string_view profile_name, std::string_view username);
+  MembershipResult RemoveUsername(std::string_view profile_name, std::string_view username);
   std::unordered_set<std::string> GetUsernames(std::string_view profile_name) const;
   std::optional<std::string> GetProfileForUsername(std::string_view username) const;
 
@@ -93,7 +100,7 @@ class UserProfiles {
   };
 
   mutable utils::RWSpinLock mtx_;
-  kvstore::KVStore *durability_;                                       // Reuse auth's durability
+  Repository *durability_;                                             // Reuse auth's durability
   std::unordered_set<Profile, profile_hash, profile_equal> profiles_;  // Local storage
 };
 
