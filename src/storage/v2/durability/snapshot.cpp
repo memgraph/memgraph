@@ -13545,6 +13545,12 @@ std::optional<std::filesystem::path> CreateSnapshot(
     std::atomic_bool *abort_snapshot, SnapshotProgress *progress, std::string_view trigger) {
   utils::Timer timer;
 
+  // Every worker below serializes its own range of vertices through this one transaction, and a
+  // read via VertexAccessor also writes transaction->manyDeltasCache, which has no locking. The
+  // cache could not pay for itself here in any case: each vertex is read by exactly one worker,
+  // once, so no lookup can ever hit.
+  transaction->SetParallelExecution();
+
   // Ensure that the storage directory exists.
   utils::EnsureDirOrDie(snapshot_directory);
 
