@@ -59,26 +59,22 @@ void from_json(const nlohmann::json &data, memgraph::auth::UserProfiles::Profile
   if (data.contains("usernames")) profile.usernames = data["usernames"].get<std::unordered_set<std::string>>();
 }
 
-UserProfiles::UserProfiles(kvstore::KVStore &durability) : durability_{&durability} {
+UserProfiles::UserProfiles(Repository &durability) : durability_{&durability} {
   // No migration at the moment
   if (!durability_->Put(kUserProfilesVersionKey, kUserProfilesVersion)) {
     spdlog::error("Failed to put user profiles version");
   }
 
   // Populate local storage
-  for (auto it = durability_->begin(kUserProfilesPrefix.data()); it != durability_->end(kUserProfilesPrefix.data());
-       ++it) {
-    const auto &key = it->first;
-    const auto &value = it->second;
-    const auto name = key.substr(kUserProfilesPrefix.size());
+  durability_->ForEachProfile([this](auto const &name, auto const &value) {
     try {
-      auto profile = nlohmann::json::parse(value).get<memgraph::auth::UserProfiles::Profile>();
+      auto profile = nlohmann::json::parse(value).template get<memgraph::auth::UserProfiles::Profile>();
       profile.name = name;
       profiles_.emplace(std::move(profile));
     } catch (const nlohmann::json::parse_error &) {
       spdlog::warn("Failed to parse user profile {}", name);
     }
-  }
+  });
 };
 
 bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
@@ -99,7 +95,7 @@ bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
         existing_profile.usernames.erase(username);
         // Update the other profile in durability
         const nlohmann::json json = existing_profile;
-        durability_->Put(kUserProfilesPrefix.data() + existing_profile.name, json.dump());
+        durability_->Put(Repository::ProfileKey(existing_profile.name), json.dump());
       }
     }
   }
@@ -109,7 +105,7 @@ bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
   if (!succ) {
     return false;
   }
-  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{name}, json.dump())) {
+  if (!durability_->Put(Repository::ProfileKey(name), json.dump())) {
     // Remove new profile
     profiles_.erase(it);
     return false;
@@ -130,7 +126,7 @@ std::optional<UserProfiles::Profile> UserProfiles::Update(std::string_view name,
   }
   // Update durability
   const nlohmann::json json = *profile_it;
-  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{name}, json.dump())) {
+  if (!durability_->Put(Repository::ProfileKey(name), json.dump())) {
     // Revert to old profile
     profile_it->limits = std::move(old_limits);
     return std::nullopt;
@@ -138,20 +134,20 @@ std::optional<UserProfiles::Profile> UserProfiles::Update(std::string_view name,
   return *profile_it;  // Return updated profile
 }
 
-bool UserProfiles::Drop(std::string_view name) {
+UserProfiles::DropResult UserProfiles::Drop(std::string_view name) {
   auto l = std::unique_lock{mtx_};
   auto profile_it = profiles_.find(name);
   if (profile_it == profiles_.end()) {
-    return false;
+    return DropResult::kAbsent;
   }
   auto old_profile = *profile_it;  // copy
   profiles_.erase(profile_it);
-  if (!durability_->Delete(kUserProfilesPrefix.data() + std::string{name})) {
+  if (!durability_->Delete(Repository::ProfileKey(name))) {
     // Revert to old profile
     profiles_.emplace(std::move(old_profile));
-    return false;
+    return DropResult::kFailed;
   }
-  return true;
+  return DropResult::kDropped;
 }
 
 std::optional<UserProfiles::Profile> UserProfiles::Get(std::string_view name) const {
@@ -164,9 +160,9 @@ std::optional<UserProfiles::Profile> UserProfiles::Get(std::string_view name) co
 }
 
 std::vector<UserProfiles::Profile> UserProfiles::GetAll() const {
+  auto l = std::shared_lock{mtx_};
   std::vector<UserProfiles::Profile> profiles;
   profiles.reserve(profiles_.size());
-  auto l = std::shared_lock{mtx_};
   for (const auto &profile : profiles_) {
     profiles.emplace_back(profile);
   }
@@ -187,7 +183,7 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
       profile.usernames.erase(std::string{username});
       // Update the other profile in durability
       const nlohmann::json json = profile;
-      durability_->Put(kUserProfilesPrefix.data() + profile.name, json.dump());
+      durability_->Put(Repository::ProfileKey(profile.name), json.dump());
     }
   }
 
@@ -196,7 +192,7 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
 
   // Update durability
   const nlohmann::json json = *profile_it;
-  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{profile_name}, json.dump())) {
+  if (!durability_->Put(Repository::ProfileKey(profile_name), json.dump())) {
     // Revert changes
     profile_it->usernames.erase(std::string{username});
     return std::nullopt;
@@ -205,29 +201,29 @@ std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view 
   return *profile_it;
 }
 
-bool UserProfiles::RemoveUsername(std::string_view profile_name, std::string_view username) {
+UserProfiles::MembershipResult UserProfiles::RemoveUsername(std::string_view profile_name, std::string_view username) {
   auto l = std::unique_lock{mtx_};
   auto profile_it = profiles_.find(profile_name);
   if (profile_it == profiles_.end()) {
-    return false;
+    return MembershipResult::kAbsent;
   }
 
   auto username_it = profile_it->usernames.find(std::string{username});
   if (username_it == profile_it->usernames.end()) {
-    return false;
+    return MembershipResult::kAbsent;
   }
 
   profile_it->usernames.erase(username_it);
 
   // Update durability
   const nlohmann::json json = *profile_it;
-  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{profile_name}, json.dump())) {
+  if (!durability_->Put(Repository::ProfileKey(profile_name), json.dump())) {
     // Revert changes
     profile_it->usernames.insert(std::string{username});
-    return false;
+    return MembershipResult::kFailed;
   }
 
-  return true;
+  return MembershipResult::kChanged;
 }
 
 std::unordered_set<std::string> UserProfiles::GetUsernames(std::string_view profile_name) const {
