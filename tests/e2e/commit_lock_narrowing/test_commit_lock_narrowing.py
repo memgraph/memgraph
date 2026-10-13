@@ -20,6 +20,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from typing import Any
 
 import pytest
 from neo4j import GraphDatabase
@@ -107,6 +108,19 @@ def main_lock_contender():
     t.join(CALL_TIMEOUT_S)
 
 
+def tolerate_access_timeout(body: Callable[[], None], cleanup: Callable[[], None] | None = None) -> bool:
+    """Run body; True on success, False on a storage-access TransientError. Anything else propagates."""
+    try:
+        body()
+        return True
+    except TransientError as e:
+        if ACCESS_TIMEOUT_MSG not in str(e):
+            raise
+        if cleanup is not None:
+            cleanup()
+        return False
+
+
 def run_clients(client_fn: Callable[[int], int], n_clients: int = N_CLIENTS, iterations: int = ITERATIONS) -> int:
     """Run n_clients threads of client_fn(i) -> successful writes; every thread is bounded."""
     results: list = [None] * n_clients
@@ -179,19 +193,19 @@ def test_cypher_begin_commit_under_contention(main_lock_contender):
 
                 def call() -> bool:
                     with d.session() as s:
-                        try:
+
+                        def body() -> None:
                             s.run("BEGIN").consume()
                             s.run(WRITE_QUERY, n=BEGIN_NODES_PER_WRITE, c=i, k=k).consume()
                             s.run("COMMIT").consume()
-                            return True
-                        except TransientError as e:
-                            if ACCESS_TIMEOUT_MSG not in str(e):
-                                raise
-                            try:  # leave the pooled connection outside any transaction
+
+                        def rollback() -> None:  # leave the pooled connection outside any transaction
+                            try:
                                 s.run("ROLLBACK").consume()
                             except Exception:  # noqa: BLE001 - no transaction may be open
                                 pass
-                            return False
+
+                        return tolerate_access_timeout(body, rollback)
 
                 if run_bounded(call):
                     ok += 1
@@ -199,6 +213,47 @@ def test_cypher_begin_commit_under_contention(main_lock_contender):
 
     ok = run_clients(client, BEGIN_N_CLIENTS, BEGIN_ITERATIONS)
     assert ok >= 1, "no BEGIN/COMMIT write succeeded"
+    assert count_nodes() == ok * BEGIN_NODES_PER_WRITE
+
+
+def _contended_write_clients(write: Callable[[Any, int, int], None]) -> int:
+    def client(i: int) -> int:
+        ok = 0
+        with GraphDatabase.driver(URI, auth=None, max_transaction_retry_time=0) as d:
+            for k in range(BEGIN_ITERATIONS):
+
+                def call() -> bool:
+                    with d.session() as s:
+                        return tolerate_access_timeout(lambda: write(s, i, k))
+
+                if run_bounded(call):
+                    ok += 1
+        return ok
+
+    return run_clients(client, BEGIN_N_CLIENTS, BEGIN_ITERATIONS)
+
+
+def test_bolt_begin_message_under_main_lock_contention(main_lock_contender):
+    """Bolt BEGIN message (driver begin_transaction) may park on main_lock_; only storage-access TransientError is tolerated."""
+
+    def write(s: Any, i: int, k: int) -> None:
+        with s.begin_transaction() as tx:  # closed (rolled back if uncommitted) on any exit
+            tx.run(WRITE_QUERY, n=BEGIN_NODES_PER_WRITE, c=i, k=k).consume()
+            tx.commit()
+
+    ok = _contended_write_clients(write)
+    assert ok >= 1, "no Bolt BEGIN write succeeded"
+    assert count_nodes() == ok * BEGIN_NODES_PER_WRITE
+
+
+def test_autocommit_first_run_under_main_lock_contention(main_lock_contender):
+    """RUN-first autocommit (implicit BEGIN) may park on main_lock_; only storage-access TransientError is tolerated."""
+
+    def write(s: Any, i: int, k: int) -> None:
+        s.run(WRITE_QUERY, n=BEGIN_NODES_PER_WRITE, c=i, k=k).consume()
+
+    ok = _contended_write_clients(write)
+    assert ok >= 1, "no autocommit write succeeded"
     assert count_nodes() == ok * BEGIN_NODES_PER_WRITE
 
 
