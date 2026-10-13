@@ -729,9 +729,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     // blocked would tell the peer we are advancing when we are not.
     record_progress();
 
-    // Validate the received snapshot while the data is still intact: if it can't be opened or its header can't be read,
-    // fail without clearing. Doesn't hold an fd across Clear(), so a narrow window remains between this check and
-    // LoadSnapshot.
+    // Reject an unreadable snapshot before Clear() so data is kept; no fd is held, so a window remains before the load.
     try {
       std::ignore = storage::durability::ReadSnapshotInfo(src_snapshot_file);
     } catch (const storage::durability::RecoveryFailure &e) {
@@ -759,8 +757,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
     // Clear the database
     storage->Clear(record_progress);
-    // Arm broken right after Clear() so any failure below leaves the tenant refusing queries/snapshots, not "healthy
-    // and empty". SetBroken(false) on success disarms it. TTL is re-armed by the snapshot load itself.
+    // Arm broken right after Clear() so any failure below leaves the tenant refusing queries, not "healthy and empty".
     storage->ttl_.Disable();
     storage->SetBroken(true);
 
@@ -823,7 +820,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
       return;
     } catch (...) {
-      // Tenant stays broken; just don't leave the failed snapshot for restart recovery to pick first.
+      // Tenant stays broken; don't leave the failed snapshot for restart recovery.
       storage->ttl_.Disable();
       storage->file_retainer_.DeleteFile(dst_snapshot_file);
       throw;
@@ -980,8 +977,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
       spdlog::info("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                    storage->name());
       storage->Clear(record_progress);
-      // Arm broken right after Clear(): the recovery below isn't complete until SetBroken(false). Queries and snapshots
-      // are refused meanwhile and TTL must not run on the emptied tenant (as in the startup recovery-failure path).
+      // Arm broken right after Clear(): recovery isn't complete until SetBroken(false), and TTL must not run meanwhile.
       storage->ttl_.Disable();
       storage->SetBroken(true);
     }
@@ -1144,8 +1140,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
       spdlog::info("Clearing replica storage for db {} because the reset is needed while recovering from WalFiles.",
                    storage->name());
       storage->Clear(record_progress);
-      // Arm broken right after Clear(): the recovery below isn't complete until SetBroken(false). Queries and snapshots
-      // are refused meanwhile and TTL must not run on the emptied tenant (as in the startup recovery-failure path).
+      // Arm broken right after Clear(): recovery isn't complete until SetBroken(false), and TTL must not run meanwhile.
       storage->ttl_.Disable();
       storage->SetBroken(true);
     }
