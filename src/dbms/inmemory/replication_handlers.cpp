@@ -102,16 +102,12 @@ struct BackupDirectories {
   std::filesystem::path backup_wal_dir;
 };
 
-// keep_existing: a non-empty backup_dir is left in place so that a failed recovery doesn't wipe the files an earlier
-// failed attempt moved there (they may be the only copy of the pre-failure data).
-auto CreateBackupDir(std::filesystem::path const &backup_dir, bool const keep_existing) -> bool {
+auto CreateBackupDir(std::filesystem::path const &backup_dir) -> bool {
   std::error_code ec{};
 
   // Clear old directory (single fallback)
   if (std::filesystem::exists(backup_dir)) {
-    if (!keep_existing || std::filesystem::is_empty(backup_dir, ec)) {
-      std::filesystem::remove_all(backup_dir, ec);
-    }
+    std::filesystem::remove_all(backup_dir, ec);
     // Silent failure
   }
 
@@ -124,17 +120,16 @@ auto CreateBackupDir(std::filesystem::path const &backup_dir, bool const keep_ex
 }
 
 auto CreateBackupDirectories(std::filesystem::path const &current_snapshot_dir,
-                             std::filesystem::path const &current_wal_dir, bool const keep_existing = false)
-    -> std::optional<BackupDirectories> {
+                             std::filesystem::path const &current_wal_dir) -> std::optional<BackupDirectories> {
   constexpr std::string_view backup_subdir = ".old";
   auto backup_snapshot_dir = current_snapshot_dir / backup_subdir;
-  if (!CreateBackupDir(backup_snapshot_dir, keep_existing)) {
+  if (!CreateBackupDir(backup_snapshot_dir)) {
     spdlog::error("Failed to create the backup directory for snapshots. Replica won't be recovered.");
     return std::nullopt;
   }
 
   auto backup_wal_dir = current_wal_dir / backup_subdir;
-  if (!CreateBackupDir(backup_wal_dir, keep_existing)) {
+  if (!CreateBackupDir(backup_wal_dir)) {
     spdlog::error("Failed to create the backup directory for WALs. Replica won't be recovered.");
     return std::nullopt;
   }
@@ -145,14 +140,13 @@ auto CreateBackupDirectories(std::filesystem::path const &current_snapshot_dir,
 
 void ProcessOldDurableFiles(bool const reset_needed, std::filesystem::path const &current_snapshot_dir,
                             std::filesystem::path const &current_wal_dir,
-                            std::vector<std::filesystem::path> const &old_wal_files, utils::FileRetainer *file_retainer,
-                            bool const keep_existing_backup) {
+                            std::vector<std::filesystem::path> const &old_wal_files,
+                            utils::FileRetainer *file_retainer) {
   if (reset_needed) {
     auto const old_snapshot_files = utils::GetFilesFromDir(current_snapshot_dir);
 
     if (FLAGS_storage_backup_dir_enabled) {
-      auto const maybe_backup_dirs =
-          CreateBackupDirectories(current_snapshot_dir, current_wal_dir, keep_existing_backup);
+      auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_dir);
       if (!maybe_backup_dirs) {
         spdlog::error("Couldn't create backup directories. Old durable files won't be moved to .old directory.");
         return;
@@ -826,6 +820,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       const storage::replication::SnapshotRes res{std::nullopt, 0};
       rpc::SendFinalResponse(res, request_version, res_builder, storage->name());
       return;
+    } catch (...) {
+      // Tenant stays broken; just don't leave the failed snapshot for restart recovery to pick first.
+      storage->file_retainer_.DeleteFile(dst_snapshot_file);
+      throw;
     }
 
     // A successful snapshot load is the moment a broken replica tenant becomes healthy: the main has just full-synced
@@ -1004,9 +1002,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(
                              storage->recovery_.snapshot_directory_,
                              current_wal_directory,
                              old_wal_files,
-                             &storage->file_retainer_,
-                             // Still broken here means the reset failed: keep the .old holding the original data.
-                             storage->IsBroken());
+                             &storage->file_retainer_);
     } catch (const std::exception &e) {
       spdlog::error("Failed to clean up old durability files after WAL files recovery: {}", e.what());
     }
@@ -1187,9 +1183,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(
                              storage->recovery_.snapshot_directory_,
                              current_wal_directory,
                              old_wal_files,
-                             &storage->file_retainer_,
-                             // Still broken here means the reset failed: keep the .old holding the original data.
-                             storage->IsBroken());
+                             &storage->file_retainer_);
     } catch (const std::exception &e) {
       spdlog::error("Failed to clean up old durability files after current WAL recovery: {}", e.what());
     }

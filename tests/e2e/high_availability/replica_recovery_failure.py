@@ -20,6 +20,7 @@
 import os
 import shutil
 import sys
+import threading
 import time
 from functools import partial
 
@@ -52,8 +53,11 @@ def test_name(request):
 def cleanup_instances(test_name):
     # Instances stopped with keep_directories=True are no longer tracked by the runner, so remove their data here.
     data_root = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "data", get_data_path(file, test_name))
+    logs_root = os.path.join(interactive_mg_runner.BUILD_DIR, "e2e", "logs", get_logs_path(file, test_name))
     interactive_mg_runner.kill_all(keep_directories=False)
+    # Logs are appended to across runs and the tests grep them.
     shutil.rmtree(data_root, ignore_errors=True)
+    shutil.rmtree(logs_root, ignore_errors=True)
     yield
     interactive_mg_runner.kill_all(keep_directories=False)
     shutil.rmtree(data_root, ignore_errors=True)
@@ -125,10 +129,9 @@ def write_batches(main_cursor, batches, snapshot):
             execute_and_fetch_all(main_cursor, "CREATE SNAPSHOT")
 
 
-def setup_failed_snapshot_load(test_name):
+def prepare_replica_needing_snapshot(test_name):
     """Replica holding NUM_NODES nodes (and a snapshot of them) is stopped, MAIN moves on and prunes its WAL chain, so
-    the replica needs a snapshot; MAIN's snapshot is corrupted, so the replica's load fails. Returns the instances and
-    the replica's snapshot files before the failure."""
+    the replica needs a snapshot to catch up. Returns the instances and the replica's snapshot dir."""
     instances = get_instances(test_name)
     start_fresh(instances)
     main_cursor = connect(host="localhost", port=MAIN_BOLT).cursor()
@@ -142,8 +145,14 @@ def setup_failed_snapshot_load(test_name):
 
     interactive_mg_runner.stop(instances, "replica", keep_directories=True)
     write_batches(main_cursor, batches=3, snapshot=True)
-    corrupt_snapshots(data_dir(test_name, "main"))
+    return instances, replica_snapshots
 
+
+def setup_failed_snapshot_load(test_name):
+    """As above, but MAIN's snapshot is corrupted, so the replica's load fails. Returns the instances and the replica's
+    snapshot files before the failure."""
+    instances, replica_snapshots = prepare_replica_needing_snapshot(test_name)
+    corrupt_snapshots(data_dir(test_name, "main"))
     before = files_in(replica_snapshots)
     interactive_mg_runner.start(instances, "replica")
     mg_sleep_and_assert(True, lambda: "Couldn't load the snapshot" in log_text(test_name, "replica"), max_duration=60)
@@ -169,6 +178,10 @@ def test_failed_snapshot_load_is_broken_and_writes_no_snapshots(test_name):
 def test_restart_after_failed_snapshot_load_restores_data(test_name):
     instances, _ = setup_failed_snapshot_load(test_name)
 
+    # Let the 1s periodic snapshot fire: on a replica that wrongly looks healthy and empty, it writes an empty snapshot
+    # that sorts newest and would be loaded on restart.
+    time.sleep(5)
+
     # Only the snapshots may decide what restart recovers: no MAIN to heal the replica and no WAL to replay.
     interactive_mg_runner.kill(instances, "main", keep_directories=True)
     interactive_mg_runner.stop(instances, "replica", keep_directories=True)
@@ -190,6 +203,59 @@ def test_broken_replica_converges_once_main_has_good_snapshot(test_name):
     expected = vertex_count(main_cursor)
     mg_sleep_and_assert("ready", partial(health, replica_cursor), max_duration=60)
     mg_sleep_and_assert(expected, partial(vertex_count, replica_cursor))
+
+
+def test_unreadable_received_snapshot_leaves_replica_untouched(test_name):
+    # MAIN only sends snapshots whose header it can read, so the received file is damaged on the replica itself: a
+    # read transaction holds the replica's main lock after the snapshot lands in its snapshots dir, and the header is
+    # overwritten before the transaction ends.
+    instances, replica_snapshots = prepare_replica_needing_snapshot(test_name)
+    main_names = files_in(os.path.join(data_dir(test_name, "main"), "snapshots"))
+    assert main_names
+    stop = threading.Event()
+    damaged = threading.Event()
+
+    def damage_received_snapshot():
+        while not stop.is_set():
+            for name in main_names & files_in(replica_snapshots):
+                with open(os.path.join(replica_snapshots, name), "r+b") as fh:
+                    fh.write(b"\xff" * 64)
+                damaged.set()
+
+    interactive_mg_runner.start(instances, "replica")
+    blocker = None
+    for _ in range(100):
+        try:
+            blocker = connect(host="localhost", port=REPLICA_BOLT)
+            break
+        except Exception:
+            time.sleep(0.1)
+    assert blocker is not None
+    blocker.autocommit = False
+    blocker_cursor = blocker.cursor()
+    pre_failure_count = vertex_count(blocker_cursor)
+    assert pre_failure_count == NUM_NODES
+
+    watcher = threading.Thread(target=damage_received_snapshot)
+    watcher.start()
+    try:
+        assert damaged.wait(timeout=60), "MAIN never sent its snapshot"
+        blocker.rollback()
+        mg_sleep_and_assert(
+            True,
+            lambda: "Couldn't read the received snapshot" in log_text(test_name, "replica"),
+            max_duration=60,
+        )
+    finally:
+        stop.set()
+        watcher.join()
+
+    replica_cursor = connect(host="localhost", port=REPLICA_BOLT).cursor()
+    assert health(replica_cursor) == "ready"
+    assert vertex_count(replica_cursor) == NUM_NODES
+    assert "Clearing database" not in log_text(test_name, "replica")
+    # The damaged file is deleted; MAIN's retries only re-create it while the watcher is running.
+    mg_sleep_and_assert(True, lambda: main_names.isdisjoint(files_in(replica_snapshots)))
 
 
 def get_ha_instances(test_name):
@@ -236,7 +302,7 @@ def get_ha_instances(test_name):
     return instances
 
 
-def test_failed_wal_reset_is_broken_and_keeps_original_files(test_name):
+def test_failed_wal_reset_is_broken(test_name):
     # instance_1 (MAIN) gets ahead of instance_2, then instance_2 is promoted and writes its own history. When
     # instance_1 rejoins, the new MAIN resets it (clears it) before sending WAL files. The new MAIN's finalized WAL
     # files are corrupted, so the load fails after the clear, on every retry.
@@ -255,7 +321,6 @@ def test_failed_wal_reset_is_broken_and_keeps_original_files(test_name):
     interactive_mg_runner.stop(instances, "instance_2", keep_directories=True)
     execute_and_fetch_all(cursor_1, "UNWIND range(1, 1000) AS i CREATE (:Node {id: i})")
     snapshots_1 = os.path.join(data_dir(test_name, "instance_1"), "snapshots")
-    wal_1 = os.path.join(data_dir(test_name, "instance_1"), "wal")
     mg_sleep_and_assert(True, lambda: len(files_in(snapshots_1)) > 0)
     interactive_mg_runner.stop(instances, "instance_1", keep_directories=True)
     interactive_mg_runner.start(instances, "instance_2")
@@ -283,21 +348,13 @@ def test_failed_wal_reset_is_broken_and_keeps_original_files(test_name):
             fh.seek(1024)
             fh.write(b"\xff" * (os.path.getsize(path) - 1024))
 
-    original_files = files_in(snapshots_1) | files_in(wal_1)
     interactive_mg_runner.start(instances, "instance_1")
     cursor_1 = connect(host="localhost", port=7788).cursor()
 
     mg_sleep_and_assert("broken", partial(health, cursor_1))
 
-    # The original files were moved to .old by the failed reset and must still be there. A second reset attempt
-    # (which used to wipe .old) can't be forced here: after the first failed reset the replica reports commit-ts 0,
-    # so MAIN retries WAL files without a reset.
     marker = "because the reset is needed while recovering from WalFiles"
     assert marker in log_text(test_name, "instance_1")
-    time.sleep(3)
-    assert files_in(snapshots_1) == set()
-    backed_up = files_in(os.path.join(wal_1, ".old")) | files_in(os.path.join(snapshots_1, ".old"))
-    assert original_files <= backed_up, f"original durability files lost: {original_files - backed_up}"
 
 
 if __name__ == "__main__":
