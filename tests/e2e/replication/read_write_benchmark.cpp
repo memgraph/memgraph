@@ -28,7 +28,8 @@ DEFINE_string(output_file, "memgraph__e2e__replication__read_write_benchmark.jso
 namespace {
 
 void WaitForNodeIdIndex(const memgraph::io::network::Endpoint &database_endpoint, bool expected) {
-  constexpr auto kTimeout = std::chrono::seconds{10};
+  // Covers replication_async_recovery_interval_sec (10 s) plus the replica check tick, with headroom.
+  constexpr auto kTimeout = std::chrono::seconds{20};
   constexpr auto kRetryInterval = std::chrono::milliseconds{100};
   const auto deadline = std::chrono::steady_clock::now() + kTimeout;
 
