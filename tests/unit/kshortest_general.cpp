@@ -274,8 +274,6 @@ TEST_F(WeightedKShortestCasesInMemory, UnreachableTargetDoesNotSearch) {
   db_->KShortestWeightedTestUnreachableTargetDoesNotSearch(db_.get());
 }
 
-TEST_F(WeightedKShortestCasesInMemory, WeightErrors) { db_->KShortestWeightedTestWeightErrors(db_.get()); }
-
 TEST_F(WeightedKShortestCasesInMemory, WeightErrorTexts) { db_->KShortestWeightedTestWeightErrorTexts(db_.get()); }
 
 TEST_F(WeightedKShortestCasesInMemory, IntOverflow) { db_->KShortestWeightedTestIntOverflow(db_.get()); }

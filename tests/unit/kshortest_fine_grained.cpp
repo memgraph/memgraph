@@ -183,8 +183,6 @@ TEST_F(FineGrainedKShortestTestInMemory, DeniedSinkYieldsNoPath) {
   db_->KShortestTestDeniedSinkYieldsNoPath(db_.get());
 }
 
-// Both searches check the arc's head whichever way they walk the arc, so every arm here - label
-// denials included - is an exact comparison against the arcs the permissions leave.
 class WeightedFineGrainedKShortestTestInMemory
     : public ::testing::TestWithParam<std::tuple<EdgeAtom::Direction, FineGrainedTestType>> {
  public:
