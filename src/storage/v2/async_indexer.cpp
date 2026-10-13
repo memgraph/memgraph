@@ -72,7 +72,16 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
           cv_.notify_all();
         }};
         auto const cancel_check = [&]() { return thread_stop_token.stop_requested() || stop_token.stop_requested(); };
+        auto backoff = std::chrono::milliseconds(100);
+        bool retry = false;
         while (!cancel_check()) {
+          // Back off only here, with no queue accessor alive: Clear() may run while mutex_ is released.
+          if (retry) {
+            retry = false;
+            cv_.wait_for(lock, backoff, cancel_check);
+            backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(10'000));
+            continue;
+          }
           cv_.wait(lock, [&, this] {
             auto empty = request_queue_.size() != 0;
             auto stopped = cancel_check();
@@ -84,7 +93,6 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
 
           auto access = request_queue_.access();
           auto it_end = access.end();
-          auto backoff = std::chrono::milliseconds(100);
 
           // Mark as processing when we have work to do
           is_processing_ = true;
@@ -92,13 +100,6 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
             is_processing_ = false;
             cv_.notify_all();  // wake CompleteRemaining waiters
           }};
-
-          // Releases mutex_ while backing off so Shutdown()/CompleteRemaining() are not blocked; false if cancelled.
-          auto const backoff_wait = [&]() {
-            cv_.wait_for(lock, backoff, cancel_check);
-            backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(10'000));
-            return !cancel_check();
-          };
 
           for (auto it = access.begin(); it != it_end;) {
             try {
@@ -140,8 +141,8 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
               if (!result && std::holds_alternative<PersistenceError>(result.error())) {
                 // The index was not published (e.g. the WAL file could not be created); keep the request and retry.
                 spdlog::warn("Async index creation could not be committed. Retrying in {} ms.", backoff.count());
-                if (!backoff_wait()) return;
-                continue;
+                retry = true;
+                break;
               }
 
               auto const next_it = std::next(it);
@@ -151,7 +152,8 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
             } catch (ReadOnlyAccessTimeout &) {
               spdlog::info("Async index creation, was blocked by other transactions. Retrying in {} ms.",
                            backoff.count());
-              if (!backoff_wait()) return;
+              retry = true;
+              break;
             }
           }
         }
