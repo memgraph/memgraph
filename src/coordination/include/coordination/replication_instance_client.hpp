@@ -13,6 +13,7 @@
 
 #ifdef MG_ENTERPRISE
 
+#include <atomic>
 #include <expected>
 
 #include "coordination/coordinator_communication_config.hpp"
@@ -103,6 +104,10 @@ class ReplicationInstanceClient {
 
   std::chrono::seconds instance_health_check_frequency_sec_{1};
   mutable utils::Scheduler instance_checker_;
+
+  // Set once a V3 GetDatabaseHistories succeeded; from then on V2 is never used as a fallback for this instance.
+  mutable std::atomic<bool> v3_histories_supported_{false};
+  mutable std::atomic<bool> v2_fallback_logged_{false};
 };
 
 }  // namespace memgraph::coordination

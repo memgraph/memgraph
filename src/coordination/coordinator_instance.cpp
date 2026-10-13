@@ -1786,45 +1786,63 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
   }
 
   // Manual SET INSTANCE ... TO MAIN doesn't go through here, so it stays unguarded as the operator's escape hatch.
-  return ChooseMostUpToDateInstance(FilterFailoverCandidates(std::move(instances_info), main_num_txns_cache_));
+  return ChooseMostUpToDateInstance(
+      FilterFailoverCandidates(std::move(instances_info), main_num_txns_cache_, &failover_exclusion_log_));
 }
 
 auto CoordinatorInstance::FilterFailoverCandidates(
     std::map<std::string, replication_coordination_glue::InstanceInfo> instances_info,
-    std::map<std::string, uint64_t> const &main_num_txns)
+    std::map<std::string, uint64_t> const &main_num_txns, FailoverExclusionLog *log)
     -> std::map<std::string, replication_coordination_glue::InstanceInfo> {
   bool const had_candidates = !instances_info.empty();
 
-  std::erase_if(instances_info, [&main_num_txns](auto const &entry) {
-    auto const &[instance_name, instance_info] = entry;
-    bool excluded{false};
+  std::map<std::string, std::string> reasons;  // excluded instance -> joined reasons
+  for (auto const &[instance_name, instance_info] : instances_info) {
+    std::string reason;
     for (auto const &db : instance_info.dbs_info) {
       if (db.broken) {
-        spdlog::warn(
-            "Instance {} won't be used in a failover because its database {} is broken.", instance_name, db.db_uuid);
-        excluded = true;
+        reason += fmt::format("its database {} is broken; ", db.db_uuid);
         continue;
       }
       // Only DBs the candidate reports can block it: a DB missing on the candidate may have been dropped. A DB the
       // last known main had no commits for (or doesn't know about) can't be violated by an empty replica.
       auto const main_db = main_num_txns.find(db.db_uuid);
       if (db.num_committed_txns == 0 && main_db != main_num_txns.end() && main_db->second > 0) {
-        spdlog::warn(
-            "Instance {} won't be used in a failover because its database {} has no committed transactions while the "
-            "last known main had committed {}.",
-            instance_name,
-            db.db_uuid,
-            main_db->second);
-        excluded = true;
+        reason +=
+            fmt::format("its database {} has no committed transactions while the last known main had committed {}; ",
+                        db.db_uuid,
+                        main_db->second);
       }
     }
-    return excluded;
-  });
+    if (!reason.empty()) reasons.emplace(instance_name, std::move(reason));
+  }
+
+  std::string signature;
+  for (auto const &[name, reason] : reasons) signature += name + ": " + reason;
+
+  bool log_instances{true};
+  bool log_no_candidate{true};
+  if (log != nullptr) {
+    std::lock_guard const guard{log->mutex};
+    log_instances = log->reasons != reasons;
+    log->reasons = reasons;
+    bool const none_left = had_candidates && reasons.size() == instances_info.size();
+    log_no_candidate = !none_left || log->no_candidate_signature != signature;
+    log->no_candidate_signature = none_left ? signature : std::string{};
+  }
+
+  for (auto const &[instance_name, reason] : reasons) {
+    spdlog::log(log_instances ? spdlog::level::warn : spdlog::level::debug,
+                "Instance {} won't be used in a failover because {}",
+                instance_name,
+                reason);
+    instances_info.erase(instance_name);
+  }
 
   if (had_candidates && instances_info.empty()) {
-    spdlog::error(
-        "No instance is safe to promote: every failover candidate has a broken database or lost its data. Failover "
-        "won't be performed; recover the old main or promote an instance manually.");
+    spdlog::log(log_no_candidate ? spdlog::level::err : spdlog::level::debug,
+                "No instance is safe to promote: every failover candidate has a broken database or lost its data. "
+                "Failover won't be performed; recover the old main or promote an instance manually.");
   }
   return instances_info;
 }

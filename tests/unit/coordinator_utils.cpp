@@ -569,3 +569,25 @@ TEST(CoordinationUtils, FilterFailoverAllExcludedNoFailover) {
   EXPECT_TRUE(filtered.empty());
   EXPECT_FALSE(CoordinatorInstance::ChooseMostUpToDateInstance(filtered).has_value());
 }
+
+TEST(CoordinationUtils, FilterFailoverExclusionLogTracksChanges) {
+  auto const db = std::string{UUID()};
+  InstancesInfo const instances_info{{"cleared", MakeInfo({{.db_uuid = db, .num_committed_txns = 0}})}};
+  std::map<std::string, uint64_t> const main_num_txns{{db, 51}};
+
+  CoordinatorInstance::FailoverExclusionLog log;
+  EXPECT_TRUE(CoordinatorInstance::FilterFailoverCandidates(instances_info, main_num_txns, &log).empty());
+  auto const first = log.reasons;
+  ASSERT_EQ(first.size(), 1);
+  EXPECT_FALSE(log.no_candidate_signature.empty());
+
+  // Same exclusion on the next tick: state unchanged (logged at debug).
+  EXPECT_TRUE(CoordinatorInstance::FilterFailoverCandidates(instances_info, main_num_txns, &log).empty());
+  EXPECT_EQ(log.reasons, first);
+
+  // Instance becomes eligible: state is reset so a later recurrence is logged at warning again.
+  InstancesInfo const healthy{{"cleared", MakeInfo({{.db_uuid = db, .num_committed_txns = 51}})}};
+  EXPECT_EQ(CoordinatorInstance::FilterFailoverCandidates(healthy, main_num_txns, &log).size(), 1);
+  EXPECT_TRUE(log.reasons.empty());
+  EXPECT_TRUE(log.no_candidate_signature.empty());
+}

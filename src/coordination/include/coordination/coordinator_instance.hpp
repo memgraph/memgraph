@@ -15,8 +15,11 @@
 
 #include <atomic>
 #include <functional>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -129,9 +132,17 @@ class CoordinatorInstance {
 
   // Drops candidates that must not be promoted: any reported DB is broken, or a reported DB has 0 committed txns while
   // the last known main (main_num_txns: db_uuid -> committed txns) had > 0. Applied before ranking.
+  // Failover is retried every health-check tick while there is no main, so exclusions are logged at warning/error only
+  // when the excluded set changes (tracked in `log`); repeats go to debug. A null `log` always logs at warning.
+  struct FailoverExclusionLog {
+    std::mutex mutex;
+    std::map<std::string, std::string> reasons;  // instance -> joined exclusion reasons last logged
+    std::string no_candidate_signature;          // excluded set for which "no instance is safe" was last logged
+  };
+
   static auto FilterFailoverCandidates(
       std::map<std::string, replication_coordination_glue::InstanceInfo> instances_info,
-      std::map<std::string, uint64_t> const &main_num_txns)
+      std::map<std::string, uint64_t> const &main_num_txns, FailoverExclusionLog *log = nullptr)
       -> std::map<std::string, replication_coordination_glue::InstanceInfo>;
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
@@ -256,6 +267,8 @@ class CoordinatorInstance {
   // Cache which stores information db->num_committed_txns from the current main. This gets updated through the
   // StateCheckRpc call which is only used on the leader
   std::map<std::string, uint64_t> main_num_txns_cache_;
+
+  mutable FailoverExclusionLog failover_exclusion_log_;
 
   // Cache which stores information about the number of committed txns of replicas
   std::map<std::string, std::map<std::string, int64_t>> replicas_num_txns_cache_;

@@ -105,6 +105,7 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
     auto res = stream.SendAndWait();
     g.get_database_histories_rpc_success->Increment();
+    v3_histories_supported_.store(true, std::memory_order_release);
     return res.arg_;
   } catch (const rpc::RpcTimeoutException &e) {
     spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
@@ -118,7 +119,21 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
     // ISSU: an instance which doesn't know V3 drops the connection when it can't answer in V3. Retry with V2, whose
     // response has no broken bit (read as not broken). Assumes data instances are upgraded before coordinators, so a
     // V3 coordinator talking to a V2 data instance is the only mixed pair we have to survive.
-    spdlog::warn("GetDatabaseHistoriesReq V3 failed for instance {} ({}). Retrying with V2.", instance_name_, e.what());
+    // The V2 answer is only trusted while V3 has never succeeded for this instance: once it has, the instance is
+    // V3-capable and a V3 failure is transient, so answering V2 would report "not broken" for a possibly broken
+    // instance (fail-open). Treat it as a failed RPC instead.
+    if (v3_histories_supported_.load(std::memory_order_acquire)) {
+      spdlog::warn("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
+      g.get_database_histories_rpc_fail->Increment();
+      return {};
+    }
+    if (!v2_fallback_logged_.exchange(true, std::memory_order_acq_rel)) {
+      spdlog::warn(
+          "GetDatabaseHistoriesReq V3 failed for instance {} ({}). Falling back to V2; the broken-database state of "
+          "this instance is unavailable (old data instance).",
+          instance_name_,
+          e.what());
+    }
   }
 
   try {
