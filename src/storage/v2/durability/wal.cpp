@@ -10,7 +10,9 @@
 // licenses/APL.txt.
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdint>
+#include <cstring>
 #include <range/v3/all.hpp>
 #include <tuple>
 #include <type_traits>
@@ -2286,7 +2288,9 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   utils::EnsureDirOrDie(wal_directory);
 
   // Initialize the WAL file.
-  MG_ASSERT(wal_.Initialize(path_, kWalMagic, kVersion), "Failed to open WAL file {}", path_);
+  if (!wal_.Initialize(path_, kWalMagic, kVersion)) {
+    throw WalOpenError(fmt::format("Failed to open WAL file {}: {}", path_.string(), strerror(errno)));
+  }
 
   wal_.WriteMarker(Marker::SECTION_OFFSETS);
   auto const crc_header_prefix = wal_.CrcAccValue();
