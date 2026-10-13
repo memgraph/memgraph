@@ -24,6 +24,7 @@
 #include <spdlog/spdlog.h>
 
 #include <algorithm>
+#include <chrono>
 
 namespace memgraph::replication {
 
@@ -220,15 +221,17 @@ bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({},
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                                    std::optional<utils::UUID> const &maybe_main_uuid) {
   try {
+    // One deadline bounds the whole demotion, however many databases there are
+    auto const deadline = std::chrono::steady_clock::now() + 2s;
     // Need to take read-only access to all databases so we have a guranteee all write txns are finished before demoting
     // to replica.
     std::vector<std::unique_ptr<storage::Storage::Accessor>> accs;
-    auto const res = dbms_handler_.AllOf([&accs](dbms::DatabaseAccess db_acc) -> bool {
-      // Timeout on read only access for the DB
-      constexpr auto read_only_timeout = 2s;
+    auto const res = dbms_handler_.AllOf([&accs, deadline](dbms::DatabaseAccess db_acc) -> bool {
+      auto const remaining = std::max(
+          std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()), 0ms);
       auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
       try {
-        accs.emplace_back(storage->ReadOnlyAccess(std::nullopt, read_only_timeout));
+        accs.emplace_back(storage->ReadOnlyAccess(std::nullopt, remaining));
       } catch (std::exception const &e) {
         return false;
       }
