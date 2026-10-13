@@ -96,7 +96,7 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
           // Releases mutex_ while backing off so Shutdown()/CompleteRemaining() are not blocked; false if cancelled.
           auto const backoff_wait = [&]() {
             cv_.wait_for(lock, backoff, cancel_check);
-            backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(10'000));  // 1.5x multiplier, max 10s
+            backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(10'000));
             return !cancel_check();
           };
 
