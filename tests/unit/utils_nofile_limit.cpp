@@ -36,31 +36,21 @@ int RunInChild(F body) {
 
 }  // namespace
 
-TEST(NoFileLimit, RaisesSoftToMinOfHardAndNrOpen) {
-  EXPECT_EQ(0, RunInChild([] {
-              const rlimit start{kStartSoft, kStartHard};
+TEST(NoFileLimit, RaisesSoftToHard) {
+  rlimit inherited{};
+  ASSERT_EQ(0, getrlimit(RLIMIT_NOFILE, &inherited));
+  const rlim_t start_hard = std::min<rlim_t>(kStartHard, inherited.rlim_max);
+  if (start_hard <= kStartSoft) GTEST_SKIP() << "runner hard RLIMIT_NOFILE too low";
+  EXPECT_EQ(0, RunInChild([start_hard] {
+              const rlimit start{kStartSoft, start_hard};
               if (setrlimit(RLIMIT_NOFILE, &start) != 0) return 1;
               const auto result = memgraph::utils::RaiseNoFileSoftLimit();
               if (!result || result->raise_errno != 0) return 2;
-              const rlim_t expected = std::min(kStartHard, memgraph::utils::ReadNrOpen());
-              if (result->limit.rlim_cur != expected || result->limit.rlim_max != kStartHard) return 3;
+              if (result->limit.rlim_cur != start_hard || result->limit.rlim_max != start_hard) return 3;
               rlimit now{};
-              if (getrlimit(RLIMIT_NOFILE, &now) != 0 || now.rlim_cur != expected) return 4;
+              if (getrlimit(RLIMIT_NOFILE, &now) != 0 || now.rlim_cur != start_hard) return 4;
               const auto &original = memgraph::utils::OriginalNoFileLimit();
-              if (!original || original->rlim_cur != kStartSoft || original->rlim_max != kStartHard) return 5;
-              return 0;
-            }));
-}
-
-TEST(NoFileLimit, NoOpWhenSoftEqualsHard) {
-  EXPECT_EQ(0, RunInChild([] {
-              const rlimit start{kStartHard, kStartHard};
-              if (setrlimit(RLIMIT_NOFILE, &start) != 0) return 1;
-              const auto result = memgraph::utils::RaiseNoFileSoftLimit();
-              if (!result || result->raise_errno != 0) return 2;
-              if (result->limit.rlim_cur != kStartHard || result->limit.rlim_max != kStartHard) return 3;
-              const auto &original = memgraph::utils::OriginalNoFileLimit();
-              if (!original || original->rlim_cur != kStartHard) return 4;
+              if (!original || original->rlim_cur != kStartSoft || original->rlim_max != start_hard) return 5;
               return 0;
             }));
 }

@@ -291,7 +291,7 @@ int main(int argc, char **argv) {
   if (!CheckSuspiciousPositionalArgs(argc, argv)) return EXIT_FAILURE;
   WarnDeprecatedFlags();
 
-  // Raise before Python, schedulers and servers start, so everything created later has the headroom.
+  // Raise before startup opens files (Python init, recovery).
   const auto nofile_result = memgraph::utils::RaiseNoFileSoftLimit();
 
   // Publish worker count early so allocators can pre-size thread-local structures
