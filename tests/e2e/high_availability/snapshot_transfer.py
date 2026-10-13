@@ -151,7 +151,7 @@ def test_replica_recovers_from_snapshot_sent_by_main(test_name, monkeypatch):
     execute_and_fetch_all(main_cursor, f"UNWIND range(1, {INITIAL_NODES}) AS i CREATE (:Node {{id: i}})")
     mg_sleep_and_assert(INITIAL_NODES, partial(vertex_count, connect(host="localhost", port=7688).cursor()))
 
-    interactive_mg_runner.stop(instances, "instance_1", keep_directories=True)
+    interactive_mg_runner.kill(instances, "instance_1", keep_directories=True)
 
     for _ in range(WRITES_WHILE_REPLICA_DOWN):
         execute_and_fetch_all(main_cursor, f"UNWIND range(1, {NODES_PER_WRITE}) AS i CREATE (:Late {{id: i}})")
