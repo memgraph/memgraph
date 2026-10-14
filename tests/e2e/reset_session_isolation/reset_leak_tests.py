@@ -386,7 +386,7 @@ def test_failed_impersonation_keeps_database_chosen_with_use(test_name):
         with driver.session() as s:
             s.run("USE DATABASE db_x").consume()
 
-        with pytest.raises(Exception, match="impersonate"):
+        with pytest.raises(Exception, match="Trying to impersonate"):
             with driver.session(impersonated_user="ghost") as s:
                 s.run("RETURN 1").consume()
 
