@@ -10475,6 +10475,8 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 // An explicit transaction can hold several open result streams. A finished execution is reset in Pull, so a
 // non-null one with a prepared query is still pulling.
 void Interpreter::ThrowIfLazyVectorReaderOpen(int writer_qid) const {
+  const auto &writer = query_executions_[writer_qid];
+  if (!writer || !writer->prepared_query || !IsQueryWrite(writer->prepared_query->rw_type)) return;
   for (size_t i = 0; i < query_executions_.size(); ++i) {
     const auto &qe = query_executions_[i];
     if (std::cmp_equal(i, writer_qid) || !qe || !qe->prepared_query || !qe->prepared_query->lazy_vector_refs) {
