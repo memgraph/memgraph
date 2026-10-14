@@ -155,11 +155,10 @@ class Server final {
  private:
   void AcceptConnection() {
     // Accept a connection from a socket.
-    int err = 0;
-    auto s = socket_.Accept(&err);
+    auto s = socket_.Accept();
     if (!s) {
-      // Connection is not available anymore or configuration failed.
-      if (IsTransientAcceptErrno(err)) BackOffAfterTransientError(err);
+      // Connection is not available anymore or configuration failed. errno is only meaningful on this path.
+      if (int const err = errno; IsTransientAcceptErrno(err)) BackOffAfterTransientError(err);
       return;
     }
     auto const endpoint = s->endpoint();

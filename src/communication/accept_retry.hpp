@@ -14,8 +14,10 @@
 #include <cerrno>
 #include <chrono>
 #include <string_view>
+#include <utility>
 
 #include <spdlog/spdlog.h>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/system/error_code.hpp>
 
 namespace memgraph::communication {
@@ -32,6 +34,15 @@ inline bool IsTransientAcceptErrno(int err) {
 inline bool IsTransientAcceptError(const boost::system::error_code &ec) {
   return ec == boost::system::errc::too_many_files_open || ec == boost::system::errc::too_many_files_open_in_system ||
          ec == boost::system::errc::no_buffer_space || ec == boost::system::errc::not_enough_memory;
+}
+
+// Re-arms accept after kAcceptRetryDelay; `rearm` owns whatever keeps the acceptor alive until the timer fires.
+template <typename Rearm>
+void RetryAcceptLater(boost::asio::steady_timer &timer, Rearm rearm) {
+  timer.expires_after(kAcceptRetryDelay);
+  timer.async_wait([rearm = std::move(rearm)](const boost::system::error_code &timer_ec) {
+    if (!timer_ec) rearm();
+  });
 }
 
 // Not thread-safe; accept handlers for one acceptor never run concurrently.

@@ -84,10 +84,7 @@ void Listener::OnAccept(boost::beast::error_code ec, tcp::socket socket) {
   if (ec) {
     if (IsTransientAcceptError(ec)) {
       accept_log_throttle_.Warn("Websocket listener", ec.message());
-      retry_timer_.expires_after(kAcceptRetryDelay);
-      retry_timer_.async_wait([shared_this = shared_from_this()](const boost::system::error_code &timer_ec) {
-        if (!timer_ec) shared_this->DoAccept();
-      });
+      RetryAcceptLater(retry_timer_, [shared_this = shared_from_this()] { shared_this->DoAccept(); });
       return;
     }
     error_happened_ = true;

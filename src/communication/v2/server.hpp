@@ -112,10 +112,7 @@ class Server final {
       return OnError(ec, "accept");
     }
     accept_log_throttle_.Warn(service_name_, ec.message());
-    retry_timer_.expires_after(kAcceptRetryDelay);
-    retry_timer_.async_wait([this](const boost::system::error_code &timer_ec) {
-      if (!timer_ec) DoAccept();
-    });
+    RetryAcceptLater(retry_timer_, [this] { DoAccept(); });
   }
 
   ServerEndpoint endpoint_;

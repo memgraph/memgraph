@@ -103,10 +103,9 @@ class Socket {
    * Accepts a new connection.
    * This function accepts a new connection on a listening socket.
    *
-   * @param err if non-null, receives errno when accept() fails.
-   * @return socket if accepted, nullopt otherwise.
+   * @return socket if accepted, nullopt otherwise (errno is left as set by accept()).
    */
-  std::optional<Socket> Accept(int *err = nullptr);
+  std::optional<Socket> Accept();
 
   /**
    * Sets the socket to non-blocking. Returns unexpected holding the error message on failure.
