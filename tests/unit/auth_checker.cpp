@@ -722,37 +722,14 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, CachedCheckerRebuildsOnPrincipalChange
   cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
   ASSERT_NE(cache.get(), nullptr);
   EXPECT_TRUE(cache.get()->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
-}
 
-TYPED_TEST(FineGrainedAuthCheckerFixture, GetFineGrainedAuthCheckerRefreshesPrincipal) {
-  namespace auth = memgraph::auth;
-  namespace query = memgraph::query;
-
-  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_get_fga_refresh_test"};
-  memgraph::utils::OnScopeExit clean([&]() {
-    if (std::filesystem::exists(auth_dir)) std::filesystem::remove_all(auth_dir);
-  });
-
-  auth::SynchedAuth synched_auth(auth_dir, auth::Auth::Config{});
-  memgraph::glue::AuthChecker auth_checker(&synched_auth);
-
-  auto user = *AddUser(*synched_auth.Lock(), "test_user");
-  user.fine_grained_access_handler().label_permissions().Grant({"l1"}, auth::kAllLabelPermissions);
   user.fine_grained_access_handler().label_permissions().Deny({"l3"}, auth::kAllLabelPermissions);
   synched_auth->SaveUser(user);
 
-  auto query_user = auth_checker.GenQueryUser("test_user", {});
-  ASSERT_TRUE(query_user && *query_user);
-
-  memgraph::license::global_license_checker.EnableTesting();
-
-  user.fine_grained_access_handler().label_permissions().Grant({"l3"}, auth::kAllLabelPermissions);
-  synched_auth->SaveUser(user);
-
-  // No IsAuthorized call in between: the checker itself must refresh the principal.
+  // No Refresh or IsAuthorized in between: the checker itself must refresh the principal.
   auto checker = auth_checker.GetFineGrainedAuthChecker(*query_user, &this->dba);
   ASSERT_NE(checker, nullptr);
-  EXPECT_TRUE(checker->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
+  EXPECT_FALSE(checker->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
 }
 
 #endif
@@ -878,6 +855,11 @@ TEST(CachedFineGrainedAuth, ReplacedCheckersOutliveRefreshUntilReleased) {
   EXPECT_EQ(cache.get(), second);
   EXPECT_EQ(cache.principal_version, 2);
   auth_checker.throw_on_build = false;
+  cache.Refresh(auth_checker, user, nullptr, "db");
+  auto const *third = cache.get();
+  ASSERT_NE(third, nullptr);
+  EXPECT_NE(third, second);
+  EXPECT_EQ(cache.principal_version, 3);
   EXPECT_EQ(auth_checker.destroyed, 0);
 
   cache.Reset();
@@ -885,7 +867,7 @@ TEST(CachedFineGrainedAuth, ReplacedCheckersOutliveRefreshUntilReleased) {
   EXPECT_EQ(auth_checker.destroyed, 0);
 
   cache.ReleaseRetired();
-  EXPECT_EQ(auth_checker.destroyed, 2);
+  EXPECT_EQ(auth_checker.destroyed, 3);
 }
 
 TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
@@ -946,9 +928,9 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph"));
   EXPECT_FALSE(partial_session->IsAuthorized({CREATE}, "memgraph"));
 
-  // Checks see the drop and refresh the cached principal.
-  EXPECT_FALSE(user_session->IsAuthorized({TRANSACTION_MANAGEMENT}, "memgraph"));
-  EXPECT_FALSE(role_session->IsAuthorized({TRANSACTION_MANAGEMENT}, "memgraph"));
+  // MATCH was held before the drop, so this flips true -> false.
+  EXPECT_FALSE(user_session->IsAuthorized({MATCH}, "memgraph"));
+  EXPECT_FALSE(role_session->IsAuthorized({MATCH}, "memgraph"));
 
   // Once dropped, every later check is denied.
   for (const auto &session : {user_session, role_session}) {
@@ -968,6 +950,19 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
   auth->SaveUser(recreated);
   EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph"));
+
+  // Same for a role session: a re-created role must not revive it.
+  auto revived_role = *auth->AddRole("reader");
+  revived_role.permissions().Grant(memgraph::auth::Permission::CREATE);
+#ifdef MG_ENTERPRISE
+  revived_role.db_access().Grant("revived");
+  ASSERT_TRUE(revived_role.db_access().SetMain("revived"));
+#endif
+  auth->SaveRole(revived_role);
+  EXPECT_FALSE(role_session->IsAuthorized({CREATE}, "memgraph"));
+#ifdef MG_ENTERPRISE
+  EXPECT_NE(role_session->GetDefaultDB(), "revived");
+#endif
 
   // An anonymous principal is authorized only while access control is off; another user exists here.
   auto empty_session = auth_checker.GenEmptyUser();
@@ -1001,7 +996,12 @@ TEST(AuthChecker, FailedRefreshIsRetriedNotCached) {
 
   auto &store = memgraph::auth::AuthTestAccess::Store(*auth.Lock());
   auto const key = memgraph::auth::Repository::UserKey("limited");
-  auto const good_record = *store.Get(key);
+  // A record that differs from the cached one, so a refresh that really re-read it is observable.
+  limited.permissions().Grant(memgraph::auth::Permission::CREATE);
+  auth->SaveUser(limited);
+  auto const richer_record = *store.Get(key);
+  limited.permissions().Revoke(memgraph::auth::Permission::CREATE);
+  auth->SaveUser(limited);
   ASSERT_TRUE(store.Put(key, "{ not json"));
   // Unrelated write: moves the epoch so the session notices, and does not touch the corrupt record.
   auto other = *AddUser(*auth.Lock(), "other");
@@ -1009,11 +1009,13 @@ TEST(AuthChecker, FailedRefreshIsRetriedNotCached) {
 
   // The refresh throws: denied, and the stale cached grant must not be served on the next check either.
   EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph"));
+  // Still corrupt: the failed attempt must not have been committed as fresh.
+  EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph"));
 
   // Repair without moving the epoch: the next check must refresh again rather than trust the failed attempt.
-  ASSERT_TRUE(store.Put(key, good_record));
+  ASSERT_TRUE(store.Put(key, richer_record));
   EXPECT_TRUE(session->IsAuthorized({MATCH}, "memgraph"));
-  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph"));
+  EXPECT_TRUE(session->IsAuthorized({CREATE}, "memgraph"));
 }
 
 TEST(AuthChecker, DroppedLastUserSessionGetsAuthOffAccess) {
@@ -1222,6 +1224,7 @@ TEST(AuthChecker, DroppedUserStillGetsFineGrainedChecker) {
   auto session = auth_checker.GenQueryUser("limited", {});
 
   memgraph::storage::Config config{};
+  config.salient.name = "memgraph";
   std::unique_ptr<memgraph::storage::Storage> db{new memgraph::storage::InMemoryStorage(config)};
   auto storage_dba = db->Access(memgraph::storage::WRITE);
   memgraph::query::DbAccessor dba{storage_dba.get()};
@@ -1232,6 +1235,13 @@ TEST(AuthChecker, DroppedUserStillGetsFineGrainedChecker) {
   auto checker = auth_checker.GetFineGrainedAuthChecker(*session, &dba);
   ASSERT_NE(checker, nullptr);
   EXPECT_TRUE(checker->NeedsFineGrainedAuthChecker());
+
+  // The dropped user keeps its last-known label grant and is still denied labels it never had.
+  using memgraph::query::AuthQuery;
+  std::array const visible{dba.NameToLabel("visible")};
+  std::array const hidden{dba.NameToLabel("hidden")};
+  EXPECT_TRUE(checker->Has(visible, AuthQuery::FineGrainedPrivilege::READ));
+  EXPECT_FALSE(checker->Has(hidden, AuthQuery::FineGrainedPrivilege::READ));
 }
 #endif
 
@@ -1285,23 +1295,23 @@ TEST(WebsocketAuth, DroppedUserIsDeniedWhileOthersExist) {
   ASSERT_TRUE(f.auth->RemoveUser("ws"));
   EXPECT_FALSE(safe_auth.HasWebsocketPermission());
   EXPECT_FALSE(safe_auth.HasWebsocketPermission());
-}
 
-TEST(WebsocketAuth, RecreatedUserDoesNotRevivePrincipal) {
-  WebsocketAuthFixture f{"MG_websocket_auth_recreated"};
-  f.AddWebsocketUser("ws");
-  memgraph::glue::SafeAuth safe_auth{&f.auth};
-
-  ASSERT_TRUE(safe_auth.Authenticate("ws", "pw"));
-  ASSERT_TRUE(safe_auth.HasWebsocketPermission());
-
-  ASSERT_TRUE(f.auth->RemoveUser("ws"));
+  // Re-created under the same name after the drop was seen: still not revived.
   f.AddWebsocketUser("ws");
   EXPECT_FALSE(safe_auth.HasWebsocketPermission());
 
+  // Dropped and re-created with no check in between: the new record is a new identity.
+  f.AddWebsocketUser("ws2");
+  memgraph::glue::SafeAuth safe_auth2{&f.auth};
+  ASSERT_TRUE(safe_auth2.Authenticate("ws2", "pw"));
+  ASSERT_TRUE(safe_auth2.HasWebsocketPermission());
+  ASSERT_TRUE(f.auth->RemoveUser("ws2"));
+  f.AddWebsocketUser("ws2");
+  EXPECT_FALSE(safe_auth2.HasWebsocketPermission());
+
   // A fresh login for the re-created user holds its grant.
-  ASSERT_TRUE(safe_auth.Authenticate("ws", "pw"));
-  EXPECT_TRUE(safe_auth.HasWebsocketPermission());
+  ASSERT_TRUE(safe_auth2.Authenticate("ws2", "pw"));
+  EXPECT_TRUE(safe_auth2.HasWebsocketPermission());
 }
 
 #ifdef MG_ENTERPRISE
