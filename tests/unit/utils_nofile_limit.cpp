@@ -28,9 +28,10 @@ constexpr rlim_t kStartHard = 4096;
 template <typename F>
 int RunInChild(F body) {
   const pid_t pid = fork();
+  if (pid == -1) return -1;
   if (pid == 0) _exit(body());
   int status = 0;
-  waitpid(pid, &status, 0);
+  if (waitpid(pid, &status, 0) != pid) return -1;
   return WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 }
 
@@ -51,6 +52,8 @@ TEST(NoFileLimit, RaisesSoftToHard) {
               if (getrlimit(RLIMIT_NOFILE, &now) != 0 || now.rlim_cur != start_hard) return 4;
               const auto &original = memgraph::utils::OriginalNoFileLimit();
               if (!original || original->rlim_cur != kStartSoft || original->rlim_max != start_hard) return 5;
+              memgraph::utils::RaiseNoFileSoftLimit();
+              if (original->rlim_cur != kStartSoft) return 6;
               return 0;
             }));
 }
