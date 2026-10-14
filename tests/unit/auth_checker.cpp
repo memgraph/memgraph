@@ -760,6 +760,136 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, GetFineGrainedAuthCheckerRefreshesPrin
 
 #endif
 
+namespace {
+struct LifetimeProbeChecker final : memgraph::query::FineGrainedAuthChecker {
+  using Priv = memgraph::query::AuthQuery::FineGrainedPrivilege;
+  using PropPriv = memgraph::query::AuthQuery::PropertyPermissionType;
+
+  explicit LifetimeProbeChecker(int *destroyed) : destroyed_{destroyed} {}
+
+  ~LifetimeProbeChecker() override { ++*destroyed_; }
+
+  bool Has(const memgraph::query::VertexAccessor &, memgraph::storage::View, Priv) const override { return true; }
+
+  bool Has(const memgraph::query::EdgeAccessor &, Priv) const override { return true; }
+
+  bool Has(std::span<memgraph::storage::LabelId const>, Priv) const override { return true; }
+
+  bool Has(const memgraph::storage::EdgeTypeId &, Priv) const override { return true; }
+
+  bool HasGlobalPrivilegeOnVertices(Priv) const override { return true; }
+
+  bool HasGlobalPrivilegeOnEdges(Priv) const override { return true; }
+
+  bool HasAllGlobalPrivilegesOnVertices() const override { return true; }
+
+  bool HasAllGlobalPrivilegesOnEdges() const override { return true; }
+
+  bool HasUnrestrictedAccessToVertices() const override { return true; }
+
+  bool HasUnrestrictedAccessToEdges() const override { return true; }
+
+  bool HasUnrestrictedAccessToVertexProperties() const override { return true; }
+
+  bool HasUnrestrictedAccessToEdgeTypeProperties() const override { return true; }
+
+  bool NeedsFineGrainedAuthChecker() const override { return true; }
+
+  bool HasPropertyPermission(std::span<memgraph::storage::LabelId const>, memgraph::storage::PropertyId,
+                             PropPriv) const override {
+    return true;
+  }
+
+  bool HasPropertyPermission(memgraph::storage::EdgeTypeId const &, memgraph::storage::PropertyId,
+                             PropPriv) const override {
+    return true;
+  }
+
+  void MakeThreadSafe() const override {}
+
+  bool IsThreadSafe() const override { return true; }
+
+ private:
+  int *destroyed_;
+};
+
+struct VersionedUser final : memgraph::query::QueryUserOrRole {
+  VersionedUser() : QueryUserOrRole{"u", {}} {}
+
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &,
+                    std::optional<std::string_view>) const override {
+    return true;
+  }
+
+  std::shared_ptr<QueryUserOrRole> clone() const override { return std::make_shared<VersionedUser>(*this); }
+
+  std::vector<std::string> GetRolenames(std::optional<std::string>) const override { return {}; }
+
+  uint64_t PrincipalVersion() const override { return version; }
+
+#ifdef MG_ENTERPRISE
+  bool CanImpersonate(const std::string &, std::optional<std::string_view>) const override { return true; }
+
+  std::string GetDefaultDB() const override { return {}; }
+#endif
+
+  uint64_t version{1};
+};
+
+struct ProbeAuthChecker final : memgraph::query::AuthChecker {
+  std::shared_ptr<memgraph::query::QueryUserOrRole> GenQueryUser(const std::optional<std::string> &,
+                                                                 const std::vector<std::string> &) const override {
+    return std::make_shared<VersionedUser>();
+  }
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> GenEmptyUser() const override {
+    return std::make_shared<VersionedUser>();
+  }
+
+  std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
+      const memgraph::query::QueryUserOrRole &, const memgraph::query::DbAccessor *) const override {
+    if (throw_on_build) throw std::runtime_error("refresh failed");
+    return std::make_unique<LifetimeProbeChecker>(&destroyed);
+  }
+
+  mutable int destroyed{0};
+  bool throw_on_build{false};
+};
+}  // namespace
+
+TEST(CachedFineGrainedAuth, ReplacedCheckersOutliveRefreshUntilReleased) {
+  ProbeAuthChecker auth_checker;
+  VersionedUser user;
+  memgraph::query::CachedFineGrainedAuth cache;
+
+  cache.Refresh(auth_checker, user, nullptr, "db");
+  auto const *first = cache.get();
+  ASSERT_NE(first, nullptr);
+
+  user.version = 2;
+  cache.Refresh(auth_checker, user, nullptr, "db");
+  auto const *second = cache.get();
+  ASSERT_NE(second, nullptr);
+  ASSERT_NE(second, first);
+  EXPECT_EQ(auth_checker.destroyed, 0);
+
+  // A failed rebuild keeps the live checker and its version, so the next Refresh retries.
+  user.version = 3;
+  auth_checker.throw_on_build = true;
+  EXPECT_THROW(cache.Refresh(auth_checker, user, nullptr, "db"), std::runtime_error);
+  EXPECT_EQ(cache.get(), second);
+  EXPECT_EQ(cache.principal_version, 2);
+  auth_checker.throw_on_build = false;
+  EXPECT_EQ(auth_checker.destroyed, 0);
+
+  cache.Reset();
+  EXPECT_EQ(cache.get(), nullptr);
+  EXPECT_EQ(auth_checker.destroyed, 0);
+
+  cache.ReleaseRetired();
+  EXPECT_EQ(auth_checker.destroyed, 2);
+}
+
 TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_dropped"};
   memgraph::utils::OnScopeExit clean([&]() {
