@@ -153,6 +153,18 @@ def test_impersonator_is_refused_for_the_same_target(admin, opened, change):
     with pytest.raises(Neo4jError, match="Failed to impersonate user 'c'"):
         run(driver, "SHOW CURRENT USER", impersonated_user="c")
 
+    # The refusal must not leave the identical metadata cached as validated: re-sending it is refused again
+    # (the driver RESETs the pooled connection after the failure) and never silently runs as c.
+    with pytest.raises(Neo4jError, match="Failed to impersonate user 'c'"):
+        run(driver, "SHOW CURRENT USER", impersonated_user="c")
+
+    # A plain query on the same connection falls back to r's own principal, never c's.
+    if change == "DROP USER r":
+        with pytest.raises(Neo4jError, match='You are not authorized on the database "memgraph"'):
+            run(driver, "SHOW CURRENT USER")
+    else:
+        assert run(driver, "SHOW CURRENT USER") == [["r"]]
+
 
 def test_revoked_privilege_reaches_open_session(admin, opened):
     run(admin, "CREATE USER u IDENTIFIED BY 'pw'")
