@@ -23,6 +23,7 @@
 namespace {
 
 inline constexpr int kVertexId{42};
+inline constexpr std::string_view kAdminUser{"ADMIN_USER"};
 inline constexpr std::string_view kDefinerUser{"DEFINER_USER"};
 inline constexpr std::string_view kInvokerUser{"INVOKER_USER"};
 inline constexpr std::string_view kInvokerWithoutSet{"INVOKER_WITHOUT_SET"};
@@ -121,7 +122,13 @@ class PrivilegeCheckTest : public ::testing::TestWithParam<std::string> {
     memgraph::logging::RedirectToStderr();
     mg::Client::Init();
 
-    admin_client_ = Connect();
+    // The first user created receives all privileges. Once it exists an anonymous session is denied,
+    // so reconnect as that user for the remaining setup.
+    {
+      auto anonymous_client = Connect();
+      CreateUser(*anonymous_client, kAdminUser);
+    }
+    admin_client_ = ConnectWithUser(kAdminUser);
 
     // role based auth tests
     CreateUser(*admin_client_, kDefinerUser);
@@ -178,6 +185,7 @@ class PrivilegeCheckTest : public ::testing::TestWithParam<std::string> {
     DropUser(*admin_client_, kInvokerWithoutFineGrainedSet);
     DropUser(*admin_client_, kDefinerWithFineGrainedSet);
     DropUser(*admin_client_, kPbacUser);
+    DropUser(*admin_client_, kAdminUser);
 
     admin_client_.reset();
   }
