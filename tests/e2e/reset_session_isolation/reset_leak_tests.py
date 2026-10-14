@@ -395,6 +395,67 @@ def test_renamed_database_not_served_under_old_name(test_name):
         driver.close()
 
 
+def _recreate_as_main_database(db_name: str, username: str) -> None:
+    _admin_execute(
+        f"DROP DATABASE {db_name} FORCE",
+        f"CREATE DATABASE {db_name}",
+        f"GRANT DATABASE {db_name} TO {username}",
+        f"SET MAIN DATABASE {db_name} FOR {username}",
+    )
+
+
+@requires_enterprise
+def test_use_of_current_database_kept_after_drop(test_name):
+    """USE of the database the session is already on is still an explicit choice: once it is force-dropped
+    the session must not silently pick it up again, even after it is recreated, until the client selects
+    a database."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_main")
+    _grant_database("db_main", "bob")
+    _admin_execute("SET MAIN DATABASE db_main FOR bob")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_BOB, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session() as s:
+            assert s.run("USE DATABASE db_main").single()[0] == "Already using db_main"
+            _recreate_as_main_database("db_main", "bob")
+            with pytest.raises(Exception, match="Database required"):
+                s.run("RETURN 1").consume()
+            s.run("USE DATABASE db_main").consume()
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_main"
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_logoff_forgets_database_chosen_with_use(test_name):
+    """A database chosen with USE does not outlive LOGOFF: the next user on the connection follows its own
+    default database, which is re-resolved after that database is dropped and recreated."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_a")
+    _grant_database("db_a", "alice")
+    _create_clean_database("db_main")
+    _grant_database("db_main", "bob")
+    _admin_execute("SET MAIN DATABASE db_main FOR bob")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_ALICE, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session() as s:
+            s.run("USE DATABASE db_a").consume()
+
+        with driver.session(auth=_BOB) as s:
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_main"
+            _admin_execute("DROP DATABASE db_a FORCE")
+            assert s.run("RETURN 1").single()[0] == 1
+            _recreate_as_main_database("db_main", "bob")
+            current = s.run("SHOW DATABASE").single()["Current"]
+            assert (
+                current == "db_main"
+            ), f"bob's session did not re-resolve its recreated default database (got '{current}')"
+    finally:
+        driver.close()
+
+
 # ---------------------------------------------------------------------------
 # Test 5: LOGOFF refreshes session login timestamp
 # ---------------------------------------------------------------------------

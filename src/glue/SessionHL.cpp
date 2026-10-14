@@ -747,6 +747,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
   interpreter_.OnChangeCB([&](std::string_view db_name) {
     auto &user_or_role = interpreter_.user_or_role_;
     MultiDatabaseAuth(user_or_role.get(), db_name);
+    runtime_config_.OnUseDatabase();
   });
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
@@ -789,9 +790,11 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
 
 #ifdef MG_ENTERPRISE
 bool RuntimeConfig::BoundDbMatches(const bolt_map_t &run_time_info) const {
+  const auto it = run_time_info.find("db");
+  // A database the client chose with USE must never be silently replaced by the default one.
+  if (it == run_time_info.end() && db_selected_by_use_) return true;
   const auto &db_acc = session_->interpreter_.current_db_.db_acc_;
   if (!db_acc || db_acc->is_marked_for_deletion()) return false;
-  const auto it = run_time_info.find("db");
   if (it == run_time_info.end()) return true;
   if (!it->second.IsString()) return false;
   return *db_acc->get()->name_view() == it->second.ValueString();
@@ -868,6 +871,7 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   session_->interpreter_.SetCurrentDB(std::move(db_acc), db_explicit);
 
   previous_run_time_info_ = run_time_info;
+  db_selected_by_use_ = false;
 }
 #endif
 }  // namespace memgraph::glue

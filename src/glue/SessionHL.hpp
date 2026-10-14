@@ -42,12 +42,15 @@ class RuntimeConfig {
   // connections fully re-derive user + db even when the next session's metadata matches the previous one's.
   void ResetForConnectionReuse() { previous_run_time_info_.reset(); }
 
+  void OnUseDatabase() { db_selected_by_use_ = true; }
+
  private:
-  // True if a live (not marked-for-deletion) database is bound and matches run_time_info's "db" (absent = any).
+  // True if the bound database matches run_time_info's "db"; with no "db", a live one is required unless USE chose it.
   bool BoundDbMatches(const bolt_map_t &run_time_info) const;
 
   SessionHL *session_;
   std::optional<bolt_map_t> previous_run_time_info_;
+  bool db_selected_by_use_{false};
 };
 #endif
 
