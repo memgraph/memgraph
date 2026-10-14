@@ -144,18 +144,16 @@ def prepare_replica_needing_snapshot(test_name):
 
 
 def setup_failed_snapshot_load(test_name):
-    """As above, but MAIN's snapshot is corrupted, so the replica's load fails. Returns the instances and the replica's
-    snapshot files before the failure."""
-    instances, replica_snapshots = prepare_replica_needing_snapshot(test_name)
+    """As above, but MAIN's snapshot is corrupted, so the replica's load fails. Returns the instances."""
+    instances, _ = prepare_replica_needing_snapshot(test_name)
     corrupt_snapshots(data_dir(test_name, "main"))
-    before = files_in(replica_snapshots)
     interactive_mg_runner.start(instances, "replica")
     mg_sleep_and_assert(True, lambda: "Couldn't load the snapshot" in log_text(test_name, "replica"), max_duration=60)
-    return instances, before
+    return instances
 
 
 def test_failed_snapshot_load_is_broken_and_writes_no_snapshots(test_name):
-    _, before = setup_failed_snapshot_load(test_name)
+    setup_failed_snapshot_load(test_name)
     replica_cursor = connect(host="localhost", port=REPLICA_BOLT).cursor()
     replica_snapshots = os.path.join(data_dir(test_name, "replica"), "snapshots")
 
@@ -164,7 +162,11 @@ def test_failed_snapshot_load_is_broken_and_writes_no_snapshots(test_name):
     with pytest.raises(mgclient.DatabaseError, match="broken state"):
         vertex_count(replica_cursor)
 
-    # No periodic snapshot of the emptied storage, and the failed received snapshot is gone.
+    # No periodic snapshot of the emptied storage, and the failed received snapshot is gone. The baseline is taken only
+    # now: before MAIN connects, the replica legitimately snapshots its recovered data.
+    before = files_in(replica_snapshots)
+    main_snapshots = files_in(os.path.join(data_dir(test_name, "main"), "snapshots"))
+    assert main_snapshots.isdisjoint(before)
     time.sleep(4)
     assert health(replica_cursor) == "broken"
     assert files_in(replica_snapshots) == before
@@ -178,7 +180,7 @@ def test_failed_snapshot_load_is_broken_and_writes_no_snapshots(test_name):
 
 
 def test_restart_after_failed_snapshot_load_restores_data(test_name):
-    instances, _ = setup_failed_snapshot_load(test_name)
+    instances = setup_failed_snapshot_load(test_name)
 
     # Let the 1s periodic snapshot fire: on a replica that wrongly looks healthy and empty, it writes an empty snapshot
     # that sorts newest and would be loaded on restart.
