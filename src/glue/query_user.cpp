@@ -125,8 +125,9 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, std::optional<st
   }
   // Cache only when the principal and the target were read at the same epoch.
   if (allowed && locked_auth->CurrentEpoch() == auth_epoch_) {
-    imp_ok_ = ImpersonationGrant{
-        target, db_name ? std::optional<std::string>{std::string{*db_name}} : std::nullopt, auth_epoch_};
+    imp_ok_ = ImpersonationGrant{.target = target,
+                                 .db_name = db_name ? std::optional<std::string>{std::string{*db_name}} : std::nullopt,
+                                 .epoch = auth_epoch_};
   } else {
     imp_ok_.reset();
   }
