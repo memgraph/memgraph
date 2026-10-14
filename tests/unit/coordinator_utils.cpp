@@ -474,3 +474,105 @@ TEST(CoordinationUtils, FailoverSingleInstanceOnly) {
   // NOLINTNEXTLINE
   ASSERT_EQ(*maybe_instance_name, "instance_1");
 }
+
+namespace {
+using InstancesInfo = std::map<std::string, InstanceInfo>;
+
+// Equal system timestamps everywhere: the filter must work independently of the system-timestamp ranking.
+InstanceInfo MakeInfo(std::vector<InstanceDBInfo> dbs) {
+  return InstanceInfo{.dbs_info = std::move(dbs), .last_committed_system_timestamp = 1};
+}
+}  // namespace
+
+TEST(CoordinationUtils, FilterFailoverEmptiedCandidateExcluded) {
+  auto const db = std::string{UUID()};
+  InstancesInfo instances_info{
+      {"cleared", MakeInfo({{.db_uuid = db, .num_committed_txns = 0}})},
+      {"healthy", MakeInfo({{.db_uuid = db, .num_committed_txns = 50}})},
+  };
+  std::map<std::string, uint64_t> const main_num_txns{{db, 51}};
+
+  auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, main_num_txns);
+  ASSERT_EQ(filtered.size(), 1);
+  EXPECT_TRUE(filtered.contains("healthy"));
+
+  auto const chosen = CoordinatorInstance::ChooseMostUpToDateInstance(filtered);
+  ASSERT_TRUE(chosen.has_value());
+  EXPECT_EQ(*chosen, "healthy");
+}
+
+TEST(CoordinationUtils, FilterFailoverAnyBrokenDbExcludesCandidate) {
+  auto const db_a = std::string{UUID()};
+  auto const db_b = std::string{UUID()};
+  InstancesInfo instances_info{
+      {"one_db_broken",
+       MakeInfo(
+           {{.db_uuid = db_a, .num_committed_txns = 10}, {.db_uuid = db_b, .num_committed_txns = 10, .broken = true}})},
+      {"healthy", MakeInfo({{.db_uuid = db_a, .num_committed_txns = 10}, {.db_uuid = db_b, .num_committed_txns = 10}})},
+  };
+  auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, {});
+  ASSERT_EQ(filtered.size(), 1);
+  EXPECT_TRUE(filtered.contains("healthy"));
+}
+
+TEST(CoordinationUtils, FilterFailoverCandidateMissingDbNotExcluded) {
+  auto const db_a = std::string{UUID()};
+  auto const dropped_db = std::string{UUID()};
+  InstancesInfo instances_info{
+      {"instance_1", MakeInfo({{.db_uuid = db_a, .num_committed_txns = 10}})},
+  };
+  auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, {{db_a, 10}, {dropped_db, 30}});
+  EXPECT_TRUE(filtered.contains("instance_1"));
+}
+
+TEST(CoordinationUtils, FilterFailoverNewDbWithZeroOnMainNotExcluded) {
+  auto const db_a = std::string{UUID()};
+  auto const new_db = std::string{UUID()};
+  InstancesInfo instances_info{
+      {"instance_1",
+       MakeInfo({{.db_uuid = db_a, .num_committed_txns = 10}, {.db_uuid = new_db, .num_committed_txns = 0}})},
+  };
+  auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, {{db_a, 10}, {new_db, 0}});
+  EXPECT_TRUE(filtered.contains("instance_1"));
+}
+
+TEST(CoordinationUtils, FilterFailoverDbUnknownToMainNotExcluded) {
+  // DROP + CREATE gives a new uuid the main cache has never seen (or a cache that is still empty)
+  auto const db = std::string{UUID()};
+  InstancesInfo instances_info{
+      {"instance_1", MakeInfo({{.db_uuid = db, .num_committed_txns = 0}})},
+  };
+  auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, {});
+  EXPECT_TRUE(filtered.contains("instance_1"));
+}
+
+TEST(CoordinationUtils, FilterFailoverAllExcludedNoFailover) {
+  auto const db = std::string{UUID()};
+  InstancesInfo instances_info{
+      {"cleared", MakeInfo({{.db_uuid = db, .num_committed_txns = 0}})},
+      {"broken", MakeInfo({{.db_uuid = db, .num_committed_txns = 40, .broken = true}})},
+  };
+  auto const filtered = CoordinatorInstance::FilterFailoverCandidates(instances_info, {{db, 51}});
+  EXPECT_TRUE(filtered.empty());
+}
+
+TEST(CoordinationUtils, FilterFailoverExclusionLogTracksChanges) {
+  auto const db = std::string{UUID()};
+  InstancesInfo const instances_info{{"cleared", MakeInfo({{.db_uuid = db, .num_committed_txns = 0}})}};
+  std::map<std::string, uint64_t> const main_num_txns{{db, 51}};
+
+  CoordinatorInstance::FailoverExclusionLog log;
+  EXPECT_TRUE(CoordinatorInstance::FilterFailoverCandidates(instances_info, main_num_txns, &log).empty());
+  auto const first = log.reasons;
+  ASSERT_EQ(first.size(), 1);
+  EXPECT_TRUE(log.no_candidate_logged);
+
+  EXPECT_TRUE(CoordinatorInstance::FilterFailoverCandidates(instances_info, main_num_txns, &log).empty());
+  EXPECT_EQ(log.reasons, first);
+
+  // Instance becomes eligible: state is reset so a later recurrence is logged at warning again.
+  InstancesInfo const healthy{{"cleared", MakeInfo({{.db_uuid = db, .num_committed_txns = 51}})}};
+  EXPECT_EQ(CoordinatorInstance::FilterFailoverCandidates(healthy, main_num_txns, &log).size(), 1);
+  EXPECT_TRUE(log.reasons.empty());
+  EXPECT_FALSE(log.no_candidate_logged);
+}

@@ -260,7 +260,7 @@ def test_unreadable_received_snapshot_leaves_replica_untouched(test_name):
     mg_sleep_and_assert(True, lambda: main_names.isdisjoint(files_in(received_snapshots)))
 
 
-def get_ha_instances(test_name):
+def get_ha_instances(test_name, instance_1_args=("--storage-snapshot-interval-sec=1",)):
     def data_instance(bolt, management, extra_args):
         return {
             "args": [
@@ -278,7 +278,7 @@ def get_ha_instances(test_name):
         }
 
     instances = {
-        "instance_1": data_instance(7788, 10711, ["--storage-snapshot-interval-sec=1"]),
+        "instance_1": data_instance(7788, 10711, list(instance_1_args)),
         "instance_2": data_instance(7789, 10712, []),
         "coordinator": {
             "args": [
@@ -357,6 +357,68 @@ def test_failed_wal_reset_is_broken(test_name):
 
     marker = "because the reset is needed while recovering from WalFiles"
     assert marker in log_text(test_name, "instance_1")
+
+
+def coordinator_roles(coordinator_cursor):
+    return {row[0]: (row[-2], row[-1]) for row in show_instances(coordinator_cursor) if row[0].startswith("instance_")}
+
+
+def test_failover_skips_broken_replica_and_old_main_returns(test_name):
+    # instance_2 needs MAIN's snapshot to catch up, but MAIN's snapshot is corrupt: instance_2 clears itself, fails the
+    # load and is left empty and broken. When MAIN then dies the coordinator must not promote that empty instance; once
+    # MAIN is back (with a good snapshot) it stays MAIN and heals the replica.
+    instances = get_ha_instances(
+        test_name, instance_1_args=("--storage-snapshot-interval-sec=3600", "--storage-snapshot-retention-count=1")
+    )
+    interactive_mg_runner.start_all(instances, keep_directories=False)
+    coordinator_cursor = connect(host="localhost", port=7790).cursor()
+    mg_sleep_and_assert(
+        {"main", "replica"},
+        lambda: {row[5] for row in show_instances(coordinator_cursor) if row[0].startswith("instance_")},
+    )
+    cursor_1 = connect(host="localhost", port=7788).cursor()
+    cursor_2 = connect(host="localhost", port=7789).cursor()
+    execute_and_fetch_all(cursor_1, f"UNWIND range(1, {NUM_NODES}) AS i CREATE (:Node {{id: i}})")
+    mg_sleep_and_assert(NUM_NODES, partial(vertex_count, cursor_2))
+
+    interactive_mg_runner.stop(instances, "instance_2", keep_directories=True)
+    write_batches(cursor_1, batches=3, snapshot=True)
+    expected = vertex_count(cursor_1)
+
+    snapshots_1 = os.path.join(data_dir(test_name, "instance_1"), "snapshots")
+    snapshot_names = sorted(files_in(snapshots_1))
+    assert len(snapshot_names) == 1
+    good_snapshot = os.path.join(os.path.dirname(data_dir(test_name, "instance_1")), "good_snapshot")
+    shutil.copyfile(os.path.join(snapshots_1, snapshot_names[0]), good_snapshot)
+    corrupt_snapshots(data_dir(test_name, "instance_1"))
+
+    interactive_mg_runner.start(instances, "instance_2")
+    mg_sleep_and_assert(
+        True, lambda: "Couldn't load the snapshot" in log_text(test_name, "instance_2"), max_duration=60
+    )
+    cursor_2 = connect(host="localhost", port=7789).cursor()
+    mg_sleep_and_assert("broken", partial(health, cursor_2))
+
+    interactive_mg_runner.kill(instances, "instance_1", keep_directories=True)
+    mg_sleep_and_assert("down", lambda: coordinator_roles(coordinator_cursor)["instance_1"][0], max_duration=60)
+
+    # The coordinator reports that it refuses to promote, then keeps refusing over several health-check periods.
+    mg_sleep_and_assert(
+        True, lambda: "No instance is safe to promote" in log_text(test_name, "coordinator"), max_duration=60
+    )
+    deadline = time.time() + 6
+    while time.time() < deadline:
+        assert coordinator_roles(coordinator_cursor)["instance_2"][1] != "main"
+        time.sleep(0.5)
+
+    # MAIN returns with a good snapshot, remains MAIN with its data and heals the replica.
+    shutil.copyfile(good_snapshot, os.path.join(snapshots_1, snapshot_names[0]))
+    interactive_mg_runner.start(instances, "instance_1")
+    mg_sleep_and_assert(("up", "main"), lambda: coordinator_roles(coordinator_cursor)["instance_1"], max_duration=60)
+    cursor_1 = connect(host="localhost", port=7788).cursor()
+    assert vertex_count(cursor_1) == expected
+    mg_sleep_and_assert("ready", partial(health, cursor_2), max_duration=60)
+    mg_sleep_and_assert(expected, partial(vertex_count, cursor_2), max_duration=60)
 
 
 if __name__ == "__main__":

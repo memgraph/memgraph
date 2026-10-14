@@ -1586,15 +1586,15 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 
   // Use only DBs from the instance with the largest committed system timestamps
   for (auto const &largest_sys_ts_instance_dbs_info = largest_sys_ts_instance->second.dbs_info;
-       auto const &[db_uuid, _] : largest_sys_ts_instance_dbs_info) {
-    dbs_info.try_emplace(db_uuid);
+       auto const &db : largest_sys_ts_instance_dbs_info) {
+    dbs_info.try_emplace(db.db_uuid);
   }
 
   // Pre-process received failover data
   for (auto const &[instance_name, instance_info] : instances_info) {
-    for (auto const &[db_uuid, num_committed_txns] : instance_info.dbs_info) {
-      if (auto db_it = dbs_info.find(db_uuid); db_it != dbs_info.end()) {
-        db_it->second.emplace_back(instance_name, num_committed_txns);
+    for (auto const &db : instance_info.dbs_info) {
+      if (auto db_it = dbs_info.find(db.db_uuid); db_it != dbs_info.end()) {
+        db_it->second.emplace_back(instance_name, db.num_committed_txns);
       }
     }
   }
@@ -1745,16 +1745,17 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
       auto instance_info = *maybe_instance_info;
 
       bool replica_behind{false};
-      for (const auto &[db_uuid, num_committed_txns] : instance_info.dbs_info) {
-        auto const main_db_info = main_num_txns_cache_.find(db_uuid);
+      for (auto const &db : instance_info.dbs_info) {
+        auto const main_db_info = main_num_txns_cache_.find(db.db_uuid);
         // If database got deleted on main but that change still isn't replicated, we cannot conclude that replica is
         // too far behind using such a condition
         if (main_db_info == main_num_txns_cache_.end()) {
-          spdlog::trace("No entry for db: {}", db_uuid);
+          spdlog::trace("No entry for db: {}", db.db_uuid);
           continue;
         }
 
-        if (main_db_info->second > num_committed_txns && main_db_info->second - num_committed_txns > max_allowed_lag) {
+        if (main_db_info->second > db.num_committed_txns &&
+            main_db_info->second - db.num_committed_txns > max_allowed_lag) {
           spdlog::info(
               "Instance {} won't be used in a failover because it's too much behind the current main. Main has "
               "committed "
@@ -1762,7 +1763,7 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
               instance_name,
               main_db_info->second,
               instance_name,
-              num_committed_txns,
+              db.num_committed_txns,
               main_db_info->first);
           replica_behind = true;
           break;
@@ -1785,7 +1786,62 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
     }
   }
 
-  return ChooseMostUpToDateInstance(instances_info);
+  return ChooseMostUpToDateInstance(
+      FilterFailoverCandidates(std::move(instances_info), main_num_txns_cache_, &failover_exclusion_log_));
+}
+
+auto CoordinatorInstance::FilterFailoverCandidates(
+    std::map<std::string, replication_coordination_glue::InstanceInfo> instances_info,
+    std::map<std::string, uint64_t> const &main_num_txns, FailoverExclusionLog *log)
+    -> std::map<std::string, replication_coordination_glue::InstanceInfo> {
+  bool const had_candidates = !instances_info.empty();
+
+  std::map<std::string, std::string> reasons;
+  for (auto const &[instance_name, instance_info] : instances_info) {
+    std::string reason;
+    for (auto const &db : instance_info.dbs_info) {
+      if (db.broken) {
+        reason += fmt::format("its database {} is broken; ", db.db_uuid);
+        continue;
+      }
+      // Only DBs the candidate reports can block it: a DB missing on the candidate may have been dropped. A DB the
+      // last known main had no commits for (or doesn't know about) can't be violated by an empty replica.
+      auto const main_db = main_num_txns.find(db.db_uuid);
+      if (db.num_committed_txns == 0 && main_db != main_num_txns.end() && main_db->second > 0) {
+        reason +=
+            fmt::format("its database {} has no committed transactions while the last known main had committed {}; ",
+                        db.db_uuid,
+                        main_db->second);
+      }
+    }
+    if (!reason.empty()) reasons.emplace(instance_name, std::move(reason));
+  }
+
+  bool log_instances{true};
+  bool log_no_candidate{true};
+  if (log != nullptr) {
+    std::scoped_lock const guard{log->mutex};
+    log_instances = log->reasons != reasons;
+    log->reasons = reasons;
+    bool const none_left = had_candidates && reasons.size() == instances_info.size();
+    log_no_candidate = !none_left || log_instances || !log->no_candidate_logged;
+    log->no_candidate_logged = none_left;
+  }
+
+  for (auto const &[instance_name, reason] : reasons) {
+    spdlog::log(log_instances ? spdlog::level::warn : spdlog::level::debug,
+                "Instance {} won't be used in a failover because {}",
+                instance_name,
+                reason);
+    instances_info.erase(instance_name);
+  }
+
+  if (had_candidates && instances_info.empty()) {
+    spdlog::log(log_no_candidate ? spdlog::level::err : spdlog::level::debug,
+                "No instance is safe to promote: every failover candidate has a broken database or lost its data. "
+                "Failover won't be performed; recover the old main or promote an instance manually.");
+  }
+  return instances_info;
 }
 
 auto CoordinatorInstance::ShowCoordinatorSettings() const

@@ -216,8 +216,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auto GetReplState() { return repl_state_.Lock(); }
 
 #ifdef MG_ENTERPRISE
-  std::variant<coordination::GetDatabaseHistoriesResV1, coordination::GetDatabaseHistoriesRes> GetDatabasesHistories(
-      uint64_t request_version) const;
+  std::variant<coordination::GetDatabaseHistoriesResV1, coordination::GetDatabaseHistoriesResV2,
+               coordination::GetDatabaseHistoriesRes>
+  GetDatabasesHistories(uint64_t request_version) const;
 
   auto GetReplicationLag() const -> coordination::ReplicationLagInfo;
 

@@ -169,6 +169,14 @@ void GetDatabaseHistoriesReqV1::Load(GetDatabaseHistoriesReqV1 * /*self*/, memgr
   /* nothing to serialize */
 }
 
+void GetDatabaseHistoriesReqV2::Save(const GetDatabaseHistoriesReqV2 & /*self*/, memgraph::slk::Builder * /*builder*/) {
+  /* nothing to serialize */
+}
+
+void GetDatabaseHistoriesReqV2::Load(GetDatabaseHistoriesReqV2 * /*self*/, memgraph::slk::Reader * /*reader*/) {
+  /* nothing to serialize */
+}
+
 void GetDatabaseHistoriesReq::Save(const GetDatabaseHistoriesReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
   /* nothing to serialize */
 }
@@ -182,6 +190,14 @@ void GetDatabaseHistoriesResV1::Save(const GetDatabaseHistoriesResV1 &self, memg
 }
 
 void GetDatabaseHistoriesResV1::Load(GetDatabaseHistoriesResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void GetDatabaseHistoriesResV2::Save(const GetDatabaseHistoriesResV2 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void GetDatabaseHistoriesResV2::Load(GetDatabaseHistoriesResV2 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(self, reader);
 }
 
@@ -330,6 +346,14 @@ void Save(const memgraph::coordination::GetDatabaseHistoriesResV1 &self, memgrap
 }
 
 void Load(memgraph::coordination::GetDatabaseHistoriesResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->arg_, reader);
+}
+
+void Save(const memgraph::coordination::GetDatabaseHistoriesResV2 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.arg_, builder);
+}
+
+void Load(memgraph::coordination::GetDatabaseHistoriesResV2 *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->arg_, reader);
 }
 

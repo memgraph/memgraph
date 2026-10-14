@@ -15,8 +15,11 @@
 
 #include <atomic>
 #include <functional>
+#include <map>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -126,6 +129,22 @@ class CoordinatorInstance {
   static auto ChooseMostUpToDateInstance(
       std::map<std::string, replication_coordination_glue::InstanceInfo> const &instances_info)
       -> std::optional<std::string>;
+
+  // Drops candidates that must not be promoted: any reported DB is broken, or reports 0 committed txns where the last
+  // known main (main_num_txns: db_uuid -> txns) had > 0. main_num_txns is unpersisted leader memory: after a leader
+  // change it is empty or stale until main answers a state check, and a missing entry disables the 0-txns rule.
+  // Manual SET INSTANCE ... TO MAIN bypasses this filter on purpose. Failover retries every tick, so `log` limits
+  // warning/error to changes in the excluded set (repeats go to debug); null `log` always logs at warning/error.
+  struct FailoverExclusionLog {
+    std::mutex mutex;
+    std::map<std::string, std::string> reasons;  // instance -> joined exclusion reasons last logged
+    bool no_candidate_logged{false};             // "no instance is safe" already logged for the current reasons
+  };
+
+  static auto FilterFailoverCandidates(
+      std::map<std::string, replication_coordination_glue::InstanceInfo> instances_info,
+      std::map<std::string, uint64_t> const &main_num_txns, FailoverExclusionLog *log = nullptr)
+      -> std::map<std::string, replication_coordination_glue::InstanceInfo>;
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 
@@ -249,6 +268,8 @@ class CoordinatorInstance {
   // Cache which stores information db->num_committed_txns from the current main. This gets updated through the
   // StateCheckRpc call which is only used on the leader
   std::map<std::string, uint64_t> main_num_txns_cache_;
+
+  mutable FailoverExclusionLog failover_exclusion_log_;
 
   // Cache which stores information about the number of committed txns of replicas
   std::map<std::string, std::map<std::string, int64_t>> replicas_num_txns_cache_;
