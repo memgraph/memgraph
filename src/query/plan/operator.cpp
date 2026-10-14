@@ -4225,6 +4225,7 @@ class KShortestPathsCursor : public Cursor {
     // Need to pull new input
     while (input_cursor_->Pull(frame, context)) {
       AbortCheck(context);
+      // The limit is query-wide, so the query ends here and path storage goes with the cursor.
       if (context.hops_limit.IsLimitReached()) return false;
 
       auto &source_tv = frame[self_.input_symbol_];
@@ -4281,7 +4282,6 @@ class KShortestPathsCursor : public Cursor {
       if (serve_next_path()) return true;
     }
 
-    // The last searched row has no next one to release its paths.
     ReleasePathStorage();
     return false;
   }
@@ -4300,7 +4300,7 @@ class KShortestPathsCursor : public Cursor {
   struct FoundPath {
     uint64_t leaf;
     size_t length;
-    size_t deviation_vertex_index;  // Index where this path deviates from parent
+    size_t root_length;  // of the candidate it was accepted as
     // Empty under hop count.
     [[no_unique_address]] Cost::Payload cost;
   };
@@ -4503,39 +4503,33 @@ class KShortestPathsCursor : public Cursor {
                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
     if (shortest_paths_.empty()) return false;
 
-    // Scoped so the reference cannot outlive the loop. Nothing in it appends to
-    // `shortest_paths_`; the scope means that does not have to be re-checked.
-    {
-      const auto &base_path = shortest_paths_.back();
-      CollectPathNodes(base_path.leaf);
+    CollectPathNodes(shortest_paths_.back().leaf);
+    // Lawler: the deviation range starts at the root this path was generated from.
+    const size_t first_deviation = shortest_paths_.back().root_length;
 
-      // Lawler: the deviation range starts at the root this path was generated from.
-      const size_t first_deviation = base_path.deviation_vertex_index;
+    blocked_vertices_.clear();
+    VertexAccessor deviation_vertex = source;
+    // The root prefix's cost; a candidate costs this plus its spur. Weighted mode only.
+    // NOLINTNEXTLINE(misc-const-correctness)
+    TypedValue root_weight;
 
-      blocked_vertices_.clear();
-      VertexAccessor deviation_vertex = source;
-      // The root prefix's cost; a candidate costs this plus its spur. Weighted mode only.
-      // NOLINTNEXTLINE(misc-const-correctness)
-      TypedValue root_weight;
-
-      for (size_t i = 0UZ; i < base_path.length; ++i) {
-        const uint64_t root = path_nodes_[i];
-        if (i >= first_deviation) {
-          blocked_edges_.clear();
-          for (uint64_t c = trie_[root].first_child; c != kNoNode; c = trie_[c].next_sibling) {
-            blocked_edges_.insert(trie_[c].gid);
-          }
-          GenerateCandidatesFromDeviation(target, root, i, deviation_vertex, root_weight, frame, evaluator, context);
+    for (size_t i = 0UZ; i + 1 < path_nodes_.size(); ++i) {
+      const uint64_t root = path_nodes_[i];
+      if (i >= first_deviation) {
+        blocked_edges_.clear();
+        for (uint64_t c = trie_[root].first_child; c != kNoNode; c = trie_[c].next_sibling) {
+          blocked_edges_.insert(trie_[c].gid);
         }
-
-        blocked_vertices_.insert(deviation_vertex.Gid());
-        const auto &edge = *trie_[path_nodes_[i + 1]].edge;
-        const VertexAccessor next_vertex = (edge.From() == deviation_vertex) ? edge.To() : edge.From();
-        if constexpr (Cost::kWeighted) {
-          root_weight = AddCost(root_weight, EdgeWeight(edge, next_vertex, frame, evaluator, context));
-        }
-        deviation_vertex = next_vertex;
+        GenerateCandidatesFromDeviation(target, root, i, deviation_vertex, root_weight, frame, evaluator, context);
       }
+
+      blocked_vertices_.insert(deviation_vertex.Gid());
+      const auto &edge = *trie_[path_nodes_[i + 1]].edge;
+      const VertexAccessor next_vertex = (edge.From() == deviation_vertex) ? edge.To() : edge.From();
+      if constexpr (Cost::kWeighted) {
+        root_weight = AddCost(root_weight, EdgeWeight(edge, next_vertex, frame, evaluator, context));
+      }
+      deviation_vertex = next_vertex;
     }
 
     // A spur search the hops limit cut short may have missed a shorter candidate, so the best one left is not
@@ -5048,20 +5042,19 @@ class KShortestPathsCursor : public Cursor {
   /// the candidate is then a prefix of a found path, which is simple and ends at the target, so it
   /// is that path.
   bool AcceptCandidate(Candidate &&candidate) {
+    const auto trie_size = trie_.size();
     uint64_t node = candidate.root;
-    bool created = false;
-    for (const auto &edge : candidate.spur) node = TrieDescendOrCreate(node, edge, created);
-    if (!created) return false;
+    for (const auto &edge : candidate.spur) node = TrieDescendOrCreate(node, edge);
+    if (trie_.size() == trie_size) return false;
     shortest_paths_.push_back(FoundPath{.leaf = node,
                                         .length = candidate.length(),
-                                        .deviation_vertex_index = candidate.root_length,
+                                        .root_length = candidate.root_length,
                                         .cost = std::move(candidate.cost)});
     return true;
   }
 
-  /// The child of `node` reached by `edge`, created - and `created` set - if this is the first path
-  /// to take it.
-  uint64_t TrieDescendOrCreate(uint64_t node, const EdgeAccessor &edge, bool &created) {
+  /// The child of `node` reached by `edge`, created if this is the first path to take it.
+  uint64_t TrieDescendOrCreate(uint64_t node, const EdgeAccessor &edge) {
     const auto gid = edge.Gid();
     for (uint64_t c = trie_[node].first_child; c != kNoNode; c = trie_[c].next_sibling) {
       if (trie_[c].gid == gid) return c;
@@ -5072,7 +5065,6 @@ class KShortestPathsCursor : public Cursor {
     trie_.push_back(TrieNode{
         .edge = edge, .gid = gid, .parent = node, .first_child = kNoNode, .next_sibling = trie_[node].first_child});
     trie_[node].first_child = fresh;
-    created = true;
     return fresh;
   }
 
