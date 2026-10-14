@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import concurrent.futures
+import contextlib
 import sys
 import threading
 import time
@@ -23,7 +24,11 @@ def memgraph() -> Memgraph:
     memgraph = Memgraph()
     yield memgraph
 
-    # Cleanup
+    # Cleanup: once a user exists an anonymous session is denied, so clean up as the first user (admin) if present.
+    with contextlib.suppress(Exception):
+        admin = Memgraph(username="admin", password="")
+        admin.execute("SHOW USERS;")
+        memgraph = admin
     try:
         memgraph.execute("DROP USER concurrent_user1;")
     except Exception:
@@ -52,6 +57,16 @@ def memgraph() -> Memgraph:
         memgraph.execute("DROP PROFILE stress_profile;")
     except Exception:
         pass
+    # The first user goes last; once it is gone anonymous access is restored.
+    with contextlib.suppress(Exception):
+        memgraph.execute("DROP USER admin;")
+
+
+def login_as_first_user(memgraph: Memgraph) -> Memgraph:
+    """Create the first user, which holds every privilege, and continue as it: an anonymous session is denied once a
+    user exists."""
+    memgraph.execute("CREATE USER admin;")
+    return Memgraph(username="admin", password="")
 
 
 def test_concurrent_profile_creation(memgraph):
@@ -122,6 +137,7 @@ def test_concurrent_profile_assignments(memgraph):
     """Test concurrent profile assignments to users."""
 
     # Create profile and users
+    memgraph = login_as_first_user(memgraph)
     memgraph.execute("CREATE PROFILE concurrent_profile;")
     memgraph.execute("CREATE USER concurrent_user1;")
     memgraph.execute("CREATE USER concurrent_user2;")
@@ -155,6 +171,7 @@ def test_memory_exhaustion_scenario(memgraph):
     """Test memory exhaustion scenario with profile limits."""
 
     # Create profile with memory limit
+    memgraph = login_as_first_user(memgraph)
     memgraph.execute("CREATE PROFILE resource_profile LIMIT transactions_memory 1KB;")
     memgraph.execute("CREATE USER resource_user;")
     memgraph.execute("SET PROFILE FOR resource_user TO resource_profile;")
@@ -188,6 +205,7 @@ def test_profile_update_during_resource_usage(memgraph):
     """Test profile updates while resources are being used."""
 
     # Create profile with low limits
+    memgraph = login_as_first_user(memgraph)
     memgraph.execute("CREATE PROFILE stress_profile LIMIT sessions 1, transactions_memory 1KB;")
     memgraph.execute("CREATE USER resource_user;")
     memgraph.execute("SET PROFILE FOR resource_user TO stress_profile;")
@@ -239,6 +257,7 @@ def test_profile_deletion_during_active_usage(memgraph):
     """Test profile deletion while resources are actively being used."""
 
     # Create profile and user
+    memgraph = login_as_first_user(memgraph)
     memgraph.execute("CREATE PROFILE stress_profile LIMIT sessions 2, transactions_memory 1KB;")
     memgraph.execute("CREATE USER resource_user;")
     memgraph.execute("SET PROFILE FOR resource_user TO stress_profile;")
