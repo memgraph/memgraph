@@ -53,14 +53,7 @@ void QueryUserOrRole::EnsureFresh() const {
 }
 
 bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
-                                   std::optional<std::string_view> db_name, query::UserPolicy *policy) const {
-  // The session-long policy only consults the cached principal; a dropped session only checks if auth is on.
-  if (!policy->DoUpdate()) {
-    if (dropped_) return !auth_->ReadLock()->AccessControlled();
-    if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
-    if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
-    return true;
-  }
+                                   std::optional<std::string_view> db_name) const {
   try {
     EnsureFresh();
   } catch (const auth::AuthException &e) {
@@ -105,21 +98,16 @@ std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string
 }
 
 #ifdef MG_ENTERPRISE
-bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolicy *policy,
-                                     std::optional<std::string_view> db_name) const {
-  if (policy->DoUpdate()) {
-    try {
-      EnsureFresh();
-    } catch (const auth::AuthException &e) {
-      spdlog::warn("Denying impersonation: failed to refresh the principal's permissions: {}", e.what());
-      return false;
-    }
+bool QueryUserOrRole::CanImpersonate(const std::string &target, std::optional<std::string_view> db_name) const {
+  try {
+    EnsureFresh();
+  } catch (const auth::AuthException &e) {
+    spdlog::warn("Denying impersonation: failed to refresh the principal's permissions: {}", e.what());
+    return false;
   }
   if (dropped_) return false;
 
-  // Only the up-to-date path keeps the cache coherent with auth_epoch_.
-  const bool use_cache = policy->DoUpdate();
-  if (use_cache && imp_ok_ && imp_ok_->epoch == auth_epoch_ && imp_ok_->target == target &&
+  if (imp_ok_ && imp_ok_->epoch == auth_epoch_ && imp_ok_->target == target &&
       imp_ok_->db_name.has_value() == db_name.has_value() &&
       (!db_name || std::string_view{*imp_ok_->db_name} == *db_name)) {
     return true;
@@ -135,14 +123,12 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolic
       allowed = AuthChecker::CanImpersonate(*roles_, *user_to_impersonate, db_name);
     }
   }
-  if (use_cache) {
-    // Cache only when the principal and the target were read at the same epoch.
-    if (allowed && locked_auth->CurrentEpoch() == auth_epoch_) {
-      imp_ok_ = ImpersonationGrant{
-          target, db_name ? std::optional<std::string>{std::string{*db_name}} : std::nullopt, auth_epoch_};
-    } else {
-      imp_ok_.reset();
-    }
+  // Cache only when the principal and the target were read at the same epoch.
+  if (allowed && locked_auth->CurrentEpoch() == auth_epoch_) {
+    imp_ok_ = ImpersonationGrant{
+        target, db_name ? std::optional<std::string>{std::string{*db_name}} : std::nullopt, auth_epoch_};
+  } else {
+    imp_ok_.reset();
   }
   return allowed;
 }

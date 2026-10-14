@@ -3812,15 +3812,12 @@ TEST_F(AuthQueryHandlerFixture, ReadPathsDoNotTakeExclusiveAuthLock) {
   ASSERT_TRUE(auth_handler.CreateUser("epoch_bump", std::nullopt, nullptr, nullptr).created);
   LockHolder holder{*auth, LockMode::kShared};
   auto authorized_fut = std::async(std::launch::async, [&] {
-    return subject.IsAuthorized(
-        {memgraph::query::AuthQuery::Privilege::MATCH}, std::nullopt, &memgraph::query::up_to_date_policy);
+    return subject.IsAuthorized({memgraph::query::AuthQuery::Privilege::MATCH}, std::nullopt);
   });
   auto ok_fut = std::async(std::launch::async, [&] { return memgraph::auth::Authenticate(*auth, "alice", "secret"); });
   auto bad_fut = std::async(std::launch::async, [&] { return memgraph::auth::Authenticate(*auth, "alice", "wrong"); });
 #ifdef MG_ENTERPRISE
-  auto impersonate_fut = std::async(std::launch::async, [&] {
-    return impersonator_subject.CanImpersonate("target", &memgraph::query::up_to_date_policy);
-  });
+  auto impersonate_fut = std::async(std::launch::async, [&] { return impersonator_subject.CanImpersonate("target"); });
   ASSERT_TRUE(CompleteWhileHeld(holder, authorized_fut, ok_fut, bad_fut, impersonate_fut))
       << "a read path blocked under the shared auth lock";
   EXPECT_TRUE(impersonate_fut.get());
@@ -3864,9 +3861,9 @@ TEST_F(AuthQueryHandlerFixture, PasswordHashingOverlapsExclusiveLockHold) {
   set_fut.get();
 }
 
-// session_long_policy reads only the cached principal, so it completes under an exclusive write lock, including for
-// an anonymous session that has no cached principal.
-TEST_F(AuthQueryHandlerFixture, SessionLongPolicyIsLockFreeUnderExclusiveLock) {
+// Once a principal has refreshed at the current auth epoch, IsAuthorized reads only its cache, so a repeated check
+// completes under an exclusive write lock, including for an anonymous session that has no cached principal.
+TEST_F(AuthQueryHandlerFixture, SteadyStateCheckIsLockFreeUnderExclusiveLock) {
   auto const make_user = [&](const std::string &username, bool grant_match) {
     {
       auto locked = auth->Lock();
@@ -3885,11 +3882,18 @@ TEST_F(AuthQueryHandlerFixture, SessionLongPolicyIsLockFreeUnderExclusiveLock) {
   auto denied = make_user("denied_user", false);
   memgraph::glue::QueryUserOrRole anonymous{&*auth};
 
+  // First checks refresh each principal to the current epoch; they take the read lock, so run them before the holder.
+  auto const check = [](memgraph::glue::QueryUserOrRole &subject) {
+    return subject.IsAuthorized({memgraph::query::AuthQuery::Privilege::MATCH}, std::nullopt);
+  };
+  ASSERT_TRUE(check(granted));
+  ASSERT_FALSE(check(denied));
+  ASSERT_FALSE(check(anonymous));
+
   LockHolder holder{*auth, LockMode::kExclusive};
   auto const authorized = [](memgraph::glue::QueryUserOrRole &subject) {
     return std::async(std::launch::async, [&subject] {
-      return subject.IsAuthorized(
-          {memgraph::query::AuthQuery::Privilege::MATCH}, std::nullopt, &memgraph::query::session_long_policy);
+      return subject.IsAuthorized({memgraph::query::AuthQuery::Privilege::MATCH}, std::nullopt);
     });
   };
   auto granted_fut = authorized(granted);
@@ -3897,8 +3901,9 @@ TEST_F(AuthQueryHandlerFixture, SessionLongPolicyIsLockFreeUnderExclusiveLock) {
   auto anonymous_fut = authorized(anonymous);
 
   ASSERT_TRUE(CompleteWhileHeld(holder, granted_fut, denied_fut, anonymous_fut))
-      << "session_long_policy blocked under exclusive lock";
+      << "a steady-state check blocked under exclusive lock";
   EXPECT_TRUE(granted_fut.get());
   EXPECT_FALSE(denied_fut.get());
-  EXPECT_TRUE(anonymous_fut.get());
+  // Users exist, so access control is on and the anonymous principal is denied.
+  EXPECT_FALSE(anonymous_fut.get());
 }

@@ -25,8 +25,8 @@ namespace memgraph::glue {
 struct QueryUserOrRole : public query::QueryUserOrRole {
   std::shared_ptr<query::QueryUserOrRole> clone() const override;
 
-  bool IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges, std::optional<std::string_view> db_name,
-                    query::UserPolicy *policy) const override;
+  bool IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
+                    std::optional<std::string_view> db_name) const override;
 
   std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override;
 
@@ -34,8 +34,7 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   uint64_t PrincipalVersion() const override;
 
 #ifdef MG_ENTERPRISE
-  bool CanImpersonate(const std::string &target, query::UserPolicy *policy,
-                      std::optional<std::string_view> db_name = std::nullopt) const override;
+  bool CanImpersonate(const std::string &target, std::optional<std::string_view> db_name = std::nullopt) const override;
   std::string GetDefaultDB() const override;
 #endif
 
@@ -57,8 +56,9 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   void EnsureFresh() const;
 
   auth::SynchedAuth *auth_;
-  // user_/roles_/auth_epoch_ are a lazily refreshed cache; IsAuthorized and CanImpersonate write them.
-  // Do not share one instance across threads — give each thread its own clone().
+  // user_/roles_/dropped_/auth_epoch_/imp_ok_ are a lazily refreshed cache that every authorization check may write.
+  // Owner-thread-only: a foreign thread may use only username(), rolenames(), operator== and operator bool, and must
+  // take its own clone() before calling anything else.
   mutable std::optional<auth::User> user_{};
   mutable std::optional<auth::Roles> roles_{};
   mutable bool dropped_{false};

@@ -23,22 +23,6 @@
 
 namespace memgraph::query {
 
-class UserPolicy {
- public:
-  virtual bool DoUpdate() const = 0;
-  virtual ~UserPolicy() = default;
-};
-
-extern struct SessionLongPolicy : UserPolicy {
- public:
-  bool DoUpdate() const override { return false; }
-} session_long_policy;
-
-extern struct UpToDatePolicy : UserPolicy {
- public:
-  bool DoUpdate() const override { return true; }
-} up_to_date_policy;
-
 struct QueryUserOrRole {
   QueryUserOrRole(std::optional<std::string> username, std::vector<std::string> rolenames)
       : username_{std::move(username)}, rolenames_{std::move(rolenames)} {}
@@ -48,7 +32,7 @@ struct QueryUserOrRole {
   virtual std::shared_ptr<QueryUserOrRole> clone() const = 0;
 
   virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges,
-                            std::optional<std::string_view> db_name, UserPolicy *policy) const = 0;
+                            std::optional<std::string_view> db_name) const = 0;
 
   virtual std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const = 0;
 
@@ -57,7 +41,7 @@ struct QueryUserOrRole {
   virtual uint64_t PrincipalVersion() const { return 0; }
 
 #ifdef MG_ENTERPRISE
-  virtual bool CanImpersonate(const std::string &target, UserPolicy *policy,
+  virtual bool CanImpersonate(const std::string &target,
                               std::optional<std::string_view> db_name = std::nullopt) const = 0;
   virtual std::string GetDefaultDB() const = 0;
 #endif

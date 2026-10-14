@@ -7558,9 +7558,7 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
                                      std::shared_ptr<QueryUserOrRole> user_or_role, const Parameters &parameters,
                                      InterpreterContext *interpreter_context, Interpreter const *self) {
   auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-    return user_or_role &&
-           user_or_role->IsAuthorized(
-               {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name, &query::up_to_date_policy);
+    return user_or_role && user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name);
   };
 
   Callback callback;
@@ -7673,9 +7671,7 @@ Callback HandleSessionQuery(SessionQuery *session_query, std::shared_ptr<QueryUs
                             const Parameters &parameters, InterpreterContext *interpreter_context,
                             std::string caller_session_uuid) {
   auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-    return user_or_role &&
-           user_or_role->IsAuthorized(
-               {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name, &query::up_to_date_policy);
+    return user_or_role && user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name);
   };
 
   Callback callback;
@@ -8831,10 +8827,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                   interpreter_context->interpreters.WithLock(
                       [db_name, interpreter_context, interpreter](auto &interpreters) {
                         auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
-                          return user_or_role &&
-                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
-                                                            db_name,
-                                                            &query::up_to_date_policy);
+                          return user_or_role && user_or_role->IsAuthorized(
+                                                     {query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT}, db_name);
                         };
                         interpreter_context->TerminateTransactions(
                             interpreters,
@@ -11238,7 +11232,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 }
 
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
-  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db, &query::session_long_policy)) {
+  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db)) {
     Abort();
     if (!db) {
       throw QueryException(
