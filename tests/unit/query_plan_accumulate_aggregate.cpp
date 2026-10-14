@@ -19,6 +19,7 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "license/license.hpp"
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
@@ -781,6 +782,152 @@ TYPED_TEST(QueryPlanTest, AggregateTypes) {
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::AVG), QueryRuntimeException);
   EXPECT_THROW(aggregate(n_p2, Aggregation::Op::SUM), QueryRuntimeException);
 }
+
+#ifdef MG_ENTERPRISE
+/// Reading one restricted property by the two routes a query can take to it.
+template <typename StorageType>
+class QueryPlanPropertyPermission : public QueryPlanTest<StorageType> {
+ protected:
+  std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{this->db->Access(memgraph::storage::WRITE)};
+  memgraph::query::DbAccessor dba{storage_dba.get()};
+  memgraph::storage::LabelId label = this->db->NameToLabel("Item");
+  memgraph::storage::PropertyId prop = this->db->NameToProperty("value");
+
+  // A property restriction is only consulted under an enterprise licence; without one every read
+  // is allowed, and these tests would pass while asserting nothing.
+  void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
+
+  void TearDown() override {
+    memgraph::license::global_license_checker.DisableTesting();
+    QueryPlanTest<StorageType>::TearDown();
+  }
+
+  /// Every vertex carries the label the restriction is keyed on, which is what lets the queries
+  /// below scan without one and still expect the restriction to apply to everything they read.
+  void AddData() {
+    for (int64_t value : {1, 2, 3}) {
+      auto vertex = dba.InsertVertex();
+      ASSERT_TRUE(vertex.AddLabel(label).has_value());
+      ASSERT_TRUE(vertex.SetProperty(prop, memgraph::storage::PropertyValue(value)).has_value());
+    }
+    dba.AdvanceCommand();
+  }
+
+  /// A user who may read everything. Two things have to be said explicitly: property permissions
+  /// are resolved per database, so the one under test is granted, and unrestricted access means a
+  /// global grant over every property rather than the absence of any rule.
+  memgraph::auth::User Unrestricted() const {
+    auto user = memgraph::auth::User{"unrestricted"};
+    user.db_access().Grant(dba.DatabaseName());
+    user.fine_grained_access_handler().label_permissions().GrantGlobal(memgraph::auth::kAllLabelPermissions);
+    user.property_access_handler().label_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    user.property_access_handler().edge_type_properties().GrantGlobal("*", memgraph::auth::kAllPropertyPermissionTypes);
+    return user;
+  }
+
+  /// The same user, with the one property denied on the label carrying it.
+  memgraph::auth::User Restricted() const {
+    auto user = Unrestricted();
+    user.property_access_handler().label_properties().Deny(
+        {"Item"}, "value", memgraph::auth::kAllPropertyPermissionTypes);
+    return user;
+  }
+
+  /// `MATCH (n) RETURN count(n.value), sum(n.value), max(n.value)`, which reads the property
+  /// inside an aggregation. The three answer differently over no values, so together they say
+  /// whether the aggregation saw any.
+  std::vector<TypedValue> AggregatesThroughAggregation(memgraph::auth::User user) {
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
+    auto produce = this->MakeAggregationProduce(n.op_,
+                                                symbol_table,
+                                                {n_p, n_p, n_p},
+                                                {Aggregation::Op::COUNT, Aggregation::Op::SUM, Aggregation::Op::MAX},
+                                                {},
+                                                {},
+                                                false);
+
+    memgraph::glue::FineGrainedAuthChecker auth_checker{std::move(user), &dba};
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
+    auto results = CollectProduce(*produce, &context);
+    EXPECT_EQ(results.size(), 1);
+    return results[0];
+  }
+
+  /// `MATCH (n) RETURN n.value`, which reads the same property through a projection.
+  std::vector<TypedValue> ValuesThroughProjection(memgraph::auth::User user) {
+    SymbolTable symbol_table;
+    auto n = MakeScanAll(this->storage, symbol_table, "n");
+    auto n_p = PROPERTY_LOOKUP(dba, IDENT("n")->MapTo(n.sym_), prop);
+    auto output = NEXPR("value", n_p)->MapTo(symbol_table.CreateSymbol("value", true));
+    auto produce = std::make_shared<Produce>(n.op_, std::vector<NamedExpression *>{output});
+
+    memgraph::glue::FineGrainedAuthChecker auth_checker{std::move(user), &dba};
+    auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &dba, &auth_checker);
+    auto results = CollectProduce(*produce, &context);
+    auto values = std::vector<TypedValue>{};
+    for (auto const &row : results) values.emplace_back(row[0]);
+    return values;
+  }
+};
+
+TYPED_TEST_SUITE(QueryPlanPropertyPermission, StorageTypes);
+
+TYPED_TEST(QueryPlanPropertyPermission, MasksARestrictedPropertyReadThroughAnAggregation) {
+  // A denied property reads as Null, so an aggregation over it sees no values at all and answers
+  // as it would for a property no vertex carries: counting none of them, summing to zero, and
+  // having no maximum. An aggregation reaches the property by a different path from a projection,
+  // which is why the same restriction is asserted through both.
+  this->AddData();
+
+  auto allowed = this->AggregatesThroughAggregation(this->Unrestricted());
+  ASSERT_EQ(allowed.size(), 3);
+  EXPECT_EQ(allowed[0].ValueInt(), 3);
+  EXPECT_EQ(allowed[1].ValueInt(), 6);
+  EXPECT_EQ(allowed[2].ValueInt(), 3);
+
+  auto denied = this->AggregatesThroughAggregation(this->Restricted());
+  ASSERT_EQ(denied.size(), 3);
+  EXPECT_EQ(denied[0].ValueInt(), 0);
+  EXPECT_EQ(denied[1].ValueInt(), 0);
+  EXPECT_TRUE(denied[2].IsNull());
+}
+
+TYPED_TEST(QueryPlanPropertyPermission, MasksARestrictedPropertyReadThroughAProjection) {
+  // The same property by the route the aggregation is being compared against, so that a failure
+  // says which of the two paths lost the restriction.
+  this->AddData();
+
+  auto allowed = this->ValuesThroughProjection(this->Unrestricted());
+  ASSERT_EQ(allowed.size(), 3);
+  EXPECT_THAT((std::vector{allowed[0].ValueInt(), allowed[1].ValueInt(), allowed[2].ValueInt()}),
+              UnorderedElementsAre(1, 2, 3));
+
+  auto denied = this->ValuesThroughProjection(this->Restricted());
+  ASSERT_EQ(denied.size(), 3);
+  EXPECT_TRUE(denied[0].IsNull());
+  EXPECT_TRUE(denied[1].IsNull());
+  EXPECT_TRUE(denied[2].IsNull());
+}
+
+TYPED_TEST(QueryPlanPropertyPermission, CountsTheRowsItRefusesToShowTheValuesOf) {
+  // Masking a property hides the value, not the row. `count(*)` is answered without reading the
+  // property at all, so it reports every row whether or not the reader may see what is in it.
+  this->AddData();
+
+  SymbolTable symbol_table;
+  auto n = MakeScanAll(this->storage, symbol_table, "n");
+  auto produce = this->MakeAggregationProduce(n.op_, symbol_table, {nullptr}, {Aggregation::Op::COUNT}, {}, {}, false);
+
+  memgraph::glue::FineGrainedAuthChecker auth_checker{this->Restricted(), &this->dba};
+  auto context = MakeContextWithFineGrainedChecker(this->storage, symbol_table, &this->dba, &auth_checker);
+  auto results = CollectProduce(*produce, &context);
+
+  ASSERT_EQ(results.size(), 1);
+  EXPECT_EQ(results[0][0].ValueInt(), 3);
+}
+#endif
 
 TYPED_TEST(QueryPlanTest, Unwind) {
   auto storage_dba = this->db->Access(memgraph::storage::WRITE);
