@@ -3,6 +3,7 @@ show_privileges: &show_privileges
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "show_privileges.log"
+      username: admin
       setup_queries: [
         "CREATE USER admin;",
         "GRANT ALL PRIVILEGES TO USER admin",
@@ -18,6 +19,7 @@ show_privileges_cluster: &show_privileges_cluster
     main:
       args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "show_privileges.log"
+      username: admin
       setup_queries: [
         "CREATE USER admin;",
         "GRANT ALL PRIVILEGES TO USER admin",
