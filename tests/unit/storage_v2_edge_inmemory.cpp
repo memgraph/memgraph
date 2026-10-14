@@ -5638,7 +5638,7 @@ TEST_P(StorageEdgeCreateAbort, FailureOnToVertexLeavesFromVertexWritable) {
   auto const et = store->NameToEdgeType("et");
   auto const prop = store->NameToProperty("p");
 
-  // acc1 has an uncommitted sequential edge create on `from`; acc2 holds a blocking write on `to`.
+  // acc1 has an uncommitted sequential edge create on `from`. For SERIALIZATION_ERROR, acc2 blocks `to`.
   auto acc1 = store->Access(memgraph::storage::WRITE);
   {
     auto from = acc1->FindVertex(gid_from, View::OLD);
