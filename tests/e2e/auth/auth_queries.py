@@ -14,6 +14,8 @@ import sys
 import pytest
 from common import memgraph, provide_user
 from gqlalchemy import Memgraph
+from neo4j import GraphDatabase
+from neo4j.exceptions import ClientError
 
 
 def test_user_creation(memgraph):
@@ -1106,6 +1108,103 @@ def test_multiple_roles_on_database(memgraph):
     memgraph.execute("DROP ROLE role2;")
     memgraph.execute("DROP ROLE role3;")
     memgraph.execute("DROP DATABASE testdb;")
+
+
+@pytest.fixture
+def alice_and_superuser(memgraph):
+    memgraph.execute("CREATE DATABASE db1;")
+    memgraph.execute("CREATE USER superuser IDENTIFIED BY 'superpassword';")  # first user gets builtin admin role
+    try:
+        memgraph.execute("CREATE USER alice IDENTIFIED BY 'pw';")
+        memgraph.execute("GRANT ALL PRIVILEGES TO alice;")
+        memgraph.execute("GRANT DATABASE db1 TO alice;")
+        memgraph.execute("GRANT DATABASE memgraph TO alice;")
+        yield memgraph
+    finally:
+        for cleanup in ("DROP USER alice;", "DROP USER superuser;", "DROP DATABASE db1;"):
+            try:
+                memgraph.execute(cleanup)
+            except Exception:
+                pass
+
+
+@pytest.mark.parametrize("remove_main_access", ["REVOKE DATABASE db1 FROM alice;", "DENY DATABASE db1 FROM alice;"])
+def test_session_without_access_to_main_database_runs_dbless(alice_and_superuser, remove_main_access):
+    # Session must run db-less (as at login) and stay free to USE DATABASE on a reused pooled connection.
+    memgraph = alice_and_superuser
+    memgraph.execute("SET MAIN DATABASE db1 FOR alice;")
+    memgraph.execute("GRANT IMPERSONATE_USER alice TO superuser;")
+    memgraph.execute(remove_main_access)
+
+    with GraphDatabase.driver("bolt://localhost:7687", auth=("alice", "pw"), max_connection_pool_size=1) as driver:
+        with driver.session(database="memgraph") as session:
+            assert session.run("RETURN 1 AS one;").single()["one"] == 1
+        with driver.session() as session:
+            with pytest.raises(ClientError) as exc_info:
+                session.run("RETURN 1;").consume()
+            assert "ClientError" in exc_info.value.code
+            session.run("USE DATABASE memgraph;").consume()
+            assert session.run("RETURN 1 AS one;").single()["one"] == 1
+
+    with GraphDatabase.driver("bolt://localhost:7687", auth=("superuser", "superpassword")) as driver, driver.session(
+        impersonated_user="alice"
+    ) as session:
+        with pytest.raises(ClientError, match="no accessible main database"):
+            session.run("RETURN 1;").consume()
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        "LOCK DATA DIRECTORY",
+        "FREE MEMORY",
+        "SHOW TRIGGERS",
+        "SHOW STREAMS",
+        "SET GLOBAL TRANSACTION ISOLATION LEVEL SNAPSHOT ISOLATION",
+        "STORAGE MODE IN_MEMORY_ANALYTICAL",
+        "EDGE IMPORT MODE ACTIVE",
+        "CREATE SNAPSHOT",
+        "SHOW SNAPSHOTS",
+        "SHOW NEXT SNAPSHOT",
+        "SHOW CONSTRAINT INFO",
+        "SET SESSION TRACE ON",
+    ],
+)
+def test_dbless_session_query_requiring_database(alice_and_superuser, query):
+    memgraph = alice_and_superuser
+    memgraph.execute("SET MAIN DATABASE db1 FOR alice;")
+    memgraph.execute("REVOKE DATABASE db1 FROM alice;")
+    with GraphDatabase.driver("bolt://localhost:7687", auth=("alice", "pw")) as driver, driver.session() as session:
+        with pytest.raises(ClientError, match="Database required for query execution.") as exc_info:
+            session.run(query).consume()
+        assert "ClientError" in exc_info.value.code
+    assert list(memgraph.execute_and_fetch("RETURN 1 AS one;"))[0]["one"] == 1
+
+
+def test_dropped_database_still_granted_is_not_retryable(alice_and_superuser):
+    memgraph = alice_and_superuser
+    memgraph.execute("GRANT DATABASE * TO alice;")  # keeps the dropped db (and alice's main db) "accessible"
+    memgraph.execute("SET MAIN DATABASE db1 FOR alice;")
+    memgraph.execute("DROP DATABASE db1 FORCE;")
+    with GraphDatabase.driver("bolt://localhost:7687", auth=("alice", "pw"), max_connection_pool_size=1) as driver:
+        with driver.session(database="db1") as session:
+            with pytest.raises(ClientError, match='unknown database "db1"') as exc_info:
+                session.run("RETURN 1;").consume()
+            assert "ClientError" in exc_info.value.code
+        with driver.session() as session:
+            with pytest.raises(ClientError, match="Database required for query execution."):
+                session.run("RETURN 1;").consume()
+            session.run("USE DATABASE memgraph;").consume()
+            assert session.run("RETURN 1 AS one;").single()["one"] == 1
+
+
+def test_impersonating_nonexistent_user_is_client_error(alice_and_superuser):
+    with GraphDatabase.driver("bolt://localhost:7687", auth=("superuser", "superpassword")) as driver, driver.session(
+        impersonated_user="ghost"
+    ) as session:
+        with pytest.raises(ClientError, match="doesn't exist") as exc_info:
+            session.run("RETURN 1;").consume()
+        assert "ClientError" in exc_info.value.code
 
 
 if __name__ == "__main__":

@@ -294,6 +294,14 @@ template <typename>
 constexpr auto kAlwaysFalse = false;
 
 namespace {
+// A session may have no current database; queries needing one must throw, not abort.
+dbms::DatabaseAccess &RequireCurrentDb(CurrentDB &current_db) {
+  if (!current_db.db_acc_) {
+    throw DatabaseContextRequiredException("Database required for query execution.");
+  }
+  return *current_db.db_acc_;
+}
+
 constexpr std::string_view kSocketErrorExplanation =
     "The socket address must be a string defining the address and port, delimited by a "
     "single colon. The address must be valid and the port must be an integer.";
@@ -6134,8 +6142,7 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
     throw LockPathModificationInMulticommandTxException();
   }
 
-  MG_ASSERT(current_db.db_acc_, "Lock Path query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  storage::Storage *storage = RequireCurrentDb(current_db)->storage();
 
   if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw LockPathDisabledOnDiskStorage();
@@ -6194,8 +6201,7 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_
     throw FreeMemoryModificationInMulticommandTxException();
   }
 
-  MG_ASSERT(current_db.db_acc_, "Free Memory query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  storage::Storage *storage = RequireCurrentDb(current_db)->storage();
 
   if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw FreeMemoryDisabledOnDiskStorage();
@@ -6376,8 +6382,7 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
     throw TriggerModificationInMulticommandTxException();
   }
 
-  MG_ASSERT(current_db.db_acc_, "Trigger query expects a current DB");
-  TriggerStore *trigger_store = current_db.db_acc_->get()->trigger_store();
+  TriggerStore *trigger_store = RequireCurrentDb(current_db)->trigger_store();
 
   auto *trigger_query = utils::Downcast<TriggerQuery>(parsed_query.query);
   MG_ASSERT(trigger_query);
@@ -6458,8 +6463,7 @@ PreparedQuery PrepareStreamQuery(ParsedQuery parsed_query, bool in_explicit_tran
     throw StreamQueryInMulticommandTxException();
   }
 
-  MG_ASSERT(current_db.db_acc_, "Stream query expects a current DB");
-  auto &db_acc = *current_db.db_acc_;
+  auto &db_acc = RequireCurrentDb(current_db);
 
   auto *stream_query = utils::Downcast<StreamQuery>(parsed_query.query);
   MG_ASSERT(stream_query);
@@ -6536,8 +6540,7 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
   MG_ASSERT(isolation_level_query);
 
   const auto isolation_level = ToStorageIsolationLevel(isolation_level_query->isolation_level_);
-  MG_ASSERT(current_db.db_acc_, "Storage Isolation Level query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  storage::Storage *storage = RequireCurrentDb(current_db)->storage();
   if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
     throw IsolationLevelModificationInAnalyticsException();
   }
@@ -6697,8 +6700,7 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
   if (in_explicit_transaction) {
     throw StorageModeModificationInMulticommandTxException();
   }
-  MG_ASSERT(current_db.db_acc_, "Storage Mode query expects a current DB");
-  memgraph::dbms::DatabaseAccess &db_acc = *current_db.db_acc_;
+  memgraph::dbms::DatabaseAccess &db_acc = RequireCurrentDb(current_db);
 
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
   MG_ASSERT(storage_mode_query);
@@ -6784,8 +6786,7 @@ PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current
 }
 
 PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
-  MG_ASSERT(current_db.db_acc_, "Edge Import query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  storage::Storage *storage = RequireCurrentDb(current_db)->storage();
 
   if (storage->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw EdgeImportModeQueryDisabledOnDiskStorage();
@@ -6820,8 +6821,7 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
     throw CreateSnapshotInMulticommandTxException();
   }
 
-  MG_ASSERT(current_db.db_acc_, "Create Snapshot query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  storage::Storage *storage = RequireCurrentDb(current_db)->storage();
 
   if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw CreateSnapshotDisabledOnDiskStorage();
@@ -6980,8 +6980,7 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
     throw ShowSchemaInfoInMulticommandTxException();
   }
 
-  MG_ASSERT(current_db.db_acc_, "Show Snapshots query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  storage::Storage *storage = RequireCurrentDb(current_db)->storage();
 
   if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw ShowSnapshotsDisabledOnDiskStorage();
@@ -7026,8 +7025,7 @@ PreparedQuery PrepareShowNextSnapshotQuery(ParsedQuery parsed_query, bool in_exp
     throw ShowSchemaInfoInMulticommandTxException();
   }
 
-  MG_ASSERT(current_db.db_acc_, "Show Next Snapshot query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
+  storage::Storage *storage = RequireCurrentDb(current_db)->storage();
 
   if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw ShowSnapshotsDisabledOnDiskStorage();
@@ -7798,7 +7796,7 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
   auto *info_query = utils::Downcast<DatabaseInfoQuery>(parsed_query.query);
   std::vector<std::string> header;
   std::function<std::pair<std::vector<std::vector<TypedValue>>, QueryHandlerResult>()> handler;
-  auto *database = current_db.db_acc_->get();
+  auto *database = RequireCurrentDb(current_db).get();
   switch (info_query->info_type_) {
     case DatabaseInfoQuery::InfoType::INDEX: {
       header = {"index type", "label", "property", "count"};
@@ -9417,9 +9415,7 @@ PreparedQuery PrepareEnumAlterUpdateQuery(ParsedQuery parsed_query, CurrentDB &c
           .rw_type = RWType::W};
 }
 
-PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &current_db, Interpreter *interpreter) {
-  MG_ASSERT(current_db.db_acc_, "Session trace query expects a current DB");
-
+PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, Interpreter *interpreter) {
   auto *session_trace_query = utils::Downcast<SessionTraceQuery>(parsed_query.query);
   MG_ASSERT(session_trace_query);
 
@@ -11141,7 +11137,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 #endif
       );
     } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
-      prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
+      prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), this);
     } else if (utils::Downcast<SessionSettingQuery>(parsed_query.query)) {
       prepared_query = PrepareSessionSettingQuery(std::move(parsed_query), this);
     } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {
@@ -11242,6 +11238,10 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
   if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db, &query::session_long_policy)) {
     Abort();
+    // "" is the target of a session with no current database (see Prepare), not a real database name.
+    if (db && db->empty()) {
+      throw DatabaseContextRequiredException("Database required for query execution.");
+    }
     if (!db) {
       throw QueryException(
           "You are not authorized to execute this query! Please contact your database administrator. This issue "
