@@ -12,13 +12,16 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <nlohmann/json.hpp>
 #include <span>
 
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "auth/repository.hpp"
 #include "auth_test_utils.hpp"
 #include "disk_test_utils.hpp"
 #include "glue/auth_checker.hpp"
+#include "kvstore/kvstore.hpp"
 
 #include "license/license.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -817,6 +820,88 @@ TEST(AuthChecker, DroppedLastUserSessionGetsAuthOffAccess) {
   auth->SaveUser(recreated);
   EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
   EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", session_long));
+}
+
+TEST(AuthChecker, RecreatedUserDoesNotReviveSession) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_recreated"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+  auto *const session_long = &memgraph::query::session_long_policy;
+  auto *const up_to_date = &memgraph::query::up_to_date_policy;
+
+  ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
+  auto limited = *AddUser(*auth.Lock(), "limited");
+  limited.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(limited);
+
+  auto session = auth_checker.GenQueryUser("limited", {});
+  EXPECT_TRUE(session->IsAuthorized({MATCH}, "memgraph", up_to_date));
+
+  // Dropped and re-created under the same name with no session check in between: the new record is a new identity.
+  ASSERT_TRUE(auth->RemoveUser("limited"));
+  auto recreated = *AddUser(*auth.Lock(), "limited");
+  recreated.permissions().Grant(memgraph::auth::Permission::MATCH);
+  recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
+#ifdef MG_ENTERPRISE
+  recreated.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  recreated.GrantUserImp();
+#endif
+  auth->SaveUser(recreated);
+
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph", session_long));
+#ifdef MG_ENTERPRISE
+  EXPECT_FALSE(session->CanImpersonate("admin", up_to_date));
+#endif
+
+  // Control: a fresh session for the re-created user holds its grants.
+  auto fresh = auth_checker.GenQueryUser("limited", {});
+  EXPECT_TRUE(fresh->IsAuthorized({CREATE}, "memgraph", up_to_date));
+  EXPECT_TRUE(fresh->IsAuthorized({MATCH}, "memgraph", session_long));
+}
+
+TEST(AuthChecker, UserWithoutStoredUuidKeepsSessionAcrossRefresh) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_legacy_uuid"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  using enum memgraph::query::AuthQuery::Privilege;
+
+  // Strip the uuid from the stored record, as a user saved before uuids existed would look.
+  {
+    memgraph::auth::SynchedAuth seed(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+    auto legacy = *AddUser(*seed.Lock(), "legacy");
+    legacy.permissions().Grant(memgraph::auth::Permission::MATCH);
+    seed->SaveUser(legacy);
+  }
+  {
+    memgraph::kvstore::KVStore store{auth_dir};
+    auto const key = memgraph::auth::Repository::UserKey("legacy");
+    auto record = nlohmann::json::parse(*store.Get(key));
+    ASSERT_EQ(record.erase("uuid"), 1);
+    ASSERT_TRUE(store.Put(key, record.dump()));
+  }
+
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  auto session = auth_checker.GenQueryUser("legacy", {});
+  EXPECT_TRUE(session->IsAuthorized({MATCH}, "memgraph", &memgraph::query::up_to_date_policy));
+
+  // The refresh re-loads the uuid-less record; its identity must stay stable (Nil) rather than read as a new user.
+  auto other = *AddUser(*auth.Lock(), "other");
+  auth->SaveUser(other);
+  EXPECT_TRUE(session->IsAuthorized({MATCH}, "memgraph", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(session->IsAuthorized({MATCH}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", &memgraph::query::up_to_date_policy));
 }
 
 #ifdef MG_ENTERPRISE

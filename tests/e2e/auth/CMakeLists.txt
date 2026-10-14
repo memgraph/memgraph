@@ -6,5 +6,6 @@ copy_auth_e2e_python_files(common.py)
 copy_auth_e2e_python_files(auth_queries.py)
 copy_auth_e2e_python_files(test_show_privileges_isolation.py)
 copy_auth_e2e_python_files(test_auth_transactions.py)
+copy_auth_e2e_python_files(test_dropped_session_principal.py)
 
 copy_e2e_files(auth workloads.yaml)
