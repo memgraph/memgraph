@@ -10411,7 +10411,7 @@ bool Interpreter::IsCurrentTransactionEmpty() const {
 void Interpreter::ThrowIfLazyVectorReaderOpen(int writer_qid) const {
   for (size_t i = 0; i < query_executions_.size(); ++i) {
     const auto &qe = query_executions_[i];
-    if (static_cast<int>(i) == writer_qid || !qe || !qe->prepared_query || !qe->prepared_query->lazy_vector_refs) {
+    if (std::cmp_equal(i, writer_qid) || !qe || !qe->prepared_query || !qe->prepared_query->lazy_vector_refs) {
       continue;
     }
     throw QueryException(
