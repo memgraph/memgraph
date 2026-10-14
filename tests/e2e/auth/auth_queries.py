@@ -294,11 +294,10 @@ def test_username_and_roles_functions_in_trigger(first_user_memgraph):
     memgraph.execute("DROP TRIGGER test_username_roles_trigger_definer;")
     memgraph.execute("MATCH (n) DETACH DELETE n;")
 
-    # The session user is dropped last: dropping it ends the session.
+    memgraph.execute("DROP USER test_user;")
     memgraph.execute("DROP USER trigger_admin;")
     memgraph.execute("DROP ROLE admin_role;")
     memgraph.execute("DROP ROLE user_role;")
-    memgraph.execute("DROP USER test_user;")
 
 
 def test_show_current_role_single_role(memgraph):
@@ -827,6 +826,7 @@ def test_show_databases_for_user_and_role(first_user_memgraph):
         assert denies == [], f"bob should see no denies, got {denies}"
 
     # Clean up
+    memgraph.execute("DROP USER alice;")
     memgraph.execute("DROP USER bob;")
     memgraph.execute("DROP ROLE architect;")
     memgraph.execute("DROP ROLE moderator;")
@@ -834,8 +834,6 @@ def test_show_databases_for_user_and_role(first_user_memgraph):
     memgraph.execute("DROP DATABASE db1;")
     memgraph.execute("DROP DATABASE db2;")
     memgraph.execute("DROP DATABASE db3;")
-    # The session user is dropped last: dropping it ends the session.
-    memgraph.execute("DROP USER alice;")
 
 
 def test_user_profiles(memgraph):

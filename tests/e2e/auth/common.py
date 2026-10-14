@@ -26,10 +26,9 @@ CREATE_USER = re.compile(
 class AuthMemgraph:
     """A Memgraph client for tests that create users.
 
-    An anonymous session is refused as soon as the first user exists, so the client switches to a real user at that
-    moment. With `login_as_first_user` the user being created becomes the session user (and keeps the privileges
-    the first user is given); otherwise a bootstrap admin is created first and the session runs as it, leaving the
-    users the test creates free to be changed without cutting off the session.
+    An anonymous session is refused as soon as the first user exists, so the client switches to a bootstrap admin
+    at that moment and the session survives the test dropping the users it created. With `login_as_first_user`
+    the bootstrap admin is created by the first user the test creates, which keeps the builtin admin role.
     """
 
     def __init__(self, login_as_first_user: bool) -> None:
@@ -41,21 +40,26 @@ class AuthMemgraph:
         self.client = Memgraph(username=user, password=password)
         self.user = user
 
-    def _bootstrap(self, query: str) -> None:
-        if self.user is not None or self._login_as_first_user or not CREATE_USER.match(query):
-            return
+    def _create_bootstrap_admin(self) -> None:
         self.client.execute(f"CREATE USER {BOOTSTRAP_USER} IDENTIFIED BY '{BOOTSTRAP_PASSWORD}';")
-        self._login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD)
 
     def execute(self, query: str, *args, **kwargs) -> None:
-        self._bootstrap(query)
+        creating_user = self.user is None and CREATE_USER.match(query) is not None
+        if creating_user and not self._login_as_first_user:
+            self._create_bootstrap_admin()
+            self._login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD)
         self.client.execute(query, *args, **kwargs)
-        created = CREATE_USER.match(query)
-        if created and self.user is None:
+        if creating_user and self._login_as_first_user:
+            created = CREATE_USER.match(query)
             self._login(created.group(1).strip("`"), re.sub(r"\\(.)", r"\1", created.group(2) or ""))
+            self._create_bootstrap_admin()
+            self.client.execute(f"GRANT ROLES admin TO {BOOTSTRAP_USER};")
+            self._login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD)
 
     def execute_and_fetch(self, query: str, *args, **kwargs):
-        self._bootstrap(query)
+        if self.user is None and CREATE_USER.match(query) and not self._login_as_first_user:
+            self._create_bootstrap_admin()
+            self._login(BOOTSTRAP_USER, BOOTSTRAP_PASSWORD)
         return self.client.execute_and_fetch(query, *args, **kwargs)
 
     def cleanup(self) -> None:
