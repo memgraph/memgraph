@@ -26,6 +26,9 @@ workloads:
   - name: "Recover snapshot (light edge)"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/snapshot_recovery_light_edge.py"]
+  - name: "Light edge recovery under memory limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/light_edge_recovery_memory_limit.py"]
   - name: "Periodic snapshot (light edge)"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/periodic_snapshot_light_edge.py"]
