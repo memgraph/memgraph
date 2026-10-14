@@ -159,7 +159,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_TRUE(auth_object.CheckPasswordExplicit("password"));
     }
     ASSERT_EQ(auth_object.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object.permissions().denies(), 0);
+    ASSERT_EQ(auth_object.permissions().strong_denies(), 0);
     const auto &etp = auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants();
     ASSERT_TRUE(etp.has_value());
     ASSERT_EQ(etp.value(), 27);  // kAllEdgeTypePermissions
@@ -193,7 +193,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
     ASSERT_EQ(static_cast<uint64_t>(rule_b->grants), 1);    // READ
     ASSERT_EQ(static_cast<uint64_t>(rule_c->grants), 483);  // READ | kVertexLabelUpdatePermissions
     ASSERT_EQ(rule_d->grants, memgraph::auth::FineGrainedPermission::NONE);
-    ASSERT_EQ(rule_d->denies, memgraph::auth::kAllLabelPermissions);
+    ASSERT_EQ(rule_d->strong_denies, memgraph::auth::kAllLabelPermissions);
     ASSERT_EQ(auth_object.db_access().GetMain(), "db1");
     ASSERT_EQ(auth_object.db_access().GetAllowAll(), true);
     const auto grants = std::set<std::string, std::less<>>({"db1", "memgraph"});
@@ -216,7 +216,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_TRUE(auth_object_no_license.CheckPasswordExplicit("password"));
     }
     ASSERT_EQ(auth_object_no_license.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object_no_license.permissions().denies(), 0);
+    ASSERT_EQ(auth_object_no_license.permissions().strong_denies(), 0);
     ASSERT_FALSE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(
@@ -236,7 +236,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_TRUE(auth_object_community.CheckPasswordExplicit("password"));
     }
     ASSERT_EQ(auth_object_community.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object_community.permissions().denies(), 0);
+    ASSERT_EQ(auth_object_community.permissions().strong_denies(), 0);
     ASSERT_FALSE(
         auth_object_community.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(auth_object_community.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
@@ -255,7 +255,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_TRUE(auth_object_community_resaved.CheckPasswordExplicit("password"));
     }
     ASSERT_EQ(auth_object_community_resaved.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object_community_resaved.permissions().denies(), 0);
+    ASSERT_EQ(auth_object_community_resaved.permissions().strong_denies(), 0);
     ASSERT_FALSE(auth_object_community_resaved.fine_grained_access_handler()
                      .edge_type_permissions()
                      .GetGlobalGrants()
@@ -285,7 +285,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_TRUE(auth_object.CheckPasswordExplicit("password"));
     }
     ASSERT_EQ(auth_object.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object.permissions().denies(), 0);
+    ASSERT_EQ(auth_object.permissions().strong_denies(), 0);
     const auto &etp = auth_object.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants();
     ASSERT_TRUE(etp.has_value());
     ASSERT_EQ(etp.value(), 27);
@@ -309,7 +309,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_TRUE(auth_object_no_license.CheckPasswordExplicit("password"));
     }
     ASSERT_EQ(auth_object_no_license.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object_no_license.permissions().denies(), 0);
+    ASSERT_EQ(auth_object_no_license.permissions().strong_denies(), 0);
     ASSERT_FALSE(
         auth_object_no_license.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(
@@ -330,7 +330,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_TRUE(auth_object_community.CheckPasswordExplicit("password"));
     }
     ASSERT_EQ(auth_object_community.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object_community.permissions().denies(), 0);
+    ASSERT_EQ(auth_object_community.permissions().strong_denies(), 0);
     ASSERT_FALSE(
         auth_object_community.fine_grained_access_handler().edge_type_permissions().GetGlobalGrants().has_value());
     ASSERT_FALSE(auth_object_community.fine_grained_access_handler().label_permissions().GetGlobalGrants().has_value());
@@ -349,7 +349,7 @@ TYPED_TEST(AuthModuleTest, Deserialization) {
       ASSERT_TRUE(auth_object_community_resaved.CheckPasswordExplicit("password"));
     }
     ASSERT_EQ(auth_object_community_resaved.permissions().grants(), 134'217'727);
-    ASSERT_EQ(auth_object_community_resaved.permissions().denies(), 0);
+    ASSERT_EQ(auth_object_community_resaved.permissions().strong_denies(), 0);
     ASSERT_FALSE(auth_object_community_resaved.fine_grained_access_handler()
                      .edge_type_permissions()
                      .GetGlobalGrants()
@@ -1030,7 +1030,7 @@ TEST(AuthModule, UserSerialization) {
 
   // User with permissions
   user.GetPermissions().Deny(memgraph::auth::Permission::CONSTRAINT);
-  json[kPermissions][kDenies] = user.GetPermissions().denies();
+  json[kPermissions][kDenies] = user.GetPermissions().strong_denies();
   ASSERT_EQ(json, user.Serialize());
   user.GetPermissions().Grant(memgraph::auth::Permission::DELETE);
   user.GetPermissions().Grant(memgraph::auth::Permission::AUTH);
@@ -1233,7 +1233,7 @@ TEST(AuthModule, RoleSerialization) {
 
   // Role with permissions
   role.GetPermissions().Deny(memgraph::auth::Permission::CONSTRAINT);
-  json[kPermissions][kDenies] = role.GetPermissions().denies();
+  json[kPermissions][kDenies] = role.GetPermissions().strong_denies();
   ASSERT_EQ(json, role.Serialize());
   role.GetPermissions().Grant(memgraph::auth::Permission::DELETE);
   role.GetPermissions().Grant(memgraph::auth::Permission::AUTH);

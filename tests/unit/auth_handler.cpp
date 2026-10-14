@@ -3400,15 +3400,15 @@ TEST_F(AuthQueryHandlerFixture, WeakDenyPrivilegeOnRole) {
 
   auto const role = auth->ReadLock()->GetRole("weak_role");
   ASSERT_TRUE(role.has_value());
-  EXPECT_NE(role->permissions().denies(), 0);
-  EXPECT_EQ(role->permissions().weak_denies(), role->permissions().denies());
+  EXPECT_EQ(role->permissions().strong_denies(), 0);
+  EXPECT_NE(role->permissions().weak_denies(), 0);
   auto const &label_rules = role->fine_grained_access_handler().label_permissions().GetRules();
   ASSERT_EQ(label_rules.size(), 1);
-  EXPECT_NE(label_rules[0].denies, memgraph::auth::FineGrainedPermission::NONE);
-  EXPECT_EQ(label_rules[0].weak_denies, label_rules[0].denies);
+  EXPECT_EQ(label_rules[0].strong_denies, memgraph::auth::FineGrainedPermission::NONE);
+  EXPECT_NE(label_rules[0].weak_denies, memgraph::auth::FineGrainedPermission::NONE);
   auto const &edge_permissions = role->fine_grained_access_handler().edge_type_permissions();
-  ASSERT_TRUE(edge_permissions.GetGlobalDenies().has_value());
-  EXPECT_EQ(edge_permissions.GetGlobalWeakDenies(), *edge_permissions.GetGlobalDenies());
+  EXPECT_FALSE(edge_permissions.GetGlobalStrongDenies().has_value());
+  EXPECT_NE(edge_permissions.GetGlobalWeakDenies(), 0);
 }
 
 TEST_F(AuthQueryHandlerFixture, WeakDenyPropertyPermissionOnUser) {
