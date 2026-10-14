@@ -4779,8 +4779,8 @@ class KShortestPathsCursor : public Cursor {
 
   // --- weighted spur search ---------------------------------------------------------------------
 
-  /// Access check, filter, then weight; one memo entry per `(edge, head)`. `head` is the forward head
-  /// whichever way the search walks, so the reverse tree and the spurs agree on every arc.
+  /// Access check, filter, then weight; one memo entry per `(edge, head)`. `head` is the arc's head in path
+  /// order whichever way the search walks, so the reverse tree and the spurs agree on every arc.
   const TypedValue *WeightedVerdict(const EdgeAccessor &edge, const VertexAccessor &head, Frame &frame,
                                     ExpressionEvaluator &evaluator, ExecutionContext &context) {
     const ExpansionKey key{.edge = edge.Gid(), .head = head.Gid()};
@@ -5057,6 +5057,7 @@ class KShortestPathsCursor : public Cursor {
     trie_children_.clear();
     trie_first_child_.assign(1, kNoChild);  // node 0 is the empty root
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
+    expansion_memo_.rehash(0);
     expansion_memo_.clear();
     // Built from this row's target, under this row's filters.
     reverse_dist_.clear();
