@@ -11525,7 +11525,7 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
                   "Unable to commit due to serialization error. Try retrying this transaction when the conflicting "
                   "transaction is finished."));
             } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
-              throw QueryException("Unable to commit due to persistance error.");
+              throw QueryException("Unable to commit due to persistence error.");
             } else if constexpr (std::is_same_v<ErrorType, storage::ReplicaShouldNotWriteError>) {
               throw QueryException("Queries on replica shouldn't write.");
             } else {

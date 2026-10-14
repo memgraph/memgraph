@@ -20,6 +20,7 @@
 #include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/description_store.hpp"
+#include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/storage_global_operation.hpp"
@@ -609,6 +610,7 @@ std::optional<RecoveryInfo> LoadWal(
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {
  public:
+  /// @throw WalOpenError if the file cannot be opened; nothing is left on disk in that case.
   WalFile(const std::filesystem::path &wal_directory, utils::UUID const &uuid, const std::string_view epoch_id,
           SalientConfig::Items items, NameIdMapper *name_id_mapper, uint64_t seq_num,
           utils::FileRetainer *file_retainer);

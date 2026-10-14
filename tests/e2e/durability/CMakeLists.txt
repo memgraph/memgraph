@@ -22,6 +22,7 @@ copy_e2e_python_files(durability recovery_failure_status.py)
 copy_e2e_python_files(durability recovery_failure_recover_snapshot.py)
 copy_e2e_python_files(durability drop_broken_database.py)
 copy_e2e_python_files(durability snapshot_no_space.py)
+copy_e2e_python_files(durability wal_open_failure.py)
 
 
 
@@ -30,3 +31,12 @@ copy_e2e_python_files_from_parent_folder(durability ".." interactive_mg_runner.p
 copy_e2e_python_files_from_parent_folder(durability ".." mg_utils.py)
 
 copy_e2e_files(durability workloads.yaml)
+
+# LD_PRELOAD shim that simulates file descriptor exhaustion for WAL files; see emfile_preload.c.
+add_library(memgraph__e2e__emfile_preload SHARED emfile_preload.c)
+set_target_properties(memgraph__e2e__emfile_preload PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME emfile_preload
+        LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+target_link_libraries(memgraph__e2e__emfile_preload ${CMAKE_DL_LIBS})
+add_dependencies(memgraph__e2e memgraph__e2e__emfile_preload)
