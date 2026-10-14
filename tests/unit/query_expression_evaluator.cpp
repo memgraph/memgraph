@@ -474,6 +474,71 @@ TYPED_TEST(ExpressionEvaluatorTest, GreaterOperatorIncompatibleOperands) {
   }
 }
 
+TYPED_TEST(ExpressionEvaluatorTest, InListOperatorAnswersEachSpecifiedPairing) {
+  // The membership operator has a specified answer for every pairing of a sought value and a list
+  // that involves a Null, and the rule behind them is that a value known to be present is present
+  // whatever else the list holds, a value not present is undecided if the list holds a Null, and
+  // the empty list holds nothing and so decides against everything.
+  //
+  // The operator reaches these two ways, filling the cached set on the first row and reading an
+  // already-filled one on every row after, and the answers have to agree. Both are taken here,
+  // which is why the pairings are listed in one place rather than left spread over the tests that
+  // reach them incidentally.
+  auto const literal = [this](int64_t value) { return this->storage.template Create<PrimitiveLiteral>(value); };
+  auto const null_literal = [this] {
+    return this->storage.template Create<PrimitiveLiteral>(memgraph::storage::ExternalPropertyValue());
+  };
+  auto const list_of = [this](std::vector<Expression *> elements) {
+    return this->storage.template Create<ListLiteral>(std::move(elements));
+  };
+  auto const in = [this](Expression *probe, Expression *list) {
+    return this->storage.template Create<InListOperator>(probe, list);
+  };
+
+  enum class Answer { kTrue, kFalse, kNull };
+
+  auto const check = [this](InListOperator *op, Answer expected, std::string_view what) {
+    auto const matches = [expected, what](TypedValue const &value) {
+      switch (expected) {
+        case Answer::kTrue:
+          ASSERT_TRUE(value.IsBool()) << what;
+          EXPECT_TRUE(value.ValueBool()) << what;
+          break;
+        case Answer::kFalse:
+          ASSERT_TRUE(value.IsBool()) << what;
+          EXPECT_FALSE(value.ValueBool()) << what;
+          break;
+        case Answer::kNull:
+          EXPECT_TRUE(value.IsNull()) << what;
+          break;
+      }
+    };
+    // Without a tracked key the list is read element by element on every row.
+    matches(this->Eval(op));
+
+    // With one, the first row fills the set and the second reads it.
+    FrameChangeCollector collector;
+    collector.AddInListKey(memgraph::utils::GetFrameChangeId(*op));
+    ExpressionEvaluator caching{&this->frame, this->execution_context, memgraph::storage::View::OLD, &collector};
+    matches(op->Accept(caching));
+    matches(op->Accept(caching));
+  };
+
+  check(in(literal(2), list_of({literal(1), literal(2), literal(3)})), Answer::kTrue, "2 IN [1, 2, 3]");
+  check(in(literal(2), list_of({literal(1), null_literal(), literal(3)})), Answer::kNull, "2 IN [1, null, 3]");
+  check(in(literal(2), list_of({literal(1), literal(2), null_literal()})), Answer::kTrue, "2 IN [1, 2, null]");
+  // A value sitting past the Null is still found, so the Null does not end the part of the list
+  // that has to be searched.
+  check(in(literal(5), list_of({literal(1), literal(2), null_literal(), literal(5)})),
+        Answer::kTrue,
+        "5 IN [1, 2, null, 5]");
+  check(in(literal(2), list_of({literal(1)})), Answer::kFalse, "2 IN [1]");
+  check(in(literal(2), list_of({})), Answer::kFalse, "2 IN []");
+  check(in(null_literal(), list_of({literal(1), literal(2), literal(3)})), Answer::kNull, "null IN [1, 2, 3]");
+  check(in(null_literal(), list_of({literal(1), null_literal(), literal(3)})), Answer::kNull, "null IN [1, null, 3]");
+  check(in(null_literal(), list_of({})), Answer::kFalse, "null IN []");
+}
+
 TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverContainersHoldingNull) {
   // A membership test asks equality of each element, so it inherits equality's
   // answer: undecided against anything holding a Null that it does not
@@ -572,8 +637,9 @@ TYPED_TEST(ExpressionEvaluatorTest, InListOperatorOverContainersHoldingNull) {
   auto const literal = [this](int value) { return this->storage.template Create<PrimitiveLiteral>(value); };
 
   {
-    // A top-level Null element keeps the set exact: the explicit lookup for a Null answers it, so
-    // the sought value the list does hold is still found by one lookup.
+    // A top-level Null element keeps the set exact: whether the list holds one is answered from
+    // what was recorded when it was cached, so the sought value the list does hold is still found
+    // by the one lookup.
     auto *op = in(literal(1), list_of({literal(1), null_literal()}));
     EXPECT_EQ(this->Eval(op).ValueBool(), true);
     EXPECT_EQ(eval_twice_through_one_collector(op).ValueBool(), true);
