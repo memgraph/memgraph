@@ -45,6 +45,11 @@ target_link_libraries(${test_prefix}typed_value_ops mg-query)
 add_benchmark(query/expression_lowering.cpp)
 target_link_libraries(${test_prefix}expression_lowering mg-query)
 
+if(MG_ENTERPRISE)
+    add_benchmark(query/property_permission.cpp)
+    target_link_libraries(${test_prefix}property_permission mg-query mg-glue mg-auth)
+endif()
+
 add_benchmark(query/planner.cpp)
 target_link_libraries(${test_prefix}planner mg-query)
 
