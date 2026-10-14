@@ -47,6 +47,7 @@ def setup_admin_user() -> None:
         f"GRANT ALL PRIVILEGES TO {ADMIN_USER};",
         protocol=Protocol.BOLT_ROUTING,
         query_type=QueryType.WRITE,
+        auth=AUTH,
     )
     print(f"  [Setup] Admin user '{ADMIN_USER}' created with all privileges.")
 

@@ -60,6 +60,10 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) a
 with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) as driver:
     with driver.session() as session:
         session.run("CREATE USER admin;").consume()  # Has all permissions
+
+# An anonymous session is denied once the first user exists, so continue as admin
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    with driver.session() as session:
         session.run("GRANT IMPERSONATE_USER * TO USER admin;").consume()
         session.run("CREATE USER user;").consume()
         session.run("GRANT MATCH, SET, DELETE TO user;").consume()
