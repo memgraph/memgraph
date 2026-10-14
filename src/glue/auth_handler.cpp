@@ -72,7 +72,7 @@ PermissionForPrivilegeResult GetPermissionForPrivilegeForUserOrRole(
   const auto permission = memgraph::glue::PrivilegeToPermission(privilege);
   container.permission = memgraph::auth::PermissionToString(permission);
   container.permission_level = permissions.Has(permission);
-  container.weak_deny = (permissions.weak_denies() & std::to_underlying(permission)) != 0;
+  container.weak_deny = (permissions.strong_denies() & std::to_underlying(permission)) == 0;
 
   switch (container.permission_level) {
     case memgraph::auth::PermissionLevel::GRANT:
@@ -240,12 +240,12 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
                                                                                .weak_deny = weak_deny});
   };
 
-  auto add_denies = [&](const std::string &entity_name, uint64_t denies, uint64_t weak_denies, bool is_global) {
-    if (auto const strong_denies = denies & ~weak_denies; strong_denies != 0) {
+  auto add_denies = [&](const std::string &entity_name, uint64_t strong_denies, uint64_t weak_denies, bool is_global) {
+    if (strong_denies != 0) {
       add_permission(entity_name, strong_denies, memgraph::auth::PermissionLevel::DENY, is_global);
     }
-    if (weak_denies != 0) {
-      add_permission(entity_name, weak_denies, memgraph::auth::PermissionLevel::DENY, is_global, true);
+    if (auto const only_weak = weak_denies & ~strong_denies; only_weak != 0) {
+      add_permission(entity_name, only_weak, memgraph::auth::PermissionLevel::DENY, is_global, true);
     }
   };
 
@@ -257,10 +257,9 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   }
 
   // Handle global denies
-  auto const global_denies = permissions.GetGlobalDenies();
-  if (global_denies) {
-    add_denies(fmt::format("ALL {}S", permission_type), global_denies.value(), permissions.GetGlobalWeakDenies(), true);
-  }
+  auto const global_denies = permissions.GetGlobalStrongDenies();
+  add_denies(
+      fmt::format("ALL {}S", permission_type), global_denies.value_or(0), permissions.GetGlobalWeakDenies(), true);
 
   auto build_entity_name = [&](const memgraph::auth::FineGrainedAccessRule &rule) {
     if (rule.symbols.size() == 1 && rule.symbols.contains("*")) {
@@ -289,7 +288,7 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     if (rule.grants != memgraph::auth::FineGrainedPermission::NONE) {
       add_permission(entity_name, static_cast<uint64_t>(rule.grants), memgraph::auth::PermissionLevel::GRANT, false);
     }
-    add_denies(entity_name, static_cast<uint64_t>(rule.denies), static_cast<uint64_t>(rule.weak_denies), false);
+    add_denies(entity_name, static_cast<uint64_t>(rule.strong_denies), static_cast<uint64_t>(rule.weak_denies), false);
   }
 
   return fine_grained_permissions;
@@ -381,16 +380,16 @@ void EmitPropertyMap(std::unordered_map<std::string, memgraph::auth::PropertyPer
   for (auto const &[prop, perm] : prop_map) {
     if ((perm.grants & PPT::READ) != PPT::NONE)
       read_granted.push_back(prop);
+    else if ((perm.strong_denies & PPT::READ) != PPT::NONE)
+      read_denied.push_back(prop);
     else if ((perm.weak_denies & PPT::READ) != PPT::NONE)
       read_weak_denied.push_back(prop);
-    else if ((perm.denies & PPT::READ) != PPT::NONE)
-      read_denied.push_back(prop);
     if ((perm.grants & PPT::WRITE) != PPT::NONE)
       write_granted.push_back(prop);
+    else if ((perm.strong_denies & PPT::WRITE) != PPT::NONE)
+      write_denied.push_back(prop);
     else if ((perm.weak_denies & PPT::WRITE) != PPT::NONE)
       write_weak_denied.push_back(prop);
-    else if ((perm.denies & PPT::WRITE) != PPT::NONE)
-      write_denied.push_back(prop);
   }
   for (auto *props :
        {&read_granted, &read_denied, &read_weak_denied, &write_granted, &write_denied, &write_weak_denied}) {

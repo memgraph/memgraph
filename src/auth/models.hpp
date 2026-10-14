@@ -219,7 +219,7 @@ std::string FineGrainedPermissionToString(uint64_t permission, bool is_label);
 
 class Permissions final {
  public:
-  explicit Permissions(uint64_t grants = 0, uint64_t denies = 0, uint64_t weak_denies = 0);
+  explicit Permissions(uint64_t grants = 0, uint64_t strong_denies = 0, uint64_t weak_denies = 0);
 
   Permissions(const Permissions &) = default;
   Permissions &operator=(const Permissions &) = default;
@@ -246,13 +246,13 @@ class Permissions final {
 
   uint64_t grants() const { return grants_; }
 
-  uint64_t denies() const { return denies_; }
+  uint64_t strong_denies() const { return strong_denies_; }
 
   uint64_t weak_denies() const { return weak_denies_; }
 
  private:
   uint64_t grants_{0};
-  uint64_t denies_{0};
+  uint64_t strong_denies_{0};
   uint64_t weak_denies_{0};
 };
 
@@ -354,7 +354,7 @@ enum class PropertyEntityKind : uint8_t { NODE, EDGE };
 struct FineGrainedAccessRule {
   std::unordered_set<std::string> symbols;
   FineGrainedPermission grants{FineGrainedPermission::NONE};
-  FineGrainedPermission denies{FineGrainedPermission::NONE};
+  FineGrainedPermission strong_denies{FineGrainedPermission::NONE};
   MatchingMode matching_mode{MatchingMode::ANY};
   FineGrainedPermission weak_denies{FineGrainedPermission::NONE};
 
@@ -364,7 +364,7 @@ struct FineGrainedAccessRule {
 class FineGrainedAccessPermissions final {
  public:
   explicit FineGrainedAccessPermissions(std::optional<uint64_t> global_grants = std::nullopt,
-                                        std::optional<uint64_t> global_denies = std::nullopt,
+                                        std::optional<uint64_t> global_strong_denies = std::nullopt,
                                         std::vector<FineGrainedAccessRule> rules = {}, uint64_t global_weak_denies = 0);
   FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
@@ -402,7 +402,7 @@ class FineGrainedAccessPermissions final {
 
   std::optional<uint64_t> const &GetGlobalGrants() const { return global_grants_; }
 
-  std::optional<uint64_t> const &GetGlobalDenies() const { return global_denies_; }
+  std::optional<uint64_t> const &GetGlobalStrongDenies() const { return global_strong_denies_; }
 
   uint64_t GetGlobalWeakDenies() const { return global_weak_denies_; }
 
@@ -410,7 +410,7 @@ class FineGrainedAccessPermissions final {
 
  private:
   std::optional<uint64_t> global_grants_;
-  std::optional<uint64_t> global_denies_;
+  std::optional<uint64_t> global_strong_denies_;
   std::vector<FineGrainedAccessRule> rules_;
   uint64_t global_weak_denies_{0};
 };
@@ -476,7 +476,7 @@ constexpr auto kAllPropertyPermissionTypes = PropertyPermissionType::READ | Prop
 
 struct PropertyPermission {
   PropertyPermissionType grants{PropertyPermissionType::NONE};
-  PropertyPermissionType denies{PropertyPermissionType::NONE};
+  PropertyPermissionType strong_denies{PropertyPermissionType::NONE};
   PropertyPermissionType weak_denies{PropertyPermissionType::NONE};
 
   bool operator==(PropertyPermission const &) const = default;
