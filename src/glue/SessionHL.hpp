@@ -16,6 +16,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
+#include "glue/query_user.hpp"
 #include "query/interpreter.hpp"
 
 namespace memgraph::glue {
@@ -53,8 +54,15 @@ class RuntimeConfig {
 
   SessionHL *session_;
   std::optional<bolt_map_t> previous_run_time_info_;
-  // {impersonated user, target db} of the last successful Configure; re-validated on the unchanged-metadata path.
-  std::optional<std::pair<std::string, std::string>> validated_impersonation_;
+
+  struct ValidatedImpersonation {
+    std::string user;
+    std::string db;
+    std::shared_ptr<const QueryUserOrRole> principal;
+  };
+
+  // Last successful impersonating Configure; re-validated on the unchanged-metadata path.
+  std::optional<ValidatedImpersonation> validated_impersonation_;
   bool db_selected_by_use_{false};
 };
 #endif

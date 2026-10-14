@@ -809,27 +809,44 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
     if (validated_impersonation_) {
       try {
         ImpersonateUserAuth(
-            session_->session_user_or_role_.get(), validated_impersonation_->first, validated_impersonation_->second);
+            session_->session_user_or_role_.get(), validated_impersonation_->user, validated_impersonation_->db);
       } catch (...) {
         previous_run_time_info_.reset();
         validated_impersonation_.reset();
         throw;
       }
+      bool dropped = false;
+      try {
+        dropped = validated_impersonation_->principal->IsDropped();
+      } catch (const auth::AuthException &) {
+        previous_run_time_info_.reset();
+        validated_impersonation_.reset();
+        throw;
+      }
+      if (!dropped) return;
+      // A dropped-and-recreated target must be rebuilt, not kept.
+      previous_run_time_info_.reset();
+      validated_impersonation_.reset();
+    } else {
+      return;
     }
-    return;
   }
 
   // Step 1: Handle user configuration first
   // NOTE: This must be called first because it defines the default database for the user
   std::shared_ptr<query::QueryUserOrRole> user;
+  std::shared_ptr<QueryUserOrRole> imp;
   if (run_time_info.contains("imp_user")) {
     const auto &info = run_time_info.at("imp_user");
     if (!info.IsString()) {
       throw memgraph::communication::bolt::ClientError("Malformed config input.");
     }
     const auto auth_user = session_->auth_->ReadLock()->GetUser(info.ValueString());
-    if (!auth_user) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
-    user = AuthChecker::GenQueryUser(session_->auth_, *auth_user);
+    if (!auth_user) {
+      throw memgraph::communication::bolt::ClientError("Trying to impersonate a user that doesn't exist.");
+    }
+    imp = std::make_shared<QueryUserOrRole>(session_->auth_, auth::UserOrRole{*auth_user});
+    user = imp;
   }
 
   // Step 2: Handle database configuration with consideration for user impersonation
@@ -884,7 +901,7 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   session_->interpreter_.SetCurrentDB(std::move(db_acc), db_explicit);
 
   previous_run_time_info_ = run_time_info;
-  if (user) validated_impersonation_.emplace(user->username().value_or("----"), *defined_db);
+  if (user) validated_impersonation_.emplace(user->username().value_or("----"), *defined_db, std::move(imp));
   db_selected_by_use_ = false;
 }
 #endif

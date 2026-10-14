@@ -37,6 +37,13 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   std::string GetDefaultDB() const override;
 #endif
 
+  // Refreshes, then reports whether the principal was dropped or replaced by a same-named user.
+  // Throws auth::AuthException on a failed refresh.
+  bool IsDropped() const {
+    EnsureFresh();
+    return dropped_;
+  }
+
   explicit QueryUserOrRole(auth::SynchedAuth *auth);
 
   QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role);
