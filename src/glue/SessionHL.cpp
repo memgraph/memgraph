@@ -24,6 +24,7 @@
 #include "coordination/coordinator_state.hpp"
 #endif
 #include "dbms/constants.hpp"
+#include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
 #include "flags/coord_flag_env_handler.hpp"
 #include "flags/run_time_configurable.hpp"
@@ -744,6 +745,7 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
   interpreter_.OnChangeCB([&](std::string_view db_name) {
     auto &user_or_role = interpreter_.user_or_role_;
     MultiDatabaseAuth(user_or_role.get(), db_name);
+    runtime_config_.OnUseDatabase();
   });
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
@@ -785,14 +787,22 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
 }
 
 #ifdef MG_ENTERPRISE
+bool RuntimeConfig::BoundDbMatches(const bolt_map_t &run_time_info) const {
+  const auto it = run_time_info.find("db");
+  // On a cache hit, a database chosen with USE is kept even when it is no longer live.
+  if (it == run_time_info.end() && db_selected_by_use_) return true;
+  const auto &db_acc = session_->interpreter_.current_db_.db_acc_;
+  if (!db_acc || db_acc->is_marked_for_deletion()) return false;
+  if (it == run_time_info.end()) return true;
+  if (!it->second.IsString()) return false;
+  return *db_acc->get()->name_view() == it->second.ValueString();
+}
+
 void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_tx) {
   // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
-  if (in_explicit_tx || (previous_run_time_info_ && run_time_info == *previous_run_time_info_)) return;
-
-  session_->interpreter_.ResetCachedFga();
-
-  db_explicit_ = false;
+  if (in_explicit_tx) return;
+  if (previous_run_time_info_ && run_time_info == *previous_run_time_info_ && BoundDbMatches(run_time_info)) return;
 
   // Step 1: Handle user configuration first
   // NOTE: This must be called first because it defines the default database for the user
@@ -808,9 +818,10 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   }
 
   // Step 2: Handle database configuration with consideration for user impersonation
+  bool db_explicit = false;
   std::optional<std::string> defined_db;
   if (run_time_info.contains("db")) {
-    db_explicit_ = true;
+    db_explicit = true;
     const auto &info = run_time_info.at("db");
     if (!info.IsString()) {
       throw memgraph::communication::bolt::ClientError("Malformed config input.");
@@ -829,40 +840,38 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
     }
   }
 
-  // Handle user impersonation (check privileges based on target database)
+  // Validate everything before mutating the session, so a failure leaves it untouched.
   if (user) {
-    spdlog::trace("Trying to impersonate user '{}' on database '{}'...",
-                  user->username().value_or("----"),
-                  defined_db.value_or("----"));
-    // Check impersonation privileges with the target database
+    spdlog::trace(
+        "Trying to impersonate user '{}' on database '{}'...", user->username().value_or("----"), *defined_db);
     ImpersonateUserAuth(session_->session_user_or_role_.get(), user->username().value_or("----"), defined_db);
-    // Setup user-related resource monitoring
-    auto user_resource = ResourceAtLogin(*user, session_->interpreter_context_->resource_monitoring);
-    session_->interpreter_.SetUser(user, std::move(user_resource));
-    session_->TryDefaultDB();
-  } else {
-    // Set our default user/role
-    session_->interpreter_.SetUser(session_->session_user_or_role_, session_->user_resource_);
-    session_->TryDefaultDB();
   }
+  const auto &target = user ? user : session_->session_user_or_role_;
+  MultiDatabaseAuth(target.get(), *defined_db);
 
-  // Handle database configuration (check access with current user)
-  if (defined_db) {  // Db connection
-    MultiDatabaseAuth(session_->interpreter_.user_or_role_.get(), *defined_db);
+  auto db_acc = [&]() -> std::optional<memgraph::dbms::DatabaseAccess> {
     try {
-      session_->interpreter_.SetCurrentDB(*defined_db, db_explicit_);
-    } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
-      // The explicitly-requested database is known but currently suspended
-      // (cold). Retrying will not help — surface as ClientError so the driver
-      // does not treat this as a transient failure.
+      return session_->interpreter_context_->dbms_handler->Get(*defined_db);
+    } catch (const memgraph::dbms::UnknownDatabaseException &e) {
+      // ClientError, as a plain BasicException would reach the driver as a retryable Transient. An unchanged request
+      // without db/imp_user whose home db is gone behaves as a cache hit; Prepare releases the db (ReleaseDbIfMarked).
+      if (!db_explicit && !user && previous_run_time_info_ && run_time_info == *previous_run_time_info_) {
+        return std::nullopt;
+      }
       throw memgraph::communication::bolt::ClientError(e.what());
     }
-  } else {  // Non-db connection
-    session_->interpreter_.ResetDB();
-  }
+  }();
+  if (!db_acc) return;
 
-  // Update the previous run_time_info for next comparison
+  auto resource =
+      user ? ResourceAtLogin(*user, session_->interpreter_context_->resource_monitoring) : session_->user_resource_;
+  session_->interpreter_.SetUser(target, std::move(resource));
+  // The session changes from here on; a failure below must not leave the old entry cached.
+  previous_run_time_info_.reset();
+  session_->interpreter_.SetCurrentDB(std::move(*db_acc), db_explicit);
+
   previous_run_time_info_ = run_time_info;
+  db_selected_by_use_ = false;
 }
 #endif
 }  // namespace memgraph::glue

@@ -31,6 +31,7 @@ neo4j = pytest.importorskip("neo4j", reason="neo4j driver required to trigger Bo
 import mgclient
 from common import connect, get_data_path, get_logs_path
 from neo4j import GraphDatabase
+from neo4j.exceptions import ClientError
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -284,6 +285,243 @@ def test_logoff_reapplies_impersonated_user(test_name):
         with pytest.raises(Exception, match="Failed to impersonate user"):
             with driver.session(auth=("dave", "dave"), impersonated_user="carol") as s:
                 s.run("SHOW CURRENT USER").consume()
+    finally:
+        driver.close()
+
+
+def _admin_execute(*statements: str) -> None:
+    conn = connect(host="127.0.0.1", port=BOLT_PORT, username="alice", password="alice")
+    cursor = conn.cursor()
+    cursor.execute("USE DATABASE memgraph")
+    for statement in statements:
+        cursor.execute(statement)
+    conn.close()
+
+
+def _marker_count(database: str) -> int:
+    with GraphDatabase.driver(_bolt_uri(), auth=_ALICE, encrypted=False) as driver:
+        with driver.session(database=database) as s:
+            return s.run("MATCH (n:Marker) RETURN count(n) AS c").single()["c"]
+
+
+@requires_enterprise
+@pytest.mark.parametrize(
+    "failing_db, error",
+    [("db_missing", "unknown database"), ("db_ungranted", "not authorized")],
+    ids=["nonexistent", "not_granted"],
+)
+def test_failed_database_switch_keeps_previous_database(test_name, failing_db: str, error: str):
+    """A failed database switch on a pooled connection leaves it on the previously selected database,
+    and re-sending that database's metadata still takes effect."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_b")
+    _grant_database("db_b", "alice", "bob")
+    _create_clean_database("db_ungranted")  # exists, but bob has no access to it
+    _admin_execute("GRANT * ON NODES CONTAINING LABELS * TO bob")
+    if failing_db == "db_missing":
+        _admin_execute("GRANT DATABASE * TO bob")  # a by-name grant of a missing database fails
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_BOB, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session(database="db_b") as s:
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_b"
+
+        with pytest.raises(Exception, match=error):
+            with driver.session(database=failing_db) as s:
+                s.run("SHOW DATABASE").consume()
+
+        with driver.session(database="db_b") as s:
+            current = s.run("SHOW DATABASE").single()["Current"]
+            assert current == "db_b", f"after a failed switch to {failing_db} the session is on '{current}'"
+            s.run("CREATE (:Marker)").consume()
+            with pytest.raises(Exception):
+                s.run("USE DATABASE memgraph").consume()
+    finally:
+        driver.close()
+
+    assert _marker_count("db_b") == 1, "write after the failed switch did not land in db_b"
+    assert _marker_count("memgraph") == 0, "write after the failed switch landed in memgraph"
+
+
+@requires_enterprise
+def test_failed_impersonation_keeps_session_user(test_name):
+    """A failed impersonated session must not leave the pooled connection acting as the target user."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_a")
+    _create_clean_database("db_b")
+    _grant_database("db_a", "alice")
+    _grant_database("db_b", "alice")
+    _admin_execute(
+        "CREATE USER carol IDENTIFIED BY 'carol'",
+        "GRANT ALL PRIVILEGES TO carol",
+        "GRANT IMPERSONATE_USER carol TO alice",
+    )  # carol has no access to db_a
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_ALICE, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session(database="db_b") as s:
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_b"
+
+        with pytest.raises(Exception):
+            with driver.session(database="db_a", impersonated_user="carol") as s:
+                s.run("SHOW CURRENT USER").consume()
+
+        with driver.session(database="db_b") as s:
+            user = s.run("SHOW CURRENT USER").single()["user"]
+            current = s.run("SHOW DATABASE").single()["Current"]
+        assert user == "alice", f"session user is '{user}' after a failed impersonation"
+        assert current == "db_b", f"session is on '{current}' after a failed impersonation"
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_failed_impersonation_keeps_database_chosen_with_use(test_name):
+    """A refused impersonation on a pooled connection does not undo a database chosen with USE."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_x")
+    _grant_database("db_x", "alice")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_ALICE, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session() as s:
+            s.run("USE DATABASE db_x").consume()
+
+        with pytest.raises(Exception, match="Trying to impersonate"):
+            with driver.session(impersonated_user="ghost") as s:
+                s.run("RETURN 1").consume()
+
+        with driver.session() as s:
+            current = s.run("SHOW DATABASE").single()["Current"]
+        assert current == "db_x", f"session is on '{current}' after a refused impersonation"
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_renamed_database_not_served_under_old_name(test_name):
+    """After RENAME DATABASE, a pooled connection must not keep serving the database under its old name."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_old")
+    _grant_database("db_old", "alice")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_ALICE, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session(database="db_old") as s:
+            s.run("CREATE (:Marker)").consume()
+
+        _admin_execute("RENAME DATABASE db_old TO db_new")
+        with pytest.raises(Exception):
+            with driver.session(database="db_old") as s:
+                s.run("MATCH (n:Marker) RETURN count(n)").consume()
+
+        _admin_execute("CREATE DATABASE db_old")
+        _grant_database("db_old", "alice")
+        with driver.session(database="db_old") as s:
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_old"
+            count = s.run("MATCH (n:Marker) RETURN count(n) AS c").single()["c"]
+        assert count == 0, "pooled session still sees the renamed database's data under the old name"
+    finally:
+        driver.close()
+
+
+def _recreate_as_main_database(db_name: str, username: str) -> None:
+    _admin_execute(
+        f"DROP DATABASE {db_name} FORCE",
+        f"CREATE DATABASE {db_name}",
+        f"GRANT DATABASE {db_name} TO {username}",
+        f"SET MAIN DATABASE {db_name} FOR {username}",
+    )
+
+
+@requires_enterprise
+def test_use_of_current_database_kept_after_drop(test_name):
+    """USE of the database the session is already on is still an explicit choice: once it is force-dropped
+    the session must not silently pick it up again, even after it is recreated, until the client selects
+    a database."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_main")
+    _grant_database("db_main", "bob")
+    _admin_execute("SET MAIN DATABASE db_main FOR bob")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_BOB, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session() as s:
+            assert s.run("USE DATABASE db_main").single()[0] == "Already using db_main"
+            _recreate_as_main_database("db_main", "bob")
+            with pytest.raises(Exception, match="Database required"):
+                s.run("RETURN 1").consume()
+            s.run("USE DATABASE db_main").consume()
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_main"
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_dropped_main_database_fails_as_client_error_and_use_recovers(test_name):
+    """A pooled session whose implicit main database is force-dropped fails with a ClientError (not a
+    retryable TransientError) and recovers once the client selects a database with USE DATABASE."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_main")
+    _grant_database("db_main", "bob")
+    _admin_execute("SET MAIN DATABASE db_main FOR bob")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_BOB, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session() as s:
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_main"
+            _admin_execute("DROP DATABASE db_main FORCE")
+            with pytest.raises(ClientError, match="Database required"):
+                s.run("RETURN 1").consume()
+            s.run("USE DATABASE memgraph").consume()
+            assert s.run("SHOW DATABASE").single()["Current"] == "memgraph"
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_dropped_session_database_fails_as_client_error(test_name):
+    """Opening a session on an explicit database that has since been force-dropped fails with a
+    ClientError (not a retryable TransientError)."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_x")
+    _grant_database("db_x", "alice")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_ALICE, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session(database="db_x") as s:
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_x"
+        _admin_execute("DROP DATABASE db_x FORCE")
+        with pytest.raises(ClientError, match="unknown database"):
+            with driver.session(database="db_x") as s:
+                s.run("SHOW DATABASE").consume()
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_logoff_forgets_database_chosen_with_use(test_name):
+    """A database chosen with USE does not outlive LOGOFF: the next user on the connection follows its own
+    default database, which is re-resolved after that database is dropped and recreated."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_a")
+    _grant_database("db_a", "alice")
+    _create_clean_database("db_main")
+    _grant_database("db_main", "bob")
+    _admin_execute("SET MAIN DATABASE db_main FOR bob")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_ALICE, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session() as s:
+            s.run("USE DATABASE db_a").consume()
+
+        with driver.session(auth=_BOB) as s:
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_main"
+            _recreate_as_main_database("db_main", "bob")
+            current = s.run("SHOW DATABASE").single()["Current"]
+            assert (
+                current == "db_main"
+            ), f"bob's session did not re-resolve its recreated default database (got '{current}')"
     finally:
         driver.close()
 
