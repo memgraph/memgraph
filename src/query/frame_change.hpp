@@ -72,6 +72,7 @@ struct CachedSet {
     // absl hash sets are not exception-safe: an allocation refused mid-insert leaves the set
     // corrupted. Allocations here are tracked but not refused; limits apply once the block ends.
     utils::AtomicMemoryBlock([&] {
+      cache_.reserve(list.size());
       for (const auto &element : list) {
         // An element that equality does not hold equal to itself costs the set its exactness: a
         // lookup reports it present where equality would answer Null, for an element holding a
