@@ -20,8 +20,7 @@
 
 namespace memgraph::glue {
 
-// Answers a websocket session's questions out of the user store. The authenticated principal and its refresh on an
-// auth-epoch change live in glue::QueryUserOrRole.
+// Answers a websocket session's questions out of the user store.
 class SafeAuth : public communication::websocket::AuthenticationInterface {
  public:
   explicit SafeAuth(auth::SynchedAuth *auth) : auth_{auth} {}

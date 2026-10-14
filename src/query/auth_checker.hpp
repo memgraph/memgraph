@@ -260,7 +260,7 @@ struct CachedFineGrainedAuth {
 
   void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
                std::string current_db) {
-    // Read first: it refreshes the principal, so a rebuild below sees the current grants.
+    // Read before building: reading refreshes the principal, so the rebuild sees current grants.
     auto const version = user.PrincipalVersion();
     bool const must_rebuild =
         state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db || version != principal_version;
@@ -282,7 +282,7 @@ struct CachedFineGrainedAuth {
     }
 
     if (!checker->NeedsFineGrainedAuthChecker()) {
-      checker.reset();  // never handed out: callers only see it after Refresh returns
+      checker.reset();  // not retired: never handed out before Refresh returns
       db_name = std::move(current_db);
       state = State::NO_RESTRICTIONS;
       return;

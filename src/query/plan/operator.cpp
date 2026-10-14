@@ -11400,7 +11400,8 @@ class ParallelBranchCursor : public Cursor {
     if (context.auth_checker) {
       context.auth_checker->MakeThreadSafe();
     }
-    // Principal refreshes mutate it: refresh once here, then give each worker its own copy.
+    // Result discarded: the call refreshes the principal on the owner thread so worker clones start fresh and a
+    // refresh failure throws here, not in a worker.
     if (context.user_or_role) context.user_or_role->PrincipalVersion();
     if (context.triggering_user) context.triggering_user->PrincipalVersion();
 

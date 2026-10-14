@@ -41,6 +41,7 @@ struct QueryUserOrRole {
   virtual uint64_t PrincipalVersion() const { return 0; }
 
 #ifdef MG_ENTERPRISE
+  // Re-reads the impersonator first: false when it was dropped, revoked or its refresh failed.
   virtual bool CanImpersonate(const std::string &target,
                               std::optional<std::string_view> db_name = std::nullopt) const = 0;
   virtual std::string GetDefaultDB() const = 0;

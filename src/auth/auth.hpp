@@ -516,7 +516,7 @@ class Auth final {
   // needs the base store to build an overlay over. Deliberately private: pointing auth at buffered storage is the
   // layer's business, and a transaction must never outlive the lock it was installed under.
   friend class AuthLayer;
-  friend struct AuthTestAccess;  // tests/unit/auth_checker.cpp: raw store writes that must not bump the epoch
+  friend struct AuthTestAccess;  // test-only: raw store writes that bypass the epoch bump
 
   Repository &storage() { return storage_; }
 

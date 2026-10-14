@@ -30,7 +30,6 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
 
   std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override;
 
-  // Owner-thread-only. Refreshes the principal if the auth epoch moved; throws auth::AuthException on failure.
   uint64_t PrincipalVersion() const override;
 
 #ifdef MG_ENTERPRISE
@@ -51,21 +50,19 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
  private:
   friend class AuthChecker;
   void RefreshPrincipal(const auth::Auth &auth) const;
-  // Refreshes the cached principal if the auth epoch moved; the epoch is committed only after the refresh succeeds.
   // Takes the read lock itself, so call it with none held. Throws auth::AuthException on a failed refresh.
   void EnsureFresh() const;
 
   auth::SynchedAuth *auth_;
-  // user_/roles_/dropped_/auth_epoch_/imp_ok_ are a lazily refreshed cache that every authorization check may write.
-  // Owner-thread-only: a foreign thread may use only username(), rolenames(), operator== and operator bool, and must
-  // take its own clone() before calling anything else.
+  // user_/roles_/dropped_/auth_epoch_/imp_ok_ are a lazily refreshed cache that any authorization check may write:
+  // a foreign thread may use only username(), rolenames(), operator==, operator bool; otherwise take its own clone().
   mutable std::optional<auth::User> user_{};
   mutable std::optional<auth::Roles> roles_{};
   mutable bool dropped_{false};
   // 0 = never refreshed; Auth starts at 1.
   mutable uint64_t auth_epoch_{0};
 #ifdef MG_ENTERPRISE
-  // Last granted impersonation, valid only while the auth epoch is unchanged. Owner-thread-only like the cache above.
+  // Last granted impersonation, valid only while the auth epoch is unchanged.
   struct ImpersonationGrant {
     std::string target;
     std::optional<std::string> db_name;

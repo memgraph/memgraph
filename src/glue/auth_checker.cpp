@@ -129,8 +129,8 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
   }
 
   // Convert from query user to auth user or role
-  // NOTE: Make a copy of the user/role, refreshed first so the checker never reflects stale grants. A failed refresh
-  // throws (auth::AuthException) instead of handing out a checker built from a stale principal.
+  // NOTE: Copy the user/role after refreshing it; a failed refresh throws auth::AuthException. A dropped principal
+  // keeps its last-known grants (RefreshPrincipal only latches dropped_), so its checker is not revoked.
   try {
     auto const &glue_ref = dynamic_cast<const glue::QueryUserOrRole &>(user_or_role);
     glue_ref.EnsureFresh();

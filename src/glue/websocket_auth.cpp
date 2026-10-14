@@ -19,7 +19,6 @@
 namespace memgraph::glue {
 
 bool SafeAuth::Authenticate(const std::string &username, const std::string &password) const {
-  // auth::Authenticate holds no auth lock on return, so the QueryUserOrRole constructor can take its own read lock.
   if (auto result = auth::Authenticate(*auth_, username, password)) {
     user_or_role_.emplace(auth_, std::move(*result));
   } else {
@@ -31,8 +30,7 @@ bool SafeAuth::Authenticate(const std::string &username, const std::string &pass
 bool SafeAuth::HasWebsocketPermission() const {
   // NOTE: websocket authenticates only if there is a user, so no need to check if access controlled
   if (!user_or_role_) return false;
-  // Main could be deleted, so we will connect without a db; this is only used by websocket on connect, so not
-  // critical (we will not be able to access any db)
+  // Main could be deleted; only used on websocket connect, so not critical (no db will be accessible).
 #ifdef MG_ENTERPRISE
   const std::string db_name = user_or_role_->GetDefaultDB();
 #else

@@ -151,7 +151,6 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
     throw memgraph::communication::bolt::ClientError(
         "No session user. You must be logged-in in order to use the impersonate-user feature.");
   }
-  // Re-read the impersonator's own principal so a dropped or revoked impersonator is refused.
   if (!user_or_role->CanImpersonate(impersonated_user, target_db)) {
     throw memgraph::communication::bolt::ClientError(
         "Failed to impersonate user '{}' on database '{}'. Make sure you have the right privileges and that the user "
