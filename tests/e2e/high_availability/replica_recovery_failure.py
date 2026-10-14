@@ -104,6 +104,8 @@ def log_text(test_name, instance):
 
 
 def files_in(directory):
+    if not os.path.isdir(directory):
+        return set()
     return {f for f in os.listdir(directory) if os.path.isfile(os.path.join(directory, f))}
 
 
@@ -196,21 +198,22 @@ def test_restart_after_failed_snapshot_load_restores_data(test_name):
 
 def test_unreadable_received_snapshot_leaves_replica_untouched(test_name):
     # MAIN only sends snapshots whose header it can read, so the received file is damaged on the replica itself: a
-    # read transaction holds the replica's main lock after the snapshot lands in its snapshots dir, and the header is
-    # overwritten before the transaction ends. MAIN is stopped while the replica comes up and is only started once the
+    # read transaction holds the replica's main lock while the snapshot waits in the replica's tmp/snapshots dir, and
+    # the header is overwritten before the transaction ends. MAIN is stopped while the replica comes up and is only started once the
     # blocker transaction and the watcher are in place, so the first snapshot it sends is already covered.
     instances, replica_snapshots = prepare_replica_needing_snapshot(test_name)
     interactive_mg_runner.stop(instances, "main", keep_directories=True)
     main_names = files_in(os.path.join(data_dir(test_name, "main"), "snapshots"))
     assert main_names
+    received_snapshots = os.path.join(data_dir(test_name, "replica"), "tmp", "snapshots")
     stop = threading.Event()
     damaged = threading.Event()
 
     def damage_received_snapshot():
         while not stop.is_set():
-            for name in main_names & files_in(replica_snapshots):
+            for name in main_names & files_in(received_snapshots):
                 try:
-                    with open(os.path.join(replica_snapshots, name), "r+b") as fh:
+                    with open(os.path.join(received_snapshots, name), "r+b") as fh:
                         fh.write(b"\xff" * 64)
                 except FileNotFoundError:  # already deleted by the replica
                     continue
@@ -250,8 +253,9 @@ def test_unreadable_received_snapshot_leaves_replica_untouched(test_name):
     assert health(replica_cursor) == "ready"
     assert vertex_count(replica_cursor) == NUM_NODES
     assert "Clearing database" not in log_text(test_name, "replica")
-    # The damaged file is deleted by the replica.
-    mg_sleep_and_assert(True, lambda: main_names.isdisjoint(files_in(replica_snapshots)))
+    # The damaged file never reaches the snapshots dir and is deleted by the replica.
+    assert main_names.isdisjoint(files_in(replica_snapshots))
+    mg_sleep_and_assert(True, lambda: main_names.isdisjoint(files_in(received_snapshots)))
 
 
 def get_ha_instances(test_name):
