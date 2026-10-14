@@ -11400,6 +11400,9 @@ class ParallelBranchCursor : public Cursor {
     if (context.auth_checker) {
       context.auth_checker->MakeThreadSafe();
     }
+    // Principal refreshes mutate it: refresh once here, then give each worker its own copy.
+    if (context.user_or_role) context.user_or_role->PrincipalVersion();
+    if (context.triggering_user) context.triggering_user->PrincipalVersion();
 
     AbortCheck(context);
 
@@ -11420,6 +11423,8 @@ class ParallelBranchCursor : public Cursor {
       tasks.AddTask([&,
                      i,
                      context,
+                     user_or_role = context.user_or_role ? context.user_or_role->clone() : nullptr,
+                     triggering_user = context.triggering_user ? context.triggering_user->clone() : nullptr,
                      frame_size = frame.elems().size(),
                      main_thread = std::this_thread::get_id(),
                      post_pull_func,
@@ -11430,6 +11435,8 @@ class ParallelBranchCursor : public Cursor {
         if (main_thread != std::this_thread::get_id()) {  // Main thread can steal work, so ignore if stolen
           mem_tracking.StartTracking();
         }
+        context.user_or_role = std::move(user_or_role);
+        context.triggering_user = std::move(triggering_user);
         // Create parallel operator entry in branch's stats tree
         context.stats_root = nullptr;
         context.stats = plan::ProfilingStats();
