@@ -70,7 +70,10 @@ class Session:
 
 
 def execute(session, query):
-    return session.run(query)
+    if isinstance(session, Session):
+        return session.run(query)
+    session.execute(query)
+    return session.fetchall()
 
 
 def usernames(session):
