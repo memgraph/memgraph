@@ -1362,8 +1362,9 @@ class Database {
     dba.Abort();
   }
 
-  // The constant is validated at the first edge a row may take, as the weighted search validates its
-  // weight: a row with nothing to take is empty rather than an error.
+  // The constant is validated at the first edge a row may take: a row with nothing to take is empty
+  // rather than an error. The weighted search checks the target's in-edges instead, so it answers the
+  // two one-sided rows below the other way round.
   void KShortestConstantWeightValidatedAtFirstEdge(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
@@ -1392,6 +1393,27 @@ class Database {
                              .weight_lambda = MakeConstantWeightLambda(context, LITERAL(-1)),
                              .filter_lambda = FilterLambda(context, LITERAL(false))})
                     .rows.empty());
+    // Vertex 3 has no out-edges and vertex 2 has two in-edges: nothing is taken, so nothing is checked.
+    EXPECT_TRUE(RunWeighted(db,
+                            dba,
+                            context,
+                            {.sources = {vertices[3]},
+                             .sinks = {vertices[2]},
+                             .direction = out,
+                             .weight_lambda = MakeConstantWeightLambda(context, LITERAL(true))})
+                    .rows.empty());
+    // Vertex 1 has an out-edge and vertex 0 has no in-edges: there is no path, but an edge is taken.
+    ExpectRuntimeError(
+        [&] {
+          RunWeighted(db,
+                      dba,
+                      context,
+                      {.sources = {vertices[1]},
+                       .sinks = {vertices[0]},
+                       .direction = out,
+                       .weight_lambda = MakeConstantWeightLambda(context, LITERAL(true))});
+        },
+        hint);
 
     const std::string null_text =
         "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
