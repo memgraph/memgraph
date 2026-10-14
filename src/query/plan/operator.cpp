@@ -4632,13 +4632,13 @@ class KShortestPathsCursor : public Cursor {
   /// A constant weight, read and checked at the first arc a row may take, so a row that takes no arc
   /// never reads it. Without a declared total nothing is summed, so a constant whose sum would overflow
   /// is not refused; the order is hop count either way.
-  void EvaluateConstantWeight(ExpressionEvaluator &evaluator) {
-    if constexpr (!Cost::kWeighted) {
-      if (!self_.weight_lambda_ || constant_weight_) return;
-      auto weight = self_.weight_lambda_->expression->Accept(evaluator);
-      ValidateKShortestWeight(weight);
-      constant_weight_.emplace(std::move(weight));
-    }
+  void EvaluateConstantWeight(ExpressionEvaluator &evaluator)
+    requires(!Cost::kWeighted)
+  {
+    if (!self_.weight_lambda_ || constant_weight_) return;
+    auto weight = self_.weight_lambda_->expression->Accept(evaluator);
+    ValidateKShortestWeight(weight);
+    constant_weight_.emplace(std::move(weight));
   }
 
   /// The access check and the lambda take the arc's head in path order: the vertex we reach on the source-side
