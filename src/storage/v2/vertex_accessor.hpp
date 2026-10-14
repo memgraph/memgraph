@@ -92,21 +92,19 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> ClearProperties();
 
-  /// When `with_vector_reconstruction` is false, a vector-index embedding is returned as its compact
-  /// VectorIndexId reference (empty float list) instead of being reconstructed — the lazy read path.
+  /// When `with_vector_reconstruction` is false, an embedding is returned as its compact VectorIndexId reference.
   /// @throw std::bad_alloc
   Result<PropertyValue> GetProperty(PropertyId property, View view, bool with_vector_reconstruction = true) const;
 
   /// Materialize into `out` the numeric-list value the MVCC read at `view` yields (index-backed or plain);
-  /// false if that value is not a numeric list. No owning PropertyValue of the floats is built.
+  /// false if that value is not a numeric list.
   bool GetVectorInto(PropertyId property, View view, std::vector<float> &out) const;
 
   /// Returns the size of the encoded vertex property in bytes.
   Result<uint64_t> GetPropertySize(PropertyId property, View view) const;
 
+  /// When `with_vector_reconstruction` is false, embeddings are returned as their compact VectorIndexId references.
   /// @throw std::bad_alloc
-  /// When `with_vector_reconstruction` is false, vector-index embeddings are returned as their compact
-  /// VectorIndexId reference (empty float list) instead of being reconstructed — the lazy read path.
   Result<std::map<PropertyId, PropertyValue>> Properties(View view, bool with_vector_reconstruction = true) const;
 
   /// @throw std::bad_alloc

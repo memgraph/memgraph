@@ -696,7 +696,6 @@ TypedValue::operator storage::ExternalPropertyValue() const {
     case TypedValue::Type::Point3d:
       return storage::ExternalPropertyValue(point_3d_v);
     case Type::VectorRef: {
-      // Materialize the lazy embedding ref into a plain list of doubles, matching the List case above.
       std::vector<float> tmp;
       MaterializeVectorRefInto(tmp);
       std::vector<storage::ExternalPropertyValue> list;
@@ -979,8 +978,7 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
     case TypedValue::Type::Point3d:
       return storage::PropertyValue(point_3d_v);
     case Type::VectorRef: {
-      // A lazy embedding ref materializes to the same DoubleList a literal `SET n.emb = [...]` stores,
-      // so a persisted copy is re-indexed by the vector index exactly like any other double list.
+      // Same DoubleList a literal list of doubles stores, so a persisted copy is re-indexed like any other.
       std::vector<float> tmp;
       MaterializeVectorRefInto(tmp);
       storage::PropertyValue::list_t list;
@@ -1004,11 +1002,8 @@ __attribute__((cold, noinline)) void TypedValue::ThrowTypeMismatch(Type expected
   throw TypedValueException("TypedValue is of type '{}', not '{}'", type_, expected);
 }
 
-// Materializes a lazy VectorRef into an owned List in place. Declared const because the const
-// ValueList()/UnsafeValueList() getters must trigger it, but it mutates through const_cast: callers
-// must never hold a TypedValue in genuinely const storage (a const-qualified object or const static)
-// while it may still be a VectorRef - modifying such an object here would be undefined behaviour.
-// Every TypedValue in the engine lives in mutable storage (frames, pmr vectors/maps), so this holds.
+// Mutates through const_cast: a genuinely const TypedValue (const object / const static) must never
+// still be a VectorRef here, or this is UB. Engine values live in mutable storage (frames, pmr containers).
 void TypedValue::EnsureListMaterialized() const {
   if (type_ != Type::VectorRef) return;
   std::vector<float> tmp;
@@ -1024,16 +1019,11 @@ void TypedValue::EnsureListMaterialized() const {
 
 TypedValue TypedValue::MaterializeVectorRef(allocator_type alloc) const {
   MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRef called on non-VectorRef TypedValue");
-  std::vector<float> tmp;
-  const bool ok =
-      vector_ref_v.Visit([&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, vector_ref_v.view, tmp); });
-  // On a miss GetVectorInto may leave tmp resized-but-unfilled; drop it so we never serialize
-  // zero-fill or a prior entity's floats as this ref's value.
-  if (!ok) tmp.clear();
+  thread_local std::vector<float> tmp;
+  MaterializeVectorRefInto(tmp);
   TVector list(alloc);
   list.reserve(tmp.size());
   for (const float f : tmp) {
-    // The pmr vector injects its own allocator (uses_allocator); do not pass it explicitly.
     list.emplace_back(static_cast<double>(f));
   }
   return {std::move(list), alloc};
@@ -1043,8 +1033,7 @@ void TypedValue::MaterializeVectorRefInto(std::vector<float> &out) const {
   MG_ASSERT(type_ == Type::VectorRef, "MaterializeVectorRefInto called on non-VectorRef TypedValue");
   const bool ok =
       vector_ref_v.Visit([&](auto const &acc) { return acc.GetVectorInto(vector_ref_v.prop, vector_ref_v.view, out); });
-  // On any miss GetVectorInto leaves `out` untouched (or resized but unfilled); clear the reused
-  // thread-local scratch so a failed lookup never compares/hashes against a prior entity's floats.
+  // Callers reuse `out` as scratch; clear on a miss so a stale prior entity's floats are never compared/hashed.
   if (!ok) out.clear();
 }
 
@@ -1110,7 +1099,7 @@ bool TypedValue::IsPropertyValue() const {
     case Type::Enum:
     case Type::Point2d:
     case Type::Point3d:
-    case Type::VectorRef:  // materializes to a list of doubles in ToPropertyValue
+    case Type::VectorRef:
       return true;
     case Type::Vertex:
     case Type::Edge:
@@ -1627,7 +1616,8 @@ void TypedValue::DestroyValue() {
     case Type::Point3d:
     case Type::ZonedDateTime:
     case Type::VectorRef:
-      // Trivially destructible: no heap ownership.
+      // Do nothing: std::chrono::time_zone* pointers reference immutable values from the external tz DB;
+      // VectorRef is trivially destructible.
       break;
     case Type::Function:
       std::destroy_at(&function_v);
@@ -2004,7 +1994,7 @@ void to_json(nlohmann::json &j, TypedValue const &value) {
       j = value.ValueString();
       break;
     case TypedValue::Type::List:
-    case TypedValue::Type::VectorRef:  // a lazy embedding materializes to its list of doubles
+    case TypedValue::Type::VectorRef:
       j = value.ValueList();
       break;
     case TypedValue::Type::Map:
