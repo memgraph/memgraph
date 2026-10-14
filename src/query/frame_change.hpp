@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <regex>
 #include <tuple>
 #include <utility>
@@ -20,11 +21,18 @@
 #include "utils/atomic_memory_block.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
+#include "utils/pmr/vector.hpp"
 
 #include "absl/container/flat_hash_set.h"
 #include "utils/frame_change_id.hpp"
 
 namespace memgraph::query {
+/// The values an `IN` tests against, held once per query rather than rebuilt per row.
+///
+/// Whether the list holds a Null is answered from a flag rather than by looking. `IN` reports Null
+/// instead of false when the list has one, so every row whose value is not in the list used to
+/// probe a second time to find that out - the probe that costs the most, since it only happens when
+/// the first one missed. It is a property of the list, so it is worked out when the list is.
 struct CachedSet {
   using allocator_type = utils::Allocator<CachedSet>;
   using alloc_traits = std::allocator_traits<allocator_type>;
@@ -39,13 +47,19 @@ struct CachedSet {
   /// answers false. The two part company over an element holding a Null or a NaN.
   bool answers_equality_{true};
 
+  /// Maintained by `Insert`, which is the only route into the set, so it stays true of whatever
+  /// the set holds however the values got there.
+  bool has_null_{false};
+
   explicit CachedSet(allocator_type alloc) : cache_{alloc} {}
 
   CachedSet(const CachedSet &other, allocator_type alloc)
-      : cache_(other.cache_, alloc), answers_equality_(other.answers_equality_) {}
+      : cache_(other.cache_, alloc), answers_equality_(other.answers_equality_), has_null_(other.has_null_) {}
 
   CachedSet(CachedSet &&other, allocator_type alloc)
-      : cache_(std::move(other.cache_), alloc), answers_equality_(other.answers_equality_) {}
+      : cache_(std::move(other.cache_), alloc),
+        answers_equality_(other.answers_equality_),
+        has_null_(other.has_null_) {}
 
   CachedSet(CachedSet &&other) noexcept : CachedSet(std::move(other), other.get_allocator()) {}
 
@@ -62,6 +76,29 @@ struct CachedSet {
   void Reset() {
     cache_.clear();
     answers_equality_ = true;
+    has_null_ = false;
+  }
+
+  /// Whether anything has been cached here yet. An `IN` over an empty list is answered before it
+  /// gets this far, so holding nothing means holding nothing yet.
+  bool Empty() const { return cache_.empty(); }
+
+  /// Adds one value, keeping both of the things the set records about what it holds.
+  void Insert(const TypedValue &value) {
+    if (value.IsNull()) {
+      has_null_ = true;
+    } else if (!relations::equality::EqualsItself(value)) {
+      // An element that equality does not hold equal to itself costs the set its exactness: a
+      // lookup reports it present where equality would answer false, for one holding a NaN.
+      answers_equality_ = false;
+    }
+    cache_.insert(value);
+  }
+
+  /// Hands every value held to `visit`.
+  template <typename Visitor>
+  void ForEach(Visitor visit) const {
+    for (auto const &value : cache_) visit(value);
   }
 
   bool SetValue(const TypedValue &maybe_list) {
@@ -74,13 +111,7 @@ struct CachedSet {
     utils::AtomicMemoryBlock([&] {
       cache_.reserve(list.size());
       for (const auto &element : list) {
-        // An element that equality does not hold equal to itself costs the set its exactness: a
-        // lookup reports it present where equality would answer Null, for an element holding a
-        // Null, or false, for one holding a NaN.
-        //
-        // A top-level Null is the exception, answered by the explicit lookup for one.
-        if (!element.IsNull() && !relations::equality::EqualsItself(element)) answers_equality_ = false;
-        cache_.insert(element);
+        Insert(element);
       }
     });
     return true;
@@ -91,6 +122,10 @@ struct CachedSet {
 
   /// Whether a lookup here answers the equality question `IN` asks.
   bool AnswersEquality() const { return answers_equality_; }
+
+  /// Whether one of these is Null, which makes `IN` answer Null rather than false for a value that
+  /// is not among them.
+  bool HasNull() const { return has_null_; }
 };
 
 // Class tracks keys for which user can cache values which help with faster search or faster retrieval
@@ -143,7 +178,7 @@ class FrameChangeCollector {
       return std::nullopt;
     }
     // Empty is considered unpopulated
-    if (it->second.cache_.empty()) {
+    if (it->second.Empty()) {
       return std::nullopt;
     }
     return std::optional{std::cref(it->second)};
@@ -207,15 +242,11 @@ class FrameChangeCollector {
     // Merge inlist_cache_: combine cached values (union of sets)
     for (auto &&[key, cached_set] : other.inlist_cache_) {
       auto [it, inserted] = inlist_cache_.emplace(key, CachedSet(get_allocator()));
-      // Whether a lookup still answers equality is a property of what the set holds, and the
-      // merged set holds what both sides held. Inserting the values below goes around SetValue,
-      // which is where that is worked out, so it is carried over here instead: exactness survives
-      // only where neither side lost it.
-      it->second.answers_equality_ = it->second.answers_equality_ && cached_set.answers_equality_;
-      // Merge the cached values (union of sets) - works for both new and existing keys
-      for (auto &&value : cached_set.cache_) {
-        it->second.cache_.emplace(value);
-      }
+      // Merge the cached values (union of sets) - works for both new and existing keys. Going
+      // through `Insert` rather than straight into the set is what keeps the two things recorded
+      // about the contents true of the merged set: both are properties of what it holds, and the
+      // merged set holds what both sides held.
+      cached_set.ForEach([&](TypedValue const &value) { it->second.Insert(value); });
     }
 
     // Merge regex_cache_: if key doesn't exist in main, insert it

@@ -532,12 +532,15 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           if (cached_value.Contains(literal)) {
             return TypedValue(true, ctx_->memory);
           }
-          // has null
-          if (cached_value.Contains(TypedValue(ctx_->memory))) {
+          // A list holding a Null answers Null rather than false for anything not in it. That is
+          // a property of the list, settled once when it was cached, rather than a second probe
+          // on every row that misses, which on a filter is every row it keeps out.
+          if (cached_value.HasNull()) {
             return TypedValue(ctx_->memory);
           }
           return TypedValue(false, ctx_->memory);
         }
+        // The set cannot answer for this pair, so the general comparison below does.
       }
     }
     // When caching is not an option, we need to evaluate list literal every time
