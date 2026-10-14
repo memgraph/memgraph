@@ -861,12 +861,22 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
     defined_db = info.ValueString();
   }
 
+  // A repeated plain request: no db/imp_user, identical to the last applied one.
+  const bool unchanged_plain_request =
+      !db_explicit && !user && previous_run_time_info_ && run_time_info == *previous_run_time_info_;
+
   // Step 3: Determine final target database
   if (!defined_db) {
     if (user) {
       defined_db = user->GetDefaultDB();
     } else if (session_->session_user_or_role_) {
-      defined_db = session_->session_user_or_role_->GetDefaultDB();
+      try {
+        defined_db = session_->session_user_or_role_->GetDefaultDB();
+      } catch (const memgraph::auth::AuthException &e) {
+        // Default db no longer accessible (e.g. dropped): behave like the nullopt cache-hit path below.
+        if (unchanged_plain_request) return;
+        throw memgraph::communication::bolt::ClientError(e.what());
+      }
     } else {
       defined_db = std::string{memgraph::dbms::kDefaultDB};
     }
@@ -887,9 +897,7 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
     } catch (const memgraph::dbms::UnknownDatabaseException &e) {
       // ClientError, as a plain BasicException would reach the driver as a retryable Transient. An unchanged request
       // without db/imp_user whose home db is gone behaves as a cache hit; Prepare releases the db (ReleaseDbIfMarked).
-      if (!db_explicit && !user && previous_run_time_info_ && run_time_info == *previous_run_time_info_) {
-        return std::nullopt;
-      }
+      if (unchanged_plain_request) return std::nullopt;
       throw memgraph::communication::bolt::ClientError(e.what());
     }
   }();
