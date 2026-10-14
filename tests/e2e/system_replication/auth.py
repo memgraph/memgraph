@@ -61,7 +61,7 @@ def login_once_replicated(connection, port, role, username="", password="", time
         try:
             cursor = connection(port, role, username, password).cursor()
             users = {row[0] for row in execute_and_fetch_all(cursor, "SHOW USERS;")}
-            if (username in users) if username else not users:
+            if (username.lower() in users) if username else not users:
                 return cursor
         except mgclient.Error:
             pass
@@ -795,6 +795,8 @@ def test_auth_replication(connection, test_name):
     cursor_replica1 = login_once_replicated(connection, BOLT_PORTS["replica_1"], "replica", "user3")
     cursor_replica2 = login_once_replicated(connection, BOLT_PORTS["replica_2"], "replica", "user3")
     execute_and_fetch_all(cursor_main, "CREATE ROLE role3")
+    # SET ROLE replaces the built-in admin role, so user3 needs direct grants to keep driving the test.
+    execute_and_fetch_all(cursor_main, "GRANT ALL PRIVILEGES TO user3")
     execute_and_fetch_all(cursor_main, "SET ROLE FOR user3 TO role3")
     check(partial(show_role_for_user_func, username="user3"), {("role3",)})
     execute_and_fetch_all(cursor_main, "CREATE USER user3b")
