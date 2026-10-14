@@ -9058,6 +9058,7 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
 
         try {
           if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
+            if (on_change) (*on_change)(db_name);  // Still an explicit choice of database
             res = "Already using " + db_name;
           } else {
             auto tmp = db_handler->Get(db_name);

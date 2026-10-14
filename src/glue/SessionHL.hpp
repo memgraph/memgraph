@@ -45,14 +45,17 @@ class RuntimeConfig {
     validated_impersonation_.reset();
   }
 
+  void OnUseDatabase() { db_selected_by_use_ = true; }
+
  private:
-  // True if a live (not marked-for-deletion) database is bound and matches run_time_info's "db" (absent = any).
+  // True if the bound database matches run_time_info's "db"; with no "db", a live one is required unless USE chose it.
   bool BoundDbMatches(const bolt_map_t &run_time_info) const;
 
   SessionHL *session_;
   std::optional<bolt_map_t> previous_run_time_info_;
   // {impersonated user, target db} of the last successful Configure; re-validated on the unchanged-metadata path.
   std::optional<std::pair<std::string, std::string>> validated_impersonation_;
+  bool db_selected_by_use_{false};
 };
 #endif
 
