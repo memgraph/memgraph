@@ -9,7 +9,6 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import contextlib
 import sys
 import time
 
@@ -27,7 +26,7 @@ def create_admin_user(request, admin_user):
     """Creates the first user (anonymous session) and returns a cursor of that user.
 
     The first user turns authentication on and gets all privileges, and the anonymous session is denied from then on.
-    The finalizer drops every user the test left, the first one last as dropping it ends its own session.
+    The finalizer drops every user the test left, the first one last: dropping it strips its session of authorization.
     """
     common.execute_and_fetch_all(common.connect().cursor(), f"CREATE USER {admin_user}")
 
@@ -36,10 +35,11 @@ def create_admin_user(request, admin_user):
             cursor = get_cursor_with_user(admin_user)
         except mgclient.Error:  # dropped by the test, authentication is off again
             return
-        for (username,) in common.execute_and_fetch_all(cursor, "SHOW USERS"):
+        users = common.execute_and_fetch_all(cursor, "SHOW USERS")
+        for (username,) in users:
             if username != admin_user:
                 common.execute_and_fetch_all(cursor, f"DROP USER {username}")
-        with contextlib.suppress(mgclient.Error):
+        if admin_user in {username for (username,) in users}:
             common.execute_and_fetch_all(cursor, f"DROP USER {admin_user}")
 
     request.addfinalizer(drop_users)
@@ -71,10 +71,10 @@ def test_ownerless_stream(request, kafka_producer, kafka_topics, connection):
 
     assert len(common.execute_and_fetch_all(admin_cursor, "MATCH (n) RETURN n")) == 0
 
-    # Dropping the session's own user ends the session; with no users left authentication is off again.
-    with contextlib.suppress(mgclient.Error):
-        common.execute_and_fetch_all(admin_cursor, f"DROP USER {admin_user}")
+    # With no users left authentication is off again.
+    common.execute_and_fetch_all(admin_cursor, f"DROP USER {admin_user}")
     userless_cursor = common.connect().cursor()
+    assert common.execute_and_fetch_all(userless_cursor, "SHOW USERS") == []
     common.start_stream(userless_cursor, "ownerless")
     time.sleep(1)
 
