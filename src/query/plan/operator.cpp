@@ -4630,8 +4630,10 @@ class KShortestPathsCursor : public Cursor {
   }
 
   /// A constant weight, read and checked at the first arc a row may take, so a row that takes no arc
-  /// never reads it. Without a declared total nothing is summed, so a constant whose sum would overflow
-  /// is not refused; the order is hop count either way.
+  /// never reads it. The weighted search checks the target's in-arcs first instead, so on a row with no
+  /// path an invalid constant can raise in one search and give no row in the other. Without a declared
+  /// total nothing is summed, so a constant whose sum would overflow is not refused; the order is hop
+  /// count either way.
   void EvaluateConstantWeight(ExpressionEvaluator &evaluator)
     requires(!Cost::kWeighted)
   {
@@ -5095,7 +5097,7 @@ class KShortestPathsCursor : public Cursor {
     ReleaseInnerSearchState();
     // Makes `|K` per input row; `Pull` guards its serving site instead of returning early.
     n_returned_paths_ = 0;
-    // A parameter is one value per query, but the check runs once per row, as the weighted search's does.
+    // A parameter is one value per query, but each row that takes an arc reads and checks it again.
     constant_weight_.reset();
   }
 
