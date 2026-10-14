@@ -11,16 +11,13 @@
 
 #pragma once
 
-#include <algorithm>
-#include <array>
-#include <cstddef>
 #include <cstdint>
-#include <cstring>
 #include <iosfwd>
 #include <map>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -210,49 +207,55 @@ class TypedValue {
    */
   TypedValue(TypedValue &&other, allocator_type alloc);
 
-  explicit TypedValue(bool value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Bool) { bool_v = value; }
+  explicit TypedValue(bool value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Bool) {
+    held_inline_.bool_v = value;
+  }
 
-  explicit TypedValue(int value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Int) { int_v = value; }
+  explicit TypedValue(int value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Int) {
+    held_inline_.int_v = value;
+  }
 
-  explicit TypedValue(int64_t value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Int) { int_v = value; }
+  explicit TypedValue(int64_t value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Int) {
+    held_inline_.int_v = value;
+  }
 
   explicit TypedValue(double value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Double) {
-    double_v = value;
+    held_inline_.double_v = value;
   }
 
   explicit TypedValue(storage::Enum value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Enum) {
-    enum_v = value;
+    held_inline_.enum_v = value;
   }
 
   explicit TypedValue(const utils::Date &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Date) {
-    date_v = value;
+    held_inline_.date_v = value;
   }
 
   explicit TypedValue(const utils::LocalTime &value, allocator_type alloc = {})
       : alloc_{alloc}, type_(Type::LocalTime) {
-    local_time_v = value;
+    held_inline_.local_time_v = value;
   }
 
   explicit TypedValue(const utils::LocalDateTime &value, allocator_type alloc = {})
       : alloc_{alloc}, type_(Type::LocalDateTime) {
-    local_date_time_v = value;
+    held_inline_.local_date_time_v = value;
   }
 
   explicit TypedValue(const utils::ZonedDateTime &value, allocator_type alloc = {})
       : alloc_{alloc}, type_(Type::ZonedDateTime) {
-    zoned_date_time_v = value;
+    held_inline_.zoned_date_time_v = value;
   }
 
   explicit TypedValue(const utils::Duration &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Duration) {
-    duration_v = value;
+    held_inline_.duration_v = value;
   }
 
   explicit TypedValue(const storage::Point2d &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Point2d) {
-    point_2d_v = value;
+    held_inline_.point_2d_v = value;
   }
 
   explicit TypedValue(const storage::Point3d &value, allocator_type alloc = {}) : alloc_{alloc}, type_(Type::Point3d) {
-    point_3d_v = value;
+    held_inline_.point_3d_v = value;
   }
 
   // conversion function to storage::ExternalPropertyValue
@@ -325,10 +328,10 @@ class TypedValue {
   TypedValue(const TMap &value, allocator_type alloc) : alloc_{alloc}, map_v{value, alloc_}, type_(Type::Map) {}
 
   explicit TypedValue(const VertexAccessor &vertex, allocator_type alloc = {})
-      : alloc_{alloc}, vertex_v{vertex}, type_(Type::Vertex) {}
+      : alloc_{alloc}, held_inline_{.vertex_v = vertex}, type_(Type::Vertex) {}
 
   explicit TypedValue(const EdgeAccessor &edge, allocator_type alloc = {})
-      : alloc_{alloc}, edge_v{edge}, type_(Type::Edge) {}
+      : alloc_{alloc}, held_inline_{.edge_v = edge}, type_(Type::Edge) {}
 
   explicit TypedValue(const VirtualEdge &ve, allocator_type alloc = {});
 
@@ -423,10 +426,10 @@ class TypedValue {
   TypedValue(TMap &&other, allocator_type alloc);
 
   explicit TypedValue(VertexAccessor &&vertex, allocator_type alloc) noexcept
-      : alloc_{alloc}, vertex_v{std::move(vertex)}, type_(Type::Vertex) {}
+      : alloc_{alloc}, held_inline_{.vertex_v = std::move(vertex)}, type_(Type::Vertex) {}
 
   explicit TypedValue(EdgeAccessor &&edge, allocator_type alloc) noexcept
-      : alloc_{alloc}, edge_v{std::move(edge)}, type_(Type::Edge) {}
+      : alloc_{alloc}, held_inline_{.edge_v = std::move(edge)}, type_(Type::Edge) {}
 
   explicit TypedValue(VirtualEdge &&ve, allocator_type alloc);
 
@@ -583,27 +586,27 @@ class TypedValue {
   bool Is##type_enum() const { return type_ == Type::type_enum; } \
   type_param const &UnsafeValue##type_enum() const { return field; }
 
-  VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, bool_v)
-  VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, int_v)
-  VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, double_v)
+  VALUE_AND_TYPE_GETTERS_PRIMITIVE(bool, Bool, held_inline_.bool_v)
+  VALUE_AND_TYPE_GETTERS_PRIMITIVE(int64_t, Int, held_inline_.int_v)
+  VALUE_AND_TYPE_GETTERS_PRIMITIVE(double, Double, held_inline_.double_v)
   VALUE_AND_TYPE_GETTERS(TString, String, string_v)
 
   VALUE_AND_TYPE_GETTERS(TVector, List, list_v)
   VALUE_AND_TYPE_GETTERS(TMap, Map, map_v)
-  VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, vertex_v)
-  VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, edge_v)
+  VALUE_AND_TYPE_GETTERS(VertexAccessor, Vertex, held_inline_.vertex_v)
+  VALUE_AND_TYPE_GETTERS(EdgeAccessor, Edge, held_inline_.edge_v)
   VALUE_AND_TYPE_GETTERS(VirtualEdge, VirtualEdge, *virtual_edge_v)
   VALUE_AND_TYPE_GETTERS(VirtualNode, VirtualNode, *virtual_node_v)
   VALUE_AND_TYPE_GETTERS(Path, Path, *path_v)
 
-  VALUE_AND_TYPE_GETTERS(utils::Date, Date, date_v)
-  VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, local_time_v)
-  VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, local_date_time_v)
-  VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, zoned_date_time_v)
-  VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, duration_v)
-  VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, enum_v)
-  VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, point_2d_v)
-  VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, point_3d_v)
+  VALUE_AND_TYPE_GETTERS(utils::Date, Date, held_inline_.date_v)
+  VALUE_AND_TYPE_GETTERS(utils::LocalTime, LocalTime, held_inline_.local_time_v)
+  VALUE_AND_TYPE_GETTERS(utils::LocalDateTime, LocalDateTime, held_inline_.local_date_time_v)
+  VALUE_AND_TYPE_GETTERS(utils::ZonedDateTime, ZonedDateTime, held_inline_.zoned_date_time_v)
+  VALUE_AND_TYPE_GETTERS(utils::Duration, Duration, held_inline_.duration_v)
+  VALUE_AND_TYPE_GETTERS(storage::Enum, Enum, held_inline_.enum_v)
+  VALUE_AND_TYPE_GETTERS(storage::Point2d, Point2d, held_inline_.point_2d_v)
+  VALUE_AND_TYPE_GETTERS(storage::Point3d, Point3d, held_inline_.point_3d_v)
   VALUE_AND_TYPE_GETTERS(Graph, Graph, *graph_v)
   VALUE_AND_TYPE_GETTERS(VirtualGraph, VirtualGraph, *virtual_graph_v)
   VALUE_AND_TYPE_GETTERS(std::function<void(TypedValue *)>, Function, function_v)
@@ -795,14 +798,11 @@ class TypedValue {
   /// alone, because a copy and a move assignment reach this having already set it or needing to set
   /// it afterwards.
   ///
-  /// Every type this is called for is trivially copyable, so its value is exactly its bytes and
-  /// taking a fixed width of them copies whichever of them is there. Choosing the member by type
-  /// instead would make this a jump table, and large enough that the copy and the move assignment
-  /// would stop being inlined into their callers, which is the whole point of asking first.
-  void AssignValueHeldInline(TypedValue const &other) {
-    std::memcpy(static_cast<void *>(value_bytes_.data()), static_cast<void const *>(other.value_bytes_.data()),
-                kValueHeldInlineSize);
-  }
+  /// Every member of the union is trivially copyable, so assigning the whole of it copies
+  /// whichever one is active without having to know which. Choosing the member by type instead
+  /// would make this a jump table, and large enough that the copy and the move assignment would
+  /// stop being inlined into their callers, which is the whole point of asking first.
+  void AssignValueHeldInline(TypedValue const &other) { held_inline_ = other.held_inline_; }
 
   /// The rest of the destructor and of the copy constructor. Both assume `type_` is already the
   /// type being destroyed or copied, and neither is reached for a type handled inline above.
@@ -812,40 +812,20 @@ class TypedValue {
 
   [[no_unique_address]] allocator_type alloc_{};
 
-  /// How much of the union a type that owns no allocation can occupy, taken from the widest of
-  /// them so that copying this many bytes copies whichever one is there. A type added to that
-  /// group without being named here would be copied short.
-  static constexpr auto kValueHeldInlineSize = std::max({sizeof(bool),
-                                                         sizeof(int64_t),
-                                                         sizeof(double),
-                                                         sizeof(VertexAccessor),
-                                                         sizeof(EdgeAccessor),
-                                                         sizeof(utils::Date),
-                                                         sizeof(utils::LocalTime),
-                                                         sizeof(utils::LocalDateTime),
-                                                         sizeof(utils::ZonedDateTime),
-                                                         sizeof(utils::Duration),
-                                                         sizeof(storage::Enum),
-                                                         sizeof(storage::Point2d),
-                                                         sizeof(storage::Point3d)});
-
-  // storage for the value of the property
-  union {
-    std::array<std::byte, kValueHeldInlineSize> value_bytes_;
+  /// The value of every type that owns no allocation, which is every type up to
+  /// `kLastWithoutAnAllocation`. One declaration gives both the width to copy and the guarantee
+  /// that copying it is sound, since a union is trivially copyable only when every one of its
+  /// members is, so the assertion below covers all of them at once.
+  ///
+  /// Which types belong here still has to agree with where the enumeration puts that boundary,
+  /// and nothing checks the two against each other. A type that owns no allocation has to be
+  /// declared here rather than in the outer union, or it is copied at this union's width.
+  union ValueHeldInline {
     bool bool_v;
     int64_t int_v;
     double double_v;
-    // Since this is used in query runtime, size of union is not critical so
-    // string and vector are used instead of pointers. It requires copy of data,
-    // but most of algorithms (concatenations, serialisation...) has linear time
-    // complexity so it shouldn't be a problem. This is maybe even faster
-    // because of data locality.
-    TString string_v;
-    TVector list_v;
-    TMap map_v;
     VertexAccessor vertex_v;
     EdgeAccessor edge_v;
-    std::unique_ptr<Path> path_v;
     utils::Date date_v;
     utils::LocalTime local_time_v;
     utils::LocalDateTime local_date_time_v;
@@ -854,6 +834,24 @@ class TypedValue {
     storage::Enum enum_v;
     storage::Point2d point_2d_v;
     storage::Point3d point_3d_v;
+  };
+
+  static_assert(std::is_trivially_copyable_v<ValueHeldInline>,
+                "A type whose value lives in the union above must be trivially copyable, because "
+                "assigning the union copies whichever member is active without knowing which.");
+
+  // storage for the value of the property
+  union {
+    ValueHeldInline held_inline_;
+    // Since this is used in query runtime, size of union is not critical so
+    // string and vector are used instead of pointers. It requires copy of data,
+    // but most of algorithms (concatenations, serialisation...) has linear time
+    // complexity so it shouldn't be a problem. This is maybe even faster
+    // because of data locality.
+    TString string_v;
+    TVector list_v;
+    TMap map_v;
+    std::unique_ptr<Path> path_v;
     // As the unique_ptr is not allocator aware, it requires special attention when copying or moving graphs
     std::unique_ptr<Graph> graph_v;
     std::unique_ptr<VirtualGraph> virtual_graph_v;
