@@ -91,7 +91,11 @@ uint16_t HotMask::Count() const noexcept {
 PriorityThreadPool::PriorityThreadPool(uint16_t mixed_work_threads_count, uint16_t high_priority_threads_count,
                                        ThreadInitCallback thread_init_callback,
                                        std::chrono::milliseconds monitor_interval)
-    : hot_threads_{mixed_work_threads_count}, task_id_{kMaxLowPriorityId}, last_wid_{0} {
+    : hot_threads_{mixed_work_threads_count},
+      task_id_{kMaxLowPriorityId},
+      last_wid_{0},
+      max_wakeup_thread_{
+          std::max<TaskID>(1, std::min<TaskID>(GetSafeHardwareConcurrency(), mixed_work_threads_count))} {
   MG_ASSERT(mixed_work_threads_count > 0, "PriorityThreadPool requires at least one mixed work thread");
   MG_ASSERT(mixed_work_threads_count <= kMaxWorkers,
             "PriorityThreadPool supports a maximum of 1024 mixed work threads");
@@ -303,9 +307,7 @@ void PriorityThreadPool::ScheduledReAddTask(TaskSignature task, TaskID id) {
   }
   auto tid = hot_threads_.GetHotElement();
   if (!tid) {
-    static const auto max_wakeup_thread =
-        std::max(1UL, std::min(static_cast<TaskID>(GetSafeHardwareConcurrency()), workers_.size()));
-    tid = last_wid_++ % max_wakeup_thread;
+    tid = last_wid_++ % max_wakeup_thread_;
   }
   workers_[*tid]->push(std::move(task), id, /*productive=*/false);
 }
