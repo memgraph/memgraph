@@ -5057,8 +5057,8 @@ class KShortestPathsCursor : public Cursor {
     trie_children_.clear();
     trie_first_child_.assign(1, kNoChild);  // node 0 is the empty root
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
-    expansion_memo_.rehash(0);
     expansion_memo_.clear();
+    expansion_memo_.rehash(0);
     // Built from this row's target, under this row's filters.
     reverse_dist_.clear();
     reverse_dist_.rehash(0);
