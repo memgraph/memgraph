@@ -148,8 +148,8 @@ enum class WriteResult : uint8_t { SUCCESS, NON_SEQUENTIAL, SERIALIZATION_ERROR 
 /// delta could be, but can also be prepended onto non-sequential deltas from
 /// other in-flight transactions, or to a CREATE_*_EDGE for an in-flight
 /// transaction provided that there are no uncommitted deltas other than CREATE_*_EDGE.
-/// It does not mark the object: on `NON_SEQUENTIAL`, the caller sets
-/// `has_uncommitted_non_sequential_deltas` once its delta is linked.
+/// On `NON_SEQUENTIAL`, `CreateEdgeInternal` sets the vertex's
+/// `has_uncommitted_non_sequential_deltas` once the delta is linked.
 template <typename TObj>
 inline WriteResult PrepareForNonSequentialWrite(Transaction *transaction, TObj *object, Delta::Action action) {
   DMG_ASSERT(action == Delta::Action::ADD_IN_EDGE || action == Delta::Action::ADD_OUT_EDGE);
