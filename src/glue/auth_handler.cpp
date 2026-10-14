@@ -1202,7 +1202,8 @@ void AuthQueryHandler::DenyPrivilege(
         &edge_type_privileges
 #endif
     ,
-    auth::UserOrRoleType type, memgraph::auth::AuthTransaction *auth_tx, system::Transaction *system_tx) {
+    auth::DenyStrength strength, auth::UserOrRoleType type, memgraph::auth::AuthTransaction *auth_tx,
+    system::Transaction *system_tx) {
   EditPermissions(
       user_or_role,
       privileges,
@@ -1211,29 +1212,29 @@ void AuthQueryHandler::DenyPrivilege(
       label_matching_modes,
       edge_type_privileges,
 #endif
-      [](auto &permissions, const auto &permission) {
+      [strength](auto &permissions, const auto &permission) {
         // TODO (mferencevic): should we first check that the
         // privilege is granted/denied/revoked before
         // unconditionally granting/denying/revoking it?
-        permissions.Deny(permission);
+        permissions.Deny(permission, strength);
       }
 #ifdef MG_ENTERPRISE
       ,
-      [](auto &fine_grained_permissions,
-         auto const &privilege_collection,
-         auto const &matching_mode,
-         FineGrainedPermissionType perm_type) {
+      [strength](auto &fine_grained_permissions,
+                 auto const &privilege_collection,
+                 auto const &matching_mode,
+                 FineGrainedPermissionType perm_type) {
         for (const auto &[privilege, entities] : privilege_collection) {
           auto const &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege, perm_type);
 
           if (entities.size() == 1 && entities[0] == "*") {
-            fine_grained_permissions.DenyGlobal(permission);
+            fine_grained_permissions.DenyGlobal(permission, strength);
           } else {
             std::unordered_set<std::string> const entity_set(entities.begin(), entities.end());
             auto mode = (matching_mode == memgraph::query::AuthQuery::LabelMatchingMode::EXACTLY)
                             ? memgraph::auth::MatchingMode::EXACTLY
                             : memgraph::auth::MatchingMode::ANY;
-            fine_grained_permissions.Deny(entity_set, permission, mode);
+            fine_grained_permissions.Deny(entity_set, permission, mode, strength);
           }
         }
       }
@@ -1568,20 +1569,19 @@ void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
                                               const std::vector<std::string> &entity_names,
                                               auth::PropertyEntityKind entity_kind, auth::MatchingMode matching_mode,
                                               auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
-                                              memgraph::auth::AuthTransaction *auth_tx,
+                                              auth::DenyStrength strength, memgraph::auth::AuthTransaction *auth_tx,
                                               system::Transaction *system_tx) {
-  EditPropertyPermission(user_or_role,
-                         properties,
-                         entity_names,
-                         entity_kind,
-                         matching_mode,
-                         type,
-                         auth_tx,
-                         system_tx,
-                         MakePropertyEditFn(&auth::PropertyAccessPermissions::DenyGlobal,
-                                            &auth::PropertyAccessPermissions::Deny,
-                                            perm_type,
-                                            auth::DenyStrength::STRONG));
+  EditPropertyPermission(
+      user_or_role,
+      properties,
+      entity_names,
+      entity_kind,
+      matching_mode,
+      type,
+      auth_tx,
+      system_tx,
+      MakePropertyEditFn(
+          &auth::PropertyAccessPermissions::DenyGlobal, &auth::PropertyAccessPermissions::Deny, perm_type, strength));
 }
 
 void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
