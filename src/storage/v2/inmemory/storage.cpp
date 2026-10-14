@@ -1425,25 +1425,30 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
     return result;
   }
 
-  FinalizeTransaction();
+  // Between finalizing the committed batch and re-activating the accessor there is no active
+  // transaction, so a refused allocation here would leave one the caller then tries to abort.
+  // The memory limit is checked only once the next batch's transaction is active.
+  utils::AtomicMemoryBlock([this] {
+    FinalizeTransaction();
 
-  auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+    auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
-  transaction_.start_timestamp = new_transaction.start_timestamp;
-  transaction_.transaction_id = new_transaction.transaction_id;
-  // So the next batch sees what this one committed. With the experiment OFF snapshot_ts equals
-  // start_timestamp, so this is inert to the read path.
-  transaction_.snapshot_ts = new_transaction.snapshot_ts;
-  transaction_.commit_info.reset();
-  // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
-  // the next batch would have every later commit re-enter its vertices into constraints none of
-  // its own writes named, which nothing would then come back to collect.
-  if (transaction_.constraint_verification_info) transaction_.constraint_verification_info->Clear();
-  // Do NOT touch `original_start_timestamp` — it must remain stable per-query
-  // (procedures use it as a cache key across PERIODIC COMMIT).
+    auto new_transaction = mem_storage->CreateTransaction(transaction_.isolation_level, transaction_.storage_mode);
+    transaction_.start_timestamp = new_transaction.start_timestamp;
+    transaction_.transaction_id = new_transaction.transaction_id;
+    // So the next batch sees what this one committed. With the experiment OFF snapshot_ts equals
+    // start_timestamp, so this is inert to the read path.
+    transaction_.snapshot_ts = new_transaction.snapshot_ts;
+    transaction_.commit_info.reset();
+    // What the batch just committed wrote has been checked and is no longer owed. Carrying it into
+    // the next batch would have every later commit re-enter its vertices into constraints none of
+    // its own writes named, which nothing would then come back to collect.
+    if (transaction_.constraint_verification_info) transaction_.constraint_verification_info->Clear();
+    // Do NOT touch `original_start_timestamp` — it must remain stable per-query
+    // (procedures use it as a cache key across PERIODIC COMMIT).
 
-  is_transaction_active_ = true;
+    is_transaction_active_ = true;
+  });
 
   return result;
 }
