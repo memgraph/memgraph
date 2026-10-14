@@ -745,7 +745,7 @@ def test_complex_role_privilege_flow(memgraph):
     for row in results:
         assert (
             row.get("privilege", "").upper() == "MATCH"
-            and row.get("effective", "").upper() == "DENY"
+            and row.get("effective", "").upper() == "STRONG DENY"
             and "DENIED TO ROLE" in row.get("description", "").upper()
         ), f"Expected privilege row for MATCH DENY to role, got: {row}"
 
