@@ -2200,6 +2200,60 @@ TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalEntityMerge) {
   }
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsWeakDeny) {
+  std::vector<std::string> const emp = {"Employee"};
+  auto const read = PropertyPermissionType::READ;
+
+  PropertyAccessPermissions weak;
+  weak.Deny({"Employee"}, "salary", read, MatchingMode::ANY, DenyStrength::WEAK);
+  EXPECT_EQ(weak.Has(emp, "salary", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions grant;
+  grant.Grant({"Employee"}, "salary", read);
+  EXPECT_EQ(Merge(weak, grant).Has(emp, "salary", read), PermissionLevel::GRANT);
+  EXPECT_EQ(Merge(grant, weak).Has(emp, "salary", read), PermissionLevel::GRANT);
+
+  PropertyAccessPermissions strong;
+  strong.Deny({"Employee"}, "salary", read);
+  EXPECT_EQ(Merge(Merge(weak, grant), strong).Has(emp, "salary", read), PermissionLevel::DENY);
+  EXPECT_EQ(Merge(strong, Merge(weak, grant)).Has(emp, "salary", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions wildcard;
+  wildcard.Grant({"Employee"}, "*", read);
+  auto const with_wildcard = Merge(weak, wildcard);
+  EXPECT_EQ(with_wildcard.Has(emp, "salary", read), PermissionLevel::DENY);
+  EXPECT_EQ(with_wildcard.Has(emp, "name", read), PermissionLevel::GRANT);
+
+  PropertyAccessPermissions regranted = weak;
+  regranted.Grant({"Employee"}, "salary", read);
+  EXPECT_EQ(regranted, grant);
+
+  PropertyAccessPermissions denied_all = weak;
+  denied_all.Deny({"Employee"}, "*", read);
+  EXPECT_FALSE(denied_all.GetRules()[0].properties.contains("salary"));
+}
+
+TEST(AuthWithoutStorage, PropertyAccessPermissionsGlobalWeakDeny) {
+  std::vector<std::string> const emp = {"Employee"};
+  auto const read = PropertyPermissionType::READ;
+
+  PropertyAccessPermissions weak;
+  weak.DenyGlobal("salary", read, DenyStrength::WEAK);
+  EXPECT_EQ(weak.Has(emp, "salary", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions grant;
+  grant.GrantGlobal("salary", read);
+  EXPECT_EQ(Merge(weak, grant).Has(emp, "salary", read), PermissionLevel::GRANT);
+
+  PropertyAccessPermissions strong;
+  strong.DenyGlobal("salary", read);
+  EXPECT_EQ(Merge(Merge(weak, grant), strong).Has(emp, "salary", read), PermissionLevel::DENY);
+
+  PropertyAccessPermissions regranted = weak;
+  regranted.GrantGlobal("salary", read);
+  EXPECT_EQ(regranted, grant);
+}
+
 TEST(AuthWithoutStorage, PropertyAccessPermissionsHasUnrestrictedAccess) {
   using memgraph::auth::PropertyAccessPermissions;
   using memgraph::auth::PropertyPermissionType;
@@ -2459,6 +2513,61 @@ TEST(AuthWithFineGrainedTest, DenyBehavior) {
   perms.DenyGlobal(FineGrainedPermission::READ);
   ASSERT_FALSE(perms.GetGlobalGrants().has_value());
   ASSERT_TRUE(perms.GetGlobalDenies().has_value());
+}
+
+TEST(AuthWithFineGrainedTest, WeakDeny) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto const person = std::array{"Person"s};
+  auto const read = FineGrainedPermission::READ;
+
+  FineGrainedAccessPermissions weak;
+  weak.Deny({"Person"}, read, MatchingMode::ANY, DenyStrength::WEAK);
+  ASSERT_EQ(weak.Has(person, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions grant;
+  grant.Grant({"Person"}, read);
+  ASSERT_EQ(Merge(weak, grant).Has(person, read), PermissionLevel::GRANT);
+  ASSERT_EQ(Merge(grant, weak).Has(person, read), PermissionLevel::GRANT);
+
+  FineGrainedAccessPermissions strong;
+  strong.Deny({"Person"}, read);
+  ASSERT_EQ(Merge(Merge(weak, grant), strong).Has(person, read), PermissionLevel::DENY);
+  ASSERT_EQ(Merge(strong, Merge(weak, grant)).Has(person, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions other_rule;
+  other_rule.Grant({"Person", "Employee"}, read);
+  ASSERT_EQ(Merge(weak, other_rule).Has(person, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions global_grant;
+  global_grant.GrantGlobal(read);
+  ASSERT_EQ(Merge(weak, global_grant).Has(person, read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions regranted = weak;
+  regranted.Grant({"Person"}, read);
+  ASSERT_EQ(regranted, grant);
+}
+
+TEST(AuthWithFineGrainedTest, GlobalWeakDeny) {
+  memgraph::license::global_license_checker.EnableTesting();
+  auto const read = FineGrainedPermission::READ;
+
+  FineGrainedAccessPermissions weak;
+  weak.DenyGlobal(read, DenyStrength::WEAK);
+  ASSERT_EQ(weak.HasGlobal(read), PermissionLevel::DENY);
+  ASSERT_EQ(weak.GetGlobalWeakDenies(), std::to_underlying(read));
+
+  FineGrainedAccessPermissions grant;
+  grant.GrantGlobal(read);
+  ASSERT_EQ(Merge(weak, grant).HasGlobal(read), PermissionLevel::GRANT);
+  ASSERT_EQ(Merge(grant, weak).HasGlobal(read), PermissionLevel::GRANT);
+
+  FineGrainedAccessPermissions strong;
+  strong.DenyGlobal(read);
+  ASSERT_EQ(Merge(Merge(weak, grant), strong).HasGlobal(read), PermissionLevel::DENY);
+
+  FineGrainedAccessPermissions regranted = weak;
+  regranted.GrantGlobal(read);
+  ASSERT_EQ(regranted, grant);
 }
 
 TEST(AuthWithFineGrainedTest, FineGrainedAccessPermissionsSerializeDeserialize) {
