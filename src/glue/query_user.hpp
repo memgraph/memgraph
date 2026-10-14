@@ -11,7 +11,10 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <optional>
+#include <string>
 
 #include "auth/auth.hpp"
 #include "query/query_user.hpp"
@@ -22,18 +25,26 @@ namespace memgraph::glue {
 struct QueryUserOrRole : public query::QueryUserOrRole {
   std::shared_ptr<query::QueryUserOrRole> clone() const override;
 
-  bool IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges, std::optional<std::string_view> db_name,
-                    query::UserPolicy *policy) const override;
+  bool IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
+                    std::optional<std::string_view> db_name) const override;
 
   std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override;
 
+  uint64_t PrincipalVersion() const override;
+
 #ifdef MG_ENTERPRISE
-  bool CanImpersonate(const std::string &target, query::UserPolicy *policy,
-                      std::optional<std::string_view> db_name = std::nullopt) const override;
+  bool CanImpersonate(const std::string &target, std::optional<std::string_view> db_name = std::nullopt) const override;
   std::string GetDefaultDB() const override;
 #endif
 
-  explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{{}, {}}, auth_{auth} {}
+  // Refreshes, then reports whether the principal was dropped or replaced by a same-named user.
+  // Throws auth::AuthException on a failed refresh.
+  bool IsDropped() const {
+    EnsureFresh();
+    return dropped_;
+  }
+
+  explicit QueryUserOrRole(auth::SynchedAuth *auth);
 
   QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role);
 
@@ -46,14 +57,29 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
  private:
   friend class AuthChecker;
   void RefreshPrincipal(const auth::Auth &auth) const;
+  // Takes the read lock itself, so call it with none held. Throws auth::AuthException on a failed refresh.
+  void EnsureFresh() const;
 
   auth::SynchedAuth *auth_;
-  // user_/roles_/auth_epoch_ are a lazily refreshed cache; IsAuthorized and CanImpersonate write them.
-  // Do not share one instance across threads — give each thread its own clone().
+  // user_/roles_/dropped_/auth_epoch_/imp_ok_ are a lazily refreshed cache that any authorization check may write:
+  // a foreign thread may use only username(), rolenames(), operator==, operator bool; otherwise take its own clone().
   mutable std::optional<auth::User> user_{};
   mutable std::optional<auth::Roles> roles_{};
   mutable bool dropped_{false};
-  mutable auth::Auth::Epoch auth_epoch_{auth::Auth::kStartEpoch};
+  // 0 = never refreshed; Auth starts at 1.
+  mutable uint64_t auth_epoch_{0};
+#ifdef MG_ENTERPRISE
+  // Last granted impersonation, valid only while the auth epoch is unchanged.
+  struct ImpersonationGrant {
+    std::string target;
+    std::optional<std::string> db_name;
+    uint64_t epoch;
+  };
+
+  mutable std::optional<ImpersonationGrant> imp_ok_{};
+#endif
+  std::atomic<uint64_t> const *epoch_src_;
+  mutable bool access_controlled_{true};
 };
 
 }  // namespace memgraph::glue

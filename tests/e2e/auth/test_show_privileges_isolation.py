@@ -13,8 +13,14 @@ import sys
 from contextlib import contextmanager
 
 import pytest
-from common import memgraph, provide_user
+from common import first_user_memgraph, provide_user
 from gqlalchemy import Memgraph
+
+
+@pytest.fixture
+def memgraph(first_user_memgraph):
+    # The admin user each test creates is the first one and the session runs as it.
+    return first_user_memgraph
 
 
 @contextmanager

@@ -16,6 +16,7 @@
 #include "communication/v2/server.hpp"
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
+#include "glue/query_user.hpp"
 #include "query/interpreter.hpp"
 
 namespace memgraph::glue {
@@ -40,7 +41,10 @@ class RuntimeConfig {
 
   // Invalidate Configure()'s "run_time_info unchanged => skip" cache on LOGOFF so re-used
   // connections fully re-derive user + db even when the next session's metadata matches the previous one's.
-  void ResetForConnectionReuse() { previous_run_time_info_.reset(); }
+  void ResetForConnectionReuse() {
+    previous_run_time_info_.reset();
+    validated_impersonation_.reset();
+  }
 
   void OnUseDatabase() { db_selected_by_use_ = true; }
 
@@ -50,6 +54,15 @@ class RuntimeConfig {
 
   SessionHL *session_;
   std::optional<bolt_map_t> previous_run_time_info_;
+
+  struct ValidatedImpersonation {
+    std::string user;
+    std::string db;
+    std::shared_ptr<const QueryUserOrRole> principal;
+  };
+
+  // Last successful impersonating Configure; re-validated on the unchanged-metadata path.
+  std::optional<ValidatedImpersonation> validated_impersonation_;
   bool db_selected_by_use_{false};
 };
 #endif

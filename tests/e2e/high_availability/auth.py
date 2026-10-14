@@ -177,7 +177,9 @@ def test_routing_connection(test_name):
     main_cursor = connect(host="localhost", port=7687, username="user1", password="123").cursor()
     assert len(execute_and_fetch_all(main_cursor, "show users")) == 1
 
-    # You can send request normally with the old driver
+    # The anonymous driver is denied once the first user exists, so continue with an authenticated one
+    driver.close()
+    driver = GraphDatabase.driver("neo4j://localhost:7692", auth=("user1", "123"))
     with driver.session() as session:
         session.run("show users")
 
@@ -377,6 +379,11 @@ def test_ha_mt_auth_scenario(test_name):
         session.run("CREATE ROLE _dummy_role")
         # Create admin user with access to all databases
         session.run("CREATE USER admin IDENTIFIED BY 'admin123'")
+
+    driver.close()
+    # Auth is on now, so an anonymous session is denied: continue as the first user, which holds every privilege.
+    driver = GraphDatabase.driver("neo4j://localhost:7692", auth=("admin", "admin123"))
+    with driver.session() as session:
         session.run("GRANT ALL PRIVILEGES TO admin")
         session.run("GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO admin")
         session.run("GRANT READ, SET PROPERTY {*} ON EDGES OF TYPE * TO admin")

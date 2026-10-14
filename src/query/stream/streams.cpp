@@ -574,7 +574,7 @@ Streams::StreamsMap::iterator Streams::CreateConsumer(StreamsMap &map, const std
               query,
               [=](storage::Storage const *) { return params_prop.IsMap() ? params_prop.ValueMap() : empty_parameters; },
               {});
-          if (!owner->IsAuthorized(prepare_result.privileges, prepare_result.db, &up_to_date_policy)) {
+          if (!owner->IsAuthorized(prepare_result.privileges, prepare_result.db)) {
             throw StreamsException{
                 "Couldn't execute query '{}' for stream '{}' because the owner is not authorized to execute the "
                 "query!",

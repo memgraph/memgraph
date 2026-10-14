@@ -22,9 +22,30 @@ def get_cursor_with_user(username):
     return connection.cursor()
 
 
-def create_admin_user(cursor, admin_user):
-    common.execute_and_fetch_all(cursor, f"CREATE USER {admin_user}")
-    common.execute_and_fetch_all(cursor, f"GRANT ALL PRIVILEGES TO {admin_user}")
+def create_admin_user(request, admin_user):
+    """Creates the first user (anonymous session) and returns a cursor of that user.
+
+    The first user turns authentication on and gets all privileges, and the anonymous session is denied from then on.
+    The finalizer drops every user the test left, the first one last: dropping it strips its session of authorization.
+    """
+    common.execute_and_fetch_all(common.connect().cursor(), f"CREATE USER {admin_user}")
+
+    def drop_users():
+        try:
+            cursor = get_cursor_with_user(admin_user)
+        except mgclient.Error:  # dropped by the test, authentication is off again
+            return
+        users = common.execute_and_fetch_all(cursor, "SHOW USERS")
+        for (username,) in users:
+            if username != admin_user:
+                common.execute_and_fetch_all(cursor, f"DROP USER {username}")
+        if admin_user in {username for (username,) in users}:
+            common.execute_and_fetch_all(cursor, f"DROP USER {admin_user}")
+
+    request.addfinalizer(drop_users)
+    admin_cursor = get_cursor_with_user(admin_user)
+    common.execute_and_fetch_all(admin_cursor, f"GRANT ALL PRIVILEGES TO {admin_user}")
+    return admin_cursor
 
 
 def create_stream_user(cursor, stream_user):
@@ -32,7 +53,7 @@ def create_stream_user(cursor, stream_user):
     common.execute_and_fetch_all(cursor, f"GRANT STREAM TO {stream_user}")
 
 
-def test_ownerless_stream(kafka_producer, kafka_topics, connection):
+def test_ownerless_stream(request, kafka_producer, kafka_topics, connection):
     assert len(kafka_topics) > 0
     userless_cursor = connection.cursor()
     common.execute_and_fetch_all(
@@ -43,14 +64,17 @@ def test_ownerless_stream(kafka_producer, kafka_topics, connection):
     time.sleep(1)
 
     admin_user = "admin_user"
-    create_admin_user(userless_cursor, admin_user)
+    admin_cursor = create_admin_user(request, admin_user)
 
     kafka_producer.send(kafka_topics[0], b"first message").get(timeout=60)
-    assert common.timed_wait(lambda: not common.get_is_running(userless_cursor, "ownerless"))
+    assert common.timed_wait(lambda: not common.get_is_running(admin_cursor, "ownerless"))
 
-    assert len(common.execute_and_fetch_all(userless_cursor, "MATCH (n) RETURN n")) == 0
+    assert len(common.execute_and_fetch_all(admin_cursor, "MATCH (n) RETURN n")) == 0
 
-    common.execute_and_fetch_all(userless_cursor, f"DROP USER {admin_user}")
+    # With no users left authentication is off again.
+    common.execute_and_fetch_all(admin_cursor, f"DROP USER {admin_user}")
+    userless_cursor = common.connect().cursor()
+    assert common.execute_and_fetch_all(userless_cursor, "SHOW USERS") == []
     common.start_stream(userless_cursor, "ownerless")
     time.sleep(1)
 
@@ -61,12 +85,12 @@ def test_ownerless_stream(kafka_producer, kafka_topics, connection):
     assert len(common.execute_and_fetch_all(userless_cursor, "MATCH (n) RETURN n")) == 1
 
 
-def test_owner_is_shown(kafka_topics, connection):
+def test_owner_is_shown(request, kafka_topics, connection):
     assert len(kafka_topics) > 0
-    userless_cursor = connection.cursor()
+    admin_cursor = create_admin_user(request, "admin_user")
 
     stream_user = "stream_user"
-    create_stream_user(userless_cursor, stream_user)
+    create_stream_user(admin_cursor, stream_user)
     stream_cursor = get_cursor_with_user(stream_user)
 
     common.execute_and_fetch_all(
@@ -74,20 +98,16 @@ def test_owner_is_shown(kafka_topics, connection):
     )
 
     common.check_stream_info(
-        userless_cursor, "test", ("test", "kafka", 100, 1000, "kafka_transform.simple", stream_user, False)
+        admin_cursor, "test", ("test", "kafka", 100, 1000, "kafka_transform.simple", stream_user, False)
     )
 
 
-def test_insufficient_privileges(kafka_producer, kafka_topics, connection):
+def test_insufficient_privileges(request, kafka_producer, kafka_topics, connection):
     assert len(kafka_topics) > 0
-    userless_cursor = connection.cursor()
-
-    admin_user = "admin_user"
-    create_admin_user(userless_cursor, admin_user)
-    admin_cursor = get_cursor_with_user(admin_user)
+    admin_cursor = create_admin_user(request, "admin_user")
 
     stream_user = "stream_user"
-    create_stream_user(userless_cursor, stream_user)
+    create_stream_user(admin_cursor, stream_user)
     stream_cursor = get_cursor_with_user(stream_user)
 
     common.execute_and_fetch_all(
@@ -101,31 +121,27 @@ def test_insufficient_privileges(kafka_producer, kafka_topics, connection):
     time.sleep(1)
 
     kafka_producer.send(kafka_topics[0], b"first message").get(timeout=60)
-    assert common.timed_wait(lambda: not common.get_is_running(userless_cursor, "insufficient_test"))
+    assert common.timed_wait(lambda: not common.get_is_running(admin_cursor, "insufficient_test"))
 
-    assert len(common.execute_and_fetch_all(userless_cursor, "MATCH (n) RETURN n")) == 0
+    assert len(common.execute_and_fetch_all(admin_cursor, "MATCH (n) RETURN n")) == 0
 
     common.execute_and_fetch_all(admin_cursor, f"GRANT CREATE TO {stream_user}")
-    common.start_stream(userless_cursor, "insufficient_test")
+    common.start_stream(admin_cursor, "insufficient_test")
     time.sleep(1)
 
     second_message = b"second message"
     kafka_producer.send(kafka_topics[0], second_message).get(timeout=60)
-    common.kafka_check_vertex_exists_with_topic_and_payload(userless_cursor, kafka_topics[0], second_message)
+    common.kafka_check_vertex_exists_with_topic_and_payload(admin_cursor, kafka_topics[0], second_message)
 
-    assert len(common.execute_and_fetch_all(userless_cursor, "MATCH (n) RETURN n")) == 1
+    assert len(common.execute_and_fetch_all(admin_cursor, "MATCH (n) RETURN n")) == 1
 
 
-def test_happy_case(kafka_producer, kafka_topics, connection):
+def test_happy_case(request, kafka_producer, kafka_topics, connection):
     assert len(kafka_topics) > 0
-    userless_cursor = connection.cursor()
-
-    admin_user = "admin_user"
-    create_admin_user(userless_cursor, admin_user)
-    admin_cursor = get_cursor_with_user(admin_user)
+    admin_cursor = create_admin_user(request, "admin_user")
 
     stream_user = "stream_user"
-    create_stream_user(userless_cursor, stream_user)
+    create_stream_user(admin_cursor, stream_user)
     stream_cursor = get_cursor_with_user(stream_user)
     common.execute_and_fetch_all(admin_cursor, f"GRANT CREATE TO {stream_user}")
 
@@ -140,18 +156,17 @@ def test_happy_case(kafka_producer, kafka_topics, connection):
     first_message = b"first message"
     kafka_producer.send(kafka_topics[0], first_message).get(timeout=60)
 
-    common.kafka_check_vertex_exists_with_topic_and_payload(userless_cursor, kafka_topics[0], first_message)
+    common.kafka_check_vertex_exists_with_topic_and_payload(admin_cursor, kafka_topics[0], first_message)
 
-    assert len(common.execute_and_fetch_all(userless_cursor, "MATCH (n) RETURN n")) == 1
+    assert len(common.execute_and_fetch_all(admin_cursor, "MATCH (n) RETURN n")) == 1
 
 
 def usernames(cursor):
     return {username for (username,) in common.execute_and_fetch_all(cursor, "SHOW USERS")}
 
 
-def test_a_stream_runs_auth_statements_its_owner_may_run(kafka_producer, kafka_topics, connection):
-    cursor = connection.cursor()
-    create_admin_user(cursor, "admin_user")
+def test_a_stream_runs_auth_statements_its_owner_may_run(request, kafka_producer, kafka_topics, connection):
+    cursor = create_admin_user(request, "admin_user")
     common.execute_and_fetch_all(cursor, "CREATE USER owner")
     common.execute_and_fetch_all(cursor, "GRANT STREAM, AUTH TO owner")
     owner_cursor = get_cursor_with_user("owner")
@@ -165,11 +180,10 @@ def test_a_stream_runs_auth_statements_its_owner_may_run(kafka_producer, kafka_t
     assert common.timed_wait(lambda: "streamed" in usernames(cursor))
 
 
-def test_a_stream_checks_auth_statements_against_the_system_database(kafka_producer, kafka_topics, connection):
+def test_a_stream_checks_auth_statements_against_the_system_database(request, kafka_producer, kafka_topics, connection):
     # The owner holds AUTH on the stream's database only. An auth statement needs it on the system database, as it
     # does from a session, whichever database the stream runs in.
-    cursor = connection.cursor()
-    create_admin_user(cursor, "admin_user")
+    cursor = create_admin_user(request, "admin_user")
     for query in [
         "CREATE DATABASE tenant",
         "CREATE ROLE tenant_auth",

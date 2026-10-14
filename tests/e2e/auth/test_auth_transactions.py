@@ -9,42 +9,91 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import re
 import sys
 
 import mgclient
 import pytest
 
-
-def connect():
-    connection = mgclient.connect(host="localhost", port=7687)
-    connection.autocommit = True
-    return connection
-
-
-def execute(cursor, query):
-    cursor.execute(query)
-    return cursor.fetchall()
+CREATE_USER = re.compile(
+    r"^\s*CREATE\s+USER\s+(?:IF\s+NOT\s+EXISTS\s+)?(`[^`]+`|\w+)(?:\s+IDENTIFIED\s+BY\s+'((?:[^'\\]|\\.)*)')?",
+    re.IGNORECASE,
+)
 
 
-def usernames(cursor):
-    return {row[0] for row in execute(cursor, "SHOW USERS")}
+class Session:
+    """One Bolt connection. An anonymous session stops being valid once the first user exists, so the session that
+    creates the first user logs in as that user as soon as the creation is committed."""
+
+    def __init__(self):
+        self.user = None
+        self._pending = None
+        self._in_transaction = False
+        self._connect()
+
+    def _connect(self, user=None, password=""):
+        credentials = {"username": user, "password": password} if user else {}
+        self._connection = mgclient.connect(host="localhost", port=7687, **credentials)
+        self._connection.autocommit = True
+        self.user = user
+        self.cursor = self._connection.cursor()
+
+    def login(self, user, password=""):
+        self._connection.close()
+        self._connect(user, password)
+
+    def run(self, query):
+        keyword = query.strip().split(None, 1)[0].upper()
+        try:
+            self.cursor.execute(query)
+            rows = self.cursor.fetchall()
+        except Exception:
+            self._pending = None
+            self._in_transaction = False
+            raise
+
+        created = CREATE_USER.match(query)
+        if keyword == "BEGIN":
+            self._in_transaction = True
+        elif keyword in ("COMMIT", "ROLLBACK"):
+            self._in_transaction = False
+            if keyword == "COMMIT" and self._pending:
+                self.login(*self._pending)
+            self._pending = None
+        elif created and self.user is None:
+            user = created.group(1).strip("`")
+            password = re.sub(r"\\(.)", r"\1", created.group(2) or "")
+            if self._in_transaction:
+                self._pending = self._pending or (user, password)
+            else:
+                self.login(user, password)
+        return rows
+
+
+def execute(session, query):
+    if isinstance(session, Session):
+        return session.run(query)
+    session.execute(query)
+    return session.fetchall()
+
+
+def usernames(session):
+    return {row[0] for row in execute(session, "SHOW USERS")}
 
 
 @pytest.fixture
 def cursor():
-    connection = connect()
-    cur = connection.cursor()
-    yield cur
-    # Drop through the same connection: the first user created turns authentication on, so a fresh connection
-    # would be refused before it could clean up.
+    session = Session()
+    yield session
+    # Drop through the same session: the first user created turns authentication on, so a fresh anonymous
+    # connection would be refused. The session's own user goes last, since dropping it ends the session.
     try:
-        cur.execute("ROLLBACK")
-        cur.fetchall()
+        session.run("ROLLBACK")
     except Exception:
         pass
-    for user in usernames(cur):
+    for user in sorted(usernames(session), key=lambda name: name == session.user):
         try:
-            execute(cur, f"DROP USER `{user}`")
+            execute(session, f"DROP USER `{user}`")
         except Exception:
             pass
 
@@ -67,16 +116,16 @@ def test_rolled_back_users_never_appear(cursor):
 
 
 def test_uncommitted_users_are_invisible_to_another_session(cursor):
-    # Opened before any user exists: the first committed user turns authentication on, and this connection has no
-    # credentials to re-establish itself with.
-    other = connect().cursor()
+    # Opened before any user exists, then logged in once the first user is committed.
+    other = Session()
 
     execute(cursor, "BEGIN")
     execute(cursor, "CREATE USER dave")
     assert "dave" not in usernames(other), "uncommitted user leaked to another session"
 
     execute(cursor, "COMMIT")
-    assert "dave" in usernames(other), "committed user not visible to an existing session"
+    other.login("dave")
+    assert "dave" in usernames(other), "committed user not visible after logging in"
 
 
 def test_the_transaction_sees_its_own_writes(cursor):
@@ -140,7 +189,7 @@ def test_a_profile_read_does_not_hold_the_system_lock(cursor):
     # A read publishes nothing, so it must not take a system transaction. Taking one would hold the system mutex
     # until the transaction's next statement: another session's system queries would be refused meanwhile, and
     # a second read here would find the mutex already taken.
-    other = connect().cursor()
+    other = Session()
     execute(cursor, "CREATE PROFILE held LIMIT sessions 1")
 
     execute(cursor, "BEGIN")
@@ -160,7 +209,7 @@ def test_a_profile_read_does_not_hold_the_system_lock(cursor):
 def test_a_tenant_profile_read_does_not_hold_the_system_lock(cursor):
     # Same rule as the user profile read above: a read publishes nothing, so it takes no system transaction and
     # leaves the system mutex free for the rest of the transaction.
-    other = connect().cursor()
+    other = Session()
     execute(cursor, "CREATE TENANT PROFILE tenant_held LIMIT memory_limit 100MB")
 
     execute(cursor, "BEGIN")
@@ -196,8 +245,8 @@ def test_profile_writes_are_still_rejected_in_a_data_transaction(cursor):
 def test_a_transaction_conflicts_with_a_concurrent_change(cursor):
     # Two transactions touching the same users cannot both win. The first reads the user list,
     # another session changes it underneath, and the first is refused at COMMIT rather than overwriting silently.
-    # Opened before the first user exists, since creating one turns authentication on.
-    other = connect().cursor()
+    # Opened before the first user exists, then logged in as that user.
+    other = Session()
 
     execute(cursor, "CREATE USER alice")
 
@@ -205,6 +254,7 @@ def test_a_transaction_conflicts_with_a_concurrent_change(cursor):
     assert usernames(cursor) == {"alice"}
 
     # The other session commits a change to the set this transaction just read.
+    other.login("alice")
     execute(other, "CREATE USER bob")
 
     execute(cursor, "CREATE USER carol")
@@ -221,7 +271,7 @@ def test_a_terminated_auth_transaction_cannot_commit(cursor):
     # Termination is cooperative: TERMINATE marks the transaction, and the committer is responsible for refusing
     # to go ahead. An auth transaction releases the data accessor, so it takes a different commit path from a data
     # transaction and has to make that check for itself.
-    other = connect().cursor()
+    other = Session()
 
     execute(cursor, "BEGIN")
     execute(cursor, "CREATE USER doomed")
@@ -237,7 +287,7 @@ def test_a_terminated_auth_transaction_cannot_commit(cursor):
 def test_an_auth_transaction_does_not_commit_after_demotion(cursor):
     # The role is checked when a statement is prepared, so COMMIT has to check it again: a transaction opened on
     # MAIN would otherwise write into a replica's auth store, which the instance that stays MAIN never sees.
-    other = connect().cursor()
+    other = Session()
     execute(cursor, "BEGIN")
     execute(cursor, "CREATE USER zed")
 
@@ -264,7 +314,7 @@ def database_grants(cursor, user):
 def test_a_database_dropped_before_commit_fails_the_commit(cursor, setup, statement):
     # The statement checks that the database exists, but the write lands at COMMIT. A database dropped in between
     # must fail the commit, or a database later created under the same name inherits the change.
-    other = connect().cursor()
+    other = Session()
     execute(cursor, "CREATE DATABASE d1")
     execute(cursor, "CREATE USER u")
     if setup:
@@ -272,6 +322,7 @@ def test_a_database_dropped_before_commit_fails_the_commit(cursor, setup, statem
 
     execute(cursor, "BEGIN")
     execute(cursor, statement)
+    other.login("u")
     execute(other, "DROP DATABASE d1")
     with pytest.raises(mgclient.DatabaseError, match='unknown database "d1"'):
         execute(cursor, "COMMIT")
@@ -302,6 +353,8 @@ def test_a_password_changed_twice_in_one_transaction_checks_the_second_against_t
 
 
 def transaction_watcher(cursor):
+    # The first user holds every privilege, so create one that is not the watcher.
+    execute(cursor, "CREATE USER boss")
     execute(cursor, "CREATE USER watcher IDENTIFIED BY 'watcherpw'")
     execute(cursor, "GRANT TRANSACTION_MANAGEMENT TO watcher")
     watcher = mgclient.connect(host="localhost", port=7687, username="watcher", password="watcherpw")

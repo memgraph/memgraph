@@ -36,6 +36,8 @@ SIGNAL_SIGTERM = 15
 
 log = logging.getLogger("memgraph.tests.e2e")
 
+_CREATE_USER_RE = re.compile(r"\s*CREATE\s+USER\s+`?(\w+)`?", re.IGNORECASE)
+
 # Port remapping for parallel e2e runs. runner_parallel.py hands every test process a private port window through these
 # env vars. Ports hardcoded by tests (7687, 10011, ...) are mapped into the window when instances start and when clients
 # connect (see sitecustomize.py), and mapped back in query results, so tests keep asserting on the ports they were
@@ -389,7 +391,9 @@ class MemgraphInstanceRunner:
     def execute_setup_queries(self, setup_queries=List, ignore_failures=False, log_ignored_failures=True):
         """
         Executes setup queries. The element inside `setup_queries` can be a string or a list. Connection is closed at the end and cannot be
-        reused. When `ignore_failures` is set, failures of individual setup queries are logged and skipped, e.g. when
+        reused. The first created user turns authentication on, which denies the anonymous session that created it, so
+        the connection is reopened with the instance `username`/`password` right after `CREATE USER <username>`.
+        When `ignore_failures` is set, failures of individual setup queries are logged and skipped, e.g. when
         restarting an instance on which the queries were already applied. `log_ignored_failures` can be turned off when
         those failures are expected on every restart and would otherwise bury the interesting output, as when a
         benchmark restarts a cluster whose setup has already been applied.
@@ -417,12 +421,23 @@ class MemgraphInstanceRunner:
                 conn.autocommit = True
                 return conn.cursor()
 
+        def execute_and_relogin(cursor, query):
+            cursor = execute_one(cursor, query)
+            created = _CREATE_USER_RE.match(query)
+            if self.username and created and created.group(1).lower() == self.username.lower():
+                nonlocal conn
+                conn.close()
+                conn = self.get_connection(self.username, self.password or "")
+                conn.autocommit = True
+                return conn.cursor()
+            return cursor
+
         for query_coll in setup_queries:
             if isinstance(query_coll, str):
-                cursor = execute_one(cursor, query_coll)
+                cursor = execute_and_relogin(cursor, query_coll)
             elif isinstance(query_coll, list):
                 for query in query_coll:
-                    cursor = execute_one(cursor, query)
+                    cursor = execute_and_relogin(cursor, query)
 
         cursor.close()
         conn.close()

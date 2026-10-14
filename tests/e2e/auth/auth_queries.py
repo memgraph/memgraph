@@ -12,7 +12,7 @@
 import sys
 
 import pytest
-from common import memgraph, provide_user
+from common import first_user_memgraph, memgraph, provide_user
 from gqlalchemy import Memgraph
 
 
@@ -213,7 +213,8 @@ def test_roles_function_multi_tenant(memgraph):
     memgraph.execute("DROP DATABASE db2;")
 
 
-def test_username_and_roles_functions_in_trigger(memgraph):
+def test_username_and_roles_functions_in_trigger(first_user_memgraph):
+    memgraph = first_user_memgraph
     memgraph.execute("CREATE USER test_user;")
     memgraph.execute("CREATE ROLE admin_role;")
     memgraph.execute("CREATE ROLE user_role;")
@@ -763,7 +764,8 @@ def test_complex_role_privilege_flow(memgraph):
     memgraph.execute("DROP DATABASE db3;")
 
 
-def test_show_databases_for_user_and_role(memgraph):
+def test_show_databases_for_user_and_role(first_user_memgraph):
+    memgraph = first_user_memgraph
     default_db = "memgraph"
     """Test SHOW DATABASES FOR <user> and SHOW DATABASES FOR <role> with multiple roles and grants/denies."""
     # Setup: create databases, users, and roles
@@ -1036,7 +1038,8 @@ def test_show_role_no_database_specification_required(memgraph):
     memgraph.execute("DROP DATABASE test_db;")
 
 
-def test_first_user_creates_and_assigns_builtin_roles(memgraph):
+def test_first_user_creates_and_assigns_builtin_roles(first_user_memgraph):
+    memgraph = first_user_memgraph
     memgraph.execute("CREATE USER alice;")
 
     roles = list(memgraph.execute_and_fetch("SHOW ROLES;"))

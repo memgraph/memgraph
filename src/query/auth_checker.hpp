@@ -210,7 +210,7 @@ class AllowEverythingAuthChecker final : public AuthChecker {
     User(std::string name) : query::QueryUserOrRole{std::move(name), {}} {}
 
     bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/,
-                      std::optional<std::string_view> /*db_name*/, UserPolicy * /*policy*/) const override {
+                      std::optional<std::string_view> /*db_name*/) const override {
       return true;
     }
 
@@ -218,7 +218,7 @@ class AllowEverythingAuthChecker final : public AuthChecker {
 
     std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
 #ifdef MG_ENTERPRISE
-    bool CanImpersonate(const std::string & /*target*/, query::UserPolicy * /*policy*/,
+    bool CanImpersonate(const std::string & /*target*/,
                         std::optional<std::string_view> /*db_name*/ = std::nullopt) const override {
       return true;
     }
@@ -250,21 +250,30 @@ struct CachedFineGrainedAuth {
   };
 
   std::unique_ptr<FineGrainedAuthChecker> checker;
+  // Replaced checkers stay alive: earlier executions of an open transaction still hold raw pointers to them.
+  std::vector<std::unique_ptr<FineGrainedAuthChecker>> retired;
   std::string db_name;
+  uint64_t principal_version{0};
   State state{State::EMPTY};
 
   FineGrainedAuthChecker const *get() const { return checker.get(); }
 
   void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
                std::string current_db) {
-    bool const must_rebuild = state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db;
+    // Read before building: reading refreshes the principal, so the rebuild sees current grants.
+    auto const version = user.PrincipalVersion();
+    bool const must_rebuild =
+        state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db || version != principal_version;
 
     if (!must_rebuild) {
       if (checker) checker->UpdateDbAccessor(dba);
       return;
     }
 
-    checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
+    auto fresh = auth_checker.GetFineGrainedAuthChecker(user, dba);
+    principal_version = version;
+    if (checker) retired.push_back(std::move(checker));
+    checker = std::move(fresh);
 
     if (!checker) {
       db_name = std::move(current_db);
@@ -273,7 +282,7 @@ struct CachedFineGrainedAuth {
     }
 
     if (!checker->NeedsFineGrainedAuthChecker()) {
-      checker.reset();
+      checker.reset();  // not retired: never handed out before Refresh returns
       db_name = std::move(current_db);
       state = State::NO_RESTRICTIONS;
       return;
@@ -283,9 +292,12 @@ struct CachedFineGrainedAuth {
     state = State::ACTIVE;
   }
 
+  void ReleaseRetired() { retired.clear(); }
+
   void Reset() {
-    checker.reset();
+    if (checker) retired.push_back(std::move(checker));
     db_name.clear();
+    principal_version = 0;
     state = State::EMPTY;
   }
 };

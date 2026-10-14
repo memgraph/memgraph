@@ -230,7 +230,7 @@ Trigger::PlanResult Trigger::GetPlan(DbAccessor *db_accessor, std::string_view d
   std::shared_ptr<QueryUserOrRole> effective_principal;
   if (privilege_context_ == TriggerPrivilegeContext::DEFINER) {
     DMG_ASSERT(creator_, "Creator is null");
-    if (!creator_->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
+    if (!creator_->IsAuthorized(parsed_statements_.required_privileges, db_name)) {
       throw utils::BasicException(
           fmt::format("The owner of trigger '{}' is not authorized to execute the query!", name_));
     }
@@ -239,7 +239,7 @@ Trigger::PlanResult Trigger::GetPlan(DbAccessor *db_accessor, std::string_view d
   } else {
     // no users
     DMG_ASSERT(triggering_user, "Triggering user is null");
-    if (!triggering_user->IsAuthorized(parsed_statements_.required_privileges, db_name, &query::up_to_date_policy)) {
+    if (!triggering_user->IsAuthorized(parsed_statements_.required_privileges, db_name)) {
       throw utils::BasicException(
           fmt::format("The user who invoked the trigger '{}' is not authorized to execute the query!", name_));
     }

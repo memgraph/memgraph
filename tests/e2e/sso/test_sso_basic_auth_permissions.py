@@ -54,6 +54,10 @@ def wrapper(request):
             session.run("GRANT ALL PRIVILEGES TO admin;").consume()
 
             session.run(f"CREATE USER {BASIC_AUTH_USERNAME} IDENTIFIED BY '{BASIC_AUTH_PASSWORD}';").consume()
+
+    # Auth is on now, so the anonymous session is denied: continue as the first user, which holds every privilege.
+    with GraphDatabase.driver(MG_URI, auth=basic_auth(BASIC_AUTH_USERNAME, BASIC_AUTH_PASSWORD)) as client:
+        with client.session() as session:
             session.run(f"SET ROLE FOR {BASIC_AUTH_USERNAME} TO {BASIC_AUTH_ROLE};").consume()
 
     interactive_mg_runner.stop(instances, INSTANCE_NAME)

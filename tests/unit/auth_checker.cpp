@@ -12,13 +12,24 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <functional>
+#include <future>
+#include <latch>
+#include <nlohmann/json.hpp>
 #include <span>
 
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "auth/repository.hpp"
 #include "auth_test_utils.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/auth.hpp"
 #include "glue/auth_checker.hpp"
+#include "glue/websocket_auth.hpp"
+#include "kvstore/kvstore.hpp"
 
 #include "license/license.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -306,23 +317,18 @@ TEST(AuthChecker, Generate) {
   EXPECT_FALSE(empty_user && *empty_user);
   // Still empty auth, so the above should have su permissions
   using enum memgraph::query::AuthQuery::Privilege;
-  EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, "", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(empty_user->IsAuthorized(
-      {FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(
-      empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, ""));
+  EXPECT_TRUE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph"));
+  EXPECT_TRUE(empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db"));
 
   // Add user
   auto user = AddUser(*auth.Lock(), "new_user");
   ASSERT_TRUE(user);
 
-  // ~Empty user should now fail~
-  // NOTE: Cache invalidation has been disabled, so this will pass; change if it is ever turned on
-  EXPECT_TRUE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, "", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(empty_user->IsAuthorized(
-      {FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(
-      empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db", &memgraph::query::session_long_policy));
+  // Empty user must now fail: access control is on and the anonymous principal holds no grants
+  EXPECT_FALSE(empty_user->IsAuthorized({AUTH, REMOVE, REPLICATION}, ""));
+  EXPECT_FALSE(empty_user->IsAuthorized({FREE_MEMORY, WEBSOCKET, MULTI_DATABASE_EDIT}, "memgraph"));
+  EXPECT_FALSE(empty_user->IsAuthorized({TRIGGER, DURABILITY, STORAGE_MODE}, "some_db"));
 
   // Add role and new user
   auto new_role = *auth->AddRole("new_role");
@@ -331,14 +337,14 @@ TEST(AuthChecker, Generate) {
   auto user2 = auth_checker.GenQueryUser("new_user2", {});
 
   // Should be permission-less by default
-  EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(role->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(user2->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph"));
 
   // Update permissions and recheck
   new_user2.permissions().Grant(memgraph::auth::Permission::AUTH);
@@ -348,112 +354,103 @@ TEST(AuthChecker, Generate) {
   auth->SaveRole(new_role);
   role = auth_checker.GenQueryUser("no check", {"new_role"});
   user2 = auth_checker.GenQueryUser("new_user2", {});
-  EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(role->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(user2->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(role->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({FREE_MEMORY}, "memgraph"));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph"));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({TRIGGER}, "memgraph"));
+  EXPECT_TRUE(user2->IsAuthorized({SERVER_SIDE_PARAMETERS}, "memgraph"));
 
   // Connect role and recheck
   new_user2.ClearAllRoles();
   new_user2.AddRole(new_role);
   auth->SaveUser(new_user2);
   user2 = auth_checker.GenQueryUser("new_user2", {});
-  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(user2->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(user2->IsAuthorized({FREE_MEMORY}, "memgraph"));
+  EXPECT_TRUE(user2->IsAuthorized({TRIGGER}, "memgraph"));
 
   // Add database and recheck
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default"));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "another"));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another"));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph"));
 
   new_user2.db_access().Grant("another");
   new_role.db_access().Grant("non_default");
   auth->SaveUser(new_user2);
   auth->SaveRole(new_role);
-  // Session policy test
-  // Session long policy
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::session_long_policy));
-  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::session_long_policy));
-  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::session_long_policy));
-  // Up to date policy
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::up_to_date_policy));
-  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::up_to_date_policy));
-  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::up_to_date_policy));
-  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::up_to_date_policy));
-  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::up_to_date_policy));
-  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default"));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another"));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "non_default"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another"));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph"));
 
   new_user2.db_access().Deny("memgraph");
   new_role.db_access().Deny("non_default");
   auth->SaveUser(new_user2);
   auth->SaveRole(new_role);
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::up_to_date_policy));
-  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::up_to_date_policy));
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::up_to_date_policy));
-  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::up_to_date_policy));
-  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::up_to_date_policy));
-  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default"));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another"));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another"));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph"));
 
   new_user2.db_access().Revoke("memgraph");
   new_role.db_access().Revoke("non_default");
   auth->SaveUser(new_user2);
   auth->SaveRole(new_role);
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default", &memgraph::query::up_to_date_policy));
-  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another", &memgraph::query::up_to_date_policy));
-  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph", &memgraph::query::up_to_date_policy));
-  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default", &memgraph::query::up_to_date_policy));
-  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another", &memgraph::query::up_to_date_policy));
-  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "non_default"));
+  EXPECT_TRUE(user2->IsAuthorized({AUTH}, "another"));
+  EXPECT_FALSE(user2->IsAuthorized({AUTH}, "memgraph"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "non_default"));
+  EXPECT_FALSE(role->IsAuthorized({TRIGGER}, "another"));
+  EXPECT_TRUE(role->IsAuthorized({TRIGGER}, "memgraph"));
 
   // User impersonation
-  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->CanImpersonate("new_user"));
   // grant all
   new_user2.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
   new_user2.GrantUserImp();
   auth->SaveUser(new_user2);
-  EXPECT_TRUE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(user2->CanImpersonate("new_user"));
   // deny "new_user"
   new_user2.DenyUserImp({*user});
   auth->SaveUser(new_user2);
-  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->CanImpersonate("new_user"));
   // grant just "new_user"
   new_user2.GrantUserImp({*user});
   auth->SaveUser(new_user2);
-  EXPECT_TRUE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(user2->CanImpersonate("new_user"));
   // revoke permission
   new_user2.permissions().Revoke(memgraph::auth::Permission::IMPERSONATE_USER);
   auth->SaveUser(new_user2);
-  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->CanImpersonate("new_user"));
 
   // via role
   // grant all
   new_role.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
   new_role.GrantUserImp();
   auth->SaveRole(new_role);
-  EXPECT_TRUE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  EXPECT_TRUE(user2->CanImpersonate("new_user"));
   // deny "new_user"
   new_role.DenyUserImp({*user});
   auth->SaveRole(new_role);
-  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->CanImpersonate("new_user"));
   // grant "new_user" to user
   new_user2.GrantUserImp({*user});
   auth->SaveUser(new_user2);
-  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->CanImpersonate("new_user"));
   // revoke permission
   new_role.permissions().Revoke(memgraph::auth::Permission::IMPERSONATE_USER);
   auth->SaveRole(new_role);
-  EXPECT_FALSE(user2->CanImpersonate("new_user", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(user2->CanImpersonate("new_user"));
 }
 
 TYPED_TEST(FineGrainedAuthCheckerFixture, RequiresFgDuringExec_WildcardVertexEdgeUnrestricted_NoPropertyRules) {
@@ -694,7 +691,186 @@ TYPED_TEST(FineGrainedAuthCheckerFixture, CachedCheckerRebuildsOnLicenseActivati
   EXPECT_FALSE(cache.get()->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
 }
 
+TYPED_TEST(FineGrainedAuthCheckerFixture, CachedCheckerRebuildsOnPrincipalChange) {
+  namespace auth = memgraph::auth;
+  namespace query = memgraph::query;
+
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_cached_fga_principal_test"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) std::filesystem::remove_all(auth_dir);
+  });
+
+  auth::SynchedAuth synched_auth(auth_dir, auth::Auth::Config{});
+  memgraph::glue::AuthChecker auth_checker(&synched_auth);
+
+  auto user = *AddUser(*synched_auth.Lock(), "test_user");
+  user.fine_grained_access_handler().label_permissions().Grant({"l1"}, auth::kAllLabelPermissions);
+  user.fine_grained_access_handler().label_permissions().Deny({"l3"}, auth::kAllLabelPermissions);
+  synched_auth->SaveUser(user);
+
+  auto query_user = auth_checker.GenQueryUser("test_user", {});
+  ASSERT_TRUE(query_user && *query_user);
+
+  memgraph::license::global_license_checker.EnableTesting();
+
+  query::CachedFineGrainedAuth cache;
+  cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
+  ASSERT_NE(cache.get(), nullptr);
+  EXPECT_FALSE(cache.get()->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
+
+  user.fine_grained_access_handler().label_permissions().Grant({"l3"}, auth::kAllLabelPermissions);
+  synched_auth->SaveUser(user);
+
+  // Same db, same license: only the principal moved.
+  cache.Refresh(auth_checker, *query_user, &this->dba, this->dba.DatabaseName());
+  ASSERT_NE(cache.get(), nullptr);
+  EXPECT_TRUE(cache.get()->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
+
+  user.fine_grained_access_handler().label_permissions().Deny({"l3"}, auth::kAllLabelPermissions);
+  synched_auth->SaveUser(user);
+
+  // No Refresh or IsAuthorized in between: the checker itself must refresh the principal.
+  auto checker = auth_checker.GetFineGrainedAuthChecker(*query_user, &this->dba);
+  ASSERT_NE(checker, nullptr);
+  EXPECT_FALSE(checker->Has(this->v3, memgraph::storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::READ));
+}
+
 #endif
+
+namespace {
+struct LifetimeProbeChecker final : memgraph::query::FineGrainedAuthChecker {
+  using Priv = memgraph::query::AuthQuery::FineGrainedPrivilege;
+  using PropPriv = memgraph::query::AuthQuery::PropertyPermissionType;
+
+  explicit LifetimeProbeChecker(int *destroyed) : destroyed_{destroyed} {}
+
+  ~LifetimeProbeChecker() override { ++*destroyed_; }
+
+  bool Has(const memgraph::query::VertexAccessor &, memgraph::storage::View, Priv) const override { return true; }
+
+  bool Has(const memgraph::query::EdgeAccessor &, Priv) const override { return true; }
+
+  bool Has(std::span<memgraph::storage::LabelId const>, Priv) const override { return true; }
+
+  bool Has(const memgraph::storage::EdgeTypeId &, Priv) const override { return true; }
+
+  bool HasGlobalPrivilegeOnVertices(Priv) const override { return true; }
+
+  bool HasGlobalPrivilegeOnEdges(Priv) const override { return true; }
+
+  bool HasAllGlobalPrivilegesOnVertices() const override { return true; }
+
+  bool HasAllGlobalPrivilegesOnEdges() const override { return true; }
+
+  bool HasUnrestrictedAccessToVertices() const override { return true; }
+
+  bool HasUnrestrictedAccessToEdges() const override { return true; }
+
+  bool HasUnrestrictedAccessToVertexProperties() const override { return true; }
+
+  bool HasUnrestrictedAccessToEdgeTypeProperties() const override { return true; }
+
+  bool NeedsFineGrainedAuthChecker() const override { return true; }
+
+  bool HasPropertyPermission(std::span<memgraph::storage::LabelId const>, memgraph::storage::PropertyId,
+                             PropPriv) const override {
+    return true;
+  }
+
+  bool HasPropertyPermission(memgraph::storage::EdgeTypeId const &, memgraph::storage::PropertyId,
+                             PropPriv) const override {
+    return true;
+  }
+
+  void MakeThreadSafe() const override {}
+
+  bool IsThreadSafe() const override { return true; }
+
+ private:
+  int *destroyed_;
+};
+
+struct VersionedUser final : memgraph::query::QueryUserOrRole {
+  VersionedUser() : QueryUserOrRole{"u", {}} {}
+
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &,
+                    std::optional<std::string_view>) const override {
+    return true;
+  }
+
+  std::shared_ptr<QueryUserOrRole> clone() const override { return std::make_shared<VersionedUser>(*this); }
+
+  std::vector<std::string> GetRolenames(std::optional<std::string>) const override { return {}; }
+
+  uint64_t PrincipalVersion() const override { return version; }
+
+#ifdef MG_ENTERPRISE
+  bool CanImpersonate(const std::string &, std::optional<std::string_view>) const override { return true; }
+
+  std::string GetDefaultDB() const override { return {}; }
+#endif
+
+  uint64_t version{1};
+};
+
+struct ProbeAuthChecker final : memgraph::query::AuthChecker {
+  std::shared_ptr<memgraph::query::QueryUserOrRole> GenQueryUser(const std::optional<std::string> &,
+                                                                 const std::vector<std::string> &) const override {
+    return std::make_shared<VersionedUser>();
+  }
+
+  std::shared_ptr<memgraph::query::QueryUserOrRole> GenEmptyUser() const override {
+    return std::make_shared<VersionedUser>();
+  }
+
+  std::unique_ptr<memgraph::query::FineGrainedAuthChecker> GetFineGrainedAuthChecker(
+      const memgraph::query::QueryUserOrRole &, const memgraph::query::DbAccessor *) const override {
+    if (throw_on_build) throw std::runtime_error("refresh failed");
+    return std::make_unique<LifetimeProbeChecker>(&destroyed);
+  }
+
+  mutable int destroyed{0};
+  bool throw_on_build{false};
+};
+}  // namespace
+
+TEST(CachedFineGrainedAuth, ReplacedCheckersOutliveRefreshUntilReleased) {
+  ProbeAuthChecker auth_checker;
+  VersionedUser user;
+  memgraph::query::CachedFineGrainedAuth cache;
+
+  cache.Refresh(auth_checker, user, nullptr, "db");
+  auto const *first = cache.get();
+  ASSERT_NE(first, nullptr);
+
+  user.version = 2;
+  cache.Refresh(auth_checker, user, nullptr, "db");
+  auto const *second = cache.get();
+  ASSERT_NE(second, nullptr);
+  ASSERT_NE(second, first);
+  EXPECT_EQ(auth_checker.destroyed, 0);
+
+  // A failed rebuild keeps the live checker and its version, so the next Refresh retries.
+  user.version = 3;
+  auth_checker.throw_on_build = true;
+  EXPECT_THROW(cache.Refresh(auth_checker, user, nullptr, "db"), std::runtime_error);
+  EXPECT_EQ(cache.get(), second);
+  EXPECT_EQ(cache.principal_version, 2);
+  auth_checker.throw_on_build = false;
+  cache.Refresh(auth_checker, user, nullptr, "db");
+  auto const *third = cache.get();
+  ASSERT_NE(third, nullptr);
+  EXPECT_NE(third, second);
+  EXPECT_EQ(cache.principal_version, 3);
+  EXPECT_EQ(auth_checker.destroyed, 0);
+
+  cache.Reset();
+  EXPECT_EQ(cache.get(), nullptr);
+  EXPECT_EQ(auth_checker.destroyed, 0);
+
+  cache.ReleaseRetired();
+  EXPECT_EQ(auth_checker.destroyed, 3);
+}
 
 TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_dropped"};
@@ -706,8 +882,6 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
   memgraph::glue::AuthChecker auth_checker(&auth);
   using enum memgraph::query::AuthQuery::Privilege;
-  auto *const session_long = &memgraph::query::session_long_policy;
-  auto *const up_to_date = &memgraph::query::up_to_date_policy;
 
   // Another user keeps access control on after the drop.
   ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
@@ -737,15 +911,15 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   auto user_session = auth_checker.GenQueryUser("limited", {});
   auto role_session = auth_checker.GenQueryUser("sso_user", {"reader"});
   auto partial_session = auth_checker.GenQueryUser("sso_partial", {"keep", "lose"});
-  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph", session_long));
-  EXPECT_TRUE(partial_session->IsAuthorized({CREATE}, "memgraph", session_long));
-  EXPECT_TRUE(user_session->IsAuthorized({MATCH}, "memgraph", session_long));
-  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", session_long));
-  EXPECT_TRUE(role_session->IsAuthorized({MATCH}, "memgraph", session_long));
-  EXPECT_FALSE(role_session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph"));
+  EXPECT_TRUE(partial_session->IsAuthorized({CREATE}, "memgraph"));
+  EXPECT_TRUE(user_session->IsAuthorized({MATCH}, "memgraph"));
+  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph"));
+  EXPECT_TRUE(role_session->IsAuthorized({MATCH}, "memgraph"));
+  EXPECT_FALSE(role_session->IsAuthorized({CREATE}, "memgraph"));
 #ifdef MG_ENTERPRISE
-  EXPECT_TRUE(user_session->CanImpersonate("admin", session_long));
-  EXPECT_TRUE(role_session->CanImpersonate("admin", session_long));
+  EXPECT_TRUE(user_session->CanImpersonate("admin"));
+  EXPECT_TRUE(role_session->CanImpersonate("admin"));
 #endif
 
   ASSERT_TRUE(auth->RemoveUser("limited"));
@@ -753,25 +927,23 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   ASSERT_TRUE(auth->RemoveRole("lose"));
 
   // Partial role loss: the surviving role's privilege stays, the dropped role's is gone.
-  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph", up_to_date));
-  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph", session_long));
-  EXPECT_FALSE(partial_session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_TRUE(partial_session->IsAuthorized({MATCH}, "memgraph"));
+  EXPECT_FALSE(partial_session->IsAuthorized({CREATE}, "memgraph"));
 
-  // Up-to-date checks see the drop and refresh the cached principal.
-  EXPECT_FALSE(user_session->IsAuthorized({TRANSACTION_MANAGEMENT}, "memgraph", up_to_date));
-  EXPECT_FALSE(role_session->IsAuthorized({TRANSACTION_MANAGEMENT}, "memgraph", up_to_date));
+  // Checks see the drop and refresh the cached principal.
+  EXPECT_FALSE(user_session->IsAuthorized({TRANSACTION_MANAGEMENT}, "memgraph"));
+  EXPECT_FALSE(role_session->IsAuthorized({TRANSACTION_MANAGEMENT}, "memgraph"));
 
   // Once dropped, every later check is denied.
   for (const auto &session : {user_session, role_session}) {
-    EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", session_long));
-    EXPECT_FALSE(session->IsAuthorized({AUTH, DELETE}, std::nullopt, session_long));
-    EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph", session_long));
-    EXPECT_FALSE(session->IsAuthorized({}, "memgraph", session_long));
-    EXPECT_FALSE(session->IsAuthorized({}, std::nullopt, session_long));
-    EXPECT_FALSE(session->clone()->IsAuthorized({CREATE}, "memgraph", session_long));
+    EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph"));
+    EXPECT_FALSE(session->IsAuthorized({AUTH, DELETE}, std::nullopt));
+    EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph"));
+    EXPECT_FALSE(session->IsAuthorized({}, "memgraph"));
+    EXPECT_FALSE(session->IsAuthorized({}, std::nullopt));
+    EXPECT_FALSE(session->clone()->IsAuthorized({CREATE}, "memgraph"));
 #ifdef MG_ENTERPRISE
-    EXPECT_FALSE(session->CanImpersonate("admin", session_long));
-    EXPECT_FALSE(session->CanImpersonate("admin", up_to_date));
+    EXPECT_FALSE(session->CanImpersonate("admin"));
 #endif
   }
 
@@ -779,11 +951,73 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   auto recreated = *AddUser(*auth.Lock(), "limited");
   recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
   auth->SaveUser(recreated);
-  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", up_to_date));
-  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_FALSE(user_session->IsAuthorized({CREATE}, "memgraph"));
 
+  // Same for a role session: a re-created role must not revive it.
+  auto revived_role = *auth->AddRole("reader");
+  revived_role.permissions().Grant(memgraph::auth::Permission::CREATE);
+#ifdef MG_ENTERPRISE
+  revived_role.db_access().Grant("revived");
+  ASSERT_TRUE(revived_role.db_access().SetMain("revived"));
+#endif
+  auth->SaveRole(revived_role);
+  EXPECT_FALSE(role_session->IsAuthorized({CREATE}, "memgraph"));
+#ifdef MG_ENTERPRISE
+  EXPECT_NE(role_session->GetDefaultDB(), "revived");
+#endif
+
+  // An anonymous principal is authorized only while access control is off; another user exists here.
   auto empty_session = auth_checker.GenEmptyUser();
-  EXPECT_TRUE(empty_session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_FALSE(empty_session->IsAuthorized({CREATE}, "memgraph"));
+}
+
+namespace memgraph::auth {
+struct AuthTestAccess {
+  static kvstore::KVStore &Store(Auth &auth) { return auth.durability(); }
+};
+}  // namespace memgraph::auth
+
+TEST(AuthChecker, FailedRefreshIsRetriedNotCached) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_failed_refresh"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+
+  ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
+  auto limited = *AddUser(*auth.Lock(), "limited");
+  limited.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(limited);
+
+  auto session = auth_checker.GenQueryUser("limited", {});
+  ASSERT_TRUE(session->IsAuthorized({MATCH}, "memgraph"));
+
+  auto &store = memgraph::auth::AuthTestAccess::Store(*auth.Lock());
+  auto const key = memgraph::auth::Repository::UserKey("limited");
+  // A record that differs from the cached one, so a refresh that really re-read it is observable.
+  limited.permissions().Grant(memgraph::auth::Permission::CREATE);
+  auth->SaveUser(limited);
+  auto const richer_record = *store.Get(key);
+  limited.permissions().Revoke(memgraph::auth::Permission::CREATE);
+  auth->SaveUser(limited);
+  ASSERT_TRUE(store.Put(key, "{ not json"));
+  // Unrelated write: moves the epoch so the session notices, and does not touch the corrupt record.
+  auto other = *AddUser(*auth.Lock(), "other");
+  auth->SaveUser(other);
+
+  // The refresh throws: denied, and the stale cached grant must not be served on the next check either.
+  EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph"));
+  // Still corrupt: the failed attempt must not have been committed as fresh.
+  EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph"));
+
+  // Repair without moving the epoch: the next check must refresh again rather than trust the failed attempt.
+  ASSERT_TRUE(store.Put(key, richer_record));
+  EXPECT_TRUE(session->IsAuthorized({MATCH}, "memgraph"));
+  EXPECT_TRUE(session->IsAuthorized({CREATE}, "memgraph"));
 }
 
 TEST(AuthChecker, DroppedLastUserSessionGetsAuthOffAccess) {
@@ -796,27 +1030,158 @@ TEST(AuthChecker, DroppedLastUserSessionGetsAuthOffAccess) {
   memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
   memgraph::glue::AuthChecker auth_checker(&auth);
   using enum memgraph::query::AuthQuery::Privilege;
-  auto *const session_long = &memgraph::query::session_long_policy;
-  auto *const up_to_date = &memgraph::query::up_to_date_policy;
 
   auto solo = *AddUser(*auth.Lock(), "solo");
   solo.permissions().Grant(memgraph::auth::Permission::MATCH);
   auth->SaveUser(solo);
 
   auto session = auth_checker.GenQueryUser("solo", {});
-  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph"));
 
   // No users left: access control is off, so the dropped session is no longer restricted.
   ASSERT_TRUE(auth->RemoveUser("solo"));
-  EXPECT_TRUE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
-  EXPECT_TRUE(session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_TRUE(session->IsAuthorized({CREATE}, "memgraph"));
 
   // Access control back on: the dropped session is not revived.
   auto recreated = *AddUser(*auth.Lock(), "solo");
   recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
   auth->SaveUser(recreated);
-  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
-  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", session_long));
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph"));
+}
+
+TEST(AuthChecker, RecreatedUserDoesNotReviveSession) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_recreated"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+
+  ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
+  auto limited = *AddUser(*auth.Lock(), "limited");
+  limited.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(limited);
+
+  auto session = auth_checker.GenQueryUser("limited", {});
+  EXPECT_TRUE(session->IsAuthorized({MATCH}, "memgraph"));
+
+  // Dropped and re-created under the same name with no session check in between: the new record is a new identity.
+  ASSERT_TRUE(auth->RemoveUser("limited"));
+  auto recreated = *AddUser(*auth.Lock(), "limited");
+  recreated.permissions().Grant(memgraph::auth::Permission::MATCH);
+  recreated.permissions().Grant(memgraph::auth::Permission::CREATE);
+#ifdef MG_ENTERPRISE
+  recreated.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  recreated.GrantUserImp();
+#endif
+  auth->SaveUser(recreated);
+
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph"));
+  EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph"));
+#ifdef MG_ENTERPRISE
+  EXPECT_FALSE(session->CanImpersonate("admin"));
+#endif
+
+  // Control: a fresh session for the re-created user holds its grants.
+  auto fresh = auth_checker.GenQueryUser("limited", {});
+  EXPECT_TRUE(fresh->IsAuthorized({CREATE}, "memgraph"));
+  EXPECT_TRUE(fresh->IsAuthorized({MATCH}, "memgraph"));
+}
+
+#ifdef MG_ENTERPRISE
+TEST(AuthChecker, CanImpersonateGrantIsCachedPerEpochTargetAndDb) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_imp_cache"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+
+  auto granted_target = *AddUser(*auth.Lock(), "granted_target");
+  ASSERT_TRUE(AddUser(*auth.Lock(), "other_target"));
+  auto impersonator = *AddUser(*auth.Lock(), "impersonator");
+  impersonator.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  impersonator.GrantUserImp({granted_target});
+  auth->SaveUser(impersonator);
+
+  auto session = auth_checker.GenQueryUser("impersonator", {});
+  ASSERT_TRUE(session->CanImpersonate("granted_target"));  // populates the cache
+
+  // A cache hit must not need the auth lock: hold it exclusively on another thread.
+  std::latch held{1};
+  std::latch release{1};
+  auto holder = std::async(std::launch::async, [&] {
+    auto const guard = auth.Lock();
+    held.count_down();
+    release.wait();
+  });
+  held.wait();
+  auto hit = std::async(std::launch::async, [&] { return session->CanImpersonate("granted_target"); });
+  bool const hit_ready = hit.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  release.count_down();
+  holder.get();
+  ASSERT_TRUE(hit_ready) << "cached CanImpersonate blocked under the exclusive auth lock";
+  EXPECT_TRUE(hit.get());
+
+  // The cache is keyed by target: a different, ungranted target is evaluated and denied.
+  EXPECT_FALSE(session->CanImpersonate("other_target"));
+  // After a denial the granted target is still evaluated (and re-cached) correctly.
+  EXPECT_TRUE(session->CanImpersonate("granted_target"));
+  // Keyed by db as well: a cached grant for one db must not answer for a db the impersonator cannot access.
+  EXPECT_TRUE(session->CanImpersonate("granted_target", "memgraph"));
+  EXPECT_FALSE(session->CanImpersonate("granted_target", "no_access_db"));
+  EXPECT_TRUE(session->CanImpersonate("granted_target", "memgraph"));
+  // Prime a second session with the db-less grant and this one with the db grant so each holds a live cache entry.
+  auto session_no_db = auth_checker.GenQueryUser("impersonator", {});
+  ASSERT_TRUE(session_no_db->CanImpersonate("granted_target"));
+
+  // Revoking the impersonator's privilege bumps the epoch: the cached grant must not survive.
+  impersonator.permissions().Revoke(memgraph::auth::Permission::IMPERSONATE_USER);
+  auth->SaveUser(impersonator);
+  EXPECT_FALSE(session_no_db->CanImpersonate("granted_target"));
+  EXPECT_FALSE(session->CanImpersonate("granted_target", "memgraph"));
+}
+#endif
+
+TEST(AuthChecker, UserWithoutStoredUuidKeepsSessionAcrossRefresh) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_legacy_uuid"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  using enum memgraph::query::AuthQuery::Privilege;
+
+  // Strip the uuid from the stored record, as a user saved before uuids existed would look.
+  {
+    memgraph::auth::SynchedAuth seed(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+    auto legacy = *AddUser(*seed.Lock(), "legacy");
+    legacy.permissions().Grant(memgraph::auth::Permission::MATCH);
+    seed->SaveUser(legacy);
+  }
+  {
+    memgraph::kvstore::KVStore store{auth_dir};
+    auto const key = memgraph::auth::Repository::UserKey("legacy");
+    auto record = nlohmann::json::parse(*store.Get(key));
+    ASSERT_EQ(record.erase("uuid"), 1);
+    ASSERT_TRUE(store.Put(key, record.dump()));
+  }
+
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  auto session = auth_checker.GenQueryUser("legacy", {});
+  EXPECT_TRUE(session->IsAuthorized({MATCH}, "memgraph"));
+
+  // The refresh re-loads the uuid-less record; its identity must stay stable (Nil) rather than read as a new user.
+  auto other = *AddUser(*auth.Lock(), "other");
+  auth->SaveUser(other);
+  EXPECT_TRUE(session->IsAuthorized({MATCH}, "memgraph"));
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph"));
 }
 
 #ifdef MG_ENTERPRISE
@@ -844,11 +1209,131 @@ TEST(AuthChecker, DroppedUserStillGetsFineGrainedChecker) {
   memgraph::query::DbAccessor dba{storage_dba.get()};
 
   ASSERT_TRUE(auth->RemoveUser("limited"));
-  EXPECT_FALSE(session->IsAuthorized(
-      {memgraph::query::AuthQuery::Privilege::MATCH}, "memgraph", &memgraph::query::up_to_date_policy));
+  EXPECT_FALSE(session->IsAuthorized({memgraph::query::AuthQuery::Privilege::MATCH}, "memgraph"));
 
   auto checker = auth_checker.GetFineGrainedAuthChecker(*session, &dba);
   ASSERT_NE(checker, nullptr);
   EXPECT_TRUE(checker->NeedsFineGrainedAuthChecker());
+}
+#endif
+
+namespace {
+struct WebsocketAuthFixture {
+  std::filesystem::path auth_dir;
+  memgraph::utils::OnScopeExit<std::function<void()>> clean;
+  memgraph::auth::SynchedAuth auth;
+
+  explicit WebsocketAuthFixture(std::string_view name)
+      : auth_dir{std::filesystem::temp_directory_path() / name},
+        clean{[this] {
+          if (std::filesystem::exists(auth_dir)) std::filesystem::remove_all(auth_dir);
+        }},
+        auth{auth_dir, memgraph::auth::Auth::Config{/* default config */}} {
+    memgraph::license::global_license_checker.EnableTesting();
+    // Another user keeps access control on while the principal under test is dropped.
+    EXPECT_TRUE(AddUser(*auth.Lock(), "admin"));
+  }
+
+  void AddWebsocketUser(const std::string &name) {
+    auto user = *AddUser(*auth.Lock(), name, "pw");
+    user.permissions().Grant(memgraph::auth::Permission::WEBSOCKET);
+    auth->SaveUser(user);
+  }
+};
+}  // namespace
+
+TEST(WebsocketAuth, PermissionRevokedIsSeenWithoutReauthentication) {
+  WebsocketAuthFixture f{"MG_websocket_auth_revoke"};
+  f.AddWebsocketUser("ws");
+  memgraph::glue::SafeAuth safe_auth{&f.auth};
+
+  ASSERT_TRUE(safe_auth.Authenticate("ws", "pw"));
+  EXPECT_TRUE(safe_auth.HasWebsocketPermission());
+
+  auto user = *f.auth->GetUser("ws");
+  user.permissions().Revoke(memgraph::auth::Permission::WEBSOCKET);
+  f.auth->SaveUser(user);
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
+}
+
+TEST(WebsocketAuth, DroppedUserIsDeniedWhileOthersExist) {
+  WebsocketAuthFixture f{"MG_websocket_auth_dropped"};
+  f.AddWebsocketUser("ws");
+  memgraph::glue::SafeAuth safe_auth{&f.auth};
+
+  ASSERT_TRUE(safe_auth.Authenticate("ws", "pw"));
+  EXPECT_TRUE(safe_auth.HasWebsocketPermission());
+
+  ASSERT_TRUE(f.auth->RemoveUser("ws"));
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
+
+  // Re-created under the same name after the drop was seen: still not revived.
+  f.AddWebsocketUser("ws");
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
+
+  // Dropped and re-created with no check in between: the new record is a new identity.
+  f.AddWebsocketUser("ws2");
+  memgraph::glue::SafeAuth safe_auth2{&f.auth};
+  ASSERT_TRUE(safe_auth2.Authenticate("ws2", "pw"));
+  ASSERT_TRUE(safe_auth2.HasWebsocketPermission());
+  ASSERT_TRUE(f.auth->RemoveUser("ws2"));
+  f.AddWebsocketUser("ws2");
+  EXPECT_FALSE(safe_auth2.HasWebsocketPermission());
+
+  // A fresh login for the re-created user holds its grant.
+  ASSERT_TRUE(safe_auth2.Authenticate("ws2", "pw"));
+  EXPECT_TRUE(safe_auth2.HasWebsocketPermission());
+}
+
+#ifdef MG_ENTERPRISE
+TEST(WebsocketAuth, RolesPrincipalIsRefreshedAndAggregated) {
+  // SSO-style principal: a "basic" auth module that answers every request with two roles.
+  auto const module_dir = std::filesystem::temp_directory_path() / "MG_websocket_auth_module";
+  std::filesystem::remove_all(module_dir);
+  std::filesystem::create_directories(module_dir);
+  memgraph::utils::OnScopeExit clean_module([&] { std::filesystem::remove_all(module_dir); });
+  auto const script = module_dir / "module.sh";
+  {
+    std::ofstream out{script};
+    // The module talks newline-delimited JSON over fds 1000 (requests) and 1001 (responses).
+    out << "#!/usr/bin/env bash\n"
+           "while read -r -u 1000 line; do\n"
+           "  re='memgraph_call_id\":([0-9]+)'\n"
+           "  [[ $line =~ $re ]] || continue\n"
+           "  echo \"{\\\"authenticated\\\":true,\\\"roles\\\":[\\\"keep\\\",\\\"deny\\\"],"
+           "\\\"memgraph_call_id\\\":${BASH_REMATCH[1]}}\" >&1001\n"
+           "done\n";
+  }
+  std::filesystem::permissions(script, std::filesystem::perms::owner_all);
+
+  auto const old_mappings = FLAGS_auth_module_mappings;
+  FLAGS_auth_module_mappings = "basic:" + script.string();
+  memgraph::utils::OnScopeExit restore([&] { FLAGS_auth_module_mappings = old_mappings; });
+
+  WebsocketAuthFixture f{"MG_websocket_auth_roles"};
+  auto keep = *f.auth->AddRole("keep");
+  keep.permissions().Grant(memgraph::auth::Permission::WEBSOCKET);
+  f.auth->SaveRole(keep);
+  auto deny = *f.auth->AddRole("deny");
+  f.auth->SaveRole(deny);
+
+  memgraph::glue::SafeAuth safe_auth{&f.auth};
+  ASSERT_TRUE(safe_auth.Authenticate("sso_user", "ignored"));
+  EXPECT_TRUE(safe_auth.HasWebsocketPermission());
+
+  // One role denying WEBSOCKET denies the aggregated principal, seen without re-authentication.
+  deny = *f.auth->GetRole("deny");
+  deny.permissions().Deny(memgraph::auth::Permission::WEBSOCKET);
+  f.auth->SaveRole(deny);
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
+
+  // Dropping the denying role leaves the surviving role's grant.
+  ASSERT_TRUE(f.auth->RemoveRole("deny"));
+  EXPECT_TRUE(safe_auth.HasWebsocketPermission());
+
+  // Losing every role drops the principal.
+  ASSERT_TRUE(f.auth->RemoveRole("keep"));
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
 }
 #endif
