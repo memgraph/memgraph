@@ -288,6 +288,62 @@ def test_logoff_reapplies_impersonated_user(test_name):
         driver.close()
 
 
+@requires_enterprise
+def test_use_database_while_impersonating_checks_grant_for_new_database(test_name):
+    """The impersonation grant comes from a role bound ON x and z only: USE y is refused, USE z succeeds."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("imp_use_x")
+    _create_clean_database("imp_use_y")
+    _create_clean_database("imp_use_z")
+
+    conn = connect(host="127.0.0.1", port=BOLT_PORT, username="alice", password="alice")
+    cursor = conn.cursor()
+    for stmt in [
+        "CREATE USER c IDENTIFIED BY 'c'",
+        "GRANT ALL PRIVILEGES TO c",
+        "GRANT DATABASE imp_use_x TO c",
+        "GRANT DATABASE imp_use_y TO c",
+        "GRANT DATABASE imp_use_z TO c",
+        "SET MAIN DATABASE imp_use_x FOR c",
+        "CREATE USER r IDENTIFIED BY 'r'",
+        "GRANT ALL PRIVILEGES TO r",
+        "GRANT DATABASE imp_use_x TO r",
+        "GRANT DATABASE imp_use_y TO r",
+        "GRANT DATABASE imp_use_z TO r",
+        "CREATE ROLE rimp",
+        "GRANT ALL PRIVILEGES TO rimp",
+        "GRANT DATABASE imp_use_x TO rimp",
+        "GRANT DATABASE imp_use_z TO rimp",
+        "GRANT IMPERSONATE_USER c TO rimp",
+        "SET ROLE FOR r TO rimp ON imp_use_x",
+        "SET ROLE FOR r TO rimp ON imp_use_z",
+    ]:
+        cursor.execute(stmt)
+    conn.close()
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=("r", "r"), max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session(impersonated_user="c") as s:
+            assert s.run("SHOW CURRENT USER").single()["user"] == "c"
+            assert s.run("SHOW DATABASE").single()[0] == "imp_use_x"
+
+            with pytest.raises(Exception, match="Failed to impersonate"):
+                s.run("USE DATABASE imp_use_y").consume()
+
+            assert s.run("SHOW CURRENT USER").single()["user"] == "c"
+            assert s.run("SHOW DATABASE").single()[0] == "imp_use_x"
+
+            s.run("USE DATABASE imp_use_z").consume()
+            assert s.run("SHOW CURRENT USER").single()["user"] == "c"
+            assert s.run("SHOW DATABASE").single()[0] == "imp_use_z"
+
+        with driver.session() as s:
+            s.run("USE DATABASE imp_use_y").consume()
+            assert s.run("SHOW DATABASE").single()[0] == "imp_use_y"
+    finally:
+        driver.close()
+
+
 # ---------------------------------------------------------------------------
 # Test 5: LOGOFF refreshes session login timestamp
 # ---------------------------------------------------------------------------

@@ -744,6 +744,10 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
   interpreter_.OnChangeCB([&](std::string_view db_name) {
     auto &user_or_role = interpreter_.user_or_role_;
     MultiDatabaseAuth(user_or_role.get(), db_name);
+    // Pointer inequality means the session is impersonating; the impersonator must be allowed on the new database.
+    if (user_or_role && user_or_role != session_user_or_role_) {
+      ImpersonateUserAuth(session_user_or_role_.get(), user_or_role->username().value_or(""), db_name);
+    }
   });
 #endif
   interpreter_context_->interpreters.WithLock([this](auto &interpreters) { interpreters.insert(&interpreter_); });
