@@ -12,6 +12,9 @@
 #include "glue/query_user.hpp"
 #include <unordered_set>
 
+#include <spdlog/spdlog.h>
+
+#include "auth/exceptions.hpp"
 #include "glue/auth_checker.hpp"
 
 namespace memgraph::glue {
@@ -40,6 +43,15 @@ void QueryUserOrRole::RefreshPrincipal(const auth::Auth &auth) const {
   }
 }
 
+void QueryUserOrRole::EnsureFresh() const {
+  if (epoch_src_->load(std::memory_order_acquire) == auth_epoch_) return;
+  auto locked = auth_->ReadLock();
+  auto const e = locked->CurrentEpoch();
+  RefreshPrincipal(*locked);
+  access_controlled_ = locked->AccessControlled();
+  auth_epoch_ = e;  // only after success: a failed refresh is retried on the next check
+}
+
 bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
                                    std::optional<std::string_view> db_name, query::UserPolicy *policy) const {
   // The session-long policy only consults the cached principal; a dropped session only checks if auth is on.
@@ -49,14 +61,18 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
     if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
     return true;
   }
-  auto locked_auth = auth_->ReadLock();
-  if (!locked_auth->UpToDate(auth_epoch_)) RefreshPrincipal(*locked_auth);
-  if (dropped_) return !locked_auth->AccessControlled();  // auth off: same access as a fresh connection
+  try {
+    EnsureFresh();
+  } catch (const auth::AuthException &e) {
+    spdlog::warn("Denying access: failed to refresh the principal's permissions: {}", e.what());
+    return false;
+  }
+  if (dropped_) return !access_controlled_;  // auth off: same access as a fresh connection
 
   if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
   if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
 
-  return !locked_auth->AccessControlled();
+  return !access_controlled_;
 }
 
 std::shared_ptr<query::QueryUserOrRole> QueryUserOrRole::clone() const {
@@ -85,10 +101,17 @@ std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string
 #ifdef MG_ENTERPRISE
 bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolicy *policy,
                                      std::optional<std::string_view> db_name) const {
-  auto locked_auth = auth_->ReadLock();
-  if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) RefreshPrincipal(*locked_auth);
+  if (policy->DoUpdate()) {
+    try {
+      EnsureFresh();
+    } catch (const auth::AuthException &e) {
+      spdlog::warn("Denying impersonation: failed to refresh the principal's permissions: {}", e.what());
+      return false;
+    }
+  }
   if (dropped_) return false;
 
+  auto locked_auth = auth_->ReadLock();
   auto user_to_impersonate = locked_auth->GetUser(target);
   if (!user_to_impersonate) {
     return false;
@@ -106,6 +129,9 @@ std::string QueryUserOrRole::GetDefaultDB() const {
 }
 #endif
 
+QueryUserOrRole::QueryUserOrRole(auth::SynchedAuth *auth)
+    : query::QueryUserOrRole{{}, {}}, auth_{auth}, epoch_src_{&auth->ReadLock()->EpochSource()} {}
+
 QueryUserOrRole::QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role)
     : query::QueryUserOrRole{std::visit(
                                  utils::Overloaded{[](const auto &user_or_role) { return user_or_role.username(); }},
@@ -116,7 +142,8 @@ QueryUserOrRole::QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_
                                                      return roles.rolenames();
                                                    }},
                                  user_or_role)},
-      auth_{auth} {
+      auth_{auth},
+      epoch_src_{&auth->ReadLock()->EpochSource()} {
   std::visit(utils::Overloaded{[this](auth::User &&user) {
                                  user_uuid_ = user.uuid();
                                  user_.emplace(std::move(user));

@@ -8,6 +8,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <mutex>
 #include <optional>
 #include <regex>
@@ -118,20 +120,7 @@ class Auth final {
     std::regex password_regex{password_regex_str};
   };
 
-  struct Epoch {
-    Epoch() : epoch_{0} {}
-
-    Epoch(unsigned e) : epoch_{e} {}
-
-    Epoch operator++() { return ++epoch_; }
-
-    bool operator==(const Epoch &rhs) const = default;
-
-   private:
-    unsigned epoch_;
-  };
-
-  static const Epoch kStartEpoch;
+  static constexpr uint64_t kStartEpoch = 1;
 
   enum class Result {
     SUCCESS,
@@ -441,11 +430,10 @@ class Auth final {
   void SetMainDatabase(std::string_view db, Role &role, system::Transaction *system_tx = nullptr);
 #endif
 
-  bool UpToDate(Epoch &e) const {
-    bool res = e == epoch_;
-    e = epoch_;
-    return res;
-  }
+  uint64_t CurrentEpoch() const { return epoch_.load(std::memory_order_acquire); }
+
+  // For lock-free readers that outlive the lock guard; Auth outlives every principal.
+  std::atomic<uint64_t> const &EpochSource() const { return epoch_; }
 
 // user profiles
 //
@@ -497,8 +485,9 @@ class Auth final {
   // Durability updated -> new epoch, invalidating permissions cached against it. A transactional repository means
   // nothing is durable yet, so the epoch must not move: bumping it would invalidate those caches against
   // uncommitted state. Commit moves it once the flush lands.
+  // Must only run under the exclusive lock: lock-free epoch readers rely on it.
   void UpdateEpoch() {
-    if (!storage_.IsTransactional()) ++epoch_;
+    if (!storage_.IsTransactional()) epoch_.fetch_add(1, std::memory_order_release);
   }
 
   // Inside an auth transaction the action is held until COMMIT drains it, so the system mutex is taken for the
@@ -527,6 +516,7 @@ class Auth final {
   // needs the base store to build an overlay over. Deliberately private: pointing auth at buffered storage is the
   // layer's business, and a transaction must never outlive the lock it was installed under.
   friend class AuthLayer;
+  friend struct AuthTestAccess;  // test-only: raw store writes that bypass the epoch bump
 
   Repository &storage() { return storage_; }
 
@@ -612,6 +602,6 @@ class Auth final {
 #endif
   std::unordered_map<std::string, auth::Module> modules_;
   Config config_;
-  Epoch epoch_{kStartEpoch};
+  std::atomic<uint64_t> epoch_{kStartEpoch};
 };
 }  // namespace memgraph::auth
