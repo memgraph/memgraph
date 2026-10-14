@@ -536,7 +536,6 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view, 
 }
 
 bool EdgeAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
-  if (!storage_->config_.salient.items.properties_on_edges) return false;
   // Materialize exactly what the MVCC-resolved read at `view` yields. A delta-carried ref holds its own
   // floats (the value as of that view); only the live, store-resident ref (empty list) falls back to
   // the usearch index, which is written at SetProperty time and so is only correct for the live value.

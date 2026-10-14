@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "storage/v2/vertex_accessor.hpp"
+#include <algorithm>
 #include <range/v3/all.hpp>
 #include <ranges>
 #include "storage/v2/constraints/constraint_violation.hpp"
@@ -721,8 +722,6 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
     delta = vertex_->delta();
-    // Without reconstruction, an embedding stays a compact VectorIndexId reference; the caller keeps
-    // it lazy instead of paying an O(dim) reconstruction it would immediately discard.
     return with_vector_reconstruction
                ? vertex_->properties.GetProperty(
                      property,
@@ -759,8 +758,7 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
-      // Don't cache a reconstructed embedding: it would pin O(dim) floats per vertex on the graph
-      // tracker for the whole transaction. A later read re-applies the delta chain instead.
+      // Embeddings are not cached: it would pin O(dim) floats per vertex for the whole transaction.
       if (!value.IsVectorIndexId()) cache.StoreProperty(view, vertex_, property, value);
     }
   }
@@ -771,9 +769,8 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
 }
 
 bool VertexAccessor::GetVectorInto(PropertyId property, View view, std::vector<float> &out) const {
-  // Materialize exactly what the MVCC-resolved read at `view` yields. A delta-carried ref holds its own
-  // floats (the value as of that view); only the live, store-resident ref (empty list) falls back to
-  // the usearch index, which is written at SetProperty time and so is only correct for the live value.
+  // A delta-carried ref holds its own floats for `view`; only the live ref (empty list) may read the usearch
+  // index, which is written at SetProperty time and so is only correct for the live value.
   const auto maybe_value = GetProperty(property, view, /*with_vector_reconstruction=*/false);
   if (!maybe_value) return false;
   if (maybe_value->IsVectorIndexId()) {
@@ -824,8 +821,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   {
     auto const guard = read_lock.AcquireLock();
     deleted = vertex_->deleted();
-    // Without reconstruction, embeddings come back as compact VectorIndexId references (empty float
-    // list) — the caller keeps them lazy instead of paying an O(dim) reconstruction per property.
     properties =
         with_vector_reconstruction
             ? vertex_->properties.Properties(IndexedPropertyDecoder<Vertex>{
@@ -861,14 +856,9 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
       auto &cache = transaction_->manyDeltasCache;
       cache.StoreExists(view, vertex_, exists);
       cache.StoreDeleted(view, vertex_, deleted);
-      // VectorIndexId in map: skip cache — pins O(dim) floats under reconstruction; mode-mismatch without.
-      bool has_embedding = false;
-      for (auto const &kv : properties) {
-        if (kv.second.IsVectorIndexId()) {
-          has_embedding = true;
-          break;
-        }
-      }
+      // A cached entry fixes one mode (floats vs. index ids) and would hand the wrong form to a read in the other.
+      const bool has_embedding =
+          std::ranges::any_of(properties, [](const auto &kv) { return kv.second.IsVectorIndexId(); });
       if (!has_embedding) cache.StoreProperties(view, vertex_, properties);
     }
   }

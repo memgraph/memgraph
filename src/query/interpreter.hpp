@@ -816,7 +816,8 @@ class Interpreter final {
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
   std::optional<storage::IsolationLevel> GetIsolationLevelOverride();
 
-  // A write must not run while another query of this transaction can still resolve lazy vector references.
+  // A write must not run while another query of this transaction can still resolve lazy vector references. No-op
+  // unless the query being pulled (writer_qid) is a write.
   void ThrowIfLazyVectorReaderOpen(int writer_qid) const;
 
   size_t ActiveQueryExecutions() {
@@ -854,9 +855,7 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
 
   MG_ASSERT(query_execution && query_execution->prepared_query, "Query already finished executing!");
 
-  if (in_explicit_transaction_ &&
-      (query_execution->prepared_query->rw_type == plan::ReadWriteTypeChecker::RWType::W ||
-       query_execution->prepared_query->rw_type == plan::ReadWriteTypeChecker::RWType::RW)) {
+  if (in_explicit_transaction_) {
     ThrowIfLazyVectorReaderOpen(qid_value);
   }
 
