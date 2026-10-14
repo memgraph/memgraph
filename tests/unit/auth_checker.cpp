@@ -23,7 +23,9 @@
 #include "auth/repository.hpp"
 #include "auth_test_utils.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/auth.hpp"
 #include "glue/auth_checker.hpp"
+#include "glue/websocket_auth.hpp"
 #include "kvstore/kvstore.hpp"
 
 #include "license/license.hpp"
@@ -1261,5 +1263,126 @@ TEST(AuthChecker, DroppedUserStillGetsFineGrainedChecker) {
   auto checker = auth_checker.GetFineGrainedAuthChecker(*session, &dba);
   ASSERT_NE(checker, nullptr);
   EXPECT_TRUE(checker->NeedsFineGrainedAuthChecker());
+}
+#endif
+
+namespace {
+struct WebsocketAuthFixture {
+  std::filesystem::path auth_dir;
+  memgraph::utils::OnScopeExit<std::function<void()>> clean;
+  memgraph::auth::SynchedAuth auth;
+
+  explicit WebsocketAuthFixture(std::string_view name)
+      : auth_dir{std::filesystem::temp_directory_path() / name},
+        clean{[this] {
+          if (std::filesystem::exists(auth_dir)) std::filesystem::remove_all(auth_dir);
+        }},
+        auth{auth_dir, memgraph::auth::Auth::Config{/* default config */}} {
+    memgraph::license::global_license_checker.EnableTesting();
+    // Another user keeps access control on while the principal under test is dropped.
+    EXPECT_TRUE(AddUser(*auth.Lock(), "admin"));
+  }
+
+  void AddWebsocketUser(const std::string &name) {
+    auto user = *AddUser(*auth.Lock(), name, "pw");
+    user.permissions().Grant(memgraph::auth::Permission::WEBSOCKET);
+    auth->SaveUser(user);
+  }
+};
+}  // namespace
+
+TEST(WebsocketAuth, PermissionRevokedIsSeenWithoutReauthentication) {
+  WebsocketAuthFixture f{"MG_websocket_auth_revoke"};
+  f.AddWebsocketUser("ws");
+  memgraph::glue::SafeAuth safe_auth{&f.auth};
+
+  ASSERT_TRUE(safe_auth.Authenticate("ws", "pw"));
+  EXPECT_TRUE(safe_auth.HasWebsocketPermission());
+
+  auto user = *f.auth->GetUser("ws");
+  user.permissions().Revoke(memgraph::auth::Permission::WEBSOCKET);
+  f.auth->SaveUser(user);
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
+}
+
+TEST(WebsocketAuth, DroppedUserIsDeniedWhileOthersExist) {
+  WebsocketAuthFixture f{"MG_websocket_auth_dropped"};
+  f.AddWebsocketUser("ws");
+  memgraph::glue::SafeAuth safe_auth{&f.auth};
+
+  ASSERT_TRUE(safe_auth.Authenticate("ws", "pw"));
+  EXPECT_TRUE(safe_auth.HasWebsocketPermission());
+
+  ASSERT_TRUE(f.auth->RemoveUser("ws"));
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
+}
+
+TEST(WebsocketAuth, RecreatedUserDoesNotRevivePrincipal) {
+  WebsocketAuthFixture f{"MG_websocket_auth_recreated"};
+  f.AddWebsocketUser("ws");
+  memgraph::glue::SafeAuth safe_auth{&f.auth};
+
+  ASSERT_TRUE(safe_auth.Authenticate("ws", "pw"));
+  ASSERT_TRUE(safe_auth.HasWebsocketPermission());
+
+  ASSERT_TRUE(f.auth->RemoveUser("ws"));
+  f.AddWebsocketUser("ws");
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
+
+  // A fresh login for the re-created user holds its grant.
+  ASSERT_TRUE(safe_auth.Authenticate("ws", "pw"));
+  EXPECT_TRUE(safe_auth.HasWebsocketPermission());
+}
+
+#ifdef MG_ENTERPRISE
+TEST(WebsocketAuth, RolesPrincipalIsRefreshedAndAggregated) {
+  // SSO-style principal: a "basic" auth module that answers every request with two roles.
+  auto const module_dir = std::filesystem::temp_directory_path() / "MG_websocket_auth_module";
+  std::filesystem::remove_all(module_dir);
+  std::filesystem::create_directories(module_dir);
+  memgraph::utils::OnScopeExit clean_module([&] { std::filesystem::remove_all(module_dir); });
+  auto const script = module_dir / "module.sh";
+  {
+    std::ofstream out{script};
+    // The module talks newline-delimited JSON over fds 1000 (requests) and 1001 (responses).
+    out << "#!/usr/bin/env bash\n"
+           "while read -r -u 1000 line; do\n"
+           "  re='memgraph_call_id\":([0-9]+)'\n"
+           "  [[ $line =~ $re ]] || continue\n"
+           "  echo \"{\\\"authenticated\\\":true,\\\"roles\\\":[\\\"keep\\\",\\\"deny\\\"],"
+           "\\\"memgraph_call_id\\\":${BASH_REMATCH[1]}}\" >&1001\n"
+           "done\n";
+  }
+  std::filesystem::permissions(script, std::filesystem::perms::owner_all);
+
+  auto const old_mappings = FLAGS_auth_module_mappings;
+  FLAGS_auth_module_mappings = "basic:" + script.string();
+  memgraph::utils::OnScopeExit restore([&] { FLAGS_auth_module_mappings = old_mappings; });
+
+  WebsocketAuthFixture f{"MG_websocket_auth_roles"};
+  auto keep = *f.auth->AddRole("keep");
+  keep.permissions().Grant(memgraph::auth::Permission::WEBSOCKET);
+  f.auth->SaveRole(keep);
+  auto deny = *f.auth->AddRole("deny");
+  f.auth->SaveRole(deny);
+
+  memgraph::glue::SafeAuth safe_auth{&f.auth};
+  ASSERT_TRUE(safe_auth.Authenticate("sso_user", "ignored"));
+  EXPECT_TRUE(safe_auth.HasWebsocketPermission());
+
+  // One role denying WEBSOCKET denies the aggregated principal, seen without re-authentication.
+  deny = *f.auth->GetRole("deny");
+  deny.permissions().Deny(memgraph::auth::Permission::WEBSOCKET);
+  f.auth->SaveRole(deny);
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
+
+  // Dropping the denying role leaves the surviving role's grant.
+  ASSERT_TRUE(f.auth->RemoveRole("deny"));
+  EXPECT_TRUE(safe_auth.HasWebsocketPermission());
+
+  // Losing every role drops the principal.
+  ASSERT_TRUE(f.auth->RemoveRole("keep"));
+  EXPECT_FALSE(safe_auth.HasWebsocketPermission());
 }
 #endif

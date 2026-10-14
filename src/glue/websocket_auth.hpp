@@ -16,11 +16,11 @@
 
 #include "auth/auth.hpp"
 #include "communication/websocket/auth.hpp"
+#include "glue/query_user.hpp"
 
 namespace memgraph::glue {
 
-// Answers a websocket session's questions out of the user store, caching the authenticated party
-// and refreshing it when the store's epoch moves on.
+// Answers a websocket session's questions out of the user store.
 class SafeAuth : public communication::websocket::AuthenticationInterface {
  public:
   explicit SafeAuth(auth::SynchedAuth *auth) : auth_{auth} {}
@@ -33,8 +33,7 @@ class SafeAuth : public communication::websocket::AuthenticationInterface {
 
  private:
   auth::SynchedAuth *auth_;
-  mutable std::optional<auth::UserOrRole> user_or_role_;
-  mutable uint64_t auth_epoch_{0};
+  mutable std::optional<QueryUserOrRole> user_or_role_;
 };
 
 }  // namespace memgraph::glue
