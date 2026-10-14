@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include <benchmark/benchmark.h>
+#include <sys/resource.h>
+#include <algorithm>
 #include <memory>
 
 #include "communication/result_stream_faker.hpp"
@@ -19,6 +21,7 @@
 #include "query/interpreter_context.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/logging.hpp"
+#include "utils/memory_tracker.hpp"
 #include "utils/synchronized.hpp"
 
 std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "expansion-benchmark"};
@@ -124,6 +127,147 @@ BENCHMARK_DEFINE_F(ExpansionBenchFixture, Expand)(benchmark::State &state) {
 BENCHMARK_REGISTER_F(ExpansionBenchFixture, Expand)
     ->RangeMultiplier(1024)
     ->Range(1, 1 << 20)
+    ->Unit(benchmark::kMillisecond);
+
+/// What an expansion costs in memory rather than in time.
+///
+/// Minor faults are the direct measure: a collection that is built, read once and discarded still
+/// costs the kernel a page supplied and zeroed for every page of it, and that cost does not show up
+/// in a latency figure because the work is the kernel's rather than the query's.
+///
+/// The peak is read from the allocation tracker above the level the graph itself rests at, so it
+/// reports what the query added rather than what the fixture built. It is a high-water mark over
+/// the whole process, so it describes the largest excursion any arm made: run one arm per process
+/// to attribute it to that arm.
+class ExpansionCost {
+ public:
+  static ExpansionCost Take() {
+    rusage usage{};
+    getrusage(RUSAGE_SELF, &usage);
+    return ExpansionCost{memgraph::utils::total_memory_tracker.Amount(), static_cast<int64_t>(usage.ru_minflt)};
+  }
+
+  void ReportInto(benchmark::State &state) const {
+    rusage usage{};
+    getrusage(RUSAGE_SELF, &usage);
+    state.counters["minor_faults"] =
+        benchmark::Counter(static_cast<double>(static_cast<int64_t>(usage.ru_minflt) - faults_at_rest_),
+                           benchmark::Counter::kAvgIterations);
+    auto const over_resting = memgraph::utils::total_memory_tracker.Peak() - bytes_at_rest_;
+    state.counters["peak_bytes_over_resting"] =
+        benchmark::Counter(static_cast<double>(std::max<int64_t>(over_resting, 0)));
+  }
+
+ private:
+  ExpansionCost(int64_t bytes_at_rest, int64_t faults_at_rest)
+      : bytes_at_rest_{bytes_at_rest}, faults_at_rest_{faults_at_rest} {}
+
+  int64_t bytes_at_rest_;
+  int64_t faults_at_rest_;
+};
+
+/// One vertex of a high degree, which is the shape that makes the expansion the whole query: every
+/// row it returns is a relationship of the same vertex, so what the query costs is what traversing
+/// that vertex costs and nothing else.
+class HighDegreeExpansionFixture : public benchmark::Fixture {
+ protected:
+  std::optional<memgraph::system::System> system;
+  std::optional<memgraph::query::AllowEverythingAuthChecker> auth_checker;
+  std::optional<memgraph::query::InterpreterContext> interpreter_context;
+  std::optional<memgraph::query::Interpreter> interpreter;
+  std::optional<memgraph::utils::Gatekeeper<memgraph::dbms::Database>> db_gk;
+  std::optional<memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock>>
+      repl_state;
+
+  void SetUp(const benchmark::State &state) override {
+    repl_state.emplace(std::nullopt);
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory;
+    config.disk.main_storage_directory = data_directory / "disk";
+    db_gk.emplace(std::move(config));
+    auto db_acc_opt = db_gk->access();
+    MG_ASSERT(db_acc_opt, "Failed to access db");
+    auto &db_acc = *db_acc_opt;
+
+    system.emplace();
+    auth_checker.emplace();
+    interpreter_context.emplace(memgraph::query::InterpreterConfig{},
+                                nullptr,
+                                nullptr,
+                                nullptr,
+                                &repl_state.value(),
+                                *system,
+                                nullptr
+#ifdef MG_ENTERPRISE
+                                ,
+                                nullptr,
+                                nullptr
+#endif
+    );
+
+    auto hub_label = db_acc->storage()->NameToLabel("Hub");
+
+    {
+      auto dba = db_acc->Access(memgraph::storage::WRITE);
+      auto hub = dba->CreateVertex();
+      MG_ASSERT(hub.AddLabel(hub_label).has_value());
+      auto edge_type = dba->NameToEdgeType("HAS");
+      for (int64_t i = 0; i < state.range(0); ++i) {
+        auto destination = dba->CreateVertex();
+        MG_ASSERT(dba->CreateEdge(&hub, &destination, edge_type).has_value());
+      }
+      MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    {
+      auto unique_acc = db_acc->UniqueAccess();
+      MG_ASSERT(unique_acc->CreateIndex(hub_label).has_value());
+      MG_ASSERT(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
+    }
+
+    interpreter.emplace(&*interpreter_context, std::move(db_acc));
+    interpreter->SetUser(auth_checker->GenQueryUser(std::nullopt, {}));
+  }
+
+  void TearDown(const benchmark::State &) override {
+    interpreter = std::nullopt;
+    interpreter_context = std::nullopt;
+    db_gk.reset();
+    auth_checker.reset();
+    system.reset();
+    std::filesystem::remove_all(data_directory);
+  }
+
+  void RunQuery(benchmark::State &state, const char *query) {
+    auto const at_rest = ExpansionCost::Take();
+    while (state.KeepRunning()) {
+      ResultStreamFaker results(interpreter->current_db_.db_acc_->get()->storage());
+      interpreter->Prepare(query, memgraph::query::no_params_fn, {});
+      interpreter->PullAll(&results);
+    }
+    at_rest.ReportInto(state);
+  }
+};
+
+/// Counting the relationships returns one row, so everything the query allocates is the traversal.
+BENCHMARK_DEFINE_F(HighDegreeExpansionFixture, CountRelationships)(benchmark::State &state) {
+  RunQuery(state, "MATCH (:Hub)-[r:HAS]->() RETURN count(r)");
+}
+
+BENCHMARK_REGISTER_F(HighDegreeExpansionFixture, CountRelationships)
+    ->RangeMultiplier(8)
+    ->Range(1 << 12, 1 << 18)
+    ->Unit(benchmark::kMillisecond);
+
+/// The control. It reaches the same vertex through the same index and expands nothing, so a change
+/// to how an expansion is built has to leave it where it is.
+BENCHMARK_DEFINE_F(HighDegreeExpansionFixture, CountHubsWithoutExpanding)(benchmark::State &state) {
+  RunQuery(state, "MATCH (h:Hub) RETURN count(h)");
+}
+
+BENCHMARK_REGISTER_F(HighDegreeExpansionFixture, CountHubsWithoutExpanding)
+    ->RangeMultiplier(8)
+    ->Range(1 << 12, 1 << 18)
     ->Unit(benchmark::kMillisecond);
 
 // Layers fully connected to the next, so `width ^ kLayers` distinct paths - plenty of deviations.
