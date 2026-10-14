@@ -1362,10 +1362,9 @@ class Database {
     dba.Abort();
   }
 
-  // The constant is validated at the first edge a row may take: a row with nothing to take is empty
-  // rather than an error. The weighted search checks the target's in-edges instead, so it answers the
-  // two one-sided rows below the other way round.
-  void KShortestConstantWeightValidatedAtFirstEdge(Database *db) {
+  // The constant is validated once, at the first row that reaches the search, whether or not the row
+  // has an edge to take. Rows skipped before the search never read it.
+  void KShortestConstantWeightValidatedPerSearchedRow(Database *db) {
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
@@ -1373,47 +1372,44 @@ class Database {
     dba.AdvanceCommand();
     const auto out = memgraph::query::EdgeAtom::Direction::OUT;
     const std::string hint{memgraph::query::EdgeAtom::kKShortestWeightFirstHint};
+    auto run = [&](size_t source,
+                   size_t sink,
+                   memgraph::query::Expression *constant,
+                   std::optional<int>
+                       lower,
+                   std::optional<int>
+                       upper,
+                   std::optional<int>
+                       limit,
+                   std::optional<memgraph::query::plan::ExpansionLambda> filter = std::nullopt) {
+      return RunWeighted(db,
+                         dba,
+                         context,
+                         {.sources = {vertices[source]},
+                          .sinks = {vertices[sink]},
+                          .direction = out,
+                          .lower_bound = lower,
+                          .upper_bound = upper,
+                          .limit = limit,
+                          .weight_lambda = MakeConstantWeightLambda(context, constant),
+                          .filter_lambda = std::move(filter)});
+    };
 
-    // Vertex 3 has no out-edges.
-    EXPECT_TRUE(RunWeighted(db,
-                            dba,
-                            context,
-                            {.sources = {vertices[3]},
-                             .sinks = {vertices[0]},
-                             .direction = out,
-                             .weight_lambda = MakeConstantWeightLambda(context, LITERAL(true))})
-                    .rows.empty());
-    // The filter rejects every edge.
-    EXPECT_TRUE(RunWeighted(db,
-                            dba,
-                            context,
-                            {.sources = {vertices[0]},
-                             .sinks = {vertices[3]},
-                             .direction = out,
-                             .weight_lambda = MakeConstantWeightLambda(context, LITERAL(-1)),
-                             .filter_lambda = FilterLambda(context, LITERAL(false))})
-                    .rows.empty());
-    // Vertex 3 has no out-edges and vertex 2 has two in-edges: nothing is taken, so nothing is checked.
-    EXPECT_TRUE(RunWeighted(db,
-                            dba,
-                            context,
-                            {.sources = {vertices[3]},
-                             .sinks = {vertices[2]},
-                             .direction = out,
-                             .weight_lambda = MakeConstantWeightLambda(context, LITERAL(true))})
-                    .rows.empty());
-    // Vertex 1 has an out-edge and vertex 0 has no in-edges: there is no path, but an edge is taken.
+    // Skipped before the search: source equals sink, `|0`, and a lower bound above the upper one.
+    EXPECT_TRUE(run(0, 0, LITERAL(true), std::nullopt, std::nullopt, std::nullopt).rows.empty());
+    EXPECT_TRUE(run(0, 3, LITERAL(true), std::nullopt, std::nullopt, 0).rows.empty());
+    EXPECT_TRUE(run(0, 3, LITERAL(true), 3, 2, std::nullopt).rows.empty());
+
+    // Searched rows raise even with no edge to take: vertex 3 has no out-edges, vertex 0 no in-edges,
+    // and the filter rejects every edge.
+    ExpectRuntimeError([&] { run(3, 0, LITERAL(true), std::nullopt, std::nullopt, std::nullopt); }, hint);
+    ExpectRuntimeError([&] { run(3, 2, LITERAL(true), std::nullopt, std::nullopt, std::nullopt); }, hint);
+    ExpectRuntimeError([&] { run(1, 0, LITERAL(true), std::nullopt, std::nullopt, std::nullopt); }, hint);
     ExpectRuntimeError(
         [&] {
-          RunWeighted(db,
-                      dba,
-                      context,
-                      {.sources = {vertices[1]},
-                       .sinks = {vertices[0]},
-                       .direction = out,
-                       .weight_lambda = MakeConstantWeightLambda(context, LITERAL(true))});
+          run(0, 3, LITERAL(-1), std::nullopt, std::nullopt, std::nullopt, FilterLambda(context, LITERAL(false)));
         },
-        hint);
+        "Weight must be non-negative, got -1.");
 
     const std::string null_text =
         "The weight lambda of a KSHORTEST path expansion must not evaluate to null. Give every relationship a "
@@ -1427,17 +1423,7 @@ class Database {
         {PARAMETER_LOOKUP(0), null_text}};
     for (const auto &[constant, expected] : refused) {
       SCOPED_TRACE(expected);
-      ExpectRuntimeError(
-          [&] {
-            RunWeighted(db,
-                        dba,
-                        context,
-                        {.sources = {vertices[0]},
-                         .sinks = {vertices[3]},
-                         .direction = out,
-                         .weight_lambda = MakeConstantWeightLambda(context, constant)});
-          },
-          expected);
+      ExpectRuntimeError([&] { run(0, 3, constant, std::nullopt, std::nullopt, std::nullopt); }, expected);
     }
     dba.Abort();
   }

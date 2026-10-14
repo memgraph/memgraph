@@ -286,8 +286,8 @@ TEST_F(WeightedKShortestCasesInMemory, ConstantParameterWeightRunsHopCursor) {
   db_->KShortestConstantWeightRunsHopCursor(db_.get(), true);
 }
 
-TEST_F(WeightedKShortestCasesInMemory, ConstantWeightValidatedAtFirstEdge) {
-  db_->KShortestConstantWeightValidatedAtFirstEdge(db_.get());
+TEST_F(WeightedKShortestCasesInMemory, ConstantWeightValidatedPerSearchedRow) {
+  db_->KShortestConstantWeightValidatedPerSearchedRow(db_.get());
 }
 
 TEST_F(WeightedKShortestCasesInMemory, ConstantTotalOverflow) { db_->KShortestConstantTotalOverflow(db_.get()); }

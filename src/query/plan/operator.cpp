@@ -4267,6 +4267,7 @@ class KShortestPathsCursor : public Cursor {
       // Legally empty, as in BFS. Not just a shortcut: `advance_to_servable` would otherwise enumerate
       // every simple path and still serve nothing.
       if (lower_bound_ > upper_bound_) continue;
+      if constexpr (!Cost::kWeighted) EvaluateConstantWeight(evaluator);
 
       // Initialize for this new source-target pair
       current_source_ = source_vertex;
@@ -4403,7 +4404,7 @@ class KShortestPathsCursor : public Cursor {
   // checked outside, so a verdict holds across Yen's inner searches.
   utils::pmr::unordered_map<ExpansionKey, typename Cost::Verdict, ExpansionKeyHash> expansion_memo_;
   bool memoize_expansion_{false};
-  // Hop-count mode under a constant weight lambda: the row's constant, once an arc has read it.
+  // Hop-count mode under a constant weight lambda: the query's constant, once the first searched row read it.
   std::optional<TypedValue> constant_weight_;
 
   // Bidirectional search state
@@ -4649,11 +4650,11 @@ class KShortestPathsCursor : public Cursor {
     return EdgeAndEndpointReadable(edge, head, context) && EvaluateFilterLambda(edge, head, frame, evaluator, context);
   }
 
-  /// A constant weight, read and checked at the first arc a row may take, so a row that takes no arc
-  /// never reads it. The weighted search checks the target's in-arcs first instead, so on a row with no
-  /// path an invalid constant can raise in one search and give no row in the other. Without a declared
-  /// total nothing is summed, so a constant whose sum would overflow is not refused; the order is hop
-  /// count either way.
+  /// A constant weight is one value for the whole query, so it is read and checked once, at the first
+  /// row that reaches the search, edge or no edge. The weighted search checks each arc it weighs
+  /// instead, so on a row with no path it can give no row where this raises. Without a declared total
+  /// nothing is summed, so a constant whose sum would overflow is not refused; the order is hop count
+  /// either way.
   void EvaluateConstantWeight(ExpressionEvaluator &evaluator)
     requires(!Cost::kWeighted)
   {
@@ -4674,11 +4675,7 @@ class KShortestPathsCursor : public Cursor {
       return false;
 
     const VertexAccessor &head = Backward ? expand_from : next;
-    auto verdict = [&] {
-      if (!ArcAllowed(edge, head, frame, evaluator, context)) return false;
-      EvaluateConstantWeight(evaluator);
-      return true;
-    };
+    auto verdict = [&] { return ArcAllowed(edge, head, frame, evaluator, context); };
     if (!memoize_expansion_) return verdict();
 
     const ExpansionKey key{.edge = edge.Gid(), .head = head.Gid()};
@@ -5114,8 +5111,6 @@ class KShortestPathsCursor : public Cursor {
     ReleaseInnerSearchState();
     // Makes `|K` per input row; `Pull` guards its serving site instead of returning early.
     n_returned_paths_ = 0;
-    // A parameter is one value per query, but each row that takes an arc reads and checks it again.
-    constant_weight_.reset();
   }
 
   // Releases the inner search's scratch instead of just emptying it. `clear()` keeps a hash
