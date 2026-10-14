@@ -250,6 +250,8 @@ struct CachedFineGrainedAuth {
   };
 
   std::unique_ptr<FineGrainedAuthChecker> checker;
+  // Replaced checkers stay alive: earlier executions of an open transaction still hold raw pointers to them.
+  std::vector<std::unique_ptr<FineGrainedAuthChecker>> retired;
   std::string db_name;
   uint64_t principal_version{0};
   State state{State::EMPTY};
@@ -268,8 +270,10 @@ struct CachedFineGrainedAuth {
       return;
     }
 
+    auto fresh = auth_checker.GetFineGrainedAuthChecker(user, dba);
     principal_version = version;
-    checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
+    if (checker) retired.push_back(std::move(checker));
+    checker = std::move(fresh);
 
     if (!checker) {
       db_name = std::move(current_db);
@@ -278,7 +282,7 @@ struct CachedFineGrainedAuth {
     }
 
     if (!checker->NeedsFineGrainedAuthChecker()) {
-      checker.reset();
+      checker.reset();  // never handed out: callers only see it after Refresh returns
       db_name = std::move(current_db);
       state = State::NO_RESTRICTIONS;
       return;
@@ -288,8 +292,10 @@ struct CachedFineGrainedAuth {
     state = State::ACTIVE;
   }
 
+  void ReleaseRetired() { retired.clear(); }
+
   void Reset() {
-    checker.reset();
+    if (checker) retired.push_back(std::move(checker));
     db_name.clear();
     principal_version = 0;
     state = State::EMPTY;
