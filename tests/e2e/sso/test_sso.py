@@ -1,5 +1,6 @@
 import base64
 import os
+import resource
 import sys
 
 import interactive_mg_runner
@@ -59,7 +60,7 @@ def wrapper(request):
     interactive_mg_runner.start_all(instances)
 
     # 3. Run test
-    yield None
+    yield instances
 
     # 4. Stop intance
     interactive_mg_runner.stop(instances, INSTANCE_NAME, keep_directories=False)
@@ -87,6 +88,31 @@ def test_sso_successful():
             session.run("MATCH (n) RETURN n;").consume()
             current_user_result = list(session.run("SHOW CURRENT USER;"))
             assert len(current_user_result) == 1 and current_user_result[0]["user"] == USERNAME
+
+
+def test_sso_module_inherits_no_sockets():
+    response = base64.b64encode(b"no_inherited_sockets").decode("utf-8")
+    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+        client.verify_connectivity()
+
+
+def test_sso_module_gets_original_nofile_limit(wrapper):
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    lowered = min(4096, hard - 1)
+    interactive_mg_runner.stop(wrapper, INSTANCE_NAME)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (lowered, hard))
+    try:
+        interactive_mg_runner.start_all(wrapper)
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+    response = base64.b64encode(f"nofile_soft:{lowered}".encode()).decode("utf-8")
+    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+        client.verify_connectivity()
 
 
 def test_sso_show_current_role_with_architect_role():
