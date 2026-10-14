@@ -221,12 +221,12 @@ so this only affects something matching the `effective` value as an exact
 string. Accepted: leaving it as `DENY` would force an auditor to ask which
 strength it is, which is the doubt the column exists to remove.
 
-Strength is stored as a new optional field beside the existing grant and deny
-records, rather than by changing them, so an auth store written by an older
-version loads unchanged. The field marks which of the existing denies are weak,
-so a version that does not know it reads every deny as strong. The stored
-format is versioned by `kCurrentEntityVersion` and migrated by
-`MigrateAuthJson`.
+Weak denies are stored in a new optional field beside the existing grant and
+deny records. The existing deny record keeps its meaning and holds strong
+denies, so an auth store written by an earlier version has no weak field and
+loads with every deny strong. A deny present in both records counts as strong,
+the stronger of the two, so every combination has a meaning. The stored format
+is versioned by `kCurrentEntityVersion` and migrated by `MigrateAuthJson`.
 
 ## Testing Decisions
 
