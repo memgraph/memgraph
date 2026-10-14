@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,9 +17,11 @@
 #include <spdlog/spdlog.h>
 #include <boost/asio/io_context.hpp>
 #include <boost/asio/ip/tcp.hpp>
+#include <boost/asio/steady_timer.hpp>
 #include <boost/asio/strand.hpp>
 #include <boost/beast/core.hpp>
 
+#include "communication/accept_retry.hpp"
 #include "communication/context.hpp"
 #include "communication/websocket/session.hpp"
 #include "utils/spin_lock.hpp"
@@ -51,6 +53,8 @@ class Listener : public std::enable_shared_from_this<Listener> {
   boost::asio::io_context &ioc_;
   ServerContext *context_;
   tcp::acceptor acceptor_;
+  boost::asio::steady_timer retry_timer_;
+  AcceptRetryLogThrottle accept_log_throttle_;
   utils::Synchronized<std::list<std::shared_ptr<Session>>, utils::SpinLock> sessions_;
   AuthenticationInterface &auth_;
   bool error_happened_{false};

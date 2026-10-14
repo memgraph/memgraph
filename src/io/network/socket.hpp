@@ -103,7 +103,7 @@ class Socket {
    * Accepts a new connection.
    * This function accepts a new connection on a listening socket.
    *
-   * @return socket if accepted, nullopt otherwise.
+   * @return socket if accepted, nullopt otherwise (errno is left as set by accept()).
    */
   std::optional<Socket> Accept();
 
