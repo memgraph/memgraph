@@ -126,14 +126,15 @@ BENCHMARK_REGISTER_F(ExpansionBenchFixture, Expand)
     ->Range(1, 1 << 20)
     ->Unit(benchmark::kMillisecond);
 
-// Layers fully connected to the next, so `width ^ kLayers` distinct paths - plenty of deviations.
+// Layers fully connected to the next, so `width ^ LayerCount()` distinct paths - plenty of deviations.
 class KShortestBenchFixture : public benchmark::Fixture {
  protected:
-  static constexpr int kLayers = 3;
-
   // One component means a single input row, measuring the inner Yen search alone; more than one also
   // prices the per-row work - clearing the memo and reusing the adjacency cache.
   virtual int PairCount() const { return 1; }
+
+  // Zero layers joins each source straight to its target.
+  virtual int LayerCount() const { return 3; }
 
   std::optional<memgraph::system::System> system;
   std::optional<memgraph::query::AllowEverythingAuthChecker> auth_checker;
@@ -204,7 +205,7 @@ class KShortestBenchFixture : public benchmark::Fixture {
         tag_pair(source);
         std::vector<memgraph::storage::VertexAccessor> previous_layer{source};
 
-        for (int layer = 0; layer < kLayers; ++layer) {
+        for (int layer = 0; layer < LayerCount(); ++layer) {
           std::vector<memgraph::storage::VertexAccessor> current_layer;
           for (int i = 0; i < state.range(0); ++i) current_layer.push_back(make_vertex());
           for (auto &from : previous_layer) {
@@ -322,6 +323,20 @@ BENCHMARK_REGISTER_F(KShortestMultiRowBenchFixture, KShortestMultiRowWeighted)
     ->Arg(2)
     ->Arg(4)
     ->Unit(benchmark::kMillisecond);
+
+// Many rows that each find one path: prices the work the cursor does per searched row.
+class KShortestManyRowsBenchFixture : public KShortestBenchFixture {
+ protected:
+  int PairCount() const override { return 1000; }
+
+  int LayerCount() const override { return 0; }
+};
+
+BENCHMARK_DEFINE_F(KShortestManyRowsBenchFixture, KShortestManyRows)(benchmark::State &state) {
+  RunQuery(state, "MATCH (s:Source)-->(t) WITH s, t MATCH (s)-[*KSHORTEST |1]->(t) RETURN count(*)");
+}
+
+BENCHMARK_REGISTER_F(KShortestManyRowsBenchFixture, KShortestManyRows)->Arg(1)->Unit(benchmark::kMillisecond);
 
 int main(int argc, char **argv) {
   ::benchmark::Initialize(&argc, argv);
