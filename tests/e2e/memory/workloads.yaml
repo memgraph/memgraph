@@ -273,3 +273,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["memory/delta_chain_cache_memory_limit.py"]
     <<: *in_memory_delta_chain_cache_cluster
+
+  - name: "Point index under query memory limit"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/point_index_memory_limit.py"]
+    <<: *in_memory_1024_MiB_limit_cluster
