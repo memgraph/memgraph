@@ -9075,6 +9075,7 @@ PreparedQuery PrepareUseDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curre
 
         try {
           if (current_db.db_acc_ && db_name == current_db.db_acc_->get()->name()) {
+            if (on_change) (*on_change)(db_name);  // Still an explicit choice of database
             res = "Already using " + db_name;
           } else {
             auto tmp = db_handler->Get(db_name);
@@ -10490,7 +10491,16 @@ auto Interpreter::Route(std::optional<std::string> const &db) -> RouteResult {
 void Interpreter::SetCurrentDB(std::string_view db_name, bool in_explicit_db) {
   // Can throw
   // do we lock here?
-  current_db_.SetCurrentDB(interpreter_context_->dbms_handler->Get(db_name), in_explicit_db);
+  SetCurrentDB(interpreter_context_->dbms_handler->Get(db_name), in_explicit_db);
+}
+
+void Interpreter::SetCurrentDB(memgraph::dbms::DatabaseAccess db_acc, bool in_explicit_db) {
+  // The swap may drop the last gatekeeper pin of a dropped database, so abort a leftover autocommit
+  // transaction first (same ordering as Prepare).
+  if (current_db_.db_transactional_accessor_) {
+    AbortCommand(nullptr);
+  }
+  current_db_.SetCurrentDB(std::move(db_acc), in_explicit_db);
 }
 #else
 // Default database only
@@ -12004,24 +12014,27 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 #ifdef MG_ENTERPRISE
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
                           std::shared_ptr<utils::UserResources> user_resource) {
-  ResetCachedFga();
-  user_or_role_ = std::move(user_or_role);
-  // Publish before the session-limit throw below: foreign_user_view_ must never disagree with user_or_role_.
-  foreign_user_view_.store(user_or_role_, std::memory_order_release);
-  session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
-                                                                        : std::string{});
-  // Pre-existsing user resource; decrement session (since it is not being used anymore)
-  if (user_resource_) {
+  // Take the session slot before mutating anything so a refused session-limit check leaves the interpreter untouched.
+  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    // Same pointer means same user (one shared_ptr per username): no count change.
+    if (user_resource != user_resource_) {
+      if (user_resource && !user_resource->IncrementSessions()) {
+        throw auth::AuthException("User exceeded session limit.");
+      }
+      if (user_resource_) {
+        user_resource_->DecrementSessions();
+      }
+      user_resource_ = std::move(user_resource);
+    }
+  } else if (user_resource_) {
     user_resource_->DecrementSessions();
     user_resource_.reset();
   }
-  if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    // Monitoring always, resource limit check only if license is valid
-    if (user_resource && !user_resource->IncrementSessions()) {
-      throw auth::AuthException("User exceeded session limit.");
-    }
-    user_resource_ = std::move(user_resource);
-  }
+  ResetCachedFga();
+  user_or_role_ = std::move(user_or_role);
+  foreign_user_view_.store(user_or_role_, std::memory_order_release);
+  session_log_ctx_.SetUser((user_or_role_ && user_or_role_->username()) ? user_or_role_->username().value()
+                                                                        : std::string{});
 }
 #else
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {

@@ -451,6 +451,7 @@ class Interpreter final {
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
+  void SetCurrentDB(memgraph::dbms::DatabaseAccess db_acc, bool in_explicit_db);
 
   void ResetDB() { current_db_.ResetDB(); }
 
