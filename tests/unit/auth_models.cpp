@@ -29,6 +29,7 @@ constexpr auto kRoleName = "rolename";
 constexpr auto kPermissions = "permissions";
 constexpr auto kGranted = "granted";
 constexpr auto kDenied = "denied";
+constexpr auto kWeakDenied = "weak_denied";
 constexpr auto kSymbols = "symbols";
 constexpr auto kMatching = "matching";
 constexpr auto kGrants = "grants";
@@ -64,8 +65,8 @@ auto User2Role(auto json) {
 constexpr auto full_json_str = R"({
   "databases":{"allow_all":true,"default":"db1","denies":["db2","db3"],"grants":["db1", "memgraph"]},
   "fine_grained_permissions":{
-    "edge_type_permissions":{"global_grants":27,"global_denies":-1,"permissions":[{"symbols":["E"],"granted":1,"denied":0,"matching":"ANY"}]},
-    "label_permissions":{"global_grants":507,"global_denies":-1,"permissions":[{"symbols":["A"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["B"],"granted":1,"denied":0,"matching":"ANY"},{"symbols":["C"],"granted":483,"denied":0,"matching":"ANY"},{"symbols":["D"],"granted":0,"denied":507,"matching":"ANY"}]}
+    "edge_type_permissions":{"global_grants":27,"global_denies":-1,"global_weak_denies":0,"permissions":[{"symbols":["E"],"granted":1,"denied":0,"weak_denied":0,"matching":"ANY"}]},
+    "label_permissions":{"global_grants":507,"global_denies":-1,"global_weak_denies":0,"permissions":[{"symbols":["A"],"granted":1,"denied":0,"weak_denied":0,"matching":"ANY"},{"symbols":["B"],"granted":1,"denied":0,"weak_denied":0,"matching":"ANY"},{"symbols":["C"],"granted":483,"denied":0,"weak_denied":0,"matching":"ANY"},{"symbols":["D"],"granted":0,"denied":507,"weak_denied":0,"matching":"ANY"}]}
   },
   "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
   "permissions":{"denies":0,"grants":134217727,"weak_denies":0},
@@ -104,12 +105,12 @@ constexpr auto community_json_str = R"({
 constexpr auto community_saved_with_license_json_str = R"({
           "databases":{"allow_all":false,"default":"memgraph","denies":[],"grants":["memgraph"]},
           "fine_grained_permissions":{
-            "edge_type_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]},
-            "label_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]}
+            "edge_type_permissions":{"global_grants":-1,"global_denies":-1,"global_weak_denies":0,"permissions":[]},
+            "label_permissions":{"global_grants":-1,"global_denies":-1,"global_weak_denies":0,"permissions":[]}
           },
           "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
           "permissions":{"denies":0,"grants":134217727,"weak_denies":0},
-          "property_access_permissions":{"edge_type_property_permissions":{"global":{"*":{"denies":0,"grants":3}}},"label_property_permissions":{"global":{"*":{"denies":0,"grants":3}}}},
+          "property_access_permissions":{"edge_type_property_permissions":{"global":{"*":{"denies":0,"grants":3,"weak_denies":0}}},"label_property_permissions":{"global":{"*":{"denies":0,"grants":3,"weak_denies":0}}}},
           "user_imp":null,
           "username":"a",
           "uuid":[4,91,245,109,241,58,74,21,180,161,26,87,18,208,220,226],
@@ -988,8 +989,8 @@ TEST(AuthModule, UserSerialization) {
   auto json = nlohmann::json::parse(R"({
           "databases":{"allow_all":false,"default":"memgraph","denies":[],"grants":["memgraph"]},
           "fine_grained_permissions":{
-            "edge_type_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]},
-            "label_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]}
+            "edge_type_permissions":{"global_grants":-1,"global_denies":-1,"global_weak_denies":0,"permissions":[]},
+            "label_permissions":{"global_grants":-1,"global_denies":-1,"global_weak_denies":0,"permissions":[]}
           },
           "password_hash":null,
           "permissions":{"denies":0,"grants":0,"weak_denies":0},
@@ -1039,8 +1040,12 @@ TEST(AuthModule, UserSerialization) {
   // User with fine grained permissions
   user.fine_grained_access_handler().edge_type_permissions().Grant({"ABC"},
                                                                    memgraph::auth::FineGrainedPermission::READ);
-  json[kFineGrainedPermissions][kEdgeTypePermissions][kPermissions] = nlohmann::json::array({nlohmann::json::object(
-      {{kSymbols, nlohmann::json::array({"ABC"})}, {kGranted, 1}, {kDenied, 0}, {kMatching, "ANY"}})});
+  json[kFineGrainedPermissions][kEdgeTypePermissions][kPermissions] =
+      nlohmann::json::array({nlohmann::json::object({{kSymbols, nlohmann::json::array({"ABC"})},
+                                                     {kGranted, 1},
+                                                     {kDenied, 0},
+                                                     {kWeakDenied, 0},
+                                                     {kMatching, "ANY"}})});
   ASSERT_EQ(json, user.Serialize());
 
   user.fine_grained_access_handler().label_permissions().Deny({"DenyLabel"}, memgraph::auth::kAllLabelPermissions);
@@ -1048,6 +1053,7 @@ TEST(AuthModule, UserSerialization) {
       {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})},
                                {kGranted, 0},
                                {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
+                               {kWeakDenied, 0},
                                {kMatching, "ANY"}})});
   ASSERT_EQ(json, user.Serialize());
 
@@ -1057,10 +1063,12 @@ TEST(AuthModule, UserSerialization) {
       {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})},
                                {kGranted, 0},
                                {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
+                               {kWeakDenied, 0},
                                {kMatching, "ANY"}}),
        nlohmann::json::object({{kSymbols, nlohmann::json::array({"ExactLabel"})},
                                {kGranted, static_cast<uint64_t>(memgraph::auth::kVertexLabelUpdatePermissions)},
                                {kDenied, 0},
+                               {kWeakDenied, 0},
                                {kMatching, "EXACTLY"}})});
   ASSERT_EQ(json, user.Serialize());
 
@@ -1070,13 +1078,18 @@ TEST(AuthModule, UserSerialization) {
       {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})},
                                {kGranted, 0},
                                {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
+                               {kWeakDenied, 0},
                                {kMatching, "ANY"}}),
        nlohmann::json::object({{kSymbols, nlohmann::json::array({"ExactLabel"})},
                                {kGranted, static_cast<uint64_t>(memgraph::auth::kVertexLabelUpdatePermissions)},
                                {kDenied, 0},
+                               {kWeakDenied, 0},
                                {kMatching, "EXACTLY"}}),
-       nlohmann::json::object(
-           {{kSymbols, nlohmann::json::array({"ReadLabel"})}, {kGranted, 1}, {kDenied, 0}, {kMatching, "ANY"}})});
+       nlohmann::json::object({{kSymbols, nlohmann::json::array({"ReadLabel"})},
+                               {kGranted, 1},
+                               {kDenied, 0},
+                               {kWeakDenied, 0},
+                               {kMatching, "ANY"}})});
   ASSERT_EQ(json, user.Serialize());
 
   user.fine_grained_access_handler().label_permissions().Grant({"MultiPerm"},
@@ -1090,15 +1103,23 @@ TEST(AuthModule, UserSerialization) {
       {nlohmann::json::object({{kSymbols, nlohmann::json::array({"DenyLabel"})},
                                {kGranted, 0},
                                {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
+                               {kWeakDenied, 0},
                                {kMatching, "ANY"}}),
        nlohmann::json::object({{kSymbols, nlohmann::json::array({"ExactLabel"})},
                                {kGranted, static_cast<uint64_t>(memgraph::auth::kVertexLabelUpdatePermissions)},
                                {kDenied, 0},
+                               {kWeakDenied, 0},
                                {kMatching, "EXACTLY"}}),
-       nlohmann::json::object(
-           {{kSymbols, nlohmann::json::array({"ReadLabel"})}, {kGranted, 1}, {kDenied, 0}, {kMatching, "ANY"}}),
-       nlohmann::json::object(
-           {{kSymbols, nlohmann::json::array({"MultiPerm"})}, {kGranted, 483}, {kDenied, 0}, {kMatching, "ANY"}})});
+       nlohmann::json::object({{kSymbols, nlohmann::json::array({"ReadLabel"})},
+                               {kGranted, 1},
+                               {kDenied, 0},
+                               {kWeakDenied, 0},
+                               {kMatching, "ANY"}}),
+       nlohmann::json::object({{kSymbols, nlohmann::json::array({"MultiPerm"})},
+                               {kGranted, 483},
+                               {kDenied, 0},
+                               {kWeakDenied, 0},
+                               {kMatching, "ANY"}})});
   ASSERT_EQ(json, user.Serialize());
 
   // User with MT access
@@ -1181,8 +1202,8 @@ TEST(AuthModule, RoleSerialization) {
   auto json = nlohmann::json::parse(R"({
           "databases":{"allow_all":false,"default":"memgraph","denies":[],"grants":["memgraph"]},
           "fine_grained_permissions":{
-            "edge_type_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]},
-            "label_permissions":{"global_grants":-1,"global_denies":-1,"permissions":[]}
+            "edge_type_permissions":{"global_grants":-1,"global_denies":-1,"global_weak_denies":0,"permissions":[]},
+            "label_permissions":{"global_grants":-1,"global_denies":-1,"global_weak_denies":0,"permissions":[]}
           },
           "permissions":{"denies":0,"grants":0,"weak_denies":0},
           "property_access_permissions":{"edge_type_property_permissions":{},"label_property_permissions":{}},
@@ -1222,14 +1243,19 @@ TEST(AuthModule, RoleSerialization) {
   // Role with fine grained permissions
   role.fine_grained_access_handler().edge_type_permissions().Grant({"ABC"},
                                                                    memgraph::auth::FineGrainedPermission::READ);
-  json[kFineGrainedPermissions][kEdgeTypePermissions][kPermissions] = nlohmann::json::array({nlohmann::json::object(
-      {{kSymbols, nlohmann::json::array({"ABC"})}, {kGranted, 1}, {kDenied, 0}, {kMatching, "ANY"}})});
+  json[kFineGrainedPermissions][kEdgeTypePermissions][kPermissions] =
+      nlohmann::json::array({nlohmann::json::object({{kSymbols, nlohmann::json::array({"ABC"})},
+                                                     {kGranted, 1},
+                                                     {kDenied, 0},
+                                                     {kWeakDenied, 0},
+                                                     {kMatching, "ANY"}})});
   ASSERT_EQ(json, role.Serialize());
   role.fine_grained_access_handler().label_permissions().Deny({"CBA"}, memgraph::auth::kAllLabelPermissions);
   json[kFineGrainedPermissions][kLabelPermissions][kPermissions] = nlohmann::json::array(
       {nlohmann::json::object({{kSymbols, nlohmann::json::array({"CBA"})},
                                {kGranted, 0},
                                {kDenied, static_cast<uint64_t>(memgraph::auth::kAllLabelPermissions)},
+                               {kWeakDenied, 0},
                                {kMatching, "ANY"}})});
   ASSERT_EQ(json, role.Serialize());
 
