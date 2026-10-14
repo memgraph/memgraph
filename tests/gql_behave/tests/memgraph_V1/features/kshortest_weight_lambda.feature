@@ -396,17 +396,17 @@ Feature: KSHORTEST weight lambda
             | total                 |
             | 6.917529027641082e+18 |
 
-    # The constant runs on the hop-count search; the declared total is still the constant times the hop count,
-    # and two hops of 2^62 do not fit in 64 bits.
-    Scenario: A constant weight refuses a total that overflows
+    # A literal weight reaches the cursor as a parameter and takes the hop-count search, which checks
+    # the constant at the first searched row. The weighted search would weigh no edge here and give no row.
+    Scenario: A constant weight is checked on a row with no edge to take
         Given an empty graph
         And having executed:
             """
-            CREATE (:N {id: 'a'})-[:R]->(:N {id: 'b'})-[:R]->(:N {id: 'c'})
+            CREATE (:N {id: 'a'}), (:N {id: 'b'})
             """
         When executing query:
             """
-            MATCH (a:N {id: 'a'}), (c:N {id: 'c'}) WITH a, c
-            MATCH p=(a)-[:R *KSHORTEST (e, n | 4611686018427387904) total]->(c) RETURN total
+            MATCH (a:N {id: 'a'}), (b:N {id: 'b'}) WITH a, b
+            MATCH p=(a)-[:R *KSHORTEST (e, n | true)]->(b) RETURN p
             """
         Then an error should be raised
