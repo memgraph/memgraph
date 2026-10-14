@@ -60,7 +60,7 @@ constexpr auto mg_enterprise_no_license_json_str = R"({
 
 constexpr auto community_json_str = R"({
       "password_hash":{"hash_algo":0,"password_hash":"$2a$12$pFMD3q0mfCg.lPD3ng0F5uzOCi5n4VZTDklBc2lQyXi19AaUwJXAa"},
-      "permissions":{"denies":0,"grants":134217727},
+      "permissions":{"denies":0,"grants":134217727,"weak_denies":0},
       "username":"a",
       "uuid":[4,91,245,109,241,58,74,21,180,161,26,87,18,208,220,226],
       "version":4
@@ -235,7 +235,7 @@ TEST(AuthModule, UserSerialization) {
 
   auto json = nlohmann::json::parse(R"({
           "password_hash":null,
-          "permissions":{"denies":0,"grants":0},
+          "permissions":{"denies":0,"grants":0,"weak_denies":0},
           "username":"",
           "uuid":[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16],
           "version":4

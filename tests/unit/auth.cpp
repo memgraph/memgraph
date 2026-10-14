@@ -1801,6 +1801,21 @@ TEST(AuthWithoutStorage, PropertyAccessHandlerSerializeRoundtrip) {
   EXPECT_EQ(handler, deserialized);
 }
 
+TEST(AuthWithoutStorage, PropertyAccessPermissionsSerializeWeakDeny) {
+  auto const read = PropertyPermissionType::READ;
+  PropertyAccessPermissions perms;
+  perms.Deny({"Employee"}, "salary", read, MatchingMode::ANY, DenyStrength::WEAK);
+  perms.DenyGlobal("amount", read, DenyStrength::WEAK);
+  EXPECT_EQ(PropertyAccessPermissions::Deserialize(perms.Serialize()), perms);
+
+  auto json = perms.Serialize();
+  json["global"]["amount"].erase("weak_denies");
+  json["rules"][0]["properties"]["salary"].erase("weak_denies");
+  auto const legacy = PropertyAccessPermissions::Deserialize(json);
+  EXPECT_EQ(legacy.GetGlobalRules().at("amount").weak_denies, PropertyPermissionType::NONE);
+  EXPECT_EQ(legacy.GetRules()[0].properties.at("salary").weak_denies, PropertyPermissionType::NONE);
+}
+
 TEST(AuthWithoutStorage, PropertyAccessHandlerDeserializeMissingKey) {
   using memgraph::auth::PermissionLevel;
   using memgraph::auth::PropertyAccessHandler;
@@ -2585,6 +2600,21 @@ TEST(AuthWithFineGrainedTest, GlobalWeakDeny) {
   FineGrainedAccessPermissions regranted = weak;
   regranted.GrantGlobal(read);
   ASSERT_EQ(regranted, grant);
+}
+
+TEST(AuthWithFineGrainedTest, SerializeWeakDeny) {
+  FineGrainedAccessPermissions perms;
+  perms.Deny({"Person"}, FineGrainedPermission::READ, MatchingMode::ANY, DenyStrength::WEAK);
+  perms.Deny({"Person"}, FineGrainedPermission::CREATE);
+  perms.DenyGlobal(FineGrainedPermission::DELETE, DenyStrength::WEAK);
+  ASSERT_EQ(FineGrainedAccessPermissions::Deserialize(perms.Serialize()), perms);
+
+  auto json = perms.Serialize();
+  json.erase("global_weak_denies");
+  json["permissions"][0].erase("weak_denied");
+  auto const legacy = FineGrainedAccessPermissions::Deserialize(json);
+  ASSERT_EQ(legacy.GetGlobalWeakDenies(), 0);
+  ASSERT_EQ(legacy.GetRules()[0].weak_denies, FineGrainedPermission::NONE);
 }
 
 TEST(AuthWithFineGrainedTest, FineGrainedAccessPermissionsSerializeDeserialize) {
