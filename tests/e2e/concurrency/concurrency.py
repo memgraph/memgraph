@@ -52,6 +52,7 @@ def test_metrics_on_write_write_conflicts_increment(first_connection, second_con
         second_connection.commit()
     except Exception as e:
         pass
+    first_connection.rollback()
 
     end_metrics = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
 
