@@ -40,7 +40,10 @@ class RuntimeConfig {
 
   // Invalidate Configure()'s "run_time_info unchanged => skip" cache on LOGOFF so re-used
   // connections fully re-derive user + db even when the next session's metadata matches the previous one's.
-  void ResetForConnectionReuse() { previous_run_time_info_.reset(); }
+  void ResetForConnectionReuse() {
+    previous_run_time_info_.reset();
+    validated_impersonation_.reset();
+  }
 
  private:
   // True if a live (not marked-for-deletion) database is bound and matches run_time_info's "db" (absent = any).
@@ -48,6 +51,8 @@ class RuntimeConfig {
 
   SessionHL *session_;
   std::optional<bolt_map_t> previous_run_time_info_;
+  // {impersonated user, target db} of the last successful Configure; re-validated on the unchanged-metadata path.
+  std::optional<std::pair<std::string, std::string>> validated_impersonation_;
 };
 #endif
 

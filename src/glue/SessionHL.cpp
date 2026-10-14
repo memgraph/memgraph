@@ -802,10 +802,24 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   // NOTE: Once in a transaction, the drivers stop explicitly sending the config and count on using it until commit
   // Runtime config is sent at the beginning of the transaction, but is missing during the transaction
   if (in_explicit_tx) return;
-  if (previous_run_time_info_ && run_time_info == *previous_run_time_info_ && BoundDbMatches(run_time_info)) return;
+  if (previous_run_time_info_ && run_time_info == *previous_run_time_info_ && BoundDbMatches(run_time_info)) {
+    // Unchanged metadata must not skip re-checking the impersonator: it may have been dropped or revoked.
+    if (validated_impersonation_) {
+      try {
+        ImpersonateUserAuth(
+            session_->session_user_or_role_.get(), validated_impersonation_->first, validated_impersonation_->second);
+      } catch (...) {
+        previous_run_time_info_.reset();
+        validated_impersonation_.reset();
+        throw;
+      }
+    }
+    return;
+  }
 
   // A failed attempt is never cached, so it is always retried.
   previous_run_time_info_.reset();
+  validated_impersonation_.reset();
 
   // Step 1: Handle user configuration first
   // NOTE: This must be called first because it defines the default database for the user
@@ -869,6 +883,7 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   session_->interpreter_.SetCurrentDB(std::move(db_acc), db_explicit);
 
   previous_run_time_info_ = run_time_info;
+  if (user) validated_impersonation_.emplace(user->username().value_or("----"), *defined_db);
 }
 #endif
 }  // namespace memgraph::glue

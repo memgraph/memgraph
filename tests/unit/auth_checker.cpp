@@ -12,6 +12,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <chrono>
+#include <future>
+#include <latch>
 #include <nlohmann/json.hpp>
 #include <span>
 
@@ -910,6 +913,62 @@ TEST(AuthChecker, RecreatedUserDoesNotReviveSession) {
   EXPECT_TRUE(fresh->IsAuthorized({CREATE}, "memgraph", up_to_date));
   EXPECT_TRUE(fresh->IsAuthorized({MATCH}, "memgraph", session_long));
 }
+
+#ifdef MG_ENTERPRISE
+TEST(AuthChecker, CanImpersonateGrantIsCachedPerEpochTargetAndDb) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_imp_cache"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  auto *const up_to_date = &memgraph::query::up_to_date_policy;
+
+  auto granted_target = *AddUser(*auth.Lock(), "granted_target");
+  ASSERT_TRUE(AddUser(*auth.Lock(), "other_target"));
+  auto impersonator = *AddUser(*auth.Lock(), "impersonator");
+  impersonator.permissions().Grant(memgraph::auth::Permission::IMPERSONATE_USER);
+  impersonator.GrantUserImp({granted_target});
+  auth->SaveUser(impersonator);
+
+  auto session = auth_checker.GenQueryUser("impersonator", {});
+  ASSERT_TRUE(session->CanImpersonate("granted_target", up_to_date));  // populates the cache
+
+  // A cache hit must not need the auth lock: hold it exclusively on another thread.
+  std::latch held{1};
+  std::latch release{1};
+  auto holder = std::async(std::launch::async, [&] {
+    auto const guard = auth.Lock();
+    held.count_down();
+    release.wait();
+  });
+  held.wait();
+  auto hit = std::async(std::launch::async, [&] { return session->CanImpersonate("granted_target", up_to_date); });
+  bool const hit_ready = hit.wait_for(std::chrono::seconds(5)) == std::future_status::ready;
+  release.count_down();
+  holder.get();
+  ASSERT_TRUE(hit_ready) << "cached CanImpersonate blocked under the exclusive auth lock";
+  EXPECT_TRUE(hit.get());
+
+  // The cache is keyed by target: a different, ungranted target is evaluated and denied.
+  EXPECT_FALSE(session->CanImpersonate("other_target", up_to_date));
+  // A denial clears the cache, and the granted target is re-evaluated (and re-cached) correctly.
+  EXPECT_TRUE(session->CanImpersonate("granted_target", up_to_date));
+  // Keyed by db as well.
+  EXPECT_TRUE(session->CanImpersonate("granted_target", up_to_date, "memgraph"));
+  // Prime a second session with the db-less grant and this one with the db grant so each holds a live cache entry.
+  auto session_no_db = auth_checker.GenQueryUser("impersonator", {});
+  ASSERT_TRUE(session_no_db->CanImpersonate("granted_target", up_to_date));
+
+  // Revoking the impersonator's privilege bumps the epoch: the cached grant must not survive.
+  impersonator.permissions().Revoke(memgraph::auth::Permission::IMPERSONATE_USER);
+  auth->SaveUser(impersonator);
+  EXPECT_FALSE(session_no_db->CanImpersonate("granted_target", up_to_date));
+  EXPECT_FALSE(session->CanImpersonate("granted_target", up_to_date, "memgraph"));
+}
+#endif
 
 TEST(AuthChecker, UserWithoutStoredUuidKeepsSessionAcrossRefresh) {
   std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_legacy_uuid"};

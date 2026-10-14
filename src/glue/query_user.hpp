@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <optional>
+#include <string>
 
 #include "auth/auth.hpp"
 #include "query/query_user.hpp"
@@ -60,6 +61,16 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   mutable bool dropped_{false};
   // 0 = never refreshed; Auth starts at 1.
   mutable uint64_t auth_epoch_{0};
+#ifdef MG_ENTERPRISE
+  // Last granted impersonation, valid only while the auth epoch is unchanged. Owner-thread-only like the cache above.
+  struct ImpersonationGrant {
+    std::string target;
+    std::optional<std::string> db_name;
+    uint64_t epoch;
+  };
+
+  mutable std::optional<ImpersonationGrant> imp_ok_{};
+#endif
   std::atomic<uint64_t> const *epoch_src_;
   mutable bool access_controlled_{true};
 };
