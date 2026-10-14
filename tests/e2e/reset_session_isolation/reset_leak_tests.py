@@ -31,6 +31,7 @@ neo4j = pytest.importorskip("neo4j", reason="neo4j driver required to trigger Bo
 import mgclient
 from common import connect, get_data_path, get_logs_path
 from neo4j import GraphDatabase
+from neo4j.exceptions import ClientError
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -495,6 +496,48 @@ def test_use_of_current_database_kept_after_drop(test_name):
                 s.run("RETURN 1").consume()
             s.run("USE DATABASE db_main").consume()
             assert s.run("SHOW DATABASE").single()["Current"] == "db_main"
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_dropped_main_database_fails_as_client_error_and_use_recovers(test_name):
+    """A pooled session whose implicit main database is force-dropped fails with a ClientError (not a
+    retryable TransientError) and recovers once the client selects a database with USE DATABASE."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_main")
+    _grant_database("db_main", "bob")
+    _admin_execute("SET MAIN DATABASE db_main FOR bob")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_BOB, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session() as s:
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_main"
+            _admin_execute("DROP DATABASE db_main FORCE")
+            with pytest.raises(ClientError, match="Database required"):
+                s.run("RETURN 1").consume()
+            s.run("USE DATABASE memgraph").consume()
+            assert s.run("SHOW DATABASE").single()["Current"] == "memgraph"
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_dropped_session_database_fails_as_client_error(test_name):
+    """Opening a session on an explicit database that has since been force-dropped fails with a
+    ClientError (not a retryable TransientError)."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _create_clean_database("db_x")
+    _grant_database("db_x", "alice")
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=_ALICE, max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session(database="db_x") as s:
+            assert s.run("SHOW DATABASE").single()["Current"] == "db_x"
+        _admin_execute("DROP DATABASE db_x FORCE")
+        with pytest.raises(ClientError, match="unknown database"):
+            with driver.session(database="db_x") as s:
+                s.run("SHOW DATABASE").consume()
     finally:
         driver.close()
 
