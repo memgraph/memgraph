@@ -177,7 +177,16 @@ class KShortestBenchFixture : public benchmark::Fixture {
       auto edge_type = dba->NameToEdgeType("edge_type");
       auto id_property = dba->NameToProperty("id");
       auto pair_property = dba->NameToProperty("pair");
+      auto weight_property = dba->NameToProperty("w");
       int64_t next_id = 0;
+      int64_t next_edge = 0;
+      // Weights 1..10 that vary between neighbouring edges, so paths of one hop count differ in cost.
+      auto connect = [&](memgraph::storage::VertexAccessor &from, memgraph::storage::VertexAccessor &to) {
+        auto edge = dba->CreateEdge(&from, &to, edge_type);
+        MG_ASSERT(edge.has_value());
+        const auto weight = 1 + (next_edge++ * 7) % 10;
+        MG_ASSERT(edge->SetProperty(weight_property, memgraph::storage::PropertyValue(weight)).has_value());
+      };
       auto make_vertex = [&] {
         auto vertex = dba->CreateVertex();
         MG_ASSERT(vertex.SetProperty(id_property, memgraph::storage::PropertyValue(next_id++)).has_value());
@@ -199,7 +208,7 @@ class KShortestBenchFixture : public benchmark::Fixture {
           std::vector<memgraph::storage::VertexAccessor> current_layer;
           for (int i = 0; i < state.range(0); ++i) current_layer.push_back(make_vertex());
           for (auto &from : previous_layer) {
-            for (auto &to : current_layer) MG_ASSERT(dba->CreateEdge(&from, &to, edge_type).has_value());
+            for (auto &to : current_layer) connect(from, to);
           }
           previous_layer = std::move(current_layer);
         }
@@ -207,7 +216,7 @@ class KShortestBenchFixture : public benchmark::Fixture {
         auto target = make_vertex();
         MG_ASSERT(target.AddLabel(target_label).has_value());
         tag_pair(target);
-        for (auto &from : previous_layer) MG_ASSERT(dba->CreateEdge(&from, &target, edge_type).has_value());
+        for (auto &from : previous_layer) connect(from, target);
       }
 
       MG_ASSERT(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
@@ -261,6 +270,18 @@ BENCHMARK_REGISTER_F(KShortestBenchFixture, KShortestFiltered)
     ->Range(2, 8)
     ->Unit(benchmark::kMillisecond);
 
+// Distinct edge weights: the A* order, the cost comparisons and the dominance front do real work.
+BENCHMARK_DEFINE_F(KShortestBenchFixture, KShortestWeighted)(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (s:Source), (t:Target) WITH s, t "
+           "MATCH (s)-[*KSHORTEST |20 (r, n | r.w)]->(t) RETURN count(*)");
+}
+
+BENCHMARK_REGISTER_F(KShortestBenchFixture, KShortestWeighted)
+    ->RangeMultiplier(2)
+    ->Range(2, 8)
+    ->Unit(benchmark::kMillisecond);
+
 // Several pairs through one cursor - the shape a real query takes, and the only way to price the
 // per-row work: the memo is cleared per row while the adjacency cache is not.
 class KShortestMultiRowBenchFixture : public KShortestBenchFixture {
@@ -286,6 +307,18 @@ BENCHMARK_DEFINE_F(KShortestMultiRowBenchFixture, KShortestMultiRowFiltered)(ben
 }
 
 BENCHMARK_REGISTER_F(KShortestMultiRowBenchFixture, KShortestMultiRowFiltered)
+    ->Arg(2)
+    ->Arg(4)
+    ->Unit(benchmark::kMillisecond);
+
+// Weighted, one row per pair: each row resets and rebuilds the reverse tree, the verdict memo and the search scratch.
+BENCHMARK_DEFINE_F(KShortestMultiRowBenchFixture, KShortestMultiRowWeighted)(benchmark::State &state) {
+  RunQuery(state,
+           "MATCH (s:Source), (t:Target) WHERE s.pair = t.pair WITH s, t "
+           "MATCH (s)-[*KSHORTEST (r, n | r.w)]->(t) RETURN count(*)");
+}
+
+BENCHMARK_REGISTER_F(KShortestMultiRowBenchFixture, KShortestMultiRowWeighted)
     ->Arg(2)
     ->Arg(4)
     ->Unit(benchmark::kMillisecond);
