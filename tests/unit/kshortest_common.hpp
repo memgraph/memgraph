@@ -1875,8 +1875,9 @@ class Database {
 
   // One KSHORTEST expansion, walked both ways over a `rungs`-rung ladder, one input row per
   // `(source, sink, |k)`. The cursor and its evaluation both allocate through one counter. Rows are
-  // counted and dropped, so the counter sees only what the cursor holds. Weighted runs read
-  // `e.weight`, which is 1 on every edge.
+  // counted and dropped, so beyond the cursor the counter sees only the current row's values.
+  // Weighted runs read `e.weight`, set to 1 on every edge so both cursors return the same paths
+  // and one bound fits both.
   MemoryRun KShortestLadderMemory(Database *db, bool weighted, int rungs,
                                   const std::vector<std::tuple<int, int, int64_t>> &input_rows) {
     auto storage_dba = db->Access();
@@ -1946,7 +1947,6 @@ class Database {
       out.current_after_last_row = memory.current();
       out.peak = memory.peak();
     }
-    context.evaluation_context.memory = memgraph::utils::NewDeleteResource();
     dba.Abort();
     return out;
   }

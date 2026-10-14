@@ -336,6 +336,7 @@ BENCHMARK_DEFINE_F(KShortestManyRowsBenchFixture, KShortestManyRows)(benchmark::
   RunQuery(state, "MATCH (s:Source)-->(t) WITH s, t MATCH (s)-[*KSHORTEST |1]->(t) RETURN count(*)");
 }
 
+// The width argument is unused: there are no layers.
 BENCHMARK_REGISTER_F(KShortestManyRowsBenchFixture, KShortestManyRows)->Arg(1)->Unit(benchmark::kMillisecond);
 
 int main(int argc, char **argv) {

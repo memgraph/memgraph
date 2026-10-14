@@ -339,8 +339,9 @@ class KShortestMemoryTest : public ::testing::TestWithParam<bool> {
 
 std::unique_ptr<VertexDb<KShortestMemoryTest::StorageType>> KShortestMemoryTest::db_{nullptr};
 
-// Found paths and candidates share one trie, so at its peak the cursor holds about one copy of the
-// edges it returns, not three.
+// Found paths and candidates share one trie, so the ladder's shared prefixes are stored once: the
+// peak stays under 1.5x the bytes of the returned edge lists, where a vector per path took about 3x.
+// The bound relies on that sharing.
 TEST_P(KShortestMemoryTest, PathsShareTheTrie) {
   constexpr int kRungs = 20;
   const auto run = db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}});
