@@ -1030,7 +1030,7 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
     for (const auto &[key, value] : *maybe_props) {
       if (is_allowed(key)) {
         if (ctx.lazy_vector_refs && value.IsVectorIndexId()) {
-          values.emplace_back(TypedValue(LazyVectorRef{record_accessor.impl_, key, ctx.view}, ctx.memory));
+          values.emplace_back(LazyVectorRef{record_accessor.impl_, key, ctx.view});
         } else {
           values.emplace_back(TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory));
         }
