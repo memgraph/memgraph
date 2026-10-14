@@ -1141,7 +1141,7 @@ TEST_F(AuthWithStorage, CommunityFirstUserHasAllPermissions) {
   for (auto const permission : memgraph::auth::kPermissionsAll) {
     EXPECT_EQ(saved->permissions().Has(permission), memgraph::auth::PermissionLevel::GRANT);
   }
-  EXPECT_EQ(saved->permissions().denies(), 0);
+  EXPECT_EQ(saved->permissions().strong_denies(), 0);
 }
 #endif
 
@@ -1194,34 +1194,34 @@ TEST_F(AuthWithStorage, PasswordStrength) {
 TEST(AuthWithoutStorage, Permissions) {
   Permissions permissions;
   ASSERT_EQ(permissions.grants(), 0);
-  ASSERT_EQ(permissions.denies(), 0);
+  ASSERT_EQ(permissions.strong_denies(), 0);
 
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), 0);
+  ASSERT_EQ(permissions.strong_denies(), 0);
 
   permissions.Revoke(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.grants(), 0);
-  ASSERT_EQ(permissions.denies(), 0);
+  ASSERT_EQ(permissions.strong_denies(), 0);
 
   permissions.Deny(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::DENY);
-  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::MATCH));
+  ASSERT_EQ(permissions.strong_denies(), std::to_underlying(Permission::MATCH));
   ASSERT_EQ(permissions.grants(), 0);
 
   permissions.Grant(Permission::MATCH);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), 0);
+  ASSERT_EQ(permissions.strong_denies(), 0);
 
   permissions.Deny(Permission::CREATE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.Has(Permission::CREATE), PermissionLevel::DENY);
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
+  ASSERT_EQ(permissions.strong_denies(), std::to_underlying(Permission::CREATE));
 
   permissions.Grant(Permission::DELETE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
@@ -1229,7 +1229,7 @@ TEST(AuthWithoutStorage, Permissions) {
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::GRANT);
   ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH) | std::to_underlying(Permission::DELETE));
-  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
+  ASSERT_EQ(permissions.strong_denies(), std::to_underlying(Permission::CREATE));
 
   permissions.Revoke(Permission::DELETE);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::GRANT);
@@ -1237,33 +1237,30 @@ TEST(AuthWithoutStorage, Permissions) {
   ASSERT_EQ(permissions.Has(Permission::MERGE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.Has(Permission::DELETE), PermissionLevel::NEUTRAL);
   ASSERT_EQ(permissions.grants(), std::to_underlying(Permission::MATCH));
-  ASSERT_EQ(permissions.denies(), std::to_underlying(Permission::CREATE));
+  ASSERT_EQ(permissions.strong_denies(), std::to_underlying(Permission::CREATE));
 }
 
 TEST(AuthWithoutStorage, PermissionsMaskTest) {
   Permissions p1(0, 0);
   ASSERT_EQ(p1.grants(), 0);
-  ASSERT_EQ(p1.denies(), 0);
+  ASSERT_EQ(p1.strong_denies(), 0);
 
   Permissions p2(1, 0);
   ASSERT_EQ(p2.grants(), 1);
-  ASSERT_EQ(p2.denies(), 0);
+  ASSERT_EQ(p2.strong_denies(), 0);
 
   Permissions p3(1, 1);
   ASSERT_EQ(p3.grants(), 0);
-  ASSERT_EQ(p3.denies(), 1);
+  ASSERT_EQ(p3.strong_denies(), 1);
 
   Permissions p4(3, 2);
   ASSERT_EQ(p4.grants(), 1);
-  ASSERT_EQ(p4.denies(), 2);
+  ASSERT_EQ(p4.strong_denies(), 2);
 
-  Permissions p5(1, 1, 1);
+  Permissions p5(1, 0, 1);
   ASSERT_EQ(p5.grants(), 1);
-  ASSERT_EQ(p5.denies(), 1);
+  ASSERT_EQ(p5.strong_denies(), 0);
   ASSERT_EQ(p5.weak_denies(), 1);
-
-  Permissions p6(0, 2, 3);
-  ASSERT_EQ(p6.weak_denies(), 2);
 }
 
 TEST(AuthWithoutStorage, PermissionsWeakDeny) {
@@ -1272,10 +1269,11 @@ TEST(AuthWithoutStorage, PermissionsWeakDeny) {
 
   permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
   ASSERT_EQ(permissions.Has(Permission::MATCH), PermissionLevel::DENY);
-  ASSERT_EQ(permissions.denies(), match);
+  ASSERT_EQ(permissions.strong_denies(), 0);
   ASSERT_EQ(permissions.weak_denies(), match);
 
   permissions.Deny(Permission::MATCH);
+  ASSERT_EQ(permissions.strong_denies(), match);
   ASSERT_EQ(permissions.weak_denies(), 0);
 
   permissions.Deny(Permission::MATCH, DenyStrength::WEAK);
@@ -1303,7 +1301,6 @@ TEST(AuthWithoutStorage, PermissionsMergeWeakDeny) {
   ASSERT_EQ(Merge(strong, grant).Has(Permission::MATCH), PermissionLevel::DENY);
   ASSERT_EQ(Merge(Merge(weak, grant), strong).Has(Permission::MATCH), PermissionLevel::DENY);
   ASSERT_EQ(Merge(Merge(strong, grant), weak).Has(Permission::MATCH), PermissionLevel::DENY);
-  ASSERT_EQ(Merge(weak, strong).weak_denies(), 0);
 }
 
 TEST(AuthWithoutStorage, PermissionsSerializeWeakDeny) {
@@ -1318,6 +1315,10 @@ TEST(AuthWithoutStorage, PermissionsSerializeWeakDeny) {
       Permissions::Deserialize({{"grants", uint64_t{0}}, {"denies", std::to_underlying(Permission::MATCH)}});
   ASSERT_EQ(legacy.weak_denies(), 0);
   ASSERT_EQ(legacy.Has(Permission::MATCH), PermissionLevel::DENY);
+
+  auto const weak_only = Permissions::Deserialize(
+      {{"grants", uint64_t{0}}, {"denies", uint64_t{0}}, {"weak_denies", std::to_underlying(Permission::MATCH)}});
+  ASSERT_EQ(weak_only.Has(Permission::MATCH), PermissionLevel::DENY);
 }
 
 TEST(AuthWithoutStorage, UserRolePermissionsWeakDeny) {
@@ -1359,7 +1360,7 @@ TEST(AuthWithoutStorage, FineGrainedAccessPermissions) {
     FineGrainedAccessPermissions fga_permissions;
     ASSERT_TRUE(fga_permissions.GetRules().empty());
     ASSERT_EQ(fga_permissions.GetGlobalGrants(), std::nullopt);
-    ASSERT_EQ(fga_permissions.GetGlobalDenies(), std::nullopt);
+    ASSERT_EQ(fga_permissions.GetGlobalStrongDenies(), std::nullopt);
 
     ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::CREATE), PermissionLevel::DENY);
     ASSERT_EQ(fga_permissions.Has(std::array{any_label}, FineGrainedPermission::READ), PermissionLevel::DENY);
@@ -2530,18 +2531,18 @@ TEST(AuthWithFineGrainedTest, DenyBehavior) {
 
   // Test global deny
   perms.DenyGlobal(FineGrainedPermission::READ);
-  ASSERT_TRUE(perms.GetGlobalDenies().has_value());
-  ASSERT_EQ(perms.GetGlobalDenies().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
+  ASSERT_TRUE(perms.GetGlobalStrongDenies().has_value());
+  ASSERT_EQ(perms.GetGlobalStrongDenies().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
   // Revoke global deny
   perms.RevokeGlobal(FineGrainedPermission::READ);
-  ASSERT_FALSE(perms.GetGlobalDenies().has_value());
+  ASSERT_FALSE(perms.GetGlobalStrongDenies().has_value());
 
   // Grant global READ, then deny - deny should clear grant
   perms.GrantGlobal(FineGrainedPermission::READ);
   ASSERT_TRUE(perms.GetGlobalGrants().has_value());
   perms.DenyGlobal(FineGrainedPermission::READ);
   ASSERT_FALSE(perms.GetGlobalGrants().has_value());
-  ASSERT_TRUE(perms.GetGlobalDenies().has_value());
+  ASSERT_TRUE(perms.GetGlobalStrongDenies().has_value());
 }
 
 TEST(AuthWithFineGrainedTest, WeakDeny) {
@@ -3605,19 +3606,19 @@ TEST_F(V2Auth, MigrationTestV2ToV3) {
   ASSERT_TRUE(user1);
   auto const &user1_label_perms = user1->GetFineGrainedAccessLabelPermissions();
   ASSERT_FALSE(user1_label_perms.GetGlobalGrants().has_value());
-  ASSERT_FALSE(user1_label_perms.GetGlobalDenies().has_value());
+  ASSERT_FALSE(user1_label_perms.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(user1_label_perms.GetRules().empty());
   auto const &user1_edge_perms = user1->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_FALSE(user1_edge_perms.GetGlobalGrants().has_value());
-  ASSERT_FALSE(user1_edge_perms.GetGlobalDenies().has_value());
+  ASSERT_FALSE(user1_edge_perms.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(user1_edge_perms.GetRules().empty());
 
   auto const user2 = auth->GetUser("user2");
   ASSERT_TRUE(user2);
   auto const &user2_label_perms = user2->GetFineGrainedAccessLabelPermissions();
   // Legacy NOTHING (0) is migrated to global deny of all permissions
-  ASSERT_TRUE(user2_label_perms.GetGlobalDenies().has_value());
-  ASSERT_EQ(user2_label_perms.GetGlobalDenies().value(), static_cast<uint64_t>(kAllLabelPermissions));
+  ASSERT_TRUE(user2_label_perms.GetGlobalStrongDenies().has_value());
+  ASSERT_EQ(user2_label_perms.GetGlobalStrongDenies().value(), static_cast<uint64_t>(kAllLabelPermissions));
   ASSERT_TRUE(user2_label_perms.GetRules().empty());
   auto const &user2_edge_perms = user2->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_TRUE(user2_edge_perms.GetGlobalGrants().has_value());
@@ -3648,11 +3649,11 @@ TEST_F(V3Auth, MigrationTestV3ToV4) {
   ASSERT_TRUE(user1);
   auto const u1_label = user1->GetUserFineGrainedAccessLabelPermissions();
   ASSERT_FALSE(u1_label.GetGlobalGrants().has_value());
-  ASSERT_FALSE(u1_label.GetGlobalDenies().has_value());
+  ASSERT_FALSE(u1_label.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(u1_label.GetRules().empty());
   auto const u1_edge = user1->GetUserFineGrainedAccessEdgeTypePermissions();
   ASSERT_FALSE(u1_edge.GetGlobalGrants().has_value());
-  ASSERT_FALSE(u1_edge.GetGlobalDenies().has_value());
+  ASSERT_FALSE(u1_edge.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(u1_edge.GetRules().empty());
 
   // user2: label global_permission=0 (NOTHING) -> deny all; edge unset
@@ -3660,12 +3661,12 @@ TEST_F(V3Auth, MigrationTestV3ToV4) {
   ASSERT_TRUE(user2);
   auto const u2_label = user2->GetUserFineGrainedAccessLabelPermissions();
   ASSERT_FALSE(u2_label.GetGlobalGrants().has_value());
-  ASSERT_TRUE(u2_label.GetGlobalDenies().has_value());
-  ASSERT_EQ(u2_label.GetGlobalDenies().value(), static_cast<uint64_t>(kAllLabelPermissions));
+  ASSERT_TRUE(u2_label.GetGlobalStrongDenies().has_value());
+  ASSERT_EQ(u2_label.GetGlobalStrongDenies().value(), static_cast<uint64_t>(kAllLabelPermissions));
   ASSERT_TRUE(u2_label.GetRules().empty());
   auto const u2_edge = user2->GetUserFineGrainedAccessEdgeTypePermissions();
   ASSERT_FALSE(u2_edge.GetGlobalGrants().has_value());
-  ASSERT_FALSE(u2_edge.GetGlobalDenies().has_value());
+  ASSERT_FALSE(u2_edge.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(u2_edge.GetRules().empty());
 
   // user3: label global_permission=3 (READ|UPDATE) -> UPDATE expands for labels
@@ -3676,12 +3677,12 @@ TEST_F(V3Auth, MigrationTestV3ToV4) {
   ASSERT_TRUE(u3_label.GetGlobalGrants().has_value());
   ASSERT_EQ(u3_label.GetGlobalGrants().value(),
             static_cast<uint64_t>(FineGrainedPermission::READ | kVertexLabelUpdatePermissions));
-  ASSERT_FALSE(u3_label.GetGlobalDenies().has_value());
+  ASSERT_FALSE(u3_label.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(u3_label.GetRules().empty());
   auto const u3_edge = user3->GetUserFineGrainedAccessEdgeTypePermissions();
   ASSERT_TRUE(u3_edge.GetGlobalGrants().has_value());
   ASSERT_EQ(u3_edge.GetGlobalGrants().value(), static_cast<uint64_t>(FineGrainedPermission::READ));
-  ASSERT_FALSE(u3_edge.GetGlobalDenies().has_value());
+  ASSERT_FALSE(u3_edge.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(u3_edge.GetRules().empty());
 
   // role1: label per-entity rule granted=0 (NOTHING) -> deny all rule; edge unset
@@ -3689,13 +3690,13 @@ TEST_F(V3Auth, MigrationTestV3ToV4) {
   ASSERT_TRUE(role1);
   auto const &r1_label = role1->GetFineGrainedAccessLabelPermissions();
   ASSERT_FALSE(r1_label.GetGlobalGrants().has_value());
-  ASSERT_FALSE(r1_label.GetGlobalDenies().has_value());
+  ASSERT_FALSE(r1_label.GetGlobalStrongDenies().has_value());
   ASSERT_EQ(r1_label.GetRules().size(), 1);
-  ASSERT_EQ(r1_label.GetRules()[0].denies, kAllLabelPermissions);
+  ASSERT_EQ(r1_label.GetRules()[0].strong_denies, kAllLabelPermissions);
   ASSERT_EQ(r1_label.GetRules()[0].grants, FineGrainedPermission::NONE);
   auto const &r1_edge = role1->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_FALSE(r1_edge.GetGlobalGrants().has_value());
-  ASSERT_FALSE(r1_edge.GetGlobalDenies().has_value());
+  ASSERT_FALSE(r1_edge.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(r1_edge.GetRules().empty());
 
   // role2: label global_permission=27 (READ|UPDATE|CREATE|DELETE) -> UPDATE expands
@@ -3707,14 +3708,14 @@ TEST_F(V3Auth, MigrationTestV3ToV4) {
   ASSERT_EQ(r2_label.GetGlobalGrants().value(),
             static_cast<uint64_t>(FineGrainedPermission::READ | kVertexLabelUpdatePermissions |
                                   FineGrainedPermission::CREATE | FineGrainedPermission::DELETE));
-  ASSERT_FALSE(r2_label.GetGlobalDenies().has_value());
+  ASSERT_FALSE(r2_label.GetGlobalStrongDenies().has_value());
   ASSERT_TRUE(r2_label.GetRules().empty());
   auto const &r2_edge = role2->GetFineGrainedAccessEdgeTypePermissions();
   ASSERT_FALSE(r2_edge.GetGlobalGrants().has_value());
-  ASSERT_FALSE(r2_edge.GetGlobalDenies().has_value());
+  ASSERT_FALSE(r2_edge.GetGlobalStrongDenies().has_value());
   ASSERT_EQ(r2_edge.GetRules().size(), 1);
   ASSERT_EQ(r2_edge.GetRules()[0].grants, FineGrainedPermission::READ | FineGrainedPermission::SET_PROPERTY);
-  ASSERT_EQ(r2_edge.GetRules()[0].denies, FineGrainedPermission::NONE);
+  ASSERT_EQ(r2_edge.GetRules()[0].strong_denies, FineGrainedPermission::NONE);
 }
 
 TEST_F(AuthWithStorage, MultiTenantRoleManagement) {
