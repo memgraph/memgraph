@@ -26,12 +26,16 @@ bool SafeAuth::Authenticate(const std::string &username, const std::string &pass
 bool SafeAuth::HasWebsocketPermission() const {
   auto locked_auth = auth_->ReadLock();
   // Update if cache invalidated
-  if (!locked_auth->UpToDate(auth_epoch_) && user_or_role_) {
+  auto const epoch = locked_auth->CurrentEpoch();
+  if (epoch != auth_epoch_ && user_or_role_) {
     bool success = true;
     std::visit(utils::Overloaded{[&](auth::User &user) {
                                    auto tmp = locked_auth->GetUser(user.username());
-                                   if (!tmp) success = false;
-                                   user = std::move(*tmp);
+                                   if (tmp) {
+                                     user = std::move(*tmp);
+                                   } else {
+                                     success = false;
+                                   }
                                  },
                                  [&](auth::Roles &roles) {
                                    // Iterate through all roles and update each one
@@ -53,6 +57,7 @@ bool SafeAuth::HasWebsocketPermission() const {
     // Missing user/role; delete from cache
     if (!success) user_or_role_.reset();
   }
+  auth_epoch_ = epoch;  // after the refresh: a throw above leaves it stale, so the next call retries
   // Check permissions
   if (user_or_role_) {
     return std::visit(utils::Overloaded{[&](auto &user_or_role) {

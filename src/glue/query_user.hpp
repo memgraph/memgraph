@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <atomic>
+#include <cstdint>
 #include <optional>
 
 #include "auth/auth.hpp"
@@ -33,7 +35,7 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   std::string GetDefaultDB() const override;
 #endif
 
-  explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{{}, {}}, auth_{auth} {}
+  explicit QueryUserOrRole(auth::SynchedAuth *auth);
 
   QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role);
 
@@ -46,6 +48,9 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
  private:
   friend class AuthChecker;
   void RefreshPrincipal(const auth::Auth &auth) const;
+  // Refreshes the cached principal if the auth epoch moved; the epoch is committed only after the refresh succeeds.
+  // Takes the read lock itself, so call it with none held. Throws auth::AuthException on a failed refresh.
+  void EnsureFresh() const;
 
   auth::SynchedAuth *auth_;
   // user_/roles_/auth_epoch_ are a lazily refreshed cache; IsAuthorized and CanImpersonate write them.
@@ -53,7 +58,10 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   mutable std::optional<auth::User> user_{};
   mutable std::optional<auth::Roles> roles_{};
   mutable bool dropped_{false};
-  mutable auth::Auth::Epoch auth_epoch_{auth::Auth::kStartEpoch};
+  // 0 = never refreshed; Auth starts at 1.
+  mutable uint64_t auth_epoch_{0};
+  std::atomic<uint64_t> const *epoch_src_;
+  mutable bool access_controlled_{true};
 };
 
 }  // namespace memgraph::glue

@@ -130,10 +130,8 @@ TEST_F(AuthLayerTest, ConflictingCommitLeavesStorageUntouched) {
 }
 
 TEST_F(AuthLayerTest, TransactionalWritesDoNotMoveTheEpochUntilCommit) {
-  // UpToDate reports whether the epoch still matches, and syncs the caller's copy. A session holding this would
-  // otherwise refresh its permission cache against state that is not durable.
-  Auth::Epoch seen;
-  layer_->Lock()->UpToDate(seen);
+  // A session watching the epoch would otherwise refresh its permission cache against state that is not durable.
+  auto const seen = layer_->Lock()->CurrentEpoch();
 
   memgraph::auth::AuthTransaction tx;
   {
@@ -142,10 +140,10 @@ TEST_F(AuthLayerTest, TransactionalWritesDoNotMoveTheEpochUntilCommit) {
   {
     ASSERT_TRUE(AddUser(*layer_->Lock(&tx), "bob").has_value());
   }
-  EXPECT_TRUE(layer_->Lock()->UpToDate(seen));
+  EXPECT_EQ(layer_->Lock()->CurrentEpoch(), seen);
 
   ASSERT_TRUE(layer_->Commit(tx, nullptr));
-  EXPECT_FALSE(layer_->Lock()->UpToDate(seen));
+  EXPECT_NE(layer_->Lock()->CurrentEpoch(), seen);
 }
 
 TEST_F(AuthLayerTest, TransactionalWritesCollectActionsInsteadOfReplicatingImmediately) {
@@ -476,15 +474,14 @@ TEST_F(AuthLayerTest, AReadOnlyTransactionDoesNotSpendTheEpoch) {
     ASSERT_TRUE(AddUser(*layer_->Lock(), "alice").has_value());
   }
 
-  Auth::Epoch seen;
-  layer_->Lock()->UpToDate(seen);
+  auto const seen = layer_->Lock()->CurrentEpoch();
 
   memgraph::auth::AuthTransaction reader;
   {
     EXPECT_TRUE(layer_->ReadLock(&reader)->HasUsers());
   }
   ASSERT_TRUE(layer_->Commit(reader, nullptr));
-  EXPECT_TRUE(layer_->Lock()->UpToDate(seen)) << "a read-only transaction moved the epoch";
+  EXPECT_EQ(layer_->Lock()->CurrentEpoch(), seen) << "a read-only transaction moved the epoch";
 
   // A transaction that did write still moves it.
   memgraph::auth::AuthTransaction writer;
@@ -492,7 +489,7 @@ TEST_F(AuthLayerTest, AReadOnlyTransactionDoesNotSpendTheEpoch) {
     ASSERT_TRUE(AddUser(*layer_->Lock(&writer), "bob").has_value());
   }
   ASSERT_TRUE(layer_->Commit(writer, nullptr));
-  EXPECT_FALSE(layer_->Lock()->UpToDate(seen));
+  EXPECT_NE(layer_->Lock()->CurrentEpoch(), seen);
 }
 
 TEST_F(AuthLayerTest, ARepeatedListingDoesNotAdoptAConcurrentCreate) {

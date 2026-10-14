@@ -34,7 +34,7 @@ class SafeAuth : public communication::websocket::AuthenticationInterface {
  private:
   auth::SynchedAuth *auth_;
   mutable std::optional<auth::UserOrRole> user_or_role_;
-  mutable auth::Auth::Epoch auth_epoch_{};
+  mutable uint64_t auth_epoch_{0};
 };
 
 }  // namespace memgraph::glue

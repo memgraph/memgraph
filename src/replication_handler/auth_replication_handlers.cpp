@@ -105,21 +105,22 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   }
 
   try {
-    // Remove
+    // Exclusive: every removal moves the auth epoch, which lock-free readers rely on being written under it.
+    auto locked_auth = auth.Lock();
     switch (req.type) {
       using enum replication::DropAuthDataReq::DataType;
       case USER: {
-        auth->RemoveUser(req.name);
+        locked_auth->RemoveUser(req.name);
       } break;
       case ROLE: {
-        auth->RemoveRole(req.name, /*force=*/true);
+        locked_auth->RemoveRole(req.name, /*force=*/true);
       } break;
       case PROFILE: {
         // A profile that is not there was already dropped, which is the state the main asked for. A delete that
         // failed is not: the store still holds a profile the main removed, so refuse rather than ack a replica
         // that has diverged. The user and role cases above throw on a failure and return false only when the
         // record is absent, so their return is the benign case and is discarded.
-        if (auth->DropProfile(req.name) == auth::UserProfiles::DropResult::kFailed) {
+        if (locked_auth->DropProfile(req.name) == auth::UserProfiles::DropResult::kFailed) {
           throw auth::AuthException("Couldn't drop profile '{}'", req.name);
         }
       } break;

@@ -789,6 +789,50 @@ TEST(AuthChecker, DroppedPrincipalSessionIsDenied) {
   EXPECT_TRUE(empty_session->IsAuthorized({CREATE}, "memgraph", session_long));
 }
 
+namespace memgraph::auth {
+struct AuthTestAccess {
+  static kvstore::KVStore &Store(Auth &auth) { return auth.durability(); }
+};
+}  // namespace memgraph::auth
+
+TEST(AuthChecker, FailedRefreshIsRetriedNotCached) {
+  std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_failed_refresh"};
+  memgraph::utils::OnScopeExit clean([&]() {
+    if (std::filesystem::exists(auth_dir)) {
+      std::filesystem::remove_all(auth_dir);
+    }
+  });
+  memgraph::auth::SynchedAuth auth(auth_dir, memgraph::auth::Auth::Config{/* default config */});
+  memgraph::glue::AuthChecker auth_checker(&auth);
+  using enum memgraph::query::AuthQuery::Privilege;
+  auto *const up_to_date = &memgraph::query::up_to_date_policy;
+
+  ASSERT_TRUE(AddUser(*auth.Lock(), "admin"));
+  auto limited = *AddUser(*auth.Lock(), "limited");
+  limited.permissions().Grant(memgraph::auth::Permission::MATCH);
+  auth->SaveUser(limited);
+
+  auto session = auth_checker.GenQueryUser("limited", {});
+  ASSERT_TRUE(session->IsAuthorized({MATCH}, "memgraph", up_to_date));
+
+  auto &store = memgraph::auth::AuthTestAccess::Store(*auth.Lock());
+  auto const key = memgraph::auth::Repository::UserKey("limited");
+  auto const good_record = *store.Get(key);
+  ASSERT_TRUE(store.Put(key, "{ not json"));
+  // Unrelated write: moves the epoch so the session notices, and does not touch the corrupt record.
+  auto other = *AddUser(*auth.Lock(), "other");
+  auth->SaveUser(other);
+
+  // The refresh throws: denied, and the stale cached grant must not be served on the next check either.
+  EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph", up_to_date));
+  EXPECT_FALSE(session->IsAuthorized({MATCH}, "memgraph", up_to_date));
+
+  // Repair without moving the epoch: the next check must refresh again rather than trust the failed attempt.
+  ASSERT_TRUE(store.Put(key, good_record));
+  EXPECT_TRUE(session->IsAuthorized({MATCH}, "memgraph", up_to_date));
+  EXPECT_FALSE(session->IsAuthorized({CREATE}, "memgraph", up_to_date));
+}
+
 TEST(AuthChecker, DroppedLastUserSessionGetsAuthOffAccess) {
   std::filesystem::path auth_dir{std::filesystem::temp_directory_path() / "MG_auth_checker_dropped_last"};
   memgraph::utils::OnScopeExit clean([&]() {
