@@ -181,8 +181,8 @@ class InMemoryStorage final : public Storage {
     void PublishIndexArming();
 
     std::optional<EdgeAccessor> CreateEdgeInternal(Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type,
-                                                   DeltaChainState from_state, DeltaChainState to_state,
-                                                   storage::Gid gid,
+                                                   DeltaChainState from_state, DeltaChainState to_state, bool mark_from,
+                                                   bool mark_to, storage::Gid gid,
                                                    std::optional<SchemaInfo::ModifyingAccessor> &schema_acc,
                                                    std::optional<utils::SkipListDb<Edge>::Accessor> &edge_acc);
 

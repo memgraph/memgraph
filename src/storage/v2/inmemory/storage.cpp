@@ -768,7 +768,7 @@ InMemoryStorage::InMemoryAccessor::DetachDelete(std::vector<VertexAccessor *> no
 
 std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeInternal(
     Vertex *from_vertex, Vertex *to_vertex, EdgeTypeId edge_type, DeltaChainState from_state, DeltaChainState to_state,
-    storage::Gid gid, std::optional<SchemaInfo::ModifyingAccessor> &schema_acc,
+    bool mark_from, bool mark_to, storage::Gid gid, std::optional<SchemaInfo::ModifyingAccessor> &schema_acc,
     std::optional<utils::SkipListDb<Edge>::Accessor> &edge_acc) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
@@ -803,11 +803,15 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeInterna
                             to_vertex = to_vertex,
                             &schema_acc,
                             from_state,
-                            to_state]() {
+                            to_state,
+                            mark_from,
+                            mark_to]() {
     CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge, from_state);
+    if (mark_from) from_vertex->set_has_uncommitted_non_sequential_deltas(true);
     from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
     CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge, to_state);
+    if (mark_to) to_vertex->set_has_uncommitted_non_sequential_deltas(true);
     to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
     transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
@@ -871,14 +875,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   // If to and from are the same we need to ensure to_result is the same as from_result
   DeltaChainState to_state = from_state;
+  bool mark_to = false;
   if (to_vertex != from_vertex) {
     WriteResult const to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
     to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
-    if (to_result == WriteResult::NON_SEQUENTIAL) to_vertex->set_has_uncommitted_non_sequential_deltas(true);
+    mark_to = to_result == WriteResult::NON_SEQUENTIAL;
   }
-  if (from_result == WriteResult::NON_SEQUENTIAL) from_vertex->set_has_uncommitted_non_sequential_deltas(true);
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
@@ -886,7 +890,16 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   auto gid = storage::Gid::FromUint(mem_storage->edge_id_.fetch_add(1, std::memory_order_acq_rel));
 
-  auto result = CreateEdgeInternal(from_vertex, to_vertex, edge_type, from_state, to_state, gid, schema_acc, edge_acc);
+  auto result = CreateEdgeInternal(from_vertex,
+                                   to_vertex,
+                                   edge_type,
+                                   from_state,
+                                   to_state,
+                                   from_result == WriteResult::NON_SEQUENTIAL,
+                                   mark_to,
+                                   gid,
+                                   schema_acc,
+                                   edge_acc);
   MG_ASSERT(result.has_value(), "CreateEdgeInternal must not fail when called from CreateEdge");
   return *result;
 }
@@ -947,14 +960,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
       ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, from_vertex), from_result);
 
   DeltaChainState to_state = from_state;
+  bool mark_to = false;
   if (to_vertex != from_vertex) {
     WriteResult const to_result = PrepareForNonSequentialWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::SERIALIZATION_ERROR) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted()) return std::unexpected{Error::DELETED_OBJECT};
     to_state = ComputeDeltaChainState(ShouldSetNonSequentialBlockerUpstreamFlag(&transaction_, to_vertex), to_result);
-    if (to_result == WriteResult::NON_SEQUENTIAL) to_vertex->set_has_uncommitted_non_sequential_deltas(true);
+    mark_to = to_result == WriteResult::NON_SEQUENTIAL;
   }
-  if (from_result == WriteResult::NON_SEQUENTIAL) from_vertex->set_has_uncommitted_non_sequential_deltas(true);
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
     storage_->stored_edge_types_.try_insert(edge_type);
@@ -969,7 +982,16 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // possible.
   atomic_fetch_max_explicit(&mem_storage->edge_id_, gid.AsUint() + 1, std::memory_order_acq_rel);
 
-  auto result = CreateEdgeInternal(from_vertex, to_vertex, edge_type, from_state, to_state, gid, schema_acc, edge_acc);
+  auto result = CreateEdgeInternal(from_vertex,
+                                   to_vertex,
+                                   edge_type,
+                                   from_state,
+                                   to_state,
+                                   from_result == WriteResult::NON_SEQUENTIAL,
+                                   mark_to,
+                                   gid,
+                                   schema_acc,
+                                   edge_acc);
   MG_ASSERT(result.has_value(), "CreateEdgeInternal must not fail when called from CreateEdgeEx");
   return *result;
 }

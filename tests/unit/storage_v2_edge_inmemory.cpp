@@ -5611,8 +5611,14 @@ TEST(StorageEdgeDeleteAbort, SerializationErrorMidDeleteLeavesNoDuplicateAdjacen
   EXPECT_EQ(store->GetBaseInfo().edge_count, 3);
 }
 
+class StorageEdgeCreateAbort : public ::testing::TestWithParam<memgraph::storage::Error> {};
+
+INSTANTIATE_TEST_SUITE_P(ToVertexFailures, StorageEdgeCreateAbort,
+                         ::testing::Values(memgraph::storage::Error::SERIALIZATION_ERROR,
+                                           memgraph::storage::Error::DELETED_OBJECT));
+
 // NOLINTNEXTLINE(hicpp-special-member-functions)
-TEST(StorageEdgeCreateAbort, SerializationErrorOnToVertexLeavesFromVertexWritable) {
+TEST_P(StorageEdgeCreateAbort, FailureOnToVertexLeavesFromVertexWritable) {
   using memgraph::storage::View;
   memgraph::storage::Config config{};
   config.gc.type = memgraph::storage::Config::Gc::Type::NONE;
@@ -5637,25 +5643,33 @@ TEST(StorageEdgeCreateAbort, SerializationErrorOnToVertexLeavesFromVertexWritabl
   {
     auto from = acc1->FindVertex(gid_from, View::OLD);
     auto other = acc1->FindVertex(gid_other, View::OLD);
+    ASSERT_TRUE(from && other);
     ASSERT_TRUE(acc1->CreateEdge(&*from, &*other, et).has_value());
   }
   auto acc2 = store->Access(memgraph::storage::WRITE);
-  ASSERT_TRUE(acc2->FindVertex(gid_to, View::OLD)->SetProperty(prop, memgraph::storage::PropertyValue(1)).has_value());
+  if (GetParam() == memgraph::storage::Error::SERIALIZATION_ERROR) {
+    auto to = acc2->FindVertex(gid_to, View::OLD);
+    ASSERT_TRUE(to);
+    ASSERT_TRUE(to->SetProperty(prop, memgraph::storage::PropertyValue(1)).has_value());
+  }
 
   // acc3 passes the check on `from` as non-sequential, then fails on `to`.
   {
     auto acc3 = store->Access(memgraph::storage::WRITE);
     auto from = acc3->FindVertex(gid_from, View::OLD);
     auto to = acc3->FindVertex(gid_to, View::OLD);
+    ASSERT_TRUE(from && to);
+    if (GetParam() == memgraph::storage::Error::DELETED_OBJECT) ASSERT_TRUE(acc3->DeleteVertex(&*to).has_value());
     auto const res = acc3->CreateEdge(&*from, &*to, et);
     ASSERT_FALSE(res.has_value());
-    ASSERT_EQ(res.error(), memgraph::storage::Error::SERIALIZATION_ERROR);
+    ASSERT_EQ(res.error(), GetParam());
     acc3->Abort();
   }
   acc2->Abort();
   ASSERT_TRUE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 
   auto acc4 = store->Access(memgraph::storage::WRITE);
-  EXPECT_TRUE(
-      acc4->FindVertex(gid_from, View::OLD)->SetProperty(prop, memgraph::storage::PropertyValue(2)).has_value());
+  auto from = acc4->FindVertex(gid_from, View::OLD);
+  ASSERT_TRUE(from);
+  EXPECT_TRUE(from->SetProperty(prop, memgraph::storage::PropertyValue(2)).has_value());
 }
