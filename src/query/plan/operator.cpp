@@ -4092,6 +4092,8 @@ TypedValue AddCost(const TypedValue &lhs, const TypedValue &rhs) {
   return sum;
 }
 
+constexpr std::string_view kKShortestTotalOverflow = "The total weight of a KSHORTEST path overflows a 64-bit integer.";
+
 /// A served path's total, added weight by weight in path order. An Int sum that overflows is an error, and
 /// unlike `AddCost` nothing is promoted or held up: the total is the plain left-to-right sum.
 TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
@@ -4100,11 +4102,29 @@ TypedValue AddServedCost(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsInt() && rhs.IsInt()) {
     int64_t sum{};
     if (__builtin_add_overflow(lhs.ValueInt(), rhs.ValueInt(), &sum)) {
-      throw QueryRuntimeException("The total weight of a KSHORTEST path overflows a 64-bit integer.");
+      throw QueryRuntimeException("{}", kKShortestTotalOverflow);
     }
     return TypedValue(sum);
   }
   return lhs + rhs;
+}
+
+/// The served total of `hops` arcs that all weigh `weight`, as one checked multiply. It raises the
+/// error that adding the weight once per hop would raise.
+TypedValue ConstantPathCost(const TypedValue &weight, size_t hops, utils::MemoryResource *memory) {
+  const auto count = static_cast<int64_t>(hops);
+  if (weight.IsDouble()) return TypedValue(weight.ValueDouble() * static_cast<double>(count), memory);
+  int64_t product{};
+  if (weight.IsInt()) {
+    if (__builtin_mul_overflow(weight.ValueInt(), count, &product)) {
+      throw QueryRuntimeException("{}", kKShortestTotalOverflow);
+    }
+    return TypedValue(product, memory);
+  }
+  if (__builtin_mul_overflow(weight.ValueDuration().microseconds, count, &product)) {
+    throw utils::BasicException("Duration arithmetic overflows");
+  }
+  return TypedValue(utils::Duration(product), memory);
 }
 
 /// A weight body that is a literal or a parameter is one value for the whole row, so it orders paths
@@ -5027,10 +5047,7 @@ class KShortestPathsCursor : public Cursor {
       auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
       frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
       if (constant_weight_ && self_.total_weight_ && self_.total_weight_->user_declared()) {
-        // Added once per hop rather than multiplied: a Duration cannot be multiplied by an integer.
-        TypedValue total(*constant_weight_, memory);
-        for (size_t hop = 1; hop < path.edges.size(); ++hop) total = AddServedCost(total, *constant_weight_);
-        frame_writer.Write(*self_.total_weight_, std::move(total));
+        frame_writer.Write(*self_.total_weight_, ConstantPathCost(*constant_weight_, path.edges.size(), memory));
       }
     }
   }

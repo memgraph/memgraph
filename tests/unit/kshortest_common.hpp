@@ -1442,6 +1442,43 @@ class Database {
     dba.Abort();
   }
 
+  // A declared total under a constant is one checked multiply, so it raises what adding the constant
+  // once per hop raises: two hops of 2^62, or of a Duration of 10^8 days.
+  void KShortestConstantTotalOverflow(Database *db) {
+    auto storage_dba = db->Access();
+    memgraph::query::DbAccessor dba(storage_dba.get());
+    memgraph::query::ExecutionContext context{.db_accessor = &dba, .metric_handles = &TestMetricHandles()};
+    auto [vertices, edges] = db->BuildGraph(&dba, DetourVertexLocations(), DetourEdges());
+    dba.AdvanceCommand();
+
+    constexpr int64_t kDayMicros = 86'400'000'000;
+    const std::vector<std::pair<memgraph::storage::ExternalPropertyValue, std::string>> cases{
+        {memgraph::storage::ExternalPropertyValue(int64_t{1} << 62),
+         "The total weight of a KSHORTEST path overflows a 64-bit integer."},
+        {memgraph::storage::ExternalPropertyValue(
+             memgraph::storage::TemporalData(memgraph::storage::TemporalType::Duration, 100'000'000 * kDayMicros)),
+         "Duration arithmetic overflows"}};
+    for (size_t i = 0; i < cases.size(); ++i) {
+      const auto &[constant, expected] = cases[i];
+      SCOPED_TRACE(expected);
+      context.evaluation_context.parameters.Add(static_cast<int>(i), constant);
+      // 1-2-3 is the only route from 1 to 3.
+      try {
+        RunWeighted(db,
+                    dba,
+                    context,
+                    {.sources = {vertices[1]},
+                     .sinks = {vertices[3]},
+                     .direction = memgraph::query::EdgeAtom::Direction::OUT,
+                     .weight_lambda = MakeConstantWeightLambda(context, PARAMETER_LOOKUP(static_cast<int>(i)))});
+        ADD_FAILURE() << "expected an error: " << expected;
+      } catch (const memgraph::utils::BasicException &e) {
+        EXPECT_EQ(std::string_view(e.what()), expected);
+      }
+    }
+    dba.Abort();
+  }
+
   // `(e, n | $c)` takes the hop-count search and `(e, n | e.one)`, with `one = c` on every edge, the
   // weighted one. On random graphs, under every access arm, bound and filter, both must serve the
   // same paths per hop class - a cut by `|k` may pick different paths inside the last class it

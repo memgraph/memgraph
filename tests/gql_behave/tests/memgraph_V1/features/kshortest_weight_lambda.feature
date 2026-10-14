@@ -396,8 +396,8 @@ Feature: KSHORTEST weight lambda
             | total                 |
             | 6.917529027641082e+18 |
 
-    # The constant runs on the hop-count search; the declared total is still the constant once per hop, and
-    # two hops of 2^62 do not fit in 64 bits.
+    # The constant runs on the hop-count search; the declared total is still the constant times the hop count,
+    # and two hops of 2^62 do not fit in 64 bits.
     Scenario: A constant weight refuses a total that overflows
         Given an empty graph
         And having executed:

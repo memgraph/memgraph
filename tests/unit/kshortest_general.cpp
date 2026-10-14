@@ -290,6 +290,8 @@ TEST_F(WeightedKShortestCasesInMemory, ConstantWeightValidatedAtFirstEdge) {
   db_->KShortestConstantWeightValidatedAtFirstEdge(db_.get());
 }
 
+TEST_F(WeightedKShortestCasesInMemory, ConstantTotalOverflow) { db_->KShortestConstantTotalOverflow(db_.get()); }
+
 TEST_F(WeightedKShortestCasesInMemory, ConstantMatchesWeightedWithoutAccessChecks) {
   db_->KShortestConstantMatchesWeighted(db_.get(), std::nullopt);
 }
