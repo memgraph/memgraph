@@ -331,7 +331,8 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(co
 #else
     interpreter_.SetUser(session_user_or_role_);
 #endif
-    interpreter_.SetSessionInfo(UUID(), interpreter_.user_or_role_->username().value_or(""), GetLoginTimestamp());
+    interpreter_.SetSessionInfo(
+        UUID(), interpreter_.user_or_role_->username().value_or(""), GetLoginTimestamp(), session_user_or_role_);
   } else {
     // No access control -> give empty user
     session_user_or_role_ = AuthChecker::GenQueryUser(auth_, std::nullopt);
@@ -340,7 +341,7 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::Authenticate(co
 #else
     interpreter_.SetUser(session_user_or_role_);
 #endif
-    interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
+    interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp(), session_user_or_role_);
   }
 
   TryDefaultDB();
@@ -370,7 +371,8 @@ std::expected<void, communication::bolt::AuthFailure> SessionHL::SSOAuthenticate
 #else
   interpreter_.SetUser(session_user_or_role_);
 #endif
-  interpreter_.SetSessionInfo(UUID(), session_user_or_role_->username().value_or(""), GetLoginTimestamp());
+  interpreter_.SetSessionInfo(
+      UUID(), session_user_or_role_->username().value_or(""), GetLoginTimestamp(), session_user_or_role_);
   TryDefaultDB();
   return {};
 }
@@ -446,7 +448,7 @@ std::expected<void, std::string_view> SessionHL::CoordinatorSSOAuthenticate(
   // Records the principal the identity provider authenticated. There is no QueryUserOrRole to derive it from here (a
   // coordinator authorizes by Raft-replicated role, not by a kvstore user), so the module's username is the only thing
   // that ties a control-plane query -- FORCE RESET CLUSTER STATE, SET INSTANCE TO MAIN -- back to a person.
-  interpreter_.SetSessionInfo(UUID(), std::move(auth_result->username), GetLoginTimestamp());
+  interpreter_.SetSessionInfo(UUID(), std::move(auth_result->username), GetLoginTimestamp(), nullptr);
   return {};
 }
 
@@ -457,7 +459,7 @@ void SessionHL::CoordinatorPassthroughAuthenticate() {
   // No principal was authenticated (credentials are ignored on this path), so the session records an empty username and
   // SHOW CURRENT USER reports null. Set unconditionally so a LOGOFF -> passthrough LOGON can't leave the previous SSO
   // session's principal behind, in the same way the privileges above are re-established.
-  interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp());
+  interpreter_.SetSessionInfo(UUID(), "", GetLoginTimestamp(), nullptr);
 }
 
 std::optional<bool> SessionHL::CoordinatorHasWritableRole() const {

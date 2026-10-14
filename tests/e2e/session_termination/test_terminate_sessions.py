@@ -912,5 +912,47 @@ def test_show_sessions_lists_and_terminate_by_listed_id(request):
     )
 
 
+def test_impersonating_session_owned_by_login_user(request):
+    """An impersonating session is owned by, and listed as, its login user (imp_login), not the impersonated one."""
+    superadmin_cursor = connect().cursor()
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER imp_login")
+    execute_and_fetch_all(superadmin_cursor, "CREATE USER imp_target")
+    for user in ("imp_login", "imp_target"):
+        execute_and_fetch_all(superadmin_cursor, f"REVOKE ALL PRIVILEGES FROM {user}")
+        execute_and_fetch_all(superadmin_cursor, f"CLEAR ROLE FOR {user}")
+    execute_and_fetch_all(superadmin_cursor, "GRANT IMPERSONATE_USER imp_target TO imp_login")
+
+    def on_exit():
+        execute_and_fetch_all(superadmin_cursor, "DROP USER imp_login")
+        execute_and_fetch_all(superadmin_cursor, "DROP USER imp_target")
+
+    request.addfinalizer(on_exit)
+
+    driver = GraphDatabase.driver("bolt://localhost:7687", auth=("imp_login", ""), max_connection_pool_size=1)
+    request.addfinalizer(driver.close)
+    impersonating_session = driver.session(impersonated_user="imp_target")
+    request.addfinalizer(impersonating_session.close)
+    impersonating_session.run("RETURN 1").consume()
+
+    def listed_uuids(cursor):
+        return [row[0] for row in execute_and_fetch_all(cursor, "SHOW SESSIONS")]
+
+    session_uuid = get_session_uuid_by_username(superadmin_cursor, "imp_login")
+
+    target_cursor = connect(username="imp_target", password="").cursor()
+    assert session_uuid not in listed_uuids(target_cursor)
+    assert execute_and_fetch_all(target_cursor, f"TERMINATE SESSIONS '{session_uuid}'") == [(session_uuid, False)]
+    assert impersonating_session.run("RETURN 1").single()[0] == 1
+
+    login_cursor = connect(username="imp_login", password="").cursor()
+    own_rows = [row for row in execute_and_fetch_all(login_cursor, "SHOW SESSIONS") if row[0] == session_uuid]
+    assert [row[1] for row in own_rows] == ["imp_login"]
+    assert execute_and_fetch_all(login_cursor, f"TERMINATE SESSIONS '{session_uuid}'") == [(session_uuid, True)]
+    wait_until(
+        lambda: session_uuid not in listed_uuids(login_cursor),
+        message="terminated impersonating session is still listed in SHOW SESSIONS",
+    )
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

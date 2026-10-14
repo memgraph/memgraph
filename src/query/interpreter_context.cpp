@@ -248,11 +248,13 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     }
 
     Interpreter *target = nullptr;
+    std::shared_ptr<const Interpreter::SessionInfo> target_session;
     for (Interpreter *interpreter : interpreters) {
-      // A null snapshot means SetSessionInfo has not run yet (unauthenticated), so it cannot carry a non-empty uuid.
+      // A null snapshot means pre-login or logged off, so it cannot carry a non-empty uuid.
       auto const session_snapshot = interpreter->foreign_session_view_.load(std::memory_order_acquire);
       if (session_snapshot && !session_snapshot->uuid.empty() && session_snapshot->uuid == id) {
         target = interpreter;
+        target_session = session_snapshot;
         break;
       }
     }
@@ -269,8 +271,7 @@ TerminateSessionsResult InterpreterContext::TerminateSessions(
     // (termination is by session uuid, not by database), so at worst a session is closed against a database the
     // caller no longer holds privilege on — an availability effect, not a data-access escalation. This is the
     // same check-time property as the pre-existing TERMINATE TRANSACTIONS path.
-    auto const target_user_snapshot = target->foreign_user_view_.load(std::memory_order_acquire);
-    if (!SameUser(target_user_snapshot, user_or_role)) {
+    if (!SameUser(target_session->user, user_or_role)) {
       // A dbless session has no tenant; kDefaultDB lets a default-db admin still terminate it.
       auto target_db = target->current_db_.foreign_db_view().name;
       if (target_db.empty()) {
