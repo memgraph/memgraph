@@ -849,23 +849,26 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   const auto &target = user ? user : session_->session_user_or_role_;
   MultiDatabaseAuth(target.get(), *defined_db);
 
-  auto db_acc = [&] {
+  auto db_acc = [&]() -> std::optional<memgraph::dbms::DatabaseAccess> {
     try {
       return session_->interpreter_context_->dbms_handler->Get(*defined_db);
-    } catch (const memgraph::dbms::SuspendedDatabaseException &e) {
-      // The explicitly-requested database is known but currently suspended
-      // (cold). Retrying will not help — surface as ClientError so the driver
-      // does not treat this as a transient failure.
+    } catch (const memgraph::dbms::UnknownDatabaseException &e) {
+      // ClientError, as a plain BasicException would reach the driver as a retryable Transient. An unchanged request
+      // without db/imp_user whose home db is gone behaves as a cache hit; Prepare releases the db (ReleaseDbIfMarked).
+      if (!db_explicit && !user && previous_run_time_info_ && run_time_info == *previous_run_time_info_) {
+        return std::nullopt;
+      }
       throw memgraph::communication::bolt::ClientError(e.what());
     }
   }();
+  if (!db_acc) return;
 
   auto resource =
       user ? ResourceAtLogin(*user, session_->interpreter_context_->resource_monitoring) : session_->user_resource_;
   session_->interpreter_.SetUser(target, std::move(resource));
   // The session changes from here on; a failure below must not leave the old entry cached.
   previous_run_time_info_.reset();
-  session_->interpreter_.SetCurrentDB(std::move(db_acc), db_explicit);
+  session_->interpreter_.SetCurrentDB(std::move(*db_acc), db_explicit);
 
   previous_run_time_info_ = run_time_info;
   db_selected_by_use_ = false;
