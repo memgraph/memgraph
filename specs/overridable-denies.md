@@ -206,9 +206,11 @@ anywhere else would collapse a weak deny and a strong deny on the same property
 into a single row and hide the weaker one. That is the case an auditor most
 needs to see.
 
-Rows stay per role, so a weak deny and the grant that overrides it both appear,
-each against the role that holds it. `SHOW PRIVILEGES` reports what each role
-carries, not which one won.
+For labels, edge types, and properties, a grant, a strong deny, and a weak deny
+on the same thing each get their own row, even when another one wins.
+These rows report what the user's roles carry, not which one won, so revoking a
+strong deny does not bring into play a weak deny the auditor did not see.
+Privileges such as `CREATE` keep one row showing the result, as before.
 
 ### Compatibility
 
