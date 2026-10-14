@@ -59,16 +59,14 @@ def admin(opened):
     driver = GraphDatabase.driver(URI, auth=ADMIN)
     opened.append(driver)
     run(driver, "GRANT ALL PRIVILEGES TO sa")
+    run(driver, "MATCH (n) DETACH DELETE n")  # tests share one server; start from an empty graph
     yield driver
-    try:
-        for (name,) in run(driver, "SHOW USERS"):
-            if name != "sa":
-                run(driver, f"DROP USER `{name}`")
-        if any(role == "rl" for role, *_ in run(driver, "SHOW ROLES")):  # the other roles are built in
-            run(driver, "DROP ROLE rl")
-        run(driver, "DROP USER sa")
-    except Neo4jError:
-        pass
+    for (name,) in run(driver, "SHOW USERS"):
+        if name != "sa":
+            run(driver, f"DROP USER `{name}`")
+    if any(role == "rl" for role, *_ in run(driver, "SHOW ROLES")):  # the other roles are built in
+        run(driver, "DROP ROLE rl")
+    run(driver, "DROP USER sa")
 
 
 def grant_label_permissions(admin, *users):
@@ -181,7 +179,7 @@ def test_dropped_user_reaches_open_session(admin, opened):
 
     run(admin, "DROP USER u")
 
-    with pytest.raises(Neo4jError):
+    with pytest.raises(Neo4jError, match=NOT_AUTHORIZED):
         run(driver, "MATCH (n) RETURN count(n)")
 
 
@@ -233,7 +231,7 @@ def test_label_denial_reaches_open_session(admin, opened):
 
     run(admin, "DENY CREATE ON NODES CONTAINING LABELS :Secret TO u")
 
-    with pytest.raises(Neo4jError):
+    with pytest.raises(Neo4jError, match="missing CREATE permission on labels"):
         run(driver, "CREATE (:Secret)")
     run(driver, "CREATE (:Public)")  # other labels stay allowed
 
