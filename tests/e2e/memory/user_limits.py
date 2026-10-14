@@ -9,13 +9,11 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import contextlib
 import os
 import sys
 from functools import partial
 
 import interactive_mg_runner
-import mgclient
 import pytest
 from common import *
 
@@ -48,6 +46,12 @@ def add_user(cursor, username, password=None):
     if password is not None:
         return execute_and_fetch_all(cursor, f"CREATE USER {username} IDENTIFIED BY '{password}';")
     return execute_and_fetch_all(cursor, f"CREATE USER {username};")
+
+
+def drop_own_user(cursor, username):
+    # The DROP itself succeeds but ends the session's authorization; verify via an anonymous connection.
+    execute_and_fetch_all(cursor, f"DROP USER {username}")
+    assert execute_and_fetch_all(connect(host="localhost", port=BOLT_PORT).cursor(), "SHOW USERS") == []
 
 
 def show_users_func(cursor):
@@ -460,8 +464,7 @@ def test_user_profile_setup(connection, test_name):
     execute_and_fetch_all(cursor_main, "DROP PROFILE role_profile")
 
     # Drop the first user last: it is the only one holding the privileges the cleanup needs.
-    with contextlib.suppress(mgclient.Error):
-        execute_and_fetch_all(cursor_main, "DROP USER user1")
+    drop_own_user(cursor_main, "user1")
 
     # No users left: an anonymous session is allowed again, which the fixture cleanup needs.
     connection(BOLT_PORT, "main", "user1").cursor()
@@ -537,8 +540,7 @@ def test_user_profile_session_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
     # Drop the first user last: it is the only one holding the privileges the cleanup needs.
-    with contextlib.suppress(mgclient.Error):
-        execute_and_fetch_all(cursor_main, "DROP USER user1")
+    drop_own_user(cursor_main, "user1")
 
     # NOTE: Leave this at the end; user1 needs to be the last connection (quick in the conftest)
     connection(BOLT_PORT, "main", "user1").cursor()
@@ -672,8 +674,7 @@ def test_user_profile_explicit_tx_memory_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
     # Drop the first user last: it is the only one holding the privileges the cleanup needs.
-    with contextlib.suppress(mgclient.Error):
-        execute_and_fetch_all(cursor_main, "DROP USER user1")
+    drop_own_user(cursor_main, "user1")
 
     print("Explicit transaction memory tracking tests completed successfully")
 
@@ -747,8 +748,7 @@ def test_user_profile_implicit_tx_memory_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
     # Drop the first user last: it is the only one holding the privileges the cleanup needs.
-    with contextlib.suppress(mgclient.Error):
-        execute_and_fetch_all(cursor_main, "DROP USER user1")
+    drop_own_user(cursor_main, "user1")
 
     print("Implicit transaction memory tracking tests completed successfully")
 
@@ -867,8 +867,7 @@ def test_user_profile_proc_memory_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
     # Drop the first user last: it is the only one holding the privileges the cleanup needs.
-    with contextlib.suppress(mgclient.Error):
-        execute_and_fetch_all(cursor_main, "DROP USER user1")
+    drop_own_user(cursor_main, "user1")
 
     print("Procedure memory tracking tests completed successfully")
 
@@ -989,8 +988,7 @@ def test_user_profile_local_proc_memory_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
     # Drop the first user last: it is the only one holding the privileges the cleanup needs.
-    with contextlib.suppress(mgclient.Error):
-        execute_and_fetch_all(cursor_main, "DROP USER user1")
+    drop_own_user(cursor_main, "user1")
 
     print("Procedure memory tracking tests completed successfully")
 
@@ -1080,8 +1078,7 @@ def test_user_profile_proc_w_limit_memory_tracking(connection, test_name):
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
     # Drop the first user last: it is the only one holding the privileges the cleanup needs.
-    with contextlib.suppress(mgclient.Error):
-        execute_and_fetch_all(cursor_main, "DROP USER user1")
+    drop_own_user(cursor_main, "user1")
 
     print("Procedure memory tracking with query memory limit tests completed successfully")
 
@@ -1163,8 +1160,7 @@ def test_user_profile_explicit_implicit_tx_memory_tracking(connection, test_name
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
     # Drop the first user last: it is the only one holding the privileges the cleanup needs.
-    with contextlib.suppress(mgclient.Error):
-        execute_and_fetch_all(cursor_main, "DROP USER user1")
+    drop_own_user(cursor_main, "user1")
 
     print("Procedure memory tracking with query memory limit tests completed successfully")
 
@@ -1239,8 +1235,7 @@ def test_user_profile_memory_tracking_with_gc(connection, test_name):
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user1")
     execute_and_fetch_all(cursor_main, "DROP USER tracking_user2")
     # Drop the first user last: it is the only one holding the privileges the cleanup needs.
-    with contextlib.suppress(mgclient.Error):
-        execute_and_fetch_all(cursor_main, "DROP USER user1")
+    drop_own_user(cursor_main, "user1")
 
     print("Procedure memory tracking with query memory limit tests completed successfully")
 
