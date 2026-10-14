@@ -66,6 +66,28 @@ constexpr auto kEdgeTypePropertyPermissions = "edge_type_property_permissions";
 const FineGrainedAccessPermissions empty_permissions{};
 #endif
 
+// A strong deny beats a grant, and a grant beats a weak deny of the same bit.
+template <typename Mask>
+PermissionLevel Resolve(Mask const grants, Mask const denies, Mask const weak_denies, Mask const bits) {
+  auto const effective_denies = (denies & ~weak_denies) | (weak_denies & ~grants);
+  if ((effective_denies & bits) != Mask{}) return PermissionLevel::DENY;
+  if ((grants & bits) != Mask{}) return PermissionLevel::GRANT;
+  return PermissionLevel::NEUTRAL;
+}
+
+template <typename Mask>
+Mask WithStrength(Mask const weak_denies, Mask const bits, DenyStrength const strength) {
+  return strength == DenyStrength::WEAK ? weak_denies | bits : weak_denies & ~bits;
+}
+
+// A deny merged from two sources stays weak only if neither source denies it strongly.
+template <typename Mask>
+Mask MergeWeakDenies(Mask const first_denies, Mask const first_weak_denies, Mask const second_denies,
+                     Mask const second_weak_denies) {
+  return (first_weak_denies | second_weak_denies) &
+         ~((first_denies & ~first_weak_denies) | (second_denies & ~second_weak_denies));
+}
+
 }  // namespace
 
 #ifdef MG_ENTERPRISE
@@ -218,6 +240,10 @@ FineGrainedAccessPermissions Merge(FineGrainedAccessPermissions const &first,
 
   auto global_grants = merge_opt(first.GetGlobalGrants(), second.GetGlobalGrants());
   auto global_denies = merge_opt(first.GetGlobalDenies(), second.GetGlobalDenies());
+  auto global_weak_denies = MergeWeakDenies(first.GetGlobalDenies().value_or(0),
+                                            first.GetGlobalWeakDenies(),
+                                            second.GetGlobalDenies().value_or(0),
+                                            second.GetGlobalWeakDenies());
 
   // Merge rules
   auto merged_rules = first.GetRules();
@@ -228,6 +254,7 @@ FineGrainedAccessPermissions Merge(FineGrainedAccessPermissions const &first,
 
     if (it != merged_rules.end()) {
       // Merge grants and denies separately
+      it->weak_denies = MergeWeakDenies(it->denies, it->weak_denies, rule2.denies, rule2.weak_denies);
       it->grants = it->grants | rule2.grants;
       it->denies = it->denies | rule2.denies;
     } else {
@@ -235,7 +262,7 @@ FineGrainedAccessPermissions Merge(FineGrainedAccessPermissions const &first,
     }
   }
 
-  return FineGrainedAccessPermissions(global_grants, global_denies, std::move(merged_rules));
+  return FineGrainedAccessPermissions(global_grants, global_denies, std::move(merged_rules), global_weak_denies);
 }
 #endif
 
@@ -243,18 +270,7 @@ Permissions::Permissions(uint64_t grants, uint64_t denies, uint64_t weak_denies)
     : grants_{grants & (~denies | weak_denies)}, denies_{denies}, weak_denies_{weak_denies & denies} {}
 
 PermissionLevel Permissions::Has(Permission permission) const {
-  auto const bit = std::to_underlying(permission);
-  // A strong deny beats a grant, and a grant beats a weak deny.
-  if (denies_ & ~weak_denies_ & bit) {
-    return PermissionLevel::DENY;
-  }
-  if (grants_ & bit) {
-    return PermissionLevel::GRANT;
-  }
-  if (denies_ & bit) {
-    return PermissionLevel::DENY;
-  }
-  return PermissionLevel::NEUTRAL;
+  return Resolve(grants_, denies_, weak_denies_, std::to_underlying(permission));
 }
 
 void Permissions::Grant(Permission permission) {
@@ -276,11 +292,7 @@ void Permissions::Revoke(Permission permission) {
 void Permissions::Deny(Permission permission, DenyStrength strength) {
   // First deny the permission.
   denies_ |= std::to_underlying(permission);
-  if (strength == DenyStrength::WEAK) {
-    weak_denies_ |= std::to_underlying(permission);
-  } else {
-    weak_denies_ &= ~std::to_underlying(permission);
-  }
+  weak_denies_ = WithStrength(weak_denies_, std::to_underlying(permission), strength);
   // Remove the possible grant.
   grants_ &= ~std::to_underlying(permission);
 }
@@ -340,10 +352,9 @@ uint64_t Permissions::denies() const { return denies_; }
 uint64_t Permissions::weak_denies() const { return weak_denies_; }
 
 Permissions Merge(Permissions const &first, Permissions const &second) {
-  auto const strong_denies = (first.denies() & ~first.weak_denies()) | (second.denies() & ~second.weak_denies());
   return Permissions{first.grants() | second.grants(),
                      first.denies() | second.denies(),
-                     (first.weak_denies() | second.weak_denies()) & ~strong_denies};
+                     MergeWeakDenies(first.denies(), first.weak_denies(), second.denies(), second.weak_denies())};
 }
 
 bool operator==(const Permissions &first, const Permissions &second) {
@@ -356,8 +367,12 @@ bool operator!=(const Permissions &first, const Permissions &second) { return !(
 #ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions::FineGrainedAccessPermissions(std::optional<uint64_t> global_grants,
                                                            std::optional<uint64_t> global_denies,
-                                                           std::vector<FineGrainedAccessRule> rules)
-    : global_grants_(global_grants), global_denies_(global_denies), rules_{std::move(rules)} {}
+                                                           std::vector<FineGrainedAccessRule> rules,
+                                                           uint64_t global_weak_denies)
+    : global_grants_(global_grants),
+      global_denies_(global_denies),
+      rules_{std::move(rules)},
+      global_weak_denies_{global_weak_denies} {}
 
 PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> symbols,
                                                   const FineGrainedPermission fine_grained_permission) const {
@@ -387,10 +402,11 @@ PermissionLevel FineGrainedAccessPermissions::Has(std::span<std::string const> s
   for (auto &&rule : rules_) {
     if (rule_matches(rule)) {
       any_rule_matched = true;
-      if ((rule.denies & fine_grained_permission) != FineGrainedPermission::NONE) {
+      auto const level = Resolve(rule.grants, rule.denies, rule.weak_denies, fine_grained_permission);
+      if (level == PermissionLevel::DENY) {
         return PermissionLevel::DENY;
       }
-      if ((rule.grants & fine_grained_permission) != FineGrainedPermission::NONE) {
+      if (level == PermissionLevel::GRANT) {
         any_grant = true;
       }
     }
@@ -412,15 +428,11 @@ PermissionLevel FineGrainedAccessPermissions::HasGlobal(const FineGrainedPermiss
     return PermissionLevel::GRANT;
   }
 
-  if (global_denies_.has_value() && (global_denies_.value() & static_cast<uint64_t>(fine_grained_permission)) != 0) {
-    return PermissionLevel::DENY;
-  }
-
-  if (global_grants_.has_value() && (global_grants_.value() & static_cast<uint64_t>(fine_grained_permission)) != 0) {
-    return PermissionLevel::GRANT;
-  }
-
-  return PermissionLevel::DENY;
+  auto const level = Resolve(global_grants_.value_or(0),
+                             global_denies_.value_or(0),
+                             global_weak_denies_,
+                             static_cast<uint64_t>(fine_grained_permission));
+  return level == PermissionLevel::GRANT ? PermissionLevel::GRANT : PermissionLevel::DENY;
 }
 
 void FineGrainedAccessPermissions::Grant(std::unordered_set<std::string> const &symbols,
@@ -431,6 +443,7 @@ void FineGrainedAccessPermissions::Grant(std::unordered_set<std::string> const &
 
   if (it != rules_.end()) {
     it->denies = it->denies & ~fine_grained_permission;
+    it->weak_denies = it->weak_denies & ~fine_grained_permission;
     it->grants = it->grants | fine_grained_permission;
   } else {
     rules_.push_back({symbols, fine_grained_permission, FineGrainedPermission::NONE, matching_mode});
@@ -444,25 +457,32 @@ void FineGrainedAccessPermissions::GrantGlobal(FineGrainedPermission const fine_
       global_denies_ = std::nullopt;
     }
   }
+  global_weak_denies_ &= ~static_cast<uint64_t>(fine_grained_permission);
 
   global_grants_ = global_grants_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
 }
 
 void FineGrainedAccessPermissions::Deny(std::unordered_set<std::string> const &symbols,
                                         FineGrainedPermission const fine_grained_permission,
-                                        MatchingMode const matching_mode) {
+                                        MatchingMode const matching_mode, DenyStrength const strength) {
   auto it = r::find_if(
       rules_, [&](auto const &rule) { return rule.symbols == symbols && rule.matching_mode == matching_mode; });
 
   if (it != rules_.end()) {
     it->grants = it->grants & ~fine_grained_permission;
     it->denies = it->denies | fine_grained_permission;
+    it->weak_denies = WithStrength(it->weak_denies, fine_grained_permission, strength);
   } else {
-    rules_.push_back({symbols, FineGrainedPermission::NONE, fine_grained_permission, matching_mode});
+    rules_.push_back({symbols,
+                      FineGrainedPermission::NONE,
+                      fine_grained_permission,
+                      matching_mode,
+                      WithStrength(FineGrainedPermission::NONE, fine_grained_permission, strength)});
   }
 }
 
-void FineGrainedAccessPermissions::DenyGlobal(FineGrainedPermission const fine_grained_permission) {
+void FineGrainedAccessPermissions::DenyGlobal(FineGrainedPermission const fine_grained_permission,
+                                              DenyStrength const strength) {
   if (global_grants_.has_value()) {
     global_grants_ = global_grants_.value() & ~static_cast<uint64_t>(fine_grained_permission);
     if (global_grants_.value() == 0) {
@@ -471,6 +491,7 @@ void FineGrainedAccessPermissions::DenyGlobal(FineGrainedPermission const fine_g
   }
 
   global_denies_ = global_denies_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
+  global_weak_denies_ = WithStrength(global_weak_denies_, static_cast<uint64_t>(fine_grained_permission), strength);
 }
 
 void FineGrainedAccessPermissions::Revoke(std::unordered_set<std::string> const &symbols,
@@ -482,6 +503,7 @@ void FineGrainedAccessPermissions::Revoke(std::unordered_set<std::string> const 
   if (it != rules_.end()) {
     it->grants = it->grants & ~fine_grained_permission;
     it->denies = it->denies & ~fine_grained_permission;
+    it->weak_denies = it->weak_denies & ~fine_grained_permission;
 
     if (it->grants == FineGrainedPermission::NONE && it->denies == FineGrainedPermission::NONE) {
       rules_.erase(it);
@@ -503,11 +525,13 @@ void FineGrainedAccessPermissions::RevokeGlobal(FineGrainedPermission const fine
       global_denies_ = std::nullopt;
     }
   }
+  global_weak_denies_ &= ~static_cast<uint64_t>(fine_grained_permission);
 }
 
 void FineGrainedAccessPermissions::RevokeAll() {
   global_grants_ = std::nullopt;
   global_denies_ = std::nullopt;
+  global_weak_denies_ = 0;
   rules_.clear();
 }
 
@@ -525,10 +549,12 @@ void FineGrainedAccessPermissions::RevokeAll(FineGrainedPermission const fine_gr
       global_denies_ = std::nullopt;
     }
   }
+  global_weak_denies_ &= ~static_cast<uint64_t>(fine_grained_permission);
 
   for (auto it = rules_.begin(); it != rules_.end();) {
     it->grants = it->grants & ~fine_grained_permission;
     it->denies = it->denies & ~fine_grained_permission;
+    it->weak_denies = it->weak_denies & ~fine_grained_permission;
     if (it->grants == FineGrainedPermission::NONE && it->denies == FineGrainedPermission::NONE) {
       it = rules_.erase(it);
     } else {
@@ -631,11 +657,13 @@ std::optional<uint64_t> const &FineGrainedAccessPermissions::GetGlobalGrants() c
 
 std::optional<uint64_t> const &FineGrainedAccessPermissions::GetGlobalDenies() const { return global_denies_; }
 
+uint64_t FineGrainedAccessPermissions::GetGlobalWeakDenies() const { return global_weak_denies_; }
+
 std::vector<FineGrainedAccessRule> const &FineGrainedAccessPermissions::GetRules() const { return rules_; }
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
   return first.GetGlobalGrants() == second.GetGlobalGrants() && first.GetGlobalDenies() == second.GetGlobalDenies() &&
-         first.GetRules() == second.GetRules();
+         first.GetGlobalWeakDenies() == second.GetGlobalWeakDenies() && first.GetRules() == second.GetRules();
 }
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
@@ -695,9 +723,7 @@ bool operator!=(const FineGrainedAccessHandler &first, const FineGrainedAccessHa
 
 namespace {
 PermissionLevel CheckBit(PropertyPermission const &perm, PropertyPermissionType bit) {
-  if ((perm.denies & bit) != PropertyPermissionType::NONE) return PermissionLevel::DENY;
-  if ((perm.grants & bit) != PropertyPermissionType::NONE) return PermissionLevel::GRANT;
-  return PermissionLevel::NEUTRAL;
+  return Resolve(perm.grants, perm.denies, perm.weak_denies, bit);
 }
 }  // namespace
 
@@ -716,13 +742,15 @@ void PropertyAccessPermissions::Grant(std::unordered_set<std::string> const &ent
   auto &perm = rule.properties[property];
   perm.grants |= type;
   perm.denies &= ~type;
+  perm.weak_denies &= ~type;
 }
 
 void PropertyAccessPermissions::Deny(std::unordered_set<std::string> const &entities, std::string const &property,
-                                     PropertyPermissionType type, MatchingMode matching_mode) {
+                                     PropertyPermissionType type, MatchingMode matching_mode, DenyStrength strength) {
   auto &rule = FindOrCreateRule(entities, matching_mode);
   auto &perm = rule.properties[property];
   perm.denies |= type;
+  perm.weak_denies = WithStrength(perm.weak_denies, type, strength);
   perm.grants &= ~type;
 }
 
@@ -733,7 +761,9 @@ void RevokeProperty(std::unordered_map<std::string, PropertyPermission> &props, 
   if (it == props.end()) return;
   it->second.grants &= ~type;
   it->second.denies &= ~type;
-  if (it->second.grants == PropertyPermissionType::NONE && it->second.denies == PropertyPermissionType::NONE) {
+  it->second.weak_denies &= ~type;
+  if (it->second.grants == PropertyPermissionType::NONE && it->second.denies == PropertyPermissionType::NONE &&
+      it->second.weak_denies == PropertyPermissionType::NONE) {
     props.erase(it);
   }
 }
@@ -754,11 +784,14 @@ void PropertyAccessPermissions::GrantGlobal(std::string const &property, Propert
   auto &perm = global_[property];
   perm.grants |= type;
   perm.denies &= ~type;
+  perm.weak_denies &= ~type;
 }
 
-void PropertyAccessPermissions::DenyGlobal(std::string const &property, PropertyPermissionType type) {
+void PropertyAccessPermissions::DenyGlobal(std::string const &property, PropertyPermissionType type,
+                                           DenyStrength strength) {
   auto &perm = global_[property];
   perm.denies |= type;
+  perm.weak_denies = WithStrength(perm.weak_denies, type, strength);
   perm.grants &= ~type;
 }
 
@@ -931,6 +964,7 @@ PropertyAccessPermissions Merge(PropertyAccessPermissions const &first, Property
                               std::unordered_map<std::string, PropertyPermission> const &src) {
     for (auto const &[prop, perm] : src) {
       auto &d = dst[prop];
+      d.weak_denies = MergeWeakDenies(d.denies, d.weak_denies, perm.denies, perm.weak_denies);
       d.grants |= perm.grants;
       d.denies |= perm.denies;
     }
