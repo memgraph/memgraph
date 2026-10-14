@@ -324,6 +324,34 @@ INSTANTIATE_TEST_SUITE_P(Random, WeightedKShortestRandomInMemory,
                          testing::Combine(testing::Range(uint32_t{1}, uint32_t{13}), testing::Values(5, 6),
                                           testing::Values(0.3, 0.5)));
 
+// Hop count and weights.
+class KShortestMemoryTest : public ::testing::TestWithParam<bool> {
+ public:
+  using StorageType = memgraph::storage::InMemoryStorage;
+
+  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
+
+  static void TearDownTestCase() { db_ = nullptr; }
+
+ protected:
+  static std::unique_ptr<VertexDb<StorageType>> db_;
+};
+
+std::unique_ptr<VertexDb<KShortestMemoryTest::StorageType>> KShortestMemoryTest::db_{nullptr};
+
+// Found paths and candidates share one trie, so at its peak the cursor holds about one copy of the
+// edges it returns, not three.
+TEST_P(KShortestMemoryTest, PathsShareTheTrie) {
+  constexpr int kRungs = 20;
+  const auto run = db_->KShortestLadderMemory(db_.get(), GetParam(), kRungs, {{0, 2 * kRungs - 1, 20000}});
+  ASSERT_EQ(run.rows, 20000U);
+  const auto returned_bytes = run.total_length * sizeof(EdgeAccessor);
+  EXPECT_LE(run.peak, returned_bytes * 3 / 2) << "returned " << returned_bytes << " bytes of edges";
+}
+
+INSTANTIATE_TEST_SUITE_P(KShortestMemory, KShortestMemoryTest, testing::Bool(),
+                         [](const auto &info) { return info.param ? "Weighted" : "HopCount"; });
+
 TEST_F(GeneralKShortestTestInMemory, InvertedRangeDoesNotSearch) {
   db_->KShortestTestInvertedRangeDoesNotSearch(db_.get());
 }
