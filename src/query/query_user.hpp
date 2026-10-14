@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -50,6 +51,10 @@ struct QueryUserOrRole {
                             std::optional<std::string_view> db_name, UserPolicy *policy) const = 0;
 
   virtual std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const = 0;
+
+  // Owner-thread-only (may refresh the cached principal). Changes whenever the cached principal may have changed;
+  // callers that cache anything derived from the principal rebuild when it differs. May throw on a failed refresh.
+  virtual uint64_t PrincipalVersion() const { return 0; }
 
 #ifdef MG_ENTERPRISE
   virtual bool CanImpersonate(const std::string &target, UserPolicy *policy,

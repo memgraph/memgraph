@@ -79,7 +79,13 @@ std::shared_ptr<query::QueryUserOrRole> QueryUserOrRole::clone() const {
   return std::make_shared<QueryUserOrRole>(*this);
 }
 
+uint64_t QueryUserOrRole::PrincipalVersion() const {
+  EnsureFresh();
+  return auth_epoch_;
+}
+
 std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string> db_name) const {
+  EnsureFresh();  // a failed refresh throws (retryable TransientError) rather than reporting stale roles
 #ifdef MG_ENTERPRISE
   std::unordered_set<auth::Role> roles;
   if (user_) roles = user_->GetRoles(db_name);
@@ -142,6 +148,7 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolic
 }
 
 std::string QueryUserOrRole::GetDefaultDB() const {
+  EnsureFresh();
   if (user_) return user_->GetMain();
   if (roles_) return roles_->GetMain();
   return std::string{dbms::kDefaultDB};

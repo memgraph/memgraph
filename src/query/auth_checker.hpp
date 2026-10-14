@@ -251,19 +251,24 @@ struct CachedFineGrainedAuth {
 
   std::unique_ptr<FineGrainedAuthChecker> checker;
   std::string db_name;
+  uint64_t principal_version{0};
   State state{State::EMPTY};
 
   FineGrainedAuthChecker const *get() const { return checker.get(); }
 
   void Refresh(AuthChecker const &auth_checker, QueryUserOrRole const &user, DbAccessor const *dba,
                std::string current_db) {
-    bool const must_rebuild = state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db;
+    // Read first: it refreshes the principal, so a rebuild below sees the current grants.
+    auto const version = user.PrincipalVersion();
+    bool const must_rebuild =
+        state == State::EMPTY || state == State::NO_LICENSE || db_name != current_db || version != principal_version;
 
     if (!must_rebuild) {
       if (checker) checker->UpdateDbAccessor(dba);
       return;
     }
 
+    principal_version = version;
     checker = auth_checker.GetFineGrainedAuthChecker(user, dba);
 
     if (!checker) {
@@ -286,6 +291,7 @@ struct CachedFineGrainedAuth {
   void Reset() {
     checker.reset();
     db_name.clear();
+    principal_version = 0;
     state = State::EMPTY;
   }
 };

@@ -30,6 +30,9 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
 
   std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override;
 
+  // Owner-thread-only. Refreshes the principal if the auth epoch moved; throws auth::AuthException on failure.
+  uint64_t PrincipalVersion() const override;
+
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const std::string &target, query::UserPolicy *policy,
                       std::optional<std::string_view> db_name = std::nullopt) const override;
