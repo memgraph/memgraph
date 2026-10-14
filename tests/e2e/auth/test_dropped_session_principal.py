@@ -20,7 +20,7 @@ import sys
 
 import pytest
 from neo4j import GraphDatabase
-from neo4j.exceptions import Neo4jError
+from neo4j.exceptions import ClientError, Neo4jError, TransientError
 
 URI = "bolt://localhost:7687"
 ADMIN = ("sa", "sa")
@@ -164,6 +164,47 @@ def test_impersonator_is_refused_for_the_same_target(admin, opened, change):
             run(driver, "SHOW CURRENT USER")
     else:
         assert run(driver, "SHOW CURRENT USER") == [["r"]]
+
+
+@requires_enterprise
+def test_recreated_impersonation_target_is_rebuilt(admin, opened):
+    impersonation_setup(admin)
+
+    driver = pooled_driver("r", "pw")
+    opened.append(driver)
+    assert run(driver, "SHOW CURRENT USER", impersonated_user="c") == [["c"]]
+
+    run(admin, "DROP USER c")
+    run(admin, "CREATE USER c IDENTIFIED BY 'pw'")
+    run(admin, "GRANT MATCH, CREATE TO c")
+    grant_label_permissions(admin, "c")
+    run(admin, "GRANT IMPERSONATE_USER c TO r")
+
+    # Identical metadata to the cached one, but c now has a different uuid: the cached principal must be rebuilt
+    # instead of being refused as dropped (or silently reused).
+    for _ in range(2):
+        assert run(driver, "SHOW CURRENT USER", impersonated_user="c") == [["c"]]
+        run(driver, "CREATE (:Recreated)", impersonated_user="c")
+
+
+@requires_enterprise
+def test_dropped_impersonation_target_is_a_client_error(admin, opened):
+    impersonation_setup(admin)
+
+    driver = pooled_driver("r", "pw")
+    opened.append(driver)
+    assert run(driver, "SHOW CURRENT USER", impersonated_user="c") == [["c"]]
+
+    run(admin, "DROP USER c")
+
+    # plain session.run never auto-retries, so a retryable (Transient) classification would surface as such here.
+    for attempt in range(2):
+        with pytest.raises(Neo4jError) as exc:
+            run(driver, "SHOW CURRENT USER", impersonated_user="c")
+        assert isinstance(exc.value, ClientError), f"attempt {attempt}: {type(exc.value).__name__}"
+        assert not isinstance(exc.value, TransientError)
+        if attempt == 1:
+            assert "Trying to impersonate a user that doesn't exist" in str(exc.value)
 
 
 def test_revoked_privilege_reaches_open_session(admin, opened):
