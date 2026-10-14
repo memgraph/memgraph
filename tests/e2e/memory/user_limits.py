@@ -493,6 +493,8 @@ def test_user_profile_session_tracking(connection, test_name):
     # Create users to test resource tracking
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
+    # The admin role carries the label and edge grants its CREATE queries need.
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR tracking_user1 TO admin")
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
@@ -568,6 +570,8 @@ def test_user_profile_explicit_tx_memory_tracking(connection, test_name):
     # Create users to test resource tracking
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
+    # The admin role carries the label and edge grants its CREATE queries need.
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR tracking_user1 TO admin")
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
@@ -703,6 +707,8 @@ def test_user_profile_implicit_tx_memory_tracking(connection, test_name):
     # Create users to test resource tracking
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
+    # The admin role carries the label and edge grants its CREATE queries need.
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR tracking_user1 TO admin")
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
@@ -778,6 +784,8 @@ def test_user_profile_proc_memory_tracking(connection, test_name):
     # Create users to test resource tracking
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
+    # The admin role carries the label and edge grants its CREATE queries need.
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR tracking_user1 TO admin")
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
@@ -896,6 +904,8 @@ def test_user_profile_local_proc_memory_tracking(connection, test_name):
     # Create users to test resource tracking
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
+    # The admin role carries the label and edge grants its CREATE queries need.
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR tracking_user1 TO admin")
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
@@ -1016,6 +1026,8 @@ def test_user_profile_proc_w_limit_memory_tracking(connection, test_name):
     # Create users to test resource tracking
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
+    # The admin role carries the label and edge grants its CREATE queries need.
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR tracking_user1 TO admin")
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
@@ -1105,6 +1117,8 @@ def test_user_profile_explicit_implicit_tx_memory_tracking(connection, test_name
     # Create users to test resource tracking
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
+    # The admin role carries the label and edge grants its CREATE queries need.
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR tracking_user1 TO admin")
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
@@ -1186,6 +1200,8 @@ def test_user_profile_memory_tracking_with_gc(connection, test_name):
     # Create users to test resource tracking
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user1")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user1")
+    # The admin role carries the label and edge grants its CREATE queries need.
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR tracking_user1 TO admin")
     execute_and_fetch_all(cursor_main, "CREATE USER tracking_user2")
     execute_and_fetch_all(cursor_main, "GRANT MATCH, CREATE TO tracking_user2")
 
