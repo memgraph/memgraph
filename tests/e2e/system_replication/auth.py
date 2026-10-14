@@ -11,6 +11,7 @@
 
 import os
 import sys
+import time
 from functools import partial
 
 import interactive_mg_runner
@@ -47,6 +48,25 @@ def cleanup_after_test():
 
 def update_to_main(cursor):
     execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN;")
+
+
+def login_once_replicated(connection, port, role, username="", password="", timeout=20.0):
+    """Open a cursor on an instance as `username`, waiting for the user to have been replicated there.
+
+    An instance without users lets any connection in as an anonymous session, which is denied on its next query once
+    the user arrives, so a connection only counts after SHOW USERS confirms the user is present (or, for the anonymous
+    login, that no user is left)."""
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            cursor = connection(port, role, username, password).cursor()
+            users = {row[0] for row in execute_and_fetch_all(cursor, "SHOW USERS;")}
+            if (username in users) if username else not users:
+                return cursor
+        except mgclient.Error:
+            pass
+        assert time.monotonic() < deadline, f"could not log in to port {port} as '{username}' in {timeout}s"
+        time.sleep(0.2)
 
 
 def add_user(cursor, username, password=None):
@@ -230,7 +250,10 @@ def test_auth_queries_on_replica(connection, test_name):
             ],
             "log_file": f"{get_logs_path(file, test_name)}/main.log",
             "data_directory": f"{get_data_path(file, test_name)}/main",
+            "username": "UsErA",
+            "password": "pass",
             "setup_queries": [
+                "CREATE USER UsErA IDENTIFIED BY 'pass';",
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
                 f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
             ],
@@ -240,8 +263,8 @@ def test_auth_queries_on_replica(connection, test_name):
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
     cursor_main = connection(BOLT_PORTS["main"], "main", "UsErA", "pass").cursor()
-    cursor_replica_1 = connection(BOLT_PORTS["replica_1"], "replica", "UsErA", "pass").cursor()
-    cursor_replica_2 = connection(BOLT_PORTS["replica_2"], "replica", "UsErA", "pass").cursor()
+    cursor_replica_1 = login_once_replicated(connection, BOLT_PORTS["replica_1"], "replica", "UsErA", "pass")
+    cursor_replica_2 = login_once_replicated(connection, BOLT_PORTS["replica_2"], "replica", "UsErA", "pass")
 
     # 1/
     assert only_main_queries(cursor_main) == 0
@@ -269,6 +292,7 @@ def test_manual_users_recovery(connection, test_name):
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
             "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "username": "user3",
             "setup_queries": [
                 "CREATE USER user3;",
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
@@ -282,6 +306,8 @@ def test_manual_users_recovery(connection, test_name):
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
             "data_directory": f"{get_data_path(file, test_name)}/replica2",
+            "username": "user4",
+            "password": "password",
             "setup_queries": [
                 "CREATE USER user4 IDENTIFIED BY 'password';",
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
@@ -295,6 +321,7 @@ def test_manual_users_recovery(connection, test_name):
             ],
             "log_file": f"{get_logs_path(file, test_name)}/main.log",
             "data_directory": f"{get_data_path(file, test_name)}/main",
+            "username": "user1",
             "setup_queries": [
                 "CREATE USER user1;",
                 "CREATE USER user2 IDENTIFIED BY 'password';",
@@ -419,6 +446,7 @@ def test_manual_roles_recovery(connection, test_name):
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
             "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "username": "user3",
             "setup_queries": [
                 "CREATE ROLE role3;",
                 "CREATE ROLE role6;",
@@ -435,6 +463,7 @@ def test_manual_roles_recovery(connection, test_name):
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
             "data_directory": f"{get_data_path(file, test_name)}/replica2",
+            "username": "user4",
             "setup_queries": [
                 "CREATE ROLE role4;",
                 "CREATE ROLE role5;",
@@ -454,6 +483,7 @@ def test_manual_roles_recovery(connection, test_name):
             ],
             "log_file": f"{get_logs_path(file, test_name)}/main.log",
             "data_directory": f"{get_data_path(file, test_name)}/main",
+            "username": "user2",
             "setup_queries": [
                 "CREATE ROLE role1;",
                 "CREATE ROLE role2;",
@@ -553,6 +583,8 @@ def test_auth_config_recovery(connection, test_name):
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
             "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "username": "OPQabc",
+            "password": "PASSWORD",
             "setup_queries": [
                 "CREATE USER OPQabc IDENTIFIED BY 'PASSWORD';",
                 "CREATE ROLE defRST;",
@@ -572,6 +604,7 @@ def test_auth_config_recovery(connection, test_name):
             ],
             "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
             "data_directory": f"{get_data_path(file, test_name)}/replica2",
+            "username": "stuDEF",
             "setup_queries": [
                 "CREATE ROLE ABCpqr;",
                 "CREATE USER stuDEF;",
@@ -593,6 +626,8 @@ def test_auth_config_recovery(connection, test_name):
             ],
             "log_file": f"{get_logs_path(file, test_name)}/main.log",
             "data_directory": f"{get_data_path(file, test_name)}/main",
+            "username": "UsErA",
+            "password": "pass",
             "setup_queries": [
                 "CREATE USER UsErA IDENTIFIED BY 'pass';",
                 "CREATE ROLE rOlE;",
@@ -684,6 +719,10 @@ def test_auth_replication(connection, test_name):
 
     # CREATE USER
     execute_and_fetch_all(cursor_main, "CREATE USER user1")
+    # user1 is the first user, so every anonymous session is denied from now on: continue as user1 everywhere.
+    cursor_main = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+    cursor_replica1 = login_once_replicated(connection, BOLT_PORTS["replica_1"], "replica", "user1")
+    cursor_replica2 = login_once_replicated(connection, BOLT_PORTS["replica_2"], "replica", "user1")
     check(
         show_users_func,
         {
@@ -720,9 +759,11 @@ def test_auth_replication(connection, test_name):
         },
     )
     execute_and_fetch_all(cursor_main, "DROP USER user1")
+    # With no user left the instances are open to anonymous sessions again, and the user1 sessions are gone.
+    cursor_main = connection(BOLT_PORTS["main"], "main").cursor()
+    cursor_replica1 = login_once_replicated(connection, BOLT_PORTS["replica_1"], "replica")
+    cursor_replica2 = login_once_replicated(connection, BOLT_PORTS["replica_2"], "replica")
     check(show_users_func, set())
-    connection(BOLT_PORTS["replica_1"], "replica").cursor()  # Just check connection
-    connection(BOLT_PORTS["replica_2"], "replica").cursor()  # Just check connection
 
     builtin_roles = {("admin", True), ("readwrite", True), ("readonly", True)}
 
@@ -749,6 +790,10 @@ def test_auth_replication(connection, test_name):
 
     # SET ROLE
     execute_and_fetch_all(cursor_main, "CREATE USER user3")
+    # user3 is the first user again: continue as user3 everywhere.
+    cursor_main = connection(BOLT_PORTS["main"], "main", "user3").cursor()
+    cursor_replica1 = login_once_replicated(connection, BOLT_PORTS["replica_1"], "replica", "user3")
+    cursor_replica2 = login_once_replicated(connection, BOLT_PORTS["replica_2"], "replica", "user3")
     execute_and_fetch_all(cursor_main, "CREATE ROLE role3")
     execute_and_fetch_all(cursor_main, "SET ROLE FOR user3 TO role3")
     check(partial(show_role_for_user_func, username="user3"), {("role3",)})
@@ -1173,7 +1218,15 @@ def test_user_profile_replication(connection, test_name):
     # Suppress builtin role creation so admin/readwrite/readonly don't appear in SHOW ROLES
     execute_and_fetch_all(cursor_main, "CREATE ROLE _dummy_role")
     # CREATE USER
+    # The first user turns authentication on and denies the anonymous sessions, and it is no user of this test: user1
+    # and user2 are counted by the sessions they open, so the test continues as a separate root user.
+    execute_and_fetch_all(cursor_main, "CREATE USER root")
+    cursor_main = connection(BOLT_PORTS["main"], "main", "root").cursor()
+    cursor_replica1 = login_once_replicated(connection, BOLT_PORTS["replica_1"], "replica", "root")
+    cursor_replica2 = login_once_replicated(connection, BOLT_PORTS["replica_2"], "replica", "root")
     execute_and_fetch_all(cursor_main, "CREATE USER user1")
+    # Only the first user holds every privilege, and user1 drives the instances after the restart below.
+    execute_and_fetch_all(cursor_main, "GRANT ALL PRIVILEGES TO user1")
     execute_and_fetch_all(cursor_main, "DROP ROLE _dummy_role")
     execute_and_fetch_all(cursor_main, "CREATE USER user2")
     execute_and_fetch_all(cursor_main, "GRANT PROFILE_RESTRICTION TO user2")
@@ -1183,6 +1236,7 @@ def test_user_profile_replication(connection, test_name):
         {
             ("user2",),
             ("user1",),
+            ("root",),
         },
     )
 
@@ -1483,13 +1537,16 @@ def test_transactional_auth_replication(connection, test_name):
         mg_sleep_and_assert(expected, show_func(cursor_replica1))
         mg_sleep_and_assert(expected, show_func(cursor_replica2))
 
-    def commit():
+    def assert_sync_replica_ready():
         # A SYNC replica is replicated to inside COMMIT, so it must still be ready when COMMIT returns. A replica
         # that applied the batch but failed to answer would be marked behind and recovered by snapshot instead,
         # which reaches the same end state and so would pass every other check here.
-        execute_and_fetch_all(cursor_main, "COMMIT")
         statuses = {row[0]: row[3]["status"] for row in execute_and_fetch_all(cursor_main, "SHOW REPLICAS")}
         assert statuses["replica_1"] == "ready", statuses
+
+    def commit():
+        execute_and_fetch_all(cursor_main, "COMMIT")
+        assert_sync_replica_ready()
 
     # A committed transaction replicates every statement in it, roles and grants included.
     execute_and_fetch_all(cursor_main, "BEGIN")
@@ -1498,7 +1555,13 @@ def test_transactional_auth_replication(connection, test_name):
     execute_and_fetch_all(cursor_main, "CREATE ROLE reader")
     execute_and_fetch_all(cursor_main, "GRANT MATCH TO reader")
     execute_and_fetch_all(cursor_main, "SET ROLE FOR bob TO reader")
-    commit()
+    # alice is the first user, created by this commit, so the anonymous sessions are denied once it lands: continue as
+    # alice everywhere.
+    execute_and_fetch_all(cursor_main, "COMMIT")
+    cursor_main = connection(BOLT_PORTS["main"], "main", "alice").cursor()
+    cursor_replica1 = login_once_replicated(connection, BOLT_PORTS["replica_1"], "replica", "alice")
+    cursor_replica2 = login_once_replicated(connection, BOLT_PORTS["replica_2"], "replica", "alice")
+    assert_sync_replica_ready()
     check({("alice",), ("bob",)})
     check_matches_main(partial(show_role_for_user_func, username="bob"))
     check_matches_main(partial(show_privileges_func, user_or_role="reader"))
