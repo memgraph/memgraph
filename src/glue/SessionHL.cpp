@@ -791,7 +791,7 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
 #ifdef MG_ENTERPRISE
 bool RuntimeConfig::BoundDbMatches(const bolt_map_t &run_time_info) const {
   const auto it = run_time_info.find("db");
-  // A database the client chose with USE must never be silently replaced by the default one.
+  // On a cache hit, a database chosen with USE is kept even when it is no longer live.
   if (it == run_time_info.end() && db_selected_by_use_) return true;
   const auto &db_acc = session_->interpreter_.current_db_.db_acc_;
   if (!db_acc || db_acc->is_marked_for_deletion()) return false;
@@ -818,10 +818,6 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
     }
     return;
   }
-
-  // A failed attempt is never cached, so it is always retried.
-  previous_run_time_info_.reset();
-  validated_impersonation_.reset();
 
   // Step 1: Handle user configuration first
   // NOTE: This must be called first because it defines the default database for the user
@@ -882,6 +878,9 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
   auto resource =
       user ? ResourceAtLogin(*user, session_->interpreter_context_->resource_monitoring) : session_->user_resource_;
   session_->interpreter_.SetUser(target, std::move(resource));
+  // The session changes from here on; a failure below must not leave the old entry cached.
+  previous_run_time_info_.reset();
+  validated_impersonation_.reset();
   session_->interpreter_.SetCurrentDB(std::move(db_acc), db_explicit);
 
   previous_run_time_info_ = run_time_info;
