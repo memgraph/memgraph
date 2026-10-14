@@ -101,7 +101,8 @@ create_test_users() {
   # NOTE: TO USER is required -> "admin" is also a built-in role (created with
   # the first user when the enterprise license is valid), so a bare "TO admin"
   # is ambiguous.
-  echo "CREATE USER admin IDENTIFIED BY 'admin1234'; GRANT ALL PRIVILEGES TO USER admin;" | $MGCONSOLE_DEFAULT
+  echo "CREATE USER admin IDENTIFIED BY 'admin1234';" | $MGCONSOLE_DEFAULT
+  echo "GRANT ALL PRIVILEGES TO USER admin;" | $MGCONSOLE_ADMIN
   echo "CREATE USER tester IDENTIFIED BY 'tester1234'; GRANT CREATE TO tester; GRANT CREATE ON NODES CONTAINING LABELS * TO tester; GRANT DELETE ON NODES CONTAINING LABELS * TO tester; GRANT READ, SET PROPERTY {*} ON NODES CONTAINING LABELS * TO tester; GRANT READ, SET PROPERTY {*} ON EDGES OF TYPE * TO tester; GRANT DATABASE memgraph TO tester;" | $MGCONSOLE_ADMIN
   echo "SHOW USERS;" | $MGCONSOLE_ADMIN
   echo "SHOW ACTIVE USERS;" | $MGCONSOLE_ADMIN
