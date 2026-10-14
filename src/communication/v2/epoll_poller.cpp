@@ -43,7 +43,12 @@ EpollPoller::EpollPoller() {
 }
 
 EpollPoller::~EpollPoller() {
-  CloseAll();
+  // Best-effort teardown: a destructor must not throw.
+  try {
+    CloseAll();
+    // NOLINTNEXTLINE(bugprone-empty-catch)
+  } catch (...) {
+  }
   for (auto &chunk : chunks_) {
     delete[] chunk.load(std::memory_order_relaxed);
   }
