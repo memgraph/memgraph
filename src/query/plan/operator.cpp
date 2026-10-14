@@ -4067,7 +4067,6 @@ namespace {
 std::partial_ordering CostCompare(const TypedValue &lhs, const TypedValue &rhs) {
   if (lhs.IsNull() || rhs.IsNull()) return !lhs.IsNull() <=> !rhs.IsNull();
   ValidateWeightTypes(lhs, rhs);
-  // Engaged: unlike types threw above, and a NaN weight is refused.
   return *relations::comparability::Compare(lhs, rhs);
 }
 
