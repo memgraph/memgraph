@@ -4281,6 +4281,8 @@ class KShortestPathsCursor : public Cursor {
       if (serve_next_path()) return true;
     }
 
+    // The last searched row has no next one to release its paths.
+    ReleasePathStorage();
     return false;
   }
 
@@ -5082,12 +5084,9 @@ class KShortestPathsCursor : public Cursor {
   }
 
   void ResetState() {
-    shortest_paths_.clear();
-    candidate_paths_.clear();
-    current_path_index_ = 0;
+    ReleasePathStorage();
     blocked_edges_.clear();
     blocked_vertices_.clear();
-    trie_.assign(1, TrieRoot());  // node 0 is the empty root
     // Cleared per input row: the lambda may read outer variables, so verdicts don't survive a row.
     expansion_memo_.clear();
     expansion_memo_.rehash(0);
@@ -5097,6 +5096,21 @@ class KShortestPathsCursor : public Cursor {
     ReleaseInnerSearchState();
     // Makes `|K` per input row; `Pull` guards its serving site instead of returning early.
     n_returned_paths_ = 0;
+  }
+
+  // Gives the found paths, the candidates and the trie back when a row's search ends. `clear()`
+  // would keep the capacity, and the last row, or one followed only by skipped rows, has no next
+  // search to reuse it.
+  void ReleasePathStorage() {
+    trie_.assign(1, TrieRoot());  // node 0 is the empty root
+    trie_.shrink_to_fit();
+    shortest_paths_.clear();
+    shortest_paths_.shrink_to_fit();
+    candidate_paths_.clear();
+    candidate_paths_.shrink_to_fit();
+    path_nodes_.clear();
+    path_nodes_.shrink_to_fit();
+    current_path_index_ = 0;
   }
 
   // Releases the inner search's scratch instead of just emptying it. `clear()` keeps a hash
