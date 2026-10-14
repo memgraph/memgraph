@@ -14,20 +14,26 @@
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/vertex.hpp"
+#include "utils/atomic_memory_block.hpp"
 
 namespace memgraph::storage {
+
+// absl hash containers are not exception-safe: an allocation refused while one grows leaves it
+// corrupted. Every growth below runs in an AtomicMemoryBlock, which tracks but does not refuse.
 
 void PointIndexChangeCollector::UpdateOnChangeLabel(LabelId label, Vertex const *vertex) {
   if (current_changes_.empty()) return;
 
   constexpr auto all_point_types = std::array{PropertyStoreType::POINT};
-  for (auto prop : vertex->properties.PropertiesOfTypes(all_point_types)) {
-    auto k = LabelPropKey{label, prop};
-    auto it = current_changes_.find(k);
-    if (it != current_changes_.end()) {
-      it->second.insert(vertex);
+  utils::AtomicMemoryBlock([&] {
+    for (auto prop : vertex->properties.PropertiesOfTypes(all_point_types)) {
+      auto k = LabelPropKey{label, prop};
+      auto it = current_changes_.find(k);
+      if (it != current_changes_.end()) {
+        it->second.insert(vertex);
+      }
     }
-  }
+  });
 }
 
 void PointIndexChangeCollector::UpdateOnSetProperty(PropertyId prop_id, PropertyValue const &old_value,
@@ -35,13 +41,15 @@ void PointIndexChangeCollector::UpdateOnSetProperty(PropertyId prop_id, Property
   if (current_changes_.empty()) return;
   if (!(old_value.IsPoint2d() || old_value.IsPoint3d() || new_value.IsPoint2d() || new_value.IsPoint3d())) return;
 
-  for (auto label : vertex->labels) {
-    auto k = LabelPropKey{label, prop_id};
-    auto it = current_changes_.find(k);
-    if (it != current_changes_.end()) {
-      it->second.insert(vertex);
+  utils::AtomicMemoryBlock([&] {
+    for (auto label : vertex->labels) {
+      auto k = LabelPropKey{label, prop_id};
+      auto it = current_changes_.find(k);
+      if (it != current_changes_.end()) {
+        it->second.insert(vertex);
+      }
     }
-  }
+  });
 }
 
 auto PointIndexChangeCollector::CurrentChanges() const -> TrackedChanges const & { return current_changes_; }
@@ -51,21 +59,23 @@ auto PointIndexChangeCollector::PreviousChanges() const -> TrackedChanges const 
     // Lazy initialization - create empty sets for all current keys
     auto rng = current_changes_ | std::views::keys |
                std::views::transform([](auto &key) { return std::pair{key, absl::flat_hash_set<Vertex const *>{}}; });
-    previous_changes_ = TrackedChanges{rng.begin(), rng.end()};
+    utils::AtomicMemoryBlock([&] { previous_changes_ = TrackedChanges{rng.begin(), rng.end()}; });
   }
   return *previous_changes_;
 }
 
 void PointIndexChangeCollector::ArchiveCurrentChanges() {
-  if (previous_changes_) {
-    previous_changes_->MergeIntoAndClearOther(current_changes_);
-  } else {
-    previous_changes_.emplace(std::move(current_changes_));
-  }
+  utils::AtomicMemoryBlock([&] {
+    if (previous_changes_) {
+      previous_changes_->MergeIntoAndClearOther(current_changes_);
+    } else {
+      previous_changes_.emplace(std::move(current_changes_));
+    }
+  });
 }
 
 PointIndexChangeCollector::PointIndexChangeCollector(PointIndexContext &ctx)
-    : current_changes_{std::invoke([&]() {
+    : current_changes_{utils::AtomicMemoryBlock([&]() {
         auto rng = ctx.IndexKeys() | std::views::transform([](auto key) {
                      return std::pair{key, absl::flat_hash_set<Vertex const *>{}};
                    });
@@ -78,14 +88,16 @@ void PointIndexChangeCollector::UpdateOnVertexDelete(Vertex *vertex) {
   if (current_changes_.empty()) return;
 
   constexpr auto all_point_types = std::array{PropertyStoreType::POINT};
-  for (auto prop : vertex->properties.PropertiesOfTypes(all_point_types)) {
-    for (auto label : vertex->labels) {
-      auto k = LabelPropKey{label, prop};
-      auto it = current_changes_.find(k);
-      if (it != current_changes_.end()) {
-        it->second.insert(vertex);
+  utils::AtomicMemoryBlock([&] {
+    for (auto prop : vertex->properties.PropertiesOfTypes(all_point_types)) {
+      for (auto label : vertex->labels) {
+        auto k = LabelPropKey{label, prop};
+        auto it = current_changes_.find(k);
+        if (it != current_changes_.end()) {
+          it->second.insert(vertex);
+        }
       }
     }
-  }
+  });
 }
 }  // namespace memgraph::storage
