@@ -12,6 +12,9 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <filesystem>
+#include <fstream>
+#include <functional>
 #include <nlohmann/json.hpp>
 #include <span>
 

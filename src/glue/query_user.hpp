@@ -14,6 +14,7 @@
 #include <atomic>
 #include <cstdint>
 #include <optional>
+#include <string>
 
 #include "auth/auth.hpp"
 #include "query/query_user.hpp"
@@ -36,6 +37,12 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
                       std::optional<std::string_view> db_name = std::nullopt) const override;
   std::string GetDefaultDB() const override;
 #endif
+
+  // True if the principal was dropped or replaced by a same-named user; refreshes first, so may throw.
+  bool IsDropped() const {
+    EnsureFresh();
+    return dropped_;
+  }
 
   explicit QueryUserOrRole(auth::SynchedAuth *auth);
 

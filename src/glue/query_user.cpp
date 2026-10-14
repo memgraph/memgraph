@@ -111,12 +111,8 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolic
   }
   if (dropped_) return false;
 
-  auto locked_auth = auth_->ReadLock();
-  auto user_to_impersonate = locked_auth->GetUser(target);
-  if (!user_to_impersonate) {
-    return false;
-  }
-
+  auto user_to_impersonate = auth_->ReadLock()->GetUser(target);
+  if (!user_to_impersonate) return false;
   if (user_) return AuthChecker::CanImpersonate(*user_, *user_to_impersonate, db_name);
   if (roles_) return AuthChecker::CanImpersonate(*roles_, *user_to_impersonate, db_name);
   return false;

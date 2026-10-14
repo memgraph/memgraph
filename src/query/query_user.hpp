@@ -53,6 +53,7 @@ struct QueryUserOrRole {
   virtual std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const = 0;
 
 #ifdef MG_ENTERPRISE
+  // Re-reads the impersonator first: false when it was dropped, revoked or its refresh failed.
   virtual bool CanImpersonate(const std::string &target, UserPolicy *policy,
                               std::optional<std::string_view> db_name = std::nullopt) const = 0;
   virtual std::string GetDefaultDB() const = 0;
