@@ -40,10 +40,7 @@ class RuntimeConfig {
 
   // Invalidate Configure()'s "run_time_info unchanged => skip" cache on LOGOFF so re-used
   // connections fully re-derive user + db even when the next session's metadata matches the previous one's.
-  void ResetForConnectionReuse() {
-    previous_run_time_info_.reset();
-    db_selected_by_use_ = false;
-  }
+  void ResetForConnectionReuse() { previous_run_time_info_.reset(); }
 
   void OnUseDatabase() { db_selected_by_use_ = true; }
 
