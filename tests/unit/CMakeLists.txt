@@ -524,6 +524,11 @@ add_unit_test(utils_aws
     LINK_TARGETS mg-utils mg-aws
 )
 
+add_unit_test(utils_nofile_limit
+    SOURCES utils_nofile_limit.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_hot_mask
     SOURCES utils_hot_mask.cpp
     LINK_TARGETS mg-utils

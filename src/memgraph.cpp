@@ -9,8 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <sys/resource.h>
+
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -77,6 +80,7 @@
 #include "utils/build_info.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/nofile_limit.hpp"
 #include "utils/page_cache_releaser.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/resource_monitoring.hpp"
@@ -104,6 +108,7 @@ constexpr const char *kMgBoltPort = "MEMGRAPH_BOLT_PORT";
 constexpr const char *kMgHaClusterInitQueries = "MEMGRAPH_HA_CLUSTER_INIT_QUERIES";
 
 constexpr uint64_t kMgVmMaxMapCount = 524'288;
+constexpr uint64_t kMgMinOpenFiles = 65'536;
 
 void WarnDeprecatedFlags() {
   [[maybe_unused]] auto warn_if_set = [](std::string_view name, std::string_view message) {
@@ -288,6 +293,9 @@ int main(int argc, char **argv) {
   if (!CheckSuspiciousPositionalArgs(argc, argv)) return EXIT_FAILURE;
   WarnDeprecatedFlags();
 
+  // Raise before startup opens files (Python init, recovery).
+  const auto nofile_result = memgraph::utils::RaiseNoFileSoftLimit();
+
   // Publish worker count early so allocators can pre-size thread-local structures
   memgraph::utils::SetNumWorkers(FLAGS_bolt_num_workers);
 
@@ -464,6 +472,31 @@ int main(int argc, char **argv) {
   } else {
     std::cout << "Can't get info on vm.max_map_count, check whether it is too low, vm.max_map_count is at least "
               << kMgVmMaxMapCount << std::endl;
+  }
+
+  if (nofile_result) {
+    const auto &nofile = nofile_result->limit;
+    const auto fmt_limit = [](rlim_t v) { return v == RLIM_INFINITY ? std::string{"unlimited"} : std::to_string(v); };
+    spdlog::info(
+        "Open files limit (RLIMIT_NOFILE): soft {}, hard {}.", fmt_limit(nofile.rlim_cur), fmt_limit(nofile.rlim_max));
+    if (nofile_result->raise_errno != 0) {
+      spdlog::warn("Failed to raise the soft open files limit (RLIMIT_NOFILE): {} ({}).",
+                   std::strerror(nofile_result->raise_errno),
+                   nofile_result->raise_errno);
+    }
+    if (nofile.rlim_cur < kMgMinOpenFiles) {
+      spdlog::warn(memgraph::utils::MessageWithLink(
+          "Open files limit is too low (soft {}, hard {}), increase it to at least {} (systemd LimitNOFILE, docker "
+          "--ulimit nofile; the limit cannot exceed fs.nr_open). Connections and storage files will fail with "
+          "\"Too many open files\" once it is exhausted.",
+          fmt_limit(nofile.rlim_cur),
+          fmt_limit(nofile.rlim_max),
+          kMgMinOpenFiles,
+          "https://memgraph.com/docs/database-management/"
+          "system-configuration#handle-numerous-open-files-simultaneously"));
+    }
+  } else {
+    spdlog::warn("Can't get info on the open files limit (RLIMIT_NOFILE).");
   }
 
   auto data_directory = std::filesystem::path(FLAGS_data_directory);
