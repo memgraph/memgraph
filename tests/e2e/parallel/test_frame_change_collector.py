@@ -31,6 +31,7 @@ from typing import Any, Dict, List
 
 import pytest
 from common import clear_database, pq, setup_thread_count_db
+from neo4j.exceptions import ClientError, DatabaseError, TransientError
 
 # =============================================================================
 # Helper Functions
@@ -575,6 +576,50 @@ class TestRegexMatchCaching:
             ORDER BY name, id
         """
         verify_parallel_matches_serial(self.memgraph, query)
+
+
+class TestInListCacheMergeUnderMemoryLimit:
+    """
+    Parallel aggregate and ORDER BY merge each branch's IN-list cache into the main one. A memory
+    limit that refuses an allocation during that merge must fail the query with a memory limit
+    error and leave the instance running. The limit is swept so the refusal lands at different
+    points of the merge.
+    """
+
+    LIMITS_KB = range(1, 65)
+
+    @pytest.fixture(autouse=True)
+    def setup(self, fresh_memgraph, num_workers):
+        self.memgraph = fresh_memgraph
+        fresh_memgraph.execute_query(
+            f"""
+            UNWIND range(1, {num_workers * 500}) AS i
+            CREATE (:Data {{id: i, bucket: i % {num_workers}, value: i % 200,
+                            name: 'name_' + toString(i % 200) + '_padded_past_small_string'}})
+            """
+        )
+
+    @pytest.mark.parametrize(
+        "query",
+        [
+            "MATCH (d:Data) WHERE d.value IN [1, 50, 191] OR d.value IN [49, 76, 129, 193] RETURN count(*) AS cnt",
+            "MATCH (d:Data) WHERE d.value IN [1, 50, 191, 49, 76, 129, 193] "
+            "RETURN d.bucket AS bucket, count(*) AS cnt",
+            "MATCH (d:Data) WHERE d.value IN [1, 50, 191] OR d.value IN [49, 76, 129, 193] "
+            "RETURN d.id AS id ORDER BY id",
+            "MATCH (d:Data) WHERE d.name IN ['name_1_padded_past_small_string', 'name_50_padded_past_small_string', "
+            "'name_191_padded_past_small_string', 'name_49_padded_past_small_string'] RETURN count(*) AS cnt",
+        ],
+        ids=["int_list_count", "int_list_group_by", "int_list_order_by", "string_list_count"],
+    )
+    def test_merge_survives_query_memory_limit(self, query):
+        for limit_kb in self.LIMITS_KB:
+            try:
+                self.memgraph.fetch_all(pq(f"{query} QUERY MEMORY LIMIT {limit_kb} KB"))
+            except (ClientError, DatabaseError, TransientError) as e:
+                assert "memory limit exceeded" in str(e).lower(), f"limit {limit_kb} KB: unexpected error: {e}"
+
+        assert self.memgraph.fetch_all("RETURN 1 AS one") == [{"one": 1}]
 
 
 if __name__ == "__main__":
