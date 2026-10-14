@@ -39,6 +39,7 @@ class Session:
         self.cursor = self._connection.cursor()
 
     def login(self, user, password=""):
+        self._connection.close()
         self._connect(user, password)
 
     def run(self, query):
@@ -124,7 +125,7 @@ def test_uncommitted_users_are_invisible_to_another_session(cursor):
 
     execute(cursor, "COMMIT")
     other.login("dave")
-    assert "dave" in usernames(other), "committed user not visible to an existing session"
+    assert "dave" in usernames(other), "committed user not visible after logging in"
 
 
 def test_the_transaction_sees_its_own_writes(cursor):
