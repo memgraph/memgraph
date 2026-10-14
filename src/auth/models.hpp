@@ -354,6 +354,7 @@ struct FineGrainedAccessRule {
   FineGrainedPermission grants{FineGrainedPermission::NONE};
   FineGrainedPermission denies{FineGrainedPermission::NONE};
   MatchingMode matching_mode{MatchingMode::ANY};
+  FineGrainedPermission weak_denies{FineGrainedPermission::NONE};
 
   bool operator==(const FineGrainedAccessRule &other) const = default;
 };
@@ -362,7 +363,7 @@ class FineGrainedAccessPermissions final {
  public:
   explicit FineGrainedAccessPermissions(std::optional<uint64_t> global_grants = std::nullopt,
                                         std::optional<uint64_t> global_denies = std::nullopt,
-                                        std::vector<FineGrainedAccessRule> rules = {});
+                                        std::vector<FineGrainedAccessRule> rules = {}, uint64_t global_weak_denies = 0);
   FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
@@ -379,9 +380,9 @@ class FineGrainedAccessPermissions final {
   void GrantGlobal(FineGrainedPermission fine_grained_permission);
 
   void Deny(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
-            MatchingMode matching_mode = MatchingMode::ANY);
+            MatchingMode matching_mode = MatchingMode::ANY, DenyStrength strength = DenyStrength::STRONG);
 
-  void DenyGlobal(FineGrainedPermission fine_grained_permission);
+  void DenyGlobal(FineGrainedPermission fine_grained_permission, DenyStrength strength = DenyStrength::STRONG);
 
   void Revoke(std::unordered_set<std::string> const &symbols, FineGrainedPermission fine_grained_permission,
               MatchingMode matching_mode = MatchingMode::ANY);
@@ -399,12 +400,14 @@ class FineGrainedAccessPermissions final {
 
   std::optional<uint64_t> const &GetGlobalGrants() const;
   std::optional<uint64_t> const &GetGlobalDenies() const;
+  uint64_t GetGlobalWeakDenies() const;
   std::vector<FineGrainedAccessRule> const &GetRules() const;
 
  private:
   std::optional<uint64_t> global_grants_;
   std::optional<uint64_t> global_denies_;
   std::vector<FineGrainedAccessRule> rules_;
+  uint64_t global_weak_denies_{0};
 };
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second);
@@ -467,6 +470,7 @@ constexpr auto kAllPropertyPermissionTypes = PropertyPermissionType::READ | Prop
 struct PropertyPermission {
   PropertyPermissionType grants{PropertyPermissionType::NONE};
   PropertyPermissionType denies{PropertyPermissionType::NONE};
+  PropertyPermissionType weak_denies{PropertyPermissionType::NONE};
 
   bool operator==(PropertyPermission const &) const = default;
 };
@@ -487,12 +491,13 @@ class PropertyAccessPermissions final {
   void Grant(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
              MatchingMode matching_mode = MatchingMode::ANY);
   void Deny(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
-            MatchingMode matching_mode = MatchingMode::ANY);
+            MatchingMode matching_mode = MatchingMode::ANY, DenyStrength strength = DenyStrength::STRONG);
   void Revoke(std::unordered_set<std::string> const &entities, std::string const &property, PropertyPermissionType type,
               MatchingMode matching_mode = MatchingMode::ANY);
 
   void GrantGlobal(std::string const &property, PropertyPermissionType type);
-  void DenyGlobal(std::string const &property, PropertyPermissionType type);
+  void DenyGlobal(std::string const &property, PropertyPermissionType type,
+                  DenyStrength strength = DenyStrength::STRONG);
   void RevokeGlobal(std::string const &property, PropertyPermissionType type);
 
   PermissionLevel Has(std::span<std::string const> entities, std::string const &property,
