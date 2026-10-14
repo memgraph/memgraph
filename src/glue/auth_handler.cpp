@@ -1531,18 +1531,13 @@ void AuthQueryHandler::EditPropertyPermission(const std::string &user_or_role,
 }
 
 namespace {
-using GlobalFn = void (auth::PropertyAccessPermissions::*)(std::string const &, auth::PropertyPermissionType);
-using PerEntityFn = void (auth::PropertyAccessPermissions::*)(std::unordered_set<std::string> const &,
-                                                              std::string const &, auth::PropertyPermissionType,
-                                                              auth::MatchingMode);
-
-auto MakePropertyEditFn(GlobalFn global_fn, PerEntityFn per_entity_fn, auth::PropertyPermissionType perm_type) {
+auto MakePropertyEditFn(auto global_fn, auto per_entity_fn, auth::PropertyPermissionType perm_type, auto... args) {
   return [=](auth::PropertyAccessPermissions &perms, auto const &entities, auto mm, auto const &prop) {
     bool const is_global = entities.size() == 1 && entities[0] == "*";
     if (is_global) {
-      (perms.*global_fn)(prop, perm_type);
+      (perms.*global_fn)(prop, perm_type, args...);
     } else {
-      (perms.*per_entity_fn)({entities.begin(), entities.end()}, prop, perm_type, mm);
+      (perms.*per_entity_fn)({entities.begin(), entities.end()}, prop, perm_type, mm, args...);
     }
   };
 }
@@ -1575,17 +1570,18 @@ void AuthQueryHandler::DenyPropertyPermission(const std::string &user_or_role,
                                               auth::UserOrRoleType type, auth::PropertyPermissionType perm_type,
                                               memgraph::auth::AuthTransaction *auth_tx,
                                               system::Transaction *system_tx) {
-  EditPropertyPermission(
-      user_or_role,
-      properties,
-      entity_names,
-      entity_kind,
-      matching_mode,
-      type,
-      auth_tx,
-      system_tx,
-      MakePropertyEditFn(
-          &auth::PropertyAccessPermissions::DenyGlobal, &auth::PropertyAccessPermissions::Deny, perm_type));
+  EditPropertyPermission(user_or_role,
+                         properties,
+                         entity_names,
+                         entity_kind,
+                         matching_mode,
+                         type,
+                         auth_tx,
+                         system_tx,
+                         MakePropertyEditFn(&auth::PropertyAccessPermissions::DenyGlobal,
+                                            &auth::PropertyAccessPermissions::Deny,
+                                            perm_type,
+                                            auth::DenyStrength::STRONG));
 }
 
 void AuthQueryHandler::RevokePropertyPermission(const std::string &user_or_role,
