@@ -290,6 +290,8 @@ class PriorityThreadPool {
 
   std::atomic<TaskID> task_id_;     // Generates a unique tasks id | MSB signals high priority
   std::atomic<uint16_t> last_wid_;  // Used to pick next worker
+  // Per-pool wake-up modulus for re-posted (parked) tasks in ScheduledReAddTask.
+  const TaskID max_wakeup_thread_;
 
   // Queued productive tasks (excludes admission retries): +1 in push, -1 at every pop and in AwaitShutdown.
   alignas(64) std::atomic<int64_t> productive_pending_{0};
