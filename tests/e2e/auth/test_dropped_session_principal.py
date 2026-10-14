@@ -9,24 +9,33 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-"""An open Bolt session must not outlive, nor be revived by, a DROP USER once its principal is refreshed.
+"""An open pooled Bolt session must track admin changes on its next query.
 
-Ordinary queries use the cached session-long principal, so tests force a refresh via refresh_principal instead.
+DROP USER / REVOKE / role changes / fine-grained label changes reach the already-open session, a dropped user is
+not revived by a same-named recreation, a dropped or de-privileged impersonator is refused, and an anonymous
+session is refused once the first user exists.
 """
 
 import os
 import sys
+from dataclasses import dataclass
 
 import pytest
 from neo4j import GraphDatabase
-from neo4j.exceptions import Neo4jError
+from neo4j.exceptions import ClientError, Neo4jError, TransientError
 
 URI = "bolt://localhost:7687"
 ADMIN = ("sa", "sa")
 NOT_AUTHORIZED = "You are not authorized to execute this query"
+# What an anonymous session is told once the first user exists.
+ANONYMOUS_REFUSED = r"(?i)authentication is now required|reconnect with credentials"
+
+HAS_ENTERPRISE_LICENSE = bool(
+    os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE") and os.environ.get("MEMGRAPH_ORGANIZATION_NAME")
+)
 
 requires_enterprise = pytest.mark.skipif(
-    not (os.environ.get("MEMGRAPH_ENTERPRISE_LICENSE") and os.environ.get("MEMGRAPH_ORGANIZATION_NAME")),
+    not HAS_ENTERPRISE_LICENSE,
     reason="impersonation needs an enterprise license (MEMGRAPH_ENTERPRISE_LICENSE + MEMGRAPH_ORGANIZATION_NAME)",
 )
 
@@ -58,33 +67,43 @@ def admin(opened):
     driver = GraphDatabase.driver(URI, auth=ADMIN)
     opened.append(driver)
     run(driver, "GRANT ALL PRIVILEGES TO sa")
+    run(driver, "MATCH (n) DETACH DELETE n")  # tests share one server; start from an empty graph
     yield driver
-    try:
-        for (name,) in run(driver, "SHOW USERS"):
-            if name != "sa":
-                run(driver, f"DROP USER `{name}`")
-        run(driver, "DROP USER sa")
-    except Neo4jError:
-        pass
+    for (name,) in run(driver, "SHOW USERS"):
+        if name != "sa":
+            run(driver, f"DROP USER `{name}`")
+    if any(role == "rl" for role, *_ in run(driver, "SHOW ROLES")):  # the other roles are built in
+        run(driver, "DROP ROLE rl")
+    run(driver, "DROP USER sa")
 
 
 def grant_label_permissions(admin, *users):
-    # Fine-grained permissions are enterprise-only; where unavailable the coarse privilege is the only gate.
+    # Fine-grained permissions are enterprise-only; without a license the coarse privilege is the only gate.
     for user in users:
         try:
             run(admin, f"GRANT CREATE ON NODES CONTAINING LABELS * TO {user}")
         except Neo4jError:
-            pass
+            if HAS_ENTERPRISE_LICENSE:
+                raise
 
 
-def refresh_principal(admin, driver):
-    """SHOW TRANSACTIONS refreshes the caller's principal while the admin holds an open transaction; denial is fine."""
-    with admin.session() as holder, holder.begin_transaction() as tx:
-        tx.run("MATCH (n) RETURN count(n)").consume()
-        try:
-            run(driver, "SHOW TRANSACTIONS")
-        except Neo4jError:
-            pass
+def test_anonymous_session_is_refused_once_the_first_user_exists(opened):
+    anonymous = pooled_driver("", "")
+    opened.append(anonymous)
+    assert run(anonymous, "RETURN 1") == [[1]]  # no user yet, so authentication is off
+
+    with GraphDatabase.driver(URI, auth=("", "")) as creator:
+        run(creator, "CREATE USER sa IDENTIFIED BY 'sa'")
+    try:
+        # The already-open anonymous session is not grandfathered in.
+        with pytest.raises(Neo4jError, match=ANONYMOUS_REFUSED):
+            run(anonymous, "RETURN 1")
+
+        with GraphDatabase.driver(URI, auth=ADMIN) as with_credentials:
+            assert run(with_credentials, "RETURN 1") == [[1]]
+    finally:
+        with GraphDatabase.driver(URI, auth=ADMIN) as cleanup:
+            run(cleanup, "DROP USER sa")
 
 
 def test_recreated_user_does_not_revive_session(admin, opened):
@@ -104,9 +123,8 @@ def test_recreated_user_does_not_revive_session(admin, opened):
     run(admin, "GRANT MATCH, CREATE TO u")
     grant_label_permissions(admin, "u")
 
-    refresh_principal(admin, old)
     with pytest.raises(Neo4jError, match=NOT_AUTHORIZED):
-        run(old, "CREATE (:D1)")  # the refreshed old session stays dropped instead of adopting the new grants
+        run(old, "CREATE (:D1)")  # the open old session stays dropped instead of adopting the new grants
 
     fresh = pooled_driver("u", "pw")
     opened.append(fresh)
@@ -132,6 +150,240 @@ def test_dropped_impersonator_cannot_switch_target(admin, opened):
     # A changed impersonation target re-runs the check, which must now refresh r and find it gone.
     with pytest.raises(Neo4jError, match="Failed to impersonate user 't'"):
         run(session_driver, "SHOW CURRENT USER", impersonated_user="t")
+
+
+def impersonation_setup(admin):
+    run(admin, "CREATE USER c IDENTIFIED BY 'pw'")
+    run(admin, "GRANT MATCH, CREATE TO c")
+    run(admin, "CREATE USER r IDENTIFIED BY 'pw'")
+    run(admin, "GRANT MATCH TO r")
+    run(admin, "GRANT IMPERSONATE_USER c TO r")
+    grant_label_permissions(admin, "c", "r")
+
+
+@requires_enterprise
+@pytest.mark.parametrize(
+    "change",
+    ["DROP USER r", "REVOKE IMPERSONATE_USER FROM r", "DENY IMPERSONATE_USER c TO r"],
+    ids=["drop_user", "revoke_privilege", "deny_target"],
+)
+def test_impersonator_is_refused_for_the_same_target(admin, opened, change):
+    impersonation_setup(admin)
+
+    driver = pooled_driver("r", "pw")
+    opened.append(driver)
+    assert run(driver, "SHOW CURRENT USER", impersonated_user="c") == [["c"]]
+    run(driver, "CREATE (:Imp)", impersonated_user="c")  # precondition: acting as c works
+
+    run(admin, change)
+
+    # Same target as before: the impersonation check must still be re-evaluated against current auth state.
+    with pytest.raises(Neo4jError, match="Failed to impersonate user 'c'"):
+        run(driver, "SHOW CURRENT USER", impersonated_user="c")
+
+    # The refusal must not leave the identical metadata cached as validated: re-sending it is refused again
+    # (the driver RESETs the pooled connection after the failure) and never silently runs as c.
+    with pytest.raises(Neo4jError, match="Failed to impersonate user 'c'"):
+        run(driver, "SHOW CURRENT USER", impersonated_user="c")
+
+    if change == "DROP USER r":
+        with pytest.raises(Neo4jError, match='You are not authorized on the database "memgraph"'):
+            run(driver, "SHOW CURRENT USER")
+    else:
+        assert run(driver, "SHOW CURRENT USER") == [["r"]]
+
+
+@requires_enterprise
+@pytest.mark.parametrize(
+    "change",
+    ["DROP USER r", "REVOKE IMPERSONATE_USER FROM r", "DENY IMPERSONATE_USER c TO r"],
+    ids=["drop_user", "revoke_privilege", "deny_target"],
+)
+def test_impersonator_is_refused_inside_an_open_transaction(admin, opened, change):
+    impersonation_setup(admin)
+
+    driver = pooled_driver("r", "pw")
+    opened.append(driver)
+    with driver.session(impersonated_user="c") as session:
+        transaction = session.begin_transaction()
+        transaction.run("CREATE (:InTx)").consume()  # precondition: acting as c works
+
+        run(admin, change)
+
+        # The next statement of the same transaction re-checks the impersonator and must not keep acting as c.
+        with pytest.raises(Neo4jError, match="Failed to impersonate user 'c'"):
+            transaction.run("CREATE (:InTx)").consume()
+
+    assert run(admin, "MATCH (n:InTx) RETURN count(n)") == [[0]]
+
+
+@requires_enterprise
+def test_recreated_impersonation_target_is_rebuilt(admin, opened):
+    impersonation_setup(admin)
+
+    driver = pooled_driver("r", "pw")
+    opened.append(driver)
+    assert run(driver, "SHOW CURRENT USER", impersonated_user="c") == [["c"]]
+
+    run(admin, "DROP USER c")
+    run(admin, "CREATE USER c IDENTIFIED BY 'pw'")
+    run(admin, "GRANT MATCH, CREATE TO c")
+    grant_label_permissions(admin, "c")
+    run(admin, "GRANT IMPERSONATE_USER c TO r")
+
+    # Identical metadata to the cached one, but c now has a different uuid: the cached principal must be rebuilt
+    # instead of being refused as dropped (or silently reused).
+    for _ in range(2):
+        assert run(driver, "SHOW CURRENT USER", impersonated_user="c") == [["c"]]
+        run(driver, "CREATE (:Recreated)", impersonated_user="c")
+
+
+@requires_enterprise
+def test_target_recreated_inside_transaction_is_rebuilt_on_next_request(admin, opened):
+    impersonation_setup(admin)
+
+    driver = pooled_driver("r", "pw")
+    opened.append(driver)
+    with driver.session(impersonated_user="c") as session:
+        transaction = session.begin_transaction()
+        transaction.run("CREATE (:InTx)").consume()  # precondition: acting as c works
+
+        run(admin, "DROP USER c")
+        run(admin, "CREATE USER c IDENTIFIED BY 'pw'")
+        run(admin, "GRANT MATCH, CREATE TO c")
+        grant_label_permissions(admin, "c")
+        run(admin, "GRANT IMPERSONATE_USER c TO r")
+
+        # The open transaction must not keep acting as the dropped c.
+        with pytest.raises(Neo4jError):
+            transaction.run("CREATE (:InTx)").consume()
+        transaction.rollback()
+
+    # The first request after the transaction ends must rebuild against the recreated c, not stay refused.
+    assert run(driver, "SHOW CURRENT USER", impersonated_user="c") == [["c"]]
+    run(driver, "CREATE (:AfterTx)", impersonated_user="c")
+
+
+@requires_enterprise
+def test_dropped_impersonation_target_is_a_client_error(admin, opened):
+    impersonation_setup(admin)
+
+    driver = pooled_driver("r", "pw")
+    opened.append(driver)
+    assert run(driver, "SHOW CURRENT USER", impersonated_user="c") == [["c"]]
+
+    run(admin, "DROP USER c")
+
+    # plain session.run never auto-retries, so a retryable (Transient) classification would surface as such here.
+    for attempt in range(2):
+        with pytest.raises(Neo4jError) as exc:
+            run(driver, "SHOW CURRENT USER", impersonated_user="c")
+        assert isinstance(exc.value, ClientError), f"attempt {attempt}: {type(exc.value).__name__}"
+        assert not isinstance(exc.value, TransientError)
+        if attempt == 1:
+            assert "Trying to impersonate a user that doesn't exist" in str(exc.value)
+
+
+@dataclass(frozen=True)
+class OpenSessionCase:
+    """An admin change that must reach a session opened by user `u` before the change.
+
+    `probe` is run by the open session before and after the change. `setup` and `change` are admin statements; the
+    users in `label_users` / `relabel_users` get label permissions after them (see grant_label_permissions).
+    """
+
+    setup: tuple[str, ...]
+    change: tuple[str, ...]
+    probe: str = "CREATE (:D3)"
+    label_users: tuple[str, ...] = ("u",)
+    relabel_users: tuple[str, ...] = ()
+    before_refused: bool = False
+    before_result: list | None = None  # checked only when the probe is allowed before the change
+    after_refused: bool = True
+    reads_still_allowed: bool = False
+
+
+ROLE_SETUP = (
+    "CREATE ROLE rl",
+    "GRANT CREATE TO rl",
+    "CREATE USER u IDENTIFIED BY 'pw'",
+    "GRANT MATCH TO u",
+    "SET ROLE FOR u TO rl",
+)
+
+OPEN_SESSION_CASES = {
+    "privilege_revoked": OpenSessionCase(
+        setup=("CREATE USER u IDENTIFIED BY 'pw'", "GRANT MATCH, CREATE TO u"),
+        change=("REVOKE CREATE FROM u",),
+        reads_still_allowed=True,
+    ),
+    "privilege_granted": OpenSessionCase(
+        setup=("CREATE USER u IDENTIFIED BY 'pw'", "GRANT MATCH TO u"),
+        change=("GRANT CREATE TO u",),
+        relabel_users=("u",),
+        before_refused=True,
+        after_refused=False,
+    ),
+    "user_dropped": OpenSessionCase(
+        setup=("CREATE USER u IDENTIFIED BY 'pw'", "GRANT MATCH TO u"),
+        change=("DROP USER u",),
+        probe="MATCH (n) RETURN count(n)",
+        before_result=[[0]],
+    ),
+    "role_privilege_revoked": OpenSessionCase(
+        setup=ROLE_SETUP, change=("REVOKE CREATE FROM rl",), label_users=("u", "rl")
+    ),
+    "role_removed_from_user": OpenSessionCase(
+        setup=ROLE_SETUP, change=("REVOKE ROLE rl FROM u",), label_users=("u", "rl")
+    ),
+    "role_cleared": OpenSessionCase(setup=ROLE_SETUP, change=("CLEAR ROLE FOR u",), label_users=("u", "rl")),
+}
+
+
+@pytest.mark.parametrize("case", OPEN_SESSION_CASES.values(), ids=OPEN_SESSION_CASES.keys())
+def test_admin_change_reaches_open_session(admin, opened, case):
+    for statement in case.setup:
+        run(admin, statement)
+    grant_label_permissions(admin, *case.label_users)
+    driver = pooled_driver("u", "pw")
+    opened.append(driver)
+
+    # Precondition: the session starts on the other side of the change.
+    if case.before_refused:
+        with pytest.raises(Neo4jError, match=NOT_AUTHORIZED):
+            run(driver, case.probe)
+    else:
+        result = run(driver, case.probe)
+        if case.before_result is not None:
+            assert result == case.before_result
+
+    for statement in case.change:
+        run(admin, statement)
+    grant_label_permissions(admin, *case.relabel_users)
+
+    if case.after_refused:
+        with pytest.raises(Neo4jError, match=NOT_AUTHORIZED):
+            run(driver, case.probe)
+    else:
+        run(driver, case.probe)
+    if case.reads_still_allowed:
+        run(driver, "MATCH (n) RETURN count(n)")
+
+
+@requires_enterprise
+def test_label_denial_reaches_open_session(admin, opened):
+    run(admin, "CREATE USER u IDENTIFIED BY 'pw'")
+    run(admin, "GRANT MATCH, CREATE TO u")
+    run(admin, "GRANT CREATE ON NODES CONTAINING LABELS * TO u")
+    driver = pooled_driver("u", "pw")
+    opened.append(driver)
+    run(driver, "CREATE (:Secret)")  # precondition
+
+    run(admin, "DENY CREATE ON NODES CONTAINING LABELS :Secret TO u")
+
+    with pytest.raises(Neo4jError, match="missing CREATE permission on labels"):
+        run(driver, "CREATE (:Secret)")
+    run(driver, "CREATE (:Public)")  # other labels stay allowed
 
 
 if __name__ == "__main__":

@@ -379,24 +379,64 @@ def test_failed_impersonation_keeps_session_user(test_name):
 
 
 @requires_enterprise
-def test_failed_impersonation_keeps_database_chosen_with_use(test_name):
-    """A refused impersonation on a pooled connection does not undo a database chosen with USE."""
+@pytest.mark.parametrize(
+    "target, error",
+    [("ghost", "Trying to impersonate"), ("carol", "Failed to impersonate user")],
+    ids=["nonexistent_target", "right_not_granted"],
+)
+def test_failed_impersonation_keeps_database_chosen_with_use(test_name, target: str, error: str):
+    """A refused impersonation on a pooled connection does not undo a database chosen with USE, nor
+    switch the connection's user."""
     interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
     _create_clean_database("db_x")
-    _grant_database("db_x", "alice")
+    # carol exists and can use db_x, but alice has no IMPERSONATE_USER right for her.
+    _admin_execute("CREATE USER carol IDENTIFIED BY 'carol'", "GRANT ALL PRIVILEGES TO carol")
+    _grant_database("db_x", "alice", "carol")
 
     driver = GraphDatabase.driver(_bolt_uri(), auth=_ALICE, max_connection_pool_size=1, encrypted=False)
     try:
         with driver.session() as s:
             s.run("USE DATABASE db_x").consume()
 
-        with pytest.raises(Exception, match="Trying to impersonate"):
-            with driver.session(impersonated_user="ghost") as s:
+        with pytest.raises(Exception, match=error):
+            with driver.session(impersonated_user=target) as s:
                 s.run("RETURN 1").consume()
 
         with driver.session() as s:
             current = s.run("SHOW DATABASE").single()["Current"]
+            user = s.run("SHOW CURRENT USER").single()["user"]
         assert current == "db_x", f"session is on '{current}' after a refused impersonation"
+        assert user == "alice", f"session user is '{user}' after a refused impersonation"
+    finally:
+        driver.close()
+
+
+@requires_enterprise
+def test_revoked_impersonation_not_revalidated_by_plain_run(test_name):
+    """A plain run after an impersonated one must not re-validate the earlier impersonation: revoking
+    the right in between must not refuse it."""
+    interactive_mg_runner.start_all(get_instances_description(test_name), keep_directories=False)
+    _admin_execute(
+        "CREATE USER c IDENTIFIED BY 'c'",
+        "GRANT ALL PRIVILEGES TO c",
+        "CREATE USER r IDENTIFIED BY 'r'",
+        "GRANT ALL PRIVILEGES TO r",
+        "GRANT IMPERSONATE_USER c TO r",
+    )
+
+    driver = GraphDatabase.driver(_bolt_uri(), auth=("r", "r"), max_connection_pool_size=1, encrypted=False)
+    try:
+        with driver.session(impersonated_user="c") as s:
+            assert s.run("SHOW CURRENT USER").single()["user"] == "c"
+
+        with driver.session() as s:
+            assert s.run("SHOW CURRENT USER").single()["user"] == "r"
+
+        _admin_execute("REVOKE IMPERSONATE_USER FROM r")
+
+        with driver.session() as s:
+            user = s.run("SHOW CURRENT USER").single()["user"]
+        assert user == "r", f"plain run after the right was revoked acts as '{user}'"
     finally:
         driver.close()
 

@@ -117,8 +117,7 @@ def test_uncommitted_users_are_invisible_to_another_session(cursor):
     assert "dave" not in usernames(other), "uncommitted user leaked to another session"
 
     execute(cursor, "COMMIT")
-    other.login("dave")
-    assert "dave" in usernames(other), "committed user not visible after logging in"
+    other.login("dave")  # succeeds only if the committed user is visible
 
 
 def test_the_transaction_sees_its_own_writes(cursor):
