@@ -21,6 +21,7 @@
 #include <future>
 #include <latch>
 #include <map>
+#include <set>
 #include <thread>
 #include <variant>
 
@@ -653,6 +654,30 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenWeakAndStrongDeniedOnLabelThenBothA
   EXPECT_EQ(effective["READ ON NODES CONTAINING LABELS :Label1 MATCHING ANY"], "STRONG DENY");
   EXPECT_EQ(effective["DELETE ON NODES CONTAINING LABELS :Label1 MATCHING ANY"], "WEAK DENY");
   EXPECT_EQ(effective["CREATE ON ALL LABELS"], "WEAK DENY");
+}
+
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenRolesWeakAndStrongDenySameLabelThenBothAreDisplayed) {
+  memgraph::auth::Role weak_role{"weak_role", memgraph::auth::Permissions{}};
+  weak_role.fine_grained_access_handler().label_permissions().Deny({label_repr},
+                                                                   memgraph::auth::FineGrainedPermission::READ,
+                                                                   memgraph::auth::MatchingMode::ANY,
+                                                                   memgraph::auth::DenyStrength::WEAK);
+  auth.value()->SaveRole(weak_role);
+  memgraph::auth::Role strong_role{"strong_role", memgraph::auth::Permissions{}};
+  strong_role.fine_grained_access_handler().label_permissions().Deny({label_repr},
+                                                                     memgraph::auth::FineGrainedPermission::READ);
+  auth.value()->SaveRole(strong_role);
+
+  memgraph::auth::User user{user_name, std::nullopt, perms};
+  user.AddRole(weak_role);
+  user.AddRole(strong_role);
+  auth.value()->SaveUser(user);
+
+  auto privileges = auth_handler.GetPrivileges(
+      user_name, std::optional<std::string>{std::string{memgraph::dbms::kDefaultDB}}, nullptr);
+  std::multiset<std::string> effective;
+  for (auto const &row : privileges) effective.emplace(row[1].ValueString());
+  EXPECT_EQ(effective, (std::multiset<std::string>{"STRONG DENY", "WEAK DENY"}));
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenBothAreDisplayed) {

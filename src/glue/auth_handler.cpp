@@ -244,8 +244,8 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     if (strong_denies != 0) {
       add_permission(entity_name, strong_denies, memgraph::auth::PermissionLevel::DENY, is_global);
     }
-    if (auto const only_weak = weak_denies & ~strong_denies; only_weak != 0) {
-      add_permission(entity_name, only_weak, memgraph::auth::PermissionLevel::DENY, is_global, true);
+    if (weak_denies != 0) {
+      add_permission(entity_name, weak_denies, memgraph::auth::PermissionLevel::DENY, is_global, true);
     }
   };
 
